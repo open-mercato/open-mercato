@@ -3547,7 +3547,9 @@ function CrudFormImpl<
       // Server commands return stable i18n keys (e.g. `warranty_claims.errors.*`) in the error
       // body; without this they leaked to the UI as raw keys. `t(msg, msg)` is a no-op for
       // already-localized strings, so this only affects unresolved keys.
-      displayMessage = translateValidationMessage(parseServerMessage(displayMessage))
+      displayMessage = acceptedSectionPolicy && displayMessage === 'crud_form_section_external_unavailable'
+        ? t('ui.forms.errors.externalDeliveryUnavailable', 'External delivery is unavailable. Try again later.')
+        : translateValidationMessage(parseServerMessage(displayMessage))
       if (optimisticLockConflict) {
         // Primary surface for the conflict is the persistent, error-styled
         // RecordConflictBanner (unified across all forms). Keep the inline

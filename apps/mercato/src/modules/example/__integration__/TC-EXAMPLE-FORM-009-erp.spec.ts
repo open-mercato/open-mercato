@@ -1,13 +1,90 @@
 import { expect } from '@playwright/test'
-import { apiRequest } from '@open-mercato/core/helpers/integration/api'
-import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { randomUUID } from 'node:crypto'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import {
+  createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setUserAclVisibility,
+} from '@open-mercato/core/helpers/integration/authFixtures'
+import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { createOrganizationInDb, deleteOrganizationInDb, deleteUserAclInDb, withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { getCustomFieldValue } from '@open-mercato/core/helpers/integration/crudFormPersistence'
 import {
   captureShowcase, eligibleFixtureScope, field, policyApi, readReadyShowcasePolicy, saveShowcase,
-  showcaseHeaders, test,
+  showcase, showcaseHeaders, test, todoApi,
 } from './todoShowcaseFixtures'
 
 export const integrationMeta = { dependsOnModules: ['example', 'integrations', 'notifications'] }
+
+test('TC-EXAMPLE-FORM-009 saves ERP details in an organization that predates setup', async ({ page, request }) => {
+  test.slow()
+  const admin = await getAuthToken(request, 'admin')
+  const { tenantId } = getTokenScope(admin)
+  if (!tenantId) throw new Error('[internal] The upgrade fixture requires a scoped tenant')
+  const stamp = randomUUID()
+  const email = `todo-erp-upgrade-${stamp}@example.invalid`
+  const password = `QaTodo-${stamp}!`
+  const organizationId = await createOrganizationInDb({ name: `Todo ERP upgrade ${stamp}`, tenantId })
+  let role: string | null = null
+  let userId: string | null = null
+  let todoId: string | null = null
+  let token: string | null = null
+  const readUpgradeState = () => withClient(async (client) => (await client.query<{
+    credential_count: number; schedule_count: number
+  }>(`select
+       (select count(*)::int from integration_credentials where integration_id = 'example_todo_erp'
+         and tenant_id = $1 and organization_id = $2) as credential_count,
+       (select count(*)::int from scheduled_jobs where target_queue = 'crud-form-section-outbox-sweep'
+         and tenant_id = $1 and organization_id = $2 and is_enabled and deleted_at is null) as schedule_count`,
+    [tenantId, organizationId],
+  )).rows[0])
+
+  try {
+    expect(await readUpgradeState()).toEqual({ credential_count: 0, schedule_count: 0 })
+    role = await createRoleFixture(request, admin, { name: `Todo ERP upgrade ${stamp}` })
+    userId = await createUserFixture(request, admin, { email, password, organizationId, roles: [role] })
+    await setUserAclVisibility(request, admin, {
+      userId, organizations: [organizationId], features: ['example.todos.view', 'example.todos.manage', 'entities.definitions.view'],
+    })
+    token = await getAuthToken(request, email, password)
+    expect(getTokenScope(token).organizationId).toBe(organizationId)
+    const created = await apiRequest(request, 'POST', todoApi, {
+      token, data: { title: `ERP upgrade ${stamp}`, is_done: false, cf_priority: 2, cf_severity: 'medium' },
+    })
+    expect(created.status()).toBe(201)
+    const record = await created.json() as { id: string }
+    todoId = record.id
+    await page.goto('/login')
+    await page.getByLabel('Email', { exact: true }).fill(email)
+    await page.getByLabel('Password', { exact: true }).fill(password)
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await page.waitForURL(url => !url.pathname.startsWith('/login'))
+    await readReadyShowcasePolicy(page, async () => { await page.goto(`${showcase}/${record.id}`, { waitUntil: 'commit' }) })
+    await expect(field(page, 'cf_priority').getByRole('textbox', { name: 'Priority level' })).toHaveValue('2')
+    const supplier = field(page, 'erpSupplierRef').getByRole('textbox')
+    await supplier.fill('SUP-100')
+    await field(page, 'is_done').getByRole('checkbox').check()
+    expect((await saveShowcase(page)).status()).toBe(200)
+    await expect(page.getByRole('status').filter({ hasText: 'ERP delivery synced' })).toBeVisible({ timeout: 20_000 })
+    expect(await readUpgradeState()).toEqual({ credential_count: 0, schedule_count: 1 })
+    await captureShowcase(page, 'c9-upgraded-organization-synced')
+    await page.reload()
+    await expect(supplier).toHaveValue('SUP-100')
+    await expect(field(page, 'is_done').getByRole('checkbox')).toBeChecked()
+  } finally {
+    if (token && todoId) await deleteEntityIfExists(request, token, todoApi, todoId)
+    await withClient(async (client) => {
+      const scope = [tenantId, organizationId]
+      await client.query('delete from example_todo_erp_links where tenant_id = $1 and organization_id = $2', scope)
+      await client.query('delete from sync_external_id_mappings where tenant_id = $1 and organization_id = $2', scope)
+      await client.query('delete from integration_logs where tenant_id = $1 and organization_id = $2', scope)
+      await client.query('delete from scheduled_jobs where tenant_id = $1 and organization_id = $2', scope)
+    })
+    await deleteUserIfExists(request, admin, userId)
+    if (userId) await deleteUserAclInDb(userId)
+    await deleteRoleIfExists(request, admin, role)
+    await deleteOrganizationInDb(organizationId)
+  }
+})
 
 test('TC-EXAMPLE-FORM-009 validates before writing and delivers, retries, and compensates through the ERP queue', async ({ page, request, showcaseTodo }) => {
   test.slow()
@@ -39,6 +116,7 @@ test('TC-EXAMPLE-FORM-009 validates before writing and delivers, retries, and co
   const timeout = await saveShowcase(page)
   expect(timeout.status()).toBe(503)
   expect(await timeout.json()).toMatchObject({ code: 'crud_form_section_external_unavailable' })
+  await expect(page.getByText('External delivery is unavailable. Try again later.').last()).toBeVisible()
   expect(await mirror()).toBeNull()
   expect(await showcaseTodo.read()).toMatchObject({ updatedAt: original.updatedAt, cf_priority: original.cf_priority })
 

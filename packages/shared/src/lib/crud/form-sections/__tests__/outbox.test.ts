@@ -99,6 +99,7 @@ function fixture(delivery: Partial<CrudFormSectionOutboxDelivery<{ brand: string
   }
   const sink = makeSink('update')
   const service = {
+    ensureRecovery: jest.fn(async () => undefined),
     credentials: jest.fn(async () => ({ secret: 'test-secret' })),
     enqueue: jest.fn<ReturnType<CrudFormSectionOutboxServices['enqueue']>, Parameters<CrudFormSectionOutboxServices['enqueue']>>(async () => undefined),
     recordMapping: jest.fn(async () => undefined),
@@ -134,7 +135,10 @@ it('retains a single monotonic fence across create, update, delete, and undo and
   expect(setup.read()).toBeNull()
   expect(setup.service.enqueue).not.toHaveBeenCalled()
 
-  await setup.writeWith(created, 'one', () => expect(setup.service.enqueue).not.toHaveBeenCalled())
+  await setup.writeWith(created, 'one', () => {
+    expect(setup.service.ensureRecovery).toHaveBeenCalledWith(scope)
+    expect(setup.service.enqueue).not.toHaveBeenCalled()
+  })
   expect(setup.service.enqueue).toHaveBeenLastCalledWith(identity, undefined)
   expect(Object.keys(setup.service.enqueue.mock.calls[0]![0]).sort()).toEqual(['hostId', 'organizationId', 'sinkId', 'tenantId'])
   expect(setup.read()).toMatchObject({ deliveryRevision: '1', pendingOperation: 'upsert' })

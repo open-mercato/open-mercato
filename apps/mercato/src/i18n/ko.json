@@ -965,6 +965,7 @@
   "ui.forms.conflict.dismiss": "닫기",
   "ui.forms.conflict.refresh": "새로고침",
   "ui.forms.conflict.title": "레코드가 변경됨",
+  "ui.forms.errors.externalDeliveryUnavailable": "외부 시스템으로 전송할 수 없습니다. 나중에 다시 시도하세요.",
   "ui.forms.errors.highlighted": "강조 표시된 오류를 수정해 주세요.",
   "ui.forms.errors.invalidType": "값 형식이 올바르지 않습니다.",
   "ui.forms.errors.required": "필수 입력 항목입니다",

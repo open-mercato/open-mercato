@@ -16,9 +16,11 @@ import {
 import { getCrudFormSectionManifest } from '@open-mercato/shared/lib/crud/form-sections/manifest'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isEventDeclared } from '@open-mercato/shared/modules/events'
+import { resolveIntegrationCredentialsSchema } from '@open-mercato/shared/modules/integrations/types'
 import type { NotificationService } from '../../notifications/lib/notificationService'
 import { SyncExternalIdMapping } from '../data/entities'
 import type { IntegrationLogService } from './log-service'
+import { ensureCrudFormSectionOutboxSweep } from './crud-form-outbox-schedules'
 
 let outboxQueue: Queue<CrudFormSectionOutboxIdentity> | undefined
 
@@ -28,10 +30,16 @@ export function getCrudFormSectionOutboxRuntimes() {
 
 export function createCrudFormSectionOutboxService(container: AwilixContainer): CrudFormSectionOutboxServices {
   return {
+    ensureRecovery(scope) {
+      return ensureCrudFormSectionOutboxSweep(container, scope)
+    },
     async credentials(integrationId, scope) {
-      return await container.resolve<{
+      const credentials = await container.resolve<{
         resolve(id: string, scope: CrudFormSectionOutboxScope): Promise<Record<string, unknown> | null>
       }>('integrationCredentialsService').resolve(integrationId, scope)
+      if (credentials !== null) return credentials
+
+      return resolveIntegrationCredentialsSchema(integrationId)?.fields.length === 0 ? {} : null
     },
     async enqueue(identity, delayMs) {
       outboxQueue ??= createModuleQueue(crudFormSectionOutboxQueue, {

@@ -1,38 +1,6 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
-import crypto from 'node:crypto'
-import { crudFormSectionOutboxSweepQueue } from '@open-mercato/shared/lib/crud/form-sections/outbox'
 import { getCrudFormSectionOutboxRuntimes } from './lib/crud-form-outbox'
-
-function stableUuidFromString(input: string): string {
-  const bytes = crypto.createHash('sha256').update(input).digest().subarray(0, 16)
-  // RFC4122: set version (5) and variant (10xx)
-  bytes[6] = (bytes[6] & 0x0f) | 0x50
-  bytes[8] = (bytes[8] & 0x3f) | 0x80
-  const hex = Buffer.from(bytes).toString('hex') // 32 hex chars
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
-}
-
-type SchedulerServiceLike = {
-  unregister?: (scheduleId: string) => Promise<void>
-  register: (registration: {
-    id: string
-    name: string
-    description?: string
-    scopeType: 'organization'
-    organizationId: string
-    tenantId: string
-    scheduleType: 'cron' | 'interval'
-    scheduleValue: string
-    timezone?: string
-    targetType: 'queue'
-    targetQueue: string
-    targetPayload: Record<string, unknown>
-    requireFeature?: string
-    sourceType: 'module'
-    sourceModule: string
-    isEnabled?: boolean
-  }) => Promise<void>
-}
+import { ensureCrudFormSectionOutboxSweep, stableIntegrationScheduleId, type IntegrationScheduler } from './lib/crud-form-outbox-schedules'
 
 async function ensureHealthProbeSchedule(ctx: {
   container: import('awilix').AwilixContainer
@@ -42,12 +10,12 @@ async function ensureHealthProbeSchedule(ctx: {
   const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
   if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
 
-  const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
+  const schedulerService = ctx.container.resolve<IntegrationScheduler>('schedulerService')
   if (legacyScheduleId && typeof schedulerService.unregister === 'function') {
     await schedulerService.unregister(legacyScheduleId)
   }
   await schedulerService.register({
-    id: stableUuidFromString(`integrations:health-probe:${ctx.tenantId}:${ctx.organizationId}`),
+    id: stableIntegrationScheduleId(`integrations:health-probe:${ctx.tenantId}:${ctx.organizationId}`),
     name: 'Integration health probes',
     description: 'Runs outbound health checks for enabled integrations every 15 minutes.',
     scopeType: 'organization',
@@ -66,21 +34,7 @@ async function ensureHealthProbeSchedule(ctx: {
     isEnabled: true,
   })
   if (getCrudFormSectionOutboxRuntimes().size) {
-    await schedulerService.register({
-      id: stableUuidFromString(`integrations:crud-form-outbox:${ctx.tenantId}:${ctx.organizationId}`),
-      name: 'CrudForm extension delivery sweep',
-      scopeType: 'organization',
-      organizationId: ctx.organizationId,
-      tenantId: ctx.tenantId,
-      scheduleType: 'interval',
-      scheduleValue: '1m',
-      targetType: 'queue',
-      targetQueue: crudFormSectionOutboxSweepQueue,
-      targetPayload: { organizationId: ctx.organizationId, tenantId: ctx.tenantId },
-      sourceType: 'module',
-      sourceModule: 'integrations',
-      isEnabled: true,
-    })
+    await ensureCrudFormSectionOutboxSweep(ctx.container, ctx)
   }
 }
 
@@ -94,7 +48,7 @@ export const setup: ModuleSetupConfig = {
   async seedDefaults({ container, organizationId, tenantId }) {
     await ensureHealthProbeSchedule(
       { container, organizationId, tenantId },
-      stableUuidFromString(`integrations:health-probe:${tenantId}`),
+      stableIntegrationScheduleId(`integrations:health-probe:${tenantId}`),
     )
   },
 

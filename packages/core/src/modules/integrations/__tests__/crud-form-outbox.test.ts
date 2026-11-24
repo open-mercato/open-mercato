@@ -5,8 +5,9 @@ import { createModuleQueue } from '@open-mercato/queue'
 import { getCrudFormSectionManifest } from '@open-mercato/shared/lib/crud/form-sections/manifest'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isEventDeclared } from '@open-mercato/shared/modules/events'
+import { resolveIntegrationCredentialsSchema } from '@open-mercato/shared/modules/integrations/types'
 import {
-  crudFormSectionOutboxKey, crudFormSectionOutboxQueue, crudFormSectionOutboxServiceKey,
+  crudFormSectionOutboxKey, crudFormSectionOutboxQueue, crudFormSectionOutboxServiceKey, crudFormSectionOutboxSweepQueue,
   type CrudFormSectionOutboxIdentity,
 } from '@open-mercato/shared/lib/crud/form-sections/outbox'
 import { createCrudFormSectionOutboxService } from '../lib/crud-form-outbox'
@@ -17,6 +18,10 @@ jest.mock('@open-mercato/queue', () => ({ createModuleQueue: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/crud/form-sections/manifest', () => ({ getCrudFormSectionManifest: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({ findOneWithDecryption: jest.fn() }))
 jest.mock('@open-mercato/shared/modules/events', () => ({ isEventDeclared: jest.fn() }))
+jest.mock('@open-mercato/shared/modules/integrations/types', () => ({
+  ...jest.requireActual('@open-mercato/shared/modules/integrations/types'),
+  resolveIntegrationCredentialsSchema: jest.fn(),
+}))
 
 const scope = { tenantId: '952e4391-f8d8-477c-8725-7090933019d6', organizationId: 'ad6e092f-855e-4ec5-8bbd-ad3059fdc14f' }
 const hostId = '7925c9ef-6af4-4c53-9b60-b0e889389585'
@@ -26,6 +31,35 @@ const driver = { enqueue } as unknown as Queue
 const context = (container: ReturnType<typeof createContainer>) => ({
   resolve<T>(key: string): T { return container.resolve<T>(key) },
   jobId: 'test-job', attemptNumber: 1, queueName: crudFormSectionOutboxQueue,
+})
+
+it('allows an explicitly credential-free provider in an existing scope without a credentials row', async () => {
+  const resolve = jest.fn(async () => null)
+  const service = createCrudFormSectionOutboxService(createContainer().register({
+    integrationCredentialsService: asValue({ resolve }),
+  }))
+  jest.mocked(resolveIntegrationCredentialsSchema).mockReturnValueOnce({ fields: [] })
+
+  await expect(service.credentials('example_todo_erp', scope)).resolves.toEqual({})
+  expect(resolve).toHaveBeenCalledWith('example_todo_erp', scope)
+  await expect(service.credentials('unknown_provider', scope)).resolves.toBeNull()
+})
+
+it('registers recovery for an upgraded organization once without resetting an existing schedule', async () => {
+  const exists = jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+  const register = jest.fn(async () => undefined)
+  const service = createCrudFormSectionOutboxService(createContainer().register({
+    schedulerService: asValue({ exists, register }),
+  }))
+
+  await service.ensureRecovery!(scope)
+  await service.ensureRecovery!(scope)
+
+  expect(register).toHaveBeenCalledTimes(1)
+  expect(register).toHaveBeenCalledWith(expect.objectContaining({
+    ...scope, targetQueue: crudFormSectionOutboxSweepQueue, targetPayload: scope,
+  }))
+  expect(exists.mock.calls[0]).toEqual(exists.mock.calls[1])
 })
 
 it('isolates external mappings and retained tombstones by sink and tenant for the same host and integration', async () => {

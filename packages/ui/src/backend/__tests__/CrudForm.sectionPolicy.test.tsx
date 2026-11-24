@@ -523,6 +523,19 @@ it.each([
   expect(screen.queryByText(code)).not.toBeInTheDocument()
 })
 
+it('explains when a configured external delivery is unavailable', async () => {
+  publishWritePolicy([], [], [parentUpdate], true)
+  const code = 'crud_form_section_external_unavailable'
+  const onSubmit = jest.fn().mockRejectedValue({ status: 503, error: code, code })
+  const { container } = render(configured('actual-id', { onSubmit }), { wrapper: Providers })
+
+  await screen.findByRole('textbox', { name: 'Replacement name' })
+  fireEvent.submit(container.querySelector('form')!)
+
+  expect(await screen.findByText('External delivery is unavailable. Try again later.')).toBeInTheDocument()
+  expect(screen.queryByText(code)).not.toBeInTheDocument()
+})
+
 it('does not mount controls for a configured all custom-field definition set without a scoped binding', async () => {
   const customRuntime = defineCrudFormSectionRuntime({
     id: 'test.replacement', roundTripId: 'test.replacement@v1',

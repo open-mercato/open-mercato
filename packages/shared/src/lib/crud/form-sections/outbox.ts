@@ -123,6 +123,7 @@ export type CrudFormSectionOutboxDelivery<Payload extends Values = Values> = {
 
 export type CrudFormSectionOutboxRuntime = CrudFormSectionOutboxDelivery
 export type CrudFormSectionOutboxServices = {
+  ensureRecovery?(scope: CrudFormSectionOutboxScope): Promise<void>
   credentials(integrationId: string, scope: CrudFormSectionOutboxScope): Promise<Values | null>
   enqueue(identity: CrudFormSectionOutboxIdentity, delayMs?: number): Promise<void>
   recordMapping?(em: EntityManager, input: {
@@ -326,6 +327,12 @@ async function writeIntent(
   if (currentRevision === null || currentRevision === maxRevision
       || (expectedRevision !== undefined && row?.deliveryRevision !== expectedRevision)
       || (row && (requiresReconciliation(row.lastErrorCode) || storedIntentError(row, fact, identity)))) return mismatch()
+  try {
+    const service = context.container.resolve<CrudFormSectionOutboxServices>(crudFormSectionOutboxServiceKey)
+    await service.ensureRecovery?.({ tenantId: identity.tenantId, organizationId: identity.organizationId })
+  } catch {
+    reportFailure('schedule_recovery', sink.fact.id)
+  }
   const deliveryRevision = (currentRevision + 1n).toString()
   const now = new Date()
   const before = row?.pendingOperation === 'delete' ? null : row?.values ?? null
