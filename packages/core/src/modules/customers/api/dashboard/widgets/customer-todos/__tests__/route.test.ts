@@ -32,6 +32,7 @@ jest.mock('../../../../../lib/todoCompatibility', () => ({
   listLegacyTodoRows: jest.fn(),
   listCanonicalTodoRows: jest.fn(),
   sortTodoRows: jest.fn((rows: unknown[]) => rows),
+  filterTodoRowsByCriteria: jest.requireActual('../../../../../lib/todoCompatibility').filterTodoRowsByCriteria,
 }))
 
 describe('customers customer-todos widget route', () => {
@@ -105,6 +106,54 @@ describe('customers customer-todos widget route', () => {
         }),
       ]),
     )
+  })
+
+  it('hides completed tasks from the merged compatibility feed', async () => {
+    const { resolveCustomerInteractionFeatureFlags } =
+      jest.requireMock('../../../../../lib/interactionFeatureFlags')
+    const { listLegacyTodoRows, listCanonicalTodoRows } =
+      jest.requireMock('../../../../../lib/todoCompatibility')
+
+    const baseRow = {
+      organizationId: '22222222-2222-2222-2222-222222222222',
+      tenantId: '33333333-3333-3333-3333-333333333333',
+      createdAt: '2026-04-02T10:00:00.000Z',
+      customer: { id: '66666666-6666-6666-6666-666666666666', displayName: 'Acme', kind: 'company' },
+    }
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified: false })
+    listLegacyTodoRows.mockResolvedValue([
+      { ...baseRow, id: 'legacy-done', todoId: 'legacy-done', todoSource: 'example:todo', todoTitle: 'Legacy done', todoIsDone: true },
+      { ...baseRow, id: 'legacy-open', todoId: 'legacy-open', todoSource: 'example:todo', todoTitle: 'Legacy open', todoIsDone: false },
+    ])
+    listCanonicalTodoRows.mockResolvedValue({
+      items: [
+        { ...baseRow, id: 'crm-done', todoId: 'crm-done', todoSource: 'customers:interaction', todoTitle: 'CRM done', todoIsDone: true, todoStatus: 'done' },
+        { ...baseRow, id: 'crm-canceled', todoId: 'crm-canceled', todoSource: 'customers:interaction', todoTitle: 'CRM canceled', todoIsDone: false, todoStatus: 'canceled' },
+        { ...baseRow, id: 'crm-open', todoId: 'crm-open', todoSource: 'customers:interaction', todoTitle: 'CRM open', todoIsDone: false, todoStatus: 'in_progress' },
+      ],
+      bridgeIds: new Set<string>(),
+    })
+
+    const res = await GET(new Request('http://localhost/api?limit=5'))
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.items.map((item: { id: string }) => item.id)).toEqual(['legacy-open', 'crm-open'])
+  })
+
+  it('asks the canonical read for open tasks only while unified mode is enabled', async () => {
+    const { resolveCustomerInteractionFeatureFlags } =
+      jest.requireMock('../../../../../lib/interactionFeatureFlags')
+    const { listCanonicalTodoRows } =
+      jest.requireMock('../../../../../lib/todoCompatibility')
+
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified: true })
+    listCanonicalTodoRows.mockResolvedValue({ items: [], bridgeIds: new Set<string>(), total: 0 })
+
+    const res = await GET(new Request('http://localhost/api?limit=5'))
+
+    expect(res.status).toBe(200)
+    expect(listCanonicalTodoRows.mock.calls[0][5]).toMatchObject({ filters: { status: 'open' } })
   })
 
   it('uses only canonical rows while unified mode is enabled', async () => {

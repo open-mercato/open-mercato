@@ -15,6 +15,11 @@ import {
   resolveExampleIntegrationHref,
 } from './interactionCompatibility'
 import { hydrateCanonicalInteractions, loadCustomerSummaries } from './interactionReadModel'
+import {
+  INTERACTION_STATUS_COMPLETED,
+  TERMINAL_INTERACTION_STATUS_LIST,
+  isOpenInteractionStatus,
+} from './interactionStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -61,6 +66,7 @@ export type CustomerTodoRow = {
   todoCustomValues?: Record<string, unknown> | null
   todoOrganizationId: string | null
   todoUpdatedAt?: string | null
+  todoOwnerUserId?: string | null
   organizationId: string
   tenantId: string
   createdAt: string
@@ -181,15 +187,130 @@ export function normalizeTodoSearch(value: string | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-export function sortTodoRows(rows: CustomerTodoRow[]): CustomerTodoRow[] {
+export type TodoStatusFilter = 'open' | 'done'
+
+export type TodoListFilters = {
+  status?: TodoStatusFilter | null
+  dueFrom?: Date | null
+  dueBefore?: Date | null
+  priorityMin?: number | null
+  priorityMax?: number | null
+  ownerUserId?: string | null
+}
+
+export type TodoSortField = 'createdAt' | 'dueAt' | 'priority'
+
+export type TodoListSort = { field: TodoSortField; dir: 'asc' | 'desc' }
+
+const DEFAULT_TODO_SORT: TodoListSort = { field: 'createdAt', dir: 'desc' }
+
+const COMPLETED_TODO_STATUSES: readonly string[] = [INTERACTION_STATUS_COMPLETED, 'completed']
+
+export function hasActiveTodoListFilters(filters: TodoListFilters | null | undefined): filters is TodoListFilters {
+  if (!filters) return false
+  return Boolean(
+    filters.status ||
+      filters.dueFrom ||
+      filters.dueBefore ||
+      filters.ownerUserId ||
+      typeof filters.priorityMin === 'number' ||
+      typeof filters.priorityMax === 'number',
+  )
+}
+
+function readTimestamp(value: string | null | undefined): number | null {
+  if (!value) return null
+  const timestamp = new Date(value).getTime()
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function compareNullableNumbers(left: number | null, right: number | null, dir: 'asc' | 'desc'): number {
+  if (left === right) return 0
+  if (left === null) return 1
+  if (right === null) return -1
+  return dir === 'asc' ? left - right : right - left
+}
+
+export function sortTodoRows(rows: CustomerTodoRow[], sort: TodoListSort = DEFAULT_TODO_SORT): CustomerTodoRow[] {
   return [...rows].sort((left, right) => {
+    if (sort.field === 'dueAt') {
+      const byDue = compareNullableNumbers(readTimestamp(left.todoDueAt), readTimestamp(right.todoDueAt), sort.dir)
+      if (byDue !== 0) return byDue
+    } else if (sort.field === 'priority') {
+      const byPriority = compareNullableNumbers(left.todoPriority ?? null, right.todoPriority ?? null, sort.dir)
+      if (byPriority !== 0) return byPriority
+    }
     const leftTime = new Date(left.createdAt).getTime()
     const rightTime = new Date(right.createdAt).getTime()
+    const createdDir = sort.field === 'createdAt' ? sort.dir : 'desc'
     if (leftTime === rightTime) {
-      return right.id.localeCompare(left.id)
+      return createdDir === 'asc' ? left.id.localeCompare(right.id) : right.id.localeCompare(left.id)
     }
-    return rightTime - leftTime
+    return createdDir === 'asc' ? leftTime - rightTime : rightTime - leftTime
   })
+}
+
+function matchesTodoStatus(row: CustomerTodoRow, status: TodoStatusFilter): boolean {
+  const isCanonical = typeof row.todoStatus === 'string' && row.todoStatus.length > 0
+  if (status === 'done') {
+    return isCanonical ? COMPLETED_TODO_STATUSES.includes(row.todoStatus as string) : row.todoIsDone === true
+  }
+  return isCanonical ? isOpenInteractionStatus(row.todoStatus) : row.todoIsDone !== true
+}
+
+export function filterTodoRowsByCriteria(
+  rows: CustomerTodoRow[],
+  filters: TodoListFilters | null | undefined,
+): CustomerTodoRow[] {
+  if (!hasActiveTodoListFilters(filters)) return rows
+  const dueFrom = filters.dueFrom ? filters.dueFrom.getTime() : null
+  const dueBefore = filters.dueBefore ? filters.dueBefore.getTime() : null
+  const hasPriorityRange = typeof filters.priorityMin === 'number' || typeof filters.priorityMax === 'number'
+  return rows.filter((row) => {
+    if (filters.status && !matchesTodoStatus(row, filters.status)) return false
+    if (dueFrom !== null || dueBefore !== null) {
+      const due = readTimestamp(row.todoDueAt)
+      if (due === null) return false
+      if (dueFrom !== null && due < dueFrom) return false
+      if (dueBefore !== null && due >= dueBefore) return false
+    }
+    if (hasPriorityRange) {
+      const priority = row.todoPriority ?? null
+      if (priority === null) return false
+      if (typeof filters.priorityMin === 'number' && priority < filters.priorityMin) return false
+      if (typeof filters.priorityMax === 'number' && priority > filters.priorityMax) return false
+    }
+    if (filters.ownerUserId && row.todoOwnerUserId !== filters.ownerUserId) return false
+    return true
+  })
+}
+
+function buildCanonicalTodoFilterConditions(filters: TodoListFilters | null | undefined): Record<string, unknown>[] {
+  if (!hasActiveTodoListFilters(filters)) return []
+  const conditions: Record<string, unknown>[] = []
+  if (filters.status === 'done') {
+    conditions.push({ status: { $in: [...COMPLETED_TODO_STATUSES] } })
+  } else if (filters.status === 'open') {
+    conditions.push({ $or: [{ status: null }, { status: { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] } }] })
+  }
+  if (filters.dueFrom) conditions.push({ scheduledAt: { $gte: filters.dueFrom } })
+  if (filters.dueBefore) conditions.push({ scheduledAt: { $lt: filters.dueBefore } })
+  if (typeof filters.priorityMin === 'number') conditions.push({ priority: { $gte: filters.priorityMin } })
+  if (typeof filters.priorityMax === 'number') conditions.push({ priority: { $lte: filters.priorityMax } })
+  if (filters.ownerUserId) conditions.push({ ownerUserId: filters.ownerUserId })
+  return conditions
+}
+
+function buildCanonicalTodoOrderBy(sort: TodoListSort | null | undefined): Record<string, string> {
+  const resolved = sort ?? DEFAULT_TODO_SORT
+  const direction = resolved.dir === 'asc' ? 'ASC' : 'DESC'
+  if (resolved.field === 'dueAt') {
+    return { scheduledAt: `${direction} NULLS LAST`, createdAt: 'DESC', id: 'DESC' }
+  }
+  if (resolved.field === 'priority') {
+    return { priority: `${direction} NULLS LAST`, createdAt: 'DESC', id: 'DESC' }
+  }
+  return { createdAt: resolved.dir }
 }
 
 export function filterTodoRows(rows: CustomerTodoRow[], search: string | null): CustomerTodoRow[] {
@@ -483,6 +604,8 @@ export async function listCanonicalTodoRows(
     searchText?: string | null
     limit?: number | null
     isUnrestricted?: boolean
+    filters?: TodoListFilters | null
+    sort?: TodoListSort | null
   },
 ): Promise<CanonicalTodoListResult> {
   if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
@@ -513,9 +636,13 @@ export async function listCanonicalTodoRows(
       { body: { $ilike: pattern } },
     ]
   }
+  const filterConditions = buildCanonicalTodoFilterConditions(options?.filters)
+  if (filterConditions.length > 0) {
+    where.$and = filterConditions
+  }
 
   const findOptions: Record<string, unknown> = {
-    orderBy: { createdAt: 'desc' },
+    orderBy: buildCanonicalTodoOrderBy(options?.sort),
   }
   const pagination = options?.pagination ?? null
   if (pagination) {
@@ -675,6 +802,7 @@ export function mapInteractionRecordToTodoRow(
     todoCustomValues: Object.keys(customValues).length > 0 ? customValues : null,
     todoOrganizationId: interaction.organizationId ?? null,
     todoUpdatedAt: interaction.updatedAt ?? null,
+    todoOwnerUserId: interaction.ownerUserId ?? null,
     organizationId: interaction.organizationId ?? '',
     tenantId: interaction.tenantId ?? '',
     createdAt: interaction.createdAt,

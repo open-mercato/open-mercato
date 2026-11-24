@@ -16,6 +16,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 jest.mock('../../../../lib/interactionRequestContext', () => ({
   resolveCustomersRequestContext: jest.fn(),
+  resolveAuthActorId: jest.fn((auth: { sub?: string }) => auth.sub ?? 'system'),
 }))
 
 jest.mock('../../../../lib/interactionFeatureFlags', () => ({
@@ -536,5 +537,68 @@ describe('GET /api/customers/interactions/tasks', () => {
     expect(status).toBe(200)
     expect(body).toMatchObject({ total: 3, page: 1, pageSize: 3, totalPages: 1 })
     expect(body.items).toHaveLength(3)
+  })
+  it('applies status, due date, priority and owner filters on the canonical read in unified mode', async () => {
+    const store: FakeStore = { interactions: [], links: [] }
+    const { em } = primeRequestContext(store)
+    setUnified(true)
+
+    const { status } = await callRoute(
+      '?status=open&dueFrom=2026-11-01&dueTo=2026-11-30&priorityMin=10&priorityMax=90&ownerUserId=me&sortField=dueAt&sortDir=asc',
+    )
+
+    expect(status).toBe(200)
+    const [, where, options] = em.findAndCount.mock.calls[0]
+    expect(where).toMatchObject({ tenantId: TENANT, interactionType: 'task' })
+    expect((where as Record<string, unknown>).$and).toEqual([
+      { $or: [{ status: null }, { status: { $nin: ['done', 'canceled', 'completed'] } }] },
+      { scheduledAt: { $gte: new Date('2026-11-01T00:00:00.000Z') } },
+      { scheduledAt: { $lt: new Date('2026-12-01T00:00:00.000Z') } },
+      { priority: { $gte: 10 } },
+      { priority: { $lte: 90 } },
+      { ownerUserId: 'user-1' },
+    ])
+    expect(options).toMatchObject({ orderBy: { scheduledAt: 'ASC NULLS LAST', createdAt: 'DESC', id: 'DESC' } })
+  })
+
+  it('narrows the merged compatibility list by completion status', async () => {
+    const store: FakeStore = {
+      interactions: [
+        makeInteraction({ id: 'aaaaaaaa-0000-0000-0000-000000000020', title: 'Open CRM task' }),
+        makeInteraction({
+          id: 'aaaaaaaa-0000-0000-0000-000000000021',
+          title: 'Done CRM task',
+          status: 'done',
+          createdAt: new Date('2026-08-07T10:00:00.000Z'),
+        }),
+      ],
+      links: [
+        makeTodoLink({
+          id: 'cccccccc-0000-0000-0000-000000000020',
+          todoId: 'dddddddd-0000-0000-0000-000000000020',
+        }),
+      ],
+    }
+    primeRequestContext(store)
+    setUnified(false)
+
+    const done = await callRoute('?status=done')
+    expect(done.status).toBe(200)
+    expect(done.body.items.map((item) => item.todoTitle)).toEqual(['Done CRM task'])
+    expect(done.body.total).toBe(1)
+
+    const open = await callRoute('?status=open')
+    expect(open.status).toBe(200)
+    expect(open.body.items.map((item) => item.todoTitle)).toEqual(['Open CRM task', 'Legacy 0020'])
+    expect(open.body.total).toBe(2)
+  })
+
+  it('rejects an owner filter that is neither a uuid nor me', async () => {
+    primeRequestContext({ interactions: [], links: [] })
+    setUnified(true)
+
+    const { status } = await callRoute('?ownerUserId=someone')
+
+    expect(status).toBe(400)
   })
 })
