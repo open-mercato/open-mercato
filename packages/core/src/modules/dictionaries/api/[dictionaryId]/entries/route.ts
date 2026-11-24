@@ -204,6 +204,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     }
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const payload = createDictionaryEntrySchema.parse(await req.json().catch(() => ({})))
+    await loadDictionary(context, dictionaryId)
     const guardUserId = resolveDictionaryActorId(context.auth)
     const guardResult = await validateCrudMutationGuard(context.container, {
       tenantId: context.tenantId,
