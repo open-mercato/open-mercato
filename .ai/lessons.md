@@ -266,3 +266,4 @@ This catalog indexes 197 focused lessons. Route the task first, then read only r
 
 - [Resolve script entrypoints through symlinks](lessons/resolve-script-entrypoints-through-symlinks.md) — area:debugging,testing; module:starter,create_app; topic:symlinks,script-entrypoints,encryption,setup
 - [Handle timestamp ties when filtering undone price history](lessons/catalog-history-undo-timestamp-ties.md) — area:module-data,testing; module:catalog; topic:undo-redo,data-integrity,timestamp-ordering
+- [Trace editor configuration to its current renderer](lessons/trace-editor-configuration-to-current-renderer.md) — area:backend-ui,architecture,testing; module:ui,sales; topic:ui-components,testing,backward-compatibility

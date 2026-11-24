@@ -3,11 +3,12 @@
  */
 import * as React from 'react'
 import { render, waitFor } from '@testing-library/react'
+import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
 
 jest.setTimeout(20000)
 
 const mockApiCall = jest.fn()
-let capturedFields: Array<{ id: string }> | undefined
+let capturedFields: CrudField[] | undefined
 let capturedGroups: Array<{ id: string; fields?: string[] }> | undefined
 let mockChannelsEnabled = true
 
@@ -175,5 +176,18 @@ describe('SalesDocumentForm channel picker toggle', () => {
     expect(capturedFields!.map((f) => f.id)).not.toContain('channelId')
     const group = capturedGroups!.find((g) => g.id === 'channels-comments')
     expect(group?.fields).toEqual(['comments'])
+  })
+
+  it.each(['order', 'quote'] as const)('keeps the %s document note on the comments field', async (kind) => {
+    render(<SalesDocumentForm onCreated={jest.fn()} initialKind={kind} />)
+    await waitFor(() => expect(capturedFields).toBeDefined())
+    expect(capturedFields?.find((field) => field.id === 'comments')).toMatchObject({
+      id: 'comments',
+      type: 'richtext',
+      editor: 'uiw',
+      label: 'Document note',
+      description: expect.stringContaining('Team notes'),
+    })
+    expect(capturedGroups?.find((group) => group.id === 'channels-comments')?.fields).toContain('comments')
   })
 })

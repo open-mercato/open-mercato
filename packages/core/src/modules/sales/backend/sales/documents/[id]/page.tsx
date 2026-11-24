@@ -4049,9 +4049,9 @@ export default function SalesDocumentDetailPage({
       {
         key: 'comment',
         kind: 'multiline',
-        label: t('sales.documents.detail.comment', 'Comment'),
+        label: t('sales.documents.detail.comment', 'Document note'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
-        placeholder: t('sales.documents.detail.comment.placeholder', 'Add comment'),
+        placeholder: t('sales.documents.detail.comment.placeholder', 'Add document note'),
         value: record?.comment ?? null,
         onSave: handleUpdateComment,
         gridClassName: 'sm:col-span-2 xl:col-span-3',
@@ -4198,7 +4198,7 @@ export default function SalesDocumentDetailPage({
       injectedTabs.forEach((tab) => {
         tabs.push({ id: tab.id, label: tab.label })
       })
-      tabs.push({ id: 'comments', label: t('sales.documents.detail.tabs.comments', 'Comments') })
+      tabs.push({ id: 'comments', label: t('sales.documents.detail.tabs.comments', 'Team notes') })
       return tabs
     },
     [injectedTabs, kind, t],
@@ -4213,6 +4213,13 @@ export default function SalesDocumentDetailPage({
   }, [activeTab, tabButtons])
 
   const notesViewerLabel = React.useMemo(() => t('customers.people.detail.notes.you', 'You'), [t])
+  const notesTranslator = React.useCallback(
+    (key: string, fallback?: string, params?: Record<string, string | number>) =>
+      key === 'customers.people.detail.notes.placeholder'
+        ? t('sales.documents.detail.notes.placeholder', 'Write a team note…', params)
+        : t(key, fallback, params),
+    [t]
+  )
 
   const salesNotesAdapter = React.useMemo<NotesDataAdapter>(
     () => ({
@@ -4298,9 +4305,9 @@ export default function SalesDocumentDetailPage({
 
   const commentEmptyState = React.useMemo(
     () => ({
-      title: t('sales.documents.detail.empty.comments.title', 'No comments yet.'),
-      description: t('sales.documents.detail.empty.comments.description', 'Notes from teammates will appear here.'),
-      actionLabel: t('sales.documents.detail.comments.add', 'Add comment'),
+      title: t('sales.documents.detail.empty.comments.title', 'No notes yet.'),
+      description: t('sales.documents.detail.empty.comments.description', 'Add a note to start the team history for this document.'),
+      actionLabel: t('sales.documents.detail.comments.add', 'Add note'),
     }),
     [t]
   )
@@ -4353,26 +4360,31 @@ export default function SalesDocumentDetailPage({
     }
     if (activeTab === 'comments') {
       return (
-        <NotesSection
-          entityId={record.id}
-          emptyLabel={t('sales.documents.detail.empty', 'Not set')}
-          viewerUserId={null}
-          viewerName={notesViewerLabel}
-          addActionLabel={commentEmptyState.actionLabel}
-          emptyState={{
-            title: commentEmptyState.title,
-            description: commentEmptyState.description,
-            actionLabel: commentEmptyState.actionLabel,
-          }}
-          translator={t}
-          dataAdapter={salesNotesAdapter}
-          onActionChange={handleSectionActionChange}
-          renderIcon={renderDictionaryIcon}
-          renderColor={renderDictionaryColor}
-          iconSuggestions={ICON_SUGGESTIONS}
-          readMarkdownPreference={readMarkdownPreferenceCookie}
-          writeMarkdownPreference={writeMarkdownPreferenceCookie}
-        />
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {t('sales.documents.detail.notes.description', 'Team notes keep a dated history, separate from the document note.')}
+          </p>
+          <NotesSection
+            entityId={record.id}
+            emptyLabel={t('sales.documents.detail.empty', 'Not set')}
+            viewerUserId={null}
+            viewerName={notesViewerLabel}
+            addActionLabel={commentEmptyState.actionLabel}
+            emptyState={{
+              title: commentEmptyState.title,
+              description: commentEmptyState.description,
+              actionLabel: commentEmptyState.actionLabel,
+            }}
+            translator={notesTranslator}
+            dataAdapter={salesNotesAdapter}
+            onActionChange={handleSectionActionChange}
+            renderIcon={renderDictionaryIcon}
+            renderColor={renderDictionaryColor}
+            iconSuggestions={ICON_SUGGESTIONS}
+            readMarkdownPreference={readMarkdownPreferenceCookie}
+            writeMarkdownPreference={writeMarkdownPreferenceCookie}
+          />
+        </div>
       )
     }
     if (activeTab === 'addresses') {
