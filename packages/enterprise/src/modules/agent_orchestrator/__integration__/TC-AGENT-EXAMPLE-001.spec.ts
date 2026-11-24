@@ -30,21 +30,26 @@ type WorkflowExample = {
   enabled: boolean
 }
 
-async function setupTenant(
-  orgName: string, email: string, password: string, withExamples = false,
-): Promise<SetupResult> {
-  const { stdout } = await runFile('yarn', [
-    'mercato', 'auth', 'setup', '--orgName', orgName, '--email', email, '--password', password, '--json',
-    ...(withExamples ? ['--with-examples'] : []),
-  ], {
+async function runMercato(args: string[]): Promise<string> {
+  const { stdout } = await runFile('yarn', ['mercato', ...args], {
     cwd: process.env.OM_TEST_APP_ROOT?.trim() || process.cwd(),
     env: { ...process.env, OM_APP_ROOT: resolveAppRoot(), FORCE_COLOR: '0', NODE_NO_WARNINGS: '1' },
     timeout: 90_000,
     maxBuffer: 4 * 1024 * 1024,
   }).catch((error: unknown) => {
     const code = error instanceof Error && 'code' in error ? String(error.code) : 'unknown'
-    throw new Error(`[internal] Fixture tenant setup exited with code ${code}.`)
+    throw new Error(`[internal] Fixture command ${args.slice(0, 2).join(' ')} exited with code ${code}.`)
   })
+  return stdout
+}
+
+async function setupTenant(
+  orgName: string, email: string, password: string, withExamples = false,
+): Promise<SetupResult> {
+  const stdout = await runMercato([
+    'auth', 'setup', '--orgName', orgName, '--email', email, '--password', password, '--json',
+    ...(withExamples ? ['--with-examples'] : []),
+  ])
   const result = stdout.split('\n').find((line) => line.trimStart().startsWith('{"tenantId":'))
   if (!result) throw new Error('[internal] Fixture tenant setup did not report its result.')
   return JSON.parse(result) as SetupResult
@@ -75,6 +80,12 @@ test('TC-AGENT-EXAMPLE-001: seeds both example workflows on demand and preserves
     expect(getTokenScope(tenantToken).tenantId).toBe(initial.tenantId)
     for (const example of EXAMPLES) {
       expect(await listExamples(request, tenantToken, example.workflowId)).toHaveLength(0)
+    }
+
+    const catalog = await apiRequest(request, 'GET', '/api/catalog/price-kinds?pageSize=1', { token: tenantToken })
+    if (catalog.status() !== 404) {
+      expect(catalog.status()).toBe(200)
+      await runMercato(['catalog', 'seed-price-kinds', '--tenant', initial.tenantId, '--org', initial.organizationId])
     }
 
     const seeded = await setupTenant(orgName, email, password, true)
