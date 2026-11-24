@@ -2349,6 +2349,7 @@ None.
 
 ## Changelog
 
+- 2026-11-24: Keep SMTP-style replies deliverable when the parent retains its `outbound:` reference; wait only for adoption of provider-native references (#9071).
 - 2026-11-17: Resolve native outbound replies by scoped conversation provenance; refuse ambiguous/conflicting routes and retain explicit mailbox selection (#9739).
 - 2026-11-22: Supply recipient and RFC reply headers for native replies to send-as-user email (#9071).
 
