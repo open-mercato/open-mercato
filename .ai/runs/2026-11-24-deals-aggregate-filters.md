@@ -16,8 +16,10 @@ An incomplete ID set or a cache collision could present incorrect totals. Preser
 
 ## Progress
 
+PR: #10533
+
 ### Phase 1 — Aggregate filter parity
 
-- [ ] 1.1 Share the scoped deal predicates and apply them to stage aggregation
-- [ ] 1.2 Add API parity coverage and focused coverage for cache and scope behavior
+- [x] 1.1 Share the scoped deal predicates and apply them to stage aggregation — e4fce7d303
+- [x] 1.2 Add API parity coverage and focused coverage for cache and scope behavior — e4fce7d303
 - [ ] 1.3 Run validation and archive the capability requirement
