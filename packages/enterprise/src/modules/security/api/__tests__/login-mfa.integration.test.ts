@@ -102,12 +102,14 @@ async function expectDenied(response: Response, status = 500) {
 }
 
 describe('login route with the registered MFA interceptor and verification service', () => {
+  const originalDurableEvents = process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS
   const originalJwtSecret = process.env.JWT_SECRET
   const originalBypass = process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
 
   beforeEach(() => {
     jest.clearAllMocks()
     jest.useFakeTimers()
+    process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS = 'true'
     process.env.JWT_SECRET = 'login-mfa-integration-test-secret'
     delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
     serviceUnavailable = false
@@ -137,6 +139,8 @@ describe('login route with the registered MFA interceptor and verification servi
     registerApiInterceptors([])
     jest.clearAllTimers()
     jest.useRealTimers()
+    if (originalDurableEvents === undefined) delete process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS
+    else process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS = originalDurableEvents
     if (originalJwtSecret === undefined) delete process.env.JWT_SECRET
     else process.env.JWT_SECRET = originalJwtSecret
     if (originalBypass === undefined) delete process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS
