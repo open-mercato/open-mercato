@@ -14,7 +14,22 @@ const mockQE = {
 // resolver derives from the id's entity segment.
 const registeredTables: Record<string, string> = {
   CustomerEntity: 'customer_entities',
+  CatalogProduct: 'catalog_products',
 }
+
+const mockRbac = { userHasAllFeatures: jest.fn<Promise<boolean>, [string, string[], unknown]>() }
+const mockScope = {
+  tenantId: 't1', selectedId: 'selected-org', filterIds: ['selected-org'], allowedIds: ['selected-org'],
+}
+const mockResolveFeatureCheckContext = jest.fn(async () => ({ scope: mockScope, organizationId: 'selected-org' }))
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: () => mockResolveFeatureCheckContext(),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
+}))
 
 const mockEm = {
   // Custom (doc-storage) entities: registered rows make an id queryable.
@@ -32,16 +47,59 @@ const mockEm = {
 }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({ resolve: (key: string) => (key === 'queryEngine' ? mockQE : mockEm) }),
+  createRequestContainer: async () => ({ resolve: (key: string) => {
+    if (key === 'rbacService') return mockRbac
+    return key === 'queryEngine' ? mockQE : mockEm
+  } }),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }),
+  getAuthFromRequest: () => ({ sub: 'actor', orgId: 'org', tenantId: 't1' }),
 }))
 
 describe('GET /api/entities/relations/options', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+  })
+
+  it.each(['q=Alpha', 'ids=rec-1'])('allows a catalog viewer to resolve product titles with %s', async (query) => {
+    mockRbac.userHasAllFeatures.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+
+    const response = await GET(new Request(`http://x/api/entities/relations/options?entityId=catalog:catalog_product&labelField=name&${query}`))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ items: [{ value: 'rec-1', label: 'Alpha' }, { value: 'rec-2', label: 'Beta' }] })
+    expect(mockRbac.userHasAllFeatures).toHaveBeenLastCalledWith('actor', ['catalog.products.view'], { tenantId: 't1', organizationId: 'selected-org' })
+    expect(mockQE.query).toHaveBeenCalledWith('catalog:catalog_product', expect.objectContaining({
+      tenantId: 't1',
+      organizationId: 'selected-org',
+      fields: ['id', 'title'],
+      filters: query.startsWith('q=') ? { title: { $ilike: '%Alpha%' } } : { id: 'rec-1' },
+    }))
+  })
+
+  it('denies a caller without either feature before querying product options', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValue(false)
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=catalog:catalog_product'))
+    expect(response.status).toBe(403)
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('denies a catalog viewer outside the allowed organization before querying', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
+    mockResolveFeatureCheckContext.mockResolvedValueOnce({ scope: mockScope, organizationId: 'selected-org' })
+      .mockResolvedValueOnce({ scope: { ...mockScope, filterIds: ['other-org'] }, organizationId: 'selected-org' })
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=catalog:catalog_product'))
+    expect(response.status).toBe(403)
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it.each(['customers:customer_entity', 'catalog:catalog_product&labelField=metadata'])('keeps other targets and columns gated: %s', async (target) => {
+    mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
+    const response = await GET(new Request(`http://x/api/entities/relations/options?entityId=${target}`))
+    expect(response.status).toBe(403)
+    expect(mockQE.query).not.toHaveBeenCalled()
   })
 
   it('supports id-scoped lookups through the existing relation options permission surface', async () => {
