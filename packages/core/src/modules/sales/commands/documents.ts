@@ -189,7 +189,7 @@ import {
 import { EXTERNAL_HEADER_FIELDS, isExternalAmountsMode } from "../lib/calculations";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
-import { assertOrderCanBeCancelled, isCancelledOrderStatus } from "../lib/orderCancellationGuard";
+import { assertOrderCanBeCancelled, assertOrderCancellationSnapshot, isCancelledOrderStatus } from "../lib/orderCancellationGuard";
 import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import {
@@ -4903,6 +4903,8 @@ async function restoreOrderGraph(
   snapshot: OrderGraphSnapshot,
   verified: OrderGraphSnapshot | null = null,
 ): Promise<SalesOrder> {
+  const shipmentSnapshots = Array.isArray(snapshot.shipments) ? snapshot.shipments : [];
+  const paymentSnapshots = Array.isArray(snapshot.payments) ? snapshot.payments : [];
   let order = await findOneWithDecryption(
     em,
     SalesOrder,
@@ -4915,6 +4917,10 @@ async function restoreOrderGraph(
   );
   let existingLines: SalesOrderLine[] = [];
   if (order) {
+    if (isCancelledOrderStatus(snapshot.order.status) && !isCancelledOrderStatus(order.status)) {
+      await assertOrderCanBeCancelled(em, order);
+      await assertOrderCancellationSnapshot(shipmentSnapshots, paymentSnapshots);
+    }
     existingLines = await em.find(
       SalesOrderLine,
       { order },
@@ -5038,12 +5044,6 @@ async function restoreOrderGraph(
     : [];
   const noteSnapshots = Array.isArray(snapshot.notes) ? snapshot.notes : [];
   const tagSnapshots = Array.isArray(snapshot.tags) ? snapshot.tags : [];
-  const shipmentSnapshots = Array.isArray(snapshot.shipments)
-    ? snapshot.shipments
-    : [];
-  const paymentSnapshots = Array.isArray(snapshot.payments)
-    ? snapshot.payments
-    : [];
   const existingShipments = await em.find(SalesShipment, { order: order.id });
   const shipmentIds = existingShipments.map((entry) => entry.id);
   if (shipmentIds.length) {

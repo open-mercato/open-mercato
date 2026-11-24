@@ -60,6 +60,39 @@ function mergeById<T extends { id?: string | null }>(stored: T[], pending: T | u
   return merged
 }
 
+async function assertNoBlockingShipments(shipments: readonly CancellationShipmentState[]): Promise<void> {
+  if (shipments.some(isBlockingShipment)) {
+    const { translate } = await resolveTranslations()
+    throw conflict(
+      translate(
+        'sales.orders.errors.cancel_has_shipments',
+        'This order has shipments. Cancel or return them before cancelling the order.',
+      ),
+    )
+  }
+}
+
+async function assertNoHeldPayments(payments: readonly CancellationPaymentState[]): Promise<void> {
+  const held = payments.reduce((sum, payment) => sum + resolveHeldPaymentAmount(payment), 0)
+  if (held > HELD_AMOUNT_EPSILON) {
+    const { translate } = await resolveTranslations()
+    throw conflict(
+      translate(
+        'sales.orders.errors.cancel_has_payments',
+        'This order has payments that were not refunded. Refund them before cancelling the order.',
+      ),
+    )
+  }
+}
+
+export async function assertOrderCancellationSnapshot(
+  shipments: readonly CancellationShipmentState[],
+  payments: readonly CancellationPaymentState[],
+): Promise<void> {
+  await assertNoBlockingShipments(shipments)
+  await assertNoHeldPayments(payments)
+}
+
 /**
  * Cancelling an order is a status flip with no return or refund bookkeeping, so it is refused
  * while goods are still out with the customer or money is still held (issue #4054); the user
@@ -73,21 +106,13 @@ export async function assertOrderCanBeCancelled(
   pending: { shipment?: CancellationShipmentState; payment?: CancellationPaymentState } = {},
 ): Promise<void> {
   const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
-  const { translate } = await resolveTranslations()
-  const shipments = await findWithDecryption(em, SalesShipment, { order: order.id, deletedAt: null }, {}, scope)
+  const shipments = await findWithDecryption(em, SalesShipment, { order: order.id, ...scope, deletedAt: null }, {}, scope)
   const shipmentStates = mergeById<CancellationShipmentState>(
     shipments.map((shipment) => ({ id: shipment.id, status: shipment.status ?? null })),
     pending.shipment,
   )
-  if (shipmentStates.some(isBlockingShipment)) {
-    throw conflict(
-      translate(
-        'sales.orders.errors.cancel_has_shipments',
-        'This order has shipments. Cancel or return them before cancelling the order.',
-      ),
-    )
-  }
-  const payments = await findWithDecryption(em, SalesPayment, { order: order.id, deletedAt: null }, {}, scope)
+  await assertNoBlockingShipments(shipmentStates)
+  const payments = await findWithDecryption(em, SalesPayment, { order: order.id, ...scope, deletedAt: null }, {}, scope)
   const paymentStates = mergeById<CancellationPaymentState>(
     payments.map((payment) => ({
       id: payment.id,
@@ -98,13 +123,5 @@ export async function assertOrderCanBeCancelled(
     })),
     pending.payment,
   )
-  const held = paymentStates.reduce((sum, payment) => sum + resolveHeldPaymentAmount(payment), 0)
-  if (held > HELD_AMOUNT_EPSILON) {
-    throw conflict(
-      translate(
-        'sales.orders.errors.cancel_has_payments',
-        'This order has payments that were not refunded. Refund them before cancelling the order.',
-      ),
-    )
-  }
+  await assertNoHeldPayments(paymentStates)
 }
