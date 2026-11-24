@@ -78,6 +78,41 @@ describe('useRevealError', () => {
     expect(scrollIntoView).toHaveBeenCalledTimes(2)
   })
 
+  it('reveals a focused error displaced by form growth and stops watching on blur', () => {
+    const previousObserver = Object.getOwnPropertyDescriptor(window, 'ResizeObserver')
+    const observer = { observe: jest.fn(), disconnect: jest.fn(), unobserve: jest.fn() }
+    let notify = () => {}
+    const ResizeObserverMock = jest.fn((callback: ResizeObserverCallback) => {
+      notify = () => callback([], observer)
+      return observer
+    })
+    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: ResizeObserverMock })
+    try {
+      render(<form><ErrorSurface rejection={{}} layoutKey="catalog" /></form>)
+      flushFrames()
+      const error = screen.getByRole('alert')
+      const focus = jest.spyOn(error, 'focus')
+      const bounds = jest.spyOn(error, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect)
+      act(notify)
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+
+      bounds.mockReturnValue({ top: 1000 } as DOMRect)
+      act(notify)
+      expect(scrollIntoView).toHaveBeenCalledTimes(2)
+      expect(error).toHaveFocus()
+      expect(focus).not.toHaveBeenCalled()
+
+      screen.getByRole('button').focus()
+      expect(observer.disconnect).toHaveBeenCalledTimes(1)
+      act(notify)
+      expect(scrollIntoView).toHaveBeenCalledTimes(2)
+      expect(screen.getByRole('button')).toHaveFocus()
+    } finally {
+      if (previousObserver) Object.defineProperty(window, 'ResizeObserver', previousObserver)
+      else Reflect.deleteProperty(window, 'ResizeObserver')
+    }
+  })
+
   it('does not scroll again when the focused message remains visible after loading', () => {
     const rejection = {}
     const { rerender } = render(<ErrorSurface rejection={rejection} loading />)

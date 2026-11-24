@@ -16,6 +16,14 @@ function isStartVisible(target: HTMLElement): boolean {
   return bounds.top >= top && bounds.top < bottom
 }
 
+function scrollToStart(target: HTMLElement) {
+  target.scrollIntoView?.({ behavior: 'instant', block: 'start', inline: 'nearest' })
+}
+
+function revealIfDisplaced(target: HTMLElement | null) {
+  if (target?.isConnected && document.activeElement === target && !isStartVisible(target)) scrollToStart(target)
+}
+
 export function useRevealError(
   targetRef: React.RefObject<HTMLElement | null>,
   rejection: object | number | null | undefined,
@@ -26,39 +34,45 @@ export function useRevealError(
   const layoutPendingRef = React.useRef(layoutPending)
   layoutPendingRef.current = layoutPending
   const layoutKeyRef = React.useRef(layoutKey)
-
-  React.useEffect(() => {
-    if (layoutKeyRef.current !== layoutKey) pendingRef.current = null
-    layoutKeyRef.current = layoutKey
-  }, [layoutKey])
-
-  React.useEffect(() => {
+  const observerRef = React.useRef<ResizeObserver | null>(null)
+  const cancelPending = React.useCallback(() => {
     pendingRef.current = null
+    observerRef.current?.disconnect()
+    observerRef.current = null
+  }, [])
+  React.useEffect(() => {
+    if (layoutKeyRef.current !== layoutKey) cancelPending()
+    layoutKeyRef.current = layoutKey
+  }, [cancelPending, layoutKey])
+  React.useEffect(() => {
     if (rejection === null || rejection === undefined) return
     if (layoutPendingRef.current) pendingRef.current = rejection
     let target: HTMLElement | null = null
-    const cancelPending = () => { pendingRef.current = null }
     const frame = window.requestAnimationFrame(() => {
       target = targetRef.current
       if (!target?.isConnected) return
       target.addEventListener('blur', cancelPending)
       target.focus({ preventScroll: true })
-      target.scrollIntoView?.({ behavior: 'instant', block: 'start', inline: 'nearest' })
+      scrollToStart(target)
+      const form = layoutKeyRef.current !== undefined ? target.closest('form') : null
+      if (!form || typeof ResizeObserver === 'undefined') return
+      const observer = new ResizeObserver(() => {
+        if (observerRef.current === observer) revealIfDisplaced(target)
+      })
+      observerRef.current = observer
+      observer.observe(form, { box: 'border-box' })
     })
     return () => {
       window.cancelAnimationFrame(frame)
       target?.removeEventListener('blur', cancelPending)
-      pendingRef.current = null
+      cancelPending()
     }
-  }, [rejection, targetRef])
+  }, [cancelPending, rejection, targetRef])
 
   React.useEffect(() => {
     if (layoutPending || pendingRef.current === null || pendingRef.current !== rejection) return
     const frame = window.requestAnimationFrame(() => {
-      const target = targetRef.current
-      if (pendingRef.current === rejection && target?.isConnected && document.activeElement === target && !isStartVisible(target)) {
-        target.scrollIntoView?.({ behavior: 'instant', block: 'start', inline: 'nearest' })
-      }
+      if (pendingRef.current === rejection) revealIfDisplaced(targetRef.current)
       pendingRef.current = null
     })
     return () => window.cancelAnimationFrame(frame)
