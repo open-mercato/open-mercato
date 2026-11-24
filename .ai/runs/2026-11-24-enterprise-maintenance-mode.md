@@ -74,16 +74,16 @@ Spec PR: #9434 (merged)
 
 ### Phase 0: Spikes and audit
 
-- [ ] 0.1 Record proxy/registry sharing decision in the spec
-- [ ] 0.2 Freeze the audited encryption CLI entry-point list in the spec
+- [x] 0.1 Record proxy/registry sharing decision in the spec — d90ade6b63
+- [x] 0.2 Freeze the audited encryption CLI entry-point list in the spec — d90ade6b63
 
 ### Phase 1: OSS seams
 
-- [ ] 1.1 Request-gate registry with unit tests
-- [ ] 1.2 Dispatcher and api/auth/login gate call sites with tests
-- [ ] 1.3 proxy.ts gate call site mirrored to the create-app template
-- [ ] 1.4 Worker and scheduler gate hook with tests
-- [ ] 1.5 Maintenance coordinator types, errors, DI key and withMaintenanceHold helper
+- [x] 1.1 Request-gate registry with unit tests — aa8f692a1b
+- [x] 1.2 Dispatcher and api/auth/login gate call sites with tests — 3506f749ff
+- [x] 1.3 proxy.ts gate call site mirrored to the create-app template — 8191a06959
+- [x] 1.4 Worker and scheduler gate hook with tests — 725bf5fdb0
+- [x] 1.5 Maintenance coordinator types, errors, DI key and withMaintenanceHold helper — ae431c2115
 
 ### Phase 2: Enterprise maintenance module
 
