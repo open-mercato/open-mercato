@@ -23,7 +23,10 @@ export const extensionPoints = defineModuleExtensionPoints({
     pipelineDealCard: componentExtensionHost({
       componentId: 'section:customers.deals.pipelineCard',
       propsContract: 'customers.deals.pipeline-card.v1',
-      source: 'backend/customers/deals/pipeline/components/Lane.tsx',
+      source: [
+        'backend/customers/deals/pipeline/components/DealCard.tsx',
+        'backend/customers/deals/pipeline/components/Lane.tsx',
+      ],
     }),
     peopleTable: dataTableExtensionHost({ tableId: 'customers.people.list', source: 'backend/customers/people/page.tsx' }),
     todosTable: dataTableExtensionHost({ tableId: 'customers.todos.list', source: 'components/CustomerTodosTable.tsx' }),
