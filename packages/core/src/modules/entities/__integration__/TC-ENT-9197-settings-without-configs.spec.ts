@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 
 export const integrationMeta = { dependsOnModules: ['entities'] }
 
@@ -48,5 +49,29 @@ test.describe('TC-ENT-9197: custom-entity settings API without the configs modul
     expect(typeof writeBody?.error).toBe('string')
     expect(String(writeBody?.error)).not.toBe('entities.settings.errors.storageUnavailable')
     expect(String(writeBody?.error).length).toBeGreaterThan(0)
+  })
+
+  test('without configs the settings form shows the save failure', async ({ page, request }, testInfo) => {
+    const token = await getAuthToken(request, 'superadmin')
+    test.skip(await isConfigsModuleEnabled(request, token), 'Requires an app without the optional configs module')
+
+    await login(page, 'admin')
+    await page.goto('/backend/config/settings')
+    const preference = page.getByRole('checkbox', { name: 'Restrict record access by default' })
+    await expect(preference).toBeVisible()
+    await preference.check()
+    const saving = page.waitForResponse((response) => response.request().method() === 'PUT'
+      && new URL(response.url()).pathname === '/api/entities/entity-settings')
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+
+    const response = await saving
+    expect(response.status()).toBe(503)
+    const result = await response.json() as { error: string }
+    expect(result.error).not.toBe('entities.settings.errors.storageUnavailable')
+    await expect(page.getByRole('alert').filter({ hasText: result.error })).toBeVisible()
+    await expect(preference).toBeChecked()
+    if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+      await page.screenshot({ path: testInfo.outputPath('settings-storage-unavailable.png'), fullPage: true })
+    }
   })
 })

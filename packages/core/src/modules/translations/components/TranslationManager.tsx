@@ -7,6 +7,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -429,13 +430,14 @@ export function TranslationManager({
     }
 
     const localeTranslations = editedTranslations[activeLocale] ?? {}
+    const translationLabel = `${t('translations.manager.fields.translation', 'Translation')} (${activeLocale.toUpperCase()})`
 
     return (
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[480px] text-sm">
-          <thead>
+      <div className="min-w-0">
+        <table className="block w-full table-fixed text-sm sm:table">
+          <thead className="sr-only sm:not-sr-only sm:table-header-group">
             <tr className="text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="px-3 py-2 text-left w-[140px]">
+              <th className="w-1/4 px-3 py-2 text-left">
                 {t('translations.manager.fields.field', 'Field')}
               </th>
               {!compact && (
@@ -443,12 +445,12 @@ export function TranslationManager({
                   {t('translations.manager.fields.baseValue', 'Base value')}
                 </th>
               )}
-              <th className="px-3 py-2 text-left">
-                {t('translations.manager.fields.translation', 'Translation')} ({activeLocale.toUpperCase()})
+              <th className="w-1/2 px-3 py-2 text-left">
+                {translationLabel}
               </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="block sm:table-row-group">
             {fieldList.map((field) => {
               const baseVal = field.baseValue ?? getBaseValue(field.key)
               const translatedVal = localeTranslations[field.key] ?? ''
@@ -458,14 +460,15 @@ export function TranslationManager({
                 : isPropertyTranslation && field.key === 'description'
                   ? t('translations.manager.fields.description', 'Description')
                   : field.label
+              const inputLabel = `${fieldLabel} — ${translationLabel}`
 
               return (
-                <tr key={field.key} className="border-t">
-                  <td className="px-3 py-2 align-top text-xs font-medium text-muted-foreground">
+                <tr key={field.key} className="block border-t py-2 sm:table-row sm:py-0">
+                  <td className="block break-words px-3 py-1 text-xs font-medium text-muted-foreground sm:table-cell sm:py-2 sm:align-top">
                     {fieldLabel}
                   </td>
                   {!compact && (
-                    <td className="px-3 py-2 align-top text-xs text-muted-foreground max-w-[200px]">
+                    <td className="block break-words px-3 py-1 text-xs text-muted-foreground sm:table-cell sm:py-2 sm:align-top">
                       {baseVal ? (
                         <span className="line-clamp-3">{baseVal}</span>
                       ) : (
@@ -473,10 +476,10 @@ export function TranslationManager({
                       )}
                     </td>
                   )}
-                  <td className="px-3 py-2 align-top">
+                  <td className="block px-3 py-1 sm:table-cell sm:py-2 sm:align-top">
                     {field.multiline ? (
-                      <textarea
-                        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      <Textarea
+                        aria-label={inputLabel}
                         rows={3}
                         value={translatedVal}
                         onChange={(e) => updateFieldValue(activeLocale, field.key, e.target.value)}
@@ -484,6 +487,7 @@ export function TranslationManager({
                       />
                     ) : (
                       <Input
+                        aria-label={inputLabel}
                         value={translatedVal}
                         onChange={(e) => updateFieldValue(activeLocale, field.key, e.target.value)}
                         placeholder={baseVal || field.label}

@@ -40,7 +40,7 @@ function hasOrganizationAccess(scopeOrganizationId: string | null, messageOrgani
 }
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const em = ctx.container.resolve('em') as EntityManager
   if (!(await isAttachmentsModuleAvailable(em))) return attachmentsUnavailableResponse()
 
@@ -88,7 +88,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 }
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   if (!(await isAttachmentsModuleAvailable(em))) return attachmentsUnavailableResponse()
   const body = await req.json().catch(() => ({}))
@@ -175,7 +175,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   if (!(await isAttachmentsModuleAvailable(em))) return attachmentsUnavailableResponse()
   const body = await req.json().catch(() => ({}))

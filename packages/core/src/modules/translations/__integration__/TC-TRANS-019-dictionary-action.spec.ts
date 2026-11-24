@@ -15,7 +15,7 @@ import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/tra
 
 export const integrationMeta = { dependsOnModules: ['translations', 'dictionaries', 'directory'] }
 
-test('TC-TRANS-019: injected dictionary action saves entry translations', async ({ page, request, baseURL }) => {
+test('TC-TRANS-019: injected dictionary action saves entry translations', async ({ page, request, baseURL }, testInfo) => {
   const token = await getAuthToken(request, 'superadmin')
   const { organizationId, tenantId } = getTokenScope(token)
   const originalLocales = await getLocales(request, token)
@@ -82,10 +82,24 @@ test('TC-TRANS-019: injected dictionary action saves entry translations', async 
     await translate.click()
     await expect(dialog).toBeVisible()
     await dialog.getByRole('tab', { name: 'DE', exact: true }).click()
-    await dialog.getByPlaceholder(entryLabel, { exact: true }).fill('Übersetzter Wörterbucheintrag')
+    const translationInput = dialog.getByRole('textbox', { name: 'Label — Translation (DE)', exact: true })
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect(translationInput).toBeInViewport({ ratio: 1 })
+      const inputBounds = await translationInput.boundingBox()
+      const dialogBounds = await dialog.boundingBox()
+      expect(inputBounds).not.toBeNull()
+      expect(dialogBounds).not.toBeNull()
+      expect(inputBounds!.x).toBeGreaterThanOrEqual(dialogBounds!.x)
+      expect(inputBounds!.x + inputBounds!.width).toBeLessThanOrEqual(dialogBounds!.x + dialogBounds!.width)
+      if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+        await page.screenshot({ path: testInfo.outputPath(`translation-${width}.png`), fullPage: true })
+      }
+    }
+    await translationInput.fill('Übersetzter Wörterbucheintrag')
     const saved = page.waitForResponse((response) => response.request().method() === 'PUT'
       && decodeURIComponent(new URL(response.url()).pathname) === translationPath)
-    await dialog.getByPlaceholder(entryLabel, { exact: true }).press('Control+Enter')
+    await translationInput.press('Control+Enter')
     expect((await saved).ok()).toBe(true)
     expect(translationRequests).toContain('PUT')
 

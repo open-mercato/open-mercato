@@ -57,7 +57,7 @@ function TranslationAction({
       >
         <Languages className="size-4" />
       </IconButton>
-      <DialogContent className="max-w-2xl overflow-y-auto">
+      <DialogContent className="overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {dialogDescription ? <DialogDescription>{dialogDescription}</DialogDescription> : null}

@@ -1,10 +1,14 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helpers/integration/authFixtures'
+import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   composeInternalMessage,
   deleteMessageIfExists,
   replyToMessageWithToken,
+  selectRecipientFromComposer,
 } from './helpers'
 
 export const integrationMeta = { dependsOnModules: ['messages'] }
@@ -42,6 +46,72 @@ async function pollListedMessage(
 }
 
 test.describe('TC-MSG-9201: messages keep working without the attachments module', () => {
+  test('rejects malformed message IDs before querying storage', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const detailPath = '/api/messages/not-a-message-id'
+    const requests = [
+      ['GET', detailPath],
+      ['PATCH', detailPath],
+      ['DELETE', detailPath],
+      ['GET', `${detailPath}/attachments`],
+      ['POST', `${detailPath}/attachments`],
+      ['DELETE', `${detailPath}/attachments`],
+      ['POST', `${detailPath}/reply`],
+      ['POST', `${detailPath}/forward`],
+      ['GET', `${detailPath}/forward-preview`],
+    ] as const
+
+    for (const [method, path] of requests) {
+      const response = await apiRequest(request, method, path, { token })
+      expect(response.status(), `${method} ${path}`).toBe(404)
+    }
+  })
+
+  test('without attachments the compose form sends messages and saves drafts', async ({ page, request }, testInfo) => {
+    test.skip(await isAttachmentsModuleEnabled(request), 'Requires an app without the optional attachments module')
+    const token = await getAuthToken(request, 'admin')
+    const { organizationId } = getTokenScope(token)
+    const fixtureId = randomUUID()
+    const email = `qa-message-${fixtureId}@example.com`
+    const recipientId = await createUserFixture(request, token, {
+      email,
+      password: `Message1!${fixtureId}`,
+      organizationId,
+      roles: [],
+    })
+    const createdIds: string[] = []
+
+    try {
+      await login(page, 'admin')
+      for (const action of ['Save draft', 'Send']) {
+        const loadingAttachments = page.waitForResponse((response) => response.request().method() === 'GET'
+          && new URL(response.url()).pathname === '/api/attachments')
+        await page.goto('/backend/messages/compose')
+        await expect(page.getByRole('button', { name: action, exact: true })).toBeVisible()
+        expect((await loadingAttachments).status()).toBe(404)
+        await expect(page.getByText('Attachments', { exact: true })).toHaveCount(0)
+        await expect(page.getByRole('alert').filter({ hasText: /not found/i })).toHaveCount(0)
+        await page.getByRole('textbox', { name: 'Subject', exact: true }).fill(`${action} ${fixtureId}`)
+        await page.getByPlaceholder('Write your message...').fill('Message without attachments')
+        if (action === 'Send') await selectRecipientFromComposer(page, email)
+        if (action === 'Send' && process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+          await page.screenshot({ path: testInfo.outputPath('compose-without-attachments.png'), fullPage: true })
+        }
+
+        const saving = page.waitForResponse((response) => response.request().method() === 'POST'
+          && new URL(response.url()).pathname === '/api/messages')
+        await page.getByRole('button', { name: action, exact: true }).click()
+        const response = await saving
+        expect(response.status()).toBe(201)
+        const result = await response.json() as { id?: string }
+        createdIds.push(expectId(result.id, 'The persisted message has an ID'))
+      }
+    } finally {
+      for (const id of createdIds) await deleteMessageIfExists(request, token, id)
+      await deleteUserIfExists(request, token, recipientId)
+    }
+  })
+
   test('inbox list, compose and reply succeed and list items report attachment counts', async ({ request }) => {
     const subject = `QA 9201 inbox ${Date.now()}`
     let messageId: string | null = null
