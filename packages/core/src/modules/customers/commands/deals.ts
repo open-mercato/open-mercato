@@ -19,6 +19,7 @@ import {
   CustomerDealPersonLink,
   CustomerDealCompanyLink,
   CustomerDealStageTransition,
+  type CustomerEntity,
   CustomerPipeline,
   CustomerPipelineStage,
 } from '../data/entities'

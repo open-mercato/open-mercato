@@ -213,7 +213,7 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
     const created: Array<{ path: string; id: string }> = []
 
     const linkedName = `TC088 Linked ${stamp}`
-    const unlinkedName = `TC088 Unlinked ${stamp}`
+    const unlinkedName = `TC088 Added ${stamp}`
     const decoyName = `TC088 Decoy ${stamp}`
     const newContactName = `TC088 Created ${stamp}`
 
@@ -222,7 +222,7 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
     })
     created.push({ path: '/api/customers/people', id: linkedId })
     const unlinkedId = await createPersonFixture(request, token, {
-      firstName: 'TC088', lastName: `Unlinked ${stamp}`, displayName: unlinkedName,
+      firstName: 'TC088', lastName: `Added ${stamp}`, displayName: unlinkedName,
     })
     created.push({ path: '/api/customers/people', id: unlinkedId })
     const decoyId = await createPersonFixture(request, token, {
@@ -286,10 +286,11 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       await nameHeader.getByRole('button', { name: /^Name$/ }).click()
       await expect(nameHeader).toHaveAttribute('aria-sort', 'descending')
 
+      const recencyRows = page.getByRole('row').filter({ hasText: /TC088 (Added|Linked)/ })
+      await expect(recencyRows).toContainText([linkedName, unlinkedName])
       const linkedHeader = page.getByRole('columnheader', { name: /^Linked$/ })
       await linkedHeader.getByRole('button', { name: /^Linked$/ }).click()
       await expect(linkedHeader).toHaveAttribute('aria-sort', 'descending')
-      const recencyRows = page.getByRole('row').filter({ hasText: /TC088 (Linked|Unlinked)/ })
       await expect(recencyRows).toContainText([unlinkedName, linkedName])
       const beforeUnlink = (await listPeopleFor(request, token, dealId)).items
         .filter((item) => item.id !== decoyId)
