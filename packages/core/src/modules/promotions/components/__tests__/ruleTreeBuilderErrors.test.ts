@@ -7,6 +7,10 @@
 // regress back to the generic-only flash.
 
 import { extractTreeValidationIssues, issueTouchesPath } from '../RuleTreeBuilder'
+import { createTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import { benefitInputSchema } from '../../data/validators'
+import polish from '../../i18n/pl.json'
+import cartPolish from '../../../cart/i18n/pl.json'
 
 describe('extractTreeValidationIssues', () => {
   it('returns an empty array when the error carries no issues', () => {
@@ -32,6 +36,45 @@ describe('extractTreeValidationIssues', () => {
   it('ignores a non-array issues field', () => {
     const error = Object.assign(new Error('boom'), { issues: 'not-an-array' })
     expect(extractTreeValidationIssues(error)).toEqual([])
+  })
+
+  it.each([
+    ['-10', 'Must be a non-negative decimal string', 'Wpisz liczbę nieujemną'],
+    ['150', 'A percentage discount value cannot exceed 100', 'Rabat procentowy nie może przekraczać 100'],
+  ])('localizes the validator feedback for a discount of %s', (value, originalMessage, expected) => {
+    const parsed = benefitInputSchema.safeParse({
+      benefitType: 'cart_discount',
+      appliesTo: 'order',
+      config: { discountType: 'percentage', value, labels: { pl: 'Rabat' } },
+    })
+    expect(parsed.success).toBe(false)
+    if (parsed.success) return
+
+    expect(parsed.error.issues.some((issue) => issue.message === originalMessage)).toBe(true)
+    const translated = extractTreeValidationIssues({ issues: parsed.error.issues }, createTranslator(polish))
+    expect(translated.some((issue) => issue.message === expected)).toBe(true)
+    expect(translated.some((issue) => issue.message === originalMessage)).toBe(false)
+    expect(parsed.error.issues.some((issue) => issue.message === originalMessage)).toBe(true)
+  })
+
+  it('keeps unrecognized validation messages intact', () => {
+    const issue = { path: ['root'], message: 'Other validation error' }
+    expect(extractTreeValidationIssues({ issues: [issue] }, createTranslator(polish))).toEqual([issue])
+  })
+})
+
+describe('Polish promotion copy', () => {
+  const translate = createTranslator({ ...cartPolish, ...polish })
+
+  it('names the permission groups in Polish', () => {
+    expect(translate('auth.acl.modules.cart', 'Cart')).toBe('Koszyk')
+    expect(translate('auth.acl.modules.promotions', 'Promotions')).toBe('Promocje')
+  })
+
+  it('explains the currency requirement without internal references', () => {
+    expect(translate('promotions.form.fields.eligibleCurrencies.description')).not.toContain('D-R4-27')
+    expect(translate('promotions.tree.errors.eligibleCurrencyRequired'))
+      .toBe('Dodaj odpowiednią walutę w ustawieniach promocji przed zapisaniem reguły lub korzyści, która jej wymaga')
   })
 })
 

@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
+  CART_CURRENT_PATH,
   CART_LINES_PATH,
   CART_MERGE_PATH,
   cartStorefrontRequest,
@@ -9,7 +11,10 @@ import {
   createCartProductFixture,
   createCartStorefrontFixture,
   createStorefrontCart,
+  deleteCartRowIfExists,
+  resolveCartIdByToken,
   uniqueStamp,
+  updateStoreLocaleAndCurrency,
   type CartProductFixture,
   type CartStorefrontFixture,
 } from './helpers';
@@ -45,6 +50,7 @@ test.describe('TC-CART-F15-F13-01: non-active-cart writes 409, warning messages 
 
     const stamp = uniqueStamp();
     store = await createCartStorefrontFixture(request, adminToken, {});
+    await updateStoreLocaleAndCurrency(request, adminToken, store.storeId, { supportedLocales: ['en', 'pl'] });
     product = await createCartProductFixture(request, adminToken, { stamp, label: 'f15-f13', salesChannelId: store.salesChannelId });
   });
 
@@ -98,5 +104,34 @@ test.describe('TC-CART-F15-F13-01: non-active-cart writes 409, warning messages 
     expect(warning, `expected a quantity_capped warning in ${JSON.stringify(body.warnings)}`).toBeDefined();
     expect(warning?.message).not.toContain('[internal]');
     expect(warning?.message).toBe('The requested quantity was capped at the maximum allowed');
+  });
+
+  test('a Polish cart returns a buyer-facing Polish warning for an unavailable product', async () => {
+    let cartId: string | null = null;
+    try {
+      const headers = { 'Accept-Language': 'pl' };
+      const createResponse = await cartStorefrontRequest(store.hostname, CART_CURRENT_PATH, {
+        method: 'POST',
+        headers,
+        body: {},
+      });
+      expect(createResponse.status, createResponse.text).toBe(201);
+      const created = createResponse.body as { cart: { token: string; locale: string } };
+      cartId = await resolveCartIdByToken(created.cart.token);
+      expect(created.cart.locale).toBe('pl');
+
+      const addResponse = await cartStorefrontRequest(store.hostname, CART_LINES_PATH, {
+        method: 'POST',
+        cartToken: created.cart.token,
+        headers,
+        body: { productId: randomUUID(), quantity: '1' },
+      });
+
+      expect(addResponse.status, addResponse.text).toBe(200);
+      const body = addResponse.body as { warnings?: Array<{ code: string; message: string }> };
+      expect(body.warnings).toContainEqual({ code: 'product_unavailable', message: 'Ten produkt jest niedostępny' });
+    } finally {
+      if (cartId) await deleteCartRowIfExists(cartId);
+    }
   });
 });

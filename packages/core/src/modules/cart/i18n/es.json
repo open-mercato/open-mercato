@@ -1,4 +1,5 @@
 {
+  "auth.acl.modules.cart": "Carrito",
   "cart.audit.cart.create": "Create cart",
   "cart.audit.lines.add": "Add cart line",
   "cart.audit.lines.bulkAdd": "Add cart lines (bulk)",

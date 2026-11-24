@@ -112,7 +112,7 @@ export function createPromotionFormFields(t: Translate): CrudField[] {
       label: t('promotions.form.fields.eligibleCurrencies', 'Eligible currencies'),
       description: t(
         'promotions.form.fields.eligibleCurrencies.description',
-        'Leave empty to allow every currency. Exactly one currency is required once a rule or benefit depends on a fixed amount (D-R4-27).',
+        'Leave empty to allow every currency. Exactly one currency is required once a rule or benefit depends on a fixed amount.',
       ),
       type: 'select',
       multiple: true,
