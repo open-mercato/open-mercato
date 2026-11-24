@@ -128,6 +128,7 @@
   "portal.signup.error.email.invalid": "Podaj prawidłowy adres e-mail.",
   "portal.signup.error.generic": "Rejestracja nie powiodła się. Spróbuj ponownie.",
   "portal.signup.error.password.minLength": "Hasło musi mieć co najmniej 8 znaków.",
+  "portal.signup.error.rateLimited": "Zbyt wiele prób rejestracji. Odczekaj kilka minut i spróbuj ponownie.",
   "portal.signup.hasAccount": "Masz już konto?",
   "portal.signup.loginLink": "Zaloguj się",
   "portal.signup.password": "Hasło",

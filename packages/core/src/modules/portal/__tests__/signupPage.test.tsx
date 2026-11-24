@@ -67,7 +67,7 @@ describe('PortalSignupPage', () => {
     expect(getByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/acme/portal/login')
   })
 
-  it('treats non-202 responses as errors and renders the server message', async () => {
+  it('treats non-202 responses as errors and renders the generic message instead of the server text', async () => {
     apiCallMock.mockResolvedValueOnce({ ok: false, status: 400, result: { ok: false, error: 'Email already in use' } })
 
     const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
@@ -78,7 +78,8 @@ describe('PortalSignupPage', () => {
       fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
     })
 
-    await findByText(/email already in use/i)
+    await findByText(/signup failed/i)
+    expect(queryByText(/email already in use/i)).toBeNull()
     expect(queryByText(/check your email/i)).toBeNull()
   })
 
@@ -145,7 +146,7 @@ describe('PortalSignupPage', () => {
       result: { ok: false, error: 'Validation failed', details: {} },
     })
 
-    const { getByLabelText, getByRole, findByText } = renderWithProviders(
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
       <PortalSignupPage params={{ orgSlug: 'acme' }} />,
     )
     fillForm(getByLabelText)
@@ -153,7 +154,8 @@ describe('PortalSignupPage', () => {
       fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
     })
 
-    await findByText(/validation failed/i)
+    await findByText(/signup failed/i)
+    expect(queryByText(/validation failed/i)).toBeNull()
   })
 
   it('shows the generic banner when details only contains empty message arrays', async () => {
@@ -171,7 +173,8 @@ describe('PortalSignupPage', () => {
       fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
     })
 
-    await findByText(/validation failed/i)
+    await findByText(/signup failed/i)
+    expect(queryByText(/validation failed/i)).toBeNull()
     expect(queryByText(/password must be at least 8 characters/i)).toBeNull()
   })
 
@@ -194,7 +197,8 @@ describe('PortalSignupPage', () => {
       fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
     })
 
-    await findByText(/validation failed/i)
+    await findByText(/signup failed/i)
+    expect(queryByText(/validation failed/i)).toBeNull()
     expect(queryByText(/invalid phone number/i)).toBeNull()
   })
 
@@ -209,7 +213,7 @@ describe('PortalSignupPage', () => {
       },
     })
 
-    const { getByLabelText, getByRole, findByText } = renderWithProviders(
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
       <PortalSignupPage params={{ orgSlug: 'acme' }} />,
     )
     fillForm(getByLabelText)
@@ -218,7 +222,43 @@ describe('PortalSignupPage', () => {
     })
 
     await findByText(/please enter a valid email address/i)
-    await findByText(/validation failed/i)
+    await findByText(/signup failed/i)
+    expect(queryByText(/validation failed/i)).toBeNull()
+  })
+
+  it('shows the localized generic message instead of the raw English server text for an unmapped failure', async () => {
+    apiCallMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      result: { ok: false, error: 'Validation failed', details: { phoneNumber: ['Invalid phone number'] } },
+    })
+
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+      { locale: 'pl', dict: { 'portal.signup.error.generic': 'Rejestracja nie powiodła się. Spróbuj ponownie.' } },
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    await findByText('Rejestracja nie powiodła się. Spróbuj ponownie.')
+    expect(queryByText(/validation failed/i)).toBeNull()
+  })
+
+  it('shows the rate-limit message instead of the generic retry message on HTTP 429', async () => {
+    apiCallMock.mockResolvedValueOnce({ ok: false, status: 429, result: { error: 'Too many requests. Please try again later.' } })
+
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
+      <PortalSignupPage params={{ orgSlug: 'acme' }} />,
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: /create account|sign up/i }))
+    })
+
+    await findByText(/too many sign-up attempts/i)
+    expect(queryByText(/signup failed/i)).toBeNull()
   })
 
   it('announces field errors to assistive technology and links them to their inputs', async () => {

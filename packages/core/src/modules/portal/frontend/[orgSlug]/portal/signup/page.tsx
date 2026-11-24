@@ -56,6 +56,9 @@ export default function PortalSignupPage({ params }: Props) {
           return
         }
 
+        const fallbackError = result.status === 429
+          ? t('portal.signup.error.rateLimited', 'Too many sign-up attempts. Please wait a few minutes and try again.')
+          : t('portal.signup.error.generic', 'Signup failed. Please try again.')
         const details = result.result?.details
         const detailEntries = details ? Object.entries(details).filter(([, messages]) => (messages?.length ?? 0) > 0) : []
         if (detailEntries.length > 0) {
@@ -73,10 +76,10 @@ export default function PortalSignupPage({ params }: Props) {
           const hasUnmappedField = detailEntries.some(([fieldKey]) => !(fieldKey in mapped))
           setFieldErrors(mapped)
           if (hasUnmappedField || Object.keys(mapped).length === 0) {
-            setError(result.result?.error || t('portal.signup.error.generic', 'Signup failed. Please try again.'))
+            setError(fallbackError)
           }
         } else {
-          setError(result.result?.error || t('portal.signup.error.generic', 'Signup failed. Please try again.'))
+          setError(fallbackError)
         }
       } catch {
         setError(t('portal.signup.error.generic', 'Signup failed. Please try again.'))
