@@ -31,7 +31,7 @@ PR: #10542
 
 ### Phase 2: Audit history
 
-- [ ] 2.1 Migrate and verify scoped conflict and notification history reads.
+- [x] 2.1 Migrate and verify scoped conflict and notification history reads. — 5f68d2856a
 
 ### Phase 3: Record Locks settings
 
