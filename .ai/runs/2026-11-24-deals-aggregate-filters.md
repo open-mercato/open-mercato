@@ -22,4 +22,6 @@ PR: #10533
 
 - [x] 1.1 Share the scoped deal predicates and apply them to stage aggregation — e4fce7d303
 - [x] 1.2 Add API parity coverage and focused coverage for cache and scope behavior — e4fce7d303
-- [ ] 1.3 Run validation and archive the capability requirement
+- [x] 1.3 Run validation and archive the capability requirement — 87d4371665
+
+The local validation gate passed. The create-app test package passed on a retry with the official Node 24.18.0 distribution. Both live API tests passed in an isolated application and database.
