@@ -26,7 +26,7 @@ export function isIgnorableEnvInjectionLine(line) {
 
 export function isIgnorableSetupEnvNoticeLine(line) {
   if (typeof line !== 'string') return false
-  return /^\[setup\] (Copied \.env\.example to \.env|Keeping existing \.env)$/i.test(normalize(line))
+  return /^(?:📄|\[setup\]) (Copied \.env\.example to \.env|Keeping existing \.env)$/i.test(normalize(line))
 }
 
 export function isIgnorableMercatoCliBannerLine(line) {

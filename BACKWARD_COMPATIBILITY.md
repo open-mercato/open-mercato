@@ -711,3 +711,11 @@ STABLE translation API and localization require target permissions and registere
 ## SSO authority (2026-11-15, #9014)
 
 STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
+
+## 2026-11-22 — Attachment assignment label authorization (#10336)
+
+The STABLE attachment library API response and the enrichment helper signature retain their shapes. Referenced records contribute optional labels and links only for an authorized read in the selected tenant and organization. Retaining an unrestricted fallback would keep the unauthorized read available. Server callers can supply verified request authorization and clients can fall back to existing assignment metadata. See the [upgrade notes](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [implementation spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
+
+## #10331 #10332 (2026-11-23)
+
+STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).

@@ -639,8 +639,8 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List records',
       description:
-        'Returns paginated records for the supplied entity. Supports custom field filters, exports, and soft-delete toggles.',
-      query: listRecordsQuerySchema,
+        'Returns paginated active records for the supplied entity. Supports custom field filters and exports.',
+      query: listRecordsQuerySchema.omit({ withDeleted: true }),
       responses: [
         {
           status: 200,
