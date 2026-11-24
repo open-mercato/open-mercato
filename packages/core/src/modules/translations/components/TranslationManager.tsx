@@ -17,7 +17,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Save, Plus, X } from 'lucide-react'
-import { readRequestOrganizationScope } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { parseSelectedOrganizationCookie, parseSelectedTenantCookie } from '@open-mercato/core/modules/directory/utils/scopeCookies'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { defaultLocale, locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
@@ -58,9 +58,9 @@ type TranslationLocales = {
   servable: string[]
 }
 
-function readTranslationRequestScopeKey(): string | null {
-  const scope = readRequestOrganizationScope()
-  return scope ? `${scope.tenantId ?? ''}:${scope.organizationId ?? ''}` : null
+function readTranslationRequestScopeKey(): string {
+  const cookies = typeof document === 'undefined' ? null : document.cookie
+  return JSON.stringify([parseSelectedTenantCookie(cookies), parseSelectedOrganizationCookie(cookies)])
 }
 
 function useTranslationLocales() {
@@ -99,6 +99,9 @@ export function TranslationManager({
     'translations.manager.errors.organizationChanged',
     'The organization selection changed. Close and reopen the translation editor to continue.',
   )
+  const assertEditorScope = () => {
+    if (hasEditorScopeChanged()) throw new Error(scopeChangedMessage)
+  }
 
   const [selectedEntityType, setSelectedEntityType] = React.useState(propEntityType ?? '')
   const [selectedRecordId, setSelectedRecordId] = React.useState(propRecordId ?? '')
@@ -217,7 +220,7 @@ export function TranslationManager({
     queryKey: ['entity-translation', entityType, recordId, scopeVersion, isEmbedded ? openedScopeKey : null],
     enabled: !!entityType && !!recordId,
     queryFn: async () => {
-      if (hasEditorScopeChanged()) throw new Error(scopeChangedMessage)
+      assertEditorScope()
       const res = await apiCall<TranslationsResponse>(
         `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
       )
@@ -280,6 +283,15 @@ export function TranslationManager({
     retryLastMutation: () => Promise<boolean>
   }>({ contextId: TRANSLATION_MUTATION_CONTEXT_ID })
 
+  const retryInEditorScope = async () => {
+    if (!hasEditorScopeChanged()) {
+      const succeeded = await retryLastMutation()
+      if (succeeded || !hasEditorScopeChanged()) return succeeded
+    }
+    flash(scopeChangedMessage, 'error')
+    return false
+  }
+
   const mutation = useMutation({
     mutationFn: async () => {
       if (!entityType || !recordId) {
@@ -301,12 +313,13 @@ export function TranslationManager({
         logger.warn('Save skipped: payload is empty — no locale contains any non-empty field')
         throw new Error(t('translations.manager.errors.nothingToSave', 'Nothing to save — enter a translation first'))
       }
+      assertEditorScope()
       return runMutation({
         operation: async () => {
           const res = await withScopedApiRequestHeaders(
             buildOptimisticLockHeader(translationRowUpdatedAt),
             () => {
-              if (hasEditorScopeChanged()) throw new Error(scopeChangedMessage)
+              assertEditorScope()
               return apiCall(
                 `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
                 {
@@ -329,7 +342,7 @@ export function TranslationManager({
           resourceKind: 'translation',
           resourceId: recordId,
           data: translationData ?? null,
-          retryLastMutation,
+          retryLastMutation: isEmbedded ? retryInEditorScope : retryLastMutation,
         },
         mutationPayload: body,
       })
@@ -341,6 +354,10 @@ export function TranslationManager({
       await refetchTranslation()
     },
     onError: (err: unknown) => {
+      if (hasEditorScopeChanged()) {
+        flash(scopeChangedMessage, 'error')
+        return
+      }
       if (surfaceRecordConflict(err, t)) return
       const message = err instanceof Error ? err.message : t('translations.manager.errors.save', 'Failed to save translations')
       flash(message, 'error')

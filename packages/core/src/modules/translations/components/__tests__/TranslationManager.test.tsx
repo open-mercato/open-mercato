@@ -125,12 +125,13 @@ describe('TranslationManager guarded mutations (#3316)', () => {
     await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(1))
 
     const runInput = runMutationMock.mock.calls[0][0] as {
-      context: Record<string, unknown>
+      context: { retryLastMutation: () => Promise<boolean> }
       mutationPayload?: Record<string, unknown>
     }
     expect(runInput.context).toMatchObject({ entityType: 'catalog:product', recordId: 'rec-1' })
     // the conflict-resolution retry handle MUST be carried in the injection context
-    expect(runInput.context.retryLastMutation).toBe(retryLastMutationMock)
+    expect(await runInput.context.retryLastMutation()).toBe(true)
+    expect(retryLastMutationMock).toHaveBeenCalledTimes(1)
     expect(runInput.mutationPayload).toEqual({ en: { name: 'Nazwa testowa' } })
 
     // optimistic-lock header is still built + applied on the guarded write
@@ -186,6 +187,71 @@ describe('TranslationManager guarded mutations (#3316)', () => {
       await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Translations saved', 'success'))
     } finally {
       document.cookie = 'om_selected_org=; Max-Age=0; path=/'
+    }
+  })
+
+  it('blocks a tenant-only scope change before save preflight and retry', async () => {
+    document.cookie = 'om_selected_tenant=original-tenant; path=/'
+    try {
+      failTranslationSaveWith(400, { error: 'Initial save rejected' })
+      renderEmbeddedProductEditor()
+      const input = await screen.findByRole('textbox')
+      fireEvent.change(input, { target: { value: 'Original tenant draft' } })
+      fireEvent.click(screen.getByTestId('translations-save'))
+      await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Initial save rejected', 'error'))
+      const { context } = runMutationMock.mock.calls[0][0] as {
+        context: { retryLastMutation: () => Promise<boolean> }
+      }
+      runMutationMock.mockClear()
+      flashMock.mockClear()
+
+      document.cookie = 'om_selected_tenant=other-tenant; path=/'
+      expect(await context.retryLastMutation()).toBe(false)
+      expect(retryLastMutationMock).not.toHaveBeenCalled()
+      expect(flashMock).toHaveBeenCalledWith(
+        'The organization selection changed. Close and reopen the translation editor to continue.',
+        'error',
+      )
+      flashMock.mockClear()
+
+      fireEvent.click(screen.getByTestId('translations-save'))
+      await waitFor(() => expect(flashMock).toHaveBeenCalledWith(
+        'The organization selection changed. Close and reopen the translation editor to continue.',
+        'error',
+      ))
+      expect(runMutationMock).not.toHaveBeenCalled()
+    } finally {
+      document.cookie = 'om_selected_tenant=; Max-Age=0; path=/'
+    }
+  })
+
+  it('refuses to refill the old translation cache after a tenant-only switch', async () => {
+    document.cookie = 'om_selected_tenant=original-tenant; path=/'
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const translationKey = ['entity-translation', 'catalog:product', 'rec-1']
+    const endpoint = '/api/translations/catalog%3Aproduct/rec-1'
+    const editor = (
+      <TranslationManager mode="embedded" entityType="catalog:product" recordId="rec-1" translatableFields={['name']} />
+    )
+    try {
+      const openEditor = renderWithProviders(editor, { queryClient })
+      expect(await screen.findByRole('textbox')).toBeVisible()
+      apiCallMock.mockClear()
+
+      document.cookie = 'om_selected_tenant=other-tenant; path=/'
+      await act(() => queryClient.refetchQueries({ queryKey: translationKey }))
+      expect(await screen.findByText(
+        'The organization selection changed. Close and reopen the translation editor to continue.',
+      )).toBeVisible()
+      expect(apiCallMock).not.toHaveBeenCalledWith(endpoint)
+
+      openEditor.unmount()
+      renderWithProviders(editor, { queryClient })
+      expect(await screen.findByRole('textbox')).toBeVisible()
+      expect(apiCallMock).toHaveBeenCalledWith(endpoint)
+      expect(queryClient.getQueriesData({ queryKey: translationKey })).toHaveLength(2)
+    } finally {
+      document.cookie = 'om_selected_tenant=; Max-Age=0; path=/'
     }
   })
 
