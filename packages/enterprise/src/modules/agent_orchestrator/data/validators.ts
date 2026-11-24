@@ -605,9 +605,6 @@ export const traceIngestSchema = z.object({
   workflowInstanceId: z.string().uuid().nullable().optional(),
   stepId: z.string().nullable().optional(),
   proposalId: z.string().uuid().nullable().optional(),
-  // Bounded like the proposal/option schemas: confidence drives the
-  // min_confidence eval verdict and the low-confidence review lists, so an
-  // out-of-range value must not reach the scorers (GHSA-xch5-xj47-xcxm).
   confidence: z.number().min(0).max(1).optional(),
   inputTokens: z.number().int().nonnegative().optional(),
   outputTokens: z.number().int().nonnegative().optional(),
@@ -621,9 +618,6 @@ export const traceIngestSchema = z.object({
   spans: z.array(traceSpanIngestSchema).optional(),
   manifest: traceManifestIngestSchema.optional(),
 }).superRefine((value, ctx) => {
-  // A step reference is meaningless without its instance: the internal runtime
-  // only ever produces the (workflowInstanceId, stepId) pair together, and a
-  // lone stepId could not be scoped to anything (GHSA-xch5-xj47-xcxm).
   if (value.workflowInstanceId == null && value.stepId != null) {
     ctx.addIssue({
       code: 'custom',

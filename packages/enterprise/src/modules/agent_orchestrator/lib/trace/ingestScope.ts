@@ -1,83 +1,64 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { AgentRun } from '../../data/entities'
 import type { TraceIngest } from '../../data/validators'
 
-/**
- * Fail-closed scope validation for the trace-ingest write path
- * (GHSA-429h-x9x8-rv2m, GHSA-xch5-xj47-xcxm).
- *
- * The HMAC proves the tenant, but the organization arrives in the unsigned
- * `x-om-organization-id` header, and the payload may reference a workflow
- * instance. Neither may widen the verified scope:
- *
- * - The organization must exist and belong to the verified tenant. A uniform
- *   401 (byte-identical to the HMAC-failure body) keeps the endpoint from
- *   becoming an existence oracle for other tenants' organizations.
- * - A non-null `workflowInstanceId` must resolve to a workflow instance in the
- *   same tenant AND organization as the ingest scope, otherwise an ingested
- *   run could roll cost into any process instance of the tenant — including
- *   one it never ran in. Resolved through the optional `workflows` peer with
- *   the same soft-resolve `processProjection` uses; an absent peer skips the
- *   reference check (no process projection exists to poison in that
- *   deployment), and a resolution error is treated as "no reader" so a
- *   broken peer fails the same way an absent one does.
- *
- * Numeric fields (`confidence` 0-1, `costMinor` upper bound) and the
- * `stepId`-requires-`workflowInstanceId` rule are enforced by
- * `traceIngestSchema` in `data/validators.ts`.
- */
-export type TraceIngestScope = { tenantId: string; organizationId: string }
+type TraceIngestScope = { tenantId: string; organizationId: string }
 
-type WorkflowInstanceScope = { tenantId?: string | null; organizationId?: string | null }
-
-type WorkflowInstanceReader = {
-  getWorkflowInstance: (
+type WorkflowReferenceReader = {
+  hasWorkflowStepReference: (
     em: EntityManager,
-    instanceId: string,
-  ) => Promise<WorkflowInstanceScope | null>
+    scope: TraceIngestScope,
+    workflowInstanceId: string,
+    stepId: string,
+  ) => Promise<boolean>
 }
 
-type Resolver = { resolve: <T = unknown>(name: string) => T }
+type Resolver = { resolve: (name: string) => unknown }
 
-function tryResolveWorkflowInstanceReader(container: unknown): WorkflowInstanceReader | null {
-  const resolver = container as Resolver | null | undefined
-  if (!resolver || typeof resolver.resolve !== 'function') return null
+function resolveWorkflowReferenceReader(container: Resolver): WorkflowReferenceReader | undefined {
   try {
-    const executor = resolver.resolve<WorkflowInstanceReader | null>('workflowExecutor')
-    return executor && typeof executor.getWorkflowInstance === 'function' ? executor : null
+    const executor = container.resolve('workflowExecutor') as Partial<WorkflowReferenceReader> | undefined
+    if (typeof executor?.hasWorkflowStepReference === 'function') return executor as WorkflowReferenceReader
   } catch {
-    return null
+    return undefined
   }
 }
 
-export async function assertTraceIngestScope(
-  em: EntityManager,
-  container: unknown,
-  scope: TraceIngestScope,
-  payload: Pick<TraceIngest, 'workflowInstanceId'>,
-): Promise<void> {
-  const organization = await em.findOne(Organization, {
-    id: scope.organizationId,
-    tenant: scope.tenantId,
-    deletedAt: null,
-  })
-  if (!organization) {
-    throw new CrudHttpError(401, { error: 'Trace ingest verification failed' })
-  }
+export async function assertTraceIngestOrganization(em: EntityManager, scope: TraceIngestScope): Promise<void> {
+  const organization = await findOneWithDecryption(
+    em, Organization, { id: scope.organizationId, tenant: scope.tenantId, deletedAt: null }, { fields: ['id'] }, scope,
+  )
+  if (!organization) throw new CrudHttpError(401, { error: 'Trace ingest verification failed' })
+}
 
-  if (payload.workflowInstanceId == null) return
-  const reader = tryResolveWorkflowInstanceReader(container)
-  if (!reader) return
-  const instance = await reader.getWorkflowInstance(em, payload.workflowInstanceId)
+export async function assertTraceIngestRun(
+  em: EntityManager,
+  container: Resolver,
+  scope: TraceIngestScope,
+  payload: Pick<TraceIngest, 'agentId' | 'workflowInstanceId' | 'stepId'>,
+  run: Pick<AgentRun, 'agentId' | 'deletedAt' | 'workflowInstanceId' | 'stepId' | 'invocationId'> | null,
+): Promise<void> {
+  const workflowInstanceId = run?.workflowInstanceId ?? null
+  const stepId = run?.stepId ?? null
+  const invalidReference = () => new CrudHttpError(422, {
+    error: 'Invalid trace payload',
+    code: 'workflow_instance_out_of_scope',
+  })
+
   if (
-    !instance
-    || instance.tenantId !== scope.tenantId
-    || instance.organizationId !== scope.organizationId
-  ) {
-    throw new CrudHttpError(422, {
-      error: 'Invalid trace payload',
-      code: 'workflow_instance_out_of_scope',
-    })
+    (run && (run.deletedAt != null || run.agentId !== payload.agentId))
+    || (payload.workflowInstanceId !== undefined && payload.workflowInstanceId !== workflowInstanceId)
+    || (payload.stepId !== undefined && payload.stepId !== stepId)
+  ) throw invalidReference()
+
+  if (workflowInstanceId === null && stepId === null) return
+  if (!workflowInstanceId || !stepId || !run?.invocationId) throw invalidReference()
+
+  const reader = resolveWorkflowReferenceReader(container)
+  if (!reader || !(await reader.hasWorkflowStepReference(em, scope, workflowInstanceId, stepId))) {
+    throw invalidReference()
   }
 }

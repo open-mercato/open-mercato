@@ -15,6 +15,7 @@ import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgr
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
+  StepInstance,
   UserTask,
   WorkflowDefinition,
   WorkflowInstance,
@@ -2050,6 +2051,23 @@ export async function getWorkflowInstance(
   instanceId: string
 ): Promise<WorkflowInstance | null> {
   return em.findOne(WorkflowInstance, { id: instanceId })
+}
+
+/** Verify that a step ran in the named live workflow instance and scope. */
+export async function hasWorkflowStepReference(
+  em: PostgreSqlEntityManager,
+  scope: { tenantId: string; organizationId: string },
+  workflowInstanceId: string,
+  stepId: string,
+): Promise<boolean> {
+  const workflow = await findOneWithDecryption(
+    em, WorkflowInstance, { id: workflowInstanceId, ...scope, deletedAt: null }, { fields: ['id'] }, scope,
+  )
+  if (!workflow) return false
+  const step = await findOneWithDecryption(
+    em, StepInstance, { workflowInstanceId, stepId, ...scope }, { fields: ['id'] }, scope,
+  )
+  return step != null
 }
 
 async function getWorkflowInstanceForExecution(

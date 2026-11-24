@@ -1,22 +1,22 @@
-/**
- * GHSA-429h-x9x8-rv2m + GHSA-xch5-xj47-xcxm — the trace-ingest write path must
- * not let an unsigned organization header or an unvalidated payload reference
- * widen the HMAC-verified tenant scope:
- *
- * - the ingest organization must belong to the verified tenant (uniform 401),
- * - a workflowInstanceId must resolve to an instance in the same tenant+org,
- * - confidence is bounded 0-1, costMinor has an upper limit, and a stepId
- *   never travels without its workflowInstanceId.
- */
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { traceIngestSchema, TRACE_INGEST_MAX_COST_MINOR } from '../data/validators'
-import { assertTraceIngestScope } from '../lib/trace/ingestScope'
+import { assertTraceIngestOrganization, assertTraceIngestRun } from '../lib/trace/ingestScope'
+import { AgentRun } from '../data/entities'
+import type { IngestScope, IngestTraceOptions } from '../lib/trace/traceIngestionService'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 jest.mock('../lib/trace/traceIngestionService', () => ({
-  ingestTrace: jest.fn(async () => ({ runId: 'run-1', created: true, spansAppended: 0, toolCallsAppended: 0 })),
+  ingestTrace: jest.fn(async (
+    em: EntityManager, _scope: IngestScope, _payload: unknown, options: IngestTraceOptions,
+  ) => {
+    await options.assertRunScope?.(await em.findOne(AgentRun, {}))
+    return { runId: 'run-1', created: true, spansAppended: 0, toolCallsAppended: 0 }
+  }),
+}))
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (em: EntityManager, entity: typeof Organization, filter: { id: string }) => em.findOne(entity, filter),
 }))
 jest.mock('../lib/trace/artifactStore', () => ({
   createArtifactResultOffloader: () => undefined,
@@ -43,20 +43,18 @@ import { ingestTrace } from '../lib/trace/traceIngestionService'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
-const foreignOrganizationId = '33333333-3333-4333-8333-333333333333'
-const foreignTenantId = '44444444-4444-4444-8444-444444444444'
 const workflowInstanceId = '55555555-5555-4555-8555-555555555555'
 
 type OrganizationFixture = { id: string }
 
-function makeEm(organization: OrganizationFixture | null) {
+function makeEm(organization: OrganizationFixture | null, run: RunFixture | null = null) {
   const em = {
     findOne: jest.fn(async (entity: unknown, filter: Record<string, unknown>) => {
       if (entity === Organization) {
         organizationQueries.push(filter)
         return organization
       }
-      return { id: (filter as { id?: string }).id ?? 'run-1', workflowInstanceId: null }
+      return run
     }),
     count: jest.fn(async () => 0),
   }
@@ -65,7 +63,7 @@ function makeEm(organization: OrganizationFixture | null) {
 
 const organizationQueries: Array<Record<string, unknown>> = []
 
-function makeContainer(em: EntityManager, workflowExecutor: unknown) {
+function makeContainer(em: EntityManager, workflowExecutor?: unknown) {
   return {
     resolve: (name: string) => {
       if (name === 'em') return em
@@ -78,15 +76,17 @@ function makeContainer(em: EntityManager, workflowExecutor: unknown) {
   }
 }
 
-function makeReader(instance: { tenantId: string; organizationId: string } | null) {
-  return {
-    getWorkflowInstance: jest.fn(async () => instance),
-  }
+function makeReader(result = true) {
+  return { hasWorkflowStepReference: jest.fn(async () => result) }
 }
 
-const inScopeInstance = { tenantId, organizationId }
+type RunFixture = Pick<AgentRun, 'agentId' | 'deletedAt' | 'workflowInstanceId' | 'stepId' | 'invocationId'>
 
-describe('traceIngestSchema bounds (GHSA-xch5)', () => {
+const scope = { tenantId, organizationId }
+const agentId = 'agent-1'
+const linkedRun: RunFixture = { agentId, workflowInstanceId, stepId: 'review', invocationId: 'invocation-1' }
+
+describe('traceIngestSchema bounds', () => {
   const base = { runtime: 'opencode', externalRunId: 'run-1', agentId: 'agent-1' }
 
   it('accepts confidence inside 0-1 and rejects values outside', () => {
@@ -113,60 +113,58 @@ describe('traceIngestSchema bounds (GHSA-xch5)', () => {
   })
 })
 
-describe('assertTraceIngestScope', () => {
+describe('trace ingest authorization', () => {
   beforeEach(() => {
     organizationQueries.length = 0
   })
 
-  it('rejects an organization outside the verified tenant with the uniform 401', async () => {
-    const em = makeEm(null)
-    await expect(
-      assertTraceIngestScope(em, makeContainer(em, undefined), { tenantId, organizationId }, {}),
-    ).rejects.toMatchObject({
+  it('checks the organization belongs to the authenticated tenant', async () => {
+    await expect(assertTraceIngestOrganization(makeEm(null), scope)).rejects.toMatchObject({
       status: 401,
       body: { error: 'Trace ingest verification failed' },
     })
     expect(organizationQueries).toEqual([{ id: organizationId, tenant: tenantId, deletedAt: null }])
+    await expect(assertTraceIngestOrganization(makeEm({ id: organizationId }), scope)).resolves.toBeUndefined()
   })
 
-  it('accepts an organization of the verified tenant and skips instance checks without a reference', async () => {
+  it('allows standalone traces when workflows is unavailable', async () => {
     const em = makeEm({ id: organizationId })
-    const reader = makeReader(inScopeInstance)
-    await expect(
-      assertTraceIngestScope(em, makeContainer(em, reader), { tenantId, organizationId }, {}),
-    ).resolves.toBeUndefined()
-    expect(reader.getWorkflowInstance).not.toHaveBeenCalled()
+    await expect(assertTraceIngestRun(em, makeContainer(em), scope, { agentId }, null)).resolves.toBeUndefined()
   })
 
-  it('accepts a workflow instance in the same tenant and organization', async () => {
+  it('validates the persisted workflow step even when the adapter omits correlation fields', async () => {
     const em = makeEm({ id: organizationId })
-    const reader = makeReader(inScopeInstance)
-    await expect(
-      assertTraceIngestScope(em, makeContainer(em, reader), { tenantId, organizationId }, { workflowInstanceId }),
-    ).resolves.toBeUndefined()
-    expect(reader.getWorkflowInstance).toHaveBeenCalledWith(em, workflowInstanceId)
+    const reader = makeReader()
+    await expect(assertTraceIngestRun(em, makeContainer(em, reader), scope, { agentId }, linkedRun))
+      .resolves.toBeUndefined()
+    expect(reader.hasWorkflowStepReference).toHaveBeenCalledWith(em, scope, workflowInstanceId, 'review')
   })
 
   it.each([
-    ['another tenant', { tenantId: foreignTenantId, organizationId }],
-    ['another organization of the same tenant', { tenantId, organizationId: foreignOrganizationId }],
-    ['no instance at all', null],
-  ])('rejects a workflow instance pointing to %s with 422', async (_label, instance) => {
+    { label: 'different agent', payload: { agentId: 'agent-2' }, run: linkedRun },
+    { label: 'different step', payload: { agentId, workflowInstanceId, stepId: 'other-step' }, run: linkedRun },
+    { label: 'cleared workflow', payload: { agentId, workflowInstanceId: null }, run: linkedRun },
+    { label: 'new run with workflow claims', payload: { agentId, workflowInstanceId }, run: null },
+    { label: 'unverified invocation', payload: { agentId }, run: { ...linkedRun, invocationId: null } },
+  ])('rejects inconsistent correlation for $label', async ({ payload, run }) => {
     const em = makeEm({ id: organizationId })
-    const reader = makeReader(instance as { tenantId: string; organizationId: string } | null)
-    await expect(
-      assertTraceIngestScope(em, makeContainer(em, reader), { tenantId, organizationId }, { workflowInstanceId }),
-    ).rejects.toMatchObject({
-      status: 422,
-      body: { error: 'Invalid trace payload', code: 'workflow_instance_out_of_scope' },
-    })
+    const reader = makeReader()
+    await expect(assertTraceIngestRun(em, makeContainer(em, reader), scope, payload, run))
+      .rejects.toMatchObject({ status: 422 })
+    expect(reader.hasWorkflowStepReference).not.toHaveBeenCalled()
   })
 
-  it('skips the instance check when the workflows peer is not installed', async () => {
+  it('rejects a persisted workflow step absent from the authenticated scope', async () => {
     const em = makeEm({ id: organizationId })
-    await expect(
-      assertTraceIngestScope(em, makeContainer(em, undefined), { tenantId, organizationId }, { workflowInstanceId }),
-    ).resolves.toBeUndefined()
+    const reader = makeReader(false)
+    await expect(assertTraceIngestRun(em, makeContainer(em, reader), scope, { agentId }, linkedRun))
+      .rejects.toMatchObject({ status: 422 })
+  })
+
+  it('rejects a workflow-linked trace when the needed workflows reader is unavailable', async () => {
+    const em = makeEm({ id: organizationId })
+    await expect(assertTraceIngestRun(em, makeContainer(em), scope, { agentId }, linkedRun))
+      .rejects.toMatchObject({ status: 422 })
   })
 })
 
@@ -180,8 +178,9 @@ describe('agent_orchestrator.trace.ingest command wiring', () => {
     organization: OrganizationFixture | null
     workflowExecutor: unknown
     payload: Record<string, unknown>
+    run?: RunFixture
   }) {
-    const em = makeEm(options.organization)
+    const em = makeEm(options.organization, options.run)
     const container = makeContainer(em, options.workflowExecutor)
     return new CommandBus().execute('agent_orchestrator.trace.ingest', {
       input: { tenantId, organizationId, payload: options.payload },
@@ -200,7 +199,7 @@ describe('agent_orchestrator.trace.ingest command wiring', () => {
     const payload = { runtime: 'opencode', externalRunId: 'run-1', agentId: 'agent-1' }
     const { result } = await executeIngest({
       organization: { id: organizationId },
-      workflowExecutor: makeReader(inScopeInstance),
+      workflowExecutor: makeReader(),
       payload,
     })
     expect(result.runId).toBe('run-1')
@@ -211,18 +210,19 @@ describe('agent_orchestrator.trace.ingest command wiring', () => {
     await expect(
       executeIngest({
         organization: null,
-        workflowExecutor: makeReader(inScopeInstance),
+        workflowExecutor: makeReader(),
         payload: { runtime: 'opencode', externalRunId: 'run-1', agentId: 'agent-1' },
       }),
     ).rejects.toBeInstanceOf(CrudHttpError)
     expect(ingestTrace).not.toHaveBeenCalled()
   })
 
-  it('refuses to ingest a trace that injects cost into a foreign workflow instance', async () => {
+  it('enforces the workflow check on the run selected by the command', async () => {
     await expect(
       executeIngest({
         organization: { id: organizationId },
-        workflowExecutor: makeReader({ tenantId, organizationId: foreignOrganizationId }),
+        workflowExecutor: makeReader(false),
+        run: linkedRun,
         payload: {
           runtime: 'opencode',
           externalRunId: 'run-1',
@@ -232,6 +232,6 @@ describe('agent_orchestrator.trace.ingest command wiring', () => {
         },
       }),
     ).rejects.toMatchObject({ status: 422 })
-    expect(ingestTrace).not.toHaveBeenCalled()
+    expect(ingestTrace).toHaveBeenCalledTimes(1)
   })
 })

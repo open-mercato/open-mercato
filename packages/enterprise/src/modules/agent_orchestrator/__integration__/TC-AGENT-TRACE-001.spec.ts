@@ -63,7 +63,7 @@ async function postTrace(
   const raw = JSON.stringify(body)
   const msgId = `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`
   const timestamp = String(Math.floor(Date.now() / 1000))
-  const signature = signTraceIngest(scope.tenantId, msgId, timestamp, opts.tamper ? `${raw}tampered` : raw)
+  const signature = signTraceIngest(scope.tenantId, scope.organizationId, msgId, timestamp, opts.tamper ? `${raw}tampered` : raw)
   return request.fetch(resolveUrl('/api/agent_orchestrator/trace/ingest'), {
     method: 'POST',
     headers: {

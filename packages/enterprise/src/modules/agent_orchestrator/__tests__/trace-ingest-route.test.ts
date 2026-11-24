@@ -20,8 +20,8 @@ jest.mock('../lib/trace/ingestAuth', () => {
   return { ...actual, verifyTraceIngestRequest: jest.fn(actual.verifyTraceIngestRequest) }
 })
 
-const tenantId = '11111111-1111-1111-1111-111111111111'
-const organizationId = '22222222-2222-2222-2222-222222222222'
+const tenantId = '11111111-1111-4111-8111-111111111111'
+const organizationId = '22222222-2222-4222-8222-222222222222'
 const encoder = new TextEncoder()
 const execute = jest.fn()
 const resolve = jest.fn()
@@ -43,7 +43,7 @@ function signedHeaders(body: string, contentLength?: string): Headers {
     [TRACE_INGEST_HEADERS.organization]: organizationId,
     [TRACE_INGEST_HEADERS.id]: 'message-1',
     [TRACE_INGEST_HEADERS.timestamp]: timestamp,
-    [TRACE_INGEST_HEADERS.signature]: signTraceIngest(tenantId, 'message-1', timestamp, body),
+    [TRACE_INGEST_HEADERS.signature]: signTraceIngest(tenantId, organizationId, 'message-1', timestamp, body),
   })
   if (contentLength !== undefined) headers.set('content-length', contentLength)
   return headers
