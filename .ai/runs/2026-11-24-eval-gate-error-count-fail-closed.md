@@ -38,5 +38,5 @@
 
 ### Phase 1: Fail-closed errorCount
 
-- [ ] 1.1 Return errorCount from evalRuns.complete
-- [ ] 1.2 Read errorCount from the complete result in runEvalGate
+- [x] 1.1 Return errorCount from evalRuns.complete — 04af36a0f0
+- [x] 1.2 Read errorCount from the complete result in runEvalGate — 299abfbfcb
