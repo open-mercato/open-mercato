@@ -18,8 +18,8 @@ export const integrationMeta = {
 const runFile = promisify(execFile)
 const DEFINITIONS = '/api/workflows/definitions'
 const EXAMPLES = [
-  { workflowId: 'agent_orchestrator_deals_health_check_v1', icon: 'activity' },
-  { workflowId: 'agent_orchestrator_refund_triage_v1', icon: 'badge-dollar-sign' },
+  { workflowId: 'agent_orchestrator_deals_health_check_v1', expectedIcon: 'activity' },
+  { workflowId: 'agent_orchestrator_refund_triage_v1', expectedIcon: 'badge-dollar-sign' },
 ]
 
 type SetupResult = { tenantId: string; organizationId: string; reusedExistingUser: boolean }
@@ -102,7 +102,7 @@ test('TC-AGENT-EXAMPLE-001: seeds both example workflows on demand and preserves
         source: 'user',
         createdBy: null,
         grantedFeatures: null,
-        metadata: { category: 'Agents', icon: example.icon },
+        metadata: { category: 'Agents', icon: example.expectedIcon },
       })
       expect(detail?.data.metadata).not.toHaveProperty('generatedBy')
     }
