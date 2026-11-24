@@ -1,5 +1,7 @@
+import { asValue, createContainer } from 'awilix'
 import type { ActionLogHistoryService, AuditHistoryEntry } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
+import { runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { RecordLockService } from '../lib/recordLockService'
 import { createRecordLockCrudMutationGuardService } from '../lib/crudMutationGuardService'
 import type { RecordLockSettings } from '../lib/config'
@@ -1437,5 +1439,53 @@ describe('RecordLockService when audit history fails', () => {
       body: { code: 'record_lock_conflict', conflict: { incomingActionLogId: incomingId, changes: [] } },
     })
     expect(findResourceHistoryById).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('legacy Record Locks construction with a bound Audit Logs owner', () => {
+  test.each(['omitted', 'null', 'explicitly unavailable'] as const)('honors %s legacy provider input', async (mode) => {
+    const lock = buildLock()
+    const entry: AuditHistoryEntry = {
+      id: '80000000-0000-4000-8000-000000000001',
+      actorUserId: lock.lockedByUserId,
+      createdAt: lock.lockedAt,
+      changesJson: null,
+      snapshotBefore: null,
+      snapshotAfter: null,
+    }
+    const findLatestResourceHistory = jest.fn(async () => entry)
+    const scope = createContainer().register({
+      actionLogHistoryService: asValue({
+        findLatestResourceHistory,
+        findLatestActorHistory: jest.fn(),
+        findResourceHistoryById: jest.fn(),
+      }),
+    })
+    const { em, moduleConfigService, rbacService } = createService()
+    em.find.mockResolvedValue([])
+    em.create.mockImplementation((_entity: unknown, value: Record<string, unknown>) => ({
+      ...value, id: 'a0000000-0000-4000-8000-000000000001',
+    }))
+    const service = new RecordLockService({
+      em, moduleConfigService, rbacService,
+      ...(mode === 'null' ? { actionLogService: null } : {}),
+      ...(mode === 'explicitly unavailable' ? { resolveAuditHistory: () => undefined } : {}),
+    })
+
+    const result = await runWithRequestScopeContainer(scope, () => service.validateMutation({
+      tenantId: lock.tenantId,
+      organizationId: lock.organizationId,
+      resourceKind: lock.resourceKind,
+      resourceId: lock.resourceId,
+      userId: lock.lockedByUserId,
+      headers: { baseLogId: lock.baseActionLogId },
+      method: 'PUT',
+    }))
+    const registered = mode !== 'explicitly unavailable'
+    expect(result).toMatchObject(registered
+      ? { ok: false, status: 409, conflict: { incomingActionLogId: entry.id } }
+      : { ok: true, latestActionLogId: null })
+    expect(findLatestResourceHistory).toHaveBeenCalledTimes(registered ? 1 : 0)
+    await scope.dispose()
   })
 })

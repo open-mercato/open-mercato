@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { UniqueConstraintViolationException, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
+import type { AwilixContainer } from 'awilix'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type {
   ActionLogHistoryService,
@@ -11,6 +12,7 @@ import type {
 } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
 import { getCachedDictionary } from '@open-mercato/shared/lib/i18n/dictionary-cache'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
@@ -425,10 +427,15 @@ export class RecordLockService {
     this.moduleConfigService = deps.moduleConfigService ?? null
     this.resolveAuditHistory = deps.resolveAuditHistory ?? (() => {
       const provider = deps.actionLogService
-      return typeof provider?.findLatestResourceHistory === 'function'
+      if (
+        typeof provider?.findLatestResourceHistory === 'function'
         && typeof provider.findLatestActorHistory === 'function'
         && typeof provider.findResourceHistoryById === 'function'
-        ? provider : undefined
+      ) return provider
+
+      const scope = getRequestScopeContainer() as Pick<AwilixContainer, 'hasRegistration' | 'resolve'> | null
+      if (!scope?.hasRegistration?.('actionLogHistoryService')) return undefined
+      return scope.resolve<ActionLogHistoryService>('actionLogHistoryService')
     })
     this.rbacService = deps.rbacService ?? null
   }

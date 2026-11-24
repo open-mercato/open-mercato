@@ -3,7 +3,9 @@
  */
 
 import { EntityManager } from '@mikro-orm/core'
-import type { AwilixContainer } from 'awilix'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { bindRequestScopeContainer, getRequestScopeContainer, runInRequestScope } from '@open-mercato/shared/lib/di/request-scope'
+import { asValue, createContainer, type AwilixContainer } from 'awilix'
 import {
   WorkflowInstance,
   WorkflowDefinition,
@@ -18,6 +20,10 @@ import * as ruleEngine from '../../../business_rules/lib/rule-engine'
 jest.mock('../../../business_rules/lib/rule-evaluator')
 jest.mock('../../../business_rules/lib/rule-engine')
 jest.mock('../activity-executor')
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/di/container'),
+  createRequestContainer: jest.fn(),
+}))
 
 describe('Transition Handler (Unit Tests)', () => {
   let mockEm: jest.Mocked<EntityManager>
@@ -346,6 +352,42 @@ describe('Transition Handler (Unit Tests)', () => {
   // ============================================================================
 
   describe('findValidTransitions', () => {
+    test.each([false, true])('shares one owned scope across named transitions even when disposal fails (%s)', async (disposalFails) => {
+      const scope = createContainer().register('ruleEngine', asValue(ruleEngine))
+      const dispose = jest.spyOn(scope, 'dispose')
+      if (disposalFails) dispose.mockRejectedValueOnce(new Error('[internal] disposal failed'))
+      jest.mocked(createRequestContainer).mockImplementationOnce(async () => {
+        bindRequestScopeContainer(scope)
+        return scope
+      })
+      mockEm.findOne.mockResolvedValue({
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [
+            { fromStepId: 'step-1', toStepId: 'step-2', preConditions: [{ ruleId: 'first' }] },
+            { fromStepId: 'step-1', toStepId: 'end', preConditions: [{ ruleId: 'second' }] },
+          ],
+        },
+      })
+      jest.mocked(ruleEngine.executeRuleByRuleId).mockResolvedValue({
+        success: true, ruleId: 'guard', ruleName: 'Guard', conditionResult: true, actionsExecuted: null, executionTime: 1,
+      })
+
+      const results = await runInRequestScope(async () => {
+        const transitions = await transitionHandler.findValidTransitions(
+          mockEm, mockInstance, 'step-1', { workflowContext: {} },
+        )
+        expect(getRequestScopeContainer()).toBeNull()
+        return transitions
+      })
+
+      expect(results.map(({ isValid }) => isValid)).toEqual([true, true])
+      expect(createRequestContainer).toHaveBeenCalledTimes(1)
+      expect(ruleEngine.executeRuleByRuleId).toHaveBeenCalledTimes(2)
+      expect(dispose).toHaveBeenCalledTimes(1)
+    })
+
     test('should find all valid transitions from a step', async () => {
       mockEm.findOne.mockResolvedValue(mockDefinition)
 

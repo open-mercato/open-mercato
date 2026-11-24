@@ -18,7 +18,7 @@ import {
   WorkflowEvent,
 } from '../data/entities'
 import * as ruleEvaluator from '../../business_rules/lib/rule-evaluator'
-import { withNamedWorkflowRuleRunner, type WorkflowRuleContainer } from './named-rules'
+import { createNamedWorkflowRuleScope, type WorkflowRuleContainer } from './named-rules'
 import * as activityExecutor from './activity-executor'
 import type { ActivityDefinition } from './activity-executor'
 import * as stepHandler from './step-handler'
@@ -302,6 +302,7 @@ export async function findValidTransitions(
   fromStepId: string,
   context: TransitionEvaluationContext
 ): Promise<TransitionEvaluationResult[]> {
+  const namedRules = createNamedWorkflowRuleScope(context.container)
   try {
     // Load workflow definition
     const definition = await findDefinitionForInstance(em, instance)
@@ -343,7 +344,7 @@ export async function findValidTransitions(
           instance,
           transition,
           context,
-          context.container,
+          namedRules.resolve,
           'pre_transition',
         )
 
@@ -374,6 +375,8 @@ export async function findValidTransitions(
   } catch (error) {
     logger.error('Error finding valid transitions', { err: error })
     return []
+  } finally {
+    await namedRules.dispose()
   }
 }
 
@@ -426,6 +429,7 @@ export async function executeTransitionForToken(
   const instance = token.instance
   const branch = token.kind === 'branch' ? token.branch : null
   const branchInstanceId = tokenBranchInstanceId(token)
+  const namedRules = createNamedWorkflowRuleScope(container)
   try {
     // First, evaluate if transition is valid
     const evaluation = await evaluateTransition(
@@ -451,7 +455,7 @@ export async function executeTransitionForToken(
       instance,
       transition,
       context,
-      container,
+      namedRules.resolve,
       'pre_transition',
     )
 
@@ -768,7 +772,7 @@ export async function executeTransitionForToken(
       instance,
       transition,
       context,
-      container,
+      namedRules.resolve,
       'post_transition',
     )
 
@@ -844,6 +848,8 @@ export async function executeTransitionForToken(
       success: false,
       error: `Transition execution failed: ${errorMessage}`,
     }
+  } finally {
+    await namedRules.dispose()
   }
 }
 
@@ -935,7 +941,7 @@ async function evaluateNamedTransitionRules(
   instance: WorkflowInstance,
   transition: NamedTransition,
   context: TransitionExecutionContext,
-  container: WorkflowRuleContainer | null | undefined,
+  resolveRunner: ReturnType<typeof createNamedWorkflowRuleScope>['resolve'],
   phase: 'pre_transition' | 'post_transition',
 ): Promise<NamedTransitionRulesResult> {
   const isPreCondition = phase === 'pre_transition'
@@ -944,64 +950,63 @@ async function evaluateNamedTransitionRules(
     const definition = await findDefinitionForInstance(em, instance)
     if (!definition || !conditions?.length) return { allowed: true, executedRules: [] }
 
-    return await withNamedWorkflowRuleRunner(container, async (runner) => {
-      const dryRun = isDryRunInstance(instance)
-      const executedRules: NamedTransitionRuleResult[] = []
-      const errors: string[] = []
-      for (const condition of conditions) {
-        const required = !isPreCondition || condition.required !== false
-        if (!runner) {
-          if (!required) continue
-          const error = 'Business rules engine unavailable'
-          executedRules.push({
-            rule: { ruleId: condition.ruleId, ruleName: condition.ruleId },
-            conditionResult: false,
-            error,
-          })
-          errors.push(`Rule '${condition.ruleId}': ${error}`)
-          continue
-        }
-
-        const result = await runner.executeRuleByRuleId(em, {
-          ruleId: condition.ruleId,
-          data: {
-            workflowInstanceId: instance.id,
-            workflowId: definition.workflowId,
-            fromStepId: transition.fromStepId,
-            toStepId: transition.toStepId,
-            workflowContext: {
-              ...instance.context,
-              ...context.workflowContext,
-            },
-            triggerData: context.triggerData,
-          },
-          user: context.userId ? { id: context.userId } : undefined,
-          tenantId: instance.tenantId,
-          organizationId: instance.organizationId,
-          executedBy: context.userId,
-          entityType: `workflow:${definition.workflowId}:transition`,
-          entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
-          eventType: phase,
-          skipActions: dryRun,
-        })
-        if (dryRun && result.actionsExecuted === null) {
-          await logSuppressedRuleActions(em, instance, condition.ruleId, phase)
-        }
+    const runner = await resolveRunner()
+    const dryRun = isDryRunInstance(instance)
+    const executedRules: NamedTransitionRuleResult[] = []
+    const errors: string[] = []
+    for (const condition of conditions) {
+      const required = !isPreCondition || condition.required !== false
+      if (!runner) {
+        if (!required) continue
+        const error = 'Business rules engine unavailable'
         executedRules.push({
-          rule: { ruleId: result.ruleId, ruleName: result.ruleName },
-          conditionResult: result.conditionResult,
-          error: result.error,
+          rule: { ruleId: condition.ruleId, ruleName: condition.ruleId },
+          conditionResult: false,
+          error,
         })
-
-        if (required && result.error) {
-          errors.push(`Rule '${result.ruleId}': ${result.error}`)
-        } else if (required && !result.conditionResult) {
-          const label = isPreCondition ? 'Pre-condition' : 'Post-condition'
-          errors.push(`${label} '${result.ruleName || result.ruleId}' failed`)
-        }
+        errors.push(`Rule '${condition.ruleId}': ${error}`)
+        continue
       }
-      return { allowed: errors.length === 0, executedRules, errors: errors.length ? errors : undefined }
-    })
+
+      const result = await runner.executeRuleByRuleId(em, {
+        ruleId: condition.ruleId,
+        data: {
+          workflowInstanceId: instance.id,
+          workflowId: definition.workflowId,
+          fromStepId: transition.fromStepId,
+          toStepId: transition.toStepId,
+          workflowContext: {
+            ...instance.context,
+            ...context.workflowContext,
+          },
+          triggerData: context.triggerData,
+        },
+        user: context.userId ? { id: context.userId } : undefined,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+        executedBy: context.userId,
+        entityType: `workflow:${definition.workflowId}:transition`,
+        entityId: transition.transitionId || `${transition.fromStepId}->${transition.toStepId}`,
+        eventType: phase,
+        skipActions: dryRun,
+      })
+      if (dryRun && result.actionsExecuted === null) {
+        await logSuppressedRuleActions(em, instance, condition.ruleId, phase)
+      }
+      executedRules.push({
+        rule: { ruleId: result.ruleId, ruleName: result.ruleName },
+        conditionResult: result.conditionResult,
+        error: result.error,
+      })
+
+      if (required && result.error) {
+        errors.push(`Rule '${result.ruleId}': ${result.error}`)
+      } else if (required && !result.conditionResult) {
+        const label = isPreCondition ? 'Pre-condition' : 'Post-condition'
+        errors.push(`${label} '${result.ruleName || result.ruleId}' failed`)
+      }
+    }
+    return { allowed: errors.length === 0, executedRules, errors: errors.length ? errors : undefined }
   } catch (error) {
     logger.error(isPreCondition ? 'Error evaluating pre-conditions' : 'Error evaluating post-conditions', { err: error })
     reportError(error, { module: 'workflows', code: 'workflows.named_transition_rule_failed' })
