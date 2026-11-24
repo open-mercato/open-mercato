@@ -471,6 +471,28 @@ Component replacement uses stable handle IDs:
 - **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
 - **Global backend mutations**: `GLOBAL_MUTATION_INJECTION_SPOT_ID` resolves to `backend:record:current` for non-`CrudForm` save hooks. `backend-mutation:global` is still mounted in `AppShell` as a legacy compatibility slot.
 
+### Show an app's deal reference on pipeline cards
+
+Target `section:customers.deals.pipelineCard` from your module's `widgets/components.ts`. Each card has the original deals list item in `deal.record`, including custom fields and response enrichments returned to the current user. For example, if your list response includes `cf_reference: "SPD-12"`, a prop transform can display it in the reference position.
+
+```ts
+import type { DealCardProps } from '@open-mercato/core/modules/customers/backend/customers/deals/pipeline/components/DealCard'
+import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+
+export const componentOverrides = [{
+  target: { componentId: 'section:customers.deals.pipelineCard' },
+  priority: 50,
+  propsTransform: (props) => {
+    const reference = props.deal.record?.cf_reference
+    return typeof reference === 'string' && reference.trim()
+      ? { ...props, referenceLabel: reference }
+      : props
+  },
+}] satisfies ComponentOverride<DealCardProps>[]
+```
+
+With no display label, the card uses its standard short reference. Selection, actions and navigation continue to use the deal ID. Apps can also wrap or replace the entire card through the same handle.
+
 ### `wrapper` overrides must be pure
 
 The platform composes a `wrapper` override **at most once per `(wrapper, wrapped component)` pair** and caches the composed component, so that a wrapped subtree keeps a stable React identity instead of being torn down and remounted every time overrides re-resolve (a registry revision bump, a feature grant arriving after first paint).

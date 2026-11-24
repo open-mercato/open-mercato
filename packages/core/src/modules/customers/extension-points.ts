@@ -20,6 +20,11 @@ export const extensionPoints = defineModuleExtensionPoints({
   hosts: {
     companiesTable: dataTableExtensionHost({ tableId: 'customers.companies.list', source: 'backend/customers/companies/page.tsx' }),
     dealsTable: dataTableExtensionHost({ tableId: 'customers.deals.list', source: 'backend/customers/deals/page.tsx' }),
+    pipelineDealCard: componentExtensionHost({
+      componentId: 'section:customers.deals.pipelineCard',
+      propsContract: 'customers.deals.pipeline-card.v1',
+      source: 'backend/customers/deals/pipeline/components/Lane.tsx',
+    }),
     peopleTable: dataTableExtensionHost({ tableId: 'customers.people.list', source: 'backend/customers/people/page.tsx' }),
     todosTable: dataTableExtensionHost({ tableId: 'customers.todos.list', source: 'components/CustomerTodosTable.tsx' }),
     companyForm: crudFormExtensionHost({ entityId: 'customers.company', spotId: 'crud-form:customers.company', source: ['backend/customers/companies-v2/[id]/page.tsx', 'backend/customers/companies/create/page.tsx'] }),

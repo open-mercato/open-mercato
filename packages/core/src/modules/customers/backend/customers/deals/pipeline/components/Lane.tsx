@@ -4,11 +4,12 @@ import * as React from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { toneToDotClass } from './toneClasses'
-import { DealCard, type DealCardData } from './DealCard'
+import { DEAL_CARD_COMPONENT_ID, DealCard, type DealCardData, type DealCardProps } from './DealCard'
 import { DashedTileButton } from './DashedTileButton'
 import { LANE_WIDTH_PX } from './constants'
 import { LaneCurrencyBreakdown } from './LaneCurrencyBreakdown'
@@ -193,6 +194,7 @@ function LaneImpl({
   onResetWidth,
 }: LaneProps): React.ReactElement {
   const t = useT()
+  const PipelineCard = useRegisteredComponent<DealCardProps>(DEAL_CARD_COMPONENT_ID, DealCard)
   const { setNodeRef, isOver } = useDroppable({
     id: `lane:${stage.id}`,
     data: { type: 'lane', stageId: stage.id },
@@ -308,7 +310,7 @@ function LaneImpl({
           />
         ) : (
           deals.map((deal) => (
-            <DealCard
+            <PipelineCard
               key={deal.id}
               deal={deal}
               selected={selectedDealIds.has(deal.id)}

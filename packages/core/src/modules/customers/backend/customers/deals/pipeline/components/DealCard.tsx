@@ -11,6 +11,10 @@ import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { DealCardMenu } from './DealCardMenu'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
+import { extensionPoints } from '../../../../../extension-points'
+
+export const DEAL_CARD_COMPONENT_ID = extensionPoints.hosts.pipelineDealCard.componentId
 
 export type DealCardPipelineState = {
   openActivitiesCount: number
@@ -30,6 +34,7 @@ export type DealCardOwner = {
 }
 
 export type DealCardData = {
+  record?: Readonly<Record<string, unknown>>
   id: string
   title: string
   status: string | null
@@ -45,8 +50,9 @@ export type DealCardData = {
   pipelineState: DealCardPipelineState
 }
 
-type DealCardProps = {
+export type DealCardProps = {
   deal: DealCardData
+  referenceLabel?: string
   selected: boolean
   /**
    * `true` whenever at least one deal anywhere on the board is selected. Forces the
@@ -133,6 +139,7 @@ function shortDealRef(id: string): string {
 
 function DealCardImpl({
   deal,
+  referenceLabel,
   selected,
   bulkSelectionActive = false,
   buildMenuItems,
@@ -309,7 +316,7 @@ function DealCardImpl({
           <h3 className="line-clamp-2 text-base font-semibold leading-normal text-foreground">
             {deal.title}
           </h3>
-          <span className="text-xs leading-normal text-muted-foreground">{shortDealRef(deal.id)}</span>
+          <span className="text-xs leading-normal text-muted-foreground">{referenceLabel?.trim() || shortDealRef(deal.id)}</span>
         </div>
         <div
           className="flex shrink-0 items-center gap-2"
@@ -564,6 +571,7 @@ function DealCardImpl({
 // Custom equality keeps the comparison cheap (we only re-render when something visible changes).
 export const DealCard = React.memo(DealCardImpl, (prev, next) => {
   if (prev.deal !== next.deal) return false
+  if (prev.referenceLabel !== next.referenceLabel) return false
   if (prev.selected !== next.selected) return false
   if (prev.bulkSelectionActive !== next.bulkSelectionActive) return false
   if (prev.isActiveDrag !== next.isActiveDrag) return false
@@ -572,6 +580,12 @@ export const DealCard = React.memo(DealCardImpl, (prev, next) => {
   if (prev.extraOwners !== next.extraOwners) return false
   // Callback identity changes do NOT trigger re-renders — they're stable handlers from the page
   return true
+})
+
+registerComponent<DealCardProps>({
+  id: DEAL_CARD_COMPONENT_ID,
+  component: DealCard,
+  metadata: { module: 'customers', description: 'Deal card in a pipeline board lane.' },
 })
 
 export default DealCard

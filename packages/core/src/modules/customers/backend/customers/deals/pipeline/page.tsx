@@ -281,6 +281,7 @@ function mapDealRecord(item: DealApiRecord, fallbackTitle: string): DealCardData
     id,
     title,
     status,
+    record: item,
     valueAmount,
     valueCurrency,
     probability,
