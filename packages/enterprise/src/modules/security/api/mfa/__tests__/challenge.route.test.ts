@@ -181,8 +181,8 @@ describe('security MFA challenge routes', () => {
     expect(response.status).toBe(401)
   })
 
-  test('recovery route issues auth cookie on successful recovery verification', async () => {
-    const context = buildContext()
+  test('recovery route passes the authenticated session and issues a verified cookie', async () => {
+    const context = buildContext({ auth: { sid: 'session-1' } })
     mockedResolveMfaRequestContext.mockResolvedValue(context)
 
     const response = await verifyRecovery(new Request('https://example.test/api/security/mfa/recovery', {
@@ -192,7 +192,9 @@ describe('security MFA challenge routes', () => {
     }))
 
     expect(response.status).toBe(200)
-    expect(context.mfaVerificationService.verifyRecoveryCode).toHaveBeenCalledWith('user-1', 'ABCDE12345')
+    expect(context.mfaVerificationService.verifyRecoveryCode).toHaveBeenCalledWith('user-1', 'ABCDE12345', {
+      tenantId: 'tenant-1', sessionId: 'session-1',
+    })
     expect(mockedSetAuthCookie).toHaveBeenCalledWith(expect.any(NextResponse), 'verified-token')
   })
 

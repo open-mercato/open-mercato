@@ -8,11 +8,14 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@open-mercato/ui/primitives/sheet'
 import { SignInDevice, SignInMfa, SignInNewDeviceBadge, SignInReason, SignInResultBadge, SignInTime, type AdminSignIn } from '../../../components/SignInDisplay'
 
+const userSecurityFeature = 'security.admin.manage'
+
 type SignInDetailItem = AdminSignIn & { previousSuccessAt: string | null }
 
 function SignInDetailBody({ id, onClose }: { id: string; onClose: () => void }) {
   const t = useT()
   const [detail, setDetail] = useState<SignInDetailItem | null>(null)
+  const [canOpenUser, setCanOpenUser] = useState(false)
   const [error, setError] = useState<'missing' | 'load' | null>(null)
 
   useEffect(() => {
@@ -24,6 +27,14 @@ function SignInDetailBody({ id, onClose }: { id: string; onClose: () => void }) 
         else setError(response.status === 404 ? 'missing' : 'load')
       })
       .catch(() => { if (!controller.signal.aborted) setError('load') })
+    void apiCall<{ ok?: boolean }>('/api/auth/feature-check', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ features: [userSecurityFeature] }),
+      signal: controller.signal,
+    }).then((response) => {
+      if (!controller.signal.aborted && response.ok && response.result?.ok === true) setCanOpenUser(true)
+    }).catch(() => undefined)
     return () => controller.abort()
   }, [id])
 
@@ -56,9 +67,11 @@ function SignInDetailBody({ id, onClose }: { id: string; onClose: () => void }) 
       </dl>
       {detail.userId ? (
         <div className="flex flex-wrap gap-4 text-sm">
-          <Link className="font-medium underline underline-offset-4" href={`/backend/security/users/${encodeURIComponent(detail.userId)}`}>
-            {t('security.signIns.detail.openUser')}
-          </Link>
+          {canOpenUser ? (
+            <Link className="font-medium underline underline-offset-4" href={`/backend/security/users/${encodeURIComponent(detail.userId)}`}>
+              {t('security.signIns.detail.openUser')}
+            </Link>
+          ) : null}
           <Link className="font-medium underline underline-offset-4" href={`/backend/security/sign-ins?userId=${encodeURIComponent(detail.userId)}`} onClick={onClose}>
             {t('security.signIns.detail.allForUser')}
           </Link>

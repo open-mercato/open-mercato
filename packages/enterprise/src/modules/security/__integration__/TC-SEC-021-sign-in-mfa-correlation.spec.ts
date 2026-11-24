@@ -5,7 +5,7 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   chromeWindows, createActivityFixture, expectActivityCount, expectLoginToken, getActivity, signIn,
 } from './helpers/signInActivityFixtures'
-import { enrollTotp, verifyTotpChallenge } from './helpers/securityFixtures'
+import { enrollTotp, fetchJson, verifyTotpChallenge } from './helpers/securityFixtures'
 
 for (const firstBrowser of ['Firefox', 'Chrome'] as const) {
   test(`TC-SEC-021: verifies only the exact sign-in when ${firstBrowser} completes MFA first`, async ({ request }) => {
@@ -52,3 +52,50 @@ for (const firstBrowser of ['Firefox', 'Chrome'] as const) {
     }
   })
 }
+
+test('TC-SEC-021: recovery codes verify only their own pending sign-in', async ({ request }) => {
+  test.skip(parseBooleanWithDefault(process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS, false), 'Requires MFA challenge enforcement.')
+  const fixture = await createActivityFixture(request)
+  try {
+    const actor = await fixture.createActor()
+    const token = expectLoginToken(await signIn(actor))
+    const { secret } = await enrollTotp(request, token)
+    const codes = await fetchJson<{ recoveryCodes: string[] }>(
+      request, 'POST', '/api/security/mfa/recovery-codes/regenerate', { token, data: {} },
+    )
+    expect(codes.status).toBe(200)
+    const [recoveryCode] = codes.body.recoveryCodes
+    expect(recoveryCode).toEqual(expect.any(String))
+
+    const recoveryIp = '203.0.113.8'
+    const challengeIp = '203.0.113.9'
+    const recovery = await signIn(actor, { ip: recoveryIp })
+    const challenge = await signIn(actor, { ip: challengeIp })
+    const query = { userId: actor.userId, result: 'success' }
+    const before = await expectActivityCount(request, fixture.adminToken, query, 3)
+    expect(before.find((row) => row.ipAddress === recoveryIp)?.mfaStatus).toBe('pending')
+    expect(before.find((row) => row.ipAddress === challengeIp)?.mfaStatus).toBe('pending')
+
+    const recover = (code: string) => withCredentialIsolatedRequest((isolated) =>
+      fetchJson<{ ok: boolean }>(isolated, 'POST', '/api/security/mfa/recovery', {
+        token: expectLoginToken(recovery), data: { code },
+      }),
+    )
+    expect((await recover('invalid-code')).status).toBe(401)
+    expect((await getActivity(request, fixture.adminToken, query)).items
+      .find((row) => row.ipAddress === recoveryIp)?.mfaStatus).toBe('pending')
+    expect((await recover(recoveryCode)).status).toBe(200)
+    const afterRecovery = await getActivity(request, fixture.adminToken, query)
+    expect(afterRecovery.items.find((row) => row.ipAddress === recoveryIp)?.mfaStatus).toBe('verified')
+    expect(afterRecovery.items.find((row) => row.ipAddress === challengeIp)?.mfaStatus).toBe('pending')
+
+    const verified = await withCredentialIsolatedRequest((isolated) =>
+      verifyTotpChallenge(isolated, expectLoginToken(challenge), challenge.challenge_id ?? '', secret),
+    )
+    expect(verified.status).toBe(200)
+    const afterBoth = await getActivity(request, fixture.adminToken, query)
+    expect(afterBoth.items.find((row) => row.ipAddress === challengeIp)?.mfaStatus).toBe('verified')
+  } finally {
+    await fixture.dispose()
+  }
+})

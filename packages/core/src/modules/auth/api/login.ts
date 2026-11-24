@@ -176,6 +176,7 @@ async function handleLoginRequest(req: Request) {
     // guidance is delivered out-of-band via the activation/login link.
     user = users.length === 1 ? users[0] : null
   }
+  const signInEventsEnabled = parseBooleanToken(process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS) === true
   const loginEventScope = {
     tenantId: user?.tenantId ? String(user.tenantId) : null,
     organizationId: user?.organizationId ? String(user.organizationId) : null,
@@ -205,7 +206,11 @@ async function handleLoginRequest(req: Request) {
   const loginEmail = parsed.data.email
   const loginUserId = user ? String(user.id) : null
   function emitLoginFailure(reason: string): void {
-    void emitLoginEvent('auth.login.failed', { email: loginEmail, userId: loginUserId, reason }, randomUUID())
+    if (signInEventsEnabled) {
+      void emitLoginEvent('auth.login.failed', { email: loginEmail, userId: loginUserId, reason }, randomUUID())
+    } else if (reason !== 'role_denied') {
+      void emitAuthEvent('auth.login.failed', { email: loginEmail, reason }).catch(() => undefined)
+    }
   }
   // Always verify the password — verifyPassword runs a constant-time bcrypt
   // comparison even when the user is missing or has no hash — so unknown-email,
@@ -328,7 +333,14 @@ async function handleLoginRequest(req: Request) {
       { status: interceptedResponse.statusCode },
     )
   }
-  void emitLoginEvent('auth.login.success', { id: String(user.id), email: user.email }, String(loginSession.id))
+  const successPayload = { id: String(user.id), email: user.email }
+  if (signInEventsEnabled) {
+    void emitLoginEvent('auth.login.success', successPayload, String(loginSession.id))
+  } else {
+    void emitAuthEvent('auth.login.success', {
+      ...successPayload, tenantId: resolvedTenantId, organizationId: loginEventScope.organizationId,
+    }).catch(() => undefined)
+  }
 
   const interceptedBody = interceptedResponse.body
   const authTokenForCookie = typeof interceptedBody.token === 'string' && interceptedBody.token.length > 0

@@ -66,9 +66,31 @@ function makeFormData(data: Record<string, string>) {
 
 describe('POST /api/auth/login with custom route interceptors', () => {
   beforeEach(() => {
+    jest.replaceProperty(process, 'env', { ...process.env, OM_AUTH_SIGN_IN_DURABLE_EVENTS: 'true' })
     registerApiInterceptors([])
     jest.clearAllMocks()
     mockTenantLookup.mockResolvedValue({ id: tenantId })
+  })
+
+  afterEach(() => jest.restoreAllMocks())
+
+  test.each([undefined, 'false'])('preserves legacy login events with durable enrichment set to %s', async (setting) => {
+    if (setting === undefined) delete process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS
+    else process.env.OM_AUTH_SIGN_IN_DURABLE_EVENTS = setting
+    const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
+    const login = () => POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      headers: { 'user-agent': 'Example browser' },
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+
+    expect((await login()).status).toBe(200)
+    authServiceMock.verifyPassword.mockResolvedValueOnce(false)
+    expect((await login()).status).toBe(401)
+    expect(jest.mocked(emitAuthEvent).mock.calls).toEqual([
+      ['auth.login.success', { id: expect.any(String), email: 'user@example.com', tenantId, organizationId: orgId }],
+      ['auth.login.failed', { email: 'user@example.com', reason: 'invalid_password' }],
+    ])
   })
 
   test.each(['inactive', 'soft-deleted', 'missing'])('rejects a correct password for an %s tenant with the generic 401', async () => {

@@ -33,7 +33,9 @@ export async function POST(req: Request) {
   }
 
   try {
-    const verified = await context.mfaVerificationService.verifyRecoveryCode(context.auth.sub, code)
+    const verified = await context.mfaVerificationService.verifyRecoveryCode(context.auth.sub, code, {
+      tenantId: context.auth.tenantId, sessionId: context.auth.sid,
+    })
     if (!verified) {
       return securityApiError(401, 'Invalid recovery code.')
     }

@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { MfaChallenge, UserMfaMethod } from '../data/entities'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
 import { emitSecurityEvent } from '../events'
@@ -6,6 +7,7 @@ import type { MfaService } from './MfaService'
 import type { MfaEnforcementService } from './MfaEnforcementService'
 import type { MfaProviderRuntimeContext, MfaVerifyContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
+import { readSignInActivityConfig } from '../lib/sign-in-activity-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
 import { persistSignInMfaReceipt, reportSignInMfaFailure, type SignInMfaIdentity } from '../lib/sign-in-mfa-receipt'
 import { MFA_ENROLLMENT_REQUIRED_CODE, MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
@@ -275,8 +277,29 @@ export class MfaVerificationService {
     return false
   }
 
-  async verifyRecoveryCode(userId: string, code: string): Promise<boolean> {
-    return this.mfaService.verifyRecoveryCode(userId, code)
+  async verifyRecoveryCode(
+    userId: string,
+    code: string,
+    scope?: Pick<MfaVerificationAuthScope, 'tenantId' | 'sessionId'>,
+  ): Promise<boolean> {
+    const verified = await this.mfaService.verifyRecoveryCode(userId, code)
+    const { tenantId, sessionId } = scope ?? {}
+    if (!verified || !tenantId || !sessionId || !readSignInActivityConfig().enabled) return verified
+
+    try {
+      await this.em.transactional(async (em) => {
+        const challenge = await findOneWithDecryption(em, MfaChallenge, {
+          tenantId, userId, signInAttemptId: sessionId,
+        }, undefined, { tenantId })
+        if (!challenge) return
+        await persistSignInMfaReceipt(em, { tenantId, userId, attemptId: sessionId }, {
+          status: 'verified', challengeId: challenge.id, verifiedAt: new Date(),
+        })
+      })
+    } catch {
+      reportSignInMfaFailure('security.sign_in_mfa_receipt_failed')
+    }
+    return verified
   }
 
   private async getValidChallenge(

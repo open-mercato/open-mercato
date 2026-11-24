@@ -57,4 +57,4 @@ Local runner. Package and production app builds, code generation, monorepo typec
 
 Eleven Playwright scenarios passed across two isolated runs. The manual queue run passed the browser cases and forced rollback/recovery cases. The managed-worker rerun passed role denial and both concurrent MFA completion orders. The first shared-port QA attempt was discarded after a port collision.
 
-Independent review approved after the fixes. [Browser screenshots](https://github.com/open-mercato/open-mercato/pull/10541#issuecomment-7137088184) show the admin list, drawer, and profile history. The spec reports MFA completion through mapped challenges. Sign-ins completed through the separate recovery-code endpoint can still show Pending.
+Independent review approved after the fixes. [Browser screenshots](https://github.com/open-mercato/open-mercato/pull/10541#issuecomment-7137088184) show the admin list, drawer, and profile history. The original verification covered mapped MFA challenges. The review follow-up also projects successful recovery-code completion onto the exact session attempt.
