@@ -214,6 +214,26 @@ describeContainer('Apache Ignite 2.x engine behaviour (container)', () => {
       await service.close!()
     }
   }, 90_000)
+
+  it('bounds a whole namespace scan by scanTimeoutMs on a stalled node', async () => {
+    const namespace = randomNamespace('scanbudget')
+    const service = await open(namespace, { commandTimeoutMs: 20_000, scanTimeoutMs: 1_500, scanPageSize: 16 })
+    const containerId = ignite.container.getId()
+    try {
+      await inCacheTenant('scanbudget', () => Promise.all(Array.from({ length: 64 }, (_, index) => service.set(`k:${index}`, index, { tags: ['budget'] }))))
+      await execFileAsync('docker', ['pause', containerId])
+      const started = Date.now()
+      const failure = await inCacheTenant('scanbudget', () => service.deleteByTags(['absent'])).catch((error: unknown) => error)
+      const elapsed = Date.now() - started
+      expect(failure).toMatchObject({ name: 'CacheProviderError', code: 'timeout' })
+      expect(elapsed).toBeLessThan(5_000)
+      await execFileAsync('docker', ['unpause', containerId])
+      expect(await retry(20, 500, () => inCacheTenant('scanbudget', () => service.deleteByTags(['budget'])))).toBe(64)
+    } finally {
+      await execFileAsync('docker', ['unpause', containerId]).catch(() => undefined)
+      await service.close!()
+    }
+  }, 90_000)
 })
 
 describeContainer('Apache Ignite 2.x restart and reconnect (container)', () => {

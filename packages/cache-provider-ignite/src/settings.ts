@@ -5,6 +5,7 @@ export const DEFAULT_CACHE_NAME_PREFIX = 'om-cache-'
 export const DEFAULT_CONNECT_TIMEOUT_MS = 5_000
 export const DEFAULT_COMMAND_TIMEOUT_MS = 5_000
 export const DEFAULT_SCAN_PAGE_SIZE = 256
+export const DEFAULT_SCAN_TIMEOUT_MS = 120_000
 export const DEFAULT_MUTATION_CONCURRENCY = 16
 export const DEFAULT_CAS_ATTEMPTS = 8
 export const DEFAULT_MAX_VALUE_BYTES = 4 * 1024 * 1024
@@ -40,6 +41,7 @@ export const igniteCacheProviderSettingsSchema = z.strictObject({
   connectTimeoutMs: z.number().int().min(100).max(120_000).default(DEFAULT_CONNECT_TIMEOUT_MS),
   commandTimeoutMs: z.number().int().min(50).max(120_000).default(DEFAULT_COMMAND_TIMEOUT_MS),
   scanPageSize: z.number().int().min(1).max(10_000).default(DEFAULT_SCAN_PAGE_SIZE),
+  scanTimeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_SCAN_TIMEOUT_MS),
   mutationConcurrency: z.number().int().min(1).max(256).default(DEFAULT_MUTATION_CONCURRENCY),
   casAttempts: z.number().int().min(1).max(64).default(DEFAULT_CAS_ATTEMPTS),
   maxValueBytes: z.number().int().min(1024).max(256 * 1024 * 1024).default(DEFAULT_MAX_VALUE_BYTES),
@@ -70,6 +72,7 @@ export function redactIgniteCacheProviderConfig(config: IgniteCacheProviderConfi
     connectTimeoutMs: config.connectTimeoutMs,
     commandTimeoutMs: config.commandTimeoutMs,
     scanPageSize: config.scanPageSize,
+    scanTimeoutMs: config.scanTimeoutMs,
     mutationConcurrency: config.mutationConcurrency,
     casAttempts: config.casAttempts,
     maxValueBytes: config.maxValueBytes,

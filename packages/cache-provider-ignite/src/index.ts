@@ -18,6 +18,7 @@ export {
   DEFAULT_MAX_VALUE_BYTES,
   DEFAULT_MUTATION_CONCURRENCY,
   DEFAULT_SCAN_PAGE_SIZE,
+  DEFAULT_SCAN_TIMEOUT_MS,
   igniteCacheProviderSettingsSchema,
   redactIgniteCacheProviderConfig,
 } from './settings'

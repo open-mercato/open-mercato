@@ -35,6 +35,13 @@ class DeadlineExceededError extends Error {
   }
 }
 
+class ScanBudgetExceededError extends Error {
+  constructor() {
+    super('[internal] scan budget exceeded')
+    this.name = 'ScanBudgetExceededError'
+  }
+}
+
 function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null
   const deadline = new Promise<never>((_, reject) => {
@@ -192,18 +199,31 @@ export function createIgniteConnection(config: IgniteCacheProviderConfig, cacheN
 
   const scan = async (pageSize: number, visit: (key: string, raw: unknown) => Promise<void>): Promise<void> => {
     const current = await acquire()
+    const scanDeadline = Date.now() + config.scanTimeoutMs
+    const pageDeadline = () => {
+      const remaining = scanDeadline - Date.now()
+      if (remaining <= 0) throw new ScanBudgetExceededError()
+      return Math.min(config.commandTimeoutMs, remaining)
+    }
     let cursor: Cursor | null = null
     let exhausted = false
     try {
-      cursor = await withDeadline(current.cache.query(new IgniteClient.ScanQuery().setPageSize(pageSize)), config.commandTimeoutMs)
-      let entry = await withDeadline(cursor.getValue(), config.commandTimeoutMs)
+      cursor = await withDeadline(current.cache.query(new IgniteClient.ScanQuery().setPageSize(pageSize)), pageDeadline())
+      let entry = await withDeadline(cursor.getValue(), pageDeadline())
       while (entry) {
         const key = entry.getKey()
         if (typeof key === 'string') await visit(key, entry.getValue())
-        entry = cursor.hasMore() ? await withDeadline(cursor.getValue(), config.commandTimeoutMs) : null
+        entry = cursor.hasMore() ? await withDeadline(cursor.getValue(), pageDeadline()) : null
       }
       exhausted = true
     } catch (error) {
+      if (error instanceof ScanBudgetExceededError) {
+        throw new CacheProviderError(
+          'timeout',
+          `Cache provider "${IGNITE_PROVIDER_ID}" namespace scan did not complete within scanTimeoutMs (${config.scanTimeoutMs}ms)`,
+          { providerId: IGNITE_PROVIDER_ID },
+        )
+      }
       throw failure(current, 'scan', error)
     } finally {
       if (cursor && !exhausted && current.alive) {
