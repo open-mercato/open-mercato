@@ -349,7 +349,7 @@ describe('catalog price commands record omnibus price history', () => {
   it('restores the ordinary-edit announcement state when an offer price update is undone', async () => {
     const offerId = '88888888-8888-4888-8888-888888888888'
     const record = buildPriceRecord({ offer: { id: offerId } })
-    findOneWithDecryption.mockResolvedValueOnce(record).mockResolvedValueOnce({ isAnnounced: false })
+    findOneWithDecryption.mockResolvedValueOnce(record).mockResolvedValueOnce({ offerId, isAnnounced: false })
     const harness = buildHarness({ existingPrice: record })
     const command = commandById('catalog.prices.update')
     const { before } = await command.prepare({ id: PRICE_ID }, harness.ctx)

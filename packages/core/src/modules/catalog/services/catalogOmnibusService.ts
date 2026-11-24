@@ -496,8 +496,10 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
   }
 
   private async resolveOfferAnchors(em: EntityManager, prepared: PreparedLookup[]): Promise<void> {
-    const needing = prepared.filter(
-      (lookup) => lookup.anchor === null && lookup.offerId !== null && lookup.presentedEntry?.isAnnounced !== false,
+    const needing = prepared.filter(({ anchor, offerId, presentedEntry }) =>
+      anchor === null &&
+      offerId !== null &&
+      !(presentedEntry?.offerId === offerId && presentedEntry.isAnnounced === false),
     )
     if (!needing.length) return
     const misses: Array<{ lookup: PreparedLookup; key: string }> = []

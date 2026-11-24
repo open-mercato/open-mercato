@@ -206,7 +206,9 @@ async function loadPriceSnapshot(
     variantId,
     productId,
     offerId,
-    ...(latestHistory?.isAnnounced === false ? { omnibusAnnounced: false as const } : {}),
+    ...(latestHistory?.offerId === offerId && latestHistory?.isAnnounced === false
+      ? { omnibusAnnounced: false as const }
+      : {}),
     organizationId: record.organizationId,
     tenantId: record.tenantId,
     currencyCode: record.currencyCode,

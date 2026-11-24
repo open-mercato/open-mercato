@@ -375,6 +375,21 @@ describe('catalogOmnibusService worked examples', () => {
     }
   })
 
+  it('retains the offer anchor when its preview falls back to an ordinary non-offer price', async () => {
+    const offerRecordedAt = '2026-05-01T00:00:00.000Z'
+    addRow({ offerId: OFFER, gross: '80.00', recordedAt: offerRecordedAt })
+    const fallback = addRow({ gross: '100.00', recordedAt: '2026-04-20T00:00:00.000Z' })
+
+    const result = await buildService().computeLowestPrice(
+      em,
+      { ...ctx(), offerId: OFFER },
+      omnibusConfigSchema.parse(baseConfig()),
+      presentedFrom(fallback),
+    )
+
+    expect(result.promotionAnchorAt).toBe(offerRecordedAt)
+  })
+
   it('E6 — insufficient history reports the lowest and the oldest in-window rows separately', async () => {
     addRow({ gross: '95.00', recordedAt: '2026-06-02T00:00:00.000Z' })
     addRow({ gross: '90.00', recordedAt: '2026-06-05T00:00:00.000Z' })

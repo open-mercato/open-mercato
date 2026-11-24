@@ -383,7 +383,7 @@ function computeLowestPrice(em, ctx, config, presentedEntry):
   lookbackDays = channelConfig?.lookbackDays ?? config.lookbackDays ?? 30
   axis = channelConfig?.minimizationAxis ?? config.minimizationAxis ?? 'gross'
   offerId = ctx.offerId ?? presentedEntry?.offerId
-  firstOffer = offerId and presentedEntry?.isAnnounced !== false ? fetchFirstOfferEntry(offerId) : null
+  firstOffer = offerId and !(presentedEntry?.offerId == offerId and presentedEntry.isAnnounced === false) ? fetchFirstOfferEntry(offerId) : null
   if offerId and firstOffer and channelConfig?.progressiveReductionRule:           # M6: gate on the derived offerId (ctx OR presented)
       r = resolveProgressive(em, ctx, firstOffer, axis, lookbackDays); if r: return r   # else fall through
   p = resolvePerishable(em, ctx, channelConfig, lookbackDays, axis); if p: return p
