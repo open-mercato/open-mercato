@@ -1,6 +1,10 @@
 # Lessons
 
+<<<<<<< HEAD
 This catalog indexes 191 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+=======
+This catalog indexes 198 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+>>>>>>> 2a0fb15d03 (fix(deps): patch Hono middleware bypass vulnerabilities (#9471))
 
 ## How to use this catalog
 
@@ -19,6 +23,15 @@ This catalog indexes 191 focused lessons. Route the task first, then read only r
 ## Catalog
 
 - [Inspect all test reporters before classifying a truncated run](lessons/inspect-all-test-reporters-before-classifying-truncation.md) — area:testing,debugging; module:create_app; topic:validation-evidence,test-reporters,timeouts,test-prerequisites
+<<<<<<< HEAD
+=======
+
+- [Preserve peer resolution when copying test dependencies](lessons/preserve-peer-resolution-when-copying-test-dependencies.md) — area:testing,debugging; module:platform; topic:package-runtime,worktrees,peer-dependencies,lockfile
+
+- [Queue triage stops do not complete a fix quota](lessons/queue-triage-stops-do-not-complete-a-fix-quota.md) — area:ai-workflow; module:platform; topic:autofix,triage,completion
+
+- [Redact URL authority credentials before telemetry export](lessons/redact-url-authority-credentials-before-telemetry-export.md) — area:architecture,testing; module:telemetry; topic:network-security,telemetry,testing
+>>>>>>> 2a0fb15d03 (fix(deps): patch Hono middleware bypass vulnerabilities (#9471))
 
 - [Replay covers SDK preprocessing and trial state](lessons/replay-covers-sdk-preprocessing-and-trial-state.md) — area:ai-workflow,testing; module:agent_orchestrator,ai_assistant; topic:offline-replay,fixtures,sdk-preprocessing,file-io
 
