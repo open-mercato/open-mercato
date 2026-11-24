@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       locale,
       tenantId,
       organizationId,
-    })
+    }, { container })
 
     // Always return 200 with the validation result
     // The client can check canStart to determine if workflow can proceed

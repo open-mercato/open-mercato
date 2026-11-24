@@ -60,7 +60,8 @@ import type {
   WorkflowActivityJob,
   WorkflowActivityJobResumeSubWorkflowParent,
 } from './activity-queue-types'
-import type { TransitionExecutionResult } from './transition-handler'
+import type { TransitionEvaluationContext, TransitionExecutionResult } from './transition-handler'
+import type { WorkflowRuleContainer } from './named-rules'
 
 import { assertTrustedEventTriggerIdentity } from './event-trigger-identity'
 
@@ -193,7 +194,8 @@ export class WorkflowExecutionError extends Error {
  */
 export async function startWorkflow(
   em: EntityManager,
-  options: StartWorkflowOptions
+  options: StartWorkflowOptions,
+  container?: WorkflowRuleContainer | null,
 ): Promise<WorkflowInstance> {
   const {
     workflowId,
@@ -280,7 +282,7 @@ export async function startWorkflow(
       context: initialContext,
       tenantId,
       organizationId,
-    })
+    }, { container, skipActions: isDryRun })
 
     if (!validationResult.canStart) {
       throw new WorkflowExecutionError(
@@ -640,7 +642,8 @@ export async function executeWorkflow(
         }
 
         const transitionHandler = await import('./transition-handler')
-        const evalContext: any = {
+        const evalContext: TransitionEvaluationContext = {
+          container,
           workflowContext: currentInstance.context,
           userId: executionUserId,
         }

@@ -44,7 +44,7 @@ describe('Transition Handler (Unit Tests)', () => {
 
     // Create mock DI Container
     mockContainer = {
-      resolve: jest.fn(),
+      resolve: jest.fn((name: string) => name === 'ruleEngine' ? ruleEngine : undefined),
     } as any
 
     // Create mock workflow instance
@@ -482,6 +482,7 @@ describe('Transition Handler (Unit Tests)', () => {
       expect(result.nextStepId).toBe('step-2')
       expect(result.conditionsEvaluated?.preConditions).toBe(true)
       expect(result.conditionsEvaluated?.postConditions).toBe(true)
+      expect(mockContainer.resolve).not.toHaveBeenCalledWith('ruleEngine', expect.anything())
       expect(mockEm.flush).toHaveBeenCalled()
     })
 
@@ -948,6 +949,105 @@ describe('Transition Handler (Unit Tests)', () => {
   // ============================================================================
 
   describe('Business Rules Integration', () => {
+    test.each([
+      ['preConditions', true, false, 'TRANSITION_REJECTED'],
+      ['preConditions', false, true, 'TRANSITION_EXECUTED'],
+      ['postConditions', false, true, 'TRANSITION_POST_CONDITION_FAILED'],
+    ] as const)('handles unavailable %s in its own phase (required: %s)', async (
+      phase, required, success, eventType,
+    ) => {
+      mockContainer.resolve.mockReturnValue(undefined)
+      const definition = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [{
+            fromStepId: 'step-1',
+            toStepId: 'step-2',
+            [phase]: [{ ruleId: 'unavailable-rule', required }],
+          }],
+        },
+      }
+      mockEm.findOne.mockResolvedValue(definition)
+      const candidates = await transitionHandler.findValidTransitions(
+        mockEm, mockInstance, 'step-1', { container: mockContainer, workflowContext: {} },
+      )
+      expect(candidates[0]?.isValid).toBe(phase === 'postConditions' || success)
+      mockEm.create.mockReturnValue(new WorkflowEvent())
+      const result = await transitionHandler.executeTransition(
+        mockEm, mockContainer, mockInstance, 'step-1', 'step-2', { workflowContext: {} },
+      )
+      expect(result.success).toBe(success)
+      expect(ruleEngine.executeRuleByRuleId).not.toHaveBeenCalled()
+      expect(mockEm.create).toHaveBeenCalledWith(WorkflowEvent, expect.objectContaining({ eventType }))
+    })
+
+    test.each([
+      ['preConditions', 'pre_transition', false],
+      ['postConditions', 'post_transition', true],
+    ] as const)('uses the phase failure path when the %s provider rejects', async (phase, eventType, success) => {
+      const definition = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [{
+            fromStepId: 'step-1',
+            toStepId: 'step-2',
+            [phase]: [{ ruleId: 'faulty-rule', required: false }],
+          }],
+        },
+      }
+      mockEm.findOne.mockResolvedValue(definition)
+      mockEm.create.mockReturnValue(new WorkflowEvent())
+      jest.mocked(ruleEngine.executeRuleByRuleId).mockRejectedValueOnce(new Error('Rule evaluation failed'))
+
+      const result = await transitionHandler.executeTransition(
+        mockEm, mockContainer, mockInstance, 'step-1', 'step-2', { workflowContext: {} },
+      )
+      expect(result.success).toBe(success)
+      expect(ruleEngine.executeRuleByRuleId).toHaveBeenCalledWith(mockEm, expect.objectContaining({ eventType }))
+      expect(result.conditionsEvaluated).toEqual({ preConditions: success, postConditions: false })
+    })
+
+    test('evaluates both phases of a dry run without running rule actions', async () => {
+      mockInstance.isDryRun = true
+      const definition = {
+        ...mockDefinition,
+        definition: {
+          ...mockDefinition.definition,
+          transitions: [{
+            fromStepId: 'step-1',
+            toStepId: 'step-2',
+            preConditions: [{ ruleId: 'passing-pre-rule' }],
+            postConditions: [{ ruleId: 'passing-post-rule' }],
+          }],
+        },
+      }
+      mockEm.findOne.mockResolvedValue(definition)
+      mockEm.create.mockReturnValue(new WorkflowEvent())
+      const passed = {
+        success: true, ruleName: 'Passed', conditionResult: true, actionsExecuted: null, executionTime: 1,
+      }
+      jest.mocked(ruleEngine.executeRuleByRuleId)
+        .mockResolvedValueOnce({ ...passed, ruleId: 'passing-pre-rule' })
+        .mockResolvedValueOnce({ ...passed, ruleId: 'passing-post-rule' })
+
+      const result = await transitionHandler.executeTransition(
+        mockEm, mockContainer, mockInstance, 'step-1', 'step-2', { workflowContext: {}, userId: 'actor' },
+      )
+      expect(result.success).toBe(true)
+      for (const eventType of ['pre_transition', 'post_transition']) {
+        expect(ruleEngine.executeRuleByRuleId).toHaveBeenCalledWith(mockEm, expect.objectContaining({
+          eventType,
+          executedBy: 'actor',
+          user: { id: 'actor' },
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+          skipActions: true,
+        }))
+      }
+    })
+
     test('should call rule engine for pre-conditions with correct entityType', async () => {
       // Create a definition with preConditions
       const definitionWithPreConditions = {
