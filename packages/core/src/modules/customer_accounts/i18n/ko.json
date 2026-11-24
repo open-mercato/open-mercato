@@ -107,6 +107,7 @@
   "customer_accounts.admin.error.toggleActive": "사용자 상태 업데이트에 실패했습니다",
   "customer_accounts.admin.errors.insufficientPermissions": "권한이 부족합니다",
   "customer_accounts.admin.errors.organizationNotFound": "조직을 찾을 수 없습니다",
+  "customer_accounts.admin.errors.organizationSelectionRejected": "선택한 조직을 사용할 수 없습니다. 조직을 선택한 후 다시 시도하세요.",
   "customer_accounts.admin.filters.active": "활성",
   "customer_accounts.admin.filters.inactive": "비활성",
   "customer_accounts.admin.filters.role": "역할",

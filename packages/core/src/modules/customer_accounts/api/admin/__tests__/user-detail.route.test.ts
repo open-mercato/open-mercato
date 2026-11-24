@@ -299,6 +299,47 @@ describe('admin customer-user detail routes — target organization scope', () =
     expect(res.status).toBe(200)
     expect(mockRbac.userHasAllFeatures).toHaveBeenCalledTimes(1)
   })
+
+  describe('when the organization switcher selection was rejected', () => {
+    beforeEach(() => {
+      // The resolver refused the explicit selection and fell back to a scope that
+      // still contains the target user organization.
+      mockResolveOrganizationScope.mockResolvedValue({ ...organizationScope([foreignOrgId]), selectionRejected: true })
+    })
+
+    it('returns 403 before looking up or updating the user (PUT)', async () => {
+      const res = await PUT(
+        buildMethodRequest('PUT', { displayName: 'Fallback-scope overwrite' }),
+        { params: { id: userId } },
+      )
+
+      expect(res.status).toBe(403)
+      expect(mockEmFindOne).not.toHaveBeenCalled()
+      expect(mockUpdateProfile).not.toHaveBeenCalled()
+      expect(mockEmNativeUpdate).not.toHaveBeenCalled()
+      expect(mockEmNativeDelete).not.toHaveBeenCalled()
+      expect(mockEmCreate).not.toHaveBeenCalled()
+      expect(mockEmFlush).not.toHaveBeenCalled()
+      expect(mockInvalidateUserCache).not.toHaveBeenCalled()
+      expect(mockEmit).not.toHaveBeenCalled()
+    })
+
+    it('returns 403 before looking up or deleting the user (DELETE)', async () => {
+      const res = await DELETE(buildMethodRequest('DELETE'), { params: { id: userId } })
+
+      expect(res.status).toBe(403)
+      expect(mockEmFindOne).not.toHaveBeenCalled()
+      expect(mockSoftDelete).not.toHaveBeenCalled()
+      expect(mockRevokeAllUserSessions).not.toHaveBeenCalled()
+      expect(mockEmit).not.toHaveBeenCalled()
+    })
+
+    it('still reads the user within the fallback scope (GET)', async () => {
+      const res = await GET(buildMethodRequest('GET'), { params: { id: userId } })
+
+      expect(res.status).toBe(200)
+    })
+  })
 })
 
 describe('admin PUT /api/customer_accounts/admin/users/[id] — scoped role + company ownership', () => {

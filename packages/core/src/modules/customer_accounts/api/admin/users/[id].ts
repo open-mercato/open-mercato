@@ -139,6 +139,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     em,
     userId: params.id,
     requiredFeatures: ['customer_accounts.manage'],
+    mutation: true,
   })
   if (!lookup.ok) return lookup.response
   const user = lookup.user
@@ -288,6 +289,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     em,
     userId: params.id,
     requiredFeatures: ['customer_accounts.manage'],
+    mutation: true,
   })
   if (!lookup.ok) return lookup.response
   const user = lookup.user
@@ -327,7 +329,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 const roleSchema = z.object({ id: z.string().uuid(), name: z.string(), slug: z.string() })
 const userDetailSchema = z.object({
   id: z.string().uuid(),
-  organizationId: z.string().uuid(),
+  organizationId: z.string().uuid().optional(),
   email: z.string(),
   displayName: z.string(),
   emailVerified: z.boolean(),

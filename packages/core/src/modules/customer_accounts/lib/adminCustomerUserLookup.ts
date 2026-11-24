@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { AwilixContainer } from 'awilix'
+import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -23,6 +24,10 @@ export type AdminScopedCustomerUserLookup =
  * caller's home organization, `requiredFeatures` are re-checked against the user's
  * own organization and a missing grant answers 403 — the same cross-organization
  * rule `POST /admin/users` and `GET /admin/roles` apply.
+ *
+ * Pass `mutation: true` from write routes: when the organization switcher selection
+ * was rejected by the resolver, the write answers 403 before any record lookup instead
+ * of silently running within the resolver fallback scope. Reads keep the fallback.
  */
 export async function findAdminScopedCustomerUser({
   container,
@@ -31,6 +36,7 @@ export async function findAdminScopedCustomerUser({
   em,
   userId,
   requiredFeatures,
+  mutation = false,
 }: {
   container: AwilixContainer
   auth: NonNullable<AuthContext>
@@ -38,6 +44,7 @@ export async function findAdminScopedCustomerUser({
   em: EntityManager
   userId: string
   requiredFeatures: string[]
+  mutation?: boolean
 }): Promise<AdminScopedCustomerUserLookup> {
   const notFound = (): AdminScopedCustomerUserLookup => ({
     ok: false,
@@ -45,7 +52,23 @@ export async function findAdminScopedCustomerUser({
   })
   if (!auth.tenantId) return notFound()
   const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request })
-  const where: Record<string, unknown> = {
+  if (mutation && organizationScope.selectionRejected) {
+    const { translate } = await resolveTranslations()
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          ok: false,
+          error: translate(
+            'customer_accounts.admin.errors.organizationSelectionRejected',
+            'The selected organization is not available. Select an organization and try again.',
+          ),
+        },
+        { status: 403 },
+      ),
+    }
+  }
+  const where: FilterQuery<CustomerUser> = {
     id: userId,
     tenantId: auth.tenantId,
     deletedAt: null,
@@ -57,7 +80,7 @@ export async function findAdminScopedCustomerUser({
   const user = await findOneWithDecryption(
     em,
     CustomerUser,
-    where as any,
+    where,
     undefined,
     { tenantId: auth.tenantId, organizationId: auth.orgId },
   )

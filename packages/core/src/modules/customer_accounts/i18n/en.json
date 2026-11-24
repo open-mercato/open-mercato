@@ -107,6 +107,7 @@
   "customer_accounts.admin.error.toggleActive": "Failed to update user status",
   "customer_accounts.admin.errors.insufficientPermissions": "Insufficient permissions",
   "customer_accounts.admin.errors.organizationNotFound": "Organization not found",
+  "customer_accounts.admin.errors.organizationSelectionRejected": "The selected organization is not available. Select an organization and try again.",
   "customer_accounts.admin.filters.active": "Active",
   "customer_accounts.admin.filters.inactive": "Inactive",
   "customer_accounts.admin.filters.role": "Role",

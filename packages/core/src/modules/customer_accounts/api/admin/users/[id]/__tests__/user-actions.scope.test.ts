@@ -156,4 +156,26 @@ describe('admin customer-user actions — target organization scope', () => {
     expect(mockEmNativeUpdate).not.toHaveBeenCalled()
     expect(mockEmit).not.toHaveBeenCalled()
   })
+
+  it('returns 403 before creating a reset token when the organization selection was rejected', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({ ...organizationScope([foreignOrgId]), selectionRejected: true })
+
+    const res = await sendResetLink(buildRequest('send-reset-link'), { params: { id: userId } })
+
+    expect(res.status).toBe(403)
+    expect(mockEmFindOne).not.toHaveBeenCalled()
+    expect(mockCreatePasswordReset).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
+
+  it('returns 403 before verifying the email when the organization selection was rejected', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({ ...organizationScope([foreignOrgId]), selectionRejected: true })
+
+    const res = await verifyEmail(buildRequest('verify-email'), { params: { id: userId } })
+
+    expect(res.status).toBe(403)
+    expect(mockEmFindOne).not.toHaveBeenCalled()
+    expect(mockEmNativeUpdate).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+  })
 })

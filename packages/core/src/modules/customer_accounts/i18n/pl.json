@@ -107,6 +107,7 @@
   "customer_accounts.admin.error.toggleActive": "Nie udało się zmienić statusu użytkownika",
   "customer_accounts.admin.errors.insufficientPermissions": "Niewystarczające uprawnienia",
   "customer_accounts.admin.errors.organizationNotFound": "Nie znaleziono organizacji",
+  "customer_accounts.admin.errors.organizationSelectionRejected": "Wybrana organizacja jest niedostępna. Wybierz organizację i spróbuj ponownie.",
   "customer_accounts.admin.filters.active": "Aktywny",
   "customer_accounts.admin.filters.inactive": "Nieaktywny",
   "customer_accounts.admin.filters.role": "Rola",

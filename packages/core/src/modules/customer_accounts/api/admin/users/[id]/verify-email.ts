@@ -32,6 +32,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     em,
     userId: params.id,
     requiredFeatures: ['customer_accounts.manage'],
+    mutation: true,
   })
   if (!lookup.ok) return lookup.response
   const user = lookup.user

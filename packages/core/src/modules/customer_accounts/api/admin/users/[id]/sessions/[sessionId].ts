@@ -44,6 +44,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string; s
     em,
     userId,
     requiredFeatures: ['customer_accounts.manage'],
+    mutation: true,
   })
   if (!lookup.ok) return lookup.response
   const user = lookup.user
