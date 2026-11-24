@@ -38,9 +38,9 @@ yarn workspace @open-mercato/cache-provider-azure-managed-redis test:live
 Behaviour:
 
 - No profile requested → the live suite is skipped.
-- Missing variables → one test records `blocked` evidence and prints the **names** of the missing variables only.
-- Identity/network/TLS failure in the readiness probe → evidence `blocked` with a stable code (e.g. `cache-provider:unavailable`); live tests are counted as not run; the profile stays unverified.
-- Ready → readiness probe + the full v1 conformance kit in an isolated namespace; per-test totals are written to evidence.
+- Missing variables, or an endpoint that is not reachable from the runner (DNS, refused/unreachable, timeout — checked while jest collects the tests) → every live test is registered as **skipped** (never reported as passed); evidence `blocked` with `missing:<names>` or `network:<dns|unreachable|timeout>`; only variable **names** are printed.
+- Readiness probe failure → every live test **fails** (the run is never green). Evidence `blocked` only when the environment turned out unavailable (`credentials:unavailable` from the identity source, `network:*`); `failed` for anything else, e.g. `cache-provider:invalid_settings`, `auth:WRONGPASS`/`auth:NOAUTH`/`auth:NOPERM` from a reachable endpoint, TLS verification errors.
+- Ready → readiness probe + the full v1 conformance kit in an isolated namespace; per-test totals are written to evidence, and `passed` requires every test to have run and passed.
 
 Additional drills to run and record manually in the same job (each requires approval): token refresh across a live connection older than one token lifetime, reconnect after a forced client disconnect, denied credential (identity without data access), graceful shutdown, log redaction of a failing run.
 

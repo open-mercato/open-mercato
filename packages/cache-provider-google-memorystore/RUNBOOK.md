@@ -33,9 +33,9 @@ Identity: Application Default Credentials of the job (workload identity federati
 yarn workspace @open-mercato/cache-provider-google-memorystore test:live
 ```
 
-- No profile → skipped. Missing variables → `blocked` evidence naming missing variable **names** only.
-- Readiness probe failure (ADC, permission, network, TLS) → `blocked` with a stable code; live tests not run; profile stays unverified.
-- Ready → probe + full v1 conformance kit in an isolated namespace; per-test totals recorded.
+- No profile → skipped. Missing variables or an endpoint unreachable from the runner (DNS, refused/unreachable, timeout; checked at test collection) → every live test registered as **skipped**, never passed; `blocked` evidence with `missing:<names>` or `network:<kind>` (variable **names** only).
+- Readiness probe failure → every live test **fails** (never green). Evidence `blocked` only for an unavailable environment (`credentials:unavailable`, `network:*`); `failed` for settings errors, auth rejections from a reachable endpoint (`auth:WRONGPASS`/`auth:NOAUTH`/`auth:NOPERM`), TLS verification errors and anything else.
+- Ready → probe + full v1 conformance kit in an isolated namespace; per-test totals recorded; `passed` only when every test ran and passed.
 
 Manual drills (approval required): connections older than one token lifetime keep working (re-AUTH), new shard connections after a scale-out authenticate, identity without the connect role is denied, failover, redaction of failing output. Confirm the server certificate is verified with the configured name on every shard.
 

@@ -35,9 +35,9 @@ AWS credentials: the job's role via OIDC federation or instance/task role (SDK d
 yarn workspace @open-mercato/cache-provider-aws-elasticache test:live
 ```
 
-- No profile → skipped. Missing variables → `blocked` evidence naming missing variable **names** only.
-- Readiness probe failure (credentials, network, TLS, `WRONGPASS`) → `blocked` with a stable code; live tests not run; profile stays unverified.
-- Ready → probe + full v1 conformance kit in an isolated namespace; per-test totals recorded.
+- No profile → skipped. Missing variables or an endpoint unreachable from the runner (DNS, refused/unreachable, timeout; checked at test collection) → every live test registered as **skipped**, never passed; `blocked` evidence with `missing:<names>` or `network:<kind>` (variable **names** only).
+- Readiness probe failure → every live test **fails** (never green). Evidence `blocked` only for an unavailable environment (`credentials:unavailable`, `network:*`); `failed` for settings errors, auth rejections from a reachable endpoint (`auth:WRONGPASS`/`auth:NOAUTH`/`auth:NOPERM`), TLS verification errors and anything else.
+- Ready → probe + full v1 conformance kit in an isolated namespace; per-test totals recorded; `passed` only when every test ran and passed.
 
 Manual drills (approval required): connection older than the 15-minute token lifetime keeps working (re-AUTH), reconnect after forced disconnect, user without `elasticache:Connect` is denied, failover to a new primary, redaction of failing output.
 

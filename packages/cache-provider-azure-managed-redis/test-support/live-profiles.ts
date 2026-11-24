@@ -12,6 +12,9 @@ export const LIVE_PROFILES: LiveProfile[] = [
     description: 'Azure Managed Redis, Non-clustered policy, Microsoft Entra authentication, TLS',
     required: ['OM_CACHE_LIVE_AZURE_HOST', 'OM_CACHE_LIVE_AZURE_IDENTITY'],
     optional: ['OM_CACHE_LIVE_AZURE_PORT', 'OM_CACHE_LIVE_AZURE_CLIENT_ID', 'OM_CACHE_LIVE_AZURE_OBJECT_ID', 'OM_CACHE_LIVE_AZURE_CA_FILE'],
+    endpoint(env) {
+      return { host: env.OM_CACHE_LIVE_AZURE_HOST!.trim(), port: optionalNumber(env, 'OM_CACHE_LIVE_AZURE_PORT') ?? 10_000 }
+    },
     settings(env) {
       const port = optionalNumber(env, 'OM_CACHE_LIVE_AZURE_PORT')
       const caFile = env.OM_CACHE_LIVE_AZURE_CA_FILE?.trim()

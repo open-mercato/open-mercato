@@ -12,6 +12,9 @@ export const LIVE_PROFILES: LiveProfile[] = [
     description: 'Amazon ElastiCache, node-based Valkey, cluster mode disabled, IAM authentication, TLS',
     required: ['OM_CACHE_LIVE_AWS_PRIMARY_HOST', 'OM_CACHE_LIVE_AWS_USER_ID', 'OM_CACHE_LIVE_AWS_REPLICATION_GROUP_ID', 'OM_CACHE_LIVE_AWS_REGION'],
     optional: ['OM_CACHE_LIVE_AWS_PORT', 'OM_CACHE_LIVE_AWS_CA_FILE'],
+    endpoint(env) {
+      return { host: env.OM_CACHE_LIVE_AWS_PRIMARY_HOST!.trim(), port: optionalNumber(env, 'OM_CACHE_LIVE_AWS_PORT') ?? 6379 }
+    },
     settings(env) {
       const port = optionalNumber(env, 'OM_CACHE_LIVE_AWS_PORT')
       const caFile = env.OM_CACHE_LIVE_AWS_CA_FILE?.trim()

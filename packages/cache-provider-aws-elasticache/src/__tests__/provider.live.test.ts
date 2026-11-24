@@ -1,10 +1,10 @@
 import path from 'node:path'
 import { defineLiveProviderHarness } from '@open-mercato/cache-provider-managed-kit/testing/live'
-import { createAwsElastiCacheProvider } from '../index'
+import { awsElastiCacheCacheProviderRegistration } from '../index'
 import { LIVE_PROFILES } from '../../test-support/live-profiles'
 
 defineLiveProviderHarness({
   packageDir: path.resolve(__dirname, '../..'),
-  provider: createAwsElastiCacheProvider(),
+  registration: awsElastiCacheCacheProviderRegistration,
   profiles: LIVE_PROFILES,
 })
