@@ -29,6 +29,8 @@ export type TimePickerProps = {
    * pin one regardless of locale.
    */
   format?: TimeFormat
+  /** Opt in when the picker renders inside a Dialog, so the slot list stays scrollable. */
+  popoverModal?: boolean
 }
 
 function currentHHMM(): string {
@@ -62,6 +64,7 @@ export function TimePicker({
   // you need an explicit "set value to null" action distinct from "dismiss".
   showClearButton = false,
   format,
+  popoverModal = false,
 }: TimePickerProps) {
   const t = useT()
   const localeFormat = useTimeDisplayFormat()
@@ -160,6 +163,7 @@ export function TimePicker({
       open={open}
       onOpenChange={setOpen}
       disabled={disabled}
+      popoverModal={popoverModal}
     />
   )
 }

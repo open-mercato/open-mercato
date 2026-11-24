@@ -373,6 +373,7 @@ export function ComboboxInput({
       if (event.key === 'ArrowDown') {
         event.preventDefault()
         if (!showSuggestions) {
+          setTouched(true)
           setShowSuggestions(true)
           setSelectedIndex(0)
         } else {
@@ -459,11 +460,11 @@ export function ComboboxInput({
             aria-required={ariaRequired}
             aria-activedescendant={listboxVisible && selectedIndex >= 0 ? optionDomId(selectedIndex) : undefined}
             onFocus={() => {
-              setTouched(true)
               if (suppressOpenOnFocusRef.current) {
                 suppressOpenOnFocusRef.current = false
                 return
               }
+              setTouched(true)
               resetBlurCloseState()
               if (loadSuggestions && availableOptions.length === 0) {
                 setLoading(true)

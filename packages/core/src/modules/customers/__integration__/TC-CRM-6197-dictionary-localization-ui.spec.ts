@@ -121,13 +121,11 @@ test.describe('TC-CRM-6197: Customer dictionary translation browser flow', () =>
     await page.getByRole('tab', { name: 'PL', exact: true }).click()
     const translationInput = translationRow.getByPlaceholder(baseLabel, { exact: true })
     const table = page.getByRole('table').filter({ has: translationRow })
-    const scroll = await table.evaluate((element) => {
+    const layout = await table.evaluate((element) => {
       const viewport = element.parentElement!
-      viewport.scrollLeft = viewport.scrollWidth
-      return { width: viewport.clientWidth, contentWidth: viewport.scrollWidth, left: viewport.scrollLeft }
+      return { width: viewport.clientWidth, contentWidth: viewport.scrollWidth }
     })
-    expect(scroll.contentWidth).toBeGreaterThan(scroll.width)
-    expect(scroll.left).toBeGreaterThan(0)
+    expect(layout.contentWidth).toBe(layout.width)
     await translationInput.fill(polishLabel)
     await expect(translationInput).toHaveValue(polishLabel)
     await expect(translationInput).toBeInViewport({ ratio: 1 })

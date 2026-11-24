@@ -51,19 +51,15 @@ jest.mock('../AppearanceSelector', () => ({
 jest.mock('../dictionaryAppearance', () => ({
   DictionaryValue: ({ value }: { value: string }) => <span>{value}</span>,
 }))
-jest.mock('@open-mercato/core/modules/translations/components/TranslationManager', () => ({
-  TranslationManager: () => null,
-}))
 
-// Every entry row has three icon-only buttons. Two of them had no accessible
-// name at all, and the third was named "Translate" on every row.
+// The edit and delete icon buttons had no accessible name at all. The injected
+// Translate action is covered by TranslationActionHosts.test.tsx.
 describe('DictionaryEntriesEditor row actions', () => {
   it('names each action after the entry it acts on', () => {
     render(<DictionaryEntriesEditor dictionaryId="dict-roles" dictionaryName="Roles" />)
 
     const row = screen.getByRole('row', { name: /budget_holder/ })
     expect(within(row).getByRole('button', { name: 'Edit Budget holder' })).toBeInTheDocument()
-    expect(within(row).getByRole('button', { name: 'Translate Budget holder' })).toBeInTheDocument()
     expect(within(row).getByRole('button', { name: 'Delete Budget holder' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Edit End user' })).toBeInTheDocument()
   })
