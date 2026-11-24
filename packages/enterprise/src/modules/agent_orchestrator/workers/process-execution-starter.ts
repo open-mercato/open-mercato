@@ -7,6 +7,7 @@ import { ProcessDefinition, ProcessInstance } from '../data/entities'
 import { emitAgentOrchestratorEvent } from '../events'
 import { AGENT_ORCHESTRATOR_PROCESS_EXECUTION_QUEUE } from '../lib/queue'
 import { parseProcessTriggers, scheduleTriggers } from '../lib/tasks/triggers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('agent_orchestrator').child({ worker: 'process-execution-starter' })
@@ -56,6 +57,13 @@ type ProcessExecutionJobPayload = {
 function parseTriggeredByUser(triggeredBy: ProcessInstance['triggeredBy']): string | null {
   if (!triggeredBy || triggeredBy.kind !== 'manual') return null
   return triggeredBy.ref ?? null
+}
+
+function tryResolveWorkflowExecutor(
+  container: Awaited<ReturnType<typeof createRequestContainer>>,
+): WorkflowExecutorLike | null {
+  if (!container.hasRegistration('workflowExecutor')) return null
+  return (container.resolve('workflowExecutor') as WorkflowExecutorLike | null) ?? null
 }
 
 /**
@@ -179,7 +187,16 @@ export default async function handle(job: QueuedJob<ProcessExecutionJobPayload>,
     return
   }
 
-  const workflowExecutor = container.resolve('workflowExecutor') as WorkflowExecutorLike
+  const workflowExecutor = tryResolveWorkflowExecutor(container)
+  if (!workflowExecutor) {
+    const { t } = await resolveTranslations()
+    await failBeforeStart(
+      em,
+      decrypted,
+      t('agent_orchestrator.errors.workflowsModuleDisabled', 'Workflows module is not enabled'),
+    )
+    return
+  }
 
   // The workflow definition owns the EXECUTION identity: core provisions a
   // least-privilege principal from its `grantedFeatures` and every run acts as

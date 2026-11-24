@@ -34,6 +34,7 @@ type Props = {
   showHeader?: boolean
   compact?: boolean
   readOnly?: boolean
+  hideWhenUnavailable?: boolean
   onChanged?: () => void
 }
 
@@ -46,6 +47,7 @@ function AttachmentsSectionImpl({
   showHeader = true,
   compact = false,
   readOnly = false,
+  hideWhenUnavailable = false,
   onChanged,
 }: Props) {
   const t = useT()
@@ -57,6 +59,7 @@ function AttachmentsSectionImpl({
   const [hasMore, setHasMore] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [unavailableRecordId, setUnavailableRecordId] = React.useState<string | null>(null)
   const [isUploading, setIsUploading] = React.useState(false)
   const [isDragOver, setIsDragOver] = React.useState(false)
   const [metadataOpen, setMetadataOpen] = React.useState(false)
@@ -82,6 +85,11 @@ function AttachmentsSectionImpl({
         undefined,
         { fallback: { items: [] } },
       )
+      if (hideWhenUnavailable && replace && call.status === 404) {
+        setUnavailableRecordId(recordId)
+        return
+      }
+      setUnavailableRecordId(null)
       if (!call.ok) {
         const message = call.result?.error || t('attachments.library.errors.load', 'Failed to load attachments.')
         throw new Error(message)
@@ -110,7 +118,7 @@ function AttachmentsSectionImpl({
     } finally {
       setLoading(false)
     }
-  }, [entityId, recordId, t])
+  }, [entityId, hideWhenUnavailable, recordId, t])
 
   React.useEffect(() => {
     if (recordId) {
@@ -246,6 +254,8 @@ function AttachmentsSectionImpl({
   )
 
   const sectionTitle = title ?? t('attachments.library.title', 'Attachments')
+
+  if (hideWhenUnavailable && recordId && unavailableRecordId === recordId) return null
 
   return (
     <div className={cn('space-y-4', className)}>

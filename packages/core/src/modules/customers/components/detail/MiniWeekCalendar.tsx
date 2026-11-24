@@ -7,8 +7,10 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { InteractionSummary } from './types'
 import { loadLegacyActivitiesInRange } from './legacyActivities'
+import { isCanceledInteractionStatus, isTerminalInteractionStatus } from '../../lib/interactionStatus'
 import { isSameDay } from '../../lib/localDay'
 
 interface MiniWeekCalendarProps {
@@ -271,13 +273,23 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
           {summaryEvents.map(({ event, dayLabel, isToday: isActiveDay }) => {
             const dateStr = event.scheduledAt ?? event.occurredAt ?? event.createdAt
             const time = dateStr ? new Date(dateStr).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''
+            const isCanceled = isCanceledInteractionStatus(event.status)
             return (
               <div key={event.id} className="flex items-center gap-2 text-xs">
                 <span className={cn('size-1.5 rounded-full shrink-0', INTERACTION_TYPE_COLORS[event.interactionType] ?? (isActiveDay ? INTERACTION_TYPE_FALLBACK_COLOR : 'bg-muted-foreground'))} />
                 <span className="font-semibold text-muted-foreground shrink-0">
                   {dayLabel}{time}
                 </span>
-                <span className="truncate">{event.title ?? event.body ?? event.interactionType}</span>
+                <span className={cn('min-w-0 truncate', isCanceled && 'text-muted-foreground line-through')}>
+                  {event.title ?? event.body ?? event.interactionType}
+                </span>
+                {isTerminalInteractionStatus(event.status) ? (
+                  <StatusBadge variant={isCanceled ? 'neutral' : 'success'} className="shrink-0">
+                    {isCanceled
+                      ? t('customers.interactions.status.canceled', 'Canceled')
+                      : t('customers.interactions.status.done', 'Done')}
+                  </StatusBadge>
+                ) : null}
               </div>
             )
           })}
