@@ -145,8 +145,9 @@ anything else compiles or is reachable. High-level shape:
 - **These decimal columns are a recorded exception to the Money rule,
   not an oversight.** Phase 1 keeps `numeric(19,4)` amounts and
   `numeric(18,8)` rates with `currencyId` (full spec → OQ-3, Decision
-  for Phase 1). Add the `.ai/money-allowlist.json` entry that points at
-  OQ-3, and don't convert the columns to `MoneyColumns` in this PR: the
+  for Phase 1). Once #9978 lands, add the `.ai/money-allowlist.json`
+  entry that points at OQ-3 (the file ships with #9978), and don't
+  convert the columns to `MoneyColumns` in this PR: the
   move to `Money` is a separate PR after #9978, posted rows are never
   rewritten, and `Money` objects will be added next to the existing
   numeric-string fields in API responses and the event payload, never
