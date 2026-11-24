@@ -8723,6 +8723,82 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@open-mercato/cache-provider-keydb@workspace:packages/cache-provider-keydb":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/cache-provider-keydb@workspace:packages/cache-provider-keydb"
+  dependencies:
+    "@open-mercato/cache": "workspace:*"
+    "@open-mercato/cache-redis-protocol": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.4.0"
+    esbuild: "npm:^0.28.2"
+    ioredis: "npm:^6.0.0"
+    jest: "npm:^30.4.2"
+    testcontainers: "npm:^12.0.3"
+    ts-jest: "npm:^29.4.12"
+    typescript: "npm:7.0.2"
+  peerDependencies:
+    "@open-mercato/cache": ">=0.11.0"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/cache-provider-redis@workspace:packages/cache-provider-redis":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/cache-provider-redis@workspace:packages/cache-provider-redis"
+  dependencies:
+    "@open-mercato/cache": "workspace:*"
+    "@open-mercato/cache-redis-protocol": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.4.0"
+    esbuild: "npm:^0.28.2"
+    ioredis: "npm:^6.0.0"
+    jest: "npm:^30.4.2"
+    testcontainers: "npm:^12.0.3"
+    ts-jest: "npm:^29.4.12"
+    typescript: "npm:7.0.2"
+  peerDependencies:
+    "@open-mercato/cache": ">=0.11.0"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/cache-provider-valkey@workspace:packages/cache-provider-valkey":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/cache-provider-valkey@workspace:packages/cache-provider-valkey"
+  dependencies:
+    "@open-mercato/cache": "workspace:*"
+    "@open-mercato/cache-redis-protocol": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.4.0"
+    esbuild: "npm:^0.28.2"
+    ioredis: "npm:^6.0.0"
+    jest: "npm:^30.4.2"
+    testcontainers: "npm:^12.0.3"
+    ts-jest: "npm:^29.4.12"
+    typescript: "npm:7.0.2"
+  peerDependencies:
+    "@open-mercato/cache": ">=0.11.0"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/cache-redis-protocol@workspace:*, @open-mercato/cache-redis-protocol@workspace:packages/cache-redis-protocol":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/cache-redis-protocol@workspace:packages/cache-redis-protocol"
+  dependencies:
+    "@open-mercato/cache": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.4.0"
+    esbuild: "npm:^0.28.2"
+    ioredis: "npm:^6.0.0"
+    jest: "npm:^30.4.2"
+    testcontainers: "npm:^12.0.3"
+    ts-jest: "npm:^29.4.12"
+    typescript: "npm:7.0.2"
+    zod: "npm:^4.6.6"
+  peerDependencies:
+    "@open-mercato/cache": ">=0.11.0"
+  languageName: unknown
+  linkType: soft
+
 "@open-mercato/cache@workspace:*, @open-mercato/cache@workspace:packages/cache":
   version: 0.0.0-use.local
   resolution: "@open-mercato/cache@workspace:packages/cache"
