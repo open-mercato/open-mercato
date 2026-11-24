@@ -41,11 +41,20 @@ PR: #10541
 - [x] 3.1 ACL feature `security.sign_ins.view` + `defaultRoleFeatures` for admin; `yarn generate`. — 66ba46c9d9
 - [x] 3.2 `GET /api/security/sign-ins` and `/[id]` with zod query, scoping and OpenAPI. Unit tests for filter → hash mapping and scope clauses. — 918fef4194
 - [x] 3.3 `/backend/security/sign-ins` page, filters, drawer, menu entry, `security.sign_ins.list` extension host, i18n (5 locales). — 32caa9c433
-- [ ] 3.4 Integration tests TC-SEC-016/017/019 (admin assertions only), TC-SEC-020/021 and the persistence/MFA portion of TC-SEC-022. Profile assertions wait for Phase 4.
+- [x] 3.4 Integration tests TC-SEC-016/017/019 (admin assertions only), TC-SEC-020/021 and the persistence/MFA portion of TC-SEC-022. Profile assertions wait for Phase 4. — 47414a07b1
 
 ### Phase 4: Profile + notification
 
 - [x] 4.1 `GET /api/security/profile/sign-ins` + unit tests. — 918fef4194
 - [x] 4.2 `profile-recent-sign-ins` injection widget into `security.profile.sections`; i18n. — 32caa9c433
 - [x] 4.3 Notification type `security.sign_in.new_device` + atomic intent creation inside `recordSignInAttempt`, retryable delivery worker and recovery sweep using deduplicated `createBatch`; failure injection at every durable boundary, including notification commit before acknowledgement. — 32caa9c433
-- [ ] 4.4 Integration tests TC-SEC-016/017/019 (profile assertions), TC-SEC-018 and the notification/recovery portion of TC-SEC-022; assert persisted notification body/metadata contain no IP, email or raw UA. Update enterprise README spec table.
+- [x] 4.4 Integration tests TC-SEC-016/017/019 (profile assertions), TC-SEC-018 and the notification/recovery portion of TC-SEC-022; assert persisted notification body/metadata contain no IP, email or raw UA. Update enterprise README spec table. — 47414a07b1
+
+
+## Validation
+
+Local runner. Package and production app builds, code generation, monorepo typecheck (42 tasks), and the full unit suite (51 tasks) passed. The focused checks covered the translation catalogues, template parity, notification registry, classic DI registration, and exact-count DataTable pagination.
+
+Eleven Playwright scenarios passed across two isolated runs. The manual queue run passed the browser cases and forced rollback/recovery cases. The managed-worker rerun passed role denial and both concurrent MFA completion orders. The first shared-port QA attempt was discarded after a port collision.
+
+Independent review approved after the fixes. [Browser screenshots](https://github.com/open-mercato/open-mercato/pull/10541#issuecomment-7137088184) show the admin list, drawer, and profile history. The spec reports MFA completion through mapped challenges. Sign-ins completed through the separate recovery-code endpoint can still show Pending.
