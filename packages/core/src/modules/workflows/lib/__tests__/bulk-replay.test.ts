@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { asValue, createContainer } from 'awilix'
 
 const executeWorkflow = jest.fn(async () => ({ status: 'RUNNING' }))
 const completeWorkflow = jest.fn(async () => undefined)
@@ -241,15 +242,11 @@ describe('runBulkReplay', () => {
 
   test('replays without progress tracking when the progress module is disabled (#9217)', async () => {
     const harness = makeHarness([makeInstance('a', 'FAILED')])
-    const container = {
-      resolve: (name: string) => {
-        if (name === 'em') return harness.em
-        throw new Error(`Could not resolve '${name}'`)
-      },
-    }
+    const container = createContainer()
+    container.register('em', asValue(harness.em))
 
     const summary = await runBulkReplay({
-      container: container as never,
+      container,
       progressJobId: 'job-1',
       action: 'retry',
       ids: ['a'],

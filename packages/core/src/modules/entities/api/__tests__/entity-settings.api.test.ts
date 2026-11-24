@@ -5,22 +5,20 @@ const STORED_UPDATED_AT = '2026-01-01T00:00:00.000Z'
 
 const mockGetRecord = jest.fn()
 const mockSetValue = jest.fn()
+const mockResolveConfig = jest.fn()
 const mockRunAfterSuccess = jest.fn(async () => undefined)
 const mockBeginGuard = jest.fn(async (..._args: unknown[]) => ({ blockedResponse: null, runAfterSuccess: mockRunAfterSuccess }))
 const mockTranslate = jest.fn((key: string, fallback?: string) => fallback ?? key)
 let mockConfigsEnabled = true
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({
-    resolve: (key: string) => {
-      if (key === 'moduleConfigService') {
-        if (!mockConfigsEnabled) throw new Error("[internal] AwilixResolutionError: Could not resolve 'moduleConfigService'.")
-        return { getRecord: mockGetRecord, setValue: mockSetValue }
-      }
-      if (key === 'commandOptimisticLockGuardService') return null
-      throw new Error(`[internal] unexpected registration: ${key}`)
-    },
-  }),
+  createRequestContainer: async () => {
+    const { asFunction, asValue, createContainer } = jest.requireActual<typeof import('awilix')>('awilix')
+    const container = createContainer()
+    container.register('commandOptimisticLockGuardService', asValue(null))
+    if (mockConfigsEnabled) container.register('moduleConfigService', asFunction(() => mockResolveConfig()))
+    return container
+  },
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -59,6 +57,7 @@ describe('/api/entities/entity-settings', () => {
     jest.clearAllMocks()
     delete process.env.OM_OPTIMISTIC_LOCK
     mockConfigsEnabled = true
+    mockResolveConfig.mockImplementation(() => ({ getRecord: mockGetRecord, setValue: mockSetValue }))
     mockGetRecord.mockResolvedValue({ value: true, updatedAt: STORED_UPDATED_AT })
     mockSetValue.mockResolvedValue({ value: false, updatedAt: '2026-02-01T00:00:00.000Z' })
   })
@@ -93,6 +92,15 @@ describe('/api/entities/entity-settings', () => {
   })
 
   describe('when the configs module is enabled', () => {
+    it('propagates a registered config service initialization failure', async () => {
+      const failure = new Error('[internal] config service initialization failed')
+      mockResolveConfig.mockImplementation(() => { throw failure })
+
+      await expect(GET(new Request('http://localhost/api/entities/entity-settings'))).rejects.toBe(failure)
+      await expect(PUT(putRequest({ newEntitiesRestrictedByDefault: true }))).rejects.toBe(failure)
+      expect(mockBeginGuard).not.toHaveBeenCalled()
+    })
+
     it('GET returns the stored policy', async () => {
       const response = await GET(new Request('http://localhost/api/entities/entity-settings'))
 

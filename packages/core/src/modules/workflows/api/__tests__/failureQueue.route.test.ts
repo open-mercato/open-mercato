@@ -3,6 +3,7 @@
  */
 
 import { NextRequest } from 'next/server'
+import { asFunction, asValue, createContainer } from 'awilix'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -245,13 +246,9 @@ describe('POST /api/workflows/instances/bulk-replay', () => {
 
   test('queues the work without a progress job when the progress module is disabled (#9217)', async () => {
     const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
-    createRequestContainer.mockResolvedValue({
-      resolve: (name: string) => {
-        if (name === 'em') return mockEm
-        if (name === 'rbacService') return mockRbac
-        throw new Error(`Could not resolve '${name}'`)
-      },
-    })
+    const container = createContainer()
+    container.register({ em: asValue(mockEm), rbacService: asValue(mockRbac) })
+    createRequestContainer.mockResolvedValue(container)
 
     const response = await startBulkReplay(request({ action: 'retry', ids }))
     const body = await response.json()
@@ -260,6 +257,21 @@ describe('POST /api/workflows/instances/bulk-replay', () => {
     expect(body).toEqual({ ok: true, progressJobId: null, message: 'Bulk replay started.' })
     expect(mockProgress.createJob).not.toHaveBeenCalled()
     expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ progressJobId: null, action: 'retry', ids }))
+  })
+
+  test('does not enqueue when the registered progress service fails to initialize', async () => {
+    const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
+    const container = createContainer()
+    container.register({
+      rbacService: asValue(mockRbac),
+      progressService: asFunction(() => { throw new Error('[internal] progress service initialization failed') }),
+    })
+    createRequestContainer.mockResolvedValue(container)
+
+    const response = await startBulkReplay(request({ action: 'retry', ids }))
+
+    expect(response.status).toBe(500)
+    expect(enqueue).not.toHaveBeenCalled()
   })
 
   test('deduplicates ids so a double-selected row is not replayed twice', async () => {

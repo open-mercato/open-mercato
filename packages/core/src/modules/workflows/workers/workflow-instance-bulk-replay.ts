@@ -35,7 +35,9 @@ export default async function handle(
       scope: job.payload.scope,
     })
   } catch (error) {
-    const progressService = tryResolve<ProgressService>(container, 'progressService')
+    const progressService = job.payload.progressJobId
+      ? tryResolve<ProgressService>(container, 'progressService')
+      : undefined
     if (progressService && job.payload.progressJobId) {
       await progressService.failJob(
         job.payload.progressJobId,

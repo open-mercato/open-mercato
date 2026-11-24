@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { createContainer } from 'awilix'
 
 const runBulkReplay = jest.fn<(...args: unknown[]) => Promise<unknown>>()
 const createRequestContainer = jest.fn<() => Promise<unknown>>()
@@ -44,11 +45,7 @@ describe('workflow-instance-bulk-replay worker', () => {
   })
 
   test('rethrows the original error, not a DI resolution error, when progress is disabled (#9217)', async () => {
-    createRequestContainer.mockResolvedValue({
-      resolve: (name: string) => {
-        throw new Error(`Could not resolve '${name}'`)
-      },
-    })
+    createRequestContainer.mockResolvedValue(createContainer())
     const original = new Error('replay exploded')
     runBulkReplay.mockRejectedValue(original)
 

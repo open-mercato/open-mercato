@@ -1,8 +1,5 @@
-/** Per-module local soft-resolve helper — see `packages/core/AGENTS.md` § Cross-Module Coupling. */
-export function tryResolve<T>(resolver: { resolve: <R = unknown>(name: string) => R }, name: string): T | undefined {
-  try {
-    return resolver.resolve<T>(name)
-  } catch {
-    return undefined
-  }
+import type { AwilixContainer } from 'awilix'
+
+export function tryResolve<T>(resolver: Pick<AwilixContainer, 'resolve'>, name: string): T | undefined {
+  return resolver.resolve<T>(name, { allowUnregistered: true })
 }
