@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { useMessageDetailsConversation } from '../useMessageDetailsConversation'
 import type { MessageDetail } from '../../types'
 
@@ -54,14 +54,26 @@ function buildIngestedDetail(overrides: Partial<MessageDetail> = {}): MessageDet
   } as MessageDetail
 }
 
-// `conversationItems` is memoized on the `detail` identity and its effect
-// resets expansion state on every change, so each render must be handed the
-// SAME object — building it inside the render callback loops forever.
 function renderConversation(detail: MessageDetail) {
   return renderHook(() => useMessageDetailsConversation({ detail, t }))
 }
 
 describe('useMessageDetailsConversation', () => {
+  it('keeps a manually expanded message open when the thread refreshes its read status', () => {
+    const detail = buildIngestedDetail({ isRead: false })
+    const { result, rerender } = renderHook(
+      (updatedDetail: MessageDetail) => useMessageDetailsConversation({ detail: updatedDetail, t }),
+      { initialProps: detail },
+    )
+
+    act(() => result.current.toggleConversationItem('message-1'))
+    expect(result.current.isConversationItemExpanded('message-1')).toBe(true)
+
+    rerender({ ...detail, isRead: true })
+    expect(result.current.isConversationItemExpanded('message-1')).toBe(true)
+    expect(result.current.isConversationItemExpanded('message-2')).toBe(true)
+  })
+
   it('labels a collapsed thread row with the external identity instead of the system user id', () => {
     // Collapsed rows render through MessageListComponent, which prints
     // `message.senderName` verbatim. Before this chain went through

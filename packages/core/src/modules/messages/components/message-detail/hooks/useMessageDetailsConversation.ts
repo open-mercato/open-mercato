@@ -98,12 +98,8 @@ export function useMessageDetailsConversation({
   )
 
   React.useEffect(() => {
-    const nextState: Record<string, boolean> = {}
-    for (const item of conversationItems) {
-      nextState[item.id] = forcedExpandedItemId === item.id
-    }
-    setExpandedById(nextState)
-  }, [conversationIdsKey, conversationItems, forcedExpandedItemId])
+    setExpandedById({})
+  }, [conversationIdsKey])
 
   const toggleConversationItem = React.useCallback((itemId: string) => {
     if (itemId === forcedExpandedItemId) return
