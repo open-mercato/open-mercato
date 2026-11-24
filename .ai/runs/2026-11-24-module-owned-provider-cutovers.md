@@ -19,6 +19,15 @@ Source doc: .ai/specs/enterprise/agent-orchestrator/2026-11-24-owner-provided-ex
 
 A missing provider must preserve optional-peer behavior. Test authorization before audit decryption, transaction and race handling for setup writes, and existing public APIs and DI overrides.
 
+## Validation
+
+- Synced #10540 through `7cd942a027`.
+- Local runner passed package build, generation, rebuild, i18n checks, typecheck, workspace tests (51 tasks), and the Enterprise app build.
+- Nine PostgreSQL integration tests passed for scoped example creation and concurrent settings initialization.
+- Sixteen live checks passed across the Enterprise app runs, including CLI examples and rerun, settings repair, onboarding email, scoped history, merge and force release, and named workflow rules. Three tests for absent peers skipped in the full composition.
+- Both live tests passed in the reduced Enterprise app with Configs and Audit Logs disabled.
+- Compatibility review verified the public START entry point, existing DI override behavior, and the version floor. A follow-up regression test covers retaining lock decisions on audit failures.
+
 ## Progress
 
 PR: #10542
@@ -43,4 +52,4 @@ PR: #10542
 
 ### Phase 5: Integration
 
-- [ ] 5.1 Sync prerequisites and verify the combined implementation.
+- [x] 5.1 Sync prerequisites and verify the combined implementation. — 31a03f15eb
