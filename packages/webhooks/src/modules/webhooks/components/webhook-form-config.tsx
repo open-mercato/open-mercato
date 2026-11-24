@@ -241,26 +241,15 @@ export function buildWebhookFormContentHeader(t: TranslateFn) {
 
 function WebhookCustomHeadersField(props: CrudCustomFieldRenderProps) {
   const t = useT()
-  const value = isRecord(props.value) ? props.value : {}
-
   return (
     <div className="space-y-3">
       <Alert status="information">
         <AlertDescription>{t('webhooks.form.customHeadersTip')}</AlertDescription>
       </Alert>
       <JsonBuilder
-        value={value}
-        onChange={(nextValue) => {
-          if (!isRecord(nextValue)) {
-            props.setValue({})
-            return
-          }
-          props.setValue(
-            Object.fromEntries(
-              Object.entries(nextValue).map(([key, value]) => [key, typeof value === 'string' ? value : String(value ?? '')]),
-            ),
-          )
-        }}
+        value={props.value ?? {}}
+        onChange={props.setValue}
+        stringRecordError={t('webhooks.form.customHeadersInvalid')}
         disabled={props.disabled}
         error={props.error}
       />
