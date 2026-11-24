@@ -1,0 +1,557 @@
+import * as React from 'react'
+import { EntityHeader } from '@open-mercato/ui/blocks/entity-header'
+import { entityHeaderFixtures } from '@open-mercato/ui/blocks/entity-header/fixtures'
+import { Inline, Stack } from '@open-mercato/ui/blocks/stack'
+import { stackFixtures } from '@open-mercato/ui/blocks/stack/fixtures'
+import { KeyValue, keyValueFixtures } from '@open-mercato/ui/blocks/key-value'
+import { Timeline, timelineFixtures } from '@open-mercato/ui/blocks/timeline'
+import { Wizard } from '@open-mercato/ui/blocks/wizard'
+import { wizardFixtures } from '@open-mercato/ui/blocks/wizard/fixtures'
+import type { GalleryEntry } from '../types'
+
+function StackSamples({ count }: { count: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, index) => (
+        <div key={index} className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
+          {index + 1}
+        </div>
+      ))}
+    </>
+  )
+}
+
+const stackEntry: GalleryEntry = {
+  id: 'stack',
+  title: 'Stack / Inline',
+  importPath: '@open-mercato/ui/blocks/stack',
+  descriptionKey: 'design_system.entries.stack.description',
+  keywords: ['layout', 'gap', 'flex', 'inline'],
+  usage: {
+    do: [
+      'Use gap values from the layout scale instead of ad-hoc margins',
+      'Use Stack for vertical flow and Inline for horizontal flow',
+    ],
+    dont: [
+      'Do not pass arbitrary class names to override the gap or alignment',
+      'Do not nest more than two levels when a grid expresses the layout better',
+    ],
+  },
+  variants: [
+    {
+      id: 'default',
+      title: 'Default',
+      render: () => (
+        <Stack {...stackFixtures.default}>
+          <StackSamples count={3} />
+        </Stack>
+      ),
+      code: `import { Stack } from '@open-mercato/ui/blocks/stack'
+
+<Stack gap={3}>
+  <Section />
+  <Section />
+  <Section />
+</Stack>`,
+    },
+    {
+      id: 'tight',
+      title: 'Tight',
+      render: () => (
+        <Stack {...stackFixtures.tight}>
+          <StackSamples count={3} />
+        </Stack>
+      ),
+      code: `import { Stack } from '@open-mercato/ui/blocks/stack'
+
+<Stack gap={1} align="start">
+  <Label />
+  <Value />
+</Stack>`,
+    },
+    {
+      id: 'centered',
+      title: 'Centered',
+      render: () => (
+        <Stack {...stackFixtures.centered}>
+          <StackSamples count={3} />
+        </Stack>
+      ),
+      code: `import { Stack } from '@open-mercato/ui/blocks/stack'
+
+<Stack gap={4} align="center" justify="center">
+  <Icon />
+  <Message />
+</Stack>`,
+    },
+    {
+      id: 'spread',
+      title: 'Spread',
+      render: () => (
+        <Inline {...stackFixtures.spread}>
+          <StackSamples count={3} />
+        </Inline>
+      ),
+      code: `import { Inline } from '@open-mercato/ui/blocks/stack'
+
+<Inline gap={2} align="center" justify="between">
+  <Title />
+  <Actions />
+</Inline>`,
+    },
+    {
+      id: 'wrapping',
+      title: 'Wrapping',
+      render: () => (
+        <Inline {...stackFixtures.wrapping}>
+          <StackSamples count={8} />
+        </Inline>
+      ),
+      code: `import { Inline } from '@open-mercato/ui/blocks/stack'
+
+<Inline gap={2} wrap align="baseline">
+  {tags.map((tag) => (
+    <Tag key={tag.id}>{tag.label}</Tag>
+  ))}
+</Inline>`,
+    },
+    {
+      id: 'roomy',
+      title: 'Roomy',
+      render: () => (
+        <Stack {...stackFixtures.roomy}>
+          <StackSamples count={3} />
+        </Stack>
+      ),
+      code: `import { Stack } from '@open-mercato/ui/blocks/stack'
+
+<Stack gap={12} align="stretch" justify="end">
+  <Section />
+  <Section />
+</Stack>`,
+    },
+  ],
+}
+
+const entityHeaderCode = (props: string) => `import { EntityHeader } from '@open-mercato/ui/blocks/entity-header'
+
+<EntityHeader
+${props}
+/>`
+
+const entityHeaderEntry: GalleryEntry = {
+  id: 'entity-header',
+  title: 'EntityHeader',
+  importPath: '@open-mercato/ui/blocks/entity-header',
+  figmaNodeId: '3829:27898',
+  descriptionKey: 'design_system.entries.entity-header.description',
+  keywords: ['record', 'detail', 'title', 'actions'],
+  usage: {
+    do: [
+      'Pass pre-resolved title, badge, meta and actions as data',
+      'Mark one action as primaryActionKey and let the rest collapse into the overflow menu',
+      'Give disabled actions a disabledReason',
+    ],
+    dont: [
+      'Do not fetch the record inside the block',
+      'Do not hide destructive actions without a confirmation in onAction',
+    ],
+  },
+  variants: [
+    {
+      id: 'default',
+      title: 'Default',
+      render: () => <EntityHeader {...entityHeaderFixtures.default} />,
+      code: entityHeaderCode(`  title="Acme Corporation"
+  subtitle="Customer since March 2021"
+  avatar={{ initials: 'AC' }}
+  badge={{ label: 'Active', tone: 'success' }}
+  meta={[{ key: 'owner', label: 'Owner', value: 'Jan Kowalski' }]}
+  actions={[
+    { key: 'edit', label: 'Edit' },
+    { key: 'delete', label: 'Delete', tone: 'destructive' },
+  ]}
+  primaryActionKey="edit"
+  onAction={handleAction}`),
+    },
+    {
+      id: 'read-only',
+      title: 'Read only',
+      render: () => <EntityHeader {...entityHeaderFixtures.readOnly} />,
+      code: entityHeaderCode(`  title="Acme Corporation"
+  subtitle="Customer since March 2021"
+  badge={{ label: 'Archived', tone: 'neutral' }}
+  meta={[{ key: 'owner', label: 'Owner', value: 'Jan Kowalski' }]}`),
+    },
+    {
+      id: 'minimal',
+      title: 'Minimal',
+      render: () => <EntityHeader {...entityHeaderFixtures.minimal} />,
+      code: entityHeaderCode(`  title="Acme Corporation"`),
+    },
+    {
+      id: 'loading',
+      title: 'Loading',
+      render: () => <EntityHeader {...entityHeaderFixtures.loading} />,
+      code: entityHeaderCode(`  title="Acme Corporation"
+  status="loading"`),
+    },
+    {
+      id: 'error',
+      title: 'Error',
+      render: () => <EntityHeader {...entityHeaderFixtures.error} />,
+      code: entityHeaderCode(`  title="Acme Corporation"
+  status="error"
+  errorMessage={t('customers.detail.loadError')}`),
+    },
+    {
+      id: 'with-slots',
+      title: 'With slots',
+      render: () => <EntityHeader {...entityHeaderFixtures.withSlots} />,
+      code: entityHeaderCode(`  title="Acme Corporation"
+  leading={<CompanyLogo />}
+  trailing={<SyncIndicator />}
+  below={<LastContactNote />}
+  actions={[{ key: 'edit', label: 'Edit' }]}
+  primaryActionKey="edit"
+  onAction={handleAction}`),
+    },
+    {
+      id: 'disabled-action',
+      title: 'Disabled action',
+      render: () => <EntityHeader {...entityHeaderFixtures.disabledAction} />,
+      code: entityHeaderCode(`  title="Acme Corporation"
+  badge={{ label: 'Locked', tone: 'warning' }}
+  actions={[
+    {
+      key: 'edit',
+      label: 'Edit',
+      disabled: true,
+      disabledReason: 'Another user is editing this record',
+    },
+    { key: 'share', label: 'Share' },
+  ]}
+  primaryActionKey="edit"
+  onAction={handleAction}`),
+    },
+  ],
+}
+
+const keyValueCode = (props: string) => `import { KeyValue } from '@open-mercato/ui/blocks/key-value'
+
+<KeyValue
+${props}
+/>`
+
+const keyValueEntry: GalleryEntry = {
+  id: 'key-value',
+  title: 'KeyValue',
+  importPath: '@open-mercato/ui/blocks/key-value',
+  descriptionKey: 'design_system.entries.key-value.description',
+  keywords: ['properties', 'fields', 'details', 'inline edit'],
+  usage: {
+    do: [
+      'Return the saved value from onEdit so the block can show the committed state',
+      'Use columns={2} for dense detail panels',
+    ],
+    dont: [
+      'Do not mark an item editable without providing onEdit',
+      'Do not store unsaved drafts outside the block',
+    ],
+  },
+  variants: [
+    {
+      id: 'read-only',
+      title: 'Read only',
+      render: () => <KeyValue {...keyValueFixtures.readOnly} />,
+      code: keyValueCode(`  items={[
+    { key: 'owner', label: 'Owner', value: 'Anna Kowalska' },
+    { key: 'email', label: 'Email', value: 'anna@example.com', hint: 'Primary contact' },
+    { key: 'segment', label: 'Segment', value: 'Enterprise' },
+  ]}`),
+    },
+    {
+      id: 'two-columns',
+      title: 'Two columns',
+      render: () => <KeyValue {...keyValueFixtures.twoColumns} />,
+      code: keyValueCode(`  columns={2}
+  items={items}`),
+    },
+    {
+      id: 'editable',
+      title: 'Editable',
+      render: () => <KeyValue {...keyValueFixtures.editable} />,
+      code: keyValueCode(`  columns={2}
+  onEdit={async (key, value) => {
+    await saveField(key, value)
+  }}
+  items={[
+    { key: 'name', label: 'Name', value: 'Acme Corp', editable: true, editor: 'text' },
+    {
+      key: 'stage',
+      label: 'Stage',
+      value: 'qualified',
+      editable: true,
+      editor: 'select',
+      options: [
+        { value: 'new', label: 'New' },
+        { value: 'qualified', label: 'Qualified' },
+      ],
+    },
+    { key: 'renewal', label: 'Renewal date', value: '2026-09-01', editable: true, editor: 'date' },
+  ]}`),
+    },
+    {
+      id: 'rich-value',
+      title: 'Rich value',
+      render: () => <KeyValue {...keyValueFixtures.richValue} />,
+      code: keyValueCode(`  items={[
+    { key: 'website', label: 'Website', value: <a href="https://example.com">example.com</a> },
+    { key: 'plan', label: 'Plan', value: <span>Business, billed yearly</span> },
+  ]}`),
+    },
+    {
+      id: 'loading',
+      title: 'Loading',
+      render: () => <KeyValue {...keyValueFixtures.loading} />,
+      code: keyValueCode(`  items={[]}
+  status="loading"`),
+    },
+    {
+      id: 'error',
+      title: 'Error',
+      render: () => <KeyValue {...keyValueFixtures.error} />,
+      code: keyValueCode(`  items={[]}
+  status="error"
+  errorMessage={t('customers.detail.loadError')}`),
+    },
+    {
+      id: 'empty',
+      title: 'Empty',
+      render: () => <KeyValue {...keyValueFixtures.empty} />,
+      code: keyValueCode(`  items={[]}
+  status="empty"`),
+    },
+  ],
+}
+
+const timelineCode = (props: string) => `import { Timeline } from '@open-mercato/ui/blocks/timeline'
+
+<Timeline
+${props}
+/>`
+
+const timelineEntry: GalleryEntry = {
+  id: 'timeline',
+  title: 'Timeline',
+  importPath: '@open-mercato/ui/blocks/timeline',
+  figmaNodeId: '166035:46833',
+  descriptionKey: 'design_system.entries.timeline.description',
+  keywords: ['activity', 'feed', 'history', 'audit'],
+  usage: {
+    do: [
+      'Pass items already sorted',
+      'Use groupBy="day" for long histories',
+      'Resolve onLoadMore only after the next page is appended to items',
+    ],
+    dont: [
+      'Do not fetch data inside the block',
+      'Do not render interactive controls from renderItemBody without keyboard support',
+    ],
+  },
+  variants: [
+    {
+      id: 'default',
+      title: 'Default',
+      render: () => <Timeline {...timelineFixtures.default} />,
+      code: timelineCode(`  items={items}
+  order="desc"
+  onItemAction={(item, actionKey) => handleAction(item.id, actionKey)}`),
+    },
+    {
+      id: 'grouped-by-day',
+      title: 'Grouped by day',
+      render: () => <Timeline {...timelineFixtures.groupedByDay} />,
+      code: timelineCode(`  items={items}
+  order="desc"
+  groupBy="day"`),
+    },
+    {
+      id: 'with-filters',
+      title: 'With filters',
+      render: () => <Timeline {...timelineFixtures.withFilters} />,
+      code: timelineCode(`  items={items}
+  order="desc"
+  filters={[
+    { key: 'all', label: 'All', count: 12 },
+    { key: 'notes', label: 'Notes', count: 5 },
+  ]}
+  activeFilterKey={filterKey}
+  onFilterChange={setFilterKey}`),
+    },
+    {
+      id: 'with-more',
+      title: 'With more',
+      render: () => <Timeline {...timelineFixtures.withMore} />,
+      code: timelineCode(`  items={items}
+  order="desc"
+  hasMore={hasNextPage}
+  onLoadMore={async () => {
+    await fetchNextPage()
+  }}`),
+    },
+    {
+      id: 'custom-body',
+      title: 'Custom body',
+      render: () => <Timeline {...timelineFixtures.customBody} />,
+      code: timelineCode(`  items={items}
+  order="desc"
+  renderItemBody={(item) => <QuoteSummary id={item.id} />}`),
+    },
+    {
+      id: 'read-only',
+      title: 'Read only',
+      render: () => <Timeline {...timelineFixtures.readOnly} />,
+      code: timelineCode(`  items={items.map((item) => ({ ...item, actions: undefined }))}
+  order="desc"`),
+    },
+    {
+      id: 'loading',
+      title: 'Loading',
+      render: () => <Timeline {...timelineFixtures.loading} />,
+      code: timelineCode(`  items={[]}
+  order="desc"
+  status="loading"`),
+    },
+    {
+      id: 'error',
+      title: 'Error',
+      render: () => <Timeline {...timelineFixtures.error} />,
+      code: timelineCode(`  items={[]}
+  order="desc"
+  status="error"
+  errorMessage={t('customers.activity.loadError')}`),
+    },
+    {
+      id: 'empty',
+      title: 'Empty',
+      render: () => <Timeline {...timelineFixtures.empty} />,
+      code: timelineCode(`  items={[]}
+  order="desc"
+  status="empty"`),
+    },
+  ],
+}
+
+const wizardCode = (props: string) => `import { Wizard } from '@open-mercato/ui/blocks/wizard'
+
+<Wizard
+  steps={steps}
+${props}
+/>`
+
+const wizardEntry: GalleryEntry = {
+  id: 'wizard',
+  title: 'Wizard',
+  importPath: '@open-mercato/ui/blocks/wizard',
+  figmaNodeId: '3507:28',
+  descriptionKey: 'design_system.entries.wizard.description',
+  keywords: ['stepper', 'steps', 'flow', 'onboarding'],
+  usage: {
+    do: [
+      'Own the active step in the parent and pass it as activeStepId',
+      'Return false from onNext to block advancing when validation fails',
+      'Set step state to error for steps that failed validation',
+    ],
+    dont: [
+      'Do not enable onStepSelect for steps that depend on unfinished input',
+      'Do not fetch step data inside the block',
+    ],
+  },
+  variants: [
+    {
+      id: 'first-step',
+      title: 'First step',
+      render: () => <Wizard {...wizardFixtures.firstStep} />,
+      code: wizardCode(`  activeStepId="details"
+  onNext={async () => validateDetails()}
+  onBack={goBack}
+  onFinish={submit}`),
+    },
+    {
+      id: 'middle-step',
+      title: 'Middle step',
+      render: () => <Wizard {...wizardFixtures.middleStep} />,
+      code: wizardCode(`  activeStepId="pricing"
+  onNext={async () => validatePricing()}
+  onBack={goBack}
+  onFinish={submit}`),
+    },
+    {
+      id: 'last-step',
+      title: 'Last step',
+      render: () => <Wizard {...wizardFixtures.lastStep} />,
+      code: wizardCode(`  activeStepId="review"
+  onNext={async () => true}
+  onBack={goBack}
+  onFinish={submit}`),
+    },
+    {
+      id: 'with-error',
+      title: 'With error',
+      render: () => <Wizard {...wizardFixtures.withError} />,
+      code: wizardCode(`  steps={[
+    { id: 'details', title: 'Details', state: 'complete' },
+    { id: 'pricing', title: 'Pricing', state: 'error' },
+    { id: 'review', title: 'Review' },
+  ]}
+  activeStepId="review"
+  onNext={async () => true}
+  onBack={goBack}
+  onFinish={submit}`),
+    },
+    {
+      id: 'selectable',
+      title: 'Selectable',
+      render: () => <Wizard {...wizardFixtures.selectable} />,
+      code: wizardCode(`  activeStepId="review"
+  onStepSelect={setActiveStepId}
+  onNext={async () => true}
+  onBack={goBack}
+  onFinish={submit}`),
+    },
+    {
+      id: 'loading',
+      title: 'Loading',
+      render: () => <Wizard {...wizardFixtures.loading} />,
+      code: wizardCode(`  activeStepId="details"
+  status="loading"
+  onNext={async () => true}
+  onBack={goBack}
+  onFinish={submit}`),
+    },
+    {
+      id: 'empty',
+      title: 'Empty',
+      render: () => <Wizard {...wizardFixtures.empty} />,
+      code: wizardCode(`  activeStepId="details"
+  status="empty"
+  onNext={async () => true}
+  onBack={goBack}
+  onFinish={submit}`),
+    },
+    {
+      id: 'error',
+      title: 'Error',
+      render: () => <Wizard {...wizardFixtures.error} />,
+      code: wizardCode(`  activeStepId="details"
+  status="error"
+  errorMessage={t('catalog.wizard.loadError')}
+  onNext={async () => true}
+  onBack={goBack}
+  onFinish={submit}`),
+    },
+  ],
+}
+
+export const entries: GalleryEntry[] = [stackEntry, entityHeaderEntry, keyValueEntry, timelineEntry, wizardEntry]

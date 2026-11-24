@@ -19,6 +19,7 @@ import {
   CalendarClock,
   Mail,
   LibraryBig,
+  Blocks,
 } from 'lucide-react'
 import type { GalleryFamily } from './types'
 
@@ -144,6 +145,12 @@ export const galleryFamilies: GalleryFamily[] = [
     labelKey: 'design_system.families.messages',
     icon: familyIcon(Mail),
     load: () => import('./entries/messages'),
+  },
+  {
+    id: 'blocks',
+    labelKey: 'design_system.families.blocks',
+    icon: familyIcon(Blocks),
+    load: () => import('./entries/blocks'),
   },
   {
     id: 'library',
