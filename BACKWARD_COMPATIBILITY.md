@@ -694,6 +694,10 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
+## Extension headers and analytics identifiers (2026-11-23, #10331, #10332)
+
+STABLE parser and analytics config contracts require own keys, plain SQL identifiers and explicit entity permission declarations. Retaining the old parsing or query paths preserves the authorization and input-validation flaws. [Migration](UPGRADE_NOTES.md#extension-header-parsing-and-analytics-sql-identifier-hardening-10331-10332).
+
 ## 2026-11-24 — Relation options and global query scope (#9106)
 
 STABLE API and query behavior. Relation options require authorized target reads and approved label fields. Global tables require an explicit trusted scope opt-out. The earlier behavior exposes unauthorized data if retained as a bridge. Named maintainer approval is required for the backport. [Migration](UPGRADE_NOTES.md#relation-options-and-explicit-global-query-scope-9106).
