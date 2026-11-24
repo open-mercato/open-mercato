@@ -52,6 +52,10 @@ describe('withMaintenanceHold', () => {
     expect(resolveMaintenanceCoordinator({ resolve: () => { throw new Error('missing') } })).toBeNull()
   })
 
+  it('ignores a resolved value that is not a coordinator', () => {
+    expect(resolveMaintenanceCoordinator({ resolve: <T,>() => ({ getConnection: () => null }) as T })).toBeNull()
+  })
+
   it('acquires a bypass-forbidding drained hold and releases it after success', async () => {
     const { coordinator, hold } = buildCoordinator()
     await withMaintenanceHold(containerWith(coordinator), 'encryption.rotate', { drainTimeoutMs: 5000 }, async (scope) => {
