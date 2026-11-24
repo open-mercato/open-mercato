@@ -50,6 +50,8 @@ Enforce strict selected-organization isolation across dictionaries read and writ
 
 ## Progress
 
+PR: #10544
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Enforce organization scoping in dictionaries context, entry routes, and commands
@@ -63,3 +65,4 @@ Enforce strict selected-organization isolation across dictionaries read and writ
 - [x] 2.1 Add unit tests for `resolveDictionariesRouteContext` organization scope resolution and inheritance — ddbe2d5145
 - [x] 2.2 Add route and command unit tests for cross-organization read/write isolation — 8aee76a6fc
 - [x] 2.3 Add self-contained Playwright API integration test covering Org A / Org B dictionary isolation — 2967672685
+- [x] Post-review fix: check organization scope before deletedAt in resolveEntry — ad7bb7fd8e
