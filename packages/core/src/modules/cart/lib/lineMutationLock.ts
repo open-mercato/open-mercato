@@ -19,12 +19,12 @@ export function isCartLineMutationLockTimeoutError(error: unknown): error is Car
 
 export async function withCartLineMutationLock(
   em: EntityManager,
-  cartId: string,
+  cartId: string | readonly string[],
   phases: Array<() => void | Promise<void>>,
   label: string,
   waitDeadlineMs = 15_000,
 ): Promise<void> {
-  const key = `cart:lines:${cartId}`
+  const cartIds = typeof cartId === 'string' ? [cartId] : Array.from(new Set(cartId)).sort()
   const deadline = Date.now() + waitDeadlineMs
   const busy = new Error('[internal] Cart line mutation lock is busy')
   const joinsTransaction = em.isInTransaction()
@@ -33,15 +33,18 @@ export async function withCartLineMutationLock(
     try {
       await withAtomicFlush(em, [
         async () => {
-          if (joinsTransaction) {
-            await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [key])
-            return
+          for (const id of cartIds) {
+            const key = `cart:lines:${id}`
+            if (joinsTransaction) {
+              await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [key])
+            } else {
+              const rows = await em.execute<Array<{ locked: boolean }>>(
+                'select pg_try_advisory_xact_lock(hashtextextended(?::text, 0)) as locked',
+                [key],
+              )
+              if (!rows[0]?.locked) throw busy
+            }
           }
-          const rows = await em.execute<Array<{ locked: boolean }>>(
-            'select pg_try_advisory_xact_lock(hashtextextended(?::text, 0)) as locked',
-            [key],
-          )
-          if (!rows[0]?.locked) throw busy
         },
         ...phases,
       ], { transaction: true, label })

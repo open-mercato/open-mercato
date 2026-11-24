@@ -15,11 +15,12 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode, type EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { WorkflowInstance } from '../../../../data/entities'
-import * as workflowExecutor from '../../../../lib/workflow-executor'
-import * as stepHandler from '../../../../lib/step-handler'
-import * as transitionHandler from '../../../../lib/transition-handler'
+import type * as WorkflowExecutor from '../../../../lib/workflow-executor'
+import type * as TransitionHandler from '../../../../lib/transition-handler'
 import { z } from 'zod'
 import {
   workflowsTag,
@@ -35,8 +36,8 @@ const logger = createLogger('workflows')
 // Validation schema
 const advanceWorkflowSchema = z.object({
   toStepId: z.string().optional(), // Optional - will auto-select if not provided
-  triggerData: z.record(z.string(), z.any()).optional(), // Optional trigger data
-  contextUpdates: z.record(z.string(), z.any()).optional(), // Optional context updates
+  triggerData: z.record(z.string(), z.unknown()).optional(), // Optional trigger data
+  contextUpdates: z.record(z.string(), z.unknown()).optional(), // Optional context updates
 })
 
 type AdvanceWorkflowInput = z.infer<typeof advanceWorkflowSchema>
@@ -77,20 +78,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const params = await context.params
     const instanceId = params.id
 
-    // Load and verify instance
-    const instance = await em.findOne(WorkflowInstance, {
-      id: instanceId,
-      tenantId,
-      organizationId,
-    })
-
-    if (!instance) {
-      return NextResponse.json(
-        { error: 'Workflow instance not found' },
-        { status: 404 }
-      )
-    }
-
     // Check permission
     const rbacService = container.resolve('rbacService')
     const hasPermission = await rbacService.userHasAllFeatures(
@@ -107,7 +94,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     // Parse request body
-    const body = await request.json().catch(() => ({}))
+    const body = await readJsonSafe<Record<string, unknown>>(request, {})
     const validation = advanceWorkflowSchema.safeParse(body)
 
     if (!validation.success) {
@@ -122,121 +109,128 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const input: AdvanceWorkflowInput = validation.data
 
-    // Check workflow status
-    if (instance.status === 'COMPLETED') {
+    const workflowExecutor = container.resolve<typeof WorkflowExecutor>('workflowExecutor')
+    const transitionHandler = container.resolve<typeof TransitionHandler>('transitionHandler')
+    const reserved = workflowExecutor.findReservedContextKeys(input.contextUpdates ?? {})
+    if (reserved.length > 0) {
       return NextResponse.json(
-        { error: 'Workflow already completed' },
+        { error: 'Validation failed', details: { reserved } },
         { status: 400 }
       )
     }
 
-    if (instance.status === 'CANCELLED') {
-      return NextResponse.json(
-        { error: 'Workflow is cancelled' },
-        { status: 400 }
+    const advancement = await em.transactional(async (transaction) => {
+      const instance = await findOneWithDecryption(
+        transaction,
+        WorkflowInstance,
+        { id: instanceId, tenantId, organizationId },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        { tenantId, organizationId },
       )
-    }
+      if (!instance) {
+        return NextResponse.json({ error: 'Workflow instance not found' }, { status: 404 })
+      }
 
-    if (instance.status === 'FAILED') {
-      return NextResponse.json(
-        { error: 'Workflow has failed. Use retry endpoint to retry.' },
-        { status: 400 }
-      )
-    }
+      // Check workflow status
+      if (instance.status === 'COMPLETED') {
+        return NextResponse.json(
+          { error: 'Workflow already completed' },
+          { status: 400 }
+        )
+      }
 
-    // Apply context updates if provided
-    if (input.contextUpdates) {
-      await workflowExecutor.updateWorkflowContext(
-        em,
-        instanceId,
-        input.contextUpdates
-      )
-      await em.flush()
-    }
+      if (instance.status === 'CANCELLED') {
+        return NextResponse.json(
+          { error: 'Workflow is cancelled' },
+          { status: 400 }
+        )
+      }
 
-    // Build evaluation context
-    const evalContext: transitionHandler.TransitionEvaluationContext = {
-      workflowContext: instance.context,
-      userId: auth.sub,
-      triggerData: input.triggerData,
-    }
+      if (instance.status === 'FAILED') {
+        return NextResponse.json(
+          { error: 'Workflow has failed. Use retry endpoint to retry.' },
+          { status: 400 }
+        )
+      }
 
-    // Find valid transitions from current step
-    const validTransitions = await transitionHandler.findValidTransitions(
-      em,
-      instance,
-      instance.currentStepId!,
-      evalContext
-    )
+      const workflowContext = { ...instance.context, ...input.contextUpdates }
+      // Build evaluation context
+      const evalContext: TransitionHandler.TransitionEvaluationContext = {
+        workflowContext,
+        userId: auth.sub,
+        triggerData: input.triggerData,
+      }
 
-    const validTransitionsList = validTransitions.filter((t) => t.isValid)
-
-    if (validTransitionsList.length === 0) {
-      return NextResponse.json(
-        {
-          error: 'No valid transitions available',
-          currentStepId: instance.currentStepId,
-          reason: 'All transitions blocked by conditions or business rules',
-        },
-        { status: 400 }
-      )
-    }
-
-    // Select transition
-    let selectedTransition: any
-    if (input.toStepId) {
-      // User specified target step
-      const matchingTransition = validTransitionsList.find(
-        (t) => t.transition?.toStepId === input.toStepId
+      // Find valid transitions from current step
+      const validTransitions = await transitionHandler.findValidTransitions(
+        transaction,
+        instance,
+        instance.currentStepId!,
+        evalContext
       )
 
-      if (!matchingTransition) {
+      const validTransitionsList = validTransitions.filter((t) => t.isValid)
+
+      if (validTransitionsList.length === 0) {
+        return NextResponse.json(
+          {
+            error: 'No valid transitions available',
+            currentStepId: instance.currentStepId,
+            reason: 'All transitions blocked by conditions or business rules',
+          },
+          { status: 400 }
+        )
+      }
+
+      const selectedTransition = (input.toStepId
+        ? validTransitionsList.find((entry) => entry.transition?.toStepId === input.toStepId)
+        : validTransitionsList[0])?.transition
+
+      if (!selectedTransition) {
         return NextResponse.json(
           {
             error: `No valid transition to step '${input.toStepId}'`,
-            availableTransitions: validTransitionsList.map((t) => ({
-              toStepId: t.transition?.toStepId,
-              toStepName: t.transition?.toStepName,
+            availableTransitions: validTransitionsList.map((entry) => ({
+              toStepId: entry.transition?.toStepId,
+              toStepName: entry.transition?.toStepName,
             })),
           },
           { status: 400 }
         )
       }
 
-      selectedTransition = matchingTransition.transition
-    } else {
-      // Auto-select first valid transition
-      selectedTransition = validTransitionsList[0].transition
-    }
+      // Execute transition
+      const execContext: TransitionHandler.TransitionExecutionContext = {
+        workflowContext,
+        userId: auth.sub,
+        triggerData: input.triggerData,
+      }
 
-    // Execute transition
-    const execContext: transitionHandler.TransitionExecutionContext = {
-      workflowContext: instance.context,
-      userId: auth.sub,
-      triggerData: input.triggerData,
-    }
-
-    const transitionResult = await transitionHandler.executeTransition(
-      em,
-      container,
-      instance,
-      selectedTransition.fromStepId,
-      selectedTransition.toStepId,
-      execContext
-    )
-
-    if (!transitionResult.success) {
-      return NextResponse.json(
-        {
-          error: 'Transition failed',
-          reason: transitionResult.error || 'Unknown error',
-        },
-        { status: 400 }
+      const transitionResult = await transitionHandler.executeTransition(
+        transaction,
+        container,
+        instance,
+        selectedTransition.fromStepId,
+        selectedTransition.toStepId,
+        execContext
       )
-    }
 
-    // Reload instance to get updated state
-    await em.refresh(instance)
+      if (!transitionResult.success) {
+        return NextResponse.json(
+          {
+            error: 'Transition failed',
+            reason: transitionResult.error || 'Unknown error',
+          },
+          { status: 400 }
+        )
+      }
+
+      await transaction.refresh(instance)
+      return { instance, selectedTransition }
+    })
+    if (advancement instanceof NextResponse) return advancement
+
+    const { instance, selectedTransition } = advancement
 
     // Execute workflow to check if we can auto-progress further
     const executionResult = await workflowExecutor.executeWorkflow(
