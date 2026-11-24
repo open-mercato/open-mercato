@@ -209,6 +209,11 @@ images pinned: `apacheignite/ignite:2.17.0-arm64`, reference `redis:7.4-alpine`.
 | `ignite.packed.container.test.ts`: `npm pack` → install tarball into a fresh app outside the workspace (no sibling adapters) → registration + `resolveCacheProvider` → workflow on Ignite; consumer type-check | `apacheignite/ignite:2.17.0-arm64` | 1 node | none / none | 4/4 pass |
 | Unit (Docker-free, default `yarn test`): settings schema, redaction, key/record layout, CAS retry semantics on a fake transport | none | none | none | 39/39 pass |
 
+A full sequential run of all seven suites passed 89/89 in 42.8 s. Two earlier full runs that day
+failed: one with 20 failures, one with 2, all connect errors or timeouts. Both ran while another
+engine's container was using about 230% CPU on the same 8 GB Docker VM. Every suite passed when rerun
+on a quieter host. Treat the container suites as sensitive to Docker host contention.
+
 Run them:
 
 ```bash
