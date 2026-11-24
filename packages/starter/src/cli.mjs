@@ -23,6 +23,7 @@ import readline from 'node:readline'
 
 import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runStreaming, spawnStreaming } from './compose.mjs'
 import { readEnvValue } from './env-file.mjs'
+import { ensureOpenCodePassword } from './env-setup.mjs'
 import { chooseServiceMode, printManualSetup } from './service-modes.mjs'
 import { FRESH_CLONE_NO_INFRA_COMMAND, acquireSetupSession, selectStarterServiceMode } from './setup-session.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
@@ -471,6 +472,7 @@ async function commandInfra(flags) {
       return
     }
     statusLine('info', 'Starting infrastructure containers (first run may pull and build images)', { log })
+    ensureOpenCodePassword(repoRoot)
     const outcome = await startInfra(repoRoot, {
       profiles: flags.profiles,
       logs,

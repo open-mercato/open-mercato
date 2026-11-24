@@ -2488,9 +2488,11 @@ async function waitForMcpHealthy(child, port, isListening) {
 }
 
 async function fetchOpencodeMcpStatus() {
-  const baseUrl = (process.env.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
+  const baseUrl = (process.env.OPENCODE_URL?.trim() || appDotEnv.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
+  const password = process.env.OPENCODE_PASSWORD || appDotEnv.OPENCODE_PASSWORD
+  const headers = password ? { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}` } : undefined
   try {
-    const response = await fetch(`${baseUrl}/mcp`, { signal: AbortSignal.timeout(3000) })
+    const response = await fetch(`${baseUrl}/mcp`, { headers, redirect: 'error', signal: AbortSignal.timeout(3000) })
     if (!response.ok) return null
     const body = await response.json().catch(() => null)
     const status = body?.['open-mercato']?.status

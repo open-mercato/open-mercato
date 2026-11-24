@@ -70,7 +70,9 @@ for (const directory of ['starters/docker', '.']) {
         assert.equal(app.environment.PORT, containerPort)
         assert.equal(app.labels['traefik.http.services.app-upstream.loadbalancer.server.port'], containerPort)
         assert.equal(app.labels['traefik.http.middlewares.domain-check.forwardauth.address'], `http://app:${containerPort}/api/customer_accounts/domain-check`)
-        assert.equal(app.labels['traefik.http.routers.customer.middlewares'], 'inject-domain-check-secret,domain-check')
+        assert.equal(app.labels['traefik.http.routers.platform.middlewares'], 'secure-transport')
+        assert.equal(app.labels['traefik.http.routers.customer.middlewares'], 'secure-transport,inject-domain-check-secret,domain-check')
+        assert.equal(app.labels['traefik.http.middlewares.secure-transport.headers.stsseconds'], '31536000')
         assert.equal(app.labels['traefik.http.routers.customer.entrypoints'], 'websecure')
         assert.equal(app.labels['traefik.http.routers.customer.tls'], 'true')
         assert.deepEqual(traefik.ports.map(port => [port.published, port.target]), [

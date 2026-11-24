@@ -6,6 +6,26 @@ import { addEnvValue, readEnvValue, replaceEnvLine, uncommentEnvLine, writeEnvFi
 import { secretFingerprint, secretHex } from './secrets.mjs'
 import { replaceValues } from './service-modes.mjs'
 
+export function ensureOpenCodePassword(repoRoot, env = process.env) {
+  if (env.OPENCODE_PASSWORD?.trim()) return false
+
+  const rootEnv = path.join(repoRoot, '.env')
+  const appEnv = path.join(repoRoot, 'apps', 'mercato', '.env')
+  const rootText = fs.existsSync(rootEnv) ? fs.readFileSync(rootEnv, 'utf8') : ''
+  const appText = fs.existsSync(appEnv) ? fs.readFileSync(appEnv, 'utf8') : null
+  const rootPassword = parseEnv(rootText).OPENCODE_PASSWORD
+  const appPassword = parseEnv(appText ?? '').OPENCODE_PASSWORD
+  const password = [rootPassword, appPassword].find((value) => value?.trim()) ?? secretHex()
+  const rootNeedsPassword = !rootPassword?.trim()
+  if (rootNeedsPassword) {
+    fs.writeFileSync(rootEnv, replaceValues(rootText, { OPENCODE_PASSWORD: password }), { mode: 0o600 })
+  }
+  if (appText !== null && !appPassword?.trim()) {
+    fs.writeFileSync(appEnv, replaceValues(appText, { OPENCODE_PASSWORD: password }), { mode: 0o600 })
+  }
+  return rootNeedsPassword
+}
+
 // Node port of the Windows launcher's Initialize-EnvFiles: fill-missing-only,
 // machine-local secrets are generated once and never overwritten on re-runs.
 // Postgres and superadmin credentials deliberately stay on the documented dev
@@ -113,5 +133,6 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
     }
   }
 
-  return { rootEnv, appEnv, jwtSecret }
+  const openCodePasswordChanged = ensureOpenCodePassword(repoRoot, env)
+  return { rootEnv, appEnv, jwtSecret, openCodePasswordChanged }
 }

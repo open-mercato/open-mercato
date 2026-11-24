@@ -492,6 +492,18 @@ test('ensureEnvFiles writes the documented dev credentials and threads them into
   )
 })
 
+test('ensureEnvFiles gives the app and the OpenCode service the same stable credential', () => {
+  const repo = makeFakeAppRepo()
+  const options = { env: {}, log: () => {}, warn: () => {} }
+  const setup = ensureEnvFiles(repo, options)
+  const password = readEnvValue(setup.rootEnv, 'OPENCODE_PASSWORD')
+  assert.match(password ?? '', /^[a-f0-9]{64}$/)
+  assert.equal(readEnvValue(setup.appEnv, 'OPENCODE_PASSWORD'), password)
+  assert.equal(setup.openCodePasswordChanged, true)
+  assert.equal(ensureEnvFiles(repo, options).openCodePasswordChanged, false)
+  assert.equal(readEnvValue(setup.rootEnv, 'OPENCODE_PASSWORD'), password)
+})
+
 test('ensureEnvFiles gives the app .env the same generated tenant encryption key as the compose .env', () => {
   const repo = makeFakeAppRepo()
   fs.appendFileSync(path.join(repo, 'apps', 'mercato', '.env.example'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=\n')

@@ -90,3 +90,11 @@ test('the native-Linux registry route documents the root .env and the host VERDA
   assert.match(section, /export VERDACCIO_URL=http:\/\/172\.17\.0\.1:4873/)
   assert.doesNotMatch(section, /\.env next to the infra compose file/)
 })
+
+for (const file of ['starters/docker/compose.fullapp.yml', 'docker-compose.fullapp.yml', 'packages/create-app/template/docker-compose.fullapp.yml']) {
+  test(`${file} publishes LocalStack only on the loopback interface`, () => {
+    const content = fs.readFileSync(path.resolve(ROOT, file), 'utf8')
+    const mappings = publishedPortEntries(content).filter((entry) => entry.endsWith(':4566'))
+    assert.deepEqual(mappings, ['127.0.0.1:${LOCALSTACK_PORT:-4566}:4566'])
+  })
+}

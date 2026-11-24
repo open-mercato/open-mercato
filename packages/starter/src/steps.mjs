@@ -432,7 +432,13 @@ export const envFilesStep = {
     return { ok: false, detail: 'converging (never overwrites existing values)' }
   },
   async apply(ctx) {
-    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${String(line).trimStart()}`), warn: (line) => ctx.log(`   ❗ ${line}`), extraDefaults: ctx.company.env })
+    const { openCodePasswordChanged } = ensureEnvFiles(ctx.repoRoot, {
+      log: (line) => ctx.log(`   ${String(line).trimStart()}`),
+      warn: (line) => ctx.log(`   ❗ ${line}`),
+      extraDefaults: ctx.company.env,
+      env: ctx.env,
+    })
+    ctx.openCodePasswordChanged = openCodePasswordChanged
   },
 }
 
@@ -598,7 +604,7 @@ export const infraUpStep = {
     const detail = missing.length === 0
       ? 'all infra containers running and healthy'
       : `starting: ${notReady.map(({ service, state, health }) => (state === 'running' && health ? `${service} (${health})` : service)).join(', ')}`
-    return { ok: missing.length === 0 && !ctx.flags.rebuild && !ctx.servicePortsChanged, detail }
+    return { ok: missing.length === 0 && !ctx.flags.rebuild && !ctx.servicePortsChanged && !ctx.openCodePasswordChanged, detail }
   },
   async apply(ctx) {
     const prepareOpencodeImage = ctx.ensureOpencodeImageImpl ?? ensureOpencodeImage

@@ -155,6 +155,7 @@ services:
       # configured contract, since this network is internal and not published (dev
       # compose publishes MCP_PORT to the host, which also requires a non-loopback bind).
       MCP_HTTP_HOST: "0.0.0.0"
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
       MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
       MCP_DEBUG: ${MCP_DEBUG:-false}
