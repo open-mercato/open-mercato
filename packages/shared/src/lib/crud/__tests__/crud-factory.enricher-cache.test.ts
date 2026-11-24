@@ -53,6 +53,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       em,
       queryEngine,
       cache,
+    tenantEncryptionService: { getEncryptedFieldNames: async () => [] },
       accessLogService,
       rbacService,
     } as any)[name],

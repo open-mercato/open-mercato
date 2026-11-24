@@ -46,6 +46,7 @@ const container = {
     em: {},
     queryEngine,
     cache,
+    tenantEncryptionService: { getEncryptedFieldNames: async () => [] },
     accessLogService: { log: jest.fn(async () => {}) },
   } as Record<string, unknown>)[name],
 }
