@@ -584,3 +584,38 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+<<<<<<< HEAD
+=======
+
+## 2026-11-07 — Private next-interaction subjects (#8888)
+
+Surface: stable customer projection response behavior. Private email subjects and
+unresolved historical linked names now become NULL in shared projections; response
+keys/types, scheduling, manual names and authorized interaction readers remain
+unchanged. Continuing to serve the private subject as a bridge retains the privacy
+bypass. Clients use unnamed-interaction fallbacks and authorized interaction reads.
+Operators apply the idempotent data repair, complete the declared query-index
+rebuilds and rebuild configured search providers before reopening affected reads.
+See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES.
+Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
+2026-11-13: [human approval](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966).
+
+## Comment authors (2026-11-12, #8759)
+
+STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## 2026-11-19 — Entity translation authorization (#9139)
+
+The STABLE entity translation route and localization resolver require target
+permissions and registered text fields. Continuing to accept or render
+unregistered translations would preserve the vulnerability. See
+[upgrade notes](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139)
+for client and operator migration guidance. Piotr Karwatka (@pkarw) acknowledged
+the emergency waiver of steps 1–3 on 2026-11-20:
+[human approval](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
+
+## SSO authority (2026-11-15, #9014)
+
+STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
+
+>>>>>>> e9d8a4b8f7 (fix(translations): enforce target access and registered fields (#9970))

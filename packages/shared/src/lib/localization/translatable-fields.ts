@@ -20,6 +20,18 @@ export function getTranslatableFields(entityType: string): string[] | undefined 
   return getGlobal()[entityType]
 }
 
+const protectedTranslationFields = new Set([
+  'id', 'tenantid', 'organizationid', 'orgid',
+  'createdat', 'updatedat', 'deletedat', 'isactive',
+  '_locale', '_translated', '__proto__', 'constructor', 'prototype',
+])
+
+export function isSafeTranslationField(field: string): boolean {
+  const normalized = field.toLowerCase()
+  return !protectedTranslationFields.has(normalized)
+    && !protectedTranslationFields.has(normalized.replaceAll('_', ''))
+}
+
 export function getTranslatableFieldsRegistry(): TranslatableFieldsRegistry {
   return { ...getGlobal() }
 }
