@@ -1,8 +1,13 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { login } from '@open-mercato/core/helpers/integration/auth'
+import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
+import { acknowledgeGlobalNotices, login } from '@open-mercato/core/helpers/integration/auth'
+import {
+  createUserFixture,
+  deleteUserIfExists,
+  setUserAclVisibility,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
-import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { expectId, getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { expectConflictBanner } from '@open-mercato/core/helpers/integration/optimisticLockUi'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
@@ -183,6 +188,46 @@ test.describe('TC-CRM-10530: Customer related tasks list can open, complete and 
       expect(unchanged.todoIsDone).toBe(false)
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+    }
+  })
+  test('keeps the list read-only for a user without the interactions manage feature', async ({ page, request }) => {
+    const [setupToken, adminToken] = await withCredentialIsolatedRequest(async (loginRequest) => [
+      await getAuthToken(loginRequest, 'superadmin'),
+      await getAuthToken(loginRequest, 'admin'),
+    ])
+    const { organizationId } = getTokenContext(adminToken)
+    const stamp = Date.now()
+    const title = `Read only task ${stamp}`
+    const email = `crm10530-viewer-${stamp}@example.org`
+    const password = 'Integration-Task-Viewer-10530!'
+    let personId: string | null = null
+    let userId: string | null = null
+    try {
+      personId = await createPersonFixture(request, adminToken, {
+        firstName: 'Tasks',
+        lastName: `Viewer ${stamp}`,
+        displayName: `Tasks Viewer ${stamp}`,
+      })
+      await createTask(request, adminToken, personId, { title })
+      userId = await createUserFixture(request, setupToken, { email, password, organizationId, roles: [] })
+      await setUserAclVisibility(request, setupToken, {
+        userId,
+        organizations: [organizationId],
+        features: ['customers.view', 'customers.people.view', 'customers.interactions.view'],
+      })
+
+      await acknowledgeGlobalNotices(page)
+      const signIn = await page.request.post('/api/auth/login', { form: { email, password } })
+      expect(signIn.ok(), 'the view-only user should sign in').toBeTruthy()
+      await openTasksList(page, `${stamp}`)
+      const row = taskRow(page, title)
+      await expect(row).toBeVisible()
+      await expect(row.getByRole('checkbox')).toHaveCount(0)
+      await expect(row.getByRole('button', { name: title })).toHaveCount(0)
+      await expect(row.getByRole('link', { name: title })).toBeVisible()
+    } finally {
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
+      await deleteUserIfExists(request, setupToken, userId)
     }
   })
 })

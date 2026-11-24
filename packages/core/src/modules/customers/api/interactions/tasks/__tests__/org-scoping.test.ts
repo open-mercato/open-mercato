@@ -5,11 +5,17 @@ import { GET } from '../route'
 const TENANT_ID = '123e4567-e89b-41d3-a456-426614174010'
 const ORG_1 = '123e4567-e89b-41d3-a456-426614174001'
 
+const mockSubqueryBuilder = {
+  select: jest.fn(() => mockSubqueryBuilder),
+  where: jest.fn(() => mockSubqueryBuilder),
+}
+
 const mockEm = {
   find: jest.fn(),
   findOne: jest.fn(),
   findAndCount: jest.fn(),
   count: jest.fn(),
+  createQueryBuilder: jest.fn(() => mockSubqueryBuilder),
 }
 
 const mockContainer = {
@@ -124,6 +130,9 @@ describe('interactions/tasks GET organization scoping', () => {
     mockEm.find.mockImplementation(async () => [])
     mockEm.findAndCount.mockImplementation(async () => [[], 0])
     mockEm.count.mockImplementation(async () => 0)
+    mockEm.createQueryBuilder.mockImplementation(() => mockSubqueryBuilder)
+    mockSubqueryBuilder.select.mockImplementation(() => mockSubqueryBuilder)
+    mockSubqueryBuilder.where.mockImplementation(() => mockSubqueryBuilder)
   })
 
   it.each([

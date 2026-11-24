@@ -30,6 +30,7 @@ import { resolveTodoHref } from './detail/utils'
 import { TaskDialog } from './detail/TaskDialog'
 import { buildCanonicalTaskUpdatePayload, buildTaskFormInitialValues } from './detail/taskFormValues'
 import type { TaskFormPayload } from './detail/hooks/usePersonTasks'
+import { useCanManageInteractions } from './detail/hooks/useCanManageInteractions'
 import type { TodoLinkSummary } from './detail/types'
 import { fetchAssignableStaffMembers } from '../lib/assignableStaff'
 import { CUSTOMER_INTERACTION_TASK_SOURCE } from '../lib/interactionCompatibility'
@@ -102,6 +103,11 @@ function buildCustomerHref(item: CustomerTodoItem): string | null {
 
 function isCrmTask(item: CustomerTodoItem): boolean {
   return item.todoSource === CUSTOMER_INTERACTION_TASK_SOURCE
+}
+
+function resolveReadOnlyTaskHref(item: CustomerTodoItem): string | null {
+  if (isCrmTask(item)) return buildCustomerHref(item)
+  return item.externalHref ?? resolveTodoHref(item.todoSource, item.todoId)
 }
 
 function readStringFilter(value: unknown): string | null {
@@ -195,6 +201,7 @@ export function CustomerTodosTable(): React.JSX.Element {
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const canManageTasks = useCanManageInteractions()
 
   const [search, setSearch] = React.useState('')
   const [page, setPage] = React.useState(1)
@@ -287,7 +294,7 @@ export function CustomerTodosTable(): React.JSX.Element {
     placeholderData: keepPreviousData,
   })
 
-  const rows = data?.items ?? []
+  const rows = React.useMemo(() => data?.items ?? [], [data])
 
   const runTaskMutation = React.useCallback(
     async (item: CustomerTodoItem, request: () => Promise<unknown>, mutationPayload: Record<string, unknown>) => {
@@ -395,7 +402,7 @@ export function CustomerTodosTable(): React.JSX.Element {
       enableSorting: false,
       cell: ({ row }) => {
         const title = row.original.todoTitle ?? t('customers.workPlan.customerTodos.table.column.todo.unnamed')
-        if (isCrmTask(row.original)) {
+        if (canManageTasks && isCrmTask(row.original)) {
           return (
             <Button
               type="button"
@@ -410,7 +417,7 @@ export function CustomerTodosTable(): React.JSX.Element {
             </Button>
           )
         }
-        const todoHref = row.original.externalHref ?? resolveTodoHref(row.original.todoSource, row.original.todoId)
+        const todoHref = resolveReadOnlyTaskHref(row.original)
         if (!todoHref) return <span className="text-muted-foreground">{title}</span>
         return (
           <Link href={todoHref} className="underline-offset-2 hover:underline">
@@ -442,7 +449,7 @@ export function CustomerTodosTable(): React.JSX.Element {
       cell: ({ row }) => {
         const item = row.original
         const isDone = item.todoIsDone === true
-        if (!isCrmTask(item)) return <BooleanIcon value={isDone} />
+        if (!canManageTasks || !isCrmTask(item)) return <BooleanIcon value={isDone} />
         return (
           <Checkbox
             checked={isDone}
@@ -457,7 +464,7 @@ export function CustomerTodosTable(): React.JSX.Element {
       },
       meta: { priority: 3 },
     },
-  ], [handleToggleDone, pendingToggleId, t])
+  ], [canManageTasks, handleToggleDone, pendingToggleId, t])
 
   const viewExportColumns = React.useMemo(() => {
     return columns
@@ -580,6 +587,7 @@ export function CustomerTodosTable(): React.JSX.Element {
         rowActions={(row) => {
           const customerLink = buildCustomerHref(row)
           const crmTask = isCrmTask(row)
+          const canEditTask = crmTask && canManageTasks
           const todoHref = crmTask ? null : row.externalHref ?? resolveTodoHref(row.todoSource, row.todoId)
           const isDone = row.todoIsDone === true
           const items = [
@@ -588,7 +596,7 @@ export function CustomerTodosTable(): React.JSX.Element {
               label: t('customers.workPlan.customerTodos.table.actions.openCustomer'),
               href: customerLink,
             } : null,
-            crmTask ? {
+            canEditTask ? {
               id: 'open-task',
               label: t('customers.workPlan.customerTodos.table.actions.openTask'),
               onSelect: () => setEditingItem(row),
@@ -598,7 +606,7 @@ export function CustomerTodosTable(): React.JSX.Element {
               label: t('customers.workPlan.customerTodos.table.actions.openTask'),
               href: todoHref,
             } : null,
-            crmTask && !isCanceledInteractionStatus(row.todoStatus) ? {
+            canEditTask && !isCanceledInteractionStatus(row.todoStatus) ? {
               id: isDone ? 'reopen-task' : 'complete-task',
               label: isDone
                 ? t('customers.workPlan.customerTodos.table.actions.reopen')

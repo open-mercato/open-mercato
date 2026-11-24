@@ -32,6 +32,9 @@ jest.mock('../../../../lib/interactionReadModel', () => ({
       status: interaction.status ?? 'planned',
       createdAt: interaction.createdAt.toISOString(),
       updatedAt: (interaction.updatedAt ?? interaction.createdAt).toISOString(),
+      priority: interaction.priority ?? null,
+      scheduledAt: interaction.scheduledAt ? interaction.scheduledAt.toISOString() : null,
+      ownerUserId: interaction.ownerUserId ?? null,
       tenantId: interaction.tenantId,
       organizationId: interaction.organizationId,
       entityId: interaction.entity,
@@ -61,6 +64,9 @@ type FakeInteraction = {
   deletedAt: Date | null
   status?: string
   updatedAt?: Date
+  priority?: number | null
+  scheduledAt?: Date | null
+  ownerUserId?: string | null
 }
 
 type FakeTodoLink = {
@@ -105,6 +111,21 @@ function makeTodoLink(overrides: Partial<FakeTodoLink> & { id: string; todoId: s
   }
 }
 
+type FakeSubquery = { __fakeSubquery: true; entity: unknown; where: Record<string, unknown> }
+
+function isFakeSubquery(value: unknown): value is FakeSubquery {
+  return typeof value === 'object' && value !== null && (value as FakeSubquery).__fakeSubquery === true
+}
+
+let activeStore: FakeStore | null = null
+
+function resolveSubqueryIds(subquery: FakeSubquery): unknown[] {
+  const rows = subquery.entity === CustomerInteraction
+    ? (activeStore?.interactions ?? []) as unknown as Array<Record<string, unknown>>
+    : (activeStore?.links ?? []) as unknown as Array<Record<string, unknown>>
+  return rows.filter((row) => matchesWhere(row, subquery.where)).map((row) => row.id)
+}
+
 function matchesWhere(record: Record<string, unknown>, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, condition]) => {
     if (key === '$or') {
@@ -112,29 +133,57 @@ function matchesWhere(record: Record<string, unknown>, where: Record<string, unk
         matchesWhere(record, clause),
       )
     }
+    if (key === '$and') {
+      return (condition as Array<Record<string, unknown>>).every((clause) =>
+        matchesWhere(record, clause),
+      )
+    }
     const value = record[key]
     if (condition !== null && typeof condition === 'object' && !(condition instanceof Date)) {
       const operators = condition as Record<string, unknown>
       if ('$in' in operators) return (operators.$in as unknown[]).includes(value)
+      if ('$nin' in operators) {
+        const excluded = isFakeSubquery(operators.$nin) ? resolveSubqueryIds(operators.$nin) : (operators.$nin as unknown[])
+        return value !== null && value !== undefined && !excluded.includes(value)
+      }
       if ('$ilike' in operators) {
         const needle = String(operators.$ilike).replace(/%/g, '').toLowerCase()
         return typeof value === 'string' && value.toLowerCase().includes(needle)
       }
-      return false
+      const comparable = value instanceof Date ? value.getTime() : value
+      const bound = (operand: unknown) => (operand instanceof Date ? operand.getTime() : operand) as number
+      if (comparable === null || comparable === undefined) return false
+      if ('$gte' in operators && !((comparable as number) >= bound(operators.$gte))) return false
+      if ('$lt' in operators && !((comparable as number) < bound(operators.$lt))) return false
+      if ('$lte' in operators && !((comparable as number) <= bound(operators.$lte))) return false
+      return '$gte' in operators || '$lt' in operators || '$lte' in operators
     }
+    if (condition === null) return value === null || value === undefined
     return value === condition
   })
 }
 
 function createFakeEntityManager(store: FakeStore) {
-  const select = (entity: unknown, where: Record<string, unknown>) => {
+  const select = (entity: unknown, where: Record<string, unknown>, orderBy?: Record<string, string>) => {
     const rows: Array<Record<string, unknown>> =
       entity === CustomerInteraction
         ? (store.interactions as unknown as Array<Record<string, unknown>>)
         : (store.links as unknown as Array<Record<string, unknown>>)
+    const primary = orderBy ? Object.entries(orderBy).find(([field]) => field === 'priority' || field === 'scheduledAt') : undefined
+    const numeric = (value: unknown) => (value instanceof Date ? value.getTime() : typeof value === 'number' ? value : null)
     return rows
       .filter((row) => matchesWhere(row, where))
       .sort((left, right) => {
+        if (primary) {
+          const [field, direction] = primary
+          const leftValue = numeric(left[field])
+          const rightValue = numeric(right[field])
+          if (leftValue !== rightValue) {
+            if (leftValue === null) return 1
+            if (rightValue === null) return -1
+            return direction.toLowerCase().startsWith('asc') ? leftValue - rightValue : rightValue - leftValue
+          }
+        }
         const leftTime = (left.createdAt as Date).getTime()
         const rightTime = (right.createdAt as Date).getTime()
         return rightTime - leftTime
@@ -143,7 +192,7 @@ function createFakeEntityManager(store: FakeStore) {
 
   const find = jest.fn(
     async (entity: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => {
-      const matched = select(entity, where)
+      const matched = select(entity, where, options?.orderBy as Record<string, string> | undefined)
       const limit = typeof options?.limit === 'number' ? options.limit : undefined
       return limit === undefined ? matched : matched.slice(0, limit)
     },
@@ -151,7 +200,7 @@ function createFakeEntityManager(store: FakeStore) {
 
   const findAndCount = jest.fn(
     async (entity: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => {
-      const matched = select(entity, where)
+      const matched = select(entity, where, options?.orderBy as Record<string, string> | undefined)
       const offset = typeof options?.offset === 'number' ? options.offset : 0
       const limit = typeof options?.limit === 'number' ? options.limit : undefined
       const page = limit === undefined ? matched.slice(offset) : matched.slice(offset, offset + limit)
@@ -159,7 +208,20 @@ function createFakeEntityManager(store: FakeStore) {
     },
   )
 
-  return { find, findAndCount }
+  const createQueryBuilder = jest.fn((entity: unknown) => {
+    const subquery: FakeSubquery = { __fakeSubquery: true, entity, where: {} }
+    const builder = {
+      select: () => builder,
+      where: (where: Record<string, unknown>) => {
+        subquery.where = where
+        return subquery
+      },
+    }
+    return builder
+  })
+
+  activeStore = store
+  return { find, findAndCount, createQueryBuilder }
 }
 
 function createQueryEngine(store: FakeStore) {
@@ -600,5 +662,104 @@ describe('GET /api/customers/interactions/tasks', () => {
     const { status } = await callRoute('?ownerUserId=someone')
 
     expect(status).toBe(400)
+  })
+  describe('compatibility mode applies criteria before the page window', () => {
+    const OWNER = '00000000-0000-4000-8000-0000000000aa'
+
+    function newerTasks(count: number, overrides: Partial<FakeInteraction> = {}): FakeInteraction[] {
+      return Array.from({ length: count }, (_, index) => makeInteraction({
+        id: `bbbbbbbb-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        title: `Newer task ${index}`,
+        createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, index)),
+        ...overrides,
+      }))
+    }
+
+    it('finds the only owner match even when 2,100 newer tasks precede it', async () => {
+      const store: FakeStore = {
+        interactions: [
+          ...newerTasks(2100),
+          makeInteraction({
+            id: 'aaaaaaaa-0000-4000-8000-000000000099',
+            title: 'Owned old task',
+            createdAt: new Date('2026-01-01T10:00:00.000Z'),
+            ownerUserId: OWNER,
+          }),
+        ],
+        links: [],
+      }
+      primeRequestContext(store)
+      setUnified(false)
+
+      const { status, body } = await callRoute(`?ownerUserId=${OWNER}&page=1&pageSize=5`)
+
+      expect(status).toBe(200)
+      expect(body.total).toBe(1)
+      expect(body.items.map((item) => item.todoTitle)).toEqual(['Owned old task'])
+    })
+
+    it('sorts by priority across the whole set before paging', async () => {
+      const store: FakeStore = {
+        interactions: [
+          ...newerTasks(2100, { priority: 10 }),
+          makeInteraction({
+            id: 'aaaaaaaa-0000-4000-8000-000000000098',
+            title: 'Old urgent task',
+            createdAt: new Date('2026-01-01T10:00:00.000Z'),
+            priority: 95,
+          }),
+        ],
+        links: [],
+      }
+      primeRequestContext(store)
+      setUnified(false)
+
+      const { status, body } = await callRoute('?sortField=priority&sortDir=desc&page=1&pageSize=1')
+
+      expect(status).toBe(200)
+      expect(body.total).toBe(2101)
+      expect(body.items.map((item) => item.todoTitle)).toEqual(['Old urgent task'])
+    })
+
+    it('keeps an older open legacy todo when many newer tasks are completed', async () => {
+      const store: FakeStore = {
+        interactions: newerTasks(2100, { status: 'done' }),
+        links: [
+          makeTodoLink({
+            id: 'cccccccc-0000-4000-8000-000000000097',
+            todoId: 'dddddddd-0000-4000-8000-000000000097',
+            createdAt: new Date('2026-01-01T10:00:00.000Z'),
+          }),
+        ],
+      }
+      primeRequestContext(store)
+      setUnified(false)
+
+      const { status, body } = await callRoute('?status=open&page=1&pageSize=5')
+
+      expect(status).toBe(200)
+      expect(body.total).toBe(1)
+      expect(body.items.map((item) => item.todoTitle)).toEqual(['Legacy 0097'])
+    })
+  })
+  it('matches search on decrypted titles in unified mode without reading legacy links', async () => {
+    const store: FakeStore = {
+      interactions: [
+        makeInteraction({ id: 'aaaaaaaa-0000-4000-8000-000000000201', title: 'Quarterly review call' }),
+        makeInteraction({ id: 'aaaaaaaa-0000-4000-8000-000000000202', title: 'Send pricing deck' }),
+      ],
+      links: [
+        makeTodoLink({ id: 'cccccccc-0000-4000-8000-000000000201', todoId: 'dddddddd-0000-4000-8000-000000000201' }),
+      ],
+    }
+    const { em } = primeRequestContext(store)
+    setUnified(true)
+
+    const { status, body } = await callRoute('?search=quarterly&page=1&pageSize=10')
+
+    expect(status).toBe(200)
+    expect(body.items.map((item) => item.todoTitle)).toEqual(['Quarterly review call'])
+    expect(canonicalWhereClauses(em).every((where) => !('$or' in where))).toBe(true)
+    expect(em.find.mock.calls.some(([entity]) => entity !== CustomerInteraction)).toBe(false)
   })
 })

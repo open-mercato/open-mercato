@@ -10,14 +10,9 @@ import { createCustomersCrudOpenApi, createPagedListResponseSchema } from '../..
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
 import { resolveAuthActorId, resolveCustomersRequestContext } from '../../../lib/interactionRequestContext'
 import {
-  filterTodoRows,
-  filterTodoRowsByCriteria,
-  hasActiveTodoListFilters,
   listCanonicalTodoRows,
-  listLegacyTodoRows,
+  listMergedTodoRows,
   normalizeTodoSearch,
-  paginateTodoRows,
-  sortTodoRows,
   type TodoListFilters,
   type TodoListSort,
 } from '../../../lib/todoCompatibility'
@@ -83,10 +78,6 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.interactions.view'] },
 }
 
-// Per-source fetch cap used when compatibility mode must merge legacy todo
-// links and canonical task rows without DB-side union. Bounds memory on
-// tenants with large task history.
-const MERGED_TASK_FETCH_CAP = 2000
 
 export async function GET(request: Request): Promise<Response> {
   const { translate } = await resolveTranslations()
@@ -120,7 +111,7 @@ export async function GET(request: Request): Promise<Response> {
     const sort = resolveTodoListSort(query)
     const queryEngine = container.resolve('queryEngine') as QueryEngine
 
-    if (flags.unified) {
+    if (flags.unified && !search) {
       const canonical = await listCanonicalTodoRows(
         em,
         container,
@@ -130,7 +121,6 @@ export async function GET(request: Request): Promise<Response> {
         {
           entityId: query.entityId,
           pagination: exportAll ? null : { page: query.page, pageSize: query.pageSize },
-          searchText: search,
           isUnrestricted,
           filters,
           sort,
@@ -146,47 +136,31 @@ export async function GET(request: Request): Promise<Response> {
       })
     }
 
-    const narrowsOrReordersRows = Boolean(search) || hasActiveTodoListFilters(filters) || sort.field !== 'createdAt' || sort.dir !== 'desc'
-    const legacyWindow = exportAll
-      ? null
-      : narrowsOrReordersRows
-        ? MERGED_TASK_FETCH_CAP
-        : Math.min(
-            MERGED_TASK_FETCH_CAP,
-            Math.max(query.pageSize, query.page * query.pageSize + query.pageSize),
-          )
-    const [legacyRows, canonicalRows] = await Promise.all([
-      listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, query.entityId, {
-        limit: legacyWindow,
+    const merged = await listMergedTodoRows(
+      em,
+      queryEngine,
+      container,
+      auth,
+      selectedOrganizationId,
+      organizationIds,
+      {
+        entityId: query.entityId,
+        filters,
+        sort,
+        search,
+        pagination: exportAll ? null : { page: query.page, pageSize: query.pageSize },
         isUnrestricted,
-      }),
-      listCanonicalTodoRows(
-        em,
-        container,
-        auth,
-        selectedOrganizationId,
-        organizationIds,
-        {
-          entityId: query.entityId,
-          includeDeleted: true,
-          limit: legacyWindow,
-          isUnrestricted,
-        },
-      ),
-    ])
-    const mergedRows = [
-      ...legacyRows.filter((row) => !canonicalRows.bridgeIds.has(row.todoId)),
-      ...canonicalRows.items,
-    ]
-    const filteredRows = filterTodoRowsByCriteria(filterTodoRows(sortTodoRows(mergedRows, sort), search), filters)
-    const paged = paginateTodoRows(filteredRows, query.page, query.pageSize, exportAll)
+        includeLegacy: !flags.unified,
+      },
+    )
 
     return NextResponse.json({
-      items: paged.items,
-      total: paged.total,
-      page: paged.page,
-      pageSize: paged.pageSize,
-      totalPages: paged.totalPages,
+      items: merged.items,
+      total: merged.total,
+      page: exportAll ? 1 : query.page,
+      pageSize: exportAll ? merged.items.length : query.pageSize,
+      totalPages: exportAll ? 1 : Math.max(1, Math.ceil(merged.total / query.pageSize)),
+      ...(merged.totalIsCapped ? { totalIsCapped: true } : {}),
     })
   } catch (err) {
     if (isCrudHttpError(err)) {
