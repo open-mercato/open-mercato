@@ -112,6 +112,32 @@ test.describe('TC-MSG-9201: messages keep working without the attachments module
     }
   })
 
+  test('without attachments a forward from the conversation composer is persisted', async ({ page, request }) => {
+    test.skip(await isAttachmentsModuleEnabled(request), 'Requires an app without the optional attachments module')
+    const fixture = await composeInternalMessage(request, { subject: `QA forward ${randomUUID()}` })
+    let forwardedId: string | null = null
+
+    try {
+      await login(page, 'admin')
+      await page.goto(`/backend/messages/${fixture.messageId}`)
+      await page.getByRole('button', { name: 'Conversation actions', exact: true }).hover()
+      await page.getByRole('menuitem', { name: 'Forward all', exact: true }).click()
+      await page.getByPlaceholder('Review and edit forwarded content...').fill('Forwarded without attachments')
+      await selectRecipientFromComposer(page, 'employee@acme.com')
+
+      const forwarding = page.waitForResponse((response) => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === `/api/messages/${fixture.messageId}/forward`)
+      await page.getByRole('button', { name: 'Forward', exact: true }).click()
+      const response = await forwarding
+      expect(response.status()).toBe(201)
+      const result = await response.json() as { id?: string }
+      forwardedId = expectId(result.id, 'The forwarded message has an ID')
+    } finally {
+      await deleteMessageIfExists(request, fixture.senderToken, forwardedId)
+      await deleteMessageIfExists(request, fixture.senderToken, fixture.messageId)
+    }
+  })
+
   test('inbox list, compose and reply succeed and list items report attachment counts', async ({ request }) => {
     const subject = `QA 9201 inbox ${Date.now()}`
     let messageId: string | null = null
