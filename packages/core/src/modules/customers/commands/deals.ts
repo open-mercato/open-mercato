@@ -507,8 +507,8 @@ async function syncDealPeople(
     }
     return
   }
-  const unique = Array.from(new Set(personIds ?? []))
-  if (primaryPersonEntityId !== undefined && primaryPersonEntityId !== null && !unique.includes(primaryPersonEntityId)) {
+  const nextPersonIds = new Set(personIds ?? [])
+  if (primaryPersonEntityId !== undefined && primaryPersonEntityId !== null && !nextPersonIds.has(primaryPersonEntityId)) {
     const { translate } = await resolveTranslations()
     throw new CrudHttpError(400, {
       error: translate(
@@ -517,37 +517,38 @@ async function syncDealPeople(
       ),
     })
   }
-  // Read the current links once: this both resolves the inherited primary (as the previous
-  // `findOne(..., { isPrimary: true })` did) and lets us tell a real change from a no-op save,
-  // which the lock stamp below depends on.
   const existingLinks = await em.find(CustomerDealPersonLink, { deal })
   const currentPersonIds = new Set(existingLinks.map((link) => link.person.id))
-  const currentPrimaryId = existingLinks.find((link) => link.isPrimary)?.person?.id ?? null
+  const currentPrimary = existingLinks.find((link) => link.isPrimary)
+  const currentPrimaryId = currentPrimary?.person.id ?? null
+  const retainedPrimaryId = currentPrimaryId && nextPersonIds.has(currentPrimaryId) ? currentPrimaryId : null
+  const nextPrimaryId = primaryPersonEntityId === undefined ? retainedPrimaryId : primaryPersonEntityId
+  const linksToRemove = existingLinks.filter((link) => !nextPersonIds.has(link.person.id))
+  const personIdsToAdd = Array.from(nextPersonIds).filter((personId) => !currentPersonIds.has(personId))
+  if (linksToRemove.length === 0 && personIdsToAdd.length === 0 && nextPrimaryId === currentPrimaryId) return
 
-  let effectivePrimaryId = primaryPersonEntityId
-  if (effectivePrimaryId === undefined) {
-    effectivePrimaryId = currentPrimaryId
-  }
-  const linksChanged =
-    !sameLinkIdSet(new Set(unique), currentPersonIds) || effectivePrimaryId !== currentPrimaryId
-  // Nothing to do. Returning here also stops a no-op save from deleting and recreating every
-  // row, which would otherwise discard `participant_role`, `created_at` and the link ids while
-  // this function reports the write as a no-op to every other session.
-  //
-  // NOTE: this only covers the pure no-op. A genuine change below still deletes and recreates
-  // every row, so surviving participants do lose those columns — pre-existing behaviour that
-  // the set-diff in PR 3 of the linked-people parity spec removes. It is out of scope here
-  // because the linked date it corrupts is not rendered until that PR.
-  if (!linksChanged) return
-
-  await em.nativeDelete(CustomerDealPersonLink, { deal })
-  for (const personId of unique) {
+  const peopleToAdd: CustomerEntity[] = []
+  for (const personId of personIdsToAdd) {
     const person = await requireCustomerEntity(em, personId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'person', 'Person not found')
     ensureSameScope(person, deal.organizationId, deal.tenantId)
+    peopleToAdd.push(person)
+  }
+
+  for (const link of linksToRemove) em.remove(link)
+  if (currentPrimary && currentPrimaryId !== nextPrimaryId) {
+    if (retainedPrimaryId !== null) currentPrimary.isPrimary = false
+    if (nextPrimaryId !== null) await em.flush()
+  }
+
+  if (nextPrimaryId !== null && nextPrimaryId !== currentPrimaryId) {
+    const nextPrimaryLink = existingLinks.find((link) => link.person.id === nextPrimaryId)
+    if (nextPrimaryLink) nextPrimaryLink.isPrimary = true
+  }
+  for (const person of peopleToAdd) {
     const link = em.create(CustomerDealPersonLink, {
       deal,
       person,
-      isPrimary: personId === effectivePrimaryId,
+      isPrimary: person.id === nextPrimaryId,
     })
     em.persist(link)
   }

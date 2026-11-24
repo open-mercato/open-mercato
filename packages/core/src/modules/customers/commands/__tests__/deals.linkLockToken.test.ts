@@ -66,6 +66,7 @@ type Probe = {
   readTicks: number[]
   /** Ticks at which `em.flush()` was called, in order. */
   flushTicks: number[]
+  flushStates: Array<{ primaryPersonIds: string[]; removedPersonIds: string[] }>
   /**
    * How many times `isPrimary` was assigned on an ALREADY EXISTING link row. Rows the run
    * creates itself are plain objects and never counted, so this isolates the churn the
@@ -81,6 +82,7 @@ function emptyProbe(): Probe {
     touchTick: null,
     readTicks: [],
     flushTicks: [],
+    flushStates: [],
     primaryFlagWrites: 0,
   }
 }
@@ -138,25 +140,23 @@ function makeEm(
   scope: { tenantId: string; organizationId: string } = { tenantId: 'tenant-1', organizationId: 'org-1' },
 ) {
   const personLinks = (links.people ?? []).map((entry, index) => {
-    const link: Record<string, unknown> = {
+    let isPrimary = entry.isPrimary === true
+    return {
       id: `person-link-${index}`,
       deal,
       person: { id: entry.personId },
       participantRole: 'stakeholder',
       createdAt: BASE_UPDATED_AT,
-    }
-    let isPrimary = entry.isPrimary === true
-    Object.defineProperty(link, 'isPrimary', {
-      get: () => isPrimary,
-      set: (next: boolean) => {
+      get isPrimary() {
+        return isPrimary
+      },
+      set isPrimary(next: boolean) {
         isPrimary = next
         probe.primaryFlagWrites += 1
       },
-      enumerable: true,
-      configurable: true,
-    })
-    return link
+    }
   })
+  const removedPeople = new Set<string>()
   const companyLinks = (links.companies ?? []).map((companyId, index) => ({
     id: `company-link-${index}`,
     deal,
@@ -200,13 +200,20 @@ function makeEm(
     flush: jest.fn(async () => {
       probe.tick += 1
       probe.flushTicks.push(probe.tick)
+      probe.flushStates.push({
+        primaryPersonIds: personLinks.filter((link) => link.isPrimary && !removedPeople.has(link.person.id))
+          .map((link) => link.person.id),
+        removedPersonIds: [...removedPeople],
+      })
     }),
     transactional: jest.fn(async (fn: (inner: any) => Promise<unknown>) => fn(em)),
     begin: jest.fn().mockResolvedValue(undefined),
     commit: jest.fn().mockResolvedValue(undefined),
     rollback: jest.fn().mockResolvedValue(undefined),
     getReference: jest.fn((_ctor: unknown, id: string) => ({ id })),
-    remove: jest.fn(),
+    remove: jest.fn((entity: { person?: { id: string } }) => {
+      if (entity.person) removedPeople.add(entity.person.id)
+    }),
     getKysely: jest.fn(() => {
       throw Object.assign(new Error('no kysely in this test'), { code: '42P01' })
     }),
@@ -321,7 +328,7 @@ async function runRestoreDirection(
 }
 
 /** The person ids the run actually recreated, in insertion order. */
-function recreatedPersonIds(em: any): string[] {
+function insertedPersonIds(em: any): string[] {
   return em.create.mock.calls
     .filter((call: unknown[]) => call[0] === CustomerDealPersonLink)
     .map((call: any[]) => call[1].person.id as string)
@@ -371,11 +378,15 @@ describe('customers.deals.update — deal lock token on link changes', () => {
     expectTokenAdvanced(deal, probe)
   })
 
-  it('advances the token when a person is removed', async () => {
-    const { deal, probe } = await runUpdate(
+  it('removes only the unlinked person and advances the token', async () => {
+    const { deal, em, probe } = await runUpdate(
       { people: [{ personId: ADA }, { personId: BOB }] },
       { personIds: [BOB] },
     )
+    expect(em.remove).toHaveBeenCalledTimes(1)
+    expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ person: { id: ADA } }))
+    expect(em.nativeDelete).not.toHaveBeenCalledWith(CustomerDealPersonLink, expect.anything())
+    expect(insertedPersonIds(em)).toEqual([])
     expectTokenAdvanced(deal, probe)
   })
 
@@ -397,10 +408,36 @@ describe('customers.deals.update — deal lock token on link changes', () => {
   })
 
   it('advances the token when the primary flag moves within an unchanged set', async () => {
-    const { deal, probe } = await runUpdate(
+    const { deal, em, probe } = await runUpdate(
       { people: [{ personId: ADA, isPrimary: true }, { personId: BOB }] },
       { personIds: [ADA, BOB], primaryPersonEntityId: BOB },
     )
+    expect(probe.flushStates.map((state) => state.primaryPersonIds)).toEqual(
+      expect.arrayContaining([[], [BOB]]),
+    )
+    expect(insertedPersonIds(em)).toEqual([])
+    expectTokenAdvanced(deal, probe)
+  })
+
+  it.each([
+    { personIds: [ADA, BOB], removedPersonIds: [] },
+    { personIds: [BOB], removedPersonIds: [ADA] },
+  ])('flushes the old primary change before inserting a new primary into $personIds', async ({
+    personIds, removedPersonIds,
+  }) => {
+    const { deal, em, probe } = await runUpdate(
+      { people: [{ personId: ADA, isPrimary: true }] },
+      { personIds, primaryPersonEntityId: BOB },
+    )
+
+    const clearedPrimaryFlush = probe.flushStates.findIndex((state) => state.primaryPersonIds.length === 0)
+    expect(clearedPrimaryFlush).toBeGreaterThanOrEqual(0)
+    expect(probe.flushStates[clearedPrimaryFlush].removedPersonIds).toEqual(removedPersonIds)
+    expect(em.flush.mock.invocationCallOrder[clearedPrimaryFlush]).toBeLessThan(
+      em.persist.mock.invocationCallOrder[0],
+    )
+    expect(insertedPersonIds(em)).toEqual([BOB])
+    expect(em.persist).toHaveBeenCalledWith(expect.objectContaining({ person: expect.objectContaining({ id: BOB }), isPrimary: true }))
     expectTokenAdvanced(deal, probe)
   })
 
@@ -539,7 +576,8 @@ describe('deal link restore directions — token and set fidelity', () => {
       { people: [{ personId: BOB }], companies: [ACME] },
       { before: makeSnapshot([ADA], [ACME]), after: makeSnapshot([BOB], [ACME]) },
     )
-    expect(recreatedPersonIds(em)).toEqual([ADA])
+    expect(insertedPersonIds(em)).toEqual([ADA])
+    expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ person: { id: BOB } }))
     expectTokenAdvanced(deal, probe)
   })
 
@@ -550,7 +588,9 @@ describe('deal link restore directions — token and set fidelity', () => {
       { people: [{ personId: BOB }] },
       { after: makeSnapshot([ADA, BOB], []) },
     )
-    expect(recreatedPersonIds(em)).toEqual([ADA, BOB])
+    expect(insertedPersonIds(em)).toEqual([ADA])
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.nativeDelete).not.toHaveBeenCalledWith(CustomerDealPersonLink, expect.anything())
     expectTokenAdvanced(deal, probe)
   })
 
@@ -561,7 +601,7 @@ describe('deal link restore directions — token and set fidelity', () => {
       {},
       { before: makeSnapshot([ADA, BOB], [ACME], ADA) },
     )
-    expect(recreatedPersonIds(em)).toEqual([ADA, BOB])
+    expect(insertedPersonIds(em)).toEqual([ADA, BOB])
   })
 
   // The point of the early return, stated as a test: a restore whose snapshot already matches
@@ -580,7 +620,7 @@ describe('deal link restore directions — token and set fidelity', () => {
     )
     expect(em.nativeDelete).not.toHaveBeenCalledWith(CustomerDealPersonLink, expect.anything())
     expect(em.nativeDelete).not.toHaveBeenCalledWith(CustomerDealCompanyLink, expect.anything())
-    expect(recreatedPersonIds(em)).toEqual([])
+    expect(insertedPersonIds(em)).toEqual([])
     expectTokenUnchanged(deal, probe)
   })
 })
