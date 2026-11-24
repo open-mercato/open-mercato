@@ -163,7 +163,7 @@ function prepareStrictDefaults(
     }
     const { moduleId, name } = parsedKey.data
     const keyLabel = `${moduleId}.${name}`
-    const dedupeKey = `${moduleId}:${name}`
+    const dedupeKey = JSON.stringify([moduleId, name])
     if (seen.has(dedupeKey)) {
       throw new Error(`[configs] Duplicate instance config default key "${keyLabel}".`)
     }
@@ -202,7 +202,9 @@ export async function restoreInstanceDefaultsStrict(
   }
 
   const force = options?.force ?? true
-  const maxAttempts = Math.max(1, options?.maxConflictRetries ?? 3)
+  const maxAttempts = Number.isFinite(options?.maxConflictRetries)
+    ? Math.max(1, Math.trunc(options!.maxConflictRetries!))
+    : 3
   let committedRecords: ModuleConfigRecord[] | null = null
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {

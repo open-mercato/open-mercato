@@ -1,6 +1,11 @@
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import {
+  applyDiOverrides,
+  applyDiOverridesToContainer,
+  resetModuleContractOverridesForTests,
+} from '@open-mercato/shared/modules/overrides'
 import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
 import { register as registerApiKeysDi } from '../../di'
 import { createApiKeyOneTimeIssuer, type ApiKeyOneTimeIssuer } from '../oneTimeIssuerService'
@@ -136,5 +141,55 @@ describe('apiKeyOneTimeIssuer', () => {
 
     expect(createdRecords).toHaveLength(0)
     expect(forkSpy).not.toHaveBeenCalled()
+  })
+
+  it('normalizes whitespace-only organizationId to null and trims blank names to the default fallback', async () => {
+    const issuer = createApiKeyOneTimeIssuer(mockEm)
+
+    await issuer.withOneTimeApiKey(
+      {
+        name: '   ',
+        tenantId: '  tenant-1  ',
+        organizationId: '   ',
+        roles: [' role-1 '],
+      },
+      async () => 'ok',
+    )
+
+    expect(createdRecords).toHaveLength(1)
+    expect(createdRecords[0].tenantId).toBe('tenant-1')
+    expect(createdRecords[0].organizationId).toBeNull()
+    expect(createdRecords[0].name).toBe('__onetime__')
+    expect(createdRecords[0].rolesJson).toEqual(['role-1'])
+  })
+
+  it('supports replacing apiKeyOneTimeIssuer via applyDiOverridesToContainer on the request-container path', async () => {
+    const root = createContainer({ injectionMode: InjectionMode.CLASSIC }) as unknown as AppContainer
+    registerApiKeysDi(root)
+    const scope = root.createScope()
+    scope.register({ em: asValue(mockEm) })
+
+    const customSecret = 'omk_custom_override_secret'
+    const customIssuer: ApiKeyOneTimeIssuer = {
+      withOneTimeApiKey: jest.fn(async (_input, cb) => cb(customSecret)),
+    }
+    try {
+      applyDiOverrides({
+        apiKeyOneTimeIssuer: asValue(customIssuer),
+      })
+      applyDiOverridesToContainer(scope)
+
+      const resolved = scope.resolve<ApiKeyOneTimeIssuer>('apiKeyOneTimeIssuer')
+      const seen = await resolved.withOneTimeApiKey(
+        { name: 'test', tenantId: 'tenant-1', organizationId: null, roles: ['role-1'] },
+        async (secret) => secret,
+      )
+
+      expect(seen).toBe(customSecret)
+      expect(customIssuer.withOneTimeApiKey).toHaveBeenCalledTimes(1)
+      expect(createdRecords).toHaveLength(0)
+    } finally {
+      resetModuleContractOverridesForTests()
+    }
   })
 })

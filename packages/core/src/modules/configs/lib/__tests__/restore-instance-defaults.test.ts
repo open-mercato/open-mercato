@@ -422,6 +422,8 @@ describe('module-owned instance config defaults (configs restore-defaults)', () 
 
     const circular: Record<string, unknown> = {}
     circular.self = circular
+    const sparseArray = new Array(2)
+    sparseArray[1] = 1
 
     const malformedValues: unknown[] = [
       undefined,
@@ -433,6 +435,7 @@ describe('module-owned instance config defaults (configs restore-defaults)', () 
       new Date(),
       circular,
       [undefined],
+      sparseArray,
     ]
 
     for (const badValue of malformedValues) {
@@ -448,7 +451,7 @@ describe('module-owned instance config defaults (configs restore-defaults)', () 
       ).toThrow(/Invalid instance config default/)
     }
 
-    // Async provider is rejected before any write
+    // Async provider (both resolving and rejecting) is rejected synchronously before any write
     const asyncModules: Module[] = [
       {
         id: 'alpha',
@@ -458,6 +461,36 @@ describe('module-owned instance config defaults (configs restore-defaults)', () 
       },
     ]
     expect(() => collectInstanceConfigDefaults(asyncModules)).toThrow(/must be synchronous/)
+
+    const rejectingAsyncModules: Module[] = [
+      {
+        id: 'alpha',
+        setup: {
+          instanceConfigDefaults: (() => Promise.reject(new Error('async boom'))) as any,
+        },
+      },
+    ]
+    expect(() => collectInstanceConfigDefaults(rejectingAsyncModules)).toThrow(/must be synchronous/)
+
+    // Dedupe keys do not collide across colon-containing moduleId/name boundaries
+    const colonDistinct = collectInstanceConfigDefaults([
+      {
+        id: 'a',
+        setup: {
+          instanceConfigDefaults: () => [{ name: 'b:c', value: 1 }],
+        },
+      },
+      {
+        id: 'a:b',
+        setup: {
+          instanceConfigDefaults: () => [{ name: 'c', value: 2 }],
+        },
+      },
+    ])
+    expect(colonDistinct.map((entry) => [entry.moduleId, entry.name])).toEqual([
+      ['a', 'b:c'],
+      ['a:b', 'c'],
+    ])
 
     // Non-secret error check: never echo secret-looking values on invalid sibling fields
     expect(() =>
@@ -598,5 +631,15 @@ describe('module-owned instance config defaults (configs restore-defaults)', () 
     await expect(
       restoreInstanceDefaultsStrict(harness.container, [{ moduleId: '', name: 'bad', value: 1 }]),
     ).rejects.toThrow(/Invalid instance config default key/)
+
+    // Non-finite maxConflictRetries normalizes to default attempts instead of skipping writes
+    const nanRetryHarness = createHarness()
+    const restored = await restoreInstanceDefaultsStrict(
+      nanRetryHarness.container,
+      [{ moduleId: 'custom', name: 'k', value: 42 }],
+      { maxConflictRetries: Number.NaN },
+    )
+    expect(restored).toHaveLength(1)
+    expect(nanRetryHarness.getRows().find((row) => row.name === 'k')?.valueJson).toBe(42)
   })
 })

@@ -29,6 +29,10 @@ export class DefaultApiKeyOneTimeIssuer implements ApiKeyOneTimeIssuer {
       throw new Error('One-time API key issuance requires at least one authorized role ID.')
     }
 
+    const organizationId =
+      typeof input.organizationId === 'string' ? (input.organizationId.trim() || null) : null
+    const name = typeof input.name === 'string' ? input.name.trim() : ''
+
     // Fork a context-detached EntityManager so key creation and soft-delete cleanup
     // commit on their own pooled connection outside any surrounding caller transaction.
     const isolatedEm = this.em.fork({
@@ -40,10 +44,10 @@ export class DefaultApiKeyOneTimeIssuer implements ApiKeyOneTimeIssuer {
     return withOnetimeApiKey(
       isolatedEm,
       {
-        name: input.name,
+        name,
         description: input.description ?? null,
         tenantId,
-        organizationId: input.organizationId ?? null,
+        organizationId,
         roles: roleIds,
         expiresAt: input.expiresAt ?? null,
       },

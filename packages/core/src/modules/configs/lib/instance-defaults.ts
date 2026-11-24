@@ -66,9 +66,16 @@ export function validateAndCloneFiniteJsonValue(
     }
     ancestors.add(value)
     try {
-      return value.map((item) =>
-        validateAndCloneFiniteJsonValue(item, ownerLabel, keyLabel, ancestors),
-      )
+      const cloned: unknown[] = new Array(value.length)
+      for (let i = 0; i < value.length; i += 1) {
+        if (!(i in value)) {
+          throw new Error(
+            `[configs] Invalid instance config default "${keyLabel}" from "${ownerLabel}": sparse arrays are not valid JSON.`,
+          )
+        }
+        cloned[i] = validateAndCloneFiniteJsonValue(value[i], ownerLabel, keyLabel, ancestors)
+      }
+      return cloned
     } finally {
       ancestors.delete(value)
     }
@@ -171,6 +178,8 @@ export function collectInstanceConfigDefaults(
       typeof rawEntries === 'object' &&
       typeof (rawEntries as { then?: unknown }).then === 'function'
     ) {
+      // Prevent unhandled rejection noise when an accidentally async provider rejects.
+      ;(rawEntries as unknown as PromiseLike<unknown>).then(undefined, () => {})
       throw new Error(
         `[configs] Invalid instanceConfigDefaults provider on module "${ownerModuleId}": provider must be synchronous and cannot return a Promise.`,
       )
@@ -230,7 +239,7 @@ export function collectInstanceConfigDefaults(
         keyLabel,
       )
 
-      const dedupeKey = `${moduleId}:${name}`
+      const dedupeKey = JSON.stringify([moduleId, name])
       const previousOwner = seenKeys.get(dedupeKey)
       if (previousOwner !== undefined) {
         throw new Error(
