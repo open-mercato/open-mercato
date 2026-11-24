@@ -1,5 +1,14 @@
 # Upgrade Notes
 
+## Production fullapp LocalStack binds to loopback (#10342)
+
+The production fullapp `storage-s3` profile now publishes LocalStack on
+`127.0.0.1` by default. `LOCALSTACK_PORT` still controls the host port, and
+containers on the Compose network can still connect to `localstack:4566`.
+Operators who intentionally use remote tooling must set `INFRA_BIND_HOST`
+to the specific host interface they want to expose, then recreate LocalStack
+with the updated Compose file.
+
 ## CRUD factory security and query correctness bundle
 
 These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
