@@ -7,6 +7,7 @@ import { createTransactionalEntityManagerDouble } from '../../../../test-utils/t
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { invalidateDictionaryCache } from '@open-mercato/shared/lib/i18n/server'
 import workflowsPl from '../../i18n/pl.json'
+import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (em: any, Entity: any, query: any) => em.findOne(Entity, query)),
@@ -404,6 +405,44 @@ describe('executeCallApi', () => {
     // Standard headers should still be present
     expect(headers['Authorization']).toMatch(/^apikey omk_/)
     expect(headers['X-Tenant-Id']).toBe('tenant-456')
+  })
+
+  describe('when the api_keys module is disabled (#9217)', () => {
+    let previousEntityIds: EntityIds
+
+    beforeEach(() => {
+      previousEntityIds = getEntityIds(false)
+      registerEntityIds({ workflows: { workflow_instance: 'workflows:workflow_instance' } })
+    })
+
+    afterEach(() => {
+      registerEntityIds(previousEntityIds)
+    })
+
+    it('refuses with a readable error before minting a key or sending the request', async () => {
+      const config = { endpoint: '/api/sales/orders', method: 'POST', body: {} }
+
+      await expect(executeCallApi(mockEm, config, mockContext, mockContainer))
+        .rejects.toThrow('CALL_API needs the api_keys module to authenticate internal calls')
+      expect(createdApiKeys).toHaveLength(0)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('still calls the API when api_keys is registered', async () => {
+      registerEntityIds({ api_keys: { api_key: 'api_keys:api_key' } })
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Map([['content-type', 'application/json']]),
+        json: async () => ({ ok: true }),
+      } as any)
+
+      const result = await executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer)
+
+      expect(result.status).toBe(200)
+      expect(createdApiKeys).toHaveLength(1)
+    })
   })
 
   it('should throw error if endpoint is missing', async () => {
