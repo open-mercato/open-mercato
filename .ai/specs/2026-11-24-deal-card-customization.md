@@ -37,7 +37,8 @@ The handle and exported card props are additive. Keep the existing card exports 
 ## Implementation Plan
 
 1. Register and document the host, preserve the list record through mapping, and support the optional display label on the default card.
-2. Exercise the real lane with the registry enabled. Check the default reference, a custom reference, missing data, a label-only update and registry cleanup. Cover the public app override through the board's integration path where feasible. Extend the self-contained `TC-CRM-013` board test to verify the default reference and navigation.
+2. Exercise the real lane with the registry enabled. Check the default reference, a custom reference, missing data, a label-only update and registry cleanup.
+3. Extend the self-contained `TC-CRM-013` browser coverage for the default reference and navigation. Add a browser scenario with an app fixture that exports a prop transform from `widgets/components.ts` and loads it through normal app registration. Create and clean up scoped test deals with custom references. Verify that the transform reads the authorized field from `GET /api/customers/deals` on the initial and appended pages and that clicking a customized card still opens the corresponding deal. Keep the override confined to the test app fixture.
 
 ## Acceptance criteria
 
@@ -52,3 +53,4 @@ Use the issue author's first choice, a registered component, and the shared sect
 ## Changelog
 
 - 2026-11-24 — Initial design for [#7260](https://github.com/open-mercato/open-mercato/issues/7260).
+- 2026-11-24 — Required browser coverage for app override registration and list pagination.
