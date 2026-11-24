@@ -7,6 +7,7 @@ import { CustomerAddress } from '../data/entities'
 import { addressCreateSchema, addressUpdateSchema, type AddressCreateInput, type AddressUpdateInput } from '../data/validators'
 import {
   findScopedCustomerCommandRecord,
+  findScopedCustomerCommandTarget,
   ensureOrganizationScope,
   ensureTenantScope,
   requireCustomerEntity,
@@ -76,7 +77,7 @@ type AddressCommandResult = {
 }
 
 async function loadAddressSnapshot(em: EntityManager, id: string, ctx: CommandRuntimeContext): Promise<AddressSnapshot | null> {
-  const address = await findScopedCustomerCommandRecord(
+  const address = await findScopedCustomerCommandTarget(
     em,
     CustomerAddress,
     { id },
@@ -401,7 +402,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, AddressCommandRes
   async execute(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const address = await findScopedCustomerCommandRecord(em, CustomerAddress, { id: parsed.id }, undefined, ctx)
+    const address = await findScopedCustomerCommandTarget(em, CustomerAddress, { id: parsed.id }, undefined, ctx)
     if (!address) throw notFound('Address not found')
     ensureTenantScope(ctx, address.tenantId)
     ensureOrganizationScope(ctx, address.organizationId)
@@ -614,7 +615,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async execute(input, ctx) {
       const id = requireId(input, 'Address id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const address = await findScopedCustomerCommandRecord(em, CustomerAddress, { id }, undefined, ctx)
+      const address = await findScopedCustomerCommandTarget(em, CustomerAddress, { id }, undefined, ctx)
       if (!address) throw notFound('Address not found')
       ensureTenantScope(ctx, address.tenantId)
       ensureOrganizationScope(ctx, address.organizationId)
