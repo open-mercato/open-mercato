@@ -1305,6 +1305,14 @@ Pin an activity:
 
 This section satisfies the root `BACKWARD_COMPATIBILITY.md` deprecation-protocol requirement for every PR that touches contract surfaces. The feat/crm-details-screens branch introduces:
 
+### Related-data permissions on customer detail (2026-11-21, #9149)
+
+Person and company details use the record’s organization when evaluating view permissions for related data. `customers.activities.view` covers addresses, comments (including `notes`), and activities. `customers.interactions.view` covers interactions, tasks (including `todos`), and planned interaction summaries. `customers.deals.view` covers deal rows and metrics. `customers.people.view` covers linked people in company detail.
+
+Existing relation arrays remain present and return empty arrays when the caller lacks their view permission. Restricted counts return zero, next-interaction fields return null, and the planned preview and restricted KPI entries are omitted. Clients can continue to use the existing detail endpoints, with view access granted through their role or API key. The authorization behavior applies to cached and uncached responses. Regression coverage includes `TC-CRM-9149-detail-view-permissions.spec.ts` and both route cache suites.
+
+The company detail page uses the presence of the server-authorized Active deals count to render the Active deals and Customer value cards and the completed-deals caption. The component's `canViewDeals` prop is optional and defaults to `true` for existing consumers; the company page always passes the server-authorized value explicitly. `TC-CRM-9335-company-kpi-permissions.spec.ts` covers card visibility for users with and without deal access, including a company with zero deals.
+
 ### New contract surfaces (purely additive — no deprecation bridge required)
 
 | Surface | Addition | Notes |
@@ -1382,6 +1390,8 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-11-21 | #9149 applies related-data view permissions to person and company detail rows, counts, previews, KPIs, and cached responses. |
+| 2026-11-21 | #9335 uses the scoped company detail response to control the visibility of deal KPIs. |
 | 2026-04-19 | Rev 5: Retroactively documented UX iterations that shipped alongside Phases 1–5 after the initial 2026-04-06 draft. Added "Additional UX Iterations" section covering Enhancements 6–16 (Company Dashboard tab + widgets, AI Action Chips, per-user Customer Labels, Dictionary Kind Settings, Dictionary Entry Reorder/Set-Default, Company Billing extension, Person-Company Roles junction, Deal Stage Transitions audit, Decision Makers Footer, Mini Week Calendar, Coming Soon Placeholder). Extended Implementation Phases table with Phases 5–8. Updated Scope list in TLDR. No contract or migration changes beyond what Rev 3/Rev 4 already documented in the Migration & Backward Compatibility section — the new tables, columns, events, routes and ACL features referenced here are the same ones already enumerated there. This revision closes the gap where the spec described the original 5 enhancements but the branch delivered 16 |
 | 2026-04-18 | Rev 4: Post-review fixes. Documented `audit_logs` schema + service + CLI + export route additions that back the Changelog tab. Added `aria-*` semantics (`role="progressbar"`, `aria-valuenow`, `aria-valuetext`, `aria-current="step"`) to `PipelineStepper`. Added `Cmd/Ctrl+Enter` handler to `CreatePersonDialog`. Restored `data-component-handle` on the UMES example `PageBody` that was removed by an unrelated commit on this branch |
 | 2026-04-17 | Rev 3: Added "Migration & Backward Compatibility" section covering every new contract surface introduced by the feat/crm-details-screens branch (new events, new commands, new routes, new tables, ACL features). Documented query engine `eq` semantic routing, `withAtomicFlush` transaction fix, label feature-gate kind-scoping, entity-role undelete undo, per-org feature check, and deals→notifications event-bus refactor |
