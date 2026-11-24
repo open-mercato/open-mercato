@@ -1,4 +1,10 @@
 export const features = [
+  {
+    id: 'security.sign_ins.view',
+    title: 'View sign-in activity',
+    module: 'security',
+    dependsOn: ['security.profile.view', 'auth.users.list'],
+  },
   { id: 'security.profile.view', title: 'View security profile', module: 'security' },
   {
     id: 'security.profile.password',
