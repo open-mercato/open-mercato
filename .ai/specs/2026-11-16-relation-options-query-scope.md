@@ -18,7 +18,9 @@ For ORM records, resolve allowed selectors to their actual column using register
 
 Relation lookup resolves the trusted request organization scope once. Classification, label-definition lookup, target ACL and record queries use that same effective tenant and selected organization. Rejected or explicitly empty scopes fail closed. A resolved finite scope without a selected organization retains its allowed organization filters. The existing resolver controls all-organization selection, including its home-organization behavior for restricted principals.
 
-Basic and hybrid base-table paths refuse tables with neither `tenant_id` nor `organization_id`, before business reads, coverage or decryption. The existing `omitAutomaticTenantOrgScope: true` is the explicit opt-in; hybrid retains its established basic-engine delegation for this flag. Custom document storage keeps its existing tenant isolation. No new query option, DI seam, dependency, startup or configuration behavior is introduced.
+Basic and hybrid base-table paths refuse tables with neither `tenant_id` nor `organization_id`, before business reads, coverage or decryption. The existing `omitAutomaticTenantOrgScope: true` is the explicit opt-in; hybrid retains its established basic-engine delegation for this flag. Custom document storage keeps its existing tenant isolation. No new query option, dependency or configuration is required.
+
+The release backport resolves optional, entity-specific record policies from the request container. Time-entry lookup applies both the Staff self-scope interceptor and project-access filters at the database. Attachment lookup scans tenant- and organization-scoped candidate IDs and applies the owning metadata policy before running label search or projection against the authorized IDs. These two targets use base-table queries with explicit tenant and organization predicates. A missing owner policy fails closed.
 
 ## Data models
 
@@ -52,9 +54,11 @@ Implicit global callers now fail instead of reading all tenants. Explicit opt-ou
 
 ## Final compliance report
 
-Uses existing classification, ACL, encryption read helpers and scope controls. No migrations, dependencies, configuration changes or sibling module edits. Runtime integration and full-gate results are recorded in PR evidence; manual QA and independent parent review are not asserted here.
+Uses existing classification, ACL, encryption read helpers and scope controls. No migrations, dependencies or configuration changes. Staff and Attachments register their own relation-read policies without a dependency from Entities on either module. Runtime integration and full-gate results are recorded in PR evidence; manual QA and independent parent review are not asserted here.
 
 ## Changelog
+
+- 2026-11-24: Apply owner record-read policies to time-entry and attachment labels on the release backport. Cover missing policy, Staff filters and attachment owner denial in focused tests.
 
 - 2026-11-24: Backport the relation API and global query scope restrictions to the 0.10 release line, with route, query-engine, and migration coverage. The relation-field UI work stays on the main development line.
 - 2026-11-20: Repair inherited QA F1 by sharing the existing trusted request organization scope across relation classification, target ACL, definition lookup and data reads. Add focused denied/empty/finite-scope regressions and native HTTP coverage; preserve named compatibility acceptance and personal protected QA requirements.
