@@ -28,8 +28,9 @@ test.describe('TC-DIR-024: Tenant list paging over tied names', () => {
           data: { name: sharedName },
         });
         const body = await readJsonSafe<{ id?: string }>(response);
+        if (body?.id) tenantIds.push(body.id);
         expect(response.status(), 'POST /api/directory/tenants should return 201').toBe(201);
-        tenantIds.push(expectId(body?.id, 'Tenant creation response should include id'));
+        expectId(body?.id, 'Tenant creation response should include id');
       }
       const expectedIds = [...tenantIds].sort();
 
