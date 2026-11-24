@@ -2,15 +2,6 @@
  * @jest-environment jsdom
  */
 
-/**
- * The deal People tab reaches behavioural parity with the company tab in this PR — unlink,
- * Filters, name sort, person cards, inline create — but deliberately **not** the linked date
- * or the "recently linked" sort. Both read `linkedAt`, which `syncDealPeople` still rewrites
- * on every people write (and unlink and inline create are people writes), so showing them
- * would mean showing a value that is wrong from the first interaction.
- *
- * The last two cases here are the guard on that: they fail if either surface leaks in early.
- */
 import * as React from 'react'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
@@ -235,14 +226,20 @@ describe('DealPeopleSection', () => {
     })
   })
 
-  // --- guards on the two surfaces deferred until `linkedAt` is durable ---
-
-  it('offers only the name sort, never a "Linked" column or "recently linked" sort', async () => {
+  it('sorts by recency when the Linked column header is clicked', async () => {
     renderSection(jest.fn(async () => {}))
     await waitForInitialLoad()
 
-    expect(screen.getByRole('button', { name: 'Name' })).toBeInTheDocument()
-    expect(screen.queryByRole('columnheader', { name: 'Linked' })).not.toBeInTheDocument()
+    const linkedHeader = screen.getByRole('columnheader', { name: 'Linked' })
+    fireEvent.click(within(linkedHeader).getByRole('button', { name: 'Linked' }))
+    await waitFor(() => {
+      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+        '/api/customers/deals/deal-1/people?page=1&pageSize=20&sort=recent',
+        undefined,
+        expect.any(Object),
+      )
+    })
+    expect(linkedHeader).toHaveAttribute('aria-sort', 'descending')
   })
 
   // `LinkEntityDialog` resets its query, results and draft selection whenever `adapter`
@@ -272,10 +269,10 @@ describe('DealPeopleSection', () => {
     expect(capturedAdapters[capturedAdapters.length - 1]).toBe(first)
   })
 
-  it('does not render the linked date in the rows', async () => {
+  it('renders the linked date in each row', async () => {
     renderSection(jest.fn(async () => {}))
     await waitForInitialLoad()
 
-    expect(screen.queryByText(formatDate(LINKED_AT) as string)).not.toBeInTheDocument()
+    expect(screen.getAllByRole('cell', { name: formatDate(LINKED_AT) ?? '' })).toHaveLength(2)
   })
 })

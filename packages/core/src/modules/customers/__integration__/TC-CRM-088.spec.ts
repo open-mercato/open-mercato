@@ -34,9 +34,8 @@ import {
  * merged: before it, a links-only write did not advance `customer_deals.updated_at`, so a
  * stale second unlink was silently accepted instead of 409-ing.
  *
- * The two surfaces the tab deliberately withholds — the linked date and the "recently linked"
- * sort — are asserted at the unit level in `DealPeopleSection.test.tsx` instead: they are a
- * client-side decision, and the endpoint keeps supporting `sort=recent` for existing callers.
+ * The Linked column sorts newest links first. Unlinking a person leaves the surviving
+ * links' dates and relative order intact.
  */
 
 const BASE_URL = process.env.BASE_URL?.trim() || null
@@ -158,27 +157,37 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       const byName = await listPeople(`&search=${encodeURIComponent('Grace Hopper')}`)
       expect(byName.items.map((item) => item.id)).toEqual([graceId])
 
+      const setPrimary = await request.put(resolveUrl('/api/customers/deals'), {
+        headers: authHeaders,
+        data: { id: dealId, primaryPersonEntityId: adaId },
+      })
+      expect(setPrimary.ok()).toBeTruthy()
+      const graceLinkedAt = initial.items.find((item) => item.id === graceId)?.linkedAt
+
       // Unlink goes through the deal's own update, the same write the tab's card action makes.
       const unlink = await request.put(resolveUrl('/api/customers/deals'), {
         headers: authHeaders,
-        data: { id: dealId, personIds: [graceId] },
+        data: { id: dealId, personIds: [graceId], primaryPersonEntityId: graceId },
       })
       expect(unlink.ok()).toBeTruthy()
 
       const afterUnlink = await listPeople()
       expect(afterUnlink.total).toBe(1)
-      expect(afterUnlink.items.map((item) => item.id)).toEqual([graceId])
+      expect(afterUnlink.items).toMatchObject([{ id: graceId, linkedAt: graceLinkedAt, isPrimary: true }])
 
       // …and linking back is the same path in reverse, which is what the link dialog performs.
       const relink = await request.put(resolveUrl('/api/customers/deals'), {
         headers: authHeaders,
-        data: { id: dealId, personIds: [graceId, adaId] },
+        data: { id: dealId, personIds: [graceId, adaId], primaryPersonEntityId: adaId },
       })
       expect(relink.ok()).toBeTruthy()
 
       const afterRelink = await listPeople()
       expect(afterRelink.total).toBe(2)
-      expect(afterRelink.items.map((item) => item.id).sort()).toEqual([adaId, graceId].sort())
+      expect(afterRelink.items).toMatchObject([
+        { id: adaId, isPrimary: true },
+        { id: graceId, linkedAt: graceLinkedAt, isPrimary: false },
+      ])
     } finally {
       for (const entry of created.reverse()) {
         await deleteEntityByBody(request, token, entry.path, entry.id)
@@ -228,6 +237,7 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
     created.push({ path: '/api/customers/deals', id: dealId })
 
     try {
+      await page.setViewportSize({ width: 1600, height: 1000 })
       await login(page, 'admin')
       await page.goto(`/backend/customers/deals/${dealId}?tab=people`, { waitUntil: 'domcontentloaded' })
 
@@ -271,17 +281,19 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       ).toHaveCount(0, { timeout: 30_000 })
 
       await search.fill('')
-      // Sorting lives in the column headers. The deal tab offers only the Name sort — the
-      // "Linked" column and its "recently linked" sort are withheld until PR 3, which is
-      // exactly what `DealPeopleSection.test.tsx` pins at the unit level.
       const nameHeader = page.getByRole('columnheader', { name: /^Name$/ })
       await expect(nameHeader).toHaveAttribute('aria-sort', 'ascending', { timeout: 15_000 })
-      await expect(
-        page.getByRole('columnheader', { name: /^Linked$/ }),
-        'the deal tab must not offer the "Linked" column until PR 3 stops re-dating links',
-      ).toHaveCount(0)
       await nameHeader.getByRole('button', { name: /^Name$/ }).click()
       await expect(nameHeader).toHaveAttribute('aria-sort', 'descending')
+
+      const linkedHeader = page.getByRole('columnheader', { name: /^Linked$/ })
+      await linkedHeader.getByRole('button', { name: /^Linked$/ }).click()
+      await expect(linkedHeader).toHaveAttribute('aria-sort', 'descending')
+      const recencyRows = page.getByRole('row').filter({ hasText: /TC088 (Linked|Unlinked)/ })
+      await expect(recencyRows).toContainText([unlinkedName, linkedName])
+      const beforeUnlink = (await listPeopleFor(request, token, dealId)).items
+        .filter((item) => item.id !== decoyId)
+        .map(({ id, linkedAt }) => ({ id, linkedAt }))
 
       // --- Step 3: unlink from the card ---
       await unlinkPerson(decoyName)
@@ -289,6 +301,9 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
         page.getByText(decoyName, { exact: false }),
         'the unlinked person should leave the list',
       ).toHaveCount(0, { timeout: 30_000 })
+      await expect(recencyRows).toContainText([unlinkedName, linkedName])
+      const afterUnlink = (await listPeopleFor(request, token, dealId)).items
+      expect(afterUnlink.map(({ id, linkedAt }) => ({ id, linkedAt }))).toEqual(beforeUnlink)
 
       // --- Step 4: create-and-link a new contact ---
       await page.getByRole('button', { name: /^Add person$/i }).click()

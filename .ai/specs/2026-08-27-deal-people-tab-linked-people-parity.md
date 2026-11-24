@@ -20,6 +20,7 @@
 | 2026-08-31 | Corrected § Data Models: PR 1 makes no-op link writes non-destructive as a side effect of the change-detection the lock stamp requires. Noted that `DealForm` submits both link lists on every Details save, which is why that side effect is user-visible rather than theoretical. |
 | 1.5 | 2026-08-28 | Split delivery into three PRs on maintainer direction: the `updated_at` stamp ships first and alone (PR 1), the UI parity work second (PR 2), and set-diffing last (PR 3). PR 2 deliberately omits the linked date and the "recently linked" sort — both depend on a durable `linkedAt` that only PR 3 delivers — so no wrong value is ever displayed. Added `availableSorts` and `PersonCard.showLinkedDate` as the switches that complete parity in PR 3. |
 | 1.6 | 2026-08-31 | Implementation feedback from PR 1 (#5757): the no-op early return the lock stamp needs also makes unchanged writes non-destructive, so `customer_deal_people` write semantics change in PR 1 as well as PR 3 — § Data Models now says so instead of claiming PR 1 leaves them untouched. |
+| 1.7 | 2026-11-24 | PR 3 (#10548) implements set-diffing for deal-person links and enables the shared Linked column and recency sort introduced by #8539. |
 
 ## TLDR
 
@@ -370,8 +371,8 @@ Applies to all three PRs. The second `yarn build:packages` rebuilds against what
 
 ### PR 3 — durable `linkedAt` (depends on PR 2)
 
-7. Set-diff `syncDealPeople` with the insert-ordering invariant; decide and state whether `syncDealCompanies` comes along. Command tests.
-8. Drop the `availableSorts` override and flip `showLinkedDate` to `true` on the deal tab. Extend the integration case. Parity complete.
+7. Set-diff `syncDealPeople`. Flush the previous primary's removal or demotion before setting a new primary. The Companies tab does not display link dates, so company reconciliation stays outside this PR. Cover membership, primary changes, and restore in command tests.
+8. Use the shared Linked column, with the header sort on wide layouts and the compact sort control on narrow layouts. Extend `TC-CRM-088` to check recency order and verify that unlinking preserves the remaining dates.
 
 ## Final Compliance Report
 
@@ -391,6 +392,8 @@ Applies to all three PRs. The second `yarn build:packages` rebuilds against what
 | Tests ship with the change they pin | ✅ each PR carries its own command / unit / API / integration coverage; nothing deferred to a later PR than the behaviour it covers |
 
 ## Changelog
+
+- 2026-11-24 — PR 3 preserves surviving link dates and participant roles. The Deal People tab displays and sorts by the date stored on the link. Existing dates are retained as stored.
 
 | Date | Change |
 |------|--------|
