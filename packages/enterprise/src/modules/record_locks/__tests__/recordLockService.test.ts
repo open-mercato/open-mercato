@@ -1,5 +1,5 @@
-import { EntityMetadata, MetadataStorage } from '@mikro-orm/core'
-import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import type { ActionLogHistoryService, AuditHistoryEntry } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
 import { RecordLockService } from '../lib/recordLockService'
 import type { RecordLockSettings } from '../lib/config'
 import { emitRecordLocksEvent } from '../events'
@@ -22,8 +22,8 @@ const DEFAULT_SETTINGS: RecordLockSettings = {
 
 function createService(
   settings: RecordLockSettings = DEFAULT_SETTINGS,
-  actionLogService?: { findById: (id: string) => Promise<unknown> } | null,
-  options?: { canOverrideIncoming?: boolean; auditTrailAvailable?: boolean },
+  auditHistory?: Partial<ActionLogHistoryService> | null,
+  options?: { canOverrideIncoming?: boolean },
 ) {
   const execute = jest.fn().mockResolvedValue([])
   const connection = { execute }
@@ -36,7 +36,6 @@ function createService(
     flush: jest.fn(),
     transactional: jest.fn(),
     getConnection: jest.fn(() => connection),
-    getMetadata: jest.fn(() => ({ find: () => options?.auditTrailAvailable ?? true })),
   } as any
   em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
 
@@ -47,18 +46,23 @@ function createService(
 
   const rbacService = {
     userHasAllFeatures: jest.fn().mockResolvedValue(options?.canOverrideIncoming ?? true),
+    loadAcl: jest.fn(),
   } as any
 
   return {
     service: new RecordLockService({
       em,
       moduleConfigService,
-      actionLogService: (actionLogService as any) ?? null,
+      resolveAuditHistory: () => auditHistory ? {
+        findLatestResourceHistory: async () => null,
+        findLatestActorHistory: async () => null,
+        findResourceHistoryById: async () => null,
+        ...auditHistory,
+      } : undefined,
       rbacService,
     }),
     em,
     moduleConfigService,
-    actionLogService,
     rbacService,
   }
 }
@@ -112,11 +116,13 @@ describe('RecordLockService.validateMutation', () => {
   })
 
   test('returns 409 conflict when optimistic base log is stale', async () => {
-    const actionLogService = {
-      findById: jest.fn(async (id: string) => {
+    const auditHistory = {
+      findResourceHistoryById: jest.fn(async (_scope: unknown, id: string) => {
         if (id === '50000000-0000-4000-8000-000000000001') {
           return {
             id,
+            actorUserId: null,
+            createdAt: new Date('2026-02-17T10:02:00.000Z'),
             tenantId: '60000000-0000-4000-8000-000000000001',
             organizationId: '70000000-0000-4000-8000-000000000001',
             resourceKind: 'sales.quote',
@@ -131,6 +137,8 @@ describe('RecordLockService.validateMutation', () => {
         if (id === '80000000-0000-4000-8000-000000000001') {
           return {
             id,
+            actorUserId: null,
+            createdAt: new Date('2026-02-17T10:02:00.000Z'),
             tenantId: '60000000-0000-4000-8000-000000000001',
             organizationId: '70000000-0000-4000-8000-000000000001',
             resourceKind: 'sales.quote',
@@ -148,7 +156,7 @@ describe('RecordLockService.validateMutation', () => {
       }),
     }
 
-    const { service } = createService(DEFAULT_SETTINGS, actionLogService)
+    const { service } = createService(DEFAULT_SETTINGS, auditHistory)
     const serviceAny = service as any
 
     serviceAny.findActiveLock = jest.fn().mockResolvedValue(
@@ -206,11 +214,13 @@ describe('RecordLockService.validateMutation', () => {
   })
 
   test('returns 409 conflict when optimistic base log is stale from another session of same user', async () => {
-    const actionLogService = {
-      findById: jest.fn(async (id: string) => {
+    const auditHistory = {
+      findResourceHistoryById: jest.fn(async (_scope: unknown, id: string) => {
         if (id === '50000000-0000-4000-8000-000000000001') {
           return {
             id,
+            actorUserId: null,
+            createdAt: new Date('2026-02-17T10:02:00.000Z'),
             tenantId: '60000000-0000-4000-8000-000000000001',
             organizationId: '70000000-0000-4000-8000-000000000001',
             resourceKind: 'sales.quote',
@@ -225,6 +235,8 @@ describe('RecordLockService.validateMutation', () => {
         if (id === '80000000-0000-4000-8000-000000000001') {
           return {
             id,
+            actorUserId: null,
+            createdAt: new Date('2026-02-17T10:02:00.000Z'),
             tenantId: '60000000-0000-4000-8000-000000000001',
             organizationId: '70000000-0000-4000-8000-000000000001',
             resourceKind: 'sales.quote',
@@ -242,7 +254,7 @@ describe('RecordLockService.validateMutation', () => {
       }),
     }
 
-    const { service } = createService(DEFAULT_SETTINGS, actionLogService)
+    const { service } = createService(DEFAULT_SETTINGS, auditHistory)
     const serviceAny = service as any
 
     serviceAny.findActiveLock = jest.fn().mockResolvedValue(
@@ -812,7 +824,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
     )
   })
 
-  test('emits incoming-changes event from decrypted stringified action log changes', async () => {
+  test('emits incoming-changes event from normalized action log changes', async () => {
     const { service, em } = createService(DEFAULT_SETTINGS)
     const serviceAny = service as any
     em.find.mockResolvedValue([
@@ -832,9 +844,9 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
     serviceAny.findLatestActionLogByActor = jest.fn().mockResolvedValue({
       id: '80000000-0000-4000-8000-000000000001',
       actorUserId: '90000000-0000-4000-8000-000000000001',
-      changesJson: JSON.stringify({
+      changesJson: {
         'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
-      }),
+      },
       createdAt: new Date('2026-02-17T10:01:00.000Z'),
     })
 
@@ -932,112 +944,90 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
     )
   })
 
-  test('emits incoming-changes event when org-scoped lock is found only via null-scope fallback', async () => {
-    const { service, em } = createService(DEFAULT_SETTINGS)
-    const serviceAny = service as any
+  const authorizedOrganizationId = '70000000-0000-4000-8000-000000000001'
+  const recipient = '40000000-0000-4000-8000-000000000001'
+  const mutation = {
+    tenantId: '60000000-0000-4000-8000-000000000001',
+    userId: '90000000-0000-4000-8000-000000000001',
+    resourceKind: 'sales.quote',
+    resourceId: '20000000-0000-4000-8000-000000000001',
+    method: 'PUT' as const,
+  }
+  const authorizedTenantScope: OrganizationScope = {
+    tenantId: mutation.tenantId,
+    selectedId: null,
+    allowedIds: [authorizedOrganizationId],
+    filterIds: [authorizedOrganizationId],
+  }
 
-    em.find
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        buildLock({
-          lockedByUserId: '40000000-0000-4000-8000-000000000001',
-          organizationId: '70000000-0000-4000-8000-000000000099',
-          expiresAt: new Date(Date.now() + 86_400_000),
-        }),
-      ])
-
-    serviceAny.findLatestActionLog = jest
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: '80000000-0000-4000-8000-000000000555',
-        actorUserId: '90000000-0000-4000-8000-000000000001',
-        changesJson: {
-          'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
-        },
-        createdAt: new Date('2026-02-17T10:04:00.000Z'),
-      })
-    serviceAny.findLatestActionLogByActor = jest
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: '80000000-0000-4000-8000-000000000555',
-        actorUserId: '90000000-0000-4000-8000-000000000001',
-        changesJson: {
-          'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
-        },
-        createdAt: new Date('2026-02-17T10:04:00.000Z'),
-      })
+  test('uses exact-null first and restricts tenant-level notification fallback to the authorized organizations', async () => {
+    const log: AuditHistoryEntry = {
+      id: '80000000-0000-4000-8000-000000000555',
+      actorUserId: mutation.userId,
+      changesJson: { 'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' } },
+      snapshotBefore: null,
+      snapshotAfter: null,
+      createdAt: new Date('2026-02-17T10:04:00.000Z'),
+    }
+    const history = {
+      findLatestResourceHistory: jest.fn().mockResolvedValue(null),
+      findLatestActorHistory: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(log),
+    }
+    const { service, em } = createService(DEFAULT_SETTINGS, history)
+    em.find.mockResolvedValueOnce([]).mockResolvedValueOnce([buildLock({ lockedByUserId: recipient })])
 
     await service.emitIncomingChangesNotificationAfterMutation({
-      tenantId: '60000000-0000-4000-8000-000000000001',
-      organizationId: null,
-      userId: '90000000-0000-4000-8000-000000000001',
-      resourceKind: 'sales.quote',
-      resourceId: '20000000-0000-4000-8000-000000000001',
-      method: 'PUT',
+      ...mutation, organizationId: null, organizationScope: authorizedTenantScope,
     })
 
+    const exact = expect.objectContaining({ organization: { mode: 'exact', organizationId: null } })
+    const fallback = expect.objectContaining({
+      organization: { mode: 'tenant-level-fallback', organizationIds: [authorizedOrganizationId] },
+    })
+    expect(history.findLatestResourceHistory).toHaveBeenNthCalledWith(1, exact)
+    expect(history.findLatestResourceHistory).toHaveBeenNthCalledWith(2, fallback)
+    expect(history.findLatestActorHistory).toHaveBeenNthCalledWith(1, exact, mutation.userId)
+    expect(history.findLatestActorHistory).toHaveBeenNthCalledWith(2, fallback, mutation.userId)
     expect(emitRecordLocksEvent).toHaveBeenCalledWith(
       'record_locks.incoming_changes.available',
       expect.objectContaining({
-        recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
-        incomingActionLogId: '80000000-0000-4000-8000-000000000555',
+        recipientUserIds: [recipient],
+        incomingActionLogId: log.id,
+        changedFields: 'Display Name',
+        changedRowsJson: expect.stringContaining('Acme Incoming'),
       }),
     )
   })
 
-  test('emits incoming-changes event when scoped query misses lock but tenant-scope fallback finds it', async () => {
-    const { service, em } = createService(DEFAULT_SETTINGS)
-    const serviceAny = service as any
+  test.each<[string, string | null, OrganizationScope | undefined]>([
+    ['exact organization', authorizedOrganizationId, { ...authorizedTenantScope, selectedId: authorizedOrganizationId }],
+    ['null without authorization', null, undefined],
+    ['empty scope', null, { ...authorizedTenantScope, allowedIds: [], filterIds: [] }],
+    ['unauthorized selection', null, { ...authorizedTenantScope, selectionRejected: true }],
+    ['another tenant', null, { ...authorizedTenantScope, tenantId: 'other-tenant' }],
+  ])('leaves enrichment empty after a scoped miss (%s)', async (_name, organizationId, organizationScope) => {
+    const history = {
+      findLatestResourceHistory: jest.fn().mockResolvedValue(null),
+      findLatestActorHistory: jest.fn().mockResolvedValue(null),
+    }
+    const { service, em } = createService(DEFAULT_SETTINGS, history)
+    em.find.mockResolvedValueOnce([]).mockResolvedValueOnce([buildLock({ lockedByUserId: recipient })])
 
-    em.find
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        buildLock({
-          lockedByUserId: '40000000-0000-4000-8000-000000000001',
-          organizationId: '70000000-0000-4000-8000-000000000001',
-          expiresAt: new Date(Date.now() + 86_400_000),
-        }),
-      ])
+    await service.emitIncomingChangesNotificationAfterMutation({ ...mutation, organizationId, organizationScope })
 
-    serviceAny.findLatestActionLog = jest
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: '80000000-0000-4000-8000-000000000556',
-        actorUserId: '90000000-0000-4000-8000-000000000001',
-        changesJson: {
-          'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
-        },
-        createdAt: new Date('2026-02-17T10:04:00.000Z'),
-      })
-    serviceAny.findLatestActionLogByActor = jest
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: '80000000-0000-4000-8000-000000000556',
-        actorUserId: '90000000-0000-4000-8000-000000000001',
-        changesJson: {
-          'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
-        },
-        createdAt: new Date('2026-02-17T10:04:00.000Z'),
-      })
-
-    await service.emitIncomingChangesNotificationAfterMutation({
-      tenantId: '60000000-0000-4000-8000-000000000001',
-      organizationId: '70000000-0000-4000-8000-000000000777',
-      userId: '90000000-0000-4000-8000-000000000001',
-      resourceKind: 'sales.quote',
-      resourceId: '20000000-0000-4000-8000-000000000001',
-      method: 'PUT',
-    })
-
+    const exact = { mode: 'exact', organizationId }
+    for (const [query] of [...history.findLatestResourceHistory.mock.calls, ...history.findLatestActorHistory.mock.calls]) {
+      expect(query.organization).toEqual(exact)
+    }
+    expect(history.findLatestResourceHistory.mock.calls.length).toBeLessThanOrEqual(1)
+    expect(history.findLatestActorHistory.mock.calls.length).toBeLessThanOrEqual(1)
     expect(emitRecordLocksEvent).toHaveBeenCalledWith(
       'record_locks.incoming_changes.available',
       expect.objectContaining({
-        recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
-        incomingActionLogId: '80000000-0000-4000-8000-000000000556',
+        recipientUserIds: [recipient],
+        incomingActionLogId: null,
+        changedFields: '-',
+        changedRowsJson: '',
       }),
     )
   })
@@ -1335,49 +1325,24 @@ describe('RecordLockService.resolveConflictById', () => {
   })
 })
 
-describe('RecordLockService without the audit_logs module (#9205)', () => {
-  type AuditTrailProbe = {
-    findLatestActionLog: (input: Record<string, unknown>) => Promise<unknown>
-    findLatestActionLogByActor: (input: Record<string, unknown>, actorUserId: string) => Promise<unknown>
-    findActionLogById: (logId: string | null, scope: Record<string, unknown>) => Promise<unknown>
-  }
-  const scope = {
-    tenantId: '60000000-0000-4000-8000-000000000001',
-    organizationId: '70000000-0000-4000-8000-000000000001',
-    resourceKind: 'customers.person',
-    resourceId: '20000000-0000-4000-8000-000000000001',
-  }
+describe('RecordLockService without the audit history provider', () => {
+  test('validates a live scope without querying audit persistence', async () => {
+    const { service, em } = createService()
+    const lock = buildLock({ expiresAt: new Date(Date.now() + 60_000) })
+    em.find.mockResolvedValue([lock])
 
-  test('makes no ActionLog query when ActionLog has no ORM metadata', async () => {
-    const actionLogService = { findById: jest.fn() }
-    const { service, em } = createService(DEFAULT_SETTINGS, actionLogService, { auditTrailAvailable: false })
-    const probe = service as unknown as AuditTrailProbe
-
-    await expect(probe.findLatestActionLog(scope)).resolves.toBeNull()
-    await expect(probe.findLatestActionLogByActor(scope, 'user-1')).resolves.toBeNull()
-    await expect(probe.findActionLogById('log-1', scope)).resolves.toBeNull()
-
-    expect(em.findOne).not.toHaveBeenCalled()
-    expect(em.find).not.toHaveBeenCalled()
-    expect(actionLogService.findById).not.toHaveBeenCalled()
-  })
-
-  test('queries ActionLog when the ORM registered a distinct constructor of the same name', async () => {
-    const { service, em } = createService(DEFAULT_SETTINGS)
-    const RegisteredActionLog = class ActionLog {}
-    const metadata = new MetadataStorage()
-    const registered = metadata.set(RegisteredActionLog, new EntityMetadata({
-      class: RegisteredActionLog,
-      className: RegisteredActionLog.name,
-    }))
-    em.getMetadata.mockReturnValue(metadata)
-    em.findOne.mockResolvedValue(null)
-    const probe = service as unknown as AuditTrailProbe
-
-    expect(metadata.has(ActionLog)).toBe(false)
-    expect(metadata.find(ActionLog)).toBe(registered)
-    await probe.findLatestActionLog(scope)
-
-    expect(em.findOne).toHaveBeenCalledWith(ActionLog, expect.any(Object), expect.any(Object))
+    await expect(service.validateMutation({
+      tenantId: lock.tenantId,
+      organizationId: lock.organizationId,
+      userId: lock.lockedByUserId,
+      resourceKind: lock.resourceKind,
+      resourceId: lock.resourceId,
+      method: 'PUT',
+      headers: { token: lock.token },
+    })).resolves.toMatchObject({
+      ok: true,
+      latestActionLogId: null,
+      lock: { id: lock.id },
+    })
   })
 })

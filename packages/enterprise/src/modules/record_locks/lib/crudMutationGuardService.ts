@@ -14,6 +14,7 @@ import {
   type ParsedRecordLockHeaders,
   type RecordLockService,
 } from './recordLockService'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { isRecordLockingEnabledForResource } from './config'
 
 export type RecordLockCrudMutationGuardService = {
@@ -129,6 +130,7 @@ export function createRecordLockCrudMutationGuardService(
         enrichmentResult = await recordLockService.validateMutation({
           tenantId: input.tenantId,
           organizationId: input.organizationId ?? null,
+          ...(input.organizationScope !== undefined ? { organizationScope: input.organizationScope } : {}),
           userId: input.userId,
           resourceKind: input.resourceKind,
           resourceId: input.resourceId,
@@ -139,7 +141,11 @@ export function createRecordLockCrudMutationGuardService(
           }),
           mutationPayload: input.mutationPayload ?? null,
         })
-      } catch {
+      } catch (error) {
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'record_locks',
+          code: 'record_locks.mutation_enrichment_failed',
+        })
         return { ok: true, shouldRunAfterSuccess: false, metadata: null }
       }
 
@@ -180,10 +186,11 @@ export function createRecordLockCrudMutationGuardService(
         reason: 'saved',
       })
 
-      await Promise.allSettled([
+      const [incomingChanges] = await Promise.allSettled([
         recordLockService.emitIncomingChangesNotificationAfterMutation({
           tenantId: input.tenantId,
           organizationId: input.organizationId ?? null,
+          ...(input.organizationScope !== undefined ? { organizationScope: input.organizationScope } : {}),
           userId: input.userId,
           resourceKind: input.resourceKind,
           resourceId: input.resourceId,
@@ -198,6 +205,12 @@ export function createRecordLockCrudMutationGuardService(
           method,
         }),
       ])
+      if (incomingChanges.status === 'rejected') {
+        getTelemetryRuntime()?.reportError(incomingChanges.reason, {
+          module: 'record_locks',
+          code: 'record_locks.incoming_changes_notification_failed',
+        })
+      }
     },
   }
 }
