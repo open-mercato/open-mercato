@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOAuthStateSecretSource } from './oauth-state-secret'
 
 const oauthStateLogger = createLogger('communication_channels').child({ component: 'oauth-state' })
 
@@ -130,27 +131,19 @@ function deriveKey(secret: string): Buffer {
 }
 
 function getSecret(): string {
-  const dedicated = process.env.OM_HUB_OAUTH_STATE_KEY ?? process.env.KMS_MASTER_KEY
-  if (dedicated) return dedicated
-  // No dedicated key configured. Fail closed in production rather than deriving
-  // the state-cookie key from JWT_SECRET (the platform session-signing secret) —
-  // sharing that key means a JWT_SECRET leak also lets an attacker forge OAuth
-  // state cookies, bypassing the userId/tenant binding. In non-production we fall
-  // back to JWT_SECRET so dev/test envs that only configure one secret still work.
+  const source = resolveOAuthStateSecretSource(process.env)
+  const secret = source && process.env[source]
+  if (secret) return secret
   if (process.env.NODE_ENV === 'production') {
     throw new OAuthStateError(
       '[internal] OM_HUB_OAUTH_STATE_KEY or KMS_MASTER_KEY required in production',
       'missing_secret',
     )
   }
-  const fallback = process.env.JWT_SECRET
-  if (!fallback) {
-    throw new OAuthStateError(
-      'OM_HUB_OAUTH_STATE_KEY (or fallback KMS_MASTER_KEY / JWT_SECRET) must be set',
-      'missing_secret',
-    )
-  }
-  return fallback
+  throw new OAuthStateError(
+    'OM_HUB_OAUTH_STATE_KEY (or fallback KMS_MASTER_KEY / JWT_SECRET) must be set',
+    'missing_secret',
+  )
 }
 
 /** Cache key for a consumed OAuth `state` nonce. Exported for tests. */

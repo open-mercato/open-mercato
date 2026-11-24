@@ -29,9 +29,16 @@ const APP_SRC_ROOT = path.join(ROOT, 'apps', 'mercato', 'src')
 const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 'src')
 const APP_PACKAGE_FILE = path.join(ROOT, 'apps', 'mercato', 'package.json')
 const TEMPLATE_PACKAGE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', 'package.json.template')
+const TEMPLATE_ENV_EXAMPLE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', '.env.example')
+const COMMUNICATION_CHANNELS_ENV_HEADER = '# --- Email / Communication Channels (per-user email integration) ---'
 export const SYNC_FOLDERS = ['app', 'components', 'i18n', 'lib', 'modules'] as const
 const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts', 'official-modules.generated.ts'] as const
 const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
+  {
+    sourceFile: path.join(ROOT, 'apps', 'mercato', '.env.example'),
+    templateFile: TEMPLATE_ENV_EXAMPLE_FILE,
+    rel: '.env.example',
+  },
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),
@@ -571,7 +578,35 @@ function collectTemplateFiles(): string[] {
   return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
-function getExpectedTemplateContent(rel: string, source: Buffer): Buffer {
+export function syncCommunicationChannelsEnvExample(source: string, template: string): string {
+  const sectionBoundary = /(?=^# (?:--- |={4,}))/m
+  const hasCommunicationChannelsHeader = (section: string) =>
+    section.split(/\r?\n/, 1)[0] === COMMUNICATION_CHANNELS_ENV_HEADER
+  const sourceSection = source.split(sectionBoundary).find(hasCommunicationChannelsHeader)
+  if (!sourceSection) failTemplateTransform('.env.example', 'could not find the source Communication Channels section')
+
+  const templateSections = template.split(sectionBoundary)
+  const templateIndex = templateSections.findIndex(hasCommunicationChannelsHeader)
+  const currentSection = templateSections[templateIndex] ?? ''
+  if ([sourceSection, currentSection].some((section) => /^[ \t]*[^\r\n# \t]/m.test(section))) {
+    failTemplateTransform('.env.example', 'the shared Communication Channels section must contain only comments')
+  }
+  const newline = template.includes('\r\n') ? '\r\n' : '\n'
+  const expectedSection = sourceSection.trimEnd().replace(/\r?\n/g, newline)
+  if (templateIndex === -1) {
+    const separator = template.endsWith(newline) ? newline : newline + newline
+    return `${template}${separator}${expectedSection}${newline}`
+  }
+  const trailingSpace = currentSection.slice(currentSection.trimEnd().length)
+  templateSections[templateIndex] = expectedSection + trailingSpace
+  return templateSections.join('')
+}
+
+function getExpectedTemplateContent(rel: string, source: Buffer, template?: Buffer | null): Buffer {
+  if (rel === '.env.example') {
+    if (!template) failTemplateTransform(rel, 'the standalone environment example is missing')
+    return Buffer.from(syncCommunicationChannelsEnvExample(source.toString('utf8'), template.toString('utf8')))
+  }
   const transform = TEMPLATE_CONTENT_TRANSFORMS[rel]
   if (!transform) return source
   const sourceText = source.toString('utf8')
@@ -635,7 +670,7 @@ function computeDrift(): Drift[] {
 
     const source = fs.readFileSync(mapping.sourceFile)
     const template = fs.readFileSync(mapping.templateFile)
-    const expectedTemplate = getExpectedTemplateContent(mapping.rel, source)
+    const expectedTemplate = getExpectedTemplateContent(mapping.rel, source, template)
     if (!expectedTemplate.equals(template)) {
       drifts.push({
         kind: 'content_mismatch',
@@ -709,7 +744,7 @@ function computePackageDrift(): PackageDrift[] {
 
 function printDrift(drifts: Drift[]): void {
   if (drifts.length === 0) {
-    console.log(green('Template sync check passed: app and template are in sync for synced src folders/root files.'))
+    console.log(green('Template sync check passed for shared app and template files.'))
     return
   }
 
@@ -779,8 +814,8 @@ function applyFullSync(): number {
 
   for (const mapping of EXPLICIT_TEMPLATE_FILE_MAPPINGS) {
     const source = fs.readFileSync(mapping.sourceFile)
-    const expectedTemplate = getExpectedTemplateContent(mapping.rel, source)
     const current = fs.existsSync(mapping.templateFile) ? fs.readFileSync(mapping.templateFile) : null
+    const expectedTemplate = getExpectedTemplateContent(mapping.rel, source, current)
     if (current && current.equals(expectedTemplate)) continue
     fs.mkdirSync(path.dirname(mapping.templateFile), { recursive: true })
     fs.writeFileSync(mapping.templateFile, expectedTemplate)
@@ -800,7 +835,8 @@ function applySync(drifts: Drift[]): number {
     }
     fs.mkdirSync(path.dirname(drift.templateFile), { recursive: true })
     const source = fs.readFileSync(drift.sourceFile)
-    const expectedTemplate = getExpectedTemplateContent(drift.rel, source)
+    const current = fs.existsSync(drift.templateFile) ? fs.readFileSync(drift.templateFile) : null
+    const expectedTemplate = getExpectedTemplateContent(drift.rel, source, current)
     fs.writeFileSync(drift.templateFile, expectedTemplate)
     updated++
   }
@@ -835,8 +871,12 @@ async function main() {
     console.log(red('Required source/template paths were not found.'))
     process.exit(2)
   }
+  if (!fs.existsSync(TEMPLATE_ENV_EXAMPLE_FILE)) {
+    console.log(red('Restore the standalone .env.example before syncing its shared Communication Channels section.'))
+    process.exit(2)
+  }
 
-  console.log(cyan('[template-sync] Checking template parity for synced src folders, mirrored dev scripts/assets, root files, and package dependencies...'))
+  console.log(cyan('[template-sync] Checking template parity for synced src folders, mirrored dev scripts/assets, root files, the shared .env.example section, and package dependencies...'))
   const drifts = computeDrift()
   const packageDrifts = computePackageDrift()
   printDrift(drifts)

@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-import { POST as initiateOAuth } from '../api/post/oauth/[provider]/initiate/route'
+import { openApi, POST as initiateOAuth } from '../api/post/oauth/[provider]/initiate/route'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const mockGetAuthFromRequest = jest.fn()
@@ -126,5 +126,15 @@ describe('communication_channels oauth initiate — missing state secret in prod
       expect.objectContaining({ code: 'missing_secret' }),
       expect.objectContaining({ module: 'communication_channels', code: 'communication_channels.missing_secret' }),
     )
+  })
+
+  test('documents the conflict response for missing OAuth client credentials', async () => {
+    mockResolveOAuthClientCredentials.mockResolvedValue(null)
+
+    const response = await initiateOAuth(makeRequest(), { params: { provider: PROVIDER } })
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({ code: 'oauth_client_not_configured' })
+    expect(openApi.methods.POST.responses).toContainEqual(expect.objectContaining({ status: response.status }))
   })
 })

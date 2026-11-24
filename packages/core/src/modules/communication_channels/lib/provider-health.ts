@@ -1,5 +1,6 @@
 import type { ZodType } from 'zod'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
+import { resolveOAuthStateSecretSource } from './oauth-state-secret'
 
 export type EmailHealthStatus = 'healthy' | 'degraded' | 'unhealthy'
 
@@ -17,8 +18,8 @@ export interface EmailHealthCheck {
  * Build a liveness probe for an OAuth-client-config integration. There is no
  * access token at this layer (the hub passes the tenant-scoped OAuth client
  * config, not per-user channel tokens), so a network call would always 401. The
- * cheap, deterministic probe is: confirm the client config is present and
- * well-formed. Per-user token validity is exercised on the channel itself
+ * probe checks whether the client config is well-formed and the hub has a
+ * state-cookie secret. Per-user token validity is exercised on the channel itself
  * (send / poll surface `requires_reauth`).
  */
 export function makeClientConfigHealthCheck<T>(options: {
@@ -35,6 +36,13 @@ export function makeClientConfigHealthCheck<T>(options: {
           status: 'unhealthy',
           message: `${options.providerLabel} OAuth client config invalid: ${first?.message ?? 'unknown validation error'}`,
           details: { reason: 'invalid_oauth_client' },
+        }
+      }
+      if (!resolveOAuthStateSecretSource(process.env)) {
+        return {
+          status: 'unhealthy',
+          message: `${options.providerLabel} OAuth state secret is not configured`,
+          details: { reason: 'missing_oauth_state_secret' },
         }
       }
       return {
