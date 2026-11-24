@@ -48,7 +48,9 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/forms', () => ({
-  FormHeader: () => <div>header</div>,
+  FormHeader: ({ onDelete, deleteLabel }: { onDelete?: () => void; deleteLabel?: string }) => (
+    onDelete ? <button onClick={onDelete}>{deleteLabel}</button> : null
+  ),
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
@@ -68,11 +70,13 @@ jest.mock('@open-mercato/ui/primitives/spinner', () => ({
 }))
 
 jest.mock('@open-mercato/ui/primitives/switch-field', () => ({
-  SwitchField: () => <div>switch</div>,
+  SwitchField: ({ label, checked, disabled }: { label: string; checked: boolean; disabled: boolean }) => (
+    <button role="switch" aria-checked={checked} disabled={disabled}>{label}</button>
+  ),
 }))
 
 jest.mock('@open-mercato/ui/primitives/dialog', () => ({
-  Dialog: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) => open ? <div>{children}</div> : null,
   DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -121,6 +125,64 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
   ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
 }))
 
+describe('PortalUserDetailPageClient management permission', () => {
+  const assignedRole = { id: 'role-1', name: 'Assigned portal role', slug: 'assigned-role' }
+  const session = { id: 'session-1', ipAddress: '192.0.2.1', userAgent: null, lastUsedAt: null }
+  const writeActions = ['Save Changes', 'Delete', 'Reset Password', 'Send Reset Link', 'Mark Verified', 'Revoke']
+
+  beforeEach(() => {
+    apiCallMock.mockReset()
+    readApiResultOrThrowMock.mockReset()
+    readApiResultOrThrowMock.mockResolvedValue({
+      ...userDetail,
+      personEntityId: 'person-1',
+      roles: [assignedRole],
+      sessions: [session],
+    })
+    apiCallMock.mockImplementation(async (url) => ({
+      ok: true,
+      status: 200,
+      result: url === '/api/customers/people/person-1'
+        ? { person: { id: 'person-1', displayName: 'Linked person' } }
+        : { items: [assignedRole] },
+    }))
+  })
+
+  it('shows assigned roles, existing CRM links and sessions without exposing write controls', async () => {
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" canManage={false} />)
+
+    const displayName = await screen.findByRole('textbox', { name: 'Display Name' })
+    expect(displayName).toHaveValue('User One')
+    expect(displayName).toHaveAttribute('readonly')
+    expect(screen.getByRole('switch', { name: 'Active' })).toBeDisabled()
+    expect(screen.getByRole('switch', { name: 'Active' })).toBeChecked()
+    expect(screen.getByText(assignedRole.name)).toBeInTheDocument()
+    expect(await screen.findByText('Linked person')).toBeInTheDocument()
+    expect(screen.getByText(session.ipAddress)).toBeInTheDocument()
+
+    for (const action of [...writeActions, 'Unlink', assignedRole.name]) {
+      expect(screen.queryByRole('button', { name: action })).not.toBeInTheDocument()
+    }
+    expect(screen.queryByPlaceholderText('Search people by name...')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Search companies by name...')).not.toBeInTheDocument()
+    expect(apiCallMock.mock.calls.map(([url]) => url)).toEqual(['/api/customers/people/person-1'])
+  })
+
+  it('preserves enabled edit controls and role options for a manager', async () => {
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" canManage />)
+
+    const displayName = await screen.findByRole('textbox', { name: 'Display Name' })
+    expect(displayName).not.toHaveAttribute('readonly')
+    expect(screen.getByRole('switch', { name: 'Active' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: assignedRole.name })).toBeEnabled()
+
+    for (const action of [...writeActions, 'Unlink']) {
+      expect(screen.getByRole('button', { name: action, exact: true })).toBeEnabled()
+    }
+    expect(screen.getByPlaceholderText('Search companies by name...')).toBeEnabled()
+  })
+})
+
 describe('PortalUserDetailPageClient CRM link search', () => {
   beforeEach(() => {
     apiCallMock.mockReset()
@@ -141,7 +203,7 @@ describe('PortalUserDetailPageClient CRM link search', () => {
       return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
 
-    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" canManage />)
 
     const searchInput = await screen.findByPlaceholderText('Search companies by name...')
     fireEvent.change(searchInput, { target: { value: 'Acme' } })
@@ -171,7 +233,7 @@ describe('PortalUserDetailPageClient CRM link search', () => {
       return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
 
-    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" canManage />)
 
     const searchInput = await screen.findByPlaceholderText('Search people by name...')
     fireEvent.change(searchInput, { target: { value: 'Jane' } })
@@ -198,7 +260,7 @@ describe('PortalUserDetailPageClient CRM link search', () => {
       return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
 
-    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" canManage />)
 
     const searchInput = await screen.findByPlaceholderText('Search companies by name...')
     fireEvent.change(searchInput, { target: { value: 'Acme' } })
