@@ -67,13 +67,21 @@ export function withScopedPayload<T extends Record<string, unknown>>(
   enforceActorTenant(tenantId, ctx, translate, options)
 
   const requestedOrg = (source as { organizationId?: string })?.organizationId
+  const recordId = (source as { id?: unknown }).id
   if (typeof requestedOrg === 'string' && requestedOrg && ctx.auth) {
-    if (!authIsSuperAdmin(ctx.auth)
-      && !ctx.organizationScope
-      && !(ctx.selectedOrganizationId ?? ctx.auth.orgId)) {
-      throw new CrudHttpError(403, { error: translate('api.errors.forbidden', 'Forbidden') })
+    try {
+      if (!authIsSuperAdmin(ctx.auth)
+        && !ctx.organizationScope
+        && !(ctx.selectedOrganizationId ?? ctx.auth.orgId)) {
+        throw new CrudHttpError(403, { error: translate('api.errors.forbidden', 'Forbidden') })
+      }
+      ensureOrganizationScope(ctx, requestedOrg)
+    } catch (error) {
+      if (error instanceof CrudHttpError && error.status === 403 && typeof recordId === 'string' && recordId) {
+        throw new CrudHttpError(404, { error: translate('api.errors.notFound', 'Not found') })
+      }
+      throw error
     }
-    ensureOrganizationScope(ctx, requestedOrg)
   }
 
   const resolvedOrg =

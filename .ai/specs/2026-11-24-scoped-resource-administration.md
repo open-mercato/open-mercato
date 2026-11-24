@@ -16,6 +16,8 @@ System dictionary administrators can edit display metadata and entries. System k
 
 Valid request and response shapes remain stable. Clients and integrations must target authorized organizations and use a session-bound key or the configured MCP service for session delegation. Update widgets designed for more than 100 buckets to use an explicit aggregation, filter, or paginated workflow. Administrators should schedule and provision a replacement vector index for a new dimension before switching to it.
 
+An explicitly denied organization still prevents every write. Record mutations carrying an `id` preserve the existing not-found response for both existing and absent out-of-scope records; creation payloads without an `id` return forbidden. This preserves the record-existence boundary without adding a database lookup.
+
 ## Verification
 
 Use the partition and invitation route suites for organization and grant checks, the scoped payload and document numbering suites for rejected cross-scope writes, the warehouse command suite for direct dispatch, and the single and batch analytics suites for interceptor behavior and group caps. MCP HTTP listing and call suites cover configured delegation, and the driver test verifies that resizing leaves DDL out of the runtime path. Browser QA should verify the administrative and widget paths with restricted and unrestricted users.
@@ -23,3 +25,4 @@ Use the partition and invitation route suites for organization and grant checks,
 ## Changelog
 
 - 2026-11-24 — Define scope, delegation, and resource-limit behavior.
+- 2026-11-24 — Preserve not-found responses for denied record mutations while retaining forbidden responses for denied creation destinations.
