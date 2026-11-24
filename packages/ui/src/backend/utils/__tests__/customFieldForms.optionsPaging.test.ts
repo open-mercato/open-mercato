@@ -93,3 +93,27 @@ describe('custom field remote options paging', () => {
     expect(options).toEqual([])
   })
 })
+
+
+describe('relation option errors', () => {
+  beforeEach(() => apiCall.mockReset())
+
+  it('rejects metadata-only access instead of showing a successful empty lookup', async () => {
+    apiCall.mockResolvedValue({ ok: false, result: { error: 'Forbidden' } })
+    await expect(loadOptionsFor({ key: 'target', kind: 'relation', optionsUrl: '/api/entities/relations/options' })())
+      .rejects.toThrow('[internal] Failed to load relation options')
+  })
+
+  it('rejects a failed later page without exposing a partial relation list', async () => {
+    apiCall.mockResolvedValueOnce(okPage({ items: [{ value: 'first', label: 'First' }], hasMore: true }))
+      .mockResolvedValueOnce({ ok: false, result: { error: 'Unavailable' } })
+    await expect(loadOptionsFor({ key: 'target', kind: 'relation', optionsUrl: '/api/entities/relations/options' })())
+      .rejects.toThrow('[internal] Failed to load relation options')
+  })
+
+  it('preserves successful empty relation results', async () => {
+    apiCall.mockResolvedValue(okPage({ items: [] }))
+    await expect(loadOptionsFor({ key: 'target', kind: 'relation', optionsUrl: '/api/entities/relations/options' })())
+      .resolves.toEqual([])
+  })
+})
