@@ -148,6 +148,8 @@ test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI
 
       await login(page, 'admin')
       await page.goto('/backend/customers/deals/create', { waitUntil: 'domcontentloaded' })
+      const createDealButton = page.getByRole('button', { name: 'Create deal', exact: true }).first()
+      await expect(createDealButton).toBeEnabled({ timeout: 60_000 })
       const pipelineField = page.locator('[data-crud-field-id="pipelineId"]')
       await pickOption(page, pipelineField, enabledName)
       await activate(page, page.getByRole('button', { name: 'More details', exact: true }))
@@ -162,7 +164,7 @@ test.describe('TC-CRM-STAGE-PROB-002: stage default probabilities in the deal UI
       const saved = page.waitForResponse((response) =>
         response.request().method() === 'POST' && new URL(response.url()).pathname === DEALS,
       )
-      await page.getByRole('button', { name: 'Create deal', exact: true }).first().click()
+      await createDealButton.click()
       const response = await saved
       expect(response.status()).toBe(201)
       const { id } = (await response.json()) as { id: string }
