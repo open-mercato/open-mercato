@@ -79,6 +79,18 @@ describe('GET /api/entities/relations/options', () => {
     }))
   })
 
+  it('searches product titles while retaining an explicit ID filter and ID label', async () => {
+    mockRbac.userHasAllFeatures.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=catalog:catalog_product&labelField=id&q=Alpha&ids=rec-1'))
+
+    expect(response.status).toBe(200)
+    expect(mockQE.query).toHaveBeenCalledWith('catalog:catalog_product', expect.objectContaining({
+      fields: ['id'],
+      filters: { id: 'rec-1', title: { $ilike: '%Alpha%' } },
+    }))
+  })
+
   it('denies a caller without either feature before querying product options', async () => {
     mockRbac.userHasAllFeatures.mockResolvedValue(false)
     const response = await GET(new Request('http://x/api/entities/relations/options?entityId=catalog:catalog_product'))

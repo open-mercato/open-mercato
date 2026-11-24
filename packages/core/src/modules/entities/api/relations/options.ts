@@ -123,7 +123,10 @@ export async function GET(req: Request) {
   const filters: Record<string, unknown> = {}
   if (ids.length === 1) filters.id = ids[0]
   else if (ids.length > 1) filters.id = { $in: ids }
-  if (q) filters[labelField] = { $ilike: `%${escapeLikePattern(q)}%` }
+  if (q) {
+    const searchField = canViewDefinitions ? labelField : 'title'
+    filters[searchField] = { $ilike: `%${escapeLikePattern(q)}%` }
+  }
   const fields = Array.from(new Set(['id', labelField, ...routeContextFields]))
   const res = await qe.query(entityId, {
     tenantId,
