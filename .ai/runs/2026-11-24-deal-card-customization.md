@@ -15,5 +15,5 @@ Register the card rendered by each lane and let apps show a reference from the d
 
 ### Phase 1: Deal card extension
 
-- [ ] 1.1 Register the card and document the override contract
-- [ ] 1.2 Verify custom and default references through the board
+- [x] 1.1 Register the card and document the override contract — 6a8ba1a7bd
+- [x] 1.2 Verify custom and default references through the board — covered by lane registry, page pagination and browser tests

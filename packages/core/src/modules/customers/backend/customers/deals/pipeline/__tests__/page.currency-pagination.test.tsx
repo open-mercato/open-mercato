@@ -105,6 +105,7 @@ function makeDeals(count: number, currency: string) {
     pipeline_stage_id: 'stage-1',
     value_amount: 100,
     value_currency: currency,
+    cf_reference: `REF-${currency}-${index}`,
   }))
 }
 
@@ -202,6 +203,8 @@ describe('DealsKanbanPage filtered lane pagination', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Load next page' }))
 
     await waitFor(() => expect(latestLaneProps().deals).toHaveLength(26))
+    const records = latestLaneProps().deals.map((deal) => deal.record?.cf_reference)
+    expect(records).toEqual(expect.arrayContaining(['REF-USD-0', 'REF-USD-25']))
     const pageRequest = mockApiCall.mock.calls.find(([path]) => String(path).startsWith('/api/customers/deals?'))
     expect(pageRequest).toBeDefined()
     const url = new URL(String(pageRequest?.[0]), 'http://localhost')

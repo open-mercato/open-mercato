@@ -67,6 +67,7 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       // Locate it by aria-label so the test doesn't depend on the (variable) role.
       const dealCard = page.locator(`[aria-label="Deal: ${dealTitle}"]`);
       await expect(dealCard).toBeVisible();
+      await expect(dealCard.getByText(`DEAL-${dealId.slice(0, 6).toUpperCase()}`, { exact: true })).toBeVisible();
       // SPEC-048: DealCard.tsx renders value as decimal-formatted amount + separate
       // currency-code span (e.g. "5,000  USD") — no '$' glyph appears on the kanban card.
       // Scope to the deal card so we don't accidentally match a currency code elsewhere
