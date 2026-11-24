@@ -41,6 +41,10 @@ The command SHALL force-restore configuration defaults declared by enabled owner
 - WHEN an operator restores defaults with the current or legacy vector auto-indexing environment setting
 - THEN the existing precedence determines the value stored under `vector.auto_index_enabled` without changing tenant overrides.
 
+##### Scenario: A nonempty owner catalog fails to restore during init
+- WHEN the strict restore cannot resolve an EntityManager, or an entry lookup, persistence step, or flush fails
+- THEN restore exits nonzero, no catalog changes or refreshed cache entries are published, and init never invokes `auth setup` or tenant hooks.
+
 Frozen by: `packages/core/src/modules/configs/lib/__tests__/restore-instance-defaults.test.ts` (add the characterization before the cutover).
 
 ## Architecture
@@ -48,7 +52,7 @@ Frozen by: `packages/core/src/modules/configs/lib/__tests__/restore-instance-def
 - Add optional `ModuleSetupConfig.instanceConfigDefaults` in `packages/shared/src/modules/setup.ts`. It is a synchronous provider returning a readonly array of `{ name, value, legacyStorageNamespace? }` entries with finite JSON values. Providers may read their own existing environment policy at invocation time. They run without an EntityManager, tenant, credentials or network I/O.
 - Resolve contributions once per restore from enabled server `Module.setup` entries. Derive owner identity from the module ID. Default the persisted namespace to that ID. The published contract reserves the legacy alias `vector` for a contribution from `search`; enforce that exception as a one-key compatibility rule for `auto_index_enabled`. No other cross-namespace writes are accepted. Normalize keys using Configs' existing rule and reject malformed JSON descriptors and duplicate final keys before the first write. Iterate in deterministic key order. Keep providers out of generated client and route-metadata graphs.
 - `packages/search/src/modules/search/setup.ts` derives the legacy vector default with the shared `envDisablesAutoIndexing` helper and the published key constants. Preserve the current primary variable and deprecated alias behavior, including precedence when both are set. `notifications/setup.ts` returns the current stored delivery configuration from its own module.
-- `configs/cli.ts` collects the validated array and invokes `moduleConfigService.restoreDefaults(entries, { force: true })` once. The service owns writes and cache refresh. Preserve the existing global unique index and commit before publishing refreshed cache entries. Concurrent restores use the existing unique index as the write arbiter. An insertion conflict can fail the competing invocation and be retried from a fresh manager. Never delete absent defaults. Invalid contributions fail before any writes. A write/flush failure surfaced by the existing restore service stops `init` before tenant setup. Logs name the owner/key or phase and omit values.
+- `configs/cli.ts` passes the validated catalog to a Configs-owned strict restore operation that force-restores instance rows. Keep the existing `moduleConfigService.restoreDefaults` signature and best-effort behavior for other callers. The strict path uses a fresh EntityManager and a single transaction. A missing EntityManager or any lookup, persistence, flush or commit error fails the command. Roll back the catalog writes on failure and publish refreshed cache entries only after commit. The global unique index arbitrates concurrent restores. A conflicting invocation can retry with a fresh manager. Never delete absent defaults. Invalid contributions fail before any writes. Logs name the owner/key or phase and omit values.
 - Leave restore as an explicit CLI step. Keep `mercato init` dispatching after migration/bootstrap and before `auth setup`, and skip it when Configs is absent. An empty enabled catalog is a successful no-op. Calling a tenant hook or ordinary server bootstrap does not run restore.
 
 ## Data Model
@@ -57,7 +61,7 @@ Use existing global `module_configs` rows, with null tenant and organization. `m
 
 ## API Contracts
 
-`yarn mercato configs restore-defaults` retains its command name, arguments and help behavior. Successful execution reports the restore result using CLI conventions. A disabled Search contributor produces no vector status line. Discovery failures exit nonzero. There is no new HTTP route or UI surface.
+`yarn mercato configs restore-defaults` retains its command name, arguments and help behavior. Successful execution reports the restore result using CLI conventions. A disabled Search contributor produces no vector status line. Discovery and strict restore failures exit nonzero. There is no new HTTP route or UI surface.
 
 ## Migration & Backward Compatibility
 
@@ -69,6 +73,7 @@ The setup property is optional and uses existing server discovery. Module author
 |---|---|
 | High — forced restore overwrites a different module's setting. | Derive ownership, pin the one legacy alias and reject duplicate normalized keys before writes. Restore still intentionally overwrites known enabled-owner defaults. |
 | Medium — broken packaged discovery omits an enabled owner. | Exercise workspace, packaged and app-local fixtures through server generation and CLI bootstrap. Verify that disabled owners contribute no rows. |
+| High — setup starts with an incomplete catalog. | Propagate strict restore errors, roll back the write transaction, and assert init never starts tenant setup on restore failure. |
 | Medium — cache exposes stale settings after a committed restore. | Keep the Configs cache-update path and read test warmed entries after restore. Cache outages retain existing recovery behavior. |
 
 ## Phasing
@@ -79,7 +84,7 @@ Ship one implementation PR for the instance restore path. The four issue workstr
 
 1. Characterize the current restore command, including the two built-in defaults, disabled-owner writes, explicit force behavior, environment precedence, pre-tenant ordering and Configs-off behavior. Freeze the current CLI help path in `packages/cli/src/__tests__/mercato.test.ts`.
 2. Add the optional setup property and owner declarations. Check registry discovery with app-local, workspace and packed modules and verify that generated client artifacts do not reach the providers. Run `yarn generate` on the reduced fixture.
-3. Cut over the command. Test both owners enabled, each disabled, both disabled, re-enable, duplicate and malformed declarations, retry after a competing insert, cache refresh, tenant override preservation and existing row/timestamp preservation. Exercise explicit restore and init in isolated app/database fixtures. Verify the post-migration restore executes before auth setup.
+3. Cut over the command. Test both owners enabled, each disabled, both disabled, re-enable, duplicate and malformed declarations, retry after a competing insert, cache refresh, tenant override preservation and existing row/timestamp preservation. Exercise explicit restore and init in isolated app/database fixtures. Verify the post-migration restore executes before auth setup. Inject missing-manager, per-entry lookup and persistence, and flush failures. Fail a later entry after an earlier write is staged and verify rollback, no cache publication, a nonzero command result, and no invocation of auth setup or tenant hooks. Verify existing best-effort callers retain their behavior.
 4. Document the authoring property and the legacy namespace. Archive the Delta into `.ai/specs/capabilities/instance-config-defaults.md` with the implementation.
 
 ## Final Compliance Report
@@ -89,3 +94,4 @@ The design reuses module discovery and Configs persistence, limits writes to ins
 ## Changelog
 
 - 2026-11-24 — Proposed independent instance-default ownership as the first workstream of #10476.
+- 2026-11-24 — Specified strict restore failures, catalog rollback, and the init regression cases.
