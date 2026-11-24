@@ -326,6 +326,7 @@
   "auth.acl.features.sales.payments.manage": "Administrar pagos de pedidos",
   "auth.acl.features.sales.quotes.manage": "Administrar cotizaciones de venta",
   "auth.acl.features.sales.quotes.view": "Ver cotizaciones de venta",
+  "auth.acl.features.sales.reopen": "Reabrir oportunidades de CRM",
   "auth.acl.features.sales.returns.create": "Crear devoluciones de pedidos",
   "auth.acl.features.sales.returns.manage": "Editar y eliminar devoluciones de pedidos",
   "auth.acl.features.sales.returns.view": "Ver devoluciones de pedidos",

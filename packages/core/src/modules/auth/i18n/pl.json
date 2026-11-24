@@ -326,6 +326,7 @@
   "auth.acl.features.sales.payments.manage": "Zarządzaj płatnościami za zamówienia",
   "auth.acl.features.sales.quotes.manage": "Zarządzaj ofertami sprzedaży",
   "auth.acl.features.sales.quotes.view": "Wyświetl oferty sprzedaży",
+  "auth.acl.features.sales.reopen": "Otwieranie ponownie transakcji CRM",
   "auth.acl.features.sales.returns.create": "Twórz zwroty zamówień",
   "auth.acl.features.sales.returns.manage": "Edytuj i usuwaj zwroty zamówień",
   "auth.acl.features.sales.returns.view": "Wyświetl zwroty zamówień",

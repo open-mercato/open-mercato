@@ -326,6 +326,7 @@
   "auth.acl.features.sales.payments.manage": "Manage order payments",
   "auth.acl.features.sales.quotes.manage": "Manage sales quotes",
   "auth.acl.features.sales.quotes.view": "View sales quotes",
+  "auth.acl.features.sales.reopen": "CRM 거래 재개",
   "auth.acl.features.sales.returns.create": "Create order returns",
   "auth.acl.features.sales.returns.manage": "Edit and delete order returns",
   "auth.acl.features.sales.returns.view": "View order returns",
