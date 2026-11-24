@@ -172,6 +172,57 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
     jest.useRealTimers()
   })
 
+  it.each(['import', 'export'] as const)('checks persisted cancellation for %s when progress is registered but the run has no job', async (direction) => {
+    const run = { ...baseRun, direction, progressJobId: null }
+    const scope = createScope()
+    const nextBatch = jest.fn()
+    const close = jest.fn()
+    const adapter = direction === 'import'
+      ? importAdapter(async function* () {
+        try {
+          yield importBatch(0)
+          nextBatch()
+          yield importBatch(1)
+        } finally {
+          close()
+        }
+      })
+      : exportAdapter(async function* () {
+        try {
+          yield exportBatch(0)
+          nextBatch()
+          yield exportBatch(1)
+        } finally {
+          close()
+        }
+      })
+    const progressService = createProgressService()
+    const syncRunService = createSyncRunService(run)
+    let status = 'pending'
+    jest.mocked(syncRunService.getRun).mockImplementation(async () => ({ ...run, status }) as Awaited<ReturnType<SyncRunService['getRun']>>)
+    jest.mocked(syncRunService.commitBatchProgress).mockImplementationOnce(async () => {
+      status = 'cancelled'
+      return null
+    })
+    const engine = buildEngine({ run, adapter, progressService, syncRunService })
+
+    await (direction === 'import' ? engine.runImport : engine.runExport)(run.id, 100, scope)
+
+    expect(nextBatch).not.toHaveBeenCalled()
+    expect(syncRunService.getRun).toHaveBeenCalledWith(run.id, scope, { disableIdentityMap: true })
+    expect(progressService.isCancellationRequested).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(syncRunService.commitBatchProgress).toHaveBeenCalledTimes(1)
+    expect(syncRunService.commitBatchProgress).toHaveBeenCalledWith(
+      run.id,
+      expect.objectContaining({ batchesCompleted: 1 }),
+      'cursor-0',
+      scope,
+      expect.objectContaining({ expectedBatchesCompleted: 0 }),
+    )
+    expect(syncRunService.markStatus).toHaveBeenLastCalledWith(run.id, 'cancelled', scope, undefined)
+  })
+
   describe('runImport', () => {
     it('finalizes cancelled when a signal-honouring adapter returns without yielding', async () => {
       const entered = makeDeferred()
@@ -244,7 +295,7 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
 
       await engine.runImport('run-cancel-1', 100, createScope())
 
-      expect(yielded).toEqual([0, 1])
+      expect(yielded).toEqual([0])
       expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledTimes(1)
       expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledWith(
         'run-cancel-1',
@@ -427,7 +478,7 @@ describe('data sync engine cancellation reaches the adapter mid-batch', () => {
 
       await engine.runExport('run-cancel-1', 100, createScope())
 
-      expect(yielded).toEqual([0, 1])
+      expect(yielded).toEqual([0])
       expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledTimes(1)
       expect(syncRunService.commitBatchProgress as jest.Mock).toHaveBeenCalledWith(
         'run-cancel-1',

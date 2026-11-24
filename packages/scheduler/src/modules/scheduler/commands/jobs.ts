@@ -477,7 +477,8 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     }
 
     const scheduleChanged = input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined
-    const nextRunAt = scheduleChanged
+    const reenabling = input.isEnabled === true && schedule.isEnabled !== true
+    const nextRunAt = scheduleChanged || reenabling
       ? calculateNextRunForWrite(
         input.scheduleType ?? schedule.scheduleType,
         input.scheduleValue ?? schedule.scheduleValue,
@@ -568,9 +569,12 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
         schedule.scheduleType !== before.scheduleType
         || schedule.scheduleValue !== before.scheduleValue
         || schedule.timezone !== before.timezone
-      const restoredNextRunAt = scheduleDefinitionChanged
-        ? recalculateNextRun(before.scheduleType, before.scheduleValue, before.timezone)
-        : null
+      const reenabling = before.isEnabled === true && schedule.isEnabled !== true
+      const restoredNextRunAt = reenabling
+        ? calculateNextRunForWrite(before.scheduleType, before.scheduleValue, before.timezone)
+        : scheduleDefinitionChanged
+          ? recalculateNextRun(before.scheduleType, before.scheduleValue, before.timezone)
+          : null
 
       await withTenantActiveScheduleSlot(em, before.tenantId, activatesSchedule, () => {
         // Restore all fields

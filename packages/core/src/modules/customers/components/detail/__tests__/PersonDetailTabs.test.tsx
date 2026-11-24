@@ -28,6 +28,8 @@ describe('PersonDetailTabs', () => {
       </PersonDetailTabs>,
     )
     expect(onTabChange).not.toHaveBeenCalled()
+    expect(screen.getByText('content')).toBeInTheDocument()
+    expect(screen.queryByRole('tabpanel')).toBeNull()
     const injectedTabs = [
       { id: 'crm.pending', label: 'Pending', priority: 1000 },
       { id: 'crm.pending', label: 'Duplicate', priority: 2000 },
@@ -39,7 +41,8 @@ describe('PersonDetailTabs', () => {
       </PersonDetailTabs>,
     )
     expect(screen.getAllByRole('tab')[0]).toHaveTextContent('Pending')
-    expect(screen.getByRole('tab', { name: 'Pending', exact: true })).toHaveAttribute('aria-selected', 'true')
+    const pendingTab = screen.getByRole('tab', { name: 'Pending', selected: true })
+    expect(screen.getByRole('tabpanel', { name: 'Pending' }).id).toBe(pendingTab.getAttribute('aria-controls'))
     expect(screen.queryByRole('tab', { name: 'Duplicate', exact: true })).toBeNull()
     expect(screen.queryByRole('tab', { name: 'Spoofed native', exact: true })).toBeNull()
     expect(onTabChange).not.toHaveBeenCalled()
@@ -70,13 +73,33 @@ describe('PersonDetailTabs', () => {
     expect(onTabChange).toHaveBeenCalledWith('addresses')
   })
 
-  it('lifts the active overflow tab inline so the selection stays visible', () => {
-    render(
-      <PersonDetailTabs activeTab="addresses" onTabChange={() => {}}>
-        <div>content</div>
+  it('links the selected tab to its named panel when switching to an overflow tab', () => {
+    const onTabChange = jest.fn()
+    const { rerender } = render(
+      <PersonDetailTabs activeTab="emails" onTabChange={onTabChange}>
+        <div>Email content</div>
       </PersonDetailTabs>,
     )
-    expect(screen.getByRole('tab', { name: /address/i })).toHaveAttribute('aria-selected', 'true')
+    const emailsTab = screen.getByRole('tab', { name: 'Emails', selected: true })
+    const emailsPanel = screen.getByRole('tabpanel', { name: 'Emails' })
+    expect(emailsPanel.id).toBe(emailsTab.getAttribute('aria-controls'))
+    expect(emailsPanel).toHaveTextContent('Email content')
+
+    fireEvent.click(screen.getByRole('button', { name: /^More/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /address/i }))
+    expect(onTabChange).toHaveBeenCalledWith('addresses')
+
+    rerender(
+      <PersonDetailTabs activeTab="addresses" onTabChange={onTabChange}>
+        <div>Address content</div>
+      </PersonDetailTabs>,
+    )
+    const addressesTab = screen.getByRole('tab', { name: /address/i, selected: true })
+    const addressesPanel = screen.getByRole('tabpanel', { name: /address/i })
+    expect(addressesPanel.id).toBe(addressesTab.getAttribute('aria-controls'))
+    expect(addressesPanel).toHaveTextContent('Address content')
+    expect(emailsTab).not.toHaveAttribute('aria-controls')
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
     expect(screen.getAllByRole('tab')).toHaveLength(7)
   })
 
@@ -95,6 +118,26 @@ describe('PersonDetailTabs', () => {
       expect(screen.getByRole('tab', { name: label })).toBeInTheDocument()
     },
   )
+
+  it('marks the rail busy only while injected tabs are loading', () => {
+    const { rerender } = render(<PersonDetailTabs activeTab="activities" onTabChange={jest.fn()} isLoadingInjectedTabs>panel</PersonDetailTabs>)
+    expect(screen.getByTestId('detail-tabs-row')).toHaveAttribute('aria-busy', 'true')
+    rerender(<PersonDetailTabs activeTab="activities" onTabChange={jest.fn()} isLoadingInjectedTabs={false}>panel</PersonDetailTabs>)
+    expect(screen.getByTestId('detail-tabs-row')).toHaveAttribute('aria-busy', 'false')
+  })
+
+  it('renders the icon declared on an injected tab placement', () => {
+    render(
+      <PersonDetailTabs
+        activeTab="activities"
+        onTabChange={() => {}}
+        injectedTabs={[{ id: 'pending-work', label: 'Pending work', icon: 'list-checks', priority: 10 }]}
+      >
+        <div>content</div>
+      </PersonDetailTabs>,
+    )
+    expect(screen.getByRole('tab', { name: 'Pending work' }).querySelector('svg.lucide-list-checks')).not.toBeNull()
+  })
 
   it('folds a tab that appears after the first measurement instead of staying on the measuring render', () => {
     const widthSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 100 } as DOMRect)

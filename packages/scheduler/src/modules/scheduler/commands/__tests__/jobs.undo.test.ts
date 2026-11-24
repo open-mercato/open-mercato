@@ -167,6 +167,25 @@ describe('scheduler.jobs undo restores state (issue #2504)', () => {
     expect(nextRunAt.getUTCMinutes()).toBe(0)
   })
 
+  it('update undo reschedules a disabled job from the current time when re-enabling it', async () => {
+    jest.useFakeTimers({ now: new Date('2026-06-08T12:00:00.000Z') })
+    try {
+      const { update } = loadCommands()
+      const before = baseSnapshot({ nextRunAt: '2026-06-05T00:00:00.000Z' })
+      const after = { ...before, isEnabled: false }
+      const liveRow = { ...after, nextRunAt: new Date('2026-06-05T00:00:00.000Z') }
+      const em = makeEm(liveRow)
+
+      await update.undo({ logEntry: persistedLogEntry({ before, after }), ctx: makeCtx(em) })
+
+      expect(liveRow.isEnabled).toBe(true)
+      expect(liveRow.nextRunAt).toEqual(new Date('2026-06-09T00:00:00.000Z'))
+      expect(em.flush).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('update undo is a no-op when no snapshot is recoverable', async () => {
     const { update } = loadCommands()
     const em = makeEm({ id: 'job-1', name: 'whatever' })
