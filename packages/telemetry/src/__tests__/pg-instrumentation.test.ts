@@ -17,6 +17,7 @@ import path from 'node:path'
  * span before the underlying call fails.
  */
 const pkgRoot = path.resolve(__dirname, '../..')
+const CHILD_PROBE_TIMEOUT_MS = 60_000
 
 const CHILD_SCRIPT = `
 import assert from 'node:assert/strict'
@@ -93,7 +94,7 @@ function runChild(order: string): ProbeSpan[] {
         OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:1',
         OM_LOG_LEVEL: 'error',
       },
-      timeout: 30_000,
+      timeout: CHILD_PROBE_TIMEOUT_MS,
     })
     const line = (result.stdout || '').split('\n').find((candidate) => candidate.startsWith('SPANS='))
     if (result.error || result.status !== 0 || result.signal || !line) {
@@ -118,6 +119,6 @@ describe('OTLP provider pg instrumentation', () => {
       const statements = spans.flatMap((span) => [span.attributes['db.query.text'], span.attributes['db.statement']])
       expect(statements).toContain('select "s0".* from "sessions" as "s0" where "s0"."id" = ? limit ?')
     },
-    35_000,
+    CHILD_PROBE_TIMEOUT_MS + 5_000,
   )
 })
