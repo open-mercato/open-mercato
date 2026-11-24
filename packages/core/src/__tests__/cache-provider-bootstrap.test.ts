@@ -202,4 +202,19 @@ describe('core bootstrap cache provider resolution', () => {
     expect(provider.create).not.toHaveBeenCalled()
     await container.dispose()
   })
+
+  it('boots the stock cache when CACHE_PROVIDER is unset even if registrations are invalid', async () => {
+    setCacheProviderRegistrations([
+      { id: 'redis', load: async () => { throw new Error('unused') }, settings: () => ({}) },
+      { id: 'not a valid id' } as unknown as CacheProviderRegistration,
+    ])
+    const container = createContainer().register({ em: asValue({}) })
+
+    await bootstrap(container)
+
+    const cache = container.resolve<CacheStrategy>('cache')
+    await cache.set('stock', 2)
+    expect(await cache.get('stock')).toBe(2)
+    await container.dispose()
+  })
 })
