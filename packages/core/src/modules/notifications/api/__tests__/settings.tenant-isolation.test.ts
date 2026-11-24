@@ -11,6 +11,7 @@ const instanceConfig = {
   strategies: { email: { enabled: true, from: 'operator@example.com', replyTo: 'support@example.com' } },
 }
 let auth: { sub: string; tenantId: string | null; orgId: string | null; actorTenantId?: string; isSuperAdmin?: boolean } | null
+let configServiceEnabled = true
 const guardEnforce = jest.fn(async (_input: unknown): Promise<void> => undefined)
 const rows = new Map<string | null, ModuleConfig>()
 const cache = new Map<string, unknown>()
@@ -24,9 +25,10 @@ const em = {
   flush: async () => undefined,
 }
 const container = {
-  resolve: <T,>(name: string): T => {
+  resolve: <T,>(name: string, options?: { allowUnregistered?: boolean }): T => {
     if (name === 'commandOptimisticLockGuardService') return { enforce: guardEnforce } as T
-    if (name === 'moduleConfigService') return configService as T
+    if (name === 'moduleConfigService' && configServiceEnabled) return configService as T
+    if (name === 'moduleConfigService' && options?.allowUnregistered) return undefined as T
     if (name === 'em') return em as T
     if (name === 'cache') return {
       get: async (key: string) => cache.get(key),
@@ -67,6 +69,7 @@ const readSettings = async () => {
 
 describe('notification settings route with the real scoped module config service and cache', () => {
   beforeEach(() => {
+    configServiceEnabled = true
     guardEnforce.mockReset().mockResolvedValue(undefined)
     rows.clear()
     cache.clear()
@@ -76,6 +79,16 @@ describe('notification settings route with the real scoped module config service
       tenantId: null, organizationId: null, createdAt: new Date(), updatedAt: new Date(),
     } as ModuleConfig)
     auth = { sub: 'admin-a', tenantId: tenantA, orgId: null }
+  })
+
+  it('does not persist settings when the config service is disabled after installation', async () => {
+    configServiceEnabled = false
+
+    const response = await POST(request({ strategies: { email: { enabled: false } } }))
+
+    expect(response.status).toBe(500)
+    expect(rows.has(tenantA)).toBe(false)
+    expect(rows.get(null)?.valueJson).toEqual(instanceConfig)
   })
 
   it('awaits the optional command lock guard before persisting settings', async () => {

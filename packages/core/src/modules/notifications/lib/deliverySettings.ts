@@ -47,6 +47,9 @@ export async function saveVersionedNotificationDeliverySettings(
   config: NotificationDeliveryConfigInput,
   request: Request,
 ) {
+  const configService = resolver.resolve<ModuleConfigService>('moduleConfigService', { allowUnregistered: true })
+  if (!configService) throw new Error('[internal] Configuration service unavailable')
+
   const em = resolver.resolve<EntityManager>('em')
   const result = await withAdvisoryXactLock(em, `notification_settings:${tenantId}`, async (transactionEm) => {
     const transactionContainer = {
@@ -70,6 +73,6 @@ export async function saveVersionedNotificationDeliverySettings(
     await saveNotificationDeliveryConfig(transactionResolver, config, { tenantId })
     return readNotificationDeliverySettings(transactionResolver, tenantId)
   })
-  await resolver.resolve<ModuleConfigService>('moduleConfigService').invalidate('notifications', NOTIFICATIONS_DELIVERY_CONFIG_KEY, { tenantId })
+  await configService.invalidate('notifications', NOTIFICATIONS_DELIVERY_CONFIG_KEY, { tenantId })
   return result
 }
