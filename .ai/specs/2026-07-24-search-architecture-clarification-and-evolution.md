@@ -351,13 +351,8 @@ writer inputs without external services.
 
 ## Changelog
 
-<<<<<<< HEAD
-=======
 - 2026-11-21 — Preserved source-row organization ownership through direct and queued batch reindexing (#8397), including callback context, global rows and omitted-column compatibility. Historical null-owner documents require a tenant-wide fulltext rebuild; no public shape or configuration changes.
 
-- **2026-11-19** — #5870: share vector-result decryption with the search strategy, preserving query filters and plaintext behavior while parsing encrypted links/payload and failing closed on decryption errors.
-
->>>>>>> 82b9ad791d (fix(search): preserve record ownership during fulltext reindex (#8397) (#10220))
 - 2026-11-05 — Extended effective entity strategy enforcement to queued and synchronous reindex writes, module defaults, and disabled entities (#8773).
 
 - 2026-11-05 — Enforced registered entity strategy restrictions on direct and mixed bulk writes (#5930 part c); preserved cleanup, unpinned writers, fulltext content, and null-source semantics.
