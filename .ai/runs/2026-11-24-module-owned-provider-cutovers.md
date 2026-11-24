@@ -35,7 +35,7 @@ PR: #10542
 
 ### Phase 3: Record Locks settings
 
-- [ ] 3.1 Migrate and verify atomic tenant-setup initialization.
+- [x] 3.1 Migrate and verify atomic tenant-setup initialization. — c576b734e1
 
 ### Phase 4: Example workflows
 
