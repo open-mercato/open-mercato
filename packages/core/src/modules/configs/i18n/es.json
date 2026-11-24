@@ -149,7 +149,7 @@
   "configs.systemStatus.variables.cacheProviderNamespace.label": "Espacio de nombres del proveedor de caché",
   "configs.systemStatus.variables.cacheSqlitePath.description": "Ruta del sistema de archivos para el archivo de caché SQLite.",
   "configs.systemStatus.variables.cacheSqlitePath.label": "Ruta del caché SQLite",
-  "configs.systemStatus.variables.cacheStrategy.description": "Estrategia del backend de caché (memory, sqlite, redis…).",
+  "configs.systemStatus.variables.cacheStrategy.description": "Estrategia del backend de caché (memory, sqlite, redis…). Se ignora cuando CACHE_PROVIDER está definido.",
   "configs.systemStatus.variables.cacheStrategy.label": "Estrategia de caché",
   "configs.systemStatus.variables.cacheTtl.description": "Tiempo de vida predeterminado del caché en milisegundos.",
   "configs.systemStatus.variables.cacheTtl.label": "TTL del caché",
