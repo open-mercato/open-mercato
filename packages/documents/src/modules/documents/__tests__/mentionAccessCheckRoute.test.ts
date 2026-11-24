@@ -14,6 +14,8 @@ const ROLE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const mockCreateRequestContainer = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveOrganizationScopeForRequest = jest.fn()
+const mockResolveFresh = jest.fn()
+const revokedUserIds = new Set<string>()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
@@ -26,7 +28,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 jest.mock('../lib/platformServices', () => ({
   ...jest.requireActual('../lib/platformServices'),
   resolveOrganizationScopeService: () => ({
-    resolve: jest.fn(), resolveFresh: jest.fn(),
+    resolve: jest.fn(), resolveFresh: (...args: unknown[]) => mockResolveFresh(...args),
     resolveForRequest: (...args: unknown[]) => mockResolveOrganizationScopeForRequest(...args),
   }),
 }))
@@ -57,7 +59,7 @@ const rbacService = {
     organizations: null,
   })),
   userHasAllFeatures: jest.fn(async (userId: string, features: string[]) => (
-    features.length === 1 && (features[0] === 'documents.view'
+    !revokedUserIds.has(userId) && features.length === 1 && (features[0] === 'documents.view'
       || (userId === MANAGER_USER_ID && features[0] === 'documents.manage'))
   )),
 }
@@ -85,6 +87,11 @@ beforeAll(async () => {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  revokedUserIds.clear()
+  mockResolveFresh.mockResolvedValue({
+    acl: { features: [], isSuperAdmin: false, organizations: null },
+    scope: { tenantId: TENANT_ID, selectedId: ORGANIZATION_ID },
+  })
   actorTier = 'commenter'
   shares = [
     { principalType: 'user', principalId: DIRECT_USER_ID, permission: 'viewer' },
@@ -164,11 +171,80 @@ describe('document mention access check', () => {
     await expect(response.json()).resolves.toEqual({
       withoutAccess: [MISSING_USER_ID],
       withoutAccessUsers: [{ userId: MISSING_USER_ID, label: null, secondary: null }],
+      shareableUserIds: [MISSING_USER_ID],
     })
     expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith(
       MANAGER_USER_ID,
       ['documents.manage'],
       { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
     )
+  })
+
+  it.each([
+    ['owner', OWNER_ID],
+    ['direct share', DIRECT_USER_ID],
+    ['role share', ROLE_USER_ID],
+    ['no share', MISSING_USER_ID],
+  ])('does not offer sharing to a revoked recipient with %s', async (_relationship, userId) => {
+    revokedUserIds.add(userId)
+
+    const response = await POST(request([userId]), context())
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      withoutAccess: [userId],
+      withoutAccessUsers: [{ userId, label: null, secondary: null }],
+      shareableUserIds: [],
+    })
+    expect(authPrincipalService.resolveLabels).not.toHaveBeenCalled()
+    expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith(userId, ['documents.view'], {
+      tenantId: TENANT_ID, organizationId: ORGANIZATION_ID,
+    })
+  })
+
+  it.each(['documents.view', 'documents.*', '*'])('allows a missing share with fresh %s permission', async (feature) => {
+    revokedUserIds.add(MISSING_USER_ID)
+    mockResolveFresh.mockResolvedValue({
+      acl: { features: [feature], isSuperAdmin: false, organizations: null },
+      scope: { tenantId: TENANT_ID, selectedId: ORGANIZATION_ID },
+    })
+
+    const response = await POST(request([MISSING_USER_ID]), context())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ shareableUserIds: [MISSING_USER_ID] })
+  })
+
+  it.each([
+    { tenantId: 'other-tenant' },
+    { tenantId: TENANT_ID, selectionRejected: true },
+  ])('rejects wildcard grants with invalid scope %j', async (scope) => {
+    revokedUserIds.add(MISSING_USER_ID)
+    mockResolveFresh.mockResolvedValue({
+      acl: { features: ['*'], isSuperAdmin: false, organizations: null },
+      scope,
+    })
+
+    const response = await POST(request([MISSING_USER_ID]), context())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ withoutAccess: [MISSING_USER_ID], shareableUserIds: [] })
+  })
+
+  it.each([
+    { grants: ['parent-org'], expanded: ['parent-org', ORGANIZATION_ID], allowed: true },
+    { grants: [], expanded: [ORGANIZATION_ID], allowed: false },
+    { grants: ['parent-org'], expanded: [ORGANIZATION_ID], allowed: false },
+  ])('preserves inherited organization policy for sharing: $grants / $expanded', async ({ grants, expanded, allowed }) => {
+    revokedUserIds.add(MISSING_USER_ID)
+    mockResolveFresh.mockResolvedValue({
+      acl: { features: ['documents.*'], isSuperAdmin: false, organizations: grants },
+      scope: { tenantId: TENANT_ID, selectedId: ORGANIZATION_ID, allowedIds: expanded },
+    })
+
+    const response = await POST(request([MISSING_USER_ID]), context())
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ shareableUserIds: allowed ? [MISSING_USER_ID] : [] })
   })
 })

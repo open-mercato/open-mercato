@@ -1,7 +1,972 @@
-# Unreleased
+# 0.10.0 (2026-11-23)
+
+## Highlights
+
+Open Mercato 0.10.0 is led by **commerce you can actually sell through**: the ecommerce storefront read side (store hostname resolution, a public catalog API with buyer-scoped prices, tax mode and assortment) is joined by the Release 4 write side — a `cart` module, a `promotions` module and buyer-scoped visibility enforced inside the cart. Payments grow with them: new **Tpay** and **Autopay** hosted PLN gateways, generic signed-webhook support in `payment_gateways`, checkout links that refuse to save when they cannot collect the payer fields a provider requires, and an opt-in `external` amounts mode for mirrored sales orders. Underneath, **money and exchange rates move to arbitrary-precision `numeric` columns** with exact decimal arithmetic, and WMS gains Phase 2 inbound receiving — ASNs, QC, putaway tasks and scan endpoints.
+
+**Starting a new app gets a front door.** `create-mercato-app` now opens the Open Mercato Modules catalog by default, so a new project can pick verified modules, start from an app `--template`, and `mercato module search` / `module info` / installing from npm or GitHub locators let developers — and their coding agents, through the new `om-find-module` skill and catalog MCP server — find a module before building one. `yarn setup` preflights Docker, starts and health-checks the infrastructure, reuses configured services by default with `--ephemeral` and `--random-ports` options for isolated runs, and `om-setup-ci` generates security-hardened GitHub Actions CI for a standalone app in one command.
+
+**This is the largest security pass Open Mercato has shipped.** Well over a hundred fixes tighten tenant and organization isolation across catalog, sales, CRM, messages, scheduler, search and AI tools; decryption is now bound to the tenant the caller asserted; production deployments get a nonce-based Content Security Policy and must provide a tenant encryption key; passkey enrollment requires a verified WebAuthn response; MCP servers bind to loopback by default; AI session keys are bounded by their owner's ACL; outbound requests, CSV exports, uploads and webhook bodies are bounded or neutralized; and a series of dependency bumps clears published advisories.
+
+CRM and communications round it out with **helpdesk support tickets** filed from the customer portal, a generic **SMTP outbound channel**, attachments on send-as-user mail, an OAuth2 grant lifecycle core for integrations, a redesigned deals KPI strip, a single-column create-deal page, a VAT / tax ID field on companies and a richer CRM calendar — alongside the consolidated agent platform roadmap (MCP exposure filtering, mutation approval mode, access-log auditing), a provider-neutral decision model port, opt-in cache compression and new saturation metrics. Several of these changes need downstream attention — the production encryption key and CSP among them — so read [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md) before deploying. Enjoy!
+
+## ✨ Features
+- ✨ Add WMS Phase 2 inbound receiving with ASN list/detail pages, QC and receive flows, a putaway task lifecycle with queue UI, scan endpoints for receive/putaway/location/lot resolve, and sales reservation re-evaluation after stock increases. (#5621) *(@mkadziolka)*
+- ✨ Share one linked-people section between the Company and Deal People tabs, giving deals person cards with Unlink, a Filters toggle, sorting and an Add person dialog instead of the plain link rows. (#5814) *(@WojciechSoczynskiTHEY)*
+- ✨ Add the `@open-mercato/gateway-autopay` provider for Autopay Online v1.1 hosted PLN payment sessions, covering bank transfers, BLIK and cards, with each tenant registering its own Autopay service. (#6047) *(@autopaylab)*
+- ✨ Coalesce repeated queue enqueues into a single run per burst, so rapid duplicate jobs for the same key no longer each execute separately (supersedes #5998). (#6087) *(@jtomaszewski, via @pkarw)*
+- ✨ Let Customers calendar event types be added, configured, replaced, patched or disabled through module-owned definitions, with an Example Visit showing optional staff/resource availability feedback, event time zones and overlap checks across all event types. (#6688) *(@pkarw)*
+- ✨ Add a project mode to the time entry dialog, selectable through a new `defaults.entryMode` time-tracking setting, and export the component props schemas, so teams tracking time per project can create entries without choosing a task (#6989). (#7001) *(@Marynat)*
+- ✨ Add the OAuth2 grant lifecycle core for integrations, with cross-process single-run refresh, a trustworthy grant status, an invalidated-grant banner, and disconnect that erases the grant and revokes it at the provider. (#7057) *(@mikolajbogusz-they)*
+- ✨ Bring the `@open-mercato/carrier-inpost` InPost carrier package back into the monorepo as `packages/carrier-inpost`, as the last module left in the deprecated `official-modules` repo. (#7081) *(@wojciechszyjka)*
+- ✨ Add the ecommerce storefront read side: store hostname resolution to a store, tenant, sales channel and buyer context, a public catalog API with buyer-scoped prices, tax mode and assortment, and a tabbed admin store editor. (#7142) *(@adeptofvoltron)*
+- ✨ Add the `@open-mercato/gateway-tpay` provider for Polish merchants, creating PLN transactions on Tpay's hosted payment page and reading results back through the payment-gateway status flow, inactive until a tenant enters credentials. (#7153) *(@mtytula)*
+- ✨ Add opt-in webhook transport, locator and response extensions to `payment_gateways`, so providers sending signed form-encoded notifications and expecting a plain-text acknowledgement can use the generic webhook route without changing existing registrations. (#7154) *(@mtytula)*
+- ✨ Settle Tpay payments from Tpay's signed server notifications so they no longer depend on the payer returning to the shop, and reconcile missed notifications with a scheduled status check. (#7156) *(@mtytula)*
+- ✨ Validate checkout links and templates against payer fields required by the payment provider, warning in the editor and refusing to save links that do not collect them, instead of failing every payment with an unfixable 422 (#7170). (#7172) *(@mtytula)*
+- ✨ Store money and exchange rates as arbitrary-precision `numeric` columns with exact decimal arithmetic and add free-form exchange rate `metadata`, supporting small FX rates and high-precision currencies, with public fields gaining optional `<field>Exact` strings. (#7324) *(@patrykbojczuk)*
+- ✨ Add helpdesk support tickets, letting customer portal users file tickets that become staff time-tracking tasks routed by category, handled by project assigners in the backoffice and answered back in the portal. (#7421) *(@WojciechSoczynskiTHEY)*
+- ✨ Add opt-in zstd/gzip compression for `@open-mercato/cache` values in the Redis and SQLite strategies, controlled by `CACHE_COMPRESSION` and `CACHE_COMPRESSION_MIN_BYTES`, with reads auto-detecting the stored format. (#7519) *(@mtytula)*
+- ✨ Add a provider-neutral decision model port with OpenRouter and fixture adapters, so modules can resolve `decisionModelService` from DI and get typed answers with calibrated per-option probabilities instead of hand-rolled LLM calls. (#7553) *(@mateusz-lewandowski)*
+- ✨ Add eComm release 4, the write side, with a `cart` module, a `promotions` module and buyer-scoped catalog visibility enforced inside the cart so hidden products cannot be bought through the cart API. (#7592) *(@adeptofvoltron)*
+- ✨ Send attachments through send-as-user, IMAP/SMTP and Gmail, so a user sending from their own connected mailbox can attach files instead of having them dropped or the message failing (#7098). (#7676) *(@mikolajbogusz-they)*
+- ✨ Add an opt-in "Use default stage probabilities" setting per pipeline, so a deal entering a stage gets that stage's default win probability instead of keeping a hand-typed value. (#7792) *(@WojciechSoczynskiTHEY)*
+- ✨ Add the `om-setup-ci` skill for `create-mercato-app` apps, generating security-hardened GitHub Actions CI in one command with dependency audit, Gitleaks, Semgrep, zizmor, Trivy and a single aggregate `CI` check that fails pull requests only on newly introduced problems. (#7864) *(@pat-lewczuk)*
+- ✨ Make `yarn setup` in `create-mercato-app` projects preflight Docker and start and health-check the infrastructure, and add `infra:up`/`infra:down` scripts plus a `--no-infra` opt-out (#7791). (#7865) *(@wojciechszyjka)*
+- ✨ Add a single "Start building with Cezar" control to the dev and setup splashes that opens a terminal running `npx cezar-run` in the current project, with dev-only preview framing (#7790). (#7866) *(@wojciechszyjka)*
+- ✨ Write sales order lines in one aggregate batch through a new bulk upsert command and API route, preserving custom-field persistence and parent-order optimistic locking (supersedes #6184). (#8050) *(@maxidragon, via @pkarw)*
+- ✨ Add `mercato module search` and `module info` to the CLI, backed by the Open Mercato Modules catalog, so developers and agents can find built-in, published and verified modules before building. (#8117) *(@wojciechszyjka)*
+- ✨ Add `--modules` and `--module-picker` options to `create-mercato-app` to plan modules from the Open Mercato Modules catalog, showing verification status and license while scaffolding. (#8118) *(@wojciechszyjka)*
+- ✨ Add the `om-find-module` skill to the `create-mercato-app` agentic setup so coding agents check the module catalog before building features that already exist. (#8119) *(@wojciechszyjka)*
+- ✨ Add a Created column to the People and Companies lists with sorting and whole-day creation-date filtering that respects the user's timezone (supersedes #6448). (#8201) *(@nowekontotestowe2026-web, via @pkarw)*
+- ✨ Let staff cancel a pending portal invitation from the CRM person's Portal Account card, invalidating its link, retaining invitation history and tolerating repeated requests (#7275). (#8212) *(@haxiorz)*
+- ✨ Add an opt-in `external` amounts mode for mirrored sales orders, letting callers persist their own line and header net, tax and gross figures from an external book of record, stored per order in `sales_orders.totals_mode` (supersedes #6092). (#8216) *(@maxidragon, via @pkarw)*
+- ✨ Add the consolidated agent platform roadmap (waves 1-6), including MCP exposure filtering with allow/deny lists, access-log auditing, `OM_MCP_MUTATION_MODE` with a Pending AI actions approval page, a unified model-call contract, eval report export and document structure extraction. (#8251) *(@pat-lewczuk)*
+- ✨ Add a generic SMTP outbound email channel (`channel-smtp`) so tenants can send messages through any SMTP server (supersedes #6185). (#8252) *(@jtomaszewski, via @pkarw)*
+- ✨ Add a reusable live experiment dashboard (`yarn experiments:dashboard --experiment <directory>`) that shows progress, token throughput, searchable outcomes and retained evidence for multiple local experiment folders. (#8259) *(@pkarw)*
+- ✨ Add installing modules from canonical npm and GitHub locators in the CLI, inspecting packages before dependency changes and rejecting duplicate enabled module IDs and conflicting providers before the generator writes. (#8309) *(@pkarw)*
+- ✨ Collapse the floating demo feedback button to a 44px icon-only circle that expands into the gradient pill with its rotating caption on hover or keyboard focus (#8313). (#8314) *(@Hejnas)*
+- ✨ Add PostgreSQL pool saturation, acquisition wait, event-loop and memory pressure metrics to the opt-in telemetry backend, and return a retryable `503 cart_busy` with `Retry-After: 1` under cart lock contention (supersedes #5801). (#8434) *(@haxiorz, via @pkarw)*
+- ✨ Add `OM_ATTACHMENT_STORAGE_POLICY=strict` to validate attachment storage configuration (partitions, drivers, scope, provider checks) before storage is constructed or reused across web, worker and CLI (#6690) (supersedes #6820). (#8446) *(@haxiorz, via @pkarw)*
+- ✨ Count adapter tasks in person and company profile badges in compatibility mode, including completed tasks and unbridged legacy links, independent of the bounded preview (#6068) (supersedes #6887). (#8482) *(@haxiorz, via @pkarw)*
+- ✨ Improve the CRM calendar grid with a richer event peek card, click-to-create on an empty half-hour slot, hover slot highlighting and type icons instead of unexplained color dots (#9620). (#8531) *(@zielivia)*
+- ✨ Redesign the deals KPI strip as one card of four metric tabs over a trend chart, removing repeated scope lines and "Unassigned" labels. (#8537) *(@zielivia)*
+- ✨ Add a VAT / tax ID field to the company profile via a nullable `customer_companies.tax_id` column covered by the encryption map with a backfill. (#8538) *(@zielivia)*
+- ✨ Add a CC field of up to ten validated addresses to the Send quote dialog, sent with the e-mail and stored as `metadata.recipients.cc` to pre-fill the next send (#8460). (#8549) *(@zielivia)*
+- ✨ Make `yarn setup` reuse configured services by default and add `--ephemeral` (disposable Testcontainers services), `--random-ports` (checkout-specific Compose stack) and `--infra` options for isolated service modes. (#8613) *(@pkarw)*
+- ✨ Rebuild the create deal page as a single-column form with a pinned action bar and section cards for pipeline and stage, details, and associations (#5109). (#8650) *(@zielivia)*
+- ✨ Offer the Open Mercato Modules picker by default in `create-mercato-app` when no preset or modules are given, listing modules verified for the app line with origin, license and level. (#8718) *(@wojciechszyjka)*
+- ✨ Add `create-mercato-app --template <slug | owner/repo>[#ref]` to create an app from an app template in the Open Mercato Modules catalog or from any GitHub repository. (#8732) *(@wojciechszyjka)*
+- ✨ Declare the public read-only `om-modules` catalog MCP server in the standalone `mcp.json.example` files, so `om-find-module` has a configured source in a new app (#8125). (#8733) *(@wojciechszyjka)*
+- ✨ Add foldable logs, an animated working row and saved run files to `yarn setup` and infrastructure commands, matching the dev runtime. (#8838) *(@pkarw)*
+- ✨ Identify audit log rows with a bounded historical record name, ID fallback and one-line change summary, and keep undo/redo actions reachable while the table scrolls (#8200). (#8845) *(@haxiorz)*
+- ✨ Pass channel identity to `importHistory` in `communication_channels`, so an email adapter can tell which mailbox a history import targets when several shared mailboxes resolve credentials by the same scope. (#8960) *(@shimmy-aga)*
+- ✨ Add an opt-in `requireShared` flag to `RateLimitConfig` that disables the in-memory fallback, so `consume()` returns a `degraded` result when the shared Redis store is unavailable and callers can fail closed. (#9280) *(@ddiarassouba94140-blip)*
+- ✨ Let native integration runs initialized with custom admin and employee actors use those credentials in the shared browser and API login helpers instead of always using seeded ones (#8475). (#9561) *(@pkarw)*
 
 ## 🔒 Security
+- 🔒 Canonicalize live ACL grants and targets with tenant-bound super-admin grants, deterministic remediation and partial unique indexes for live user/role ACL rows, and decryption-aware target reads, so revoked or duplicate ACL rows no longer affect RBAC, API keys or recipient resolution (supersedes #5764). (#5770) *(@Geeknauts-company, via @pkarw)*
 - 🔒 Bind decryption to the tenant the caller asserted: the query engines and `find*WithDecryption` now refuse to decrypt a row whose `tenant_id` contradicts the read's `tenantId`, and return it as ciphertext instead of another tenant's plaintext. A field that used to come back as plaintext and now comes back as ciphertext means a pre-existing scoping bug is returning rows the caller was never entitled to — not a decryption regression. Each refused read logs one aggregated warning, `DECRYPT_REFUSAL_LOG_MESSAGE`: `Skipped decryption for rows whose tenant does not match the query tenant`; alert on that string. Queries that need no plaintext can now decline it with `decryptEncryptedFields: false` on `QueryOptions` or a CRUD `list` config. (#5430) (#5822) *(@adeptofvoltron)*
+- 🔒 Bound attachment OCR by capping PDF pages (`OM_ATTACHMENT_OCR_MAX_PAGES`), timing out each call, limiting concurrency and queue depth, and rate-limiting `POST /api/attachments` uploads, preventing cost amplification by authenticated users (#2676). (#6264) *(@Sawarz)*
+- 🔒 Block workflow mapping targets from traversing inherited properties, preventing an authorized workflow author from polluting `Object.prototype` and crashing the shared Node.js process across tenants. (#6303) *(@pkarw)*
+- 🔒 Bind the production and dev MCP HTTP servers to loopback by default instead of all network interfaces, and compare the dev key in constant time (#2659). (#6712) *(@Sawarz)*
+- 🔒 Harden encryption key rotation and database decryption to fail closed on invalid metadata, keys or ciphertext, exit non-zero on aborts, add `TENANT_DATA_ENCRYPTION_OLD_KEY` instead of echoing secrets via `--old-key`, and stop re-encrypting undecryptable data as plaintext. (#6767) *(@pkarw)*
+- 🔒 Require a verified WebAuthn registration response for every new passkey enrollment and remove the shortcut that accepted an arbitrary caller-supplied public key, with legacy requests answered by a localized HTTP 400 (#6800, #5296). (#6824) *(@haxiorz)*
+- 🔒 Enforce registrable owner access policies on attachments, adopting Documents permissions across bytes, derived images, metadata, reassignment, deletion and public links, so unshared colleagues get 404 and hidden rows no longer leak into counts (#6726). (#6829) *(@haxiorz)*
+- 🔒 Enforce personal-mailbox ownership when reassigning a communication channel thread, so holders of `communication_channels.assign` can no longer reassign threads on another user's personal mailbox (#3832). (#6846) *(@adeptofvoltron)*
+- 🔒 Bump `@fastify/busboy` from 3.2.0 to 3.2.2, picking up fixes for multiple published security advisories. (#7024)
+- 🔒 Bump `proxy-addr` from 2.0.7 to 2.0.8, fixing CVE-2026-90711. (#7027)
+- 🔒 Bump `compression` from 1.8.1 to 1.8.2, fixing CVE-2026-87776. (#7029)
+- 🔒 Bump `source-map-js` from 1.2.1 to 1.2.2, fixing a denial of service from malicious indexed source maps (CVE-2026-93749). (#7030)
+- 🔒 Require read access to the parent message when a reply names a `parentMessageId`, so callers can no longer join a conversation thread they cannot read. (#7151) *(@AHKSammich)*
+- 🔒 Revoke the refresh session on `POST /api/auth/logout` even after the access token has expired, so logging out in a lapsed tab no longer leaves the session silently refreshable (#7225). (#7299) *(@AHKSammich)*
+- 🔒 Enforce the actor's organization scope when creating staff users, so a user restricted to one organization can no longer create confirmed users in a sibling organization of the same tenant (#7238). (#7300) *(@AHKSammich)*
+- 🔒 Count concurrent failed customer portal logins atomically, so parallel wrong-password requests can no longer keep the counter under the five-failure lockout threshold (#7232). (#7301) *(@AHKSammich)*
+- 🔒 Limit the `CALL_OPEN_MERCATO` business rule action to API key roles the rule author may grant, so a rule can no longer run with roles above the author's permissions (#7236, #7362). (#7320) *(@AHKSammich)*
+- 🔒 Cap Stripe webhook bodies before unauthenticated buffering on `POST /api/payment_gateways/webhook/stripe`, so oversized requests are rejected before being read into memory (#7222). (#7321) *(@AHKSammich)*
+- 🔒 Enforce the upload limit while streaming customer-portal warranty attachments, so requests without a `Content-Length` header (chunked) can no longer bypass the size limit (#7227). (#7322) *(@AHKSammich)*
+- 🔒 Scope AI pending actions to their creator and recheck the tool's own required features on confirm, so other users can no longer read, cancel or confirm someone's pending action or write beyond their permissions (#3806). (#7329) *(@AHKSammich)*
+- 🔒 Close customer portal SSE streams when the customer session is revoked or expires, instead of authenticating only once when the stream opens (#7217). (#7331) *(@AHKSammich)*
+- 🔒 Authenticate Discord AI reply proposals, so only system-filed proposals can cause an approving operator to send a public reply and a `messages.compose` user can no longer forge one. (#7342) *(@haxiorz)*
+- 🔒 Route shared-thread replies through the mailbox the replying teammate selected, so replies are no longer sent from the original sender's mailbox or attributed to them (#7311). (#7343) *(@haxiorz)*
+- 🔒 Surface localized Discord approval refusals instead of generic errors when an approval is refused (#7310). (#7356) *(@haxiorz)*
+- 🔒 Reject Forms submission access tokens after their invitation is revoked, so revoked participants can no longer keep using already-issued tokens (#7230). (#7358) *(@AHKSammich)*
+- 🔒 Limit portal form submissions to the caller's own subject, so a portal customer can no longer start a submission for any subject in their organization (#7224). (#7426) *(@AHKSammich)*
+- 🔒 Reject notification hrefs that resolve to external origins, such as `/\evil.example/path`, which previously passed the safe-href check (#7240). (#7430) *(@AHKSammich)*
+- 🔒 Restrict the participant submission PDF to the answers their role can read, instead of rendering the full decrypted revision (#7229). (#7431) *(@AHKSammich)*
+- 🔒 Reject cross-site browser requests on the staff and portal sign-in routes, so a page on another site can no longer sign a visitor into an attacker's account through login CSRF on `POST /api/auth/login` and session refresh (#7239). (#7447) *(@AHKSammich)*
+- 🔒 Log a startup warning, with the closest registered id as a suggestion, when an encryption map names an entity that is not registered, instead of silently storing the declared fields as plaintext (#7453). (#7458) *(@mstopinski)*
+- 🔒 Make `entities seed-encryption --tenant` also append missing field rules to the tenant's organization encryption maps, so newly declared fields no longer stay plaintext in those organizations (#7460). (#7463) *(@mstopinski)*
+- 🔒 Route all browser egress of the `@open-mercato/web-research-browser` sidecar through a pinned public-only proxy, closing gaps where subresources, redirects, WebSockets and DNS rebinding could reach non-public networks (#7218). (#7474) *(@AHKSammich)*
+- 🔒 Neutralize spreadsheet formulas in the WMS SKU, lot and location detail-page CSV exports, so user-controlled codes, names and SKUs can no longer reach the spreadsheet as live formulas (#7219). (#7481) *(@AHKSammich)*
+- 🔒 Escape and neutralize CSV header cells in `serializeCsv`, so headers containing commas, quotes, newlines or leading `=`, `+`, `-`, `@` can no longer corrupt exports or inject spreadsheet formulas (#7482). (#7510) *(@adeptofvoltron)*
+- 🔒 Bump `http-cache-semantics` from 4.2.0 to 4.3.0. (#7539)
+- 🔒 Send workflow `CALL_API` keys only to the exact `APP_URL` origin and its `/api/` path on the first request and every redirect hop, so a plaintext `http://` endpoint on the same host no longer receives the key (#7235). (#7559) *(@AHKSammich)*
+- 🔒 Bound Akeneo response bodies and store imported media through the attachment upload path, so size limits, tenant quota, content checks and the storage driver apply instead of reading unbounded files into memory (#7233). (#7566) *(@AHKSammich)*
+- 🔒 Hide credential custom header values from webhook viewers lacking `webhooks.secrets`, so `webhooks.view` alone can no longer read reusable destination credentials such as `Authorization` or `x-api-key` headers (#7237). (#7574) *(@AHKSammich)*
+- 🔒 Match scheme and port, not just hostname, in the `AI_RUNTIME_BASEURL_ALLOWLIST` check, so the server's provider API key can no longer be forwarded over cleartext or to an unexpected port (#7228). (#7576) *(@AHKSammich)*
+- 🔒 Load catalog write-command targets inside the caller's tenant and organizations, so product, variant, price and offer updates and deletes no longer look records up by bare id (#3825). (#7577) *(@AHKSammich)*
+- 🔒 Answer `404` for reactions on messages outside the caller's scope, including other users' personal and deleted mailboxes, so the reaction routes no longer reveal whether a message id exists (#3833). (#7589) *(@AHKSammich)*
+- 🔒 Cap the unpaginated record attachment list at 100 in `GET /api/attachments`, so one request can no longer load, decrypt and serialize every attachment of a record (#3816). (#7590) *(@AHKSammich)*
+- 🔒 Isolate unauthenticated InboxOps custom webhook admission quotas, so forged signatures can no longer exhaust the quota and make legitimate mail for another tenant receive `429` (#7600). (#7611) *(@haxiorz)*
+- 🔒 Notify MFA administrators in the notification center when emergency bypass is observed in their organization, scoped by tenant and organization, while preserving emergency access and audit warnings (#5523). (#7619) *(@haxiorz)*
+- 🔒 Seed encryption maps for organizations created after init, so with `TENANT_DATA_ENCRYPTION` enabled their data is no longer silently written as plaintext (#7591). (#7629) *(@adeptofvoltron)*
+- 🔒 Unify database identifier quoting in `mercato` database creation on the shared `quotePostgresIdentifier` helper, removing ad-hoc quote stripping, and pin its contract with direct tests (#4121). (#7653) *(@haxiorz)*
+- 🔒 Run only the commands a notification type declares, so notification actions can no longer dispatch caller-supplied `commandId`s that bypass the authorization of the route normally running them (#7215). (#7669) *(@AHKSammich)*
+- 🔒 Reject creating a currency under another tenant's or a nonexistent organization, closing a gap where a tenant-wide admin could submit an arbitrary `organizationId` to `POST /api/currencies/currencies` (#7668). (#7682) *(@adeptofvoltron)*
+- 🔒 AND-combine `mergeIdFilter`'s unrecognised id filter with server-supplied ids, so a client `filter[...][field]=id` can no longer disable interceptor narrowing and return excluded rows (#7641). (#7683) *(@adeptofvoltron)*
+- 🔒 Scope `commandActorScope` like `commandScopeWhere` in the catalog module, so scope-only callers and multi-organization actors no longer lose the tenant or organization filter (#7612). (#7685) *(@adeptofvoltron)*
+- 🔒 Run the mutation guard before the reaction lookup in `DELETE /api/communication_channels/messages/:messageId/reactions/:reactionId`, so unknown and foreign reaction ids can no longer be told apart (#7670). (#7740) *(@adeptofvoltron)*
+- 🔒 Seed dashboard role widget defaults onto the tenant's own roles, instead of looking roles up by name alone and possibly matching another tenant's role (#7803). (#7804) *(@AHKSammich)*
+- 🔒 Stop `GET /api/scheduler/jobs?format=json&exportScope=full` from returning scheduler jobs of every tenant to any caller with `scheduler.jobs.view`, by keeping the route's tenant/organization filter on full exports (#7806). (#7875) *(@adeptofvoltron)*
+- 🔒 Enforce the caller's allowed organization scope in the AI search tools (`search_query`, `search_get`, `search_aggregate`, `search.hybrid_search`, `search.get_record_context`), so restricted users without a current organization no longer see results across the whole tenant (#7808). (#7876) *(@adeptofvoltron)*
+- 🔒 Scope sales tag update and delete commands to the stored tag's tenant and organization instead of request-supplied values, so a caller can no longer mutate a tag belonging to another tenant or organization (#7807). (#7881) *(@adeptofvoltron)*
+- 🔒 Bump `nodemailer` from 10.0.10 to 10.1.4, picking up the `addressparser` hardening fixes (group nesting bound, quoted-string and comment parsing). (#7923) *(@pkarw)*
+- 🔒 Apply the viewer-specific private email visibility policy to CRM scheduling-conflict results before limiting candidates or decrypting titles, so private emails no longer leak through conflict checks (#7856). (#7935) *(@haxiorz)*
+- 🔒 Scope reverse CRM auto-linking to the portal user's organization, so creating a CRM person in one organization can no longer attach an unlinked portal account from another (#7852). (#7947) *(@haxiorz)*
+- 🔒 Reject deal and pipeline-stage references outside the caller's tenant and organization, while preserving valid stage-only pipeline inference (#7851). (#7950) *(@haxiorz)*
+- 🔒 Stop watch and mention notifications from revealing a private document's current title after `documents.view` is revoked (#7837). (#7986) *(@haxiorz)*
+- 🔒 Require independent approval before the npm snapshot preview job runs PR install and release code with the publishing credential (#7835). (#7987) *(@haxiorz)*
+- 🔒 Redact money amounts from staff report PDF exports and contributed serializers for viewers without `staff.timesheets.rates.view` (#7834). (#7988) *(@haxiorz)*
+- 🔒 Keep app ports private behind the bundled Traefik overlay, so direct HTTP traffic can no longer bypass its TLS and custom-domain ForwardAuth (#7833). (#7993) *(@haxiorz)*
+- 🔒 Reject local-use IPv6 translation addresses and 6to4 destinations embedding blocked IPv4 in the web-research HTTP client and browser proxy (#7836). (#7998) *(@haxiorz)*
+- 🔒 Bump `postcss-selector-parser` from 6.1.2 to 6.1.5. (#8009)
+- 🔒 Enforce the full registered mutation-guard registry, including `data/guards.ts` and feature-gated guards, on custom write routes in messages, integrations, payment gateways, sales quotes, cache administration and push notifications (#7454). (#8019) *(@pkarw)*
+- 🔒 Prevent a same-organization manager from exposing another user's private CRM email by changing its author, converting it to a note, or using other interaction mutation paths (#7850) (supersedes #7952). (#8027) *(@haxiorz, via @pkarw)*
+- 🔒 Revoke removed roles from AI session keys, so generated keys stop carrying grants of roles later taken away from the user (supersedes #7608). (#8034) *(@haxiorz, via @pkarw)*
+- 🔒 Exclude encrypted custom fields from plaintext fulltext and vector fallback text in search indexing, so encrypted values no longer reach the search driver or embedding provider (#7894). (#8043) *(@pkarw)*
+- 🔒 Apply SCIM rate limiting before API-key/JWT resolution and SCIM bearer bcrypt verification, so invalid credentials can no longer exhaust CPU before the limiter runs (#7829). (#8076) *(@haxiorz)*
+- 🔒 Strip `fieldPolicy.hashOnly` and excluded custom-field values, including `cf_` and `cf:` keys, from `search_get` AI tool output (#7827). (#8079) *(@haxiorz)*
+- 🔒 Keep excluded and hash-only customer PII fields out of customer person, company and account vector sources by using scalar allowlists (#7826). (#8081) *(@haxiorz)*
+- 🔒 Bound generated MCP and AI session keys by the owner's `UserAcl`, applying the intersection of key grants and the owner's effective feature and organization permissions (#7825). (#8086) *(@haxiorz)*
+- 🔒 Keep administrative fields such as email subjects, bodies and management metadata out of public checkout pay-link reads by using an explicit public serializer (#7823). (#8087) *(@haxiorz)*
+- 🔒 Block fresh SSO and local password sign-in for SCIM-deactivated accounts, which could previously sign in again after their sessions were revoked (#7824). (#8088) *(@haxiorz)*
+- 🔒 Require job ownership or `progress.manage` to update or cancel a progress job via `PUT`/`DELETE /api/progress/jobs/:id`, so same-organization users can no longer rewrite or cancel other users' jobs (#8130). (#8131) *(@AHKSammich)*
+- 🔒 Prevent Code Mode `api.request()` from forwarding its session API key, scope headers or request body to a redirect destination (#7532). (#8146) *(@haxiorz)*
+- 🔒 Enforce participant role field permissions on public form attachments, so a submission participant can no longer upload to fields they cannot edit or download hidden attachments by ID (#7533). (#8147) *(@haxiorz)*
+- 🔒 Restrict checkout link previews to the authenticated user's tenant and organization, so `checkout.view` holders can no longer preview unpublished or password-protected links elsewhere by slug (#7821). (#8159) *(@haxiorz)*
+- 🔒 Block remote images in channel emails until the reader chooses **Load remote images** for that message, resetting consent when the message or sanitized content changes (#7819). (#8162) *(@haxiorz)*
+- 🔒 Authorize `customer_accounts` custom-domain administration in the target organization, so `customer_accounts.domain.manage` in one organization no longer allows managing mappings in another (#7812). (#8167) *(@haxiorz)*
+- 🔒 Cap `CALL_WEBHOOK` workflow activities at a default 30-second deadline and a 1 MiB streamed response limit, so a webhook can no longer hold worker resources or buffer unbounded responses (#7814). (#8170) *(@haxiorz)*
+- 🔒 Reject authentication for suspended or soft-deleted tenants across staff and portal sign-in, session use and renewal, and API keys, even when authentication was previously cached (#7813). (#8172) *(@haxiorz)*
+- 🔒 Encrypt custom entity fields marked Encrypted inside `custom_entities_storage.doc` with the tenant DEK, independently of EAV compatibility (#7810). (#8174) *(@haxiorz)*
+- 🔒 Reject carrier webhooks that match more than one shipment, so organizations or tenants sharing a shipment ID and signing secret can no longer resolve to the wrong shipment (#7816). (#8179) *(@haxiorz)*
+- 🔒 Stop advertising public caching on authorized attachment reads whose tenant/organization scope blocks anonymous access, so shared caches cannot replay private bytes (#7220). (#8180) *(@pkarw)*
+- 🔒 Patch `webpack-dev-middleware` to 7.4.6 in the docs toolchain, rejecting path traversal requests such as `/static../secret.txt` (#8115). (#8181) *(@pkarw)*
+- 🔒 Offer only catalog installation commands that begin with `yarn mercato module add` or `yarn mercato module enable` and contain no shell metacharacters in `create-mercato-app` (#8168). (#8188) *(@wojciechszyjka)*
+- 🔒 Harden module search by making the app-line filter part of ranking and fixing the app directory, version parsing and download limits (#8124). (#8190) *(@wojciechszyjka)*
+- 🔒 Exclude `.env*` files at every depth, including backups and production/preview variants, from Docker build contexts in the monorepo and the standalone-app template (#7817). (#8195) *(@haxiorz)*
+- 🔒 Stop AI chat from automatically requesting model-supplied image URLs, replacing images in both Markdown renderers and in product, person and company cards with alt text so a response can no longer leak data embedded in an image URL (#7818). (#8197) *(@haxiorz)*
+- 🔒 Stop agent web search with `includeContent` from reading pages redirected to domains the agent's guardrails deny, and from returning that redirected text under the original allowed result URL (#7548). (#8215) *(@haxiorz)*
+- 🔒 Harden the production Content Security Policy in the main app and create-app template with per-request nonces, removing inline and eval script permissions and scheme-wide HTTPS/WebSocket connections outside development (#7264). (#8220) *(@haxiorz)*
+- 🔒 Reject session API keys whose owner is deactivated, unconfirmed or deleted on every request, including cache hits, so deactivated staff can no longer keep access through a session key (#7223). (#8245) *(@pkarw)*
+- 🔒 Seed tenant encryption maps when `mercato auth add-org` and directory tenant creation run, so protected fields are no longer written as plaintext in tenants created with data encryption enabled (#7687). (#8246) *(@pkarw)*
+- 🔒 Discard unknown fields, including legacy `_client` blobs, from Gmail per-user credentials, keeping only `accessToken`, `refreshToken`, `expiresAt`, `scopes` and `email` (#3829). (#8302) *(@pkarw)*
+- 🔒 Block direct execution of server-registered mutation tools through `POST /api/ai_assistant/tools/execute`, which now answers 403 instead of letting callers with write features bypass agent policy and approval (#3805). (#8304) *(@pkarw)*
+- 🔒 Prevent twenty concurrent cart line additions from exhausting the connection pool by having promotion evaluation reuse the cart transaction with isolated entity managers instead of waiting on another connection. (#8305) *(@pkarw)*
+- 🔒 Patch the dependency graph so the high/critical dependency audit is clean, aligning the TipTap/ProseMirror peer graph, and fix the standalone snapshot bootstrap and component-override test setup on `main`. (#8310) *(@pkarw)*
+- 🔒 Scope customer interaction author and owner references to the record's tenant, requiring live same-tenant users for new assignments while keeping cross-organization attribution and offboarded authors readable (#7531) (supersedes #8148). (#8358) *(@haxiorz, via @pkarw)*
+- 🔒 Reject Discord interaction and agent trace ingest request bodies above a finite cap (default 1 MiB, overridable with `OM_WEBHOOK_MAX_BODY_BYTES`) before signature verification, parsing or command execution (#7241) (supersedes #8233). (#8361) *(@haxiorz, via @pkarw)*
+- 🔒 Require production tenant encryption configuration in the Docker Compose full-app setup, so production stacks no longer start without an encryption key (#7231). (#8377) *(@pkarw)*
+- 🔒 Withhold agent web search synthesized answers (`answerWithheld: domain_policy`) when domain allow or deny lists are set, since the provider answer cannot be attributed to permitted sources (#7234). (#8378) *(@pkarw)*
+- 🔒 Keep staff time-entry totals current under filters by computing full-filter aggregates, refreshing them after a successful change, using one filter-chip layer and collapsing the empty `DataTable` footer (#6990) (supersedes #7002). (#8379) *(@Marynat, via @pkarw)*
+- 🔒 Keep encrypted custom fields out of search build contexts, combining the original fix with the encrypted-search protections so their values are not indexed (supersedes #7874). (#8410) *(@mikolajbogusz-they, via @pkarw)*
+- 🔒 Equalize SSO password verification timing by always performing the same scoped eligibility reads after bcrypt for correct and incorrect passwords, including unresolved and passwordless accounts (#8344). (#8450) *(@pkarw)*
+- 🔒 Carry the monorepo security pins for `node-forge` 1.4.1 and `sharp` 0.35.5 into create-app scaffolds, so fresh standalone apps no longer install `node-forge` 1.3.1 with twelve high-severity advisories (#5099). (#8451) *(@pkarw)*
+- 🔒 Protect encryption maintenance with scoped compare-and-swap updates and require `--confirm-offline-maintenance <tenantUuid>` and `--allow-unsafe-old-key` before `decrypt-database --deactivate-maps` retires policies, preventing lost concurrent edits and partial retirement. (#8488) *(@pkarw)*
+- 🔒 Throttle warranty-portal attachment uploads (POST and PUT) per authenticated tenant and customer user before multipart parsing or OCR, returning `429` with `Retry-After` once the existing upload limit is exhausted (#6323). (#8581) *(@pkarw)*
+- 🔒 Enforce the customer portal session cap under concurrent logins by running the count, revoke and insert in one transaction under an advisory lock, so a customer can no longer exceed `MAX_CUSTOMER_SESSIONS_PER_USER` (#8627). (#8628) *(@AHKSammich)*
+- 🔒 Raise the development Verdaccio upload limit to 100 MiB so publishing the current core tarball no longer fails with HTTP 413, and bind its anonymous endpoint to loopback by default (#8615). (#8655) *(@pkarw)*
+- 🔒 Require company creation to target a live organization owned by the authorized tenant before creating the company or its profile, in `customers.companies.create` (#8675). (#8686) *(@pkarw)*
+- 🔒 Stop changing a tenant embedding provider or model from dropping the shared vector and migration tables and wiping every tenant indexed data; settings now keep all vectors and return the reindex-required flag (#8676). (#8696) *(@pkarw)*
+- 🔒 Pin public DNS for customer-domain TLS health checks by validating all A/AAAA answers against the shared public-address policy and connecting to the approved IP, so DNS answers cannot change after verification (#8679). (#8703) *(@pkarw)*
+- 🔒 Bump the security resolutions for `ip-address` (10.4.0 to 10.7.5) and `hono` (4.12.25 to 4.13.14), excluding all 17 targeted advisory ranges. (#8717) *(@pkarw)*
+- 🔒 Revoke the server-side session on logout for staff clients authenticating only with an `Authorization: Bearer` JWT, instead of redirecting while the session stayed active. (#8719) *(@pkarw)*
+- 🔒 Recheck role assignments under the role lock when renaming a role or moving it to another tenant, so a role that gained a holder concurrently can no longer be renamed or moved (#8734, #8737, #8738). (#8735) *(@AHKSammich)*
+- 🔒 Execute each approved AI assistant action only once under concurrent confirmation, by locking the scoped row and requiring the pending state so only the winning request runs the handler (GHSA-4cj8-2g3g-p4m3). (#8740) *(@pkarw)*
+- 🔒 Update the Mermaid security pin from 11.16.0 to 11.17.2, addressing five Dependabot alerts for diagram denial of service and related vulnerabilities. (#8741) *(@pkarw)*
+- 🔒 Show not-found instead of database UUID errors for malformed Forms and Documents detail IDs and child reads, and explain blocked OIDC discovery (#4187, #8731, #8969). (#8743) *(@pkarw)*
+- 🔒 Honor entity search-strategy restrictions on direct and bulk `SearchService` writes, so a fulltext-only entity is no longer sent to a vector embedding provider. (#8758)
+- 🔒 Parse create-app catalog install commands against an allowlist grammar, rebuilding them from parsed tokens instead of filtering shell characters (#8168). (#8777) *(@wojciechszyjka)*
+- 🔒 Preserve the stored author of customer notes during ordinary body edits for staff and API keys, while non-key superadmins can still explicitly correct it to an active same-tenant user or null (#8759). (#8782) *(@pkarw)*
+- 🔒 Enforce entity search-strategy restrictions across queued and synchronous reindex writes, with workers rechecking queued references so excluded backends receive no record payload (#8773). (#8783) *(@jakubmatwiejew-wq, @pkarw)*
+- 🔒 Strip CR/LF from the subject, from, replyTo and attachment header values in the Resend channel adapter, preventing header injection (#8810). (#8811) *(@AHKSammich)*
+- 🔒 Refuse to undo a resource type create while live resources are assigned to it, and reject unavailable resource types on create, update, undo and redo under per-type transaction locks (#8496) (supersedes #8497). (#8828) *(@AHKSammich)*
+- 🔒 Replace the production image passwordless root `/bin/chown` grant with a root-owned `om-init-storage` helper that accepts no arguments and only changes the storage root (#8762). (#8842)
+- 🔒 Enforce sandbox write boundaries in the Linux create-app harness, where Bubblewrap root and `/tmp` were writable, and diagnose a missing `unzip` with an actionable message (#8785, #8786). (#8844) *(@pkarw)*
+- 🔒 Roll back user creation when role reconciliation is rejected, so a role moved to another tenant mid-request no longer returns 400 while leaving the account behind (#8850). (#8856) *(@pkarw)*
+- 🔒 Reject missing or known placeholder superadmin passwords in `mercato init` when `NODE_ENV=production`, enforcing the shared password policy even when bypass flags are supplied while leaving development defaults unchanged (#7809). (#8896) *(@pkarw)*
+- 🔒 Keep tenant, organization, soft-delete and visibility restrictions on customer interaction search and recurring-calendar reads by explicitly grouping their OR branches so they cannot escape the surrounding AND predicates (#8883). (#8906) *(@pkarw)*
+- 🔒 Verify encryption compatibility before reusing an existing database during setup, ahead of migrations, initialization, recovery writes and MCP key provisioning, in both monorepo and standalone apps. (#8913) *(@pkarw)*
+- 🔒 Keep a planned private email subject out of the shared customer next-interaction name read by People/company views, dashboards and search, while authorized interaction views still show it (#8888). (#8973) *(@pkarw)*
+- 🔒 Reject callers lacking a route's required feature before the API dispatcher inspects their body, bound tenant extraction, and fail closed on cross-tenant management routes whose body cannot be inspected (#7811) (supersedes #7877). (#8988) *(@adeptofvoltron)*
+- 🔒 Generate bulk dynamic-pool voucher codes in `promotions` with cryptographic randomness instead of `Math.random()`, which allowed predicting the rest of a pool from consecutive codes (#9023). (#9029) *(@pcbeingused333)*
+- 🔒 Backfill `encryption_maps` for the checkout link template, link and transaction entities on tenants created before the checkout module shipped, so their data is encrypted (#8893). (#9064) *(@adeptofvoltron)*
+- 🔒 Render EUDR plot names as text in Leaflet popups, preventing stored HTML injection through GeoJSON plot names (#9022). (#9068) *(@Sarthak-madan334)*
+- 🔒 Derive customer portal authorization scope and CRM links from the current customer-user record, so existing sessions stop authorizing a previous company after reassignment and tenant or organization drift is rejected (#2244) (supersedes #7176). (#9124) *(@Sawarz)*
+- 🔒 Reject mismatched product/variant pairs in bulk cart add with the existing `product_unavailable` outcome, deriving each variant's parent from scoped catalog records before pricing or writes (#9114). (#9126)
+- 🔒 Let standalone builds on native Linux use a bridge-bound Verdaccio registry without exposing other development services, with tarball URLs following `OM_VERDACCIO_PUBLIC_URL` (#6949) (supersedes #6971). (#9133) *(@Kamyyylo)*
+- 🔒 Skip onboarding and demo-feedback operator notifications and log a warning when `ADMIN_EMAIL` is unset, instead of sending submitter data to a hard-coded mailbox (#9163). (#9177) *(@Sarthak-madan334)*
+- 🔒 Scope catalog dictionary reads to the caller's readable organizations and enforce key permissions, so a dictionary in an unrelated organization returns 404 instead of exposing its entries (#9157). (#9218)
+- 🔒 Enforce per-entity record permissions for restricted custom entities regardless of the caller's home organization or an all-organizations selection (#9148). (#9219)
+- 🔒 Preserve a supplied tenant encryption key or Vault configuration when creating the starter app env, instead of generating an extra fallback encryption key. (#9356) *(@pkarw)*
+- 🔒 Bound public cart voucher guessing across rotating cart tokens with a shared per-IP and per-store attempt budget that fails closed, and reject another store's cart before repricing (#9119). (#9448)
+- 🔒 Make advanced client filters narrow the route's server-enforced predicates instead of overwriting them, so a filter on the same field can no longer bypass member restrictions, deny-all IDs or server OR groups (#9016). (#9526, #10213) *(@pkarw)*
+- 🔒 Reject foreign shipment and payment method/status references with HTTP 400 and bind them to the record's tenant and organization scope, so list hooks no longer load foreign names, codes or status labels (#9156). (#9585) *(@haxiorz)*
+- 🔒 Enforce shared durable hourly user and tenant budgets and a daily distinct-recipient budget on external email sends across mailboxes, rejecting with `429` and `Retry-After` (or `503` on admission failure) before any message is created (#9161) (supersedes #9304). (#9598) *(@haxiorz)*
+- 🔒 Reject changing an integration credential destination (URL, host or port fields) while preserving a masked write-only secret, with localized 422 field errors, so a saved secret can no longer be redirected to a new server (#9108). (#9601)
+- 🔒 Keep event-triggered workflows on their server-authored trigger identity instead of identity fields in the event payload, denying execution before API-key creation or command execution (#9137). (#9639)
+- 🔒 Bump `next` from 16.4.1 to 16.4.5, picking up fixes for security advisories including cross-tenant disclosure in `use cache` and cache leaks across root params. (#9715) *(@patzick)*
+- 🔒 Route native inbox replies by scoped conversation provenance, so a reply without a pre-created channel link can no longer follow an arbitrary mapping when a platform thread holds several external conversations (#9739). (#9752)
+- 🔒 Keep provider-native conversations such as Discord isolated from email thread-token matching, so a copied thread-token marker can no longer graft a new conversation onto another one (#9738). (#9773) *(@adeptofvoltron)*
+- 🔒 Strip SQL literals and comments from Postgres span statements before exporting traces, so record content and ids from MikroORM-inlined parameters no longer leak through `db.query.text`. (#9803) *(@kmrosiek)*
+- 🔒 Make MFA recovery and enrollment atomic, so concurrent requests can no longer reuse one recovery code or activate duplicate methods and emit duplicate enrollment events (#9673). (#9817)
+- 🔒 Preserve concurrent email edits during auth key rotation and initial encryption by comparing the original email and lookup hash in a single pinned SQL update, aborting on a mismatch (#9538). (#9842)
+- 🔒 Keep MFA enrollment, admin-reset and enforcement-policy emails sending when the optional `notifications` module is disabled, skipping in-app notifications with a warning (#9209). (#9854)
+- 🔒 Enforce tool feature permissions during AI eval replay and per-case mocks, returning `tool_replay_forbidden` without revealing recorded output or invoking a live handler (#8922). (#9868)
+- 🔒 Enforce project membership or management on `GET /api/staff/timesheets/time-projects/{id}/employees`, so staff holding only the global view feature can no longer enumerate another team's project membership (#8885). (#9876, #10142) *(@adeptofvoltron)*
+- 🔒 Require approval for every agent write on non-agent channels in MCP approval mode and pass the channel context to nested agent tools, closing a bypass that ran writes directly, and fix the trace permission flash and MCP OpenCode docs. (#9953, #9958) *(@kmrosiek)*
+- 🔒 Make `mercato auth rotate-encryption-key` fail instead of reporting success when user emails cannot be decrypted with the previous key, listing at most 20 scoped user IDs (#9537). (#10019, #10059)
+- 🔒 Apply CRM private-email visibility to audit history JSON responses and CSV exports, including person and company snapshots, failing closed when live authority is missing or deleted. (#10030)
+- 🔒 Serialize manual payment cancellation with capture reservations under the pessimistic row lock, refusing to cancel captured or reserved funds so cancel and capture can no longer both reach a provider (#8224). (#10047, #10058)
+- 🔒 Retain section IDs when an attachment is purged after section indexing is toggled off, so the delayed deletion job no longer leaves derived text in search stores (#8926). (#10057, #10072)
+- 🔒 Stop scheduler execution-history and queue-job detail reads from returning internal exception messages on database or queue failures, answering the translated generic error instead (#10166). (#10173, #10193)
+- 🔒 Scope default auth rate limits by hashed account identifier when no trusted client address is available, so independent staff and customer accounts no longer share one login, signup or reset quota (#7549). (#10183) *(@pkarw)*
+- 🔒 Preserve rejected organization selections when scopes are narrowed per feature, so a stale or inaccessible selected-organization cookie gets `organization_selection_invalid` instead of CRUD running under a fallback organization (#9220). (#10219, #10248) *(@haxiorz)*
+
+## 🐛 Fixes
+- 🐛 Make `mercato <command> --help` print usage instead of executing the command, so `mercato db generate --help` no longer runs a migration generation and `db migrate --help` no longer applies pending migrations (#5581). (#5660) *(@adeptofvoltron)*
+- 🔄 Unregister the scheduled job when the `data_sync` schedule write fails, so a failed save no longer leaves an orphaned job running without a stored schedule (#5871). (#5916) *(@adeptofvoltron)*
+- 🐛 Make `yarn mercato <module> <command>` exit with the status the command signalled via `process.exitCode`, so scripts, CI steps and `&&` chains no longer see success after a failed command (#5936). (#5961) *(@adeptofvoltron)*
+- 🐛 Give inline editor edit/cancel controls on detail panels an accessible name and reveal them on touch devices, so screen-reader and phone/tablet users can reach the pencil affordance for profile fields (#5947). (#5966) *(@adeptofvoltron)*
+- 🌍 Localize group headers in the column chooser and advanced-filter field picker by resolving translation-key-shaped group labels against the active dictionary, with the built-in customers groups (CRM, Contact, Profile, Notes, Socials) now translated (#5924). (#5974) *(@adeptofvoltron)*
+- 🌍 Translate the "Tomorrow" label shown for upcoming planned activities in the customers section, which previously rendered a hardcoded English string on non-English locales (#5933). (#5976) *(@adeptofvoltron)*
+- 🐛 Resolve API-key actors by name on sales document History tabs and in the audit log UI and CSV export, instead of showing the raw API key UUID (#6195). (#6214) *(@adeptofvoltron)*
+- 🐛 Return a JSON 500 error instead of a bodyless response from the communication channels OAuth initiate endpoint when neither `OM_HUB_OAUTH_STATE_KEY` nor `KMS_MASTER_KEY` is configured. (#6251) *(@lbajsarowicz)*
+- 🐛 Stop messages sent through a connected channel mailbox from also being emailed over the platform sender, which delivered every such message twice and failed outright on instances with only an OAuth mailbox. (#6260) *(@lbajsarowicz)*
+- 🐛 Stop the idle 5-second progress poll in `useProgressSse` from racing a healthy SSE stream, removing needless `/api/progress/active` requests on every backend page. (#6269) *(@lbajsarowicz)*
+- 🐛 Resolve the public quote-accept origin guard through `APP_URL` instead of `req.url`, so quote acceptance no longer fails behind TLS-terminating reverse proxies where the internal origin differs from the public one (#6283). (#6297) *(@adeptofvoltron)*
+- 🌍 Translate the product type in the catalog global-search subtitle using the active locale (supersedes #6209). (#6404) *(@pidubiel)*
+- 🐛 Route timesheet `timer-start` and `timer-stop` through the command bus so audit log, undo and list cache stay correct, cascade segments on entry soft-delete, and remember the last-used project across the timer bar and grid (#2609, #3750). (#6409) *(@Marynat)*
+- 🐛 Report OCR timeouts and aborts as such instead of telling operators to check `OPENAI_API_KEY` when a page call is aborted (#6399). (#6435) *(@wojski999)*
+- 🐛 Scroll the selected `TimePicker` slot into view and center it on open, instead of always opening at 00:00 when a value is already set (#6329). (#6477) *(@adeptofvoltron)*
+- 🌍 Show the translated result toast after a Gmail OAuth connect on My communication channels, instead of a raw `connected`/`error` value or no toast (#6402). (#6521) *(@adeptofvoltron)*
+- 🐛 Scope `POST /api/catalog/products/bulk-delete` to the selected organization rather than the caller's home organization, so non-superadmin users bulk-delete the products they actually selected (#6523). (#6534) *(@rengare)*
+- 💰 Commit the sole variant automatically and hide zero catalog prices in the sales line dialog, so adding a catalog-backed line no longer dead-ends on products with one variant (#6075). (#6637) *(@adeptofvoltron)*
+- 🐛 Make `mercato init --email` seed the admin and employee accounts under the derived superadmin domain, matching the printed banner instead of silently seeding `acme.com` addresses (#5806). (#6724) *(@Sawarz)*
+- 💰 Recompute every affected order's paid, refunded and outstanding totals when a split payment's allocations change, instead of only the payment's primary order. (#6743) *(@AHKSammich)*
+- 📦 Let a selected local tier skill replace a same-named skill from the external collection in `yarn install-skills`, so the repo's own `om-mockup-prototype` is no longer silently shadowed. (#6765) *(@SiphoChris)*
+- 🐛 Render embedded `CrudForm` extra actions once, so the Staff member Edit availability form no longer shows a duplicate Cancel above the form and in the footer (#6750). (#6768) *(@pkarw)*
+- 📦 Keep `pdfjs-dist` external in production builds so PDF text extraction and OCR work again and uploaded PDFs get their `attachments.content` filled instead of staying empty (#6398). (#6780) *(@adeptofvoltron)*
+- 🐛 Scan a real `MetadataStorage` in the secondary table-name lookup of `resolveRegisteredEntityTableName`, restoring a lookup that never matched anything since MikroORM 7 returned a `Map` (#6725). (#6785) *(@Ramnath0521)*
+- 🐛 Filter the admin Customer accounts users list by the organization selected in the switcher instead of always pinning it to the caller's home organization (#5574). (#6786) *(@adeptofvoltron)*
+- 🐛 Show and persist the WMS Inventory profile card (manage inventory, default UOM, rotation strategy, lot/serial/expiration tracking, reorder point, safety stock) on product and variant create and edit forms, where the settings were missing or unsaved (#6142). (#6789) *(@adeptofvoltron)*
+- 🐛 Make the `ActionsDropdown` menu reachable by keyboard with arrow-key navigation, so keyboard users no longer tab through the page footer to reach items in detail-header overflow menus (#6445). (#6792) *(@adeptofvoltron)*
+- 💰 Keep an order line's stored tax rate in the sales line editor, so API-created lines no longer open as 0% VAT and a quantity-only save no longer silently drops the tax (#6461). (#6815) *(@adeptofvoltron)*
+- 📦 Declare the Attachments, Currencies, Dictionaries and Entities modules as required by Catalog so incomplete standalone module selections are rejected early, and skip the commerce demo dataset when Sales is absent (#6517). (#6823) *(@haxiorz)*
+- 🐛 Document encrypted list filtering and expose a development/test diagnostic so module authors can see when a missing token index makes an encrypted search return an empty successful result (#6729). (#6827) *(@haxiorz)*
+- 🐛 Refuse user-task completion on a closed workflow run and close pending tasks when a run is cancelled, so submitting a task no longer revives a cancelled run. (#6830) *(@AHKSammich)*
+- 🐛 Load organization-wide custom field definitions in `loadCustomFieldValues`, so values defined without an organization scope are no longer dropped (#6029). (#6836) *(@marcin-urbanski)*
+- 🐛 Restore variants, prices, unit conversions and the owned option schema when a catalog product deletion is undone, instead of returning the product with no variants or prices. (#6838) *(@AHKSammich)*
+- 🐛 Keep the WMS Release reservation dialog footer inside the dialog so the confirm button is no longer cut off with longer translations such as Polish (#6835). (#6842) *(@adeptofvoltron)*
+- 🌍 Show a translated message in the WMS Adjust inventory dialog when a negative adjustment exceeds available stock, instead of the raw `insufficient_stock` code (#6834). (#6843) *(@adeptofvoltron)*
+- 🐛 Show per-field validation errors in the IMAP connect dialog, now an embedded `CrudForm`, instead of flashing a raw zod JSON dump for missing or invalid fields (#5593). (#6845) *(@adeptofvoltron)*
+- 🐛 Accept Stripe `charge.refunded`, `charge.refund.updated` and dispute webhooks instead of answering 401, and distinguish partial from full refunds so refunds made in the Stripe dashboard update the gateway transaction. (#6854) *(@AHKSammich)*
+- 🐛 Honor `page` and `limit` in `GET /api/audit_logs/audit-logs/actions`, so the Audit Logs pager and Version History panel can reach older entries instead of always showing the newest rows. (#6856) *(@AHKSammich)*
+- 🔧 Declare the missing module dependency in two modules that read another module's entity ids at import time, so they no longer throw while the registry is assembled with the other module disabled. (#6862) *(@michalper)*
+- 🐛 Stop the customers calendar from updating state during render when dragging an empty Day or Week grid range, removing React's cross-component render warning (#6869). (#6876) *(@haxiorz)*
+- 🐛 Scope the `/backend/users` list to the selected organization and its children for tenant admins, instead of listing every user in the tenant (#6803). (#6883) *(@adeptofvoltron)*
+- 🌍 Complete the Spanish (es) translations for `agent_examples`, `example`, `auth`, `ai_assistant` and `sales`, replacing values still identical to English or empty (supersedes #6897, #6893). (#6895, #6896, #6901, #8586, #8956) *(@etor6233)*
+- 🐛 Keep the default enabled state when `IntegrationStateService.upsert` creates a missing state row, so `webhook_custom` and `sync_excel` are no longer turned off by their first write (#6915). (#6916) *(@mikolajbogusz-they)*
+- 🔄 Honor adapter batch-size defaults in CSV and Akeneo imports by letting `startDataSyncRun` pick the size when the operator omits it, while preserving explicit sizes and the 1..1000 bounds (#6464). (#6920) *(@haxiorz)*
+- 🐛 Deliver replies to inbound communication channel messages instead of silently dropping them after a 404 for the channel system user (#6391). (#6921) *(@adeptofvoltron)*
+- 🐛 Send the password-reset and magic-link emails requested on the customer portal, which previously returned 200 and showed "check your inbox" without sending anything (#5959). (#6924) *(@adeptofvoltron)*
+- 💰 Serialize concurrent order and quote line mutations on a shared parent-row lock, so stale line graphs no longer overwrite order header totals, counts or positions (#6463). (#6925) *(@haxiorz)*
+- 🌍 Localize customer dictionary labels on non-English interfaces, following the interface language for unchanged seeded labels while preserving explicit translations and operator-edited labels (#6197). (#6930) *(@haxiorz)*
+- 🐛 Resolve timesheet and My Work targets through the EP-40 `staff.time_tracking.capacity_provider` registry, so registered providers' targets now show in the footer, day load bars and My Work KPIs instead of a person on leave showing "-40:00 to target" (#6934). (#6935) *(@Marynat)*
+- 🔄 Refresh sibling panels on deal and person detail pages after marking an activity done, so the Planned activities panel no longer keeps showing it as planned until a full reload (#6933). (#6937) *(@Kamyyylo)*
+- 🐛 Apply shipping carrier webhooks, which were dropped because the worker read the wrong payload field, and accept forward status skips such as `label_created` to `delivered`, so `shipping_carriers.shipment.delivered`/`.returned` fire and warranty RMA returns progress. (#6957) *(@AHKSammich)*
+- 🐛 Keep stored `enabled`, `priority` and `version` values on partial `PUT /api/business_rules/rules` and `/sets` updates, instead of resetting them to `true`, `100` and `1` (#6940). (#6963) *(@adeptofvoltron)*
+- 🐛 Let a workflow step last up to 90 days by widening `step_instances.execution_time_ms` past the 2^31 ms integer ceiling, which previously stranded runs when a long step completed. (#6966) *(@fshagent)*
+- 🐛 Open the report that locks a time entry when choosing Show report from a locked entry's row menu or dialog, instead of the full reports list (#6976). (#6985) *(@adeptofvoltron)*
+- 🔐 Check time-entry project access against the entry date and in the timesheet grid bulk save, so the grid refuses time logged on unassigned projects or outside assignment dates just as the entry dialog does (#6988). (#6998) *(@Marynat)*
+- 🐛 Process inbound webhooks under the async (BullMQ) queue strategy, where signed requests were accepted with 200 and then never dispatched to any handler. (#7007) *(@jtomaszewski)*
+- 🐛 Validate packaged module `requires` in `yarn generate` without executing TypeScript sources, so incomplete module dependency selections are reported instead of being silently swallowed (#6239). (#7008) *(@Marynat)*
+- 🐛 Center the `DataTable` error state in the visible area, so the message no longer sits off-screen on tables wider than their scroll viewport. (#7009) *(@maxidragon)*
+- 🌍 Show saved dictionary translations in the product unit dropdowns (base unit, default sales unit, conversion rows and preview) instead of the stored label (#6951). (#7035) *(@adeptofvoltron)*
+- 🐛 Stop the Undo and Redo icons on Audit Logs rows from also opening the Action details dialog, which hid the undo result behind the dialog (#7012). (#7037) *(@adeptofvoltron)*
+- 🐛 Delete a deal's custom field values when the deal is deleted, instead of leaving orphaned `custom_field_values` rows behind (#6996). (#7038) *(@adeptofvoltron)*
+- 🐛 Show the employee's name instead of a raw staff-member id on the self Person filter chip in Time tracking entries (#7017). (#7039) *(@adeptofvoltron)*
+- 🐛 Keep a saved view's legacy filter record when reading perspectives, so filters saved on pages using the legacy `FilterBar` are no longer lost when the view is reopened (#9033). (#7046) *(@maxidragon)*
+- 💰 Keep shipping and surcharge totals when a quote is converted to an order, instead of writing them as 0 on the converted order. (#7051) *(@AHKSammich)*
+- 🔄 Keep a schedule's `nextRunAt` current under `QUEUE_STRATEGY=async`, where it was never updated after the schedule fired. (#7053) *(@AHKSammich)*
+- 🔄 Recover `sync_excel` CSV people re-imports after a person was deleted or an address was rejected, instead of failing on every later import. (#7054) *(@AHKSammich)*
+- 🐛 Keep an executed notification action executed across dismiss and restore, so restoring a dismissed notification no longer allows its action to run again. (#7055) *(@AHKSammich)*
+- 🐛 Restore a catalog category's custom field values when a category update is undone, instead of reporting success while keeping the edited values. (#7056) *(@AHKSammich)*
+- 🔧 Add the missing blank line between the headers and the `multipart/alternative` body in outbound emails assembled by `communication_channels`, so strict MIME parsers no longer treat the boundary as a header continuation (#7097). (#7116) *(@adeptofvoltron)*
+- 💰 Exclude failed and canceled payments from an order's paid totals, so such an order no longer shows Paid equal to the grand total, zero Outstanding, and refused shipment edits. (#7117) *(@adeptofvoltron)*
+- 🐛 Honour the `First`, `Before` and `After` placement of DataTable columns injected through `data-table:<tableId>:columns` even when their widgets register late, instead of always rendering them last (#7083). (#7118) *(@adeptofvoltron)*
+- 🔄 Pin one `Message-ID` across the Sent-folder copy and the delivered message in the IMAP channel, so the Sent copy matches the delivered email and replies thread correctly (#7101). (#7119) *(@adeptofvoltron)*
+- 📦 Add the file extension to externalized legacy package subpaths such as `next/link` in the CLI bundle, so app backend pages importing them no longer produce a bundle that fails to load (#6993). (#7120) *(@adeptofvoltron)*
+- 🐛 Keep the staff time-tracking project edit and board screens mounted while the organization scope first settles, so a pending "Request sent" state no longer flips back to an enabled "Request access" button. (#7132) *(@maxidragon)*
+- 🔄 Accept deterministic uuid-formatted schedule ids that lack RFC 4122 version bits in the scheduler validators, so modules registering hash-derived schedule ids no longer get rejected (#7152). (#7157) *(@mtytula)*
+- 💰 Enforce uniqueness of the `gateway_webhook_events` idempotency index, which migrated databases had recreated as a plain index, so redelivered payment gateway webhooks are dropped instead of processed twice (#7155). (#7159) *(@mtytula)*
+- 🔄 Enqueue `mercato scheduler run <schedule-id>` through the queue factory like the trigger API does, so the command no longer fails with `Could not resolve 'queueService'` (#7158). (#7161) *(@mtytula)*
+- 💰 Rotate payment gateway status polling so open transactions that never change status can no longer starve newer ones, including paid transactions whose webhook was lost. (#7162) *(@mtytula)*
+- 🐛 Label canceled activities in the customers interaction history, so canceled planned activities no longer render like completed ones in deal and company history. (#7164) *(@wojciechszyjka)*
+- 🔐 Hash the AI-chat session token before storing it in `api_keys` (new `session_token_hash` column) and stop embedding the raw token in the key name, so a database read can no longer expose live bearer credentials (#2254). (#7177) *(@Sawarz)*
+- 🔄 Keep a sent Gmail email, its copy and the replies in one thread, instead of splitting them across two conversations after Gmail replaces the sent message's `Message-ID` (#7187). (#7188) *(@wojciechszyjka)*
+- 🔧 Claim a PAUSED workflow instance atomically before a signal advances it, so concurrent deliveries of the same signal no longer duplicate downstream user tasks and activities (#7185). (#7190) *(@kurrak)*
+- 💰 Keep pay-link usage counters (`completion_count`, `active_reservation_count`, `is_locked`) correct under concurrent payments, failed duplicate submits and undo/redo, so links no longer stay locked or accept more payments than allowed. (#7203) *(@AHKSammich)*
+- 🐛 Preserve email interaction state across Person and Company delete undo, restoring message link, channel, visibility, meeting details and pin state that the delete snapshot previously dropped. (#7204) *(@AHKSammich)*
+- 🔧 Keep omitted fields on partial checkout pay link and template `PUT` updates instead of resetting defaulted fields such as `status`, `themeMode` and the `send*Email` flags (#7127). (#7214) *(@lbajsarowicz)*
+- 🔧 Align the `defineWorkflow` code-definition types with the engine validators, so code-defined workflows can use `WAIT_FOR_CONDITION` and the full `userTaskConfig` without type errors (#7183). (#7244) *(@kurrak)*
+- 🌍 Keep translation-only module registrations from replacing the module registry when a `setup` override is declared in `modules.ts` (#7243). (#7245) *(@kurrak)*
+- 🔧 Stop persisting the raw RFC 2822 message in `message_channel_links.channel_metadata`, so sent emails no longer bloat the table or keep message bodies outside the encrypted messages store (#7099). (#7246) *(@lbajsarowicz)*
+- 📦 Stop `yarn dev` from retrying MCP API key provisioning every 120 seconds when `ai_assistant` is not installed, as in apps scaffolded with the `empty` or `wms` starter (#7140). (#7247) *(@lbajsarowicz)*
+- 🐛 Keep an unsaved time tracking settings edit when the organization scope settles after a cold page load, so Save no longer stays disabled after the draft is overwritten (#7137, #7288). (#7248) *(@lbajsarowicz)*
+- 🔧 Ignore the `err` stack printed below a non-error log entry in the dev runtime, so a single non-critical enricher timeout no longer leaves `yarn dev` marked degraded until restart (#6945). (#7254) *(@Kamyyylo)*
+- 🐛 Send the optimistic-lock version on the first edit of an untouched built-in activity type, so that edit no longer fails the lock check (#7168). (#7267) *(@lbajsarowicz)*
+- 🐛 Refresh the Visit availability panel in the example module when a save is blocked by a booking, so the panel shows current availability (#7167). (#7268) *(@lbajsarowicz)*
+- 🐛 Return 400 with `Validation failed` details instead of 500 for invalid input on hand-written customer API routes (#7266). (#7276) *(@adeptofvoltron)*
+- 🐛 Reject a malformed `tagIds` filter on sales orders, quotes and customer people/companies lists with a 400 instead of a 500 `DATABASE_ERROR` (#7265). (#7278) *(@adeptofvoltron)*
+- 🔧 Keep optional catch-all path parameters such as `slug` required in the generated OpenAPI document, so standards-compliant consumers like OWASP ZAP no longer reject it (#7262). (#7279) *(@adeptofvoltron)*
+- 💰 Revalidate returnable quantity when redoing a return create or undoing a return delete, refusing stale restores with a translated 409 so the same shipped units cannot be returned and credited twice. (#7280) *(@AHKSammich)*
+- 🐛 Keep omitted delivery settings on partial webhook updates, so activating or deactivating a webhook no longer resets its HTTP method, retries, timeout, rate limit and auto-disable threshold. (#7281) *(@AHKSammich)*
+- 📦 Keep `next/dynamic` and resolve bare `next` subpaths at the CLI entry, so CLI commands, workers and scripts loading `@open-mercato/ui` no longer crash with `ERR_MODULE_NOT_FOUND` (#7102). (#7282) *(@adeptofvoltron)*
+- 🔐 Keep the staff password-reset form from submitting via GET before hydration, so the email address no longer leaks into the URL and the form posts to `POST /api/auth/reset` (#7263). (#7284) *(@adeptofvoltron)*
+- 📦 Align the `@open-mercato/gateway-tpay` package version with the 0.9.0 monorepo version, fixing the failing version-alignment check. (#7285) *(@adeptofvoltron)*
+- 🐛 Refuse undo of a leave request create or approval after the request was approved or rejected, so undo no longer soft-deletes it while leaving approval-created planner unavailability rules behind. (#7290) *(@AHKSammich)*
+- 🔧 Serialize writes to an empty WMS inventory bucket so concurrent writes keep one `wms_inventory_balances` row, preventing phantom stock, refused moves and multiplied quantities from `verify-balances --repair`. (#7291) *(@AHKSammich)*
+- 🖼️ Keep a stored attachment file until the last `attachments` row referencing it is deleted, so deleting a copied variant media or forwarded message attachment no longer breaks the others (#7309). (#7292) *(@AHKSammich)*
+- 🐛 Refuse stale warranty claim-line undos and keep claim header totals in step, so undoing a line command no longer overwrites work done after it. (#7296) *(@AHKSammich)*
+- 🔧 Resolve a workflow async-activity wait from the queue jobs it actually queued, so a run whose async activity failed once can be recovered by retry or rerun-from-step. (#7318) *(@AHKSammich)*
+- 💰 Keep exactly one base currency through undo, redo and concurrent writes, so the currencies admin no longer leaves an organization with no base or several. (#7319) *(@AHKSammich)*
+- 🔧 Skip the customers channel backfill migration when `communication_channels` is not enabled, so `mercato db migrate` and `mercato init` no longer fail with `relation "message_channel_links" does not exist`. (#7325, #9586) *(@maxidragon)*
+- 💰 Attach the `escape` clause to each `ilike` in the Payment transactions search, so searching the list no longer returns a 500 syntax error for every term. (#7326) *(@marcinwadon)*
+- 💰 Show a table error when Payment transactions fail to load, instead of clearing the rows and implying the transaction does not exist. (#7327) *(@marcinwadon)*
+- 🐛 Reject malformed `ids` on `GET /api/directory/organizations` with a validation error instead of a bare 500. (#7328) *(@marcinwadon)*
+- 🐛 Preserve each calendar interaction's time zone and original scheduled instant when undoing a Person or Company delete (#7313). (#7339) *(@haxiorz)*
+- 🔄 Invalidate the global hostname cache when a custom domain mapping is deleted, so a removed hostname stops serving the previous tenant's storefront immediately (#7315). (#7340) *(@haxiorz)*
+- 🐛 Allow deleting a Person that has active or revoked email conversation shares, and preserve those shares through undo and redo (#7314). (#7341) *(@haxiorz)*
+- 🌍 Translate warranty claim audit action labels into the request locale instead of storing raw translation keys (#7308). (#7348) *(@haxiorz)*
+- 🐛 Keep warranty grade suggestions valid for the claim type, so return-claim lines received with grade C or D stay editable instead of failing the next save with 400 (#7307). (#7353) *(@haxiorz)*
+- 🐛 Allow redo of warranty claim line receiving and quarantine release (#7305). (#7357) *(@haxiorz)*
+- 🐛 Keep live warranty claim line numbers unique (#7306). (#7359) *(@haxiorz)*
+- 💰 Allow creating currencies and exchange rates on the first save before the organization scope initializes, including immediately after login (#7354). (#7365) *(@haxiorz)*
+- 🐛 Show why an undo or redo was refused in the version history panel, instead of silently doing nothing (#7355). (#7366) *(@wojciechszyjka)*
+- 🌍 Keep the locale decimal comma when numeric fields are redisplayed, so Polish `2,5` no longer turns into `2.5` after blur or reload (#6309). (#7372) *(@wojciechszyjka)*
+- 💰 Prevent quote self-conflicts after local edits, so a quote converts right after its author adds a line, shipping and a surcharge while stale edits from another tab are still rejected (#7294). (#7373) *(@haxiorz)*
+- 🌍 Explain a refused product-delete undo in the user's language when a variant SKU has since been given to another variant, instead of showing the English "Undo failed" (#7011). (#7374) *(@wojciechszyjka)*
+- 🔄 Let admins set the Ollama base URL in the vector search settings, so a non-default Ollama host can be configured from `/backend/config/search` (#3796). (#7376) *(@wojciechszyjka)*
+- 🔐 Make the integration detail page read-only for users without `integrations.manage`, instead of offering management actions to view-only roles (#6415). (#7377) *(@wojciechszyjka)*
+- 💰 Refuse to re-run a WMS stock reservation for a cancelled sales order, so it no longer recreates a live reservation against stock other orders need (#4521). (#7378) *(@wojciechszyjka)*
+- 💰 Refuse to cancel an order that still has shipments or unrefunded payments, returning a translated 409 instead of silently flipping the status (#4054, #4059). (#7379) *(@wojciechszyjka)*
+- 🐛 Load customer edit-form dictionaries from the record's organization, so Status, Lifecycle stage, Source, Industry and Job title selects work when the picker is on All organizations (#3593). (#7384) *(@wojciechszyjka)*
+- 🐛 Close the message delete confirmation when the delete hits a conflict, instead of leaving it open over a refetched version (#3681). (#7385) *(@wojciechszyjka)*
+- 🐛 Reset consecutive failures when re-activating a webhook, so an auto-disabled webhook is no longer disabled again by its next failed delivery. (#7409) *(@adeptofvoltron)*
+- 🌍 Add the missing entity-type label for ecommerce stores, so search results show a proper chip instead of `Ecommerce · Ecommerce Store` (#7408). (#7410) *(@adeptofvoltron)*
+- 🐛 Reject non-UUID pending-action ids with 400 instead of a raw 500 on the AI assistant action routes (#7352). (#7411) *(@adeptofvoltron)*
+- 🌍 Translate the session-expired and access-denied flash banners, so Polish and German backends no longer show them in English (#7381). (#7412) *(@adeptofvoltron)*
+- 🔐 Treat a malformed %-escape cookie as absent on logout and session refresh instead of failing with a 500 (#7382). (#7413) *(@adeptofvoltron)*
+- 🐛 Paint pinned DataTable cells with the card surface and carry the row hover tint through them, and stop the staff timesheet's sticky Project column from drawing over the top bar (#7414). (#7419) *(@Marynat)*
+- 🔄 Relay `portalBroadcast`-only events across processes, so events emitted from the queue worker reach the customer portal's SSE stream (#2973). (#7420) *(@WojciechSoczynskiTHEY)*
+- 🐛 Skip stale rows on AI bulk confirm and assert the previewed record version on writes, so confirming a partly stale batch no longer overwrites changed records (#7221). (#7428) *(@AHKSammich)*
+- 🐛 Return 409 instead of 500 when creating a business rule with a Rule ID the tenant already uses (#7363). (#7437) *(@adeptofvoltron)*
+- 🐛 Stop AI mutation-preview diffs from showing untouched fields as cleared in the "Review proposed changes" approval card. (#7438) *(@adeptofvoltron)*
+- 🌍 Translate the audit log redo route's generic failure fallback instead of returning a hard-coded English `Redo failed` (#7386). (#7439) *(@adeptofvoltron)*
+- 🐛 Attribute the automatic "Awaiting return" to "Received" warranty claim transition to "System" instead of "Unknown user" in the claim timeline and the raw zero UUID in the audit log. (#7440) *(@adeptofvoltron)*
+- 🐛 Show a neutral result instead of the destructive "Action failed" card when an operator cancels an AI mutation proposal, dropping the raw `cancelled_by_user` code, the untranslated message and the misleading "Fix with AI" retry button. (#7441) *(@adeptofvoltron)*
+- 🐛 Resolve `{{...}}` templates in the `duration` and `until` of `WAIT_FOR_TIMER` workflow steps at step entry, so a templated timer that passed validation no longer fails on every run. (#7455) *(@mstopinski)*
+- 🐛 Keep defaults, enums and descriptions in AI agent tool input schemas, so defaulted fields stay optional, enum fields reject unknown values and the model sees field descriptions (#7452). (#7457) *(@mstopinski)*
+- 📦 Enable `api_keys` in the empty starter preset (and the `crm` / `wms` presets that extend it), so a fresh `npx create-mercato-app` no longer fails setup with "Metadata for entity ApiKey not found". (#7473) *(@patzick)*
+- 🐛 Persist markdown code-block controls immediately in the editor, so changes made through them are no longer lost (#7469). (#7477) *(@haxiorz)*
+- 🌍 Show the translated "Actions" column header on the order Payments tab, matching other backend lists, instead of an empty header (#7435). (#7480) *(@haxiorz)*
+- 🐛 Keep backend table columns stable during initial loading and Refresh, and release the base table with a localized reload instruction when the client injection registry fails instead of showing "Loading table" forever (#7436). (#7484) *(@haxiorz)*
+- 🐛 Answer `400` instead of a bare `500` when `POST /api/messages` compose or `GET /api/messages` list validation fails, such as a missing subject, non-UUID recipient or disallowed action `href`. (#7508) *(@adeptofvoltron)*
+- 🔧 Stop empty `$in`/`$nin` filters from producing invalid SQL, so a `?ids=` filter matching nothing returns an empty page instead of a `500` on query-engine-backed list APIs (#7502). (#7509) *(@adeptofvoltron)*
+- 🐛 Keep `api_keys` optional for authorization-state locks, so apps that disable the module no longer crash on the first user, role or ACL write with "Metadata for entity ApiKey not found" (#7444). (#7511) *(@adeptofvoltron)*
+- 🐛 Refuse undoing `eudr.statements.create` when it would delete an archived statement, one past its amendment window or one still referenced by another statement (#7506). (#7512) *(@AHKSammich)*
+- 🐛 Refuse audit-log undos in `staff` timesheets that would change or delete a time entry locked by a closed report, which previously bypassed the `time_entry_locked` check (#7507). (#7515) *(@AHKSammich)*
+- 🔐 Clear the organization-scope cookies on logout, so the next user of the same browser no longer inherits "All organizations" and the staff Timesheet "my projects" list stops querying with an empty string (#7465). (#7516) *(@Marynat)*
+- 🐛 Stop parallel `POST /api/customers/people` requests that share a new job title, status or source from failing with `500 DATABASE_ERROR`, by inserting the dictionary entry atomically. (#7521) *(@mtytula)*
+- 🐛 Restore the previous override state when undoing `feature_toggles.overrides.changeState`, instead of leaving the changed value in place, and evict the cache through a properly loaded toggle (#7554). (#7568) *(@AHKSammich)*
+- 🐛 Name the conflicting SKU or handle when undoing `catalog.products.delete` collides with another product, instead of the generic "Undo failed" message. (#7571) *(@adeptofvoltron)*
+- 🐛 Keep `id` in `webhookUpdateSchema` so `PUT /api/webhooks/webhooks` works instead of always answering `400 Invalid id` (#7504). (#7572) *(@adeptofvoltron)*
+- 🐛 Let people and companies that carry labels be deleted, instead of failing with `409 FOREIGN_KEY_VIOLATION`, by removing label assignments in the delete transaction and restoring them on undo. (#7575) *(@AHKSammich)*
+- 💰 Keep a price kind's `displayMode` on partial `PUT /api/catalog/price-kinds` updates, so renaming or toggling an including-tax kind no longer silently switches it to excluding-tax (#7555). (#7586) *(@AHKSammich)*
+- 🐛 Default the quote "Send to customer" dialog to the quote's existing `validUntil` instead of a hardcoded 14 days, so sending no longer overwrites a different validity period (#7468). (#7603) *(@adeptofvoltron)*
+- 🐛 Restore the empty preview in the Company/Person/Deal linking dialog after deselecting the last entry, instead of keeping the removed entry focused (#7492). (#7604) *(@adeptofvoltron)*
+- 🐛 Stop the Activity History "More" action from crashing with `Cannot read properties of undefined (reading 'saveIcon')` when opening an Event or custom activity type in `ScheduleActivityDialog` (#7486). (#7605) *(@adeptofvoltron)*
+- 🔧 Add a `--no-demo-users` flag to `mercato init` so fresh production bootstraps can skip seeding the derived admin and employee demo accounts (#7517). (#7607) *(@adeptofvoltron)*
+- 🐛 Save the condition displayed for new Form Studio visibility rules instead of an empty `eq` value, and fit the rule controls inside the 320px Properties panel (#7565). (#7610) *(@haxiorz)*
+- 🐛 Prune released and abandoned payment-session initialization claims, which previously accumulated indefinitely, while protecting live leases and the 24-hour completed-session replay window (#4888). (#7623) *(@haxiorz)*
+- 🐛 Lock the `customer_entities` row before cleanup in `customers.people.delete` and `customers.companies.delete`, so concurrently inserted child rows no longer cause a `409 FOREIGN_KEY_VIOLATION`. (#7628) *(@adeptofvoltron)*
+- 🐛 Stop AI mutation cards from polling forever after a 404, and fix idempotency-key collisions that caused `duplicate key` errors on retried tool calls (#7550). (#7630) *(@adeptofvoltron)*
+- 🔧 Declare the undeclared setup-time module dependencies of `customers`, `portal` and `workflows` in `requires`, so apps missing them fail clearly instead of with "Metadata for entity Dictionary not found" during init. (#7631) *(@adeptofvoltron)*
+- 🐛 Refuse a stale undo of `feature_toggles.overrides.changeState` that would discard a later admin change, and fix the null `resourceId` on override actions (#7584). (#7632) *(@adeptofvoltron)*
+- 🔧 Make the command bus compare an object referenced twice in a snapshot by value, so the action log no longer lists fields that did not change. (#7646) *(@dawid-walkiewicz)*
+- 🐛 Log only the columns that actually changed in `sales.orders.update` and `sales.quotes.update`, instead of always listing snapshot, `customFields` and `metadata` columns as edited. (#7647) *(@dawid-walkiewicz)*
+- 🐛 Refuse organization undos and redos that would form a parent cycle in the hierarchy, instead of writing back stale parent ids (#7677). (#7678) *(@AHKSammich)*
+- 🐛 Respect a column's custom cell renderer over the `DataTable` `_at` date-name heuristic, so columns with such ids no longer render blank or ignore their `cell` (#7640). (#7681) *(@adeptofvoltron)*
+- 🐛 Let `ConfirmDialog` reopen after being cancelled with Escape, instead of staying hidden until the host component remounts (#7639). (#7684) *(@adeptofvoltron)*
+- 🐛 Keep DataTable column headers visible while scrolling long backend lists, including virtualized tables and embedded or padded scroll panels (#7702). (#7713) *(@haxiorz)*
+- 🐛 Preserve the original creation timestamps of resource comments and activities across undo and redo (#7666). (#7715) *(@haxiorz)*
+- 🐛 Soft-delete the toggle when undoing `feature_toggles.global.create`, retaining its tenant overrides, and restore the same row on redo, matching normal global deletion (#7664). (#7716) *(@haxiorz)*
+- 🐛 Preserve the original ID and exact value of a tenant feature-toggle override when its creation is redone, instead of creating a new UUID (#7665). (#7717) *(@haxiorz)*
+- 🐛 Remove a variant's prices when its `catalog.variants.create` is undone, instead of leaving orphaned prices with a null `variant_id` (#7722). (#7723) *(@AHKSammich)*
+- 🐛 Invalidate the `catalog.offer` list cache on product update and its undo, so `GET /api/catalog/offers?productId=…` no longer serves stale offers with `ENABLE_CRUD_API_CACHE=true` (#7721). (#7736) *(@adeptofvoltron)*
+- 🐛 Break organization sibling ties by name instead of comparing a name against the other sibling's raw id, so sibling order is alphabetical as intended (#7718). (#7737) *(@adeptofvoltron)*
+- 🌍 Reword the catalog merchandising assistant panel description in all five locales, which wrongly claimed it was a read-only demo where no writes are applied (#7735). (#7738) *(@adeptofvoltron)*
+- 🐛 Accept a null `subtitle` on catalog product update validation, so the merchandising assistant `catalog.update_product` and `catalog.bulk_update_products` tools no longer fail with "Invalid input" (#7730). (#7739) *(@adeptofvoltron)*
+- 🌍 Localize the seeded checkout service-package custom field fieldset, sections, labels and help text in link and template editors, while preserving tenant-authored copy (#7748). (#7754) *(@haxiorz)*
+- 🐛 Mount the four advertised sales stage-bar and closure injection slots and run the shared response enrichers on quote headers, so UMES extensions now render on sales documents (#7781, #7782, #7783). (#7784) *(@pkarw)*
+- 🐛 Add the Duplicate row action to the deals list view, matching the Kanban card menu. (#7789) *(@WojciechSoczynskiTHEY)*
+- 🐛 Refuse to set a disconnected channel as primary in `POST /api/communication_channels/channels/{id}/set-primary`, which previously promoted any owned channel regardless of status (#7799). (#7800) *(@AHKSammich)*
+- 🔧 Stop Turbopack-built production servers from crashing every Redis-backed cache call with a `Class constructor Redis cannot be invoked without 'new'` error, by resolving the real `Redis` class before the module namespace (#7869). (#7878) *(@adeptofvoltron)*
+- 🐛 Refresh the customer name on a warranty claim when an update changes only `customerId`, instead of leaving the previous customer's name on the claim (#7848). (#7889) *(@Tomeckyyyy)*
+- 💰 Keep the contact, billing/shipping addresses and address snapshots on `PUT /api/sales/orders` and `PUT /api/sales/quotes` when the payload resends the same `customerEntityId`, instead of clearing them (#7899). (#7900) *(@AHKSammich)*
+- 🐛 Name the workflow in the Retry and Cancel confirmation dialogs on the workflow instances list instead of showing a literal `{{workflowId}}` placeholder in every locale (#7890). (#7907) *(@oskarwoj)*
+- 🌍 Translate the user and role grant check errors in `auth`, so org-restricted admins using a non-English UI get localized messages instead of English `403` text (#7368). (#7909) *(@oskarwoj)*
+- 🐛 Claim the action status atomically when `PATCH /api/inbox_ops/proposals/{id}/actions/{actionId}/complete` completes an inbox action externally, so concurrent requests can no longer overwrite each other's status (#7912). (#7913) *(@AHKSammich)*
+- 🐛 Refuse `PUT /api/entities/records` for unknown or soft-deleted record ids instead of updating or resurrecting them (#7917). (#7918) *(@AHKSammich)*
+- 🐛 Keep rejected customer task edits open with the attempted values and suppress the false success notice after a conflict is rejected (#7858). (#7930) *(@haxiorz)*
+- 🐛 Detect calendar double-booking when the same user owns a task and participates in an overlapping meeting, in both the calendar grid and the event editor, for the `all` and `mine` scopes (#7862). (#7931) *(@haxiorz)*
+- 🐛 Stop offering "Show more" on a Kanban lane once every deal matching the currency filter is loaded, while keeping the all-currency summary and currency choices intact (#7860). (#7936) *(@haxiorz)*
+- 🐛 Let the CRM AI assistant list, update and delete activities immediately after creating them, with accurate approval snapshots and versions (#7863). (#7937) *(@haxiorz)*
+- 💰 Keep a single default tax rate per organization when undoing an update or delete of a tax rate in `sales`, instead of leaving two defaults (#7942). (#7943) *(@AHKSammich)*
+- 🐛 Preserve a customer task's description, priority, due date, title and unrelated custom fields when it is completed or reopened (#7853). (#7945) *(@haxiorz)*
+- 🐛 Restore the delivery company, building number and flat number on each address when undoing the deletion of a person or company (#7854). (#7946) *(@haxiorz)*
+- 🐛 Restore a customer tag's original person and company memberships when undoing the tag deletion (#7855). (#7948) *(@haxiorz)*
+- 🐛 Let users with `warranty_claims.claim.view` open claim details without `attachments.view`, instead of failing on the optional attachment-count request and raising a forbidden notice (#7846). (#7949) *(@haxiorz)*
+- 🐛 Refresh the customer claim tracker in the warranty portal when staff update status or comments, preserving an unfinished reply and ignoring stale responses (#7847). (#7951) *(@haxiorz)*
+- 🐛 Restore conflict recovery when staff submit stale RMA receiving or return-label actions, by keeping the structured error body that conflict detection needs (#7845). (#7953) *(@haxiorz)*
+- 🐛 Load every line page of a warranty claim in the claims desk, so accepted claims with 101-200 lines stay inspectable, receivable and selectable for vendor recovery (#7844). (#7974) *(@haxiorz)*
+- 💰 Reject warranty claim order changes that are incompatible with retained claim lines, validating every retained live line against the new order instead of only the header (#7843). (#7976) *(@haxiorz)*
+- 🐛 Retain the customer's failure description from inbound InboxOps emails in warranty claim notes, by hydrating the email body that the `inbox_ops.email.received` event does not carry (#7842). (#7977) *(@haxiorz)*
+- 🐛 Retry failed warranty email claim intake by rethrowing claim creation failures, so the persistent event worker fails the delivery and the queue retries it (#7841). (#7978) *(@haxiorz)*
+- 🐛 Enforce sold-quantity limits when undoing a warranty claim-line edit, preventing a restore from claiming more units than the linked order line sold (#7840). (#7981) *(@haxiorz)*
+- 🐛 Persist editor changes before creating a named document version, so saving a version right after editing no longer snapshots the earlier body (#7839). (#7984) *(@haxiorz)*
+- 🐛 Make the collaborative document editor wait for its initial sync before accepting input, so fallback after the six-second timeout no longer replaces the editor and drops typed content (#7838). (#7985) *(@haxiorz)*
+- 🐛 Stop deal undo and redo from restoring a pipeline stage that has since been deleted, in all three snapshot-restore paths (#8000). (#8001) *(@AHKSammich)*
+- 🐛 Keep resource undo and redo working after a tag in the audit snapshot has been deleted, instead of failing with a `400` on the missing tag (#8003). (#8004) *(@AHKSammich)*
+- 🐛 Honour injected tab priority against built-in tabs on customer company, person and deal detail pages (supersedes #7020). (#8020) *(@lchrusciel, via @pkarw)*
+- 🌍 Fix the ungrammatical Polish `ui.advancedFilter.empty.noMatches` heading shown when a filtered list returns no rows (#7893). (#8024) *(@marcinwadon)*
+- 🐛 Keep the duration of a custom Note-based CRM activity unchanged when only its title is edited, instead of adding a default 30-minute duration (#8026). (#8028) *(@haxiorz)*
+- 🐛 Restore claim line removal in warranty claims, making it reachable from the row actions menu again (#8012). (#8032) *(@haxiorz)*
+- 🐛 Allow undo of a warranty replacement order after approval initialization, accepting the initial `null -> pending_approval` version change while still refusing undo after genuine edits (#8014). (#8033) *(@haxiorz)*
+- 🐛 Match pinned list columns on warranty Claims, Registrations, Troubleshooting guides and Vendor policies to their card surface in light and dark themes, including header and row hover (#7997, #8064). (#8035) *(@haxiorz)*
+- 🐛 Preserve native Enter/Space activation on notification action and dismiss buttons, with the enclosing card handling keyboard activation only when it is the event target (#7983). (#8036) *(@haxiorz)*
+- 🐛 Stop ecommerce storefront resolution from using a store's default channel whose sales channel was deleted (#8053). (#8054) *(@AHKSammich)*
+- 🐛 Recover the agent Tasks list's last-execution health after the event bridge reconnects, so a run started during reconnection no longer leaves a stale Failed status. (#8071) *(@haxiorz)*
+- 🔧 Isolate inbound webhook receipt deduplication by endpoint, message ID, verified tenant and organization, so the same message ID in another verified scope is ingested independently (#7830). (#8075) *(@haxiorz)*
+- 🐛 Keep unsaved project team assignments available to save when the translation context refreshes on the staff projects page. (#8082) *(@haxiorz)*
+- 🐛 Keep the calendar event editor pristine after related-record labels load, so Escape closes an untouched editor without a discard confirmation. (#8083) *(@haxiorz)*
+- 🔧 Guard dev sessions with an atomic canonical-workspace lock with stale-owner recovery, and pick a free MCP port when the preferred one is occupied, propagating the endpoint to the app and OpenCode (#8046, #8044). (#8100) *(@pkarw)*
+- 🐛 Anchor planner availability `DTSTART` to the declared timezone with consistent DST disambiguation, falling back to UTC for unresolvable legacy labels and skipping dates a timezone skips entirely (supersedes #5868). (#8110) *(@marcinwadon, via @pkarw)*
+- 📦 Keep comments, blank lines and commented-out entries in `src/modules.ts` when running `yarn mercato module add` and `module enable` (#8111). (#8114) *(@wojciechszyjka)*
+- 📦 Stop `yarn mercato module add` from duplicating modules that a standalone app registers behind env flags, such as `storage_s3` behind `OM_ENABLE_STORAGE_S3` (#8112). (#8116) *(@wojciechszyjka)*
+- 📦 Treat `yarn mercato module add` and `module enable` of an already enabled module as a no-op success instead of exiting with code 1 (#8121). (#8122) *(@wojciechszyjka)*
+- 🐛 Stop a slow Tillio operator detach from overwriting an operator attached concurrently while the token revocation call is in flight (#8126). (#8127) *(@AHKSammich)*
+- 🐛 Stop channel-ingested emails from being echoed back to their sender by honouring an explicit `sendViaEmail: false` from internal message producers (#6089) (supersedes #6090). (#8133) *(@mobinea, via @pkarw)*
+- 🐛 Make custom-record `POST` create-only, so posting an existing record UUID can no longer replace a newer document without the version check enforced by `PUT` (#7815). (#8163) *(@haxiorz)*
+- 📦 Use only a command's own warning for catalog collision warnings in `create-mercato-app`, even when object prototypes contain matching keys (#8169). (#8189) *(@wojciechszyjka)*
+- 🐛 Preserve an organization's lifecycle state when its creation is undone and redone in the directory module, instead of losing it on replay (#7663). (#8217) *(@haxiorz)*
+- 🔐 Let user-bound API keys read their personal dashboard layout and profile, resolving the bound user within the key's tenant and organization and answering 403 for missing, malformed, deleted or out-of-scope bindings instead of failing UUID lookups (#7261). (#8219) *(@haxiorz)*
+- 🔄 Fix recurring data-sync schedules not dispatching by resolving a queue's owning module from the module registry entry that declares its worker instead of splitting the worker id on `:` (supersedes #6341). (#8254) *(@maxidragon, via @pkarw)*
+- 💰 Store the unit net before discounts for gross-only order and quote lines, so adding or editing another line no longer applies the discount a second time, including for fractional quantities (supersedes #8249). (#8267) *(@matkowalski, via @pkarw)*
+- 🐛 Repair the CRM UMES extension flow so contributor fields keep hydrated values, run lifecycle callbacks, save through their owning APIs and stay visible after reload on person, company and deal detail pages (#6736) (supersedes #6931). (#8269) *(@haxiorz, via @pkarw)*
+- 💰 Keep a gross-only price edit at `/backend/catalog/prices/[id]/edit`, deriving net from the edited gross and tax rate instead of recomputing gross from the unchanged net (#8248). (#8270) *(@adeptofvoltron)*
+- 🔐 List tenant-wide API keys alongside organization keys for unrestricted actors and superadmins, while restricted actors keep organization-only visibility (supersedes #6307). (#8273) *(@okwasniewski, via @pkarw)*
+- 🐛 Open Markdown containing code blocks in the rich-text editor, with a translated Plain text fallback for untagged blocks, and persist code-block language changes and deletions on immediate save (#6997) (supersedes #7036). (#8274) *(@adeptofvoltron, via @pkarw)*
+- 🌍 Preserve unknown inbound message timestamps as `null` in communication channels and show a translated "Unknown date" label instead of the import date (#5326) (supersedes #5446). (#8285) *(@jarekdrabek, via @pkarw)*
+- 🔄 Index and read declared tenant-global entity types under the null tenant in `query_index`, retiring legacy scoped projections on reindex so platform-wide catalogues stay searchable from any selected organization (supersedes #5723). (#8287) *(@Geeknauts-company, via @pkarw)*
+- 🐛 Show negative discount amounts as explicit positive markups on sales documents with externally supplied amounts, and expose the reason for disabled line edit/delete controls through keyboard-focusable tooltips (#8240). (#8288) *(@pkarw)*
+- 🐛 Show the optimistic-lock "Record changed" conflict bar above open modal dialogs, drawers and sheets, so a stale save no longer leaves a blurred, unclickable bar under the overlay and a dialog that will not close (#8289). (#8290) *(@pkarw)*
+- 🐛 Stop custom entity record lists from looping on render and re-requesting the same page while custom-field definitions are still loading (#8271). (#8300) *(@pkarw)*
+- 🐛 Preserve a child control's own disabled state in `FormField`, so WMS locks, warranty-claim controls and role-limited fields keep the state their callers set (supersedes #6403). (#8335) *(@mat-kruk, via @pkarw)*
+- 🔧 Keep `mercato server dev` on the lightweight dev-supervisor manifest in standalone apps, no longer bootstrapping the whole application for the entire `yarn dev` session (about 300 MB of memory). (#8337) *(@andrzejewsky)*
+- 📦 Pin the Documents TipTap runtime train to the reviewed `3.32.0` graph and convert on the server with `happy-dom@21.0.4`, fixing standalone installs that failed the five-day dependency quarantine. (#8349) *(@pkarw)*
+- 💰 Expire catalog promotional prices at the exclusive end instant, using a half-open `[startsAt, endsAt)` validity window so a contract price wins exactly when the promotion ends (#8102) (supersedes #8244). (#8364) *(@pidubiel, via @pkarw)*
+- 🐛 Fix the customers task drawer so status options align their icon and color indicator on one row, and let Cmd/Ctrl+Enter resubmit the task dialog after an optimistic-lock rejection (#8319, #8320). (#8369) *(@pkarw)*
+- 🐛 Load translations and injection registries on the login page so modules can render alternative sign-in widgets on the `auth.login:form` spot, mirrored into the standalone app template (supersedes #8237). (#8370) *(@lbajsarowicz, via @pkarw)*
+- 🐛 Recover communication channel polling after an expired access token by forcing a refresh instead of immediately marking the channel `requires_reauth` on a 401 when the refresh grant is still usable (supersedes #6433). (#8372) *(@KamilMichalski0, via @pkarw)*
+- 🔄 Clear only the reindexed scope in a fulltext reindex, so reindexing one entity type or organization on Meilisearch no longer drops every other entity type or organization from the tenant index (#8395). (#8396) *(@AHKSammich)*
+- 💰 Keep a used-up static promotion code inactive when undoing `promotions.code.update`, instead of restoring its pre-update `active` flag and re-enabling a spent code (#8398). (#8399) *(@AHKSammich)*
+- 📦 Regenerate `yarn.lock` so the nodemailer ranges of the SES and SMTP workspaces match their manifests, fixing immutable installs that failed on `main`. (#8428) *(@pkarw)*
+- 🐛 Deprecate the unrendered `SearchResultPresenter.badge` and `VectorResultPresenter.badge` fields, still accepted and stored, with migration guidance for search module authors and removal no earlier than 0.11 (#5716) (supersedes #5731). (#8433) *(@adeptofvoltron, via @pkarw)*
+- 🌍 Make the translation checkers follow the locales each application actually serves, so adding a language is checked and dropping one no longer creates unwanted placeholder files (supersedes #6114). (#8437) *(@SiphoChris, via @pkarw)*
+- 🐛 Look up the inline option schema template through the forked entity manager when updating product fields together with an option schema, keeping it off the manager holding pending product edits (supersedes #6533). (#8438) *(@rengare, via @pkarw)*
+- 🐛 Keep organization branding scoped to the selected organization, clearing pending edits on scope switch, ignoring late reads and uploads from the previous scope, and showing a single-organization prompt for All organizations (#6802) (supersedes #6814). (#8439) *(@haxiorz, via @pkarw)*
+- 🔧 Add an opt-in `setup.onOrganizationCreated` hook so new organizations get their schedules and defaults, and have standalone CLI workers load the bootstrap registration runner so webhook handlers are registered (#7980, #7982). (#8440) *(@pkarw)*
+- 🔐 Reject API-key creation for an organization that differs from the creator's account organization before issuing a key or secret, showing a localized Organization field error (#6809) (supersedes #6816). (#8442) *(@haxiorz, via @pkarw)*
+- 🐛 Bind the staff project access acknowledgement to the request scope, keeping it during matching hydration and resetting it with stale actions hidden when tenant, organization or project changes (#6776) (supersedes #6821). (#8448) *(@haxiorz, via @pkarw)*
+- 🌍 Localize the date range picker to the app locale (month names, week start, labels) and keep its calendar and Cancel/Apply reachable on narrow screens instead of overflowing the viewport (#6852) (supersedes #6882). (#8464) *(@adeptofvoltron, via @pkarw)*
+- 🔐 Let admins choose the organization for a new portal user in the Create Customer User dialog, validating the target, permission, roles and company ownership within the caller's tenant and allowed scope (#5576) (supersedes #6922). (#8470) *(@adeptofvoltron, via @pkarw)*
+- 🐛 Keep the customers task dialog open when Escape is pressed inside a nested Status list or date picker, so the first Escape closes the popup and the draft is no longer discarded (#8456). (#8477) *(@pkarw)*
+- 🐛 Skip WMS vendor label enrichment when the optional `customers` module is absent, instead of throwing on `E.customers.customer_entity` (#8478). (#8480) *(@adeptofvoltron)*
+- 📦 Expose root entry types for the AI assistant package by adding a `types` condition pointing at `src/index.ts`, so standalone apps loading `@open-mercato/channel-discord` can resolve its types (#8211). (#8483) *(@pkarw)*
+- 🔧 Deduplicate shared-worker shutdown listeners so closing a lazy queue worker mapped to more than ten queues no longer emits `MaxListenersExceededWarning` (#8411). (#8484) *(@pkarw)*
+- 🌍 Refine the Spanish Discord interaction error replies with consistent past-tense wording and clearer phrasing (supersedes #6898). (#8487) *(@etor6233, via @pkarw)*
+- 🔄 Make skipped fulltext indexing visible by logging a warning and a status-log row, once per tenant, job type and reason per worker, when no search strategy is registered (supersedes #5720). (#8492) *(@Geeknauts-company, via @pkarw)*
+- 🐛 Hide the internal todo source identifier in the Customer tasks dashboard widget, showing only title, customer and date while keeping external task links working (#6946) (supersedes #6960). (#8495) *(@adeptofvoltron, via @pkarw)*
+- 🐛 Resolve tenant-defined claim reason codes to their dictionary labels in the customer portal claim tracker, falling back to the raw code when unknown or unavailable (#6944) (supersedes #6961). (#8501) *(@adeptofvoltron, via @pkarw)*
+- 💰 Enable server-side sorting for sales orders and quotes by document number, item count, totals and date, resetting pagination on sort change and carrying the sort into exports (supersedes #6962). (#8506) *(@adeptofvoltron, via @pkarw)*
+- 🐛 Show navigation count badges on main sidebar group parent and child links, including compact sidebar corner chips (#6972) (supersedes #6983). (#8508) *(@adeptofvoltron, via @pkarw)*
+- 🐛 Contain long Messages subjects and bodies on narrow screens by scrolling the inbox table and wrapping long tokens in detail subjects and both body renderers (#8296). (#8514) *(@pkarw)*
+- 🐛 Keep code block language and delete controls in a row above editable code that wraps within narrow Markdown editors (#7471) (supersedes #7476). (#8515) *(@haxiorz, via @pkarw)*
+- 🌍 Show a translated "Unknown date" label for customer activities without an occurrence date instead of their creation time, ordering dated rows before undated ones (#8286). (#8516) *(@pkarw)*
+- 🐛 Show the translated action-button label instead of the internal action id in the notification bell panel's completed caption after Undo (supersedes #7606). (#8517) *(@adeptofvoltron, via @pkarw)*
+- 🌍 Keep reloaded `CrudForm` number fields locale-aware, showing `1,5` in Polish and `1.5` in English while preserving the stored value on unchanged resubmission (#7387) (supersedes #7569). (#8529) *(@adeptofvoltron, via @pkarw)*
+- 🐛 Collapse dense overlapping events in the CRM calendar Week/Day grid into a "+N more" block whose popover lists every hidden meeting with its full title (#7500). (#8530) *(@zielivia)*
+- 🐛 Seal the sticky `CrudForm` dialog footer to the dialog edge so the scrolled form no longer shows through a 24px gap beneath it (#7497). (#8533) *(@zielivia)*
+- 🐛 Keep the Link deals modal footer inside the zero-padding dialog instead of overflowing 24px past both edges (#7495). (#8534) *(@zielivia)*
+- 🐛 Render `ConfirmDialog` with the design-system status-modal chrome, including a leading status badge, proper title size and separated actions. (#8535) *(@zielivia)*
+- 🐛 Align person and company activity tabs with the deal layout, giving them the same inline composer, planned activities and filterable timeline instead of the legacy activities card (#7494, #9619). (#8536) *(@zielivia)*
+- 🐛 Turn the linked people search-and-sort toggle into a labelled disclosure with an expanded state, and lay linked people out as a sortable table that fits its card (#7493). (#8539) *(@zielivia)*
+- 🐛 Tidy the person detail header into a name, PRIMARY badge and facts row like the deal header, and fold extra tabs into a More menu. (#8540) *(@zielivia)*
+- 🐛 Show role overlap in the assign-role dialog as an informational "Already assigned" note instead of an error-styled "Conflict" badge, since assigning a second role is allowed (#7491). (#8541) *(@zielivia)*
+- 🐛 Render dictionary values as plain quiet pills with color only on statuses, instead of an icon box, label and color swatch that looked like a status. (#8542) *(@zielivia)*
+- 🐛 Mount pending work and related documents as CRM detail tabs on person, company and deal pages instead of detached cards stacked under the layout (#7488). (#8544) *(@zielivia)*
+- 🐛 Fold overflowing CRM company and deal detail tabs into a More menu, removing the horizontal scrollbar that clipped the last tab (#7487). (#8545) *(@zielivia)*
+- 🐛 Equalize KPI tile heights on the company detail page so tiles with a trend caption no longer stand taller and their bottom borders line up (#7485). (#8546) *(@zielivia)*
+- 🐛 Close `LookupSelect` after a pick and show a selection summary, instead of leaving the list open with the typed query and a thin border as the only sign of selection (#6196). (#8547) *(@zielivia)*
+- 💰 Let the document's "Send to" e-mail take precedence over the customer record's e-mail when sending a quote, instead of ignoring it whenever the customer has any address (#8459). (#8548) *(@zielivia)*
+- 🐛 Hide the empty order lines card on the quote create form, where the line editor renders nothing for quotes. (#8550) *(@zielivia)*
+- 🐛 Make adding an additional address on a sales document a single obvious path: with no saved addresses the form opens on the address fields, otherwise a "Saved address / New address" switch is offered, and the submit reads "Save address" (#6194). (#8551) *(@zielivia)*
+- 🐛 Restore the Markdown editor toolbar dropdowns and popovers inside dialogs, so selecting a heading keeps the composer open, Escape closes the dropdown before the dialog, and page interaction returns once the dialog closes (supersedes #7479). (#8556) *(@haxiorz, via @pkarw)*
+- 🔄 Prevent `query_index` coverage-pruning initialization deadlocks by making concurrent global coverage refreshes and counter writes take the scope advisory lock before touching NULL-tenant coverage rows (#8348, #8559). (#8561) *(@pkarw)*
+- 🔧 Stop the telemetry pg instrumentation probe from hanging when a failed connection closes before its query is submitted, by ending the failed client first so the query rejects deterministically (#8526). (#8563) *(@pkarw)*
+- 🐛 Keep collapsed sidebar groups across the asynchronous backend-navigation bootstrap, by waiting until saved groups can be restored before writing sidebar preferences (#3514) (supersedes #7654). (#8566) *(@haxiorz, via @pkarw)*
+- 🌍 Translate the CRM schedule duration options in English, Polish, German, Spanish and Korean, and shorten the title when duplicating a long deal from the list or Kanban so it fits the 200-character limit (#7797, #8048). (#8569) *(@pkarw)*
+- 🐛 Reset Kanban pagination when sort, filters, pipeline or organization change, stop stale requests from appending old cards, keep the currency filter on load-more, and fit long filter values on narrow screens (#7859) (supersedes #7932). (#8570) *(@haxiorz, via @pkarw)*
+- 🖼️ Transfer product and variant draft media in sequential batches of at most 100 attachment IDs, warning when a batch fails or is only partly acknowledged while still keeping the created record (supersedes #7728). (#8571) *(@pgaluszk, via @pkarw)*
+- 🐛 Separate the example login-provider probe status sentences so the claim and confirmation no longer render joined as `domain.Probe`, in both the app widget and the create-app template (#8523). (#8573) *(@pkarw)*
+- 🐛 Restore Markdown code-block gutter alignment under a production CSP by passing the document nonce to CodeMirror for fenced code blocks and source/diff editors (#8520). (#8577) *(@pkarw)*
+- 🌍 Translate the attachments "load more" button label into Spanish ("Cargar más") (supersedes #6900). (#8587) *(@etor6233, via @pkarw)*
+- 🌍 Translate the Debug log level in the business-rule action editor into Spanish ("Depuración") while keeping the persisted level `debug` (supersedes #6902). (#8591) *(@etor6233, via @pkarw)*
+- 🐛 Keep the global legal footer links clear of the fixed demo feedback button on phone-width screens by reserving the same bottom safe area as page content (#8596). (#8600) *(@pkarw)*
+- 💰 Accept decimal commas in promotion budgets, discount values and rule thresholds, and preserve the stored UTC calendar date so an end date no longer shows or reopens a day late in Poland (#7705, #7711). (#8611) *(@pkarw)*
+- 🔧 Make `yarn setup` verify PostgreSQL, Redis and Meilisearch access before database work, let it skip AI configuration, and ask before reusing existing infrastructure, leaving accepted containers untouched. (#8612) *(@pkarw)*
+- 🔄 Forward `AWS_SESSION_TOKEN` to the Bedrock embedding client so embeddings work with temporary AWS credentials such as SSO, assumed roles and STS instead of being rejected as an invalid security token. (#8618) *(@pcbeingused333)*
+- 📦 Fix the setup errors and warnings found by testing every README install path in fresh microVMs, including `--preset wms` failing at `db:migrate` with a missing `message_channel_links` relation. (#8624) *(@pkarw)*
+- 📦 Scope CommonJS harness fixtures locally so the create-app harness runs on Node 24 on macOS without failing with `ERR_INVALID_PACKAGE_CONFIG` on extensionless fake executables (#8625). (#8654) *(@pkarw)*
+- 🔄 Preserve `agent_orchestrator` reconnect catch-up through execution events, so task lists recover executions whose broadcast was missed while the event bridge was disconnected (#8583). (#8656) *(@haxiorz)*
+- 🐛 Keep credential saves pending through the authoritative reload to prevent lost edits and duplicate submissions, constrain long progress titles on mobile, distinguish failed or cancelled operations from completed ones, and translate integration state labels. (#8657) *(@pkarw)*
+- 🔐 Return a translated validation error beside the name field when creating a role whose name already exists in the tenant instead of a generic 500, and correct the business-rule Rule ID placeholder to `ORDER_APPROVAL_CHECK` (#7364, #7787). (#8659) *(@pkarw)*
+- 🐛 Prevent a notification card from being activated, marking it read or navigating, while one of its actions is still pending, including a second click or Enter/Space after a double-click (#8604). (#8666) *(@haxiorz)*
+- 🌍 Treat only ISO 639-1 language-code files as app dictionaries in the translation checkers, so files like `faq.json` or `app.json` are no longer reported as missing locales or filled with placeholders by `--fix` (#8436). (#8668) *(@kmrosiek)*
+- 🐛 Resync the `PhoneNumberField` input to the parent-normalised value on blur, so what the user sees matches what the form holds when a parent rewrites the number such as collapsing a `00<dialcode>` prefix (#8648). (#8681) *(@adeptofvoltron)*
+- 🐛 Bump the optimistic-lock version on tag-only edits of companies and people and custom-field-only edits of people, so a stale second tab can no longer silently overwrite them (#8643). (#8682) *(@adeptofvoltron)*
+- 🐛 Keep the `CrudForm` submit lock held through a success redirect, so a second click, Enter or Cmd+Enter while navigating no longer creates a duplicate record (#8645). (#8683) *(@adeptofvoltron)*
+- 🐛 Limit `FlashMessages` URL flash reading to the primary host, so a non-primary host can no longer consume `?flash=` and `type` parameters and cause the message to never show after a redirect (#8471). (#8685) *(@adeptofvoltron)*
+- 🐛 Fill available OCR worker slots before counting pending jobs against the wait-queue limit, and stop edit forms from showing the "record changed by another user" dialog for unique-key and foreign-key constraint errors (#7074, #7104). (#8690) *(@pkarw)*
+- 🔄 Preserve the caller PostgreSQL transaction in `buildIndexDoc` when optional translation tables, columns or permissions are unavailable, recording the failure in indexer diagnostics and telemetry (#8637) (supersedes #8684). (#8697) *(@adeptofvoltron, via @pkarw)*
+- 🔄 Select only the scope columns a table actually has in the search subscriber scope lookup, add probe-error telemetry, and localize Search settings hints with responsive layout and confirmation fixes. (#8698) *(@pkarw)*
+- 🔧 Stop the data engine from issuing `ON CONFLICT` against `custom_entities_storage`, which logged a PostgreSQL error several times during tenant setup on fresh installs. (#8699) *(@pkarw)*
+- 🐛 Associate `CrudForm` field labels with their controls through stable ids so screen readers announce field names and clicking a label focuses its control, in both backend and portal forms (#5360). (#8705) *(@adeptofvoltron)*
+- 🐛 Stop the WMS ASNs, Lots and Putaway queue list tables from flashing the loading state every time the browser window regains focus. (#8706) *(@kmrosiek)*
+- 🔄 Keep concurrent `communication_channels` polls from regressing the channel cursor, so an older job no longer overwrites a newer one and re-fetches consumed pages or starts duplicate drain chains (#8710). (#8711) *(@AHKSammich)*
+- 🐛 Stop "Save as new" from overwriting an existing personal perspective view of the same name, returning a translated duplicate error and keeping the form open for correction (#8630) (supersedes #8631). (#8721) *(@AHKSammich, via @pkarw)*
+- 🔄 Renew the skipped fulltext indexing warning and status diagnostic when a later skipped job arrives at least five minutes after the previous one, so an ongoing configuration issue becomes visible again (#8493). (#8722) *(@pkarw)*
+- 🔐 Return HTTP 400 with a localized Name field validation when renaming a role to a name already used in its tenant, rolling back the transaction instead of failing generically (#8707). (#8723) *(@pkarw)*
+- 🔐 Offer the last-operation Undo only to users with the effective `audit_logs.undo_self` permission, and make staff logout return 303 See Other so a native POST lands on the login page without resubmitting on reload (#7371, #7383). (#8749) *(@pkarw)*
+- 🐛 Restore only the recipient row when undoing a recipient-only message deletion, preserving a later sender deletion for everyone, and make concurrent deletions claim the row atomically so each undo reverses its own operation (#8057, #8059) (supersedes #8058). (#8750) *(@AHKSammich, via @pkarw)*
+- 🐛 Show the tenant-defined rejection reason label instead of its raw code for rejected warranty claims in the customer portal, falling back to the code if the lookup fails (#8502). (#8753) *(@pkarw)*
+- 💰 Locale-parse company annual revenue so decimal-comma locales no longer have it multiplied by 100 on create or in the inline editor, and wrap long company display names (#8642). (#8764) *(@adeptofvoltron)*
+- 🐛 Return the localized HTTP 409 duplicate-key response instead of 500 when creating or renaming a dictionary onto a deleted or archived dictionary key, and localize the dialog feedback (#7904) (supersedes #7905). (#8781) *(@AHKSammich, via @pkarw)*
+- 🌍 Collapse empty backend banner, table-header and frontend-footer slot wrappers while keeping injection targets available, and add five-locale catalog SEO helper copy (#8394, #8794) (supersedes #8412). (#8795) *(@Hejnas, via @pkarw)*
+- 🐛 Fix the duplicate `getTelemetryRuntime` import that broke the main build of the warranty claim detail page, and support `ci-full` on same-repository PRs for full stabilization runs. (#8806)
+- 🔄 Make saved, edited, disabled and deleted workflow triggers take effect in already-running app and worker processes by no longer caching the trigger list per-process (#7401). (#8807) *(@haxiorz)*
+- 🐛 Enforce the `DOCUMENTS_MAX_FOLDERS_PER_ORGANIZATION` folder cap when undoing a folder delete, so users can no longer exceed the limit through a delete, create, undo cycle (#8813). (#8814) *(@AHKSammich)*
+- 🌍 Translate the WMS ASN, receiving and putaway screens into Polish, German, Spanish and Korean, and use translated messages for empty-field and nonpositive-quantity validation (#8691) (supersedes #8704). (#8823) *(@kmrosiek)*
+- 🐛 Offer no undo when linking an already-linked company to a person, and keep the relationship and prior primary state when undoing a primary company change (#7857) (supersedes #7908). (#8827) *(@Sarthak-madan334, via @pkarw)*
+- 🌍 Localize Search settings fulltext environment hints and embedding-provider diagnostics per request in English, Polish, German, Spanish and Korean (#8826). (#8833) *(@pkarw)*
+- 🔧 Clean up orphaned dev sessions after Ctrl+C by escalating on surviving descendant processes, and offer interactive recovery for verified orphaned sessions. (#8837) *(@pkarw)*
+- 🐛 Stop offering "Share & notify" on document comments for mentioned recipients whose role denies Documents view access, and tell the commenter after saving when a recipient cannot be notified (#8207). (#8847) *(@haxiorz)*
+- 🐛 Initialize `updated_at` on new customer roles so their first concurrent edit returns the structured 409 conflict instead of silently winning the race (#8846). (#8849) *(@adeptofvoltron)*
+- 🐛 Show completed notification actions in a neutral status badge beside the card title, replacing the small italic footer, so readers see a pending notification was already handled (#7558). (#8853) *(@pkarw)*
+- 🐛 Preserve concurrent Gmail push state in `communication_channels` by committing history sync, push registration and teardown from a fresh row under a pessimistic write lock, so a stale page can no longer overwrite an advanced cursor or launch a duplicate drain (#8712). (#8890) *(@pkarw)*
+- 🐛 Align the `mercato init` credentials panel across terminal widths by replacing the drifting boxed layout with a wrapping horizontal panel that keeps emojis and long values readable. (#8894) *(@pkarw)*
+- 🔐 Let a parent-scoped administrator undo and redo an authorized child-organization action in `audit_logs` while the parent stays selected, by checking the descendant-expanded scope instead of a single selected organization (#7370). (#8907) *(@haxiorz)*
+- 🐛 Strip NUL characters from text extracted from uploaded PDFs and text files, which previously failed the upload with a 500 `Failed to save attachment attributes` and saved neither the row nor the file (#8105). (#8911) *(@pgaluszk)*
+- 🐛 Fix cramped or overlapping emoji icons in setup and dev logs on terminals that give text-default emoji one column, and keep the initialization credentials visible. (#8927) *(@pkarw)*
+- 🐛 Offer to clean up a conflicting dev session and continue in `yarn dev`, `yarn dev:greenfield` and `yarn setup`, instead of stopping hard with "Another Open Mercato dev session already owns this workspace". (#8929) *(@pkarw)*
+- 💰 Load the product when `PUT /api/catalog/prices` updates a price without `productId`, which previously answered 403 `Forbidden` (or `Cross-tenant relation forbidden` with `offerId`) for every role including superadmin (#8103). (#8939) *(@pgaluszk)*
+- 🐛 Show an expired Gmail push watch as expired in My communication channels instead of "Push active", and expose "Re-register push" so users can recover a dead subscription (#8943). (#8944) *(@WojciechSoczynskiTHEY)*
+- 🔄 Stop gating full-text indexing on the vector auto-indexing switch, so the default `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true` no longer silently skips queueing full-text jobs (#8935). (#8945) *(@pcbeingused333)*
+- 🔧 Claim the redo source log atomically for every command handler, so concurrent redos of one undone action run once instead of each re-running it and writing duplicate action logs (#8947). (#8948) *(@AHKSammich)*
+- 🔄 Clear mapped custom fields in `sync_akeneo` once a value is removed in Akeneo, and stop product and variant writes sharing one EntityManager concurrently, so cleared PIM values no longer linger locally (#8951). (#8952) *(@AHKSammich)*
+- 🐛 Contain Form Studio locale controls and toolbar actions within narrow panels, let warranty stage markers scroll beneath sticky breadcrumbs, and fix a stale metadata autosave status (#8934, #8937). (#8983)
+- 🐛 Preserve server refusal messages for quote Send and Convert in sales, and stop enterprise record locking from opening a false concurrent-edit dialog on ordinary business-rule 409 responses (#8966, #8967). (#8986)
+- 🐛 Claim outbound webhook deliveries atomically before sending, so a job that runs twice no longer sends duplicates, under-counts `attemptNumber` or rewrites a delivered or in-flight record (#9002). (#9003) *(@AHKSammich)*
+- 🐛 Restore the Delete control on the customer role detail form for persisted, non-default roles, which `CrudForm` had treated as new records (#9009). (#9024) *(@adeptofvoltron)*
+- 🌍 Localize the role rename and tenant-move rejection messages in `auth.roles.update`, which were still hard-coded English 400 errors (#8980). (#9025) *(@adeptofvoltron)*
+- 🐛 Preserve promotion-code exhaustion when redoing an edit, and keep tax-rate edit versions correct so undo and redo no longer reactivate exhausted codes (#8861, #8863). (#9032)
+- 🐛 Unify customer role assignment and reassignment into one dialog that keeps the role fixed, preselects its current holder and saves explicitly (#7490) (supersedes #8543). (#9034) *(@zielivia)*
+- 🔧 Refuse undoing a `communication_channels` conversation reassignment that a newer reassignment superseded, so the first operator can no longer silently replace the current owner (#9042). (#9043) *(@AHKSammich)*
+- 🌍 Translate resource capacity validation errors for fractional, zero, negative and non-numeric values, which showed default English Zod messages even on Polish installs (#8858). (#9046) *(@oskarwoj)*
+- 🐛 Keep the staff timesheet period selector within a 375px viewport by letting its label shrink and truncate, so the page no longer scrolls sideways on phones (#8769). (#9048) *(@oskarwoj)*
+- 🐛 Sort sibling catalog categories by name, fixing a comparison against the sibling's id that left `childIds` and the category tree order effectively arbitrary (#9001). (#9049) *(@oskarwoj)*
+- 🔧 Release watched generator state between edits in long-lived standalone dev sessions, reducing retained memory after structural edits without disabling modules, workers or metadata. (#9052) *(@andrzejewsky)*
+- 🌍 Translate the injected Catalog SEO helper sentence for Polish, German and Spanish by defining its key in the example module locale files instead of only the app-level overlay (#8793). (#9061) *(@adeptofvoltron)*
+- 🌍 Localize the resource availability section heading on the resource detail page, which showed the English "Availability" fallback in Polish and every other non-English locale (#8835). (#9063) *(@adeptofvoltron)*
+- 🐛 Keep the translated "No results" message visible, with a screen-reader status, when a topbar search finds nothing, and contain phone calendar event peeks within the viewport (#9075). (#9103)
+- 🔧 Coalesce concurrent first-request ORM initialization so it no longer builds duplicate ORM instances, entity metadata and connection pools. (#9123) *(@andrzejewsky)*
+- 🌍 Translate `messages.priority.*` values in every supported locale so `PriorityBadge` tooltips and aria-labels no longer fall back to hard-coded English (#8800). (#9166) *(@adeptofvoltron)*
+- 🐛 Stop treating an InPost parcel complaint (`claimed`) as a cancelled shipment, so it no longer freezes the shipment as `cancelled`, emits a cancelled event or refuses a later `returned_to_sender` (#9173). (#9174) *(@AHKSammich)*
+- 🐛 Return 400 for invalid planner availability windows before replacing existing hours, so equal, inverted, out-of-range, impossible-date and collapsed DST windows no longer wipe saved hours (#9171) (supersedes #9172). (#9175) *(@AHKSammich)*
+- 🐛 Return a translated 400 instead of a 500 from `GET /api/notifications` for invalid filters such as an unknown `status`, non-numeric `page` or `pageSize` over 100 (#9221). (#9222) *(@AHKSammich)*
+- 🌍 Answer generic `makeCrudRoute` errors (validation 400, database-unavailable 503, foreign-key 409, fallback 500) in the request's language instead of always English (#9223). (#9224) *(@AHKSammich)*
+- 🐛 Keep warranty claim tenant setup, SLA escalation and portal attachments working when `dictionaries`, `notifications` or `attachments` is disabled, instead of aborting setup, never escalating or returning 500 (#9214). (#9254) *(@AHKSammich)*
+- 🐛 Keep non-ASCII characters in attachment display names, so `Karta techniczna źródło.pdf` is no longer shown as `Karta_techniczna_r_d_o.pdf` in lists, previews and downloads (#8727). (#9257) *(@oskarwoj)*
+- 💰 Keep the shipping and payment method on a sales order or quote when only its code or snapshot is updated, which previously cleared the method id and dropped provider-priced shipping from totals (#9284). (#9285) *(@AHKSammich)*
+- 🐛 Make `eq` and `ne` custom field rules work on integer and float fields by comparing numeric values with the text the field editor saves, instead of rejecting every value or never rejecting (#9291). (#9292) *(@AHKSammich)*
+- 🐛 Fail the workflow instance when a step fails outside the main executor loop, instead of leaving the run `RUNNING` or `PAUSED` without an error message, `WORKFLOW_FAILED` event or compensation (#8791). (#9293) *(@kurrak)*
+- 🐛 Preserve rapid edits in the shared address form and reject stale address writes in customer and staff records, instead of overwriting earlier changes (#8080). (#9315) *(@adeptofvoltron)*
+- 💰 Compute tax on the discounted price for percentage cart and order promotions, so `taxTotalAmount` no longer stays at full price and `net + tax` matches `gross` (#8425). (#9316) *(@adeptofvoltron)*
+- 🐛 Allow a warranty claim line update to resubmit its own unchanged line number when a legacy duplicate row shares it, while still rejecting a changed number that collides (#8155). (#9318) *(@adeptofvoltron)*
+- 🐛 Keep route manifest registries on `globalThis` so `CALL_OPEN_MERCATO` business-rule actions no longer fail with "requires a currently available /api/* endpoint" after a backend page renders (supersedes #7196). (#9319) *(@zawstudio, via @haxiorz)*
+- 🐛 Resolve code-defined workflow definitions on sub-workflow resume and milestones, which previously got `null` for runs with no `workflow_definitions` row (#9298). (#9324) *(@pgaluszk)*
+- 🐛 Keep `/api/translations/locales` working on installs without the `configs` module, instead of answering 500 from both GET and PUT (#9213). (#9325) *(@pgaluszk)*
+- 🔄 Keep full-text and vector reindex and cancel endpoints working when the `progress` module is disabled, instead of answering HTTP 500 (#9208). (#9327) *(@pgaluszk)*
+- 🐛 Skip EUDR lifecycle notifications when the `notifications` module is disabled, instead of failing and dead-lettering background jobs on statement and risk events (#9198). (#9351) *(@pgaluszk)*
+- 🐛 Skip the `inbox_ops` proposal notification when the `notifications` module is disabled, instead of dead-lettering the `proposal-notifier` subscriber for every processed email (#9200). (#9352) *(@pgaluszk)*
+- 🐛 Move the person portal account status into its own tab placed after built-in tabs, keeping the person form at full width (#7499) (supersedes #8532). (#9358) *(@zielivia, via @pkarw)*
+- 🐛 Stop `GET /api/ai_assistant/ai/conversations` pagination from skipping conversations, returning a `nextPageToken` cursor so empty and same-`lastMessageAt` conversations are no longer lost (#9373). (#9374) *(@AHKSammich)*
+- 🐛 Reject mutations of non-active WMS reservations, such as `POST /api/wms/inventory/release` returning `409 invalid_reservation_state`, instead of silently altering inventory balances (#5418) (supersedes #5419). (#9385, #10140) *(@Paul-Mlodochowki, via @haxiorz)*
+- 🐛 Guard workflow user task completion with a compare-and-set, so concurrent submissions have one winner and no longer duplicate the completion event or advance the run twice (#9286) (supersedes #9287). (#9393) *(@AHKSammich)*
+- 🐛 Display API-key expiry dates picked in the create form as the selected calendar day across time zones, and translate load failures (#8968) (supersedes #9255). (#9394) *(@oskarwoj)*
+- 🐛 Add an `id` tiebreaker to the admin payment transactions list, so paging no longer repeats or skips rows that share a `createdAt` timestamp (#9399). (#9400) *(@AHKSammich)*
+- 🐛 Preserve a still-visible URL-sourced flash toast when the primary `FlashMessages` host unmounts, instead of letting it silently vanish (#8701). (#9402) *(@adeptofvoltron)*
+- 🐛 Downgrade the benign client-initiated streamed-response cancellation to a warning, so the dev-runtime diagnostics banner no longer reports it as a persistent error (#8409). (#9406) *(@adeptofvoltron)*
+- 🐛 Stop the warranty claims portal order picker from repeating or skipping orders that share a `placed_at` timestamp, by adding a stable tiebreaker to paging (#9407). (#9408) *(@AHKSammich)*
+- 🐛 Return a 400 validation error instead of a 500 when a WMS putaway, ASN or reservation action receives a malformed non-UUID id (#9413). (#9414) *(@AHKSammich)*
+- 🐛 Clear the old project's task when a time entry moves to another project through a PUT naming only `timeProjectId`, so hours are no longer billed to one project and rolled up on another's task (#9415). (#9416) *(@AHKSammich)*
+- 🐛 Make parallel workflow branches stop or follow their configured error route when a destination step fails after asynchronous activities finish, cancelling sibling work for unhandled failures (#9297) (supersedes #9300). (#9440) *(@pcbeingused333)*
+- 🔧 Restore main compilation by removing the duplicate `id` declaration in `ComboboxInput` while keeping ID and ARIA forwarding, and stabilize the Deals footer integration test that raced a router navigation. (#9455)
+- 🐛 Show the assigned colleague's name or email in the closed Channel info selector on channel-message detail, including when that colleague is outside the first 50 picker options (supersedes #9422). (#9467) *(@kmrosiek)*
+- 🐛 Compare real paths when detecting whether a repository CLI is the entry point, so the Stryker scripts and enterprise contribution guard no longer silently exit 0 on Windows or in checkout paths containing spaces or symlinks (supersedes #6911). (#9478) *(@SiphoChris, via @haxiorz)*
+- 🐛 Let tenant initialization (`yarn initialize`, `mercato init`, onboarding and `mercato planner seed-unavailability-reasons`) finish when `planner` is enabled but `dictionaries` is disabled, instead of failing with missing `Dictionary` metadata (#9202). (#9479) *(@AHKSammich)*
+- 🐛 Clear the stale `product_unavailable` flag when a product becomes visible again and the buyer updates or re-adds the line, so the line counts in cart totals and promotions and the cart stops warning it is unavailable (#9493). (#9494) *(@AHKSammich)*
+- 🔄 Embed vector search queries with the Cohere `search_query` input type instead of `search_document`, improving retrieval quality for Cohere v3+ embedding models. (#9505) *(@pcbeingused333)*
+- 🔧 Restore the `ComboboxInput` `id` prop so `main` compiles again after the `prepare` job failed with `Cannot find name 'id'` and type errors in `CrudForm`. (#9511) *(@haxiorz)*
+- 🐛 Require a database error signal before `isUniqueViolation` reports a unique violation, so non-DB errors that merely mention "unique constraint" fail as 500 instead of a false 409, and inspect nested causes (#9510). (#9519) *(@oskarwoj)*
+- 🐛 Compare a time entry update's `taskId` with the resolved project row so a valid task sent with an upper-case project id is accepted on update as on create, and an unchanged project no longer counts as changed (#9474). (#9520) *(@oskarwoj)*
+- 🐛 Keep webhooks working when the `integrations` module is disabled, so outbound dispatch no longer fails with `Metadata for entity IntegrationState not found` and retries forever (#7444, #9215). (#9532) *(@pgaluszk)*
+- 🐛 Let promotions evaluate when the `catalog` module is disabled, so `promotionsService.evaluate()`, `POST /api/promotions/evaluate` and `POST /api/promotions/free-products` no longer fail on a missing category assignments relation (#9204). (#9533) *(@pgaluszk)*
+- 🐛 Answer 503 instead of 500 from the customer-portal support-ticket attachment routes when the `attachments` module is disabled (#9383). (#9534) *(@pgaluszk)*
+- 🐛 Keep catalog price and tax class writes working when the `sales` module is disabled, so `catalog.prices.create`/`update` and tax-class-dependent pricing no longer fail with a 500 (#9190). (#9544) *(@AHKSammich)*
+- 🐛 Keep the Kanban pipeline filter popover usable on short viewports by capping its height to the available space and scrolling only its body, so Apply stays reachable. (#9558)
+- 🐛 Preserve later edits when undoing EUDR updates by locking and comparing the recorded state, returning `409 eudr.errors.undoConflict` for a stale undo and recomputing completeness when undoing evidence submissions (#9128) (supersedes #9129). (#9562) *(@AHKSammich)*
+- 🐛 Refuse form undos (rename, archive, restore, distribution update or close, draft edit, version archive) with 409 when a restored field changed since the action, instead of overwriting a newer change (#9563). (#9564) *(@AHKSammich)*
+- 🐛 Preserve equals signs inside CLI option values by sharing one `parseModuleCliOptions` helper across 27 module CLIs, so values with embedded or trailing equals signs and explicit empty values are no longer truncated (#9539). (#9570) *(@wojski999)*
+- 🐛 Skip the optional channel-label lookup in product offer enrichment when the `sales` module is disabled, so offers and pricing remain available instead of failing on missing `SalesChannel` metadata (#9545). (#9571) *(@wojski999)*
+- 🌍 Detect untranslated error literals returned through a local `json()` response helper in the advisory i18n hardcoded-string scanner (#9240). (#9572) *(@wojski999)*
+- 🐛 Clear the dependent task when a time entry's project is cleared and reject incompatible task/project combinations, so task rollups no longer attribute project-less hours to the old task (#9472). (#9575) *(@wojski999)*
+- 🐛 Reject an unparseable WMS inventory CSV quantity such as `"1,000"` or `abc` with `quantity_invalid` instead of treating it as 0, which skipped rows or zeroed on-hand stock in reconcile mode (#9579). (#9580) *(@AHKSammich)*
+- 🐛 Validate AI agent mutation input against the tool's `inputSchema` before staging it for approval, so invalid input yields a tool error instead of an approval card that fails after Confirm with `schema_drift` (#9583). (#9584) *(@AHKSammich)*
+- 💰 Treat `lineNumber` as a target position on `sales.orders.lines.upsert` and `sales.quotes.lines.upsert`, so reordering document lines through repeated upserts converges instead of silently doing nothing. (#9589) *(@haxiorz)*
+- 🐛 Recompute `nextRunAt` when a disabled schedule is re-enabled, so the local scheduler no longer runs the job immediately on a stale past time (#9591). (#9592) *(@AHKSammich)*
+- 🐛 Log and report gateway payment outcomes that fail to update the checkout transaction, such as a capture on an expired transaction or a DB error, instead of silently swallowing them (#9596). (#9597) *(@AHKSammich)*
+- 🐛 Add `id` as a sort tiebreaker to the webhook delivery log so deliveries created in the same millisecond no longer appear twice or go missing across pages (#9606). (#9607) *(@AHKSammich)*
+- 🐛 Allow `forms` to be generated without `customer_accounts` or `attachments`, and answer a translated 503 for theme-logo uploads when attachment storage is unavailable (#9199). (#9636) *(@wojski999)*
+- 🐛 Keep proposed fields that are missing from the before-snapshot in fallback AI mutation previews, showing them with an undefined before value for single-record and batch patches (#7442). (#9637) *(@wojski999)*
+- 🐛 Exclude price creations that were later undone from Omnibus lowest reference prices, for both the baseline and the selected window (#6419). (#9644)
+- 📦 Stop new standalone apps from installing `@open-mercato/channel-discord` while its module registration is disabled, with the commented registration telling users to install the package before enabling it (#4983). (#9645)
+- 🐛 Deliver the `pushOptions.image` option to iOS devices through the APNs adapter, so visible pushes carry the image instead of a plain alert while reporting `sent` (#9649). (#9650) *(@AHKSammich)*
+- 🐛 Add `id` as a sort tiebreaker to `GET /api/progress/jobs` so jobs sharing a sort timestamp no longer appear on two pages while another never shows (#9652). (#9653) *(@AHKSammich)*
+- 🐛 Quote InPost `locker_standard` and `courier_c2c` rates with the same template parcel `createShipment` buys, so the quote matches the parcel actually purchased (#9658). (#9659) *(@AHKSammich)*
+- 🐛 Preserve offers created or edited independently after a catalog product update when that update is undone, and contain the Metadata header actions on mobile (#7679) (supersedes #7680). (#9662) *(@AHKSammich)*
+- 🐛 Re-check the optimistic-lock version under the row lock in `DELETE /api/sales/invoices`, answering 409 for a stale delete and 404 for a missing invoice instead of a 500. (#9663) *(@mikolajbogusz-they)*
+- 🐛 Keep catalog settings, Omnibus config and `mercato catalog omnibus:backfill` working when the `configs` module is disabled, instead of returning 500 or crashing with an `AwilixResolutionError` (#9609). (#9665) *(@Kamyyylo)*
+- 🐛 Drop an entry's stored task in `POST /api/staff/timesheets/time-entries/bulk` when a row moves it to another project without naming a `taskId`, sharing the rule with single-entry updates (#9473). (#9666) *(@Kamyyylo)*
+- 🌍 Translate the leave-request "not found" and "already finalized" errors returned by the update, delete, approve and reject commands instead of always answering in English (#9669). (#9670) *(@AHKSammich)*
+- 🐛 Stop re-running the catalog price-kind seed from soft-deleting tenant price kinds and resetting `regular` and `sale` to defaults, which also skipped cache invalidation and the action log (#8104). (#9672) *(@pgaluszk)*
+- 🔧 Skip the Main Snapshot Release and Enterprise Contribution Guard workflow jobs in forks, which can never pass there and sent failure emails on every fork sync. (#9737) *(@kmrosiek)*
+- 🐛 Preserve the Markdown preference and metadata drafts in the product editor, so saving from the title field no longer forces `metadata.__useMarkdown` to false and drafts are no longer lost (#9679). (#9772) *(@adeptofvoltron)*
+- 🐛 Stop Sales "Add line" lookups from showing a zero-character minimum hint, and skip the optional failed-webhook notification when `notificationService` is unregistered (#9763, #9764). (#9782, #9947)
+- 📦 Restore fresh standalone builds with newer MikroORM releases by deriving the `findOne` query argument type from the installed signature in the shared data engine. (#9789)
+- 🐛 Report an IMAP channel send as failed when the SMTP server rejects some recipients, matching the SMTP channel adapter, instead of marking the message sent (#9795). (#9796) *(@AHKSammich)*
+- 🐛 Wrap the audit-log action toolbar (Refresh, "Undoable only" and "Undo last action") on phone widths instead of overflowing the card (#9740). (#9897, #9915) *(@patzick)*
+- 🐛 Stop long push status tags such as "Push expired — re-register" from being clipped in the Push column of the profile communication channels page (#9802). (#9898, #9917) *(@patzick)*
+- 🐛 Reject a resource capacity of 0 on the create and edit pages instead of silently saving it as empty (#9792). (#9899, #9916) *(@patzick)*
+- 🐛 Surface Approve and Reject errors on already-decided or deleted leave requests as flash messages instead of an uncaught promise rejection with no feedback (#9791). (#9900, #9924) *(@patzick)*
+- 🐛 Refuse `POST /api/webhooks/deliveries/{id}/retry` for a delivery that is still being sent, so a second worker can no longer send the same event while the first request is in flight (#9005). (#9901, #9943) *(@patzick)*
+- 🐛 Restore the standard vertical gap between the shipment section and injected tracking cards, including InPost, on the sales order Shipments tab (#9774). (#9918, #9925)
+- 🐛 Skip audit entries for order and quote updates that change nothing, so an integration re-sending an unchanged document no longer logs an update naming the whole `Order` (#9719). (#9921, #9930)
+- 🐛 Keep the customer create submit locked through navigation so a second click or keyboard submit can no longer create a duplicate company or person, with `successRedirect` accepting a synchronous resolver (#9718). (#9922, #9931)
+- 🐛 Keep the timesheet timer bar note editable after Enter, warn when an unsaved draft is dropped, and handle stale windows and slow re-reads without false "changed elsewhere" conflicts (#9079). (#9926) *(@patzick)*
+- 🌍 Show address-type dictionary labels on address cards, widen inline address forms, and complete address hint, loading and error translations in all five locales plus Polish staff Cancel/Back labels. (#9932)
+- 🐛 Restore in-app security alerts when notification metadata is registered through another bundle, and show the comparison caption on KPI cards independently of the trend badge so My work targets reappear (#9939, #9950). (#9941, #9959)
+- 🐛 Stop the Discord AI auto-reply from re-sending or re-proposing a reply when the events worker retries delivery of an inbound message that already has one (#8277). (#9945) *(@haxiorz)*
+- 🐛 Keep the week timesheet grid readable at phone width by giving day columns a minimum width, so headers and hour inputs no longer overlap (#9946). (#9949, #9955) *(@patzick)*
+- 🔐 Keep the Change password form and show a translated error on a wrong current password, which now returns 400 instead of a 401 that triggered a session refresh and an empty reload (#9940, #9942). (#9952, #9963) *(@patzick)*
+- 🐛 Contain the My work Today's entries table on mobile with a horizontal scroll wrapper, so it no longer widens the page beyond a 390 px viewport (#9951). (#9954, #9957)
+- 🐛 Reject a date-only catalog price edit whose end date is before its start date (#9960). (#9961, #10126) *(@AHKSammich)*
+- 🐛 Show the saved From Currency when opening an exchange-rate edit page with autofocus, including options labeled with the bare currency code such as `USD` (#9965). (#9972, #9979)
+- 💰 Let catalog variant prices entered with a decimal comma such as `149,99` save, and show the translated validation error beside the affected price field instead of hiding it (#9967). (#9973, #9980)
+- 🌍 Localize Tpay, Stripe and Akeneo credential forms in Polish, translating field labels, options, help text, Stripe webhook instructions, category and hub labels and validation messages (#9966). (#9974, #9977)
+- 🐛 Show rejected AI pending actions with the Rejected badge and an informational reason alert instead of a red "Execution failed" alert, hiding the alert when no reason was given (#9989). (#9993, #10028)
+- 🐛 Hide rows whose before and after values are both empty in the shared `FieldDiffCard`, so comment edit previews no longer show an empty `dealId` row (#10001). (#10002, #10027)
+- 🐛 Accept `description: null` in catalog product create and update validation, so confirming an AI product update with an empty description no longer fails with `Invalid input` (#10003). (#10004, #10026)
+- 🌍 Localize sales history field labels and show order and quote totals once, including changes recorded only in the exact-value field, with `lines` reusing the Items label (#10017). (#10024, #10060)
+- 📦 Restore fresh standalone app builds with Awilix 13.0.6 and newer by no longer binding `resolve` to its container, which caused TS2769 and lost generic types in search workers. (#10073, #10108)
+- 🌍 Return localized 400 and 404 errors for invalid, expired or missing TOTP setups instead of generic 500s, and translate Polish MFA setup and login strings and relative times. (#10074)
+- 💰 Persist custom fields, including unchecked checkboxes, on new sales order and quote lines and make them readable immediately from the line list (#9724). (#10317, #10346) *(@haxiorz)*
+
+## 🛠️ Improvements
+- 🛠️ Track `.husky/pre-commit` as an executable file and add a guard test so the commit hook's auto-fix steps (i18n sync, template sync) are no longer skipped on a clean clone, and the release-prepare workflow honors it (#5120). (#5141) *(@adeptofvoltron)*
+- 🛠️ Add a browser-level regression test asserting a customer appears exactly once, as a clickable row that navigates, in the ⌘K global-search palette (#5547). (#5658) *(@adeptofvoltron)*
+- 🛠️ Add a real-browser integration test covering the client-side `modules.ts` override dispatch performed by `ClientBootstrap` (#5844). (#5953) *(@adeptofvoltron)*
+- 🛠️ Bump `colord` from 2.9.3 to 2.10.0. (#6206)
+- 🛠️ Bump `image-size` from 2.0.2 to 2.0.4. (#6485)
+- 🛠️ Stabilize the TC-CRM-028 customer sync test by draining the local queue with a single consumer and waiting for completed outbound sync, removing intermittent null-priority failures (#5646). (#6891) *(@haxiorz)*
+- 🛠️ Bump `@opentelemetry/instrumentation-pg` from 0.71.0 to 0.73.0. (#7025)
+- 🛠️ Bump `prosemirror-view` from 1.42.2 to 1.42.3. (#7026)
+- 🛠️ Bump `@modelcontextprotocol/sdk` from 1.30.0 to 1.31.0. (#7028)
+- 🛠️ Scope `markCancelled` test fixtures to the caller tenant in the progress service tests, fixing the failing `develop` test job (#7043). (#7045) *(@wojciechszyjka)*
+- 🛠️ Add four Univio contributors, `mateusz-lewandowski` (Fast White Cat) and `KamilGrocholski` (8lines, replacing Idego) to the certified partner registry and allowlist `kmrosiek` in the enterprise contribution guard. (#7253, #7446, #9086, #9814) *(@matgren, @adeptofvoltron, @patzick)*
+- 🛠️ Give the OAuth initiate route test a logger mock with `warn`, fixing the `oauthStateLogger.warn is not a function` failure in the core test suite. (#7257) *(@lbajsarowicz)*
+- 🛠️ Pin the clock in the `EventTypePanel` re-render test, which failed every day between 10:00 and 10:59 America/New_York (#7286). (#7287) *(@adeptofvoltron)*
+- 🛠️ Flag English text in `CrudHttpError` and JSON error bodies in the `yarn i18n:check-hardcoded` scanner, which previously only checked `Error`, `createCrudFormError`, `raiseCrudError` and `toast` calls. (#7297) *(@AHKSammich)*
+- 🛠️ Remove the stray `output/pdf` startup-guide PDF committed by accident and ignore `/output/` so generated files no longer land in the repo root. (#7466) *(@patzick)*
+- 🛠️ Stabilize the flaky `@open-mercato/queue` delayed-job polling unit test that intermittently failed the CI test job on unrelated PRs (#7522). (#7527) *(@adeptofvoltron)*
+- 🛠️ Add a browser regression test for feature-gated catalog injection widgets, covering the same product form for granted and denied users (#4398). (#7627) *(@haxiorz)*
+- 🛠️ Add integration tests for resources undo and redo covering full snapshots, custom fields, child collections, tag membership and consumed undo tokens (#2577). (#7659) *(@haxiorz)*
+- 🛠️ Add integration tests for feature toggle undo and redo covering global create, update and delete and tenant override create, change and clear (#2581). (#7661) *(@haxiorz)*
+- 🛠️ Add integration tests for directory organization undo and redo covering scalar fields, hierarchy, custom fields and consumed undo tokens (#2580). (#7662) *(@haxiorz)*
+- 🛠️ Consume `om-auto-sec-report` and `om-auto-sec-report-pr` from the shared open-mercato/skills collection instead of shipping local copies. (#7693) *(@adeptofvoltron)*
+- 🛠️ Consume `om-app-spec-writing` and `om-gap-analysis` from the shared open-mercato/skills collection instead of shipping local copies. (#7694) *(@adeptofvoltron)*
+- 🛠️ Consume `om-auto-qa-scenarios` and `om-figma-design-with-ds` from the shared open-mercato/skills collection instead of shipping local copies. (#7695) *(@adeptofvoltron)*
+- 🛠️ Consume `om-pre-implement-spec`, `om-smart-test` and `om-create-agents-md` from the shared open-mercato/skills collection instead of shipping local copies. (#7696) *(@adeptofvoltron)*
+- 🛠️ Consume `om-help`, `om-judge-agent-session` and `om-share-this-session` from the shared open-mercato/skills collection instead of shipping local copies. (#7697) *(@adeptofvoltron)*
+- 🛠️ Replace the local `om-skill-creator` skill with the shared `om-create-skill` from the open-mercato/skills collection. (#7698) *(@adeptofvoltron)*
+- 🛠️ Bump `baseline-browser-mapping` from 2.10.8 to 2.11.29. (#7733)
+- 🛠️ Add a workflow that automatically applies the `partner-request` label when a certified partner opens or reopens a pull request or issue. (#7747) *(@patzick)*
+- 🛠️ Move release handling to release lines, with `main` as the trunk and `release/vX.Y.x` lines taking fixes through `backport` labels, and retire `develop`. (#7752) *(@patzick)*
+- 🛠️ Bump `follow-redirects` from 1.16.0 to 1.16.1. (#7769)
+- 🛠️ Dedupe `prosemirror-view` so the document editor mounts again, fixing the "Failed to load document." error and TC-DOCUMENTS-013, 015 and 017 failing on `main`. (#7785) *(@patzick)*
+- 🛠️ Stabilize the flaky TC-SX-009, TC-WC-037 and TC-WF-006 integration specs that failed intermittently in ephemeral integration runs (#7896). (#7897) *(@AHKSammich)*
+- 🛠️ Bump `zod` from 4.4.3 to 4.6.6. (#7921) *(@pkarw)*
+- 🛠️ Add database integration coverage for reverse CRM company linking, preserving organization scope and covering concurrent-link races for `customer_accounts` (#7861). (#7933) *(@haxiorz)*
+- 🛠️ Fix the strict-mode locator in the TC-WMS-IMPORT-UI-001 spec and the TC-CHANNEL-EMAIL-HUB-005 timeout that failed integration shards on `main`. (#8016) *(@mobinea)*
+- 🛠️ Stabilize the main integration setup and live-update checks that failed CI shards 4, 5 and 15. (#8030) *(@haxiorz)*
+- 🛠️ Stabilize the TC-PHONE-HUB-006 phone-call cache integration check by using a run-unique synchronous `providerKey` filter instead of racing deferred full-text tokens. (#8062) *(@pkarw)*
+- 🛠️ Make the Todo priority-validation integration test wait for the injected form widget before selecting severity. (#8095) *(@haxiorz)*
+- 🛠️ Make the TC-SALES-ADDR-CONTACT-002 scenario wait for the sales form to be interactive before clicking the address switch (#7562). (#8176) *(@haxiorz)*
+- 🛠️ Make both TC-TRANS-009 UI save/undo scenarios complete reliably within the existing 20-second test budget (#7561). (#8178) *(@haxiorz)*
+- 🛠️ Make the TC-WF-011 workflow integration test click the node title instead of the whole node, so it no longer opens the Triggers modal and times out before reaching Customize on read-only code workflows (#7563). (#8196) *(@haxiorz)*
+- 🛠️ Await in-flight snapshot I/O in the shared resource-usage tests so they stop failing intermittently with `ENOTEMPTY` when removing the temp directory. (#8239) *(@mikolajbogusz-they)*
+- 🛠️ Stub `getKysely` in the sales update-customer-unchanged test's entity manager mock, fixing 24 unit test failures on `main` caused by the new order-line row lock. (#8256) *(@pkarw)*
+- 🛠️ Restore reliable `main` CI by retrying only duplicate transparency-log signatures when publishing snapshots, sharing a 45-minute deadline across snapshot workflows, and stabilizing two flaky integration tests. (#8294) *(@pkarw)*
+- 🛠️ Halve peak memory of `mercato generate` (about 2.8 GB in a standalone app) by batching AST edits, cutting the largest process at `yarn dev` startup. (#8336) *(@andrzejewsky)*
+- 🛠️ Load node-only server dependencies as Next.js externals in dev, shrinking the Turbopack module graph and lowering dev server memory in standalone apps and the monorepo, and keep the application CSP regression tests loading both Next.js configurations with the shared server external packages dependency. (#8338) *(@andrzejewsky)*
+- 🛠️ Start the dev MCP server only on its first request, so `yarn dev` no longer keeps an idle MCP process (about 520-540 MB plus its Yarn wrapper) resident. (#8339) *(@andrzejewsky)*
+- 🛠️ Bump the dev dependency `glob` from 13.0.6 to 14.0.6 across five Dependabot updates. (#8350, #8403, #9279, #9469, #9480)
+- 🛠️ Restore CI coverage aggregation after an intentionally skipped audit job, run all 15 integration shards plus full typecheck and unit tests for workflow edits, and keep superseded runs cancellable. (#8373) *(@pkarw)*
+- 🛠️ Stabilize the empty quote document integration test by waiting for the empty state and accepting both the toolbar and empty-state Add item buttons. (#8391) *(@pkarw)*
+- 🛠️ Bump `sanitize-html` from 2.17.5 to 2.18.1 in `packages/core` and `packages/shared`. (#8402) *(@pkarw)*
+- 🛠️ Stabilize the standalone app integration lane on `main`, aligning specs with what the standalone launcher actually provides after it failed 157 tests on every commit. (#8452) *(@pkarw)*
+- 🛠️ Add a self-contained Playwright regression covering customers task conflict recovery from a stale-version conflict through a Ctrl+Enter retry (#8469). (#8476) *(@pkarw)*
+- 🛠️ Make `drainIntegrationQueue` check automatic-worker mode before choosing the standalone runner, so standalone tests with managed workers no longer start a second consumer on the same queue (supersedes #8017). (#8528) *(@mobinea, via @pkarw)*
+- 🛠️ Align standalone CI snapshot workers with the Playwright process and make catalog media-transfer tests wait for rendered uploads, fixing queued operations that never completed and flaky media-transfer runs. (#8585) *(@pkarw)*
+- 🛠️ Stabilize the `CrudForm` transformation test by also waiting for the transformed text input value, removing an intermittent failure (#8522). (#8607) *(@pkarw)*
+- 🛠️ Stabilize the TC-CAT-042 media-warning test by asserting the warning before the 3-second flash auto-dismisses, removing an intermittent CI failure. (#8609) *(@pkarw)*
+- 🛠️ Stop cancelling in-progress CI runs on pushes to `main`, `release/v*` and `feat/wms`, so the full suite can finish instead of being cancelled by each merge, while PR runs still cancel on new pushes. (#8610) *(@pkarw)*
+- 🛠️ Retire stale GitHub Actions registrations for the removed Develop Release, Canary Release and historical eval workflows, and clarify the main snapshot workflows. (#8614) *(@pkarw)*
+- 🛠️ Add a `ci-full` label that forces all 15 integration shards regardless of changed paths, with unrelated label events kept in separate concurrency groups so they cannot cancel a full run. (#8623) *(@pkarw)*
+- 🛠️ Add durable native-browser coverage for `agent_orchestrator` task-list recovery after an execution broadcast is missed while the event bridge is disconnected (#8584). (#8662) *(@haxiorz)*
+- 🛠️ Stabilize the main sidebar group visibility test by waiting for the preferences save, restoring visibility in `afterEach` with its own teardown budget, and normalizing stale state. (#8739) *(@pkarw)*
+- 🛠️ Harden the TC-TT-017 request-access test against its recurring intermittent CI timeout on the "Request sent" button (#6107). (#8742) *(@adeptofvoltron)*
+- 🛠️ Add the missing API integration regression proving the per-user messages list cache is isolated between users (#4835). (#8745) *(@pkarw)*
+- 🛠️ Keep the enterprise quote-session record-locks test selectors compatible with real accessible labels by adjusting two placeholder-based selectors (#8724). (#8752) *(@pkarw)*
+- 🛠️ Run full validation automatically on same-repository `stabilize/*` PRs and stop label additions from triggering CI, restoring one concurrency group per ref. (#8788) *(@pkarw)*
+- 🛠️ Isolate `FORCE_FULL_SUITE` in the workflow test fixture and stabilize several full-suite UI tests exposed after the main build fix. (#8834)
+- 🛠️ Add Playwright coverage for Retry and Cancel confirmations on the workflow instances list in English and Polish, including keyboard confirmation and long identifiers at 390px (#8825). (#8836) *(@pkarw)*
+- 🛠️ Fix an intermittent teardown race in the web-research-browser egress proxy test that checked remote sockets before the peer had handled EOF. (#8840) *(@mikolajbogusz-they)*
+- 🛠️ Add browser coverage for the dictionaries reserved-key 409 conflict feedback, including the retained create dialog and localized flash (#8780). (#8852) *(@adeptofvoltron)*
+- 🛠️ Stabilize the TC-WF-010 first-attempt Customize/Reset test by warming the heavy visual editor route, removing an intermittent 20-second timeout (#8505). (#8854) *(@adeptofvoltron)*
+- 🛠️ Add a browser regression test that checks the checkout Service package editors render correctly in Polish (#8572). (#8886) *(@haxiorz)*
+- 🛠️ Add a self-contained browser regression test for currency-filtered Kanban pagination in customers, so a lane with multiple currencies no longer offers a bogus extra page (#8576). (#8897) *(@haxiorz)*
+- 🛠️ Add browser coverage ensuring the sales payment row-menu column is labelled "Actions" in English and "Akcje" with the real Polish resources (#8521). (#8914) *(@haxiorz)*
+- 🔧 Give the ephemeral integration harness a production-valid superadmin password, so `ephemeral-integration` shards run again now that production `mercato init` refuses a missing or placeholder password. (#8916) *(@pkarw)*
+- 🛠️ Restore the atomic GitHub claim operations (`get-lock`, `acquire-lock`, exact-SHA `release-lock`) and missing review/CI routing operations in the agent-pipeline tracker descriptor, so automerge no longer stops before claiming a PR. (#8928)
+- 🛠️ Disambiguate the `TC-ADMIN-003` audit-log test so its Action column header no longer matches the row Actions column and trips Playwright strict mode. (#8931) *(@pkarw)*
+- 🛠️ Keep V8 coverage recording on the ephemeral application and test processes while removing `NODE_V8_COVERAGE` from package builds, generation and the app build, avoiding build-tool coverage collection (supersedes #7538). (#8957) *(@patrykbojczuk)*
+- 🛠️ Stabilize the `TC-CRM-032` customers integration test by matching the Views sidebar Close button by its visible text instead of a global locator that also hit an unrelated alert dismiss button. (#8970)
+- 🛠️ Teach agent skills, the review checklist and reference modules about backend request-path cost, and stop them modelling patterns that repeat expensive work on every call. (#8996) *(@pjagielski)*
+- 🛠️ Isolate the `TC-STAFF-SUP-011` customerless support routing fixture so it no longer assumes the fallback project is a pristine seed. (#9008)
+- 🛠️ Add native-browser coverage that WMS ASN, Lots and Putaway queue lists no longer flash a loading state on window-refocus background refetches (#8941). (#9028) *(@adeptofvoltron)*
+- 🛠️ Extend the CLASSIC DI guard to scan host-app DI registrations and the create-app template, with a fixture detecting a destructuring factory that omits `.proxy()` (#4394) (supersedes #7173). (#9051) *(@Sawarz)*
+- 🛠️ Bump `korthout/backport-action` from 4.7.0 to 4.7.1 in the backport workflow. (#9085)
+- 🛠️ Speed up Redis cache tag invalidation by replacing blocking `KEYS` with `SCAN`, batching reads with `MGET`, grouping deletions and deferring tag reconciliation. (#9087) *(@WojtekKrzyzanowski)*
+- 🛠️ Keep CI-generated random bootstrap passwords from starting with `--` and being parsed as CLI flags, by placing the password-policy characters before the random bytes. (#9090)
+- 🐳 Include the required upstream `AGENTS.md` and `BACKWARD_COMPATIBILITY.md` guides in QA preview Docker builds, which failed while packaging the CLI. (#9125)
+- 🛠️ Mark standalone test processes as isolated by passing `OM_INTEGRATION_TEST=true` to Playwright, so Main Snapshot Release portal scope regressions pass their safety guard. (#9176)
+- 🛠️ Seed agent activity in `TC-AGENT-OVERVIEW-001` so the Agent trust card appears instead of the empty state. (#9238) *(@zielivia)*
+- 🛠️ Make `TC-STAFF-051` independent of the employee's remembered project when opening the TimerBar picker, and add a backfill rollback note to the upgrade notes. (#9278) *(@Marynat)*
+- 🛠️ Add native-browser coverage for backend/frontend layout wrappers collapsing when empty while keeping injection and record-lock portal targets mounted (#8792). (#9281) *(@adeptofvoltron)*
+- 🛠️ Stabilize the `TC-WF-006` workflow definition integration test by searching through the definitions list Filters panel instead of a sidebar control that issues no such request. (#9288)
+- 🛠️ Add browser regression coverage that EUDR plot map popups show literal GeoJSON plot names without rendering supplied markup (#9105). (#9340) *(@pkarw)*
+- 🛠️ Refresh agent pipeline tracker mutations to use REST for labels, assignments and title/body writes, avoiding legacy GraphQL project-field failures, and document the pipeline safely. (#9360) *(@pkarw)*
+- 🛠️ Add a browser and API regression test for server-side sorting on the sales orders and quotes lists, including sorting from page 2 (#8507). (#9386) *(@pkarw)*
+- 🛠️ Add browser and API regression tests for duplicate role recovery with translated Name errors and for manual business-rule IDs (#8700). (#9387) *(@pkarw)*
+- 🛠️ Add real-browser coverage of localized `PriorityBadge` priority tooltips in messages (#9277). (#9404) *(@adeptofvoltron)*
+- 🛠️ Add SSR-safety regression coverage for `safeLocalStorage`, documenting that the Node `ExperimentalWarning` on `localStorage` is not a code defect in this repository (#8408). (#9405) *(@adeptofvoltron)*
+- 🛠️ Bump `fast-xml-parser` from 5.10.1 to 5.12.0. (#9468)
+- 🛠️ Add a real-browser regression test for the portal claim detail page that checks the reason label rendered in the title for dictionary, seeded and fallback labels (#8503). (#9509) *(@adeptofvoltron)*
+- 🛠️ Tolerate fresh snapshot tarball propagation in the Main Snapshot Release workflow by retrying the standalone install when Yarn hits a transient 404 (`YN0035`) right after publishing. (#9588)
+- 🛠️ Give the replacement-order undo integration tests an isolated copy of the stock approval definition with explicit grants, so they no longer time out after event payload actors stopped granting workflow authority. (#9657)
+- 🛠️ Add a Playwright regression test checking that the catalog Metadata header stays contained on phone-width cards in English and Polish (#9654). (#9667) *(@Kamyyylo)*
+- 🛠️ Stabilize the messages priority tooltip locale test against layout shifts caused by a background-operation banner mounting between the coordinate calculation and the hover. (#9694)
+- 🛠️ Stabilize main's validation by giving cold application startup a bounded worker fixture and tightening flaky communication-channel and customer tests without weakening their behavioral checks. (#9729)
+- 🛠️ Add a self-contained Playwright regression test for the rendered resource Availability section heading across locales (#9517). (#9734) *(@adeptofvoltron)*
+- 🛠️ Stop two integration specs (customer picker recipient removal and company tax ID) from racing the page on slow runners. (#9744) *(@zielivia)*
+- 🛠️ Add `yarn test:create-app:presets` to verify every shipped starter preset by scaffolding, installing, migrating and initializing it against locally built packages and a fresh database. (#10079, #10100) *(@pkarw)*
+
+## 📝 Specs & Documentation
+- 📝 Document the canonical person, deal and company create-form hosts and their compatibility guidance in the `customer_accounts` module guide (#5882). (#5915) *(@adeptofvoltron)*
+- 📝 Add the spec for an opt-in `ledger.importDefaultChartOfAccounts` command and backend-page button that bulk-creates a Polish starter chart of accounts for the `ledger` module. (#6137) *(@mikoajp)*
+- 📝 Add the spec for Documents record links, letting Documents link any authorized searchable entity by default with an explicit component-injection contribution path. (#6731) *(@pkarw)*
+- 📝 Add the spec proposal for unified CRM email history and context, giving Person and Company pages one shared Emails tab, conversation reader and composer backed by explicit conversation links. (#6744) *(@AHKSammich)*
+- 📝 Add the accessibility program spec targeting WCAG 2.2 AA and EN 301 549, with a guardian skill draft and Storybook quality gate proposals. (#6872) *(@zielivia)*
+- 📝 Add the Phase 1 feature spec for the OAuth2 grant-lifecycle core, defining the implementation contract for the App Spec. (#6910) *(@mikolajbogusz-they)*
+- 📝 Add the tax providers roadmap and the sales tax provider contract spec, moving tax computation beyond the product-owned rate. (#6918) *(@matkowalski)*
+- 📝 Add the spec for helpdesk support tickets in the `staff` module, letting Customer Portal users register tickets, follow their status, converse with the team and exchange files. (#6965) *(@WojciechSoczynskiTHEY)*
+- 📝 Add the spec for production Docker images that exclude the Turbopack build cache, which `next start` never reads but every image currently carries. (#6980) *(@pmadajthey)*
+- 📝 Add the spec for a project-only mode of the time entry dialog, limited to the caller's accessible projects with an optional task, and for exporting its props schema. (#7000) *(@Marynat)*
+- 📝 Move the `financial_pl` integration contracts and accounting package specs from `official-modules` into Core ahead of archiving that repository. (#7070) *(@wojciechszyjka)*
+- 📝 Add provider-neutral, TLS-first production-readiness guidance for standalone apps, linking the VPS and Railway runbooks and the Open Mercato Readiness Scanner, and route go-live requests to it from the generated agent harness (#6956). (#7125) *(@pkarw)*
+- 📝 Document and route standalone module creation and npm/GitHub publication through `create-mercato-module` in the standalone agent harness and framework docs, including installing a module into another app, with harness sandbox and runner compatibility fixes. (#7126) *(@pkarw)*
+- 📝 Add the spec for Brevo and Mailjet outbound-only email provider connectors, giving EEA operators that need EU-only data hosting a built-in choice beyond Resend and SES (#5556). (#7129) *(@pkarw)*
+- 📝 Add the spec for installing modules with `mercato module add` from a GitHub `owner/repo` or URL, with an optional `@version` suffix and an npm-first lookup for scoped packages. (#7139) *(@pkarw)*
+- 📝 Add the spec for the Schedule Planner (`shift_scheduling`) module, letting supervisors plan their employees' shifts for a team on a planning board. (#7194) *(@mnpositiveengineer)*
+- 📝 Align the availability contract spec and its consumer specs with the shipped `resolveAvailability()` entry point and `availability.reserve/release/commit` commands instead of the nonexistent `availabilityService` DI key. (#7211) *(@lbajsarowicz)*
+- 📝 Fix the storefront specs' cache keys and invalidation so count-facet keys include tenant, store and locale, no surface keys on the whole buyer digest, and invalidation uses tags that are actually produced. (#7213) *(@lbajsarowicz)*
+- 📝 Add the spec for a module source collision policy covering modules with the same runtime ID from different npm packages or repositories, including installation, enable/disable, imports, updates and ejection. (#7289) *(@pkarw)*
+- 📝 Point the ecommerce suite specs at the tax-providers roadmap, answering the group-tax resolver question and the timing of tax calculation in cart and checkout. (#7298) *(@matkowalski)*
+- 📝 Add the App Spec for a read-only Xero integration importing Xero Contacts as Companies and sales invoices into Open Mercato. (#7334) *(@mikolajbogusz-they)*
+- 📝 Add the Xero Phase 1 feature spec for connecting and importing contacts, and align the Xero App Spec with the shipped design. (#7335) *(@mikolajbogusz-they)*
+- 📝 Add the draft spec for an opt-in Codabox CODA integration module that retrieves CODA bank statements through the Codabox Connect API (V2) for bank reconciliation. (#7443) *(@leonbahley)*
+- 📝 Add the spec for opt-in zstd/gzip compression of `@open-mercato/cache` values in the Redis and SQLite strategies, to cut Redis memory and traffic for large per-user entries such as sidebar navigation. (#7445) *(@mtytula)*
+- 📝 Add the design-only spec for a provider-neutral AI decision model port that returns typed answers with per-option probabilities, such as TypeSafe Jev through the OpenRouter Decisions API. (#7464) *(@adeptofvoltron)*
+- 📝 Add the spec and clickable prototype for a new `property_management` module covering buildings, spaces, leases, bookings, lease invoicing through the sales flow and customer portal pages for coworking operators. (#7472) *(@WojciechSoczynskiTHEY)*
+- 📝 Correct the sales module agent guide to state that the quote step is optional for orders and that quotes are deleted on conversion, matching the code. (#7475) *(@WojciechSoczynskiTHEY)*
+- 📝 Add the spec for notifying MFA administrators, scoped by tenant and organization with daily deduplication, when an emergency bypass is observed. (#7618) *(@haxiorz)*
+- 📝 Add the spec for a tenant-configurable deal status vocabulary with an environment default, preserving the shipped `win`/`won`/`lost`/`loose`/`closed` behavior and historical reads. (#7624) *(@haxiorz)*
+- 📝 Document the real `yarn mercato queue worker --all` and `queue status` commands in the scheduler docs and CLI, replacing the non-existent `worker:start` and `worker:status` (#7649). (#7650) *(@pgaluszk)*
+- 📝 Fix the full-app Docker docs' Postgres backup and restore commands and volume names for the `mercato-postgres-${DEPLOY_ENV:-local}` container, and add the attachments volume (#7651). (#7652) *(@pgaluszk)*
+- 📝 Add the spec for resources undo/redo integration coverage, including full snapshots, custom fields, child collections, tag membership and consumed undo tokens. (#7657) *(@haxiorz)*
+- 📝 Add the spec for feature toggle undo/redo integration coverage, covering global CRUD, tenant overrides and consumed-token rejection. (#7658) *(@haxiorz)*
+- 📝 Add the spec for directory organization undo/redo integration coverage, including hierarchy restoration, custom fields and consumed undo tokens. (#7660) *(@haxiorz)*
+- 📝 Add the spec for recurring sales orders, where a quote or order carries a schedule and a scheduled job invoices each period in advance, with configurable cancellation settlement. (#7765) *(@WojciechSoczynskiTHEY)*
+- 📝 Document that every PR carries a release-note label and that review applies it, so generated release notes group PRs correctly. (#7779) *(@patzick)*
+- 📝 Add the spec for immutable `Money` and `Currency` value objects in `@open-mercato/shared`, for new code only. (#7795) *(@WojciechSoczynskiTHEY)*
+- 📝 Document running the Open Mercato Readiness Scanner locally, in CI and inside staging and production workloads via `npx`. (#7798) *(@pkarw)*
+- 📝 Add the phase 1 spec for the CRM field model, covering classification, company enrichment, hierarchy, identifiers and relationship types, with bounce preservation, guarded currency-null manual-line recovery and lifecycle, health and renewal slices (#7700). (#7820) *(@haxiorz)*
+- 📝 Document a copy-paste "Minute 10" quick start, the Start the Coding Agent step, module publishing and Change Open Mercato Core flows in the README. (#7849) *(@wojciechszyjka)*
+- 📝 Add the spec for ingesting inbound email attachments in `inbox_ops`, storing them, passing them to LLM extraction and showing them on the proposal instead of silently dropping them. (#7954) *(@mikolajbogusz-they)*
+- 📝 Clarify in the Users guide, REST API reference and OpenAPI description that the staff directory is tenant-wide for non-superadmins rather than organization-scoped (#7832). (#7994) *(@haxiorz)*
+- 📝 Add the design-only prototype and spec for a Deals close-date Timeline tab, showing open deals by expected close date for forecast review. (#7999) *(@WojciechSoczynskiTHEY)*
+- 📝 Add the spec for an opt-in product configurator (CPQ) module that lets admins describe configurable products. (#8031) *(@KamilNahotko)*
+- 📝 Add the carried-forward bookings module spec, an extensible foundation for people, equipment and rooms with occupancy and conflict detection, aligned with reviewed platform contracts (supersedes #7004). (#8063) *(@JacekZ96, via @pkarw)*
+- 📝 Document the Open Mercato Modules catalog for module discovery, install and listing instead of the archived `official-modules` repository. (#8120) *(@wojciechszyjka)*
+- 📝 Add the spec for letting staff cancel pending portal invitations while preserving existing organization scope and protecting cancellation against acceptance and resend races. (#8209) *(@haxiorz)*
+- 📝 Add the spec for exporting named props schemas for the nine time-tracking components, so replacement authors can import the host contract (supersedes #8291). (#8562) *(@Marynat, via @pkarw)*
+- 📝 Add the Open Mercato QA extension for `om-auto-qa-pr`, a QA risk checklist from recurring manual-QA findings, and automerge human lanes for the QA automation. (#8588) *(@droalina)*
+- 📝 Document the conditional-write (`If-None-Match: *`) requirement for S3-compatible storage endpoints and the signed-upload quota cost when no size is requested, with a disposable-bucket verification procedure (#4838, #4839). (#8606) *(@pkarw)*
+- 📝 Simplify the README quickstart by removing the redundant `docker compose up` before `yarn setup` and explaining setup infrastructure reuse and `--no-infra` for externally managed services. (#8608) *(@pkarw)*
+- 📝 Add the spec for configurable Markdown code-block languages, letting module and app customizers add, hide or rename the shared language choices through an optional prop and component props transforms (#8258). (#8621) *(@haxiorz)*
+- 📝 Add the spec for a shared focus/reveal behavior that makes a rejected save message visible in long `CrudForm` forms and the staff task drawer (#8204). (#8671) *(@haxiorz)*
+- 📝 Add the spec for identifying audit log rows with historical record names, safe change summaries, sticky undo actions, seconds and localized row labels. (#8673) *(@haxiorz)*
+- 📝 Add the spec for an organization-scoped default quote validity setting used by the quote send dialog and omitted-value send requests, keeping the 14-day initial default. (#8688) *(@haxiorz)*
+- 📝 Document the real scheduler start output, supported options, exit codes, enqueue behavior and registered queue subcommands, with a regression guard checking queue commands across docs pages (#8510, #8511) (supersedes #8626). (#8695) *(@pgaluszk, via @pkarw)*
+- 📝 Remove references to a third-party sandbox project from the Autopay spec and package comment, citing only the official Autopay Online v1.1 documentation. (#8716) *(@autopaylab)*
+- 📝 Align the scheduler CLI reference with the source, covering actual `list`/`status` output, supported filters, database commands, defaults and locking (#8651). (#8751) *(@pkarw)*
+- 📝 Add the spec for module dependency integrity, making an app enabled module set verifiable so presets and custom module selections cannot silently depend on a disabled module. (#8790) *(@haxiorz)*
+- 📝 Add the spec for an Enterprise-only resumable, encrypted-by-default backup and restore CLI in a planned `backups` module. (#8910) *(@pkarw)*
+- 📝 Add the spec for a sales invoice write path for imported invoices, so `sales.invoices.create` and `sales.invoices.update` keep custom fields, accept negative line amounts and replace lines on update. (#8984) *(@mikolajbogusz-they)*
+- 📝 Document scheduler diagnostic commands that keep PostgreSQL and Redis credentials out of process arguments visible via `ps` or argv-capturing monitors (#8787). (#9169) *(@adeptofvoltron)*
+- 📝 Document accurately in `CONTRIBUTING.md` that same-repository PRs labelled `ci-full` get full typechecking, unit tests and all 15 integration shards. (#9273)
+- 📝 Add the design-only spec for version pinning of code-defined workflows (#7184). (#9295) *(@kurrak)*
+- 📝 Add the spec for an Enterprise data verification gate for protected key rotation, built on the planned resumable encrypted backup. (#9328) *(@pkarw)*
+- 📝 Add the enterprise spec and proof for PostgreSQL tenant row-level security set on the current connection pool client. (#9353) *(@pkarw)*
+- 📝 Add the spec for sign-in activity, covering a login IP/user-agent seam and an enterprise sign-in log for successful and failed logins (#8106). (#9435) *(@pkarw)*
+- 📝 Add the spec for typed CRM company-to-company relationships with tenant-defined relationship types, a Relationships tab on the company page and server-enforced invariants against self-relations, duplicates, second parents and cycles (supersedes #8007). (#9503) *(@WojciechSoczynskiTHEY, via @haxiorz)*
+- 📝 Add the spec for server-side sorting of the payment transactions list by Updated, Status, Amount or Provider with validated query fields and stable UUID tie-breaking (#7788). (#9513) *(@pkarw)*
+- 📝 Add the spec for configuring native integration admin and employee role credentials through existing initialization variables (#8475). (#9560) *(@pkarw)*
+- 📝 Add the spec for linking a person to multiple companies from the person create/edit form without changing the `CompanySelectField` scalar contract. (#9593) *(@haxiorz)*
+- 📝 Add the spec for multi-dimensional analytical tags on a journal entry line, with locked per-owner replacement of a line's dimension tags and a fiscal-period lock check (supersedes #5972). (#9745) *(@mikoajp, via @haxiorz)*
+
+## 👥 Contributors
+
+- @mkadziolka
+- @WojciechSoczynskiTHEY
+- @autopaylab
+- @jtomaszewski
+- @pkarw
+- @Marynat
+- @mikolajbogusz-they
+- @wojciechszyjka
+- @adeptofvoltron
+- @mtytula
+- @patrykbojczuk
+- @mateusz-lewandowski
+- @pat-lewczuk
+- @maxidragon
+- @nowekontotestowe2026-web
+- @haxiorz
+- @Hejnas
+- @zielivia
+- @shimmy-aga
+- @ddiarassouba94140-blip
+- @Geeknauts-company
+- @Sawarz
+- @AHKSammich
+- @mstopinski
+- @jakubmatwiejew-wq
+- @pcbeingused333
+- @Sarthak-madan334
+- @Kamyyylo
+- @patzick
+- @kmrosiek
+- @lbajsarowicz
+- @pidubiel
+- @wojski999
+- @rengare
+- @SiphoChris
+- @Ramnath0521
+- @marcin-urbanski
+- @michalper
+- @etor6233
+- @fshagent
+- @kurrak
+- @marcinwadon
+- @dawid-walkiewicz
+- @Tomeckyyyy
+- @oskarwoj
+- @lchrusciel
+- @mobinea
+- @matkowalski
+- @okwasniewski
+- @jarekdrabek
+- @mat-kruk
+- @andrzejewsky
+- @KamilMichalski0
+- @pgaluszk
+- @zawstudio
+- @Paul-Mlodochowki
+- @matgren
+- @pjagielski
+- @WojtekKrzyzanowski
+- @mikoajp
+- @pmadajthey
+- @mnpositiveengineer
+- @leonbahley
+- @KamilNahotko
+- @JacekZ96
+- @droalina
 
 # 0.9.0 (2026-10-09)
 

@@ -191,13 +191,32 @@ yarn mercato entities rotate-encryption-key --tenant <tenantId> --org <organizat
 Notes:
 - These commands are potentially destructive; run a backup first and prefer `--dry-run`.
 - Without a previous key, commands only encrypt plaintext values and skip already encrypted fields.
-- For entity rotation, provide the previous key through `TENANT_DATA_ENCRYPTION_OLD_KEY`; do not put key material in command arguments. The legacy `--old-key` form remains accepted for compatibility but warns because shell history and process listings can expose it.
+- For entity rotation, provide the previous key through `TENANT_DATA_ENCRYPTION_OLD_KEY`; do not put key material in command arguments. The deprecated `--old-key` form requires the explicit `--allow-unsafe-old-key` compatibility bridge and warns because shell history and process listings can expose it. No removal is scheduled.
 - Rotation only updates fields that can be decrypted with the previous key; mismatched rows are left untouched and make the command fail so automation cannot mistake a partial rotation for success.
 - Custom document rotation also runs when there are no ORM encryption maps. It stops on ciphertext that neither the old nor current tenant key can open, and on a concurrent change to the document; restore the correct key or retry the operation. `--dry-run` never writes documents or provisions keys.
 - Always pass `--tenant` (and `--org` when possible) during rotation to avoid accidental cross-tenant use.
 - Both commands preflight every selected encryption map before touching a row, and refuse to start when a map declares encrypted fields that cannot be located — most often a map left behind by a module that is no longer enabled. The error names every offending map with its `encryption_maps.id`; resolve each one by re-enabling the module that owns the entity, or, once that entity's data is confirmed gone, by soft-deleting the row (`UPDATE encryption_maps SET deleted_at = now() WHERE id = '…'`). Maps that declare no encrypted fields, and tenantless (system-scoped) maps, are reported and skipped rather than treated as errors.
 - Rotation always re-encrypts with the current KMS/fallback key. Ensure the new key is already active (Vault configured or `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` set) before running these commands.
 - These commands are tenant-scoped. They skip entities whose map is system-scoped (see the next section) and say so, because a tenant key cannot open system-scoped ciphertext.
+
+### Rotating the lookup hash pepper
+
+The lookup pepper keys the hashes used for exact matches such as sign-in by email. Its current value comes from `LOOKUP_HASH_PEPPER`, then `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`, then `TENANT_DATA_ENCRYPTION_KEY`. `LOOKUP_HASH_OLD_PEPPER` adds a read candidate during rotation. New writes use the current pepper.
+
+1. Deploy the version that supports `LOOKUP_HASH_OLD_PEPPER` while keeping the current pepper in use. Generate a new independent pepper and configure both values through your secret manager.
+2. For a rolling cutover, first set `LOOKUP_HASH_OLD_PEPPER` to the new value while keeping the old value active for writes. Once all app and worker instances have picked up both candidates, pause writes that assign lookup hashes while switching `LOOKUP_HASH_PEPPER` to the new value and `LOOKUP_HASH_OLD_PEPPER` to the previous effective pepper. Resume those writes when all writers use the new pepper. This avoids concurrent creates inserting the same value under different hashes. If the previous hashes were unkeyed, leave `LOOKUP_HASH_OLD_PEPPER` unset after the cutover.
+3. Once every writer is using the new pepper, preview and run the rehash for each tenant. Run the tenantless sweep as well to cover records such as pending onboarding requests.
+
+   ```bash
+   yarn mercato entities rehash-lookups --tenant <tenantId> --dry-run
+   yarn mercato entities rehash-lookups --tenant <tenantId>
+   yarn mercato entities rehash-lookups --tenantless --dry-run
+   yarn mercato entities rehash-lookups --tenantless
+   ```
+
+4. Re-run the previews and check that they report zero rows to update. Verify email sign-in and remove `LOOKUP_HASH_OLD_PEPPER` from every instance.
+
+The command uses the existing data-encryption keys to read encrypted sources and updates their existing hash columns in batches. It verifies each stored digest against a mapped source and the configured peppers, including legacy unkeyed digests. A preview reads the same rows without writing hashes or provisioning keys. If a source cannot be decrypted or verified, or a concurrent edit changes a row, resolve the error and re-run the same scope. Keep the previous pepper configured until every scope is complete. Coordinate any changes to encryption maps separately from the rehash.
 
 ## Backfilling system-scoped records
 
@@ -241,7 +260,7 @@ yarn mercato entities decrypt-database --tenant <tenantId> --check
 yarn mercato entities decrypt-database --tenant <tenantId> --confirm <tenantId>
 
 # Full decryption + deactivate encryption maps
-yarn mercato entities decrypt-database --tenant <tenantId> --confirm <tenantId> --deactivate-maps
+yarn mercato entities decrypt-database --tenant <tenantId> --confirm <tenantId> --confirm-offline-maintenance <tenantId> --deactivate-maps
 ```
 
 After a successful run:
@@ -272,3 +291,9 @@ If you don’t want to depend on Vault, set a fallback secret and the runtime wi
 - `TENANT_DATA_ENCRYPTION_FALLBACK_KEY=<32+ char secret>` (preferred) or `TENANT_DATA_ENCRYPTION_KEY=<secret>`
 
 When Vault is down or not configured, a warning banner appears and shows which env var supplied the derived key. Avoid short/shared secrets—treat this like any other encryption root and store it securely.
+
+### Offline policy retirement
+
+`decrypt-database --deactivate-maps` requires `--confirm-offline-maintenance <tenantUuid>` in addition to `--confirm`. Stop every application, worker and integration process that can write to this database before confirming. Restart every replica after the operation before resuming writes, so cached encryption policies cannot produce new ciphertext after retirement. The CLI cannot verify that external processes have stopped; the tenant confirmation is an explicit operator attestation, not an online-maintenance mode.
+
+The command discovers fallback-map organization scopes from actual table rows, including organizations with no map row. An organization-only operation includes the tenant-wide fallback for reads but never retires that fallback. Retirement locks the policy and selected data tables, refreshes policies and performs a final ciphertext sweep in the same transaction before retiring exact map IDs. Locking may block other SQL writers; schedule a maintenance window. Row updates also compare the old column values and fail instead of overwriting a concurrent change. If a conflict or residual ciphertext is reported, retain the active policies and retry after stopping writers.

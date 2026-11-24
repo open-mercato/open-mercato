@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Plus, Pencil, Trash2, RefreshCw, Languages } from 'lucide-react'
+import { Plus, Pencil, Trash2, RefreshCw } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
@@ -23,16 +23,14 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AppearanceSelector, useAppearanceState } from './AppearanceSelector'
-import { DictionaryValue } from './dictionaryAppearance'
+import { renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 import {
   invalidateDictionaryEntries,
   useDictionaryEntries,
 } from './hooks/useDictionaryEntries'
 import type { DictionaryEntryRecord } from './hooks/useDictionaryEntries'
-import {
-  DialogDescription,
-} from '@open-mercato/ui/primitives/dialog'
-import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/dictionaries/extension-points'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dictionaries').child({ component: 'DictionaryEntriesEditor' })
@@ -62,7 +60,6 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
   const scopeVersion = useOrganizationScopeVersion()
   const dictionaryQuery = useDictionaryEntries(dictionaryId, scopeVersion)
   const entries = React.useMemo<Entry[]>(() => dictionaryQuery.data?.fullEntries ?? [], [dictionaryQuery.data?.fullEntries])
-  const dictionaryMap = dictionaryQuery.data?.map ?? {}
   const isInitialLoading = dictionaryQuery.isLoading
   const loadError = dictionaryQuery.isError
     ? t('dictionaries.config.entries.error.load', 'Failed to load dictionary entries.')
@@ -77,7 +74,6 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
     icon: null,
   }))
   const [errors, setErrors] = React.useState<{ value?: string; label?: string }>({})
-  const [translateEntry, setTranslateEntry] = React.useState<Entry | null>(null)
   const appearance = useAppearanceState(formState.icon, formState.color)
   const mutationContextId = React.useMemo(
     () => `dictionaries:dictionary_entry:${dictionaryId}`,
@@ -327,11 +323,14 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           <TableCell className="font-medium">{entry.value}</TableCell>
           <TableCell>{entry.label}</TableCell>
           <TableCell>
-            <DictionaryValue
-              value={entry.value}
-              map={dictionaryMap}
-              fallback={<span className="text-sm text-muted-foreground">{t('dictionaries.config.entries.appearance.none', 'None')}</span>}
-            />
+            {entry.icon || entry.color ? (
+              <span className="inline-flex items-center gap-2">
+                {renderDictionaryIcon(entry.icon)}
+                {renderDictionaryColor(entry.color)}
+              </span>
+            ) : (
+              <span className="text-sm text-muted-foreground">{t('dictionaries.config.entries.appearance.none', 'None')}</span>
+            )}
           </TableCell>
           <TableCell className="flex items-center gap-2">
             {readOnly ? (
@@ -348,15 +347,10 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                 >
                   <Pencil className="h-4 w-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setTranslateEntry(entry)}
-                  title={t('dictionaries.config.entries.actions.translate', 'Translate')}
-                >
-                  <Languages className="h-4 w-4" />
-                </Button>
+                <InjectionSpot
+                  spotId={extensionPoints.hosts.entryActions.spotId}
+                  context={{ dictionaryId, entry }}
+                />
                 <Button
                   type="button"
                   variant="ghost"
@@ -371,7 +365,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
           </TableCell>
       </TableRow>
       ))
-  }, [dictionaryMap, entries, handleDelete, isDeleting, isInitialLoading, loadError, openDialog, readOnly, t])
+  }, [dictionaryId, entries, handleDelete, isDeleting, isInitialLoading, loadError, openDialog, readOnly, t])
 
   return (
     <div className="space-y-4">
@@ -409,7 +403,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-md border">
+      <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -524,25 +518,6 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
               {t('dictionaries.config.entries.dialog.save', 'Save')}
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={!!translateEntry} onOpenChange={(open) => { if (!open) setTranslateEntry(null) }}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{t('translations.manager.translateEntry', 'Translate: {{label}}', { label: translateEntry?.label ?? '' })}</DialogTitle>
-            <DialogDescription>
-              {t('translations.manager.translateEntryDescription', 'Manage translations for this dictionary entry.')}
-            </DialogDescription>
-          </DialogHeader>
-          {translateEntry?.id && (
-            <TranslationManager
-              mode="embedded"
-              entityType="dictionaries:dictionary_entry"
-              recordId={translateEntry.id}
-              baseValues={{ label: translateEntry.label }}
-              translatableFields={['label']}
-            />
-          )}
         </DialogContent>
       </Dialog>
       {ConfirmDialogElement}

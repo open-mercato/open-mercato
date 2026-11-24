@@ -64,7 +64,11 @@ describe('PhoneNumberField', () => {
     fireEvent.change(input, { target: { value: '  +48 123 456 789  ' } })
     fireEvent.blur(input)
 
-    expect(input).toHaveValue('+48 123 456 789')
+    // Blur also resyncs the country picker + local-number split from the
+    // final `value`, so a typed dial code is no longer redundantly repeated
+    // inside the local-number input once it matches a known country.
+    expect(screen.getByLabelText('Country code')).toHaveTextContent('+48')
+    expect(input).toHaveValue('123 456 789')
     expect(screen.getByTestId('value')).toHaveTextContent('+48 123 456 789')
     expect(screen.queryByText('Use an international phone number.')).not.toBeInTheDocument()
   })
@@ -97,6 +101,34 @@ describe('PhoneNumberField', () => {
     // The value still parses against the full dictionary (Kosovo), but the
     // picker only offers the restricted list.
     expect(screen.getByText('+383')).toBeInTheDocument()
+  })
+
+  it('resyncs the input to a value the parent normalised during typing, once the field blurs', () => {
+    function NormalizingHarness() {
+      const [value, setValue] = React.useState<string | undefined>(undefined)
+      const handleValueChange = (next: string | undefined) => {
+        // Simulates a parent that collapses a redundant `00<dialcode>`
+        // international prefix into the canonical `+<dialcode>` form.
+        setValue(next ? next.replace('+48 0048', '+48') : next)
+      }
+      return (
+        <div>
+          <PhoneNumberField value={value} onValueChange={handleValueChange} defaultCountryIso2="PL" />
+          <output data-testid="value">{value ?? ''}</output>
+        </div>
+      )
+    }
+
+    render(<NormalizingHarness />)
+
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: '0048601123456' } })
+    expect(screen.getByTestId('value')).toHaveTextContent('+48601123456')
+
+    fireEvent.blur(input)
+
+    expect(screen.getByTestId('value')).toHaveTextContent('+48601123456')
+    expect(input).toHaveValue('601123456')
   })
 })
 

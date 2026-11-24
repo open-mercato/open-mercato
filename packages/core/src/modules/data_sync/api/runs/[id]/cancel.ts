@@ -5,7 +5,7 @@ import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
 import type { IntegrationStateService } from '../../../../integrations/lib/state-service'
-import type { ProgressService } from '../../../../progress/lib/progressService'
+import { resolveProgressService } from '../../../lib/resolve-progress-service'
 import type { SyncRunService } from '../../../lib/sync-run-service'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -44,7 +44,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
 
   const container = await createRequestContainer()
   const syncRunService = container.resolve('dataSyncRunService') as SyncRunService
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = resolveProgressService(container)
   const integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
   const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
   const scope = { organizationId, tenantId: auth.tenantId }
@@ -83,7 +83,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     return NextResponse.json({ error: 'Only pending or running runs can be cancelled' }, { status: 409 })
   }
 
-  if (run.progressJobId) {
+  if (progressService && run.progressJobId) {
     try {
       await progressService.markCancelled(run.progressJobId, progressCtx)
     } catch (error) {

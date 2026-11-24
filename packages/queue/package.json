@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/queue",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "license": "MIT",
   "description": "Multi-strategy job queue with local and BullMQ support",
   "type": "module",
@@ -36,7 +36,7 @@
   },
   "peerDependencies": {
     "bullmq": "^5.72.0 || ^6.0.0",
-    "bullmq-otel": "^1.3.0"
+    "bullmq-otel": "^1.3.0 || ^2.0.0"
   },
   "peerDependenciesMeta": {
     "bullmq": {

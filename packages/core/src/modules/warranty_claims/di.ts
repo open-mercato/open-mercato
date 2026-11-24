@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -21,14 +22,16 @@ export function register(container: AppContainer) {
     warrantyClaimNumberGenerator: asFunction(({ em }: AppCradle) => {
       return new WarrantyClaimNumberGenerator(em)
     })
-      .singleton()
+      .scoped()
       .proxy(),
-    warrantyEntitlementResolver: asFunction(() => createWarrantyEntitlementResolver()).singleton(),
-    warrantyReturnLabelProvider: asFunction(() => createWarrantyReturnLabelProvider()).singleton(),
-    warrantyAdjudicationEvaluator: asFunction(() => createWarrantyAdjudicationEvaluator()).singleton(),
+    warrantyEntitlementResolver: asFunction(() => createWarrantyEntitlementResolver()).scoped(),
+    warrantyReturnLabelProvider: asFunction(() => createWarrantyReturnLabelProvider()).scoped(),
+    warrantyAdjudicationEvaluator: asFunction(() => createWarrantyAdjudicationEvaluator()).scoped(),
     WarrantyClaim: asValue(WarrantyClaim),
     WarrantyClaimLine: asValue(WarrantyClaimLine),
     WarrantyClaimEvent: asValue(WarrantyClaimEvent),
     WarrantyClaimSequence: asValue(WarrantyClaimSequence),
   })
 }
+
+defineProcessDiRegistrar(register)

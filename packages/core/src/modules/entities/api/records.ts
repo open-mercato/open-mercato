@@ -128,7 +128,6 @@ export async function GET(req: Request) {
   const pageSize = noPagination ? Math.max(basePageSize, DEFAULT_EXPORT_PAGE_SIZE) : basePageSize
   const sortField = url.searchParams.get('sortField') || 'id'
   const sortDir = (url.searchParams.get('sortDir') || 'asc').toLowerCase() === 'desc' ? 'desc' : 'asc'
-  const withDeleted = parseBooleanWithDefault(url.searchParams.get('withDeleted'), false)
   const searchTerm = (url.searchParams.get('search') || '').trim()
   const searchFields = parseCommaSeparatedList(url.searchParams.get('searchFields'))
 
@@ -230,7 +229,7 @@ export async function GET(req: Request) {
       page: { page, pageSize },
       sort: [{ field: sortField as any, dir: sortDir as any }] as Sort[],
       filters: filtersObj as any,
-      withDeleted,
+      withDeleted: false,
     }
     if (organizationIds && organizationIds.length) {
       qopts.organizationIds = organizationIds
@@ -529,13 +528,25 @@ export async function PUT(req: Request) {
       throw lockError
     }
 
-    await de.updateCustomEntityRecord({
-      entityId,
-      recordId: rid,
-      organizationId: targetOrgId,
-      tenantId: auth.tenantId!,
-      values: norm,
-    })
+    try {
+      await de.updateCustomEntityRecord({
+        entityId,
+        recordId: rid,
+        organizationId: targetOrgId,
+        tenantId: auth.tenantId!,
+        values: norm,
+        requireActive: true,
+      })
+    } catch (updateError) {
+      if (isCrudHttpError(updateError) && updateError.status === 404) {
+        const { translate } = await resolveTranslations()
+        return NextResponse.json(
+          { error: translate('entities.userEntities.records.errors.notFound', 'Record not found') },
+          { status: 404 },
+        )
+      }
+      throw updateError
+    }
     return NextResponse.json({ ok: true, item: { entityId, recordId: rid } })
   } catch (e) {
     if (isCrudHttpError(e)) return NextResponse.json(e.body, { status: e.status })
@@ -628,8 +639,8 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List records',
       description:
-        'Returns paginated records for the supplied entity. Supports custom field filters, exports, and soft-delete toggles.',
-      query: listRecordsQuerySchema,
+        'Returns paginated active records for the supplied entity. Supports custom field filters and exports.',
+      query: listRecordsQuerySchema.omit({ withDeleted: true }),
       responses: [
         {
           status: 200,
@@ -692,7 +703,7 @@ export const openApi: OpenApiRouteDoc = {
     PUT: {
       summary: 'Update record',
       description:
-        'Updates an existing record. If the provided recordId is not a UUID the record will be created instead to support optimistic flows.',
+        'Updates an existing, non-deleted record. If the provided recordId is not a UUID the record will be created instead to support optimistic flows. A UUID that matches no active record returns 404.',
       requestBody: {
         contentType: 'application/json',
         schema: putBodySchema,
@@ -711,6 +722,11 @@ export const openApi: OpenApiRouteDoc = {
         {
           status: 401,
           description: 'Missing authentication',
+          schema: errorSchema,
+        },
+        {
+          status: 404,
+          description: 'Record not found or deleted',
           schema: errorSchema,
         },
         {

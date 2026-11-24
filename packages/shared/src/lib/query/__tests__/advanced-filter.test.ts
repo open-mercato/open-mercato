@@ -7,8 +7,75 @@ import {
   serializeAdvancedFilter,
   type AdvancedFilterState,
 } from '../advanced-filter'
+import { normalizeFilters } from '../join-utils'
 
 describe('advanced filter', () => {
+  it.each([
+    { field: 'active', first: 'is_true', firstValue: null, second: 'is_false', secondValue: null, expected: [{ op: 'eq', value: true }, { op: 'eq', value: false }] },
+    { field: 'title', first: 'equals', firstValue: 'X', second: 'not_equals', secondValue: 'X', expected: [{ op: 'eq', value: 'X' }, { op: 'ne', value: 'X' }] },
+    { field: 'amount', first: 'greater_than', firstValue: 10, second: 'less_than', secondValue: 20, expected: [{ op: 'gt', value: 10 }, { op: 'lt', value: 20 }] },
+    { field: 'tags', first: 'has_any_of', firstValue: ['vip'], second: 'has_none_of', secondValue: ['eu'], expected: [{ op: 'in', value: ['vip'] }, { op: 'nin', value: ['eu'] }] },
+  ] as const)('preserves both $first and $second predicates on $field in either order', (scenario) => {
+    const conditions: AdvancedFilterState['conditions'] = [
+      { id: 'first', field: scenario.field, operator: scenario.first, value: scenario.firstValue },
+      { id: 'second', field: scenario.field, operator: scenario.second, value: scenario.secondValue },
+    ]
+    for (const ordered of [conditions, [...conditions].reverse()]) {
+      const compiled = convertAdvancedFilterToWhere({ logic: 'and', conditions: ordered })
+      const expected = scenario.expected.map((predicate) => ({ field: scenario.field, ...predicate }))
+      const normalized = normalizeFilters(compiled)
+      expect(normalized).toHaveLength(2)
+      expect(normalized).toEqual(expect.arrayContaining(expected))
+    }
+  })
+
+  it('preserves three AND predicates with the same operator on one field', () => {
+    const compiled = convertAdvancedFilterToWhere({
+      logic: 'and',
+      conditions: ['solar', 'energy', 'systems'].map((value) => ({
+        id: value, field: 'display_name', operator: 'contains', value,
+      })),
+    })
+    expect(normalizeFilters(compiled)).toEqual([
+      { field: 'display_name', op: 'ilike', value: '%solar%' },
+      { field: 'display_name', op: 'ilike', value: '%energy%' },
+      { field: 'display_name', op: 'ilike', value: '%systems%' },
+    ])
+  })
+
+  it('retains repeated range predicates alongside an all-of membership condition', () => {
+    const compiled = convertAdvancedFilterToWhere({
+      logic: 'and',
+      conditions: [
+        { id: 'min', field: 'amount', operator: 'greater_than', value: 10 },
+        { id: 'max', field: 'amount', operator: 'less_than', value: 20 },
+        { id: 'tags', field: 'tags', operator: 'has_all_of', value: ['vip', 'eu'] },
+      ],
+    })
+    expect(normalizeFilters(compiled)).toEqual([
+      { field: 'amount', op: 'gt', value: 10 },
+      { field: 'amount', op: 'lt', value: 20 },
+      { field: 'tags', op: 'overlap', value: ['vip'] },
+      { field: 'tags', op: 'overlap', value: ['eu'] },
+    ])
+  })
+
+  it('keeps repeated AND predicates in each existing OR clause', () => {
+    expect(convertAdvancedFilterToWhere({
+      logic: 'and',
+      conditions: [
+        { id: '1', field: 'title', operator: 'contains', value: 'solar' },
+        { id: '2', field: 'title', operator: 'contains', value: 'wind', join: 'or' },
+        { id: '3', field: 'title', operator: 'does_not_contain', value: 'draft', join: 'and' },
+      ],
+    })).toEqual({
+      $or: [
+        { $and: [{ title: { $ilike: '%solar%' } }, { title: { $not: { $ilike: '%draft%' } } }] },
+        { $and: [{ title: { $ilike: '%wind%' } }, { title: { $not: { $ilike: '%draft%' } } }] },
+      ],
+    })
+  })
+
   it('serializes per-row join operators and compiles mixed joins into OR clauses', () => {
     const state: AdvancedFilterState = {
       logic: 'and',

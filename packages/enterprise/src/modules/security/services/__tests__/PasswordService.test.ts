@@ -116,8 +116,9 @@ describe('PasswordService', () => {
 
     await expect(service.changePassword(user.id, 'WrongPass1!', 'StrongPass2!')).rejects.toMatchObject({
       name: 'PasswordServiceError',
-      statusCode: 401,
+      statusCode: 400,
       message: 'Current password is invalid',
+      field: 'currentPassword',
     })
   })
 
@@ -131,6 +132,7 @@ describe('PasswordService', () => {
       statusCode: 400,
       message: 'Password does not meet the requirements',
       errors: expect.arrayContaining(['minLength', 'digit', 'uppercase', 'special']),
+      field: 'newPassword',
     })
   })
 
@@ -144,6 +146,7 @@ describe('PasswordService', () => {
       name: 'PasswordServiceError',
       statusCode: 400,
       message: 'New password must be different from current password',
+      field: 'newPassword',
     })
   })
 })
