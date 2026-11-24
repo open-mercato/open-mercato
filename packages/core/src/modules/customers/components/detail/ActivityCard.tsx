@@ -301,7 +301,6 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
           <span className="font-medium text-foreground">{actorLabel}</span>
           {target && direction ? (
             <>
-              <span>·</span>
               <span>{direction}</span>
               <span className="text-foreground">{target}</span>
             </>
