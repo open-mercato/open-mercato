@@ -24,6 +24,7 @@ import {
 } from '../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { reportError } from '@open-mercato/telemetry'
 
 const logger = createLogger('workflows')
 
@@ -100,6 +101,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     logger.error('Error validating workflow start', { err: error })
+    reportError(error, { module: 'workflows', code: 'workflows.start_validation_failed' })
     return NextResponse.json(
       { error: 'Failed to validate workflow start' },
       { status: 500 }
