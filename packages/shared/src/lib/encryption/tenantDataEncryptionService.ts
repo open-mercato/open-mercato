@@ -526,6 +526,15 @@ export class TenantDataEncryptionService {
     return fields.map((rule) => rule.field)
   }
 
+  async getLookupHashRules(
+    entityId: string,
+    tenantId: string | null,
+    organizationId: string | null,
+  ): Promise<Array<{ field: string; hashField: string }>> {
+    const { fields } = await this.resolvePolicy({ entityId, tenantId, organizationId })
+    return fields.flatMap(({ field, hashField }) => hashField ? [{ field, hashField }] : [])
+  }
+
   private encryptFields(
     obj: Record<string, unknown>,
     fields: EncryptedFieldRule[],

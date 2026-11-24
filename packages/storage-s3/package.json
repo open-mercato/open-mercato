@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/storage-s3",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -91,7 +91,7 @@
     "@open-mercato/ui": "workspace:*",
     "@types/jest": "^30.0.0",
     "esbuild": "^0.28.2",
-    "glob": "^14.0.4",
+    "glob": "^14.0.6",
     "jest": "^30.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",

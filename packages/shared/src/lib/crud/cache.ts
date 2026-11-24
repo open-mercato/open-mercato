@@ -172,6 +172,26 @@ export function expandResourceAliases(resource: string, aliases?: string[]): str
   return Array.from(set)
 }
 
+export function buildTranslationOverlayTag(entityType: string, tenantId: string | null): string {
+  return ['crud', 'translations', normalizeTagSegment(entityType), 'tenant', normalizeTagSegment(tenantId)].join(':')
+}
+
+/**
+ * Drops cached CRUD list payloads that embed translation overlays for `entityType`
+ * in `tenantId`. Translation writes call this so localized lists never serve a
+ * translation that was changed or removed (#7579).
+ */
+export async function invalidateTranslationOverlayCache(
+  container: AwilixContainer,
+  entityType: string,
+  tenantId: string | null,
+): Promise<void> {
+  if (!isCrudCacheEnabled()) return
+  const cache = resolveCrudCache(container)
+  if (!cache || typeof cache.deleteByTags !== 'function') return
+  await cache.deleteByTags([buildTranslationOverlayTag(entityType, tenantId)])
+}
+
 export async function invalidateCrudCache(
   container: AwilixContainer,
   resource: string,

@@ -40,19 +40,22 @@ export async function GET(req: Request) {
   // encryption map at all. This is a discovery endpoint with no pagination,
   // so the #3278 two-phase encrypted-sort does not apply. Covered by
   // __tests__/discovery-route.test.ts.
+  const salesChannelsAvailable = em.getMetadata().has(SalesChannel)
   const [localChannels, priceKinds] = await Promise.all([
-    findWithDecryption(em, SalesChannel, {
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
-      deletedAt: null,
-      isActive: true,
-    }, {
-      fields: ['code', 'name'],
-      orderBy: { name: 'asc' },
-    }, {
-      organizationId: auth.orgId as string,
-      tenantId: auth.tenantId,
-    }),
+    salesChannelsAvailable
+      ? findWithDecryption(em, SalesChannel, {
+        organizationId: auth.orgId,
+        tenantId: auth.tenantId,
+        deletedAt: null,
+        isActive: true,
+      }, {
+        fields: ['code', 'name'],
+        orderBy: { name: 'asc' },
+      }, {
+        organizationId: auth.orgId as string,
+        tenantId: auth.tenantId,
+      })
+      : Promise.resolve<SalesChannel[]>([]),
     findWithDecryption(em, CatalogPriceKind, {
       tenantId: auth.tenantId,
       deletedAt: null,

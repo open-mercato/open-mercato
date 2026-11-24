@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import { parseRotationFieldValue } from '@open-mercato/shared/lib/encryption/rotationJson'
 import { getCliModules, getDefaultEncryptionMaps, type Module, type ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -37,26 +38,17 @@ import {
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { rotateCustomEntityDocuments } from './lib/rotate-custom-entity-documents'
+import { rehashLookupColumns } from './lib/rehash-lookup-columns'
 import { Organization } from '../directory/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
+import { z } from 'zod'
 import type { RotationProtectionService, RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { rotationNotice, protectKeyRotation, UNPROTECTED_ROTATION_ACKNOWLEDGMENT } from './lib/rotation-protection'
 import { readMaintenanceBatches, writeMaintenanceRow, verifyMaintenanceBatch, quoteMaintenanceIdentifier } from './lib/rotation-maintenance'
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string | boolean> = {}
-  for (let i = 0; i < rest.length; i++) {
-    const a = rest[i]
-    if (!a) continue
-    if (a.startsWith('--')) {
-      const [k, v] = a.replace(/^--/, '').split('=')
-      if (v !== undefined) args[k] = v
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) { args[k] = rest[i + 1]!; i++ }
-      else args[k] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest)
 }
 
 const seedDefs: ModuleCli = {
@@ -341,6 +333,40 @@ const OLD_ENCRYPTION_KEY_ENV = 'TENANT_DATA_ENCRYPTION_OLD_KEY'
 
 function failCli(message: string): never {
   throw new Error(message)
+}
+
+const rehashLookupOptions = z.strictObject({
+  tenant: z.uuid().optional(),
+  tenantless: z.literal(true).optional(),
+  'dry-run': z.literal(true).optional(),
+}).refine((args) => Boolean(args.tenant) !== Boolean(args.tenantless))
+
+const rehashLookupUsage = 'mercato entities rehash-lookups (--tenant <uuid> | --tenantless) [--dry-run]'
+
+const rehashLookups: ModuleCli = {
+  command: 'rehash-lookups',
+  help: rehashLookupUsage,
+  async run(rest) {
+    const options = rehashLookupOptions.safeParse(parseArgs(rest))
+    if (!options.success) {
+      failCli(`Usage: ${rehashLookupUsage}`)
+    }
+    const newPepper = normalizeKeyInput(process.env.LOOKUP_HASH_PEPPER ?? '')
+    const oldPepper = normalizeKeyInput(process.env.LOOKUP_HASH_OLD_PEPPER ?? '')
+    if (!newPepper || newPepper === oldPepper) {
+      failCli('Set LOOKUP_HASH_PEPPER to a new value distinct from LOOKUP_HASH_OLD_PEPPER before rehashing.')
+    }
+
+    const { resolve } = await createRequestContainer()
+    const dryRun = options.data['dry-run'] === true
+    const { scanned, changed } = await rehashLookupColumns(
+      resolve<EntityManager>('em'),
+      resolve<TenantDataEncryptionService>('tenantEncryptionService'),
+      getDefaultEncryptionMaps(await resolveEncryptionMapModules()),
+      { tenantId: options.data.tenant?.toLowerCase() ?? null, dryRun },
+    )
+    console.log(`${dryRun ? '[dry-run] ' : ''}Lookup rehash complete. Rows scanned: ${scanned}. Rows ${dryRun ? 'to update' : 'updated'}: ${changed}.`)
+  },
 }
 
 class DerivedKeyKmsService implements KmsService {
@@ -1525,4 +1551,4 @@ const backfillSystemEncryption: ModuleCli = {
 }
 
 // Keep default export stable (install first for help listing)
-export default [seedDefs, reinstallDefs, addField, seedEncryptionMaps, rotateEncryptionKey, decryptDatabase, backfillSystemEncryption]
+export default [seedDefs, reinstallDefs, addField, seedEncryptionMaps, rotateEncryptionKey, decryptDatabase, backfillSystemEncryption, rehashLookups]

@@ -22,7 +22,7 @@ import {
   resolveUserDestinationRoles,
   throwUserDestinationOrganizationNotFound,
 } from '@open-mercato/core/modules/auth/lib/grantChecks'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findAndCountWithDecryption, findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
@@ -423,7 +423,13 @@ export async function GET(req: Request) {
     filters.push({ id: { $in: Array.from(idFilter) as any } })
   }
   const where = filters.length > 1 ? { $and: filters } : filters[0]
-  const [rows, count] = await em.findAndCount(User, where, { limit: pageSize, offset: (page - 1) * pageSize })
+  const [rows, count] = await findAndCountWithDecryption(
+    em,
+    User,
+    where,
+    { limit: pageSize, offset: (page - 1) * pageSize },
+    { tenantId: effectiveTenantId, organizationId: scopeOrganizationId },
+  )
   const userIds = rows.map((u: any) => u.id)
   const links = userIds.length
     ? await findWithDecryption(
