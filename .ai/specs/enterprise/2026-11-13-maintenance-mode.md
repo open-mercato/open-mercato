@@ -393,6 +393,27 @@ Illustrative proposals, not accepted designs:
 1. Spike: register a gate from enterprise `di.ts` and assert that `proxy.ts` sees it in `yarn dev` and in `yarn build:app && start`. Record the result in this spec and pick the call path.
 2. Audit `packages/*/src/modules/*/cli.ts` for commands that provision keys, invalidate key caches or rewrite ciphertext. Freeze the list in this spec.
 
+#### Phase 0 results (2026-11-24)
+
+- **Proxy path: shared registry.** The Next 16 proxy is pinned to the Node runtime and runs in the same process as the route handlers. The registry is keyed on `globalThis` (`__openMercatoRequestGates__`), so a gate registered by enterprise `di.ts` during bootstrap is visible to `proxy.ts` without a self-call.
+  - A freshly started process serves pages fail-open until its first bootstrap. This is the boot fail-open trade-off from Q9.
+  - Such a process has not installed the gate, so it never heartbeats. The drained-hold inventory therefore blocks on it rather than treating it as drained.
+- **Completion accounting.** The registry exposes `admitRequest()`. API requests through the dispatcher and `api/auth/login` count as in flight from admission until the handler settles.
+  - The proxy cannot observe page or Server Action completion. Pages are therefore evaluated with `evaluateRequestGates()` only.
+  - A drained hold relies on the process inventory and on writer fencing, as § Exclusive hold and drain requires.
+- **Worker pause.** Rather than calling strategy-specific pause APIs, the runner wraps the job handler (`withWorkerGate`). A claimed job waits before it executes, so BullMQ keeps renewing its lock, and executing jobs count as in flight. This behaves the same with the `local` and `async` strategies. The local scheduler skips its poll tick while paused. The BullMQ scheduler only enqueues into gated queues.
+- **Encryption entry points (frozen list):**
+
+  | Command | First mutation |
+  |---|---|
+  | `entities rotate-encryption-key` | Custom-entity document rewrite, then DEK provisioning and row updates |
+  | `entities decrypt-database` | `BEGIN` and row updates; map retirement with `--deactivate-maps` |
+  | `entities backfill-system-encryption` | System DEK provisioning and row updates |
+  | `entities seed-encryption` | `upsertEncryptionMaps` and map cache invalidation — in scope |
+  | `auth rotate-encryption-key` | DEK provisioning and `auth:user` row updates |
+
+  `entities rehash-lookups` (hash columns only), `seeds encrypt|decrypt` (files only) and `ai_assistant mcp:ensure-api-key --rotate` are out of scope.
+
 ### Phase 1 (OSS, no behavior change)
 
 1. Add `lib/runtime/request-gate.ts` (registry on `globalThis`, priority ordering, error isolation: a throwing gate is logged and skipped) with unit tests.
