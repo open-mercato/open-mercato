@@ -23,10 +23,10 @@ export type SignInEvent = {
 }
 
 export class SignInActivityService {
-  constructor(private readonly deps: {
-    em: EntityManager
-    tenantDataEncryptionService: TenantDataEncryptionService
-  }) {}
+  constructor(
+    private readonly em: EntityManager,
+    private readonly tenantEncryptionService: TenantDataEncryptionService,
+  ) {}
 
   async recordSignInAttempt(event: SignInEvent): Promise<void> {
     const config = readSignInActivityConfig()
@@ -35,7 +35,7 @@ export class SignInActivityService {
     const { tenantId, organizationId, userId, attemptId, result, occurredAt } = event
     const scope = { tenantId, organizationId }
     const key = { tenantId, sourceAttemptId: attemptId }
-    await this.deps.em.transactional(async (em) => {
+    await this.em.transactional(async (em) => {
       if (result === 'success') await lockSignInDevice(em, tenantId, userId)
       await lockSignInAttempt(em, tenantId, attemptId)
 
@@ -52,7 +52,7 @@ export class SignInActivityService {
       const ipAddress = event.ip && isIP(event.ip) ? event.ip : null
       const userAgent = event.userAgent?.slice(0, 512) || null
       const parsedAgent = parseUserAgent(userAgent)
-      const encrypted = await this.deps.tenantDataEncryptionService.encryptEntityPayload(
+      const encrypted = await this.tenantEncryptionService.encryptEntityPayload(
         'security:sign_in_attempt',
         { email: event.email, emailHash: null, ipAddress, ipHash: null, userAgent },
         tenantId,
@@ -62,7 +62,7 @@ export class SignInActivityService {
       if (
         !isEncryptedPayloadShape(encrypted.email) || !isLookupHash(encrypted.emailHash)
         || (ipAddress && (!isEncryptedPayloadShape(encrypted.ipAddress) || !isLookupHash(encrypted.ipHash)))
-        || (userAgent && !isEncryptedPayloadShape(encrypted.userAgent))
+        || (userAgent && (!isEncryptedPayloadShape(encrypted.userAgent) || encrypted.userAgent === userAgent))
       ) {
         throw new Error('[internal] Sign-in activity requires tenant encryption and a keyed lookup hash')
       }

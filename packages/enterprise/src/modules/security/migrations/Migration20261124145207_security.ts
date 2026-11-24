@@ -27,9 +27,28 @@ export class Migration20261124145207_security extends Migration {
 
     this.addSql(`alter table "mfa_challenges" add "sign_in_attempt_id" uuid null;`);
     this.addSql(`alter table "mfa_challenges" add constraint "mfa_challenges_tenant_sign_in_attempt_unique" unique ("tenant_id", "sign_in_attempt_id");`);
+
+    this.addSql(`
+      insert into "encryption_maps" ("id", "entity_id", "tenant_id", "organization_id", "fields_json", "is_active", "created_at", "updated_at")
+      select gen_random_uuid(), 'security:sign_in_attempt', src."tenant_id", src."organization_id",
+        '[{"field":"email","hashField":"email_hash"},{"field":"ip_address","hashField":"ip_hash"},{"field":"user_agent"}]'::jsonb, true, now(), now()
+      from (
+        select distinct "tenant_id", "organization_id"
+        from "encryption_maps"
+        where "is_active" = true and "deleted_at" is null
+      ) src
+      where not exists (
+        select 1 from "encryption_maps" existing
+        where existing."entity_id" = 'security:sign_in_attempt'
+          and existing."tenant_id" is not distinct from src."tenant_id"
+          and existing."organization_id" is not distinct from src."organization_id"
+          and existing."deleted_at" is null
+      );
+    `);
   }
 
   override down(): void | Promise<void> {
+    this.addSql(`delete from "encryption_maps" where "entity_id" = 'security:sign_in_attempt';`);
     this.addSql(`drop table if exists "security_sign_in_notification_intents";`);
     this.addSql(`drop table if exists "security_sign_in_mfa_receipts";`);
     this.addSql(`drop table if exists "security_sign_in_attempts";`);
