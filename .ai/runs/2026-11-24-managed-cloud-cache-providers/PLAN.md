@@ -19,7 +19,12 @@ Branch: feat/managed-cloud-cache-providers
 | 1 | 1.4 | Extract shared managed-provider kit | dispatch | done | fe572766ae |
 | 1 | 1.5 | Client-auth capable TLS test certificates for cluster preflight | dispatch | done | 7b58bdfaea |
 | 1 | 1.6 | Record Phase 1 implementation in the spec changelog | dispatch | done | 959b89c9aa |
-| 1 | 1.7 | Archive Phase 1 Delta into enterprise capabilities spec | inline | done | (this commit) |
+| 1 | 1.7 | Archive Phase 1 Delta into enterprise capabilities spec | inline | done | 18a1c92645 |
+| 1 | 1.8-review-fix | Token-aware re-AUTH, real Google token expiry, AWS interval cap, gated-only exports and host env | inline | done | 84694002a5 |
+| 1 | 1.9-review-fix | Live harness skips when blocked and fails on real probe errors | inline | done | dbe706bc90 |
+| 1 | 1.10-review-fix | Drop broken kit testing exports and unused ioredis dependencies | inline | done | f13b00b52a |
+| 1 | 1.11-review-fix | SigV4 known-answer test vector | inline | done | 4d5e59b7e9 |
+| 1 | 1.12-review-fix | Memorystore TLS hostname risk in runbook and spec changelog | inline | done | cb7c0eb2ad |
 
 ## Goal
 
