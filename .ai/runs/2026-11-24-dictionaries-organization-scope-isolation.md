@@ -54,9 +54,9 @@ Enforce strict selected-organization isolation across dictionaries read and writ
 
 ### Phase 1: Enforce organization scoping in dictionaries context, entry routes, and commands
 
-- [ ] 1.1 Restrict `resolveDictionariesRouteContext` readable organization scope to the active selection (plus ancestors) and reject invalid selections
-- [ ] 1.2 Enforce selected-organization dictionary lookup on `POST /api/dictionaries/[dictionaryId]/entries` and align entry decryption scopes with active context
-- [ ] 1.3 Enforce active selected-organization scoping in `dictionaries.entries` command resolvers as defense-in-depth
+- [x] 1.1 Restrict `resolveDictionariesRouteContext` readable organization scope to the active selection (plus ancestors) and reject invalid selections — 2ce9d865ed
+- [x] 1.2 Enforce selected-organization dictionary lookup on `POST /api/dictionaries/[dictionaryId]/entries` and align entry decryption scopes with active context — 5612dc9c9a
+- [x] 1.3 Enforce active selected-organization scoping in `dictionaries.entries` command resolvers as defense-in-depth — 0cb11b640b
 
 ### Phase 2: Regression tests and validation
 
