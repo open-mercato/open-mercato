@@ -27,7 +27,8 @@ Follow-up PRs (stacked): OSS engine packages (`.ai/specs/2026-11-24-oss-cache-pr
 | 3 | 3.2-review-fix | Ignore registrations when unselected and key the selection memo | inline | done | 1bcf6de1c0 |
 | 3 | 3.3-review-fix | Provider init retry cooldown and terminal closed state | inline | done | 2008ab07e7 |
 | 3 | 3.4-review-fix | Defer the OAuth cache warning until the provider selection is prepared | inline | done | 7c31d651c5 |
-| 3 | 3.5-review-fix | Scrub DSN secrets in provider logs and show provider selection on system status | inline | done | (this commit) |
+| 3 | 3.5-review-fix | Scrub DSN secrets in provider logs and show provider selection on system status | inline | done | 08179f62c0 |
+| 3 | 3.6-review-fix | Document sanitized runtime errors, unselected registrations, retry cooldown, closed state and generate env | inline | done | (this commit) |
 
 ## Goal
 

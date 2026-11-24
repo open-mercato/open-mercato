@@ -48,7 +48,7 @@ export const cacheProviders = [
 - `load` is a literal dynamic import. Bundlers and Next build tracing follow it, and the package is only loaded when its ID is selected.
 - `settings` is called once per process, only for the selected provider. Read endpoints and credentials from named environment variables or secret references. The provider package documents its settings, defaults and validation.
 
-You can register several providers. Duplicate IDs, built-in names and invalid IDs are rejected at startup.
+You can register several providers. Duplicate IDs, built-in names and invalid IDs are rejected at startup **when a provider is selected**. With `CACHE_PROVIDER` unset the registrations are ignored entirely (not validated, loaded or evaluated), so a broken `mercato.cache.ts` cannot take down a stock deployment.
 
 Then regenerate the registries so the app, CLI, workers and scheduler all read the same manifest:
 
@@ -58,20 +58,25 @@ yarn generate
 
 The generator never evaluates `mercato.cache.ts`. It writes `.mercato/generated/cache-providers.generated.ts`, which re-exports your list, or an empty list when the file is absent. Re-run `yarn generate` whenever you add, rename or remove `mercato.cache.ts`.
 
+When a provider is selected, the post-generate purge (see [Generation purge](#generation-purge-and-cache-maintenance)) resolves it and therefore evaluates its `settings()`. Root `yarn generate` runs through turbo, which passes only `CACHE_*` variables to the generate task. Provider settings that read other environment variable names (for example `ACME_CACHE_ENDPOINT` above) must therefore live in the app's `.env` file, which the generator loads itself; variables exported only in your shell are dropped at the turbo boundary and the purge reports `invalid_settings`.
+
 ### 3. Select it with environment variables
 
 | Variable | Required | Meaning |
 |---|---|---|
 | `CACHE_PROVIDER` | to enable | Exact registered provider ID, for example `acme/example`. Empty or unset means "no provider" and keeps the legacy `CACHE_STRATEGY` behavior unchanged. |
 | `CACHE_PROVIDER_NAMESPACE` | yes, when a provider is selected | Stable, non-secret deployment identifier, unique per deployment on its backing service. 1 to 64 characters of letters, digits, `.`, `_` or `-`. The provider fences every key, index and scan inside it. |
-| `CACHE_PROVIDER_CONNECT_TIMEOUT_MS` | no (default `10000`) | Upper bound for provider initialization (`create()`). Exceeding it fails with `timeout`; the next cache operation retries. |
+| `CACHE_PROVIDER_CONNECT_TIMEOUT_MS` | no (default `10000`) | Upper bound for provider initialization (`create()`). Exceeding it fails with `timeout`; the next cache operation after the retry cooldown retries. |
+| `CACHE_PROVIDER_RETRY_COOLDOWN_MS` | no (default `1000`) | After a failed or timed-out initialization, operations within this window fail fast with the same error instead of calling `create()` again. `0` retries on every operation. |
 
 Precedence:
 
 1. An explicit programmatic `strategy` passed to `createCacheService(...)` wins over any ambient provider selection.
 2. Passing both an explicit `strategy` and an explicit `provider` programmatically is a configuration error (`conflicting_selection`).
 3. Otherwise, a non-empty `CACHE_PROVIDER` wins over `CACHE_STRATEGY`. `CACHE_STRATEGY`, `CACHE_REDIS_URL` and the other stock options are ignored while a provider is selected.
-4. With `CACHE_PROVIDER` unset, selection, defaults, codecs and stock fallbacks behave exactly as before.
+4. With `CACHE_PROVIDER` unset, selection, defaults, codecs and stock fallbacks behave exactly as before, and registrations are ignored.
+
+Each process resolves the selection once per combination of registrations, `CACHE_PROVIDER` and `CACHE_PROVIDER_NAMESPACE`. Calling `setCacheProviderRegistrations(...)` again, or preparing with a different selected ID or namespace, resolves again; a `not_registered` result against an empty registration list is never cached, so registering the manifest later recovers.
 
 `CACHE_TTL` (default TTL) and the compression settings (`CACHE_COMPRESSION`, `CACHE_COMPRESSION_MIN_BYTES`) are passed to the provider through its host context. Whether the provider honors compression is documented by the provider.
 
@@ -95,7 +100,7 @@ Each probe is bounded by the readiness timeout (1.5 seconds).
 Each provider reports a **placement** derived from its validated settings: `shared` (visible across processes and hosts) or `local` (per process or per node).
 
 - The production multi-instance guard (`mercato start` with `OM_MULTI_INSTANCE=1` or `OM_INSTANCE_COUNT>1`) treats a `shared` provider as safe, like `CACHE_STRATEGY=redis`. A `local` provider is reported as `CACHE_PROVIDER=<id>` and refuses to start unless `OM_ALLOW_SINGLE_INSTANCE_STRATEGIES=1`. The guard loads the generated manifest and resolves the provider before judging it, so an invalid selection aborts the start.
-- The OAuth state replay-store startup warning is skipped for a `shared` provider and names `CACHE_PROVIDER` for a `local` one. A shared cache provides cross-replica visibility. It does not make the OAuth check-then-set sequence atomic and does not prevent backend eviction, so pick an eviction policy that does not drop short-lived security markers under pressure.
+- The OAuth state replay-store startup warning is skipped for a `shared` provider and names `CACHE_PROVIDER` for a `local` one. When the module loads before bootstrap has prepared the selection, the check is deferred and re-run once bootstrap prepares it; it never falls back to `CACHE_STRATEGY` while a provider is selected. A shared cache provides cross-replica visibility. It does not make the OAuth check-then-set sequence atomic and does not prevent backend eviction, so pick an eviction policy that does not drop short-lived security markers under pressure.
 
 Do not point a provider at a replica or read-only endpoint whose stale reads could defeat invalidation.
 
@@ -123,7 +128,7 @@ Existing stock Redis deployments need no reinstall or migration: nothing changes
 
 ### Error codes
 
-Every provider failure surfaces as a `CacheProviderError` with a stable `code`. Messages contain only provider IDs, codes and settings field paths. Settings values, endpoints and credentials never appear in them.
+Every provider failure surfaces as a `CacheProviderError` with a stable `code`. Messages contain only provider IDs, codes, operation names and settings field paths. Settings values, endpoints and credentials never appear in them. This also covers runtime failures: an error thrown by any provider operation (`get`, `set`, `deleteByTags`, `healthcheck`, `close`, ...) is rethrown as `unavailable` with a host-authored message such as `Cache provider "acme/example" get failed`. The original driver error is kept only as a non-enumerable `originalError` and never serialized or logged by the host.
 
 | Code | Meaning | What to do |
 |---|---|---|
@@ -138,7 +143,7 @@ Every provider failure surfaces as a `CacheProviderError` with a stable `code`. 
 | `missing_namespace` | A provider is selected but `CACHE_PROVIDER_NAMESPACE` is empty. | Set a stable deployment namespace. |
 | `invalid_namespace` | The namespace has invalid characters or length. | Use 1 to 64 letters, digits, `.`, `_` or `-`. |
 | `conflicting_selection` | Code passed both an explicit stock `strategy` and an explicit `provider`. | Pass one of them. |
-| `unavailable` | Provider initialization or a maintenance operation failed, or the client was closed during initialization. | Check backend reachability and credentials. The next operation retries. |
+| `unavailable` | Provider initialization or a cache operation failed, or the client is closed (closed during initialization, or used after `close()`). | Check backend reachability and credentials. After an init failure the next operation past `CACHE_PROVIDER_RETRY_COOLDOWN_MS` retries. A closed client never reconnects; create a new service. |
 | `timeout` | Initialization exceeded `CACHE_PROVIDER_CONNECT_TIMEOUT_MS`. | Check network access or raise the timeout. |
 | `not_resolved` | `CACHE_PROVIDER` is set but the selection was not prepared before the cache was created, for example in a custom entry point. | Call `prepareCacheProviderSelection()` after `setCacheProviderRegistrations(...)` during bootstrap. Standard entry points do this. |
 
@@ -182,7 +187,7 @@ export const provider = defineCacheProvider<AcmeCacheSettings>({
 
 - **`settings`** is structural: any object with `safeParse(input)` returning `{ success: true, data }` or `{ success: false, error: { issues: [{ path, message }] } }`. Zod schemas fit as-is. A hand-written validator works too (see the fixture provider). Make the schema strict, enforce cross-field rules, and fill defaults there. The host reports only issue **paths** (`invalid_settings` with `fieldPaths`), never values.
 - **`capability(config)`** returns `{ placement: 'shared' | 'local' }` from the validated config. Report `shared` only when every process of the deployment sees the same data and invalidations. Back that claim with the cross-process conformance test.
-- **`create(config, context)`** returns the base strategy, sync or async. It is called lazily on the first cache operation, bounded by `CACHE_PROVIDER_CONNECT_TIMEOUT_MS`. Concurrent callers share one in-flight connect. A failed or timed-out init closes the partially created strategy, and the next operation retries.
+- **`create(config, context)`** returns the base strategy, sync or async. It is called lazily on the first cache operation, bounded by `CACHE_PROVIDER_CONNECT_TIMEOUT_MS`. Concurrent callers share one in-flight connect. A failed or timed-out init closes the partially created strategy; operations within `CACHE_PROVIDER_RETRY_COOLDOWN_MS` reuse that failure, and the first operation after the cooldown retries. Errors you throw are wrapped into a host-authored `CacheProviderError` (a real `CacheProviderError` instance from `@open-mercato/cache/provider` passes through unchanged; a look-alike is re-wrapped), so do not rely on your message reaching operators.
 - **`redact(config)`** (optional) returns a log-safe summary. Never include credentials or endpoints.
 
 ### Required strategy methods
@@ -190,7 +195,7 @@ export const provider = defineCacheProvider<AcmeCacheSettings>({
 The returned object must implement `get`, `set`, `has`, `delete`, `deleteByTags`, `clear`, `keys`, `stats`, **`healthcheck`** and **`close`**. Otherwise initialization fails with `invalid_registration`. `cleanup` is optional; without it the host reports `0`.
 
 - `healthcheck()` must be non-mutating and cheap. It backs `/api/healthz`.
-- `close()` must release every connection and be safe to call more than once.
+- `close()` must release every connection and be safe to call more than once. The host calls it once; after that the host handle is terminal and rejects every operation with `unavailable` without calling your strategy again.
 - `get(key, { returnExpired: true })` may return expired records that the backend still retains. Physical expiry and eviction may already have removed them.
 
 ### Host context
@@ -205,7 +210,7 @@ The returned object must implement `get`, `set`, `has`, `delete`, `deleteByTags`
 | `helpers.encode(json)` | Shared codec: returns plain text or a compressed `Buffer`, as configured. |
 | `helpers.decode(raw)` | Reverses `encode` and detects the format by magic bytes. **Throws on a corrupt or truncated frame.** |
 | `helpers.matchPattern(key, pattern)` | Glob matching (`*`, `?`) with the same semantics as the stock strategies. Use it for `keys(pattern)`. |
-| `logger.warn/error(message, meta)` | Prefixed, sanitized logger. Meta keys that look secret (`password`, `token`, `url`, `endpoint`, and similar) are redacted. |
+| `logger.warn/error(message, meta)` | Prefixed, sanitized logger. Meta keys that look secret (`password`, `token`, `url`, `endpoint`, and similar) are redacted. In string values, URL user-info (`scheme://user:pass@` becomes `scheme://***@`) and `password=...`-style pairs are masked; nested objects are omitted and `Error` values reduced to their name. |
 
 The context deliberately carries no request container, tenant credentials, environment object or shared transport handle.
 
