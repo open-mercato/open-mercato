@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
+
+An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
+
+Callers that send `callSettings` to such an agent must drop them, or the agent author must allow runtime overrides. The agent's own `modelSettings` still apply, an empty `callSettings` object is treated as absent, and agents without the flag (the default, permissive) are unaffected. No first-party agent sets the flag to `false`. No database migration or configuration change is required.
+
 ## MFA challenge creation failures deny sign-in (#10456)
 
 Staff sign-in now fails closed with the localized generic login error (`{ ok: false, error }`) when the enabled enterprise MFA service cannot read methods, resolve a registered provider, or create a challenge. Clients must treat that non-successful response as unauthenticated and retry after the service recovers; it contains no access token, refresh token, or authentication cookie, emits `auth.login.failed` instead of `auth.login.success`, and leaves no orphaned challenge rows. Successful MFA and accounts verified to have no active MFA methods retain their existing flows.
