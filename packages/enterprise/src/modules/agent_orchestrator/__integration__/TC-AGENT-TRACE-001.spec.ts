@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { listActionLogs } from '@open-mercato/core/modules/audit_logs/__integration__/helpers/auditLogsApi'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { deleteAgentRunsWithTraceByIds } from './helpers/agentPerfFixtures'
 import { signTraceIngest, TRACE_INGEST_HEADERS } from '../lib/trace/ingestAuth'
@@ -199,19 +200,25 @@ test.describe('TC-AGENT-TRACE-001: trace ingest, query, idempotency, HMAC gate',
         const skipped = await client.query('select id from agent_spans where agent_run_id = $1', [stale.id])
         expect(skipped.rows).toHaveLength(0)
         const logs = await client.query(
-          `select actor_user_id, tenant_id, organization_id, source_key, context_json, command_payload
-             from action_logs where command_id = 'agent_orchestrator.trace.ingest' and resource_id = $1`,
-          [current.id],
+          `select source_key, command_payload from action_logs
+             where resource_id = $1 and tenant_id = $2 and organization_id = $3`,
+          [current.id, tenantId, organizationId],
         )
-        expect(logs.rows).toEqual([expect.objectContaining({
-          actor_user_id: null,
-          tenant_id: tenantId,
-          organization_id: organizationId,
-          source_key: 'api',
-          context_json: expect.objectContaining({ systemActor: 'system:trace-ingest-webhook' }),
-          command_payload: null,
-        })])
+        expect(logs.rows).toEqual([{ source_key: 'api', command_payload: null }])
       })
+
+      const audit = await listActionLogs(request, token, {
+        resourceKind: 'agent_orchestrator:agent_run',
+        resourceId: current.id,
+      })
+      expect(audit.status).toBe(200)
+      expect(audit.body?.items).toEqual([expect.objectContaining({
+        actorUserId: null,
+        commandId: 'agent_orchestrator.trace.ingest',
+        tenantId,
+        organizationId,
+        context: expect.objectContaining({ systemActor: 'system:trace-ingest-webhook' }),
+      })])
     } finally {
       await deleteAgentRunsWithTraceByIds(runIds)
       await withClient(async (client) => {
