@@ -720,6 +720,6 @@ The STABLE attachment library API response and the enrichment helper signature r
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
 
-## Platform scope and execution limits (2026-11-24)
+## Scope hardening (2026-11-24)
 
-STABLE authorization and vector operation behavior: retain request shapes and the driver signature. Reject unsafe delegation, writes and shared-index resizing. See [scope spec](.ai/specs/2026-11-24-scoped-resource-administration.md) and [upgrade notes](UPGRADE_NOTES.md).
+STABLE authorization and vector behavior: keep request shapes and driver signature. Reject unsafe delegation, writes and index resizing. [Upgrade notes](UPGRADE_NOTES.md).
