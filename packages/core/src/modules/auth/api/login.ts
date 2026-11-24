@@ -18,6 +18,36 @@ import { getAppBaseUrl, isCrossSiteBrowserRequest } from '@open-mercato/shared/l
 import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
 import { isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+
+const logger = createLogger('auth.api')
+
+function reportLoginFailure(
+  error: unknown,
+  code: 'auth.login_interceptor_failed' | 'auth.login_revoke_failed',
+  message: string,
+  attributes?: Record<string, string | number | boolean>,
+): void {
+  try {
+    logger.error(message, { err: error, code, ...(attributes ?? {}) })
+  } catch {
+    // Never let logging prevent the fail-closed response.
+  }
+  try {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'auth',
+      code,
+      ...(attributes ? { attributes } : {}),
+    })
+  } catch (telemetryError) {
+    try {
+      logger.warn('Failed to report auth login error to telemetry', { err: telemetryError, code })
+    } catch {
+      // Never let telemetry prevent the fail-closed response.
+    }
+  }
+}
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
@@ -213,7 +243,6 @@ async function handleLoginRequest(req: Request) {
     email: user.email,
     roles: userRoleNames
   })
-  void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,
@@ -248,8 +277,32 @@ async function handleLoginRequest(req: Request) {
     },
   })
   if (!interceptedResponse.ok) {
-    return NextResponse.json(interceptedResponse.body, { status: interceptedResponse.statusCode })
+    const interceptorError = new Error(`Login after-interceptor failed with status ${interceptedResponse.statusCode}`)
+    reportLoginFailure(
+      interceptorError,
+      'auth.login_interceptor_failed',
+      'Login after-interceptor failed; revoking provisional session and denying login',
+      { statusCode: interceptedResponse.statusCode },
+    )
+    try {
+      await auth.deleteSessionById(String(loginSession.id))
+    } catch (error) {
+      reportLoginFailure(
+        error,
+        'auth.login_revoke_failed',
+        'Failed to revoke provisional session after login after-interceptor failure',
+      )
+    }
+    void emitAuthEvent('auth.login.failed', {
+      email: parsed.data.email,
+      reason: 'after_interceptor_failed',
+    }).catch(() => undefined)
+    return NextResponse.json(
+      { ok: false, error: translate('auth.login.errors.generic', 'An error occurred. Please try again.') },
+      { status: interceptedResponse.statusCode },
+    )
   }
+  void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
 
   const interceptedBody = interceptedResponse.body
   const authTokenForCookie = typeof interceptedBody.token === 'string' && interceptedBody.token.length > 0
