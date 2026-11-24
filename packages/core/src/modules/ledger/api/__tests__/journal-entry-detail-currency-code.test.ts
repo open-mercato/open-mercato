@@ -1,9 +1,9 @@
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
-import { LedgerAccount } from '../../data/entities'
+import { JournalEntryLine, LedgerAccount } from '../../data/entities'
 
 const mockFindAndCount = jest.fn()
 const mockFind = jest.fn()
-const mockFindWithDecryption = jest.fn()
+const mockFindLines = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: async () => ({ sub: 'viewer', tenantId: 'tenant-a', orgId: 'org-a' }),
@@ -20,7 +20,8 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
+  findWithDecryption: (_em: unknown, entity: unknown, where: unknown, options: unknown) =>
+    entity === JournalEntryLine ? mockFindLines() : mockFind(entity, where, options),
 }))
 
 const ENTRY_ID = '11111111-1111-4111-8111-111111111111'
@@ -77,7 +78,7 @@ async function loadDetailLines() {
 }
 
 it('returns a readable currency code next to the unchanged currency id on each line', async () => {
-  mockFindWithDecryption.mockResolvedValue([
+  mockFindLines.mockResolvedValue([
     line('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', PLN_ID, '430.0017', '0'),
     line('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', EUR_ID, '0', '430.0017'),
   ])
@@ -90,7 +91,7 @@ it('returns a readable currency code next to the unchanged currency id on each l
 })
 
 it('falls back to the currency id when the code cannot be resolved', async () => {
-  mockFindWithDecryption.mockResolvedValue([
+  mockFindLines.mockResolvedValue([
     line('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', PLN_ID, '430.0017', '0'),
     line('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', MISSING_ID, '0', '430.0017'),
   ])

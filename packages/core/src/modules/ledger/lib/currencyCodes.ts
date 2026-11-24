@@ -1,14 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type CurrencyScope = { organizationId: string; tenantId: string }
 
 /**
  * Readable codes for the currencies of journal lines, resolved on the server in
- * the entry's own organization and tenant. The ledger already reads `Currency`
- * this way when it posts (`postJournalEntry`), so this adds no dependency and
- * needs no currencies permission: the code is part of the ledger detail the
- * caller can already read.
+ * the entry's own organization and tenant as part of the ledger detail.
  *
  * Soft-deleted currencies are included on purpose: a posted line keeps the
  * currency it was posted in, and its code stays a fact of that line after the
@@ -21,10 +19,12 @@ export async function loadCurrencyCodes(
 ): Promise<Map<string, string>> {
   const ids = [...new Set(currencyIds.filter((id) => typeof id === 'string' && id.length > 0))]
   if (!ids.length) return new Map()
-  const currencies = await em.find(
+  const currencies = await findWithDecryption(
+    em,
     Currency,
-    { id: { $in: ids }, organizationId: scope.organizationId, tenantId: scope.tenantId },
+    { id: { $in: ids }, ...scope },
     { fields: ['id', 'code'] },
+    scope,
   )
   const codes = new Map<string, string>()
   for (const currency of currencies) {
