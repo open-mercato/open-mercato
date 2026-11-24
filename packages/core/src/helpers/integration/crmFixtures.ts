@@ -76,6 +76,7 @@ export async function createDealFixture(
   token: string,
   input: {
     title: string;
+    description?: string;
     companyIds?: string[];
     personIds?: string[];
     pipelineId?: string;
@@ -93,6 +94,7 @@ export async function createDealFixture(
   },
 ): Promise<string> {
   const data: Record<string, unknown> = { title: input.title };
+  if (input.description !== undefined) data.description = input.description;
   if (input.companyIds?.length) data.companyIds = input.companyIds;
   if (input.personIds?.length) data.personIds = input.personIds;
   if (input.pipelineId) data.pipelineId = input.pipelineId;

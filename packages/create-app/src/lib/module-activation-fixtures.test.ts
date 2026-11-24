@@ -9,11 +9,9 @@ import { buildSync } from 'esbuild'
 import {
   DESIGN_SYSTEM_ACTIVATION_ENTRY,
   EXAMPLE_ACTIVATION_ENTRY,
-  EXAMPLE_INTEGRATION_ACTIVATION_ENTRY,
   assertDesignSystemActivation,
   assertExampleActivation,
   assertModulesUnregistered,
-  enableModuleEntry,
   runActivationFixture,
   type ModuleActivationEntry,
 } from '../../../../scripts/lib/module-activation-fixtures.ts'
@@ -208,13 +206,15 @@ test('enabling the design_system module in a generated app registers the gallery
   await runFixture(DESIGN_SYSTEM_ACTIVATION_ENTRY, assertDesignSystemActivation)
 })
 
-test('standalone integration activation evaluates the example overrides with design_system', async () => {
+test('standalone integration preparation registers the example and test-app component overrides', async () => {
   const { appDir, generate } = await prepareFixtureApp()
   const modulesPath = path.join(appDir, 'src', 'modules.ts')
   const baselineSource = fs.readFileSync(modulesPath, 'utf8')
   try {
-    enableModuleEntry(modulesPath, EXAMPLE_INTEGRATION_ACTIVATION_ENTRY)
-    enableModuleEntry(modulesPath, DESIGN_SYSTEM_ACTIVATION_ENTRY)
+    const prepared = spawnSync(process.execPath, [
+      '--import', 'tsx', 'scripts/prepare-standalone-example-integration.ts', appDir,
+    ], { cwd: REPO_ROOT, encoding: 'utf8' })
+    assert.equal(prepared.status, 0, prepared.stderr)
     await generate()
     assertAppModulesEvaluate(appDir)
 
@@ -225,6 +225,8 @@ test('standalone integration activation evaluates the example overrides with des
     assert.match(source, /injection: \{ 'example:override-probe:widget': null \}/)
     assert.match(source, /'GET \/api\/example\/override-probe'/)
     assert.match(source, /source: 'modules\.ts override'/)
+    const registry = fs.readFileSync(path.join(appDir, '.mercato/generated/component-overrides.generated.ts'), 'utf8')
+    assert.match(registry, /modules\/deal_card_reference\/widgets\/components["']/)
   } finally {
     fs.writeFileSync(modulesPath, baselineSource)
     await generate()

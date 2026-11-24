@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { cpSync } from 'node:fs'
 import path from 'node:path'
 
 import {
@@ -19,6 +20,13 @@ async function main(): Promise<void> {
   const configPath = modulesConfigPath(appDir)
   enableModuleEntry(configPath, EXAMPLE_INTEGRATION_ACTIVATION_ENTRY)
   enableModuleEntry(configPath, DESIGN_SYSTEM_ACTIVATION_ENTRY)
+  const cardFixture = 'deal_card_reference'
+  cpSync(path.resolve(__dirname, 'fixtures', 'modules', cardFixture), path.join(appDir, 'src', 'modules', cardFixture), {
+    recursive: true,
+    force: false,
+    errorOnExist: true,
+  })
+  enableModuleEntry(configPath, { id: cardFixture, from: '@app' })
 
   console.log(`Verified the runtime-disabled module baseline and activated the standalone integration fixtures in ${appDir}`)
 }

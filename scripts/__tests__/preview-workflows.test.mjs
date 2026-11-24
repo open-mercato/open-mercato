@@ -220,7 +220,7 @@ test('standalone example activation helper is executable through the workflow CJ
   assert.doesNotMatch(output, /Top-level await is currently not supported/)
   assert.match(activationScript, /EXAMPLE_INTEGRATION_ACTIVATION_ENTRY/)
   assert.match(activationScript, /DESIGN_SYSTEM_ACTIVATION_ENTRY/)
-  assert.equal(countOccurrences(activationScript, 'enableModuleEntry(configPath,'), 2)
+  assert.equal(countOccurrences(activationScript, 'enableModuleEntry(configPath,'), 3)
 })
 
 test('auto publish skill only dispatches pkg.pr.new previews and is tiered as automation', () => {
