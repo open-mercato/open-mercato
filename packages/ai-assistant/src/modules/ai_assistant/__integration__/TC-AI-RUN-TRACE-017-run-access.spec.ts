@@ -33,7 +33,7 @@ import {
  *   - `runs.view` + `runs.view_all`: every run of the tenant/organization.
  *   - no `runs.view`: 403 on every runs route.
  */
-const PASSWORD = 'Secret123!';
+const PASSWORD = 'QaSecret123!';
 
 async function listRunIds(request: APIRequestContext, token: string, agentId: string): Promise<string[]> {
   const response = await apiRequest(request, 'GET', `${AGENT_RUNS_API}?agentId=${encodeURIComponent(agentId)}`, {
