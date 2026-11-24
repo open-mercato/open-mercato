@@ -10,7 +10,10 @@ const mockApiCall = jest.fn()
 let mockScopeVersion = 0
 let mockOrganizationId = 'organization-1'
 
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }) }))
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const translate = (key: string, fallback?: unknown) => typeof fallback === 'string' ? fallback : key
   return { useT: () => translate }
@@ -52,7 +55,18 @@ jest.mock('../components/AddStageLane', () => ({ AddStageLane: () => null }))
 jest.mock('../components/EntityFilterPopover', () => ({ EntityFilterPopover: () => null }))
 jest.mock('../components/CloseDateFilterPopover', () => ({ CloseDateFilterPopover: () => null }))
 jest.mock('../components/StatusFilterPopover', () => ({ StatusFilterPopover: () => null }))
-jest.mock('../components/PipelineFilterPopover', () => ({ PipelineFilterPopover: () => null }))
+jest.mock('../components/PipelineFilterPopover', () => ({
+  PipelineFilterPopover: ({ pipelines, selectedPipelineId, onApply }: {
+    pipelines: { id: string; name: string }[]
+    selectedPipelineId: string | null
+    onApply: (pipelineId: string | null) => void
+  }) => (
+    <select aria-label="Filter pipeline" value={selectedPipelineId ?? ''} onChange={(event) => onApply(event.target.value || null)}>
+      <option value="">All pipelines</option>
+      {pipelines.map((pipeline) => <option key={pipeline.id} value={pipeline.id}>{pipeline.name}</option>)}
+    </select>
+  ),
+}))
 jest.mock('../components/LaneCurrencyBreakdown', () => ({ LaneCurrencyBreakdown: () => null }))
 jest.mock('../components/FilterBarRow', () => ({
   FilterBarRow: ({ leadingChips, sortNode }: { leadingChips: React.ReactNode; sortNode: React.ReactNode }) => <>{leadingChips}{sortNode}</>,
@@ -137,6 +151,7 @@ async function chooseSort(value: SortOption) {
 
 describe('Deals Kanban pagination', () => {
   beforeEach(() => {
+    window.history.replaceState(null, '', '/backend/customers/deals/pipeline')
     mockScopeVersion = 0
     mockOrganizationId = 'organization-1'
     mockApiCall.mockReset()
@@ -153,7 +168,48 @@ describe('Deals Kanban pagination', () => {
     })
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('writes the selected pipeline into the current URL and restores it when the board remounts', async () => {
+    const defaultApi = mockApiCall.getMockImplementation()!
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/customers/pipelines') {
+        return { ok: true, result: { items: [
+          { id: 'pipeline-1', name: 'Sales', isDefault: true },
+          { id: 'pipeline-2', name: 'Renewals', isDefault: false },
+        ] } }
+      }
+      return defaultApi(url)
+    })
+    window.history.replaceState(null, '', '?unrelated=keep#board')
+    const historyLength = window.history.length
+    const board = renderBoard()
+    const pipelineFilter = screen.getByRole('combobox', { name: 'Filter pipeline' })
+    await waitFor(() => expect(pipelineFilter).toHaveValue('pipeline-1'))
+    fireEvent.change(pipelineFilter, { target: { value: 'pipeline-2' } })
+    expect(window.location.search).toBe('?unrelated=keep&pipelineId=pipeline-2')
+    expect(window.location.hash).toBe('#board')
+    expect(window.history.length).toBe(historyLength)
+
+    board.unmount()
+    mockApiCall.mockClear()
+    const returningBoard = renderBoard()
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Filter pipeline' })).toHaveValue('pipeline-2'))
+    const stageRequests = mockApiCall.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.startsWith('/api/customers/pipeline-stages?'))
+    expect(stageRequests).toEqual(['/api/customers/pipeline-stages?pipelineId=pipeline-2'])
+
+    window.history.replaceState(null, '', '?unrelated=keep&pipelineId=unavailable#board')
+    returningBoard.rerender(<DealsKanbanPage />)
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Filter pipeline' })).toHaveValue('pipeline-1'))
+    expect(mockApiCall.mock.calls.map(([url]) => String(url))).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('pipelineId=unavailable')]),
+    )
+  })
 
   it('restarts at page 2 after reversing sort and keeps all 60 unique deals reachable', async () => {
     renderBoard()

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
@@ -429,11 +429,11 @@ export default function DealsKanbanPage(): React.ReactElement {
     ViewTabsRow,
   )
   const router = useRouter()
+  const requestedPipelineId = useSearchParams()?.get('pipelineId')
   const scopeVersion = useOrganizationScopeVersion()
   const activeOrgId = useCurrentOrganization()?.id ?? null
   const queryClient = useQueryClient()
 
-  const [selectedPipelineId, setSelectedPipelineId] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState('')
   const [sortBy, setSortBy] = React.useState<SortOption>(DEFAULT_SORT)
   const [statusFilters, setStatusFilters] = React.useState<string[]>([])
@@ -494,13 +494,19 @@ export default function DealsKanbanPage(): React.ReactElement {
     },
   })
 
-  React.useEffect(() => {
-    if (selectedPipelineId) return
-    const pipelines = pipelinesQuery.data
-    if (!pipelines || !pipelines.length) return
-    const defaultPipeline = pipelines.find((pipeline) => pipeline.isDefault) ?? pipelines[0]
-    if (defaultPipeline) setSelectedPipelineId(defaultPipeline.id)
-  }, [pipelinesQuery.data, selectedPipelineId])
+  const activePipeline = pipelinesQuery.data?.find((pipeline) => pipeline.id === requestedPipelineId)
+    ?? pipelinesQuery.data?.find((pipeline) => pipeline.isDefault)
+    ?? pipelinesQuery.data?.[0]
+  const selectedPipelineId = activePipeline?.id ?? null
+  const activePipelineName = activePipeline?.name ?? ''
+
+  const handlePipelineChange = React.useCallback((pipelineId: string | null) => {
+    const url = new URL(window.location.href)
+    if (pipelineId === url.searchParams.get('pipelineId')) return
+    if (pipelineId) url.searchParams.set('pipelineId', pipelineId)
+    else url.searchParams.delete('pipelineId')
+    window.history.replaceState(null, '', url)
+  }, [])
 
   const staffQuery = useQuery<AssignableStaffMember[]>({
     queryKey: ['customers', 'deals', 'kanban', 'staff', `scope:${scopeVersion}`, activeOrgId],
@@ -1734,11 +1740,6 @@ export default function DealsKanbanPage(): React.ReactElement {
     setSortBy(DEFAULT_SORT)
   }, [])
 
-  const activePipelineName = React.useMemo(() => {
-    if (!selectedPipelineId) return ''
-    return pipelinesQuery.data?.find((pipeline) => pipeline.id === selectedPipelineId)?.name ?? ''
-  }, [pipelinesQuery.data, selectedPipelineId])
-
   const stageLabelById = React.useMemo(() => {
     const map = new Map<string, string>()
     for (const lane of lanes) map.set(lane.id, lane.label)
@@ -2514,7 +2515,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       <PipelineFilterPopover
         pipelines={pipelineFilterOptions}
         selectedPipelineId={selectedPipelineId}
-        onApply={setSelectedPipelineId}
+        onApply={handlePipelineChange}
       />
       {boardSummary && boardSummary.rows.length > 0 ? (
         <CurrencyFilterPopover
@@ -2558,11 +2559,6 @@ export default function DealsKanbanPage(): React.ReactElement {
   )
 
   const sortNode = <SortByPopover value={sortBy} onApply={setSortBy} />
-
-  const activePipeline = React.useMemo(() => {
-    if (!selectedPipelineId) return null
-    return pipelinesQuery.data?.find((pipeline) => pipeline.id === selectedPipelineId) ?? null
-  }, [pipelinesQuery.data, selectedPipelineId])
 
   const quickDealDefaultProbability = React.useMemo(() => {
     if (!activePipeline?.stageProbabilitiesEnabled || !quickDealContext) return undefined
@@ -2740,7 +2736,7 @@ export default function DealsKanbanPage(): React.ReactElement {
               </span>
               <Select
                 value={selectedPipelineId ?? undefined}
-                onValueChange={(value) => setSelectedPipelineId(value || null)}
+                onValueChange={handlePipelineChange}
               >
                 <SelectTrigger className="w-auto min-w-48">
                   <SelectValue />
