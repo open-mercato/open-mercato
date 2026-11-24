@@ -93,7 +93,7 @@ test.describe('TC-MSG-9201: messages keep working without the attachments module
         await expect(page.getByRole('alert').filter({ hasText: /not found/i })).toHaveCount(0)
         await page.getByRole('textbox', { name: 'Subject', exact: true }).fill(`${action} ${fixtureId}`)
         await page.getByPlaceholder('Write your message...').fill('Message without attachments')
-        if (action === 'Send') await selectRecipientFromComposer(page, email)
+        if (action === 'Send') await selectRecipientFromComposer(page.getByRole('main'), email)
         if (action === 'Send' && process.env.PW_CAPTURE_SCREENSHOTS === '1') {
           await page.screenshot({ path: testInfo.outputPath('compose-without-attachments.png'), fullPage: true })
         }
@@ -123,7 +123,7 @@ test.describe('TC-MSG-9201: messages keep working without the attachments module
       await page.getByRole('button', { name: 'Conversation actions', exact: true }).hover()
       await page.getByRole('menuitem', { name: 'Forward all', exact: true }).click()
       await page.getByPlaceholder('Review and edit forwarded content...').fill('Forwarded without attachments')
-      await selectRecipientFromComposer(page, 'employee@acme.com')
+      await selectRecipientFromComposer(page.getByRole('main'), 'employee@acme.com')
 
       const forwarding = page.waitForResponse((response) => response.request().method() === 'POST'
         && new URL(response.url()).pathname === `/api/messages/${fixture.messageId}/forward`)
