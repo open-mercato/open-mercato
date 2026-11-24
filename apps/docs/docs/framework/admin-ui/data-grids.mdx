@@ -3,37 +3,64 @@ title: Building data grids
 description: Render sortable, filterable tables backed by the query engine.
 ---
 
-Admin list pages usually rely on the `DataGrid` component from `@open-mercato/ui`. It pairs beautifully with the [query engine](../database/query-engine) to deliver fast, tenant-aware listings.
+Admin list pages use the `DataTable` component from `@open-mercato/ui`. It renders the rows you pass in; loading data is the page's job, usually through TanStack Query and the CRUD list helper, which talk to routes backed by the [query engine](../database/query-engine).
 
 ## Minimal grid example
 
 ```tsx title="backend/inventory/items/page.tsx"
-import { DataGrid } from '@open-mercato/ui/backend/DataGrid';
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall';
+'use client'
 
-const columns = [
-  { id: 'sku', header: 'SKU', width: 140 },
-  { id: 'name', header: 'Name', minWidth: 240 },
-  { id: 'onHand', header: 'On hand', align: 'right' },
-];
+import * as React from 'react'
+import { useQuery } from '@tanstack/react-query'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { fetchCrudList } from '@open-mercato/ui/backend/utils/crud'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
-export default async function InventoryGrid() {
-  const data = await readApiResultOrThrow('/api/inventory/items?limit=50');
+type InventoryItem = { id: string; sku: string; name: string; onHand: number }
+
+export default function InventoryGrid() {
+  const t = useT()
+  const scopeVersion = useOrganizationScopeVersion()
+  const [page, setPage] = React.useState(1)
+  const pageSize = 50
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['inventory-items', page, scopeVersion],
+    queryFn: () => fetchCrudList<InventoryItem>('inventory/items', { page, pageSize }),
+  })
+
+  const columns = React.useMemo<ColumnDef<InventoryItem>[]>(
+    () => [
+      { accessorKey: 'sku', header: t('inventory.items.columns.sku') },
+      { accessorKey: 'name', header: t('inventory.items.columns.name') },
+      { accessorKey: 'onHand', header: t('inventory.items.columns.onHand') },
+    ],
+    [t],
+  )
+
   return (
-    <DataGrid
-      title="Inventory"
+    <DataTable
+      title={t('inventory.items.title')}
       columns={columns}
-      rows={data.items}
-      defaultSort={[{ id: 'updated_at', dir: 'desc' }]}
-      canExport
+      data={data?.items ?? []}
+      isLoading={isLoading}
+      pagination={{
+        page,
+        pageSize,
+        total: data?.total ?? 0,
+        totalPages: data?.totalPages ?? 1,
+        onPageChange: setPage,
+      }}
     />
-  );
+  )
 }
 ```
 
 ## Filters and custom fields
 
-The query engine lets you filter by base fields, extension fields, and custom fields using a single JSON filter definition. The `DataGrid` exposes `filters` and `onFiltersChange` props to render filter UIs.
+The query engine lets you filter by base fields, extension fields, and custom fields using a single JSON filter definition. `DataTable` takes `filters` (definitions), `filterValues`, `onFiltersApply` and `onFiltersClear` to render the filter bar; the page turns the applied values into query parameters for the list route.
 
 ```tsx
 const filters = [
