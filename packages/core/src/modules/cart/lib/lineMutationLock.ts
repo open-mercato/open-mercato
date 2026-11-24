@@ -24,7 +24,9 @@ export async function withCartLineMutationLock(
   label: string,
   waitDeadlineMs = 15_000,
 ): Promise<void> {
-  const cartIds = typeof cartId === 'string' ? [cartId] : Array.from(new Set(cartId)).sort()
+  const cartIds = typeof cartId === 'string'
+    ? [cartId]
+    : Array.from(new Set(cartId)).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
   const deadline = Date.now() + waitDeadlineMs
   const busy = new Error('[internal] Cart line mutation lock is busy')
   const joinsTransaction = em.isInTransaction()
