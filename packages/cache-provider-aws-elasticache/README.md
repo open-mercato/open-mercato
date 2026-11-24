@@ -54,6 +54,8 @@ CACHE_PROVIDER=open-mercato/aws-elasticache
 CACHE_PROVIDER_NAMESPACE=prod-euw1-1
 ```
 
+`awsElastiCacheCacheProviderRegistration` is the package's only supported entry point: the package exports no ungated provider definition (no `provider` or default export). When the host resolves providers with an explicit env (`resolveCacheProvider(registrations, { env })`), pass the same object as `env` to the helper so the Enterprise gate reads it; otherwise the gate reads `process.env` when the cache is initialized.
+
 AWS credentials come from the SDK default chain (environment, web identity/IRSA, ECS task role, EC2 instance profile, SSO, shared profile) — never from settings.
 
 ## Settings
@@ -71,14 +73,14 @@ Strict zod schema discriminated by `engine`; each engine variant pins `deploymen
 | `auth.replicationGroupId` | — | Lowercase replication group id used as the SigV4 signing resource |
 | `auth.region` | — | e.g. `eu-west-1` |
 | `auth.credentials` | `default-chain` | Only the SDK default chain; no keys in settings |
-| `auth.reauthIntervalMs` | `600000` | Live re-AUTH cadence (60 s – 30 min) |
+| `auth.reauthIntervalMs` | `600000` | Longest gap between live re-AUTHs (60 s – 10 min; capped inside the 900 s token TTL) |
 | `tls.ca` / `tls.servername` | system trust / `host` | TLS is mandatory; hostname verification always on; no bypass key |
 | tuning | as RESP library | `connectTimeoutMs`, `commandTimeoutMs`, `maxRetriesPerRequest`, `batchSize`, `maxValueBytes` |
 
 ### IAM authentication
 
 - Token = SigV4 presigned `GET http://<replicationGroupId>/?Action=connect&User=<userId>` for service `elasticache`, `X-Amz-Expires=900`, without the `http://` scheme; sent as `AUTH <userId> <token>`.
-- Tokens are re-signed 5 minutes before their 15-minute expiry; every reconnect uses a fresh token and all live connections re-run `AUTH` every `reauthIntervalMs` (well inside ElastiCache's 12-hour IAM connection limit).
+- Tokens are re-signed 5 minutes before their 15-minute expiry; every reconnect uses a current token, and live connections re-run `AUTH` at most every `reauthIntervalMs` and always by the time the token reaches that refresh point (well inside ElastiCache's 12-hour IAM connection limit).
 - Signing is deterministic for fixed credentials and clock and is unit-tested against an independent SigV4 implementation.
 - Primary reads only; `healthcheck()` is a non-mutating `PING`; `close()` is idempotent; `redact()` hides the user id and CA material.
 

@@ -1,7 +1,7 @@
-import type { CacheProviderDefinition, CacheProviderRegistration } from '@open-mercato/cache/provider'
+import type { CacheProviderRegistration } from '@open-mercato/cache/provider'
 import { defineEnterpriseCacheProviderRegistration } from '@open-mercato/cache-provider-managed-kit'
+import type { EnterpriseCacheProviderRegistrationOptions } from '@open-mercato/cache-provider-managed-kit'
 import { AZURE_MANAGED_REDIS_CACHE_PROVIDER_ID, createAzureManagedRedisProvider } from './provider'
-import type { AzureManagedRedisSettings } from './provider'
 
 export {
   AZURE_DEFAULT_REAUTH_INTERVAL_MS,
@@ -31,22 +31,21 @@ export {
   isEnterpriseCacheProviderActivationEnabled,
   OFFICIAL_MANAGED_CACHE_PROVIDER_IDS,
 } from '@open-mercato/cache-provider-managed-kit'
-export type { OfficialManagedCacheProviderId } from '@open-mercato/cache-provider-managed-kit'
+export type { EnterpriseCacheProviderRegistrationOptions, OfficialManagedCacheProviderId } from '@open-mercato/cache-provider-managed-kit'
 export type { ManagedAccessToken, ManagedAccessTokenSource } from '@open-mercato/cache-provider-managed-kit'
-
-export const provider: CacheProviderDefinition<AzureManagedRedisSettings> = createAzureManagedRedisProvider()
-
-export default provider
 
 /**
  * Supported registration path: the provider definition is built and
  * `@azure/identity` is imported only after the Enterprise activation gate passes;
- * with the gate closed the app's settings thunk is never evaluated.
+ * with the gate closed the app's settings thunk is never evaluated. This is the
+ * only supported entry point: the package exports no ungated provider
+ * definition. Pass `env` when the host resolves providers with an explicit env.
  */
-export function azureManagedRedisCacheProviderRegistration(registration: { settings: () => unknown }): CacheProviderRegistration {
+export function azureManagedRedisCacheProviderRegistration(registration: EnterpriseCacheProviderRegistrationOptions): CacheProviderRegistration {
   return defineEnterpriseCacheProviderRegistration({
     id: AZURE_MANAGED_REDIS_CACHE_PROVIDER_ID,
-    load: async () => createAzureManagedRedisProvider(),
+    load: async (env) => createAzureManagedRedisProvider({ env }),
     settings: registration.settings,
+    ...(registration.env !== undefined ? { env: registration.env } : {}),
   })
 }

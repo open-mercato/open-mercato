@@ -1,8 +1,9 @@
 import { defineEnterpriseGateSuite } from '@open-mercato/cache-provider-managed-kit/testing/gate'
-import { provider } from '../index'
+import { createGoogleMemorystoreProvider, googleMemorystoreCacheProviderRegistration } from '../index'
 
 defineEnterpriseGateSuite({
-  provider: provider as never,
+  createProvider: (options) => createGoogleMemorystoreProvider(options),
+  registration: googleMemorystoreCacheProviderRegistration,
   validSettings: {
     product: 'valkey',
     clusterMode: 'enabled',

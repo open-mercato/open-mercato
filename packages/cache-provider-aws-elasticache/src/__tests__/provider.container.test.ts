@@ -8,7 +8,7 @@ import { createAwsElastiCacheProvider } from '../index'
 defineManagedProviderPreflight({
   label: 'valkey/valkey:8.1 · standalone primary (node-based, cluster mode disabled stand-in) · rotating ACL credential as IAM token · TLS',
   packageDirName: 'cache-provider-aws-elasticache',
-  createProvider: (fixture) => createAwsElastiCacheProvider(fixture) as never,
+  createProvider: (fixture) => createAwsElastiCacheProvider(fixture),
   packed: { packageName: '@open-mercato/cache-provider-aws-elasticache', factoryExport: 'createAwsElastiCacheProvider', registrationExport: 'awsElastiCacheCacheProviderRegistration' },
   async start(): Promise<PreflightTarget> {
     const engine: StartedRespEngine = await startRespEngine({ image: 'valkey/valkey:8.1', serverBinary: 'valkey-server', tls: true })

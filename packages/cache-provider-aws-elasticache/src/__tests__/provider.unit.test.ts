@@ -1,13 +1,18 @@
 import { createHash, createHmac } from 'node:crypto'
 import {
   AWS_ELASTICACHE_CACHE_PROVIDER_ID,
+  AWS_MAX_REAUTH_INTERVAL_MS,
+  createAwsElastiCacheProvider,
   createElastiCacheIamToken,
   createElastiCacheIamTokenSource,
-  provider,
+  ELASTICACHE_IAM_TOKEN_TTL_SECONDS,
   settings,
   toElastiCacheRespSettings,
 } from '../index'
+import { createCacheProviderHostContext } from '@open-mercato/cache/provider'
 import { createCachedCredentialsProvider } from '@open-mercato/cache-provider-managed-kit'
+
+const provider = createAwsElastiCacheProvider()
 
 const FAKE = { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' }
 const FAKE_SESSION = { ...FAKE, sessionToken: 'session/token+value==' }
@@ -133,6 +138,26 @@ describe('ElastiCache IAM token signing', () => {
   })
 })
 
+describe('ElastiCache re-AUTH interval', () => {
+  it('caps the re-AUTH interval at 10 minutes, inside the 900 s token TTL', () => {
+    expect(AWS_MAX_REAUTH_INTERVAL_MS).toBe(10 * 60_000)
+    expect(AWS_MAX_REAUTH_INTERVAL_MS).toBeLessThan(ELASTICACHE_IAM_TOKEN_TTL_SECONDS * 1000)
+    expect(settings.safeParse({ ...base, auth: { ...base.auth, reauthIntervalMs: AWS_MAX_REAUTH_INTERVAL_MS } }).success).toBe(true)
+    expect(settings.safeParse({ ...base, auth: { ...base.auth, reauthIntervalMs: AWS_MAX_REAUTH_INTERVAL_MS + 1 } }).success).toBe(false)
+    expect(settings.safeParse({ ...base, auth: { ...base.auth, reauthIntervalMs: 30 * 60_000 } }).success).toBe(false)
+  })
+
+  it('re-AUTHs a live connection before a 900 s token goes stale even with the maximum interval', () => {
+    let clock = SIGNING_DATE.getTime()
+    const cached = createCachedCredentialsProvider(async () => ({ username: 'om-cache', password: 't', expiresAt: clock + ELASTICACHE_IAM_TOKEN_TTL_SECONDS * 1000 }), { providerId: provider.id, sourceLabel: 'AWS IAM', refreshSkewMs: 5 * 60_000, now: () => clock })
+    return cached().then(() => {
+      expect(cached.nextRefreshDelayMs(AWS_MAX_REAUTH_INTERVAL_MS)).toBe(10 * 60_000)
+      clock += 4 * 60_000
+      expect(cached.nextRefreshDelayMs(AWS_MAX_REAUTH_INTERVAL_MS)).toBe(6 * 60_000)
+    })
+  })
+})
+
 const sdk = { loads: 0 }
 jest.mock('@aws-sdk/credential-provider-node', () => {
   sdk.loads += 1
@@ -141,7 +166,7 @@ jest.mock('@aws-sdk/credential-provider-node', () => {
 
 describe('cloud SDK loading order', () => {
   it('never imports the AWS credential chain while the gate is closed', async () => {
-    await expect(Promise.resolve().then(() => provider.create(settings.parse(base), {} as never))).rejects.toMatchObject({ code: 'unavailable' })
+    await expect(Promise.resolve().then(() => provider.create(settings.parse(base), createCacheProviderHostContext({ id: provider.id, namespace: 'sdk-order' })))).rejects.toMatchObject({ code: 'unavailable' })
     expect(sdk.loads).toBe(0)
   })
 })

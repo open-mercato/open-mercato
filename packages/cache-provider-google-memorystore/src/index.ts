@@ -1,7 +1,7 @@
-import type { CacheProviderDefinition, CacheProviderRegistration } from '@open-mercato/cache/provider'
+import type { CacheProviderRegistration } from '@open-mercato/cache/provider'
 import { defineEnterpriseCacheProviderRegistration } from '@open-mercato/cache-provider-managed-kit'
+import type { EnterpriseCacheProviderRegistrationOptions } from '@open-mercato/cache-provider-managed-kit'
 import { createGoogleMemorystoreProvider, GOOGLE_MEMORYSTORE_CACHE_PROVIDER_ID } from './provider'
-import type { GoogleMemorystoreSettings } from './provider'
 
 export {
   createGoogleIamTokenSource,
@@ -28,22 +28,21 @@ export {
   isEnterpriseCacheProviderActivationEnabled,
   OFFICIAL_MANAGED_CACHE_PROVIDER_IDS,
 } from '@open-mercato/cache-provider-managed-kit'
-export type { OfficialManagedCacheProviderId } from '@open-mercato/cache-provider-managed-kit'
+export type { EnterpriseCacheProviderRegistrationOptions, OfficialManagedCacheProviderId } from '@open-mercato/cache-provider-managed-kit'
 export type { ManagedAccessToken, ManagedAccessTokenSource } from '@open-mercato/cache-provider-managed-kit'
-
-export const provider: CacheProviderDefinition<GoogleMemorystoreSettings> = createGoogleMemorystoreProvider()
-
-export default provider
 
 /**
  * Supported registration path: the provider definition is built and
  * `google-auth-library` is imported only after the Enterprise activation gate
- * passes; with the gate closed the app's settings thunk is never evaluated.
+ * passes; with the gate closed the app's settings thunk is never evaluated. This is the
+ * only supported entry point: the package exports no ungated provider
+ * definition. Pass `env` when the host resolves providers with an explicit env.
  */
-export function googleMemorystoreCacheProviderRegistration(registration: { settings: () => unknown }): CacheProviderRegistration {
+export function googleMemorystoreCacheProviderRegistration(registration: EnterpriseCacheProviderRegistrationOptions): CacheProviderRegistration {
   return defineEnterpriseCacheProviderRegistration({
     id: GOOGLE_MEMORYSTORE_CACHE_PROVIDER_ID,
-    load: async () => createGoogleMemorystoreProvider(),
+    load: async (env) => createGoogleMemorystoreProvider({ env }),
     settings: registration.settings,
+    ...(registration.env !== undefined ? { env: registration.env } : {}),
   })
 }

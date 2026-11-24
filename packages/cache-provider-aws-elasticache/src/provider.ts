@@ -1,7 +1,7 @@
 import { createHash, createHmac } from 'node:crypto'
 import type { Hash, Hmac } from 'node:crypto'
 import { z } from 'zod'
-import type { CacheProviderDefinition } from '@open-mercato/cache/provider'
+import type { CacheProviderDefinition, CacheProviderEnv } from '@open-mercato/cache/provider'
 import type { RespSettings } from '@open-mercato/cache-redis-protocol'
 import type { ManagedAccessToken, ManagedAccessTokenSource } from '@open-mercato/cache-provider-managed-kit'
 import {
@@ -22,6 +22,8 @@ export const ELASTICACHE_SIGNING_SERVICE = 'elasticache'
 /** ElastiCache IAM auth tokens are valid for 15 minutes. */
 export const ELASTICACHE_IAM_TOKEN_TTL_SECONDS = 900
 export const AWS_DEFAULT_REAUTH_INTERVAL_MS = 10 * 60_000
+/** Longest allowed gap between live re-`AUTH`s: well inside the 900 s IAM token TTL. */
+export const AWS_MAX_REAUTH_INTERVAL_MS = 10 * 60_000
 const AWS_TOKEN_REFRESH_SKEW_MS = 5 * 60_000
 
 /** IAM-enabled ElastiCache users need identical, lowercase user id and user name. */
@@ -37,7 +39,7 @@ const iamAuthSchema = z.object({
   region: regionSchema,
   /** AWS SDK default credential chain (env, web identity, ECS/EC2 role, SSO, profile); no keys in settings. */
   credentials: z.literal('default-chain').default('default-chain'),
-  reauthIntervalMs: z.number().int().min(MANAGED_REAUTH_LIMITS.minMs).max(MANAGED_REAUTH_LIMITS.maxMs).default(AWS_DEFAULT_REAUTH_INTERVAL_MS),
+  reauthIntervalMs: z.number().int().min(MANAGED_REAUTH_LIMITS.minMs).max(AWS_MAX_REAUTH_INTERVAL_MS).default(AWS_DEFAULT_REAUTH_INTERVAL_MS),
 }).strict()
 
 const valkeyNodeBasedClusterDisabledSchema = z.object({
@@ -179,6 +181,8 @@ export type AwsElastiCacheProviderOptions = {
   /** Test seam: replaces IAM token signing (never set in production registrations). */
   credentialSource?: (config: AwsElastiCacheSettings) => ManagedAccessTokenSource
   reauthIntervalMs?: number
+  /** Environment the Enterprise activation gate reads (default: `process.env` at call time). */
+  env?: CacheProviderEnv
 }
 
 export function toElastiCacheRespSettings(config: AwsElastiCacheSettings): RespSettings {
@@ -235,9 +239,10 @@ export function createAwsElastiCacheProvider(options: AwsElastiCacheProviderOpti
         source,
         sourceLabel: 'AWS IAM (default credential chain)',
         refreshSkewMs: AWS_TOKEN_REFRESH_SKEW_MS,
-        reauthIntervalMs: options.reauthIntervalMs ?? config.auth.reauthIntervalMs,
+        reauthIntervalMs: Math.min(AWS_MAX_REAUTH_INTERVAL_MS, options.reauthIntervalMs ?? config.auth.reauthIntervalMs),
       }
     },
     redact: redactAwsElastiCacheSettings,
+    ...(options.env !== undefined ? { env: options.env } : {}),
   })
 }

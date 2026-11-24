@@ -1,8 +1,9 @@
 import { defineEnterpriseGateSuite } from '@open-mercato/cache-provider-managed-kit/testing/gate'
-import { provider } from '../index'
+import { createAzureManagedRedisProvider, azureManagedRedisCacheProviderRegistration } from '../index'
 
 defineEnterpriseGateSuite({
-  provider: provider as never,
+  createProvider: (options) => createAzureManagedRedisProvider(options),
+  registration: azureManagedRedisCacheProviderRegistration,
   validSettings: {
     clusteringPolicy: 'non-clustered',
     host: 'om-cache.westeurope.redis.azure.net',

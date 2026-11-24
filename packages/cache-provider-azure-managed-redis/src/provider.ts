@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { CacheProviderError } from '@open-mercato/cache/provider'
-import type { CacheProviderDefinition } from '@open-mercato/cache/provider'
+import type { CacheProviderDefinition, CacheProviderEnv } from '@open-mercato/cache/provider'
 import type { RespSettings } from '@open-mercato/cache-redis-protocol'
 import type { ManagedAccessToken, ManagedAccessTokenSource } from '@open-mercato/cache-provider-managed-kit'
 import {
@@ -99,6 +99,8 @@ export type AzureManagedRedisProviderOptions = {
   /** Test seam: replaces the `@azure/identity` credential (never set in production registrations). */
   credentialSource?: (config: AzureManagedRedisSettings) => ManagedAccessTokenSource
   reauthIntervalMs?: number
+  /** Environment the Enterprise activation gate reads (default: `process.env` at call time). */
+  env?: CacheProviderEnv
 }
 
 export function toAzureRespSettings(config: AzureManagedRedisSettings): RespSettings {
@@ -155,5 +157,6 @@ export function createAzureManagedRedisProvider(options: AzureManagedRedisProvid
       }
     },
     redact: redactAzureManagedRedisSettings,
+    ...(options.env !== undefined ? { env: options.env } : {}),
   })
 }

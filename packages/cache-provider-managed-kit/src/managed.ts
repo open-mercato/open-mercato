@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { defineCacheProvider } from '@open-mercato/cache/provider'
-import type { CacheProviderDefinition, CacheProviderHostContext, CacheProviderSettingsSchema } from '@open-mercato/cache/provider'
+import type { CacheProviderDefinition, CacheProviderEnv, CacheProviderHostContext, CacheProviderSettingsSchema } from '@open-mercato/cache/provider'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { createRespCacheProvider, RESP_DEFAULTS, RESP_LIMITS } from '@open-mercato/cache-redis-protocol'
 import type { RespServerEngine, RespSettings } from '@open-mercato/cache-redis-protocol'
@@ -87,7 +87,9 @@ export function redactManagedTuning(config: ManagedTuning): Record<string, unkno
 export type ManagedCredentialPlan = {
   source: ManagedAccessTokenSource
   sourceLabel: string
+  /** The cache fetches a new token once the current one is this close to expiry. */
   refreshSkewMs: number
+  /** Longest gap between live re-`AUTH`s; each one is scheduled earlier when the token goes stale sooner. */
   reauthIntervalMs: number
 }
 
@@ -99,12 +101,17 @@ export type ManagedRespProviderOptions<TConfig> = {
   /** Called only after the activation gate passed; may lazily import a cloud SDK. */
   credentials(config: TConfig, context: CacheProviderHostContext): ManagedCredentialPlan
   redact(config: TConfig): Record<string, unknown>
+  /** Environment the Enterprise activation gate reads (default: `process.env` at call time). */
+  env?: CacheProviderEnv
 }
 
 /**
  * Official managed provider over the shared RESP strategy: gate first, then
  * map provider-owned settings to RESP settings and authenticate every
  * connection (initial, reconnect, new shard) with a refreshed short-lived token.
+ * Live connections are re-`AUTH`ed at most every `reauthIntervalMs` and always
+ * by the time the token goes stale, so a live connection never keeps an
+ * expired token.
  */
 export function createManagedRespProvider<TConfig>(options: ManagedRespProviderOptions<TConfig>): CacheProviderDefinition<TConfig> {
   const definition = defineCacheProvider<TConfig>({
@@ -123,11 +130,14 @@ export function createManagedRespProvider<TConfig>(options: ManagedRespProviderO
         id: options.id,
         settings: { safeParse: (input) => ({ success: true, data: input as RespSettings }) },
         ...(options.expectedEngine ? { expectedEngine: options.expectedEngine } : {}),
-        clientOptions: () => ({ credentialsProvider, refreshIntervalMs: plan.reauthIntervalMs }),
+        clientOptions: () => ({
+          credentialsProvider,
+          refreshIntervalMs: () => credentialsProvider.nextRefreshDelayMs(plan.reauthIntervalMs),
+        }),
       })
       return inner.create(resp, context)
     },
     redact: (config: TConfig) => options.redact(config),
   })
-  return gateEnterpriseCacheProvider(options.id, definition)
+  return gateEnterpriseCacheProvider(options.id, definition, options.env)
 }

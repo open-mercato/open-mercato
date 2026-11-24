@@ -41,7 +41,7 @@ const target = (): PreflightTarget => ({
 defineManagedProviderPreflight({
   label: 'valkey/valkey:8.1 · 3-primary cluster via discovery seed (cluster mode enabled stand-in) · rotating ACL credential as IAM token · TLS (client + bus)',
   packageDirName: 'cache-provider-google-memorystore',
-  createProvider: (fixture) => createGoogleMemorystoreProvider(fixture) as never,
+  createProvider: (fixture) => createGoogleMemorystoreProvider(fixture),
   packed: { packageName: '@open-mercato/cache-provider-google-memorystore', factoryExport: 'createGoogleMemorystoreProvider', registrationExport: 'googleMemorystoreCacheProviderRegistration' },
   async start() {
     cluster = await startTlsValkeyCluster()

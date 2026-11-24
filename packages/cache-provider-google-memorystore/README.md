@@ -49,6 +49,8 @@ CACHE_PROVIDER=open-mercato/google-memorystore
 CACHE_PROVIDER_NAMESPACE=prod-ew1-1
 ```
 
+`googleMemorystoreCacheProviderRegistration` is the package's only supported entry point: the package exports no ungated provider definition (no `provider` or default export). When the host resolves providers with an explicit env (`resolveCacheProvider(registrations, { env })`), pass the same object as `env` to the helper so the Enterprise gate reads it; otherwise the gate reads `process.env` when the cache is initialized.
+
 Identity comes from Google Application Default Credentials (GKE Workload Identity, attached service account, `gcloud` ADC) — never from settings.
 
 ## Settings
@@ -70,7 +72,7 @@ Strict zod schema discriminated by `product`; each product pins `clusterMode` an
 ### IAM authentication
 
 - The OAuth access token (`https://www.googleapis.com/auth/cloud-platform`) is sent as a single-argument `AUTH <token>`.
-- Tokens are cached for at most 15 minutes (refreshed 5 minutes early; ADC refreshes the underlying token itself) and applied to the seed, every discovered shard connection and every reconnect; live connections re-run `AUTH` every `reauthIntervalMs`.
+- Each token's real expiry comes from the auth client (`credentials.expiry_date` after `getAccessToken()`); tokens are reused until 5 minutes before it (a token without a reported expiry is never reused). Credentials are applied to the seed, every discovered shard connection as it joins and every node reconnect, and a node that becomes ready with an older credential is re-AUTHed. Live connections re-run `AUTH` at most every `reauthIntervalMs` and always by the time the token reaches its refresh point.
 - Keys of one namespace share one hash tag (`om:{<namespace>}:…`), so multi-key scripts never cross slots.
 - Primary reads only (`scaleReads: master`); `healthcheck()` is non-mutating; `close()` is idempotent; `redact()` hides CA material.
 

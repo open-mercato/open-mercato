@@ -12,8 +12,8 @@ export {
   isOfficialManagedCacheProviderId,
   OFFICIAL_MANAGED_CACHE_PROVIDER_IDS,
 } from './enterprise'
-export type { EnterpriseDisabledConfig, OfficialManagedCacheProviderId } from './enterprise'
-export { createCachedCredentialsProvider } from './credentials'
+export type { EnterpriseCacheProviderRegistrationOptions, EnterpriseDisabledConfig, OfficialManagedCacheProviderId } from './enterprise'
+export { createCachedCredentialsProvider, isManagedCredentialUnavailableError, MANAGED_REAUTH_FLOOR_MS } from './credentials'
 export type {
   CachedCredentialsOptions,
   CachedCredentialsProvider,

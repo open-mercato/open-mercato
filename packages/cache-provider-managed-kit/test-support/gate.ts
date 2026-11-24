@@ -1,11 +1,12 @@
 import {
+  createCacheProviderHostContext,
   defineCacheProviderRegistration,
   prepareCacheProviderSelection,
   resetCacheProviderSelectionForTests,
   resolveCacheProvider,
   setCacheProviderRegistrations,
 } from '@open-mercato/cache/provider'
-import type { CacheProviderDefinition, CacheProviderRegistration } from '@open-mercato/cache/provider'
+import type { CacheProviderDefinition, CacheProviderEnv, CacheProviderRegistration } from '@open-mercato/cache/provider'
 import { createCacheService } from '@open-mercato/cache/service'
 import {
   defineEnterpriseCacheProviderRegistration,
@@ -14,7 +15,7 @@ import {
   isEnterpriseCacheProviderActivationEnabled,
   OFFICIAL_MANAGED_CACHE_PROVIDER_IDS,
 } from '../src/enterprise'
-import type { OfficialManagedCacheProviderId } from '../src/enterprise'
+import type { EnterpriseCacheProviderRegistrationOptions, OfficialManagedCacheProviderId } from '../src/enterprise'
 
 const SECRET = 'gate-secret-never-printed'
 const ENV_KEYS = [ENTERPRISE_MODULES_ENV, ENTERPRISE_CACHE_PROVIDERS_ENV, 'CACHE_PROVIDER', 'CACHE_PROVIDER_NAMESPACE'] as const
@@ -24,9 +25,11 @@ function setEnv(values: Partial<Record<typeof ENV_KEYS[number], string>>): void 
   Object.assign(process.env, values)
 }
 
-export type EnterpriseGateSuiteOptions = {
-  /** The package's default (gated) provider definition. */
-  provider: CacheProviderDefinition<unknown>
+export type EnterpriseGateSuiteOptions<TConfig> = {
+  /** Build the package's (gated) provider definition; `env` is the env its gate reads. */
+  createProvider(options?: { env?: CacheProviderEnv }): CacheProviderDefinition<TConfig>
+  /** The package's exported gated registration helper. */
+  registration(options: EnterpriseCacheProviderRegistrationOptions): CacheProviderRegistration
   /** Raw settings the provider accepts once the gate is open. */
   validSettings: Record<string, unknown>
 }
@@ -37,8 +40,9 @@ export type EnterpriseGateSuiteOptions = {
  * `unavailable` error, never load the provider, never evaluate settings and
  * never connect; with it open, the real settings schema applies.
  */
-export function defineEnterpriseGateSuite(options: EnterpriseGateSuiteOptions): void {
-  const { provider, validSettings } = options
+export function defineEnterpriseGateSuite<TConfig>(options: EnterpriseGateSuiteOptions<TConfig>): void {
+  const { validSettings } = options
+  const provider = options.createProvider()
   const PROVIDER_ID = provider.id as OfficialManagedCacheProviderId
 
   function trackingRegistrations(): { registrations: CacheProviderRegistration[]; calls: { load: number; settings: number } } {
@@ -157,7 +161,7 @@ export function defineEnterpriseGateSuite(options: EnterpriseGateSuiteOptions): 
       })
       const resolved = await resolveCacheProvider([registration])
       expect(resolved).not.toBeNull()
-      await expectGateFailure(async () => resolved!.definition.create(resolved!.config, {} as never))
+      await expectGateFailure(async () => resolved!.definition.create(resolved!.config, createCacheProviderHostContext(resolved!)))
       const cache = createCacheService({ provider: resolved! })
       await expectGateFailure(() => cache.get('x'))
       await cache.close?.()
@@ -174,7 +178,7 @@ export function defineEnterpriseGateSuite(options: EnterpriseGateSuiteOptions): 
       const valid = defineEnterpriseCacheProviderRegistration({ id: PROVIDER_ID, load: async () => provider, settings: () => validSettings })
       const enabled = await resolveCacheProvider([valid])
       delete process.env[ENTERPRISE_CACHE_PROVIDERS_ENV]
-      await expectGateFailure(async () => enabled!.definition.create(enabled!.config, {} as never))
+      await expectGateFailure(async () => enabled!.definition.create(enabled!.config, createCacheProviderHostContext(enabled!)))
       expect(connectSpy).not.toHaveBeenCalled()
     })
 
@@ -192,6 +196,39 @@ export function defineEnterpriseGateSuite(options: EnterpriseGateSuiteOptions): 
       const resolved = await resolveCacheProvider([ok])
       expect(resolved?.placement).toBe('shared')
       expect(resolved?.definition.redact?.(resolved.config)).not.toEqual({ enterpriseActivation: 'disabled' })
+    })
+
+    it('the exported registration helper honours the env passed by the host, not process.env', async () => {
+      const open = { [ENTERPRISE_MODULES_ENV]: 'true', [ENTERPRISE_CACHE_PROVIDERS_ENV]: 'true', CACHE_PROVIDER: PROVIDER_ID, CACHE_PROVIDER_NAMESPACE: 'gate-env' }
+      const closed = { CACHE_PROVIDER: PROVIDER_ID, CACHE_PROVIDER_NAMESPACE: 'gate-env' }
+
+      setEnv({ [ENTERPRISE_MODULES_ENV]: 'true', [ENTERPRISE_CACHE_PROVIDERS_ENV]: 'true' })
+      let evaluated = 0
+      const closedResolved = await resolveCacheProvider([options.registration({ env: closed, settings: () => { evaluated += 1; return validSettings } })], { env: closed })
+      expect(evaluated).toBe(0)
+      expect(closedResolved?.definition.redact?.(closedResolved.config)).toEqual({ enterpriseActivation: 'disabled' })
+      await expectGateFailure(async () => closedResolved!.definition.create(closedResolved!.config, createCacheProviderHostContext(closedResolved!)))
+
+      setEnv({})
+      const openResolved = await resolveCacheProvider([options.registration({ env: open, settings: () => validSettings })], { env: open })
+      expect(openResolved?.definition.redact?.(openResolved.config)).not.toEqual({ enterpriseActivation: 'disabled' })
+      const invalid = await resolveCacheProvider([options.registration({ env: open, settings: () => ({ totally: 'invalid' }) })], { env: open }).catch((error: unknown) => error)
+      expect(invalid).toMatchObject({ code: 'invalid_settings' })
+
+      const gatedByEnv = options.createProvider({ env: closed })
+      setEnv({ [ENTERPRISE_MODULES_ENV]: 'true', [ENTERPRISE_CACHE_PROVIDERS_ENV]: 'true' })
+      expect(gatedByEnv.settings.safeParse({ totally: 'invalid' }).success).toBe(true)
+      expect(connectSpy).not.toHaveBeenCalled()
+    })
+
+    it('without an explicit env the registration helper reads process.env at call time', async () => {
+      setEnv({ CACHE_PROVIDER: PROVIDER_ID, CACHE_PROVIDER_NAMESPACE: 'gate-default-env' })
+      const registration = options.registration({ settings: () => validSettings })
+      const closedResolved = await resolveCacheProvider([registration])
+      expect(closedResolved?.definition.redact?.(closedResolved.config)).toEqual({ enterpriseActivation: 'disabled' })
+      setEnv({ [ENTERPRISE_MODULES_ENV]: 'true', [ENTERPRISE_CACHE_PROVIDERS_ENV]: 'true', CACHE_PROVIDER: PROVIDER_ID, CACHE_PROVIDER_NAMESPACE: 'gate-default-env' })
+      const openResolved = await resolveCacheProvider([registration])
+      expect(openResolved?.definition.redact?.(openResolved.config)).not.toEqual({ enterpriseActivation: 'disabled' })
     })
   })
 }

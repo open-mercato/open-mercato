@@ -90,12 +90,14 @@ export function createDisabledEnterpriseCacheProvider(providerId: OfficialManage
 export function gateEnterpriseCacheProvider<TConfig>(
   providerId: OfficialManagedCacheProviderId,
   definition: CacheProviderDefinition<TConfig>,
+  env?: CacheProviderEnv,
 ): CacheProviderDefinition<TConfig> {
+  const readEnv = (): CacheProviderEnv => env ?? process.env
   return {
     ...definition,
     settings: {
       safeParse(input: unknown): CacheProviderSettingsParseResult<TConfig> {
-        if (!isEnterpriseCacheProviderActivationEnabled()) {
+        if (!isEnterpriseCacheProviderActivationEnabled(readEnv())) {
           return { success: true, data: ENTERPRISE_DISABLED_CONFIG as unknown as TConfig }
         }
         return definition.settings.safeParse(input)
@@ -106,7 +108,7 @@ export function gateEnterpriseCacheProvider<TConfig>(
       return definition.capability(config)
     },
     async create(config, context) {
-      assertEnterpriseCacheProviderActivation(providerId)
+      assertEnterpriseCacheProviderActivation(providerId, readEnv())
       if (isEnterpriseDisabledConfig(config)) throw enterpriseActivationError(providerId)
       return definition.create(config, context)
     },
@@ -117,27 +119,40 @@ export function gateEnterpriseCacheProvider<TConfig>(
   }
 }
 
+export type EnterpriseCacheProviderRegistrationOptions = {
+  settings: () => unknown
+  /**
+   * Environment the activation gate reads — pass the same env given to
+   * `resolveCacheProvider({ env })`. Defaults to `process.env` at call time.
+   */
+  env?: CacheProviderEnv
+}
+
 /**
  * Registration helper for official managed providers. With the gate closed the
  * provider package (and its cloud SDK) is not imported and the app's settings
  * thunk is not evaluated; selection then fails with a sanitized `unavailable`
  * error at cache initialization in web, worker and maintenance paths alike.
+ * `load` receives the gate env so the loaded definition gates on the same env.
  */
 export function defineEnterpriseCacheProviderRegistration<TConfig>(registration: {
   id: OfficialManagedCacheProviderId
-  load: () => Promise<CacheProviderDefinition<TConfig>>
+  load: (env: CacheProviderEnv) => Promise<CacheProviderDefinition<TConfig>>
   settings: () => unknown
+  env?: CacheProviderEnv
 }): CacheProviderRegistration {
   if (!isOfficialManagedCacheProviderId(registration.id)) {
     throw new CacheProviderError('invalid_registration', 'Enterprise cache provider registrations must use an official managed provider id')
   }
   const providerId = registration.id
+  const readEnv = (): CacheProviderEnv => registration.env ?? process.env
   return defineCacheProviderRegistration<unknown>({
     id: providerId,
     load: async () => {
-      if (!isEnterpriseCacheProviderActivationEnabled()) return createDisabledEnterpriseCacheProvider(providerId) as CacheProviderDefinition<unknown>
-      return (await registration.load()) as CacheProviderDefinition<unknown>
+      const env = readEnv()
+      if (!isEnterpriseCacheProviderActivationEnabled(env)) return createDisabledEnterpriseCacheProvider(providerId) as CacheProviderDefinition<unknown>
+      return (await registration.load(env)) as CacheProviderDefinition<unknown>
     },
-    settings: () => (isEnterpriseCacheProviderActivationEnabled() ? registration.settings() : undefined),
+    settings: () => (isEnterpriseCacheProviderActivationEnabled(readEnv()) ? registration.settings() : undefined),
   })
 }

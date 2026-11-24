@@ -1,8 +1,9 @@
 import { defineEnterpriseGateSuite } from '@open-mercato/cache-provider-managed-kit/testing/gate'
-import { provider } from '../index'
+import { createAwsElastiCacheProvider, awsElastiCacheCacheProviderRegistration } from '../index'
 
 defineEnterpriseGateSuite({
-  provider: provider as never,
+  createProvider: (options) => createAwsElastiCacheProvider(options),
+  registration: awsElastiCacheCacheProviderRegistration,
   validSettings: {
     engine: 'valkey',
     deployment: 'node-based',

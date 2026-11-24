@@ -1,12 +1,15 @@
 import {
   AZURE_MANAGED_REDIS_CACHE_PROVIDER_ID,
   AZURE_REDIS_ENTRA_SCOPE,
+  createAzureManagedRedisProvider,
   createEntraTokenSource,
   decodeJwtObjectId,
-  provider,
   settings,
   toAzureRespSettings,
 } from '../index'
+import { createCacheProviderHostContext } from '@open-mercato/cache/provider'
+
+const provider = createAzureManagedRedisProvider()
 
 const OBJECT_ID = '11111111-2222-3333-4444-555555555555'
 const base = { clusteringPolicy: 'non-clustered', host: 'om.westeurope.redis.azure.net', auth: { kind: 'entra' } } as const
@@ -112,13 +115,12 @@ describe('cloud SDK loading order', () => {
 
   it('never imports @azure/identity while the gate is closed', async () => {
     const config = settings.parse(base)
-    await expect(Promise.resolve().then(() => provider.create(config, {} as never))).rejects.toMatchObject({ code: 'unavailable' })
+    await expect(Promise.resolve().then(() => provider.create(config, createCacheProviderHostContext({ id: provider.id, namespace: 'sdk-order' })))).rejects.toMatchObject({ code: 'unavailable' })
     expect(sdk).toEqual({ loads: 0, tokens: 0 })
   })
 
   it('imports the SDK and fetches an Entra token before connecting once the gate is open', async () => {
     for (const key of keys) process.env[key] = 'true'
-    const { createCacheProviderHostContext } = await import('@open-mercato/cache/provider')
     const config = settings.parse({ ...base, host: '127.0.0.1', port: 1, tls: { servername: 'localhost' }, connectTimeoutMs: 200, maxRetriesPerRequest: 0 })
     const context = createCacheProviderHostContext({ id: provider.id, namespace: 'sdk-order' })
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)

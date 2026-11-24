@@ -54,6 +54,8 @@ CACHE_PROVIDER=open-mercato/azure-managed-redis
 CACHE_PROVIDER_NAMESPACE=prod-weu-1
 ```
 
+`azureManagedRedisCacheProviderRegistration` is the package's only supported entry point: the package exports no ungated provider definition (no `provider` or default export). When the host resolves providers with an explicit env (`resolveCacheProvider(registrations, { env })`), pass the same object as `env` to the helper so the Enterprise gate reads it; otherwise the gate reads `process.env` when the cache is initialized.
+
 The variable names are examples; the package reads no application env itself (Azure Identity reads its own standard `AZURE_*` variables).
 
 ## Settings
@@ -80,7 +82,7 @@ There is **no** `rejectUnauthorized`, plain-TCP or certificate-bypass option.
 
 - Token scope `https://redis.azure.com/.default`; username = principal object id, password = access token.
 - Tokens are cached until 5 minutes before expiry and shared by concurrent callers.
-- Credentials are applied to the initial connection and every reconnect, and all live connections re-run `AUTH` every `reauthIntervalMs` so they never outlive their token.
+- Credentials are applied to the initial connection and every reconnect. Live connections re-run `AUTH` at most every `reauthIntervalMs` and always by the time the cached token reaches its refresh point (expiry minus 5 minutes), where a new token is fetched first, so they never outlive their token.
 - Identity failures surface as `CacheProviderError('unavailable')` naming the identity source only; driver/SDK messages are kept as a non-enumerable cause and are never logged by the host.
 - Reads always go to the primary; `healthcheck()` is a non-mutating `PING`; `close()` is idempotent; `redact()` hides identity ids and CA material.
 

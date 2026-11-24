@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { CacheProviderError } from '@open-mercato/cache/provider'
-import type { CacheProviderDefinition } from '@open-mercato/cache/provider'
+import type { CacheProviderDefinition, CacheProviderEnv } from '@open-mercato/cache/provider'
 import type { RespSettings } from '@open-mercato/cache-redis-protocol'
 import type { ManagedAccessToken, ManagedAccessTokenSource } from '@open-mercato/cache-provider-managed-kit'
 import {
@@ -19,8 +19,6 @@ export const GOOGLE_MEMORYSTORE_CACHE_PROVIDER_ID = 'open-mercato/google-memorys
 
 export const GOOGLE_CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 export const GOOGLE_DEFAULT_REAUTH_INTERVAL_MS = 10 * 60_000
-/** Access tokens usually live one hour; without a reported expiry assume a conservative lifetime. */
-const GOOGLE_ASSUMED_TOKEN_LIFETIME_MS = 15 * 60_000
 const GOOGLE_TOKEN_REFRESH_SKEW_MS = 5 * 60_000
 
 const iamAuthSchema = z.object({
@@ -52,31 +50,44 @@ export const settings = z.discriminatedUnion('product', [valkeyClusterEnabledSch
 export type GoogleMemorystoreSettings = z.infer<typeof settings>
 export type GoogleMemorystoreSettingsInput = z.input<typeof settings>
 
+/**
+ * The `google-auth-library` auth client surface used here: `getAccessToken()`
+ * refreshes when needed and `credentials.expiry_date` then holds the real
+ * expiry (epoch ms) of the token it returned.
+ */
 export type GoogleAccessTokenClient = {
   getAccessToken(): Promise<string | null | undefined | { token?: string | null }>
+  credentials?: { expiry_date?: number | null }
 }
 
-/** Memorystore IAM AUTH: the OAuth access token is the password (single-argument AUTH). */
-export function createGoogleIamTokenSource(client: GoogleAccessTokenClient, now: () => number = Date.now): ManagedAccessTokenSource {
+/**
+ * Memorystore IAM AUTH: the OAuth access token is the password (single-argument
+ * AUTH). The expiry is the one the auth library reports for that token; when it
+ * reports none the token is never reused from the cache.
+ */
+export function createGoogleIamTokenSource(client: GoogleAccessTokenClient): ManagedAccessTokenSource {
   return async (): Promise<ManagedAccessToken> => {
     const result = await client.getAccessToken()
     const token = typeof result === 'string' ? result : result?.token
     if (!token) {
       throw new CacheProviderError('unavailable', `Cache provider "${GOOGLE_MEMORYSTORE_CACHE_PROVIDER_ID}" did not receive a Google access token`, { providerId: GOOGLE_MEMORYSTORE_CACHE_PROVIDER_ID })
     }
-    return { password: token, expiresAt: now() + GOOGLE_ASSUMED_TOKEN_LIFETIME_MS }
+    const expiry = client.credentials?.expiry_date
+    return { password: token, expiresAt: typeof expiry === 'number' && Number.isFinite(expiry) ? expiry : null }
   }
 }
 
 async function createApplicationDefaultClient(): Promise<GoogleAccessTokenClient> {
   const { GoogleAuth } = await import('google-auth-library')
-  return new GoogleAuth({ scopes: [GOOGLE_CLOUD_PLATFORM_SCOPE] })
+  return new GoogleAuth({ scopes: [GOOGLE_CLOUD_PLATFORM_SCOPE] }).getClient()
 }
 
 export type GoogleMemorystoreProviderOptions = {
   /** Test seam: replaces Application Default Credentials (never set in production registrations). */
   credentialSource?: (config: GoogleMemorystoreSettings) => ManagedAccessTokenSource
   reauthIntervalMs?: number
+  /** Environment the Enterprise activation gate reads (default: `process.env` at call time). */
+  env?: CacheProviderEnv
 }
 
 export function toMemorystoreRespSettings(config: GoogleMemorystoreSettings): RespSettings {
@@ -126,5 +137,6 @@ export function createGoogleMemorystoreProvider(options: GoogleMemorystoreProvid
       }
     },
     redact: redactGoogleMemorystoreSettings,
+    ...(options.env !== undefined ? { env: options.env } : {}),
   })
 }

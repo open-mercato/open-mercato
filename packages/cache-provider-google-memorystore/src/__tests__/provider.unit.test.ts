@@ -1,11 +1,15 @@
+import { createCacheProviderHostContext } from '@open-mercato/cache/provider'
 import {
   createGoogleIamTokenSource,
+  createGoogleMemorystoreProvider,
   GOOGLE_MEMORYSTORE_CACHE_PROVIDER_ID,
-  provider,
   settings,
   toMemorystoreRespSettings,
 } from '../index'
+import type { GoogleAccessTokenClient } from '../index'
 import { createCachedCredentialsProvider } from '@open-mercato/cache-provider-managed-kit'
+
+const provider = createGoogleMemorystoreProvider()
 
 const CA = '-----BEGIN CERTIFICATE-----\nSERVER-CA-MATERIAL\n-----END CERTIFICATE-----\n'
 const base = {
@@ -53,21 +57,45 @@ describe('google memorystore settings', () => {
 
 describe('Google IAM token source', () => {
   it('uses the access token as a password-only AUTH credential and accepts both client result shapes', async () => {
-    const clock = 5_000_000
-    await expect(createGoogleIamTokenSource({ getAccessToken: async () => 'ya29.token-a' }, () => clock)()).resolves.toEqual({ password: 'ya29.token-a', expiresAt: clock + 15 * 60_000 })
+    await expect(createGoogleIamTokenSource({ getAccessToken: async () => 'ya29.token-a', credentials: { expiry_date: 7_000_000 } })()).resolves.toEqual({ password: 'ya29.token-a', expiresAt: 7_000_000 })
     await expect(createGoogleIamTokenSource({ getAccessToken: async () => ({ token: 'ya29.token-b' }) })()).resolves.toMatchObject({ password: 'ya29.token-b' })
     await expect(createGoogleIamTokenSource({ getAccessToken: async () => ({ token: null }) })()).rejects.toMatchObject({ code: 'unavailable' })
   })
 
-  it('refreshes through the cache once the assumed lifetime approaches expiry', async () => {
+  it('reports the expiry the auth library holds for the returned token, not an assumed lifetime', async () => {
     let clock = 0
     let issued = 0
-    const source = createGoogleIamTokenSource({ getAccessToken: async () => `ya29.token-${++issued}` }, () => clock)
-    const cached = createCachedCredentialsProvider(source, { providerId: provider.id, sourceLabel: 'ADC', refreshSkewMs: 5 * 60_000, now: () => clock })
+    const client: GoogleAccessTokenClient & { credentials: { expiry_date?: number | null } } = {
+      credentials: {},
+      async getAccessToken() {
+        issued += 1
+        this.credentials = { expiry_date: clock + (issued === 1 ? 20 * 60_000 : 60 * 60_000) }
+        return { token: `ya29.token-${issued}` }
+      },
+    }
+    await expect(createGoogleIamTokenSource(client)()).resolves.toEqual({ password: 'ya29.token-1', expiresAt: 20 * 60_000 })
+    clock = 30 * 60_000
+    await expect(createGoogleIamTokenSource(client)()).resolves.toEqual({ password: 'ya29.token-2', expiresAt: 90 * 60_000 })
+    await expect(createGoogleIamTokenSource({ getAccessToken: async () => 'ya29.no-expiry', credentials: { expiry_date: null } })()).resolves.toEqual({ password: 'ya29.no-expiry', expiresAt: null })
+  })
+
+  it('refreshes through the cache and re-AUTHs before the real expiry', async () => {
+    let clock = 0
+    let issued = 0
+    const client: GoogleAccessTokenClient & { credentials: { expiry_date?: number | null } } = {
+      credentials: {},
+      async getAccessToken() {
+        issued += 1
+        this.credentials = { expiry_date: clock + 8 * 60_000 }
+        return `ya29.token-${issued}`
+      },
+    }
+    const cached = createCachedCredentialsProvider(createGoogleIamTokenSource(client), { providerId: provider.id, sourceLabel: 'ADC', refreshSkewMs: 5 * 60_000, now: () => clock })
     expect(await cached()).toEqual({ password: 'ya29.token-1' })
-    clock += 9 * 60_000
-    expect((await cached()).password).toBe('ya29.token-1')
+    expect(cached.nextRefreshDelayMs(10 * 60_000)).toBe(3 * 60_000)
     clock += 2 * 60_000
+    expect((await cached()).password).toBe('ya29.token-1')
+    clock += 60_000
     expect((await cached()).password).toBe('ya29.token-2')
   })
 })
@@ -75,12 +103,12 @@ describe('Google IAM token source', () => {
 const sdk = { loads: 0 }
 jest.mock('google-auth-library', () => {
   sdk.loads += 1
-  return { GoogleAuth: class { async getAccessToken() { return 'ya29.fake' } } }
+  return { GoogleAuth: class { async getClient() { return { credentials: { expiry_date: Date.now() + 3_600_000 }, async getAccessToken() { return { token: 'ya29.fake' } } } } } }
 })
 
 describe('cloud SDK loading order', () => {
   it('never imports google-auth-library while the gate is closed', async () => {
-    await expect(Promise.resolve().then(() => provider.create(settings.parse(base), {} as never))).rejects.toMatchObject({ code: 'unavailable' })
+    await expect(Promise.resolve().then(() => provider.create(settings.parse(base), createCacheProviderHostContext({ id: provider.id, namespace: 'sdk-order' })))).rejects.toMatchObject({ code: 'unavailable' })
     expect(sdk.loads).toBe(0)
   })
 })

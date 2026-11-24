@@ -63,17 +63,18 @@ const SECRET_PATTERNS: RegExp[] = [
   /client_secret/i,
 ]
 
-function packedSmokeScript(options: ManagedPreflightOptions['packed']): string {
+function packedSmokeScript(options: ManagedPreflightOptions['packed'], providerId: string): string {
   return `
 import * as pkg from '${options.packageName}'
 import { createCacheProviderHostContext, defineCacheProviderRegistration, resolveCacheProvider } from '@open-mercato/cache/provider'
-const env = (namespace) => ({ CACHE_PROVIDER: pkg.provider.id, CACHE_PROVIDER_NAMESPACE: namespace })
-const out = { id: pkg.provider.id }
+const env = (namespace) => ({ CACHE_PROVIDER: ${JSON.stringify(providerId)}, CACHE_PROVIDER_NAMESPACE: namespace })
+const out = { ungatedExports: ['provider', 'default'].filter((name) => name in pkg) }
 delete process.env.OM_ENABLE_ENTERPRISE_MODULES
 delete process.env.OM_ENABLE_ENTERPRISE_MODULES_CACHE_PROVIDERS
 let settingsEvaluated = false
 const gated = pkg.${options.registrationExport}({ settings: () => { settingsEvaluated = true; return {} } })
 const closed = await resolveCacheProvider([gated], { env: env('packed-closed') })
+out.id = closed.id
 try {
   await closed.definition.create(closed.config, createCacheProviderHostContext(closed))
   out.closed = 'created'
@@ -121,6 +122,12 @@ function writeFixtureEntry(dir: string, options: ManagedPreflightOptions): strin
 }
 
 const SUITE_TIMEOUT_MS = 600_000
+
+function exportTargets(exportsField: unknown): string[] {
+  if (typeof exportsField === 'string') return [exportsField]
+  if (typeof exportsField !== 'object' || exportsField === null) return []
+  return Object.values(exportsField).flatMap((value) => exportTargets(value))
+}
 
 function errorText(error: unknown): string {
   if (!(error instanceof Error)) return String(error)
@@ -336,11 +343,12 @@ export function defineManagedProviderPreflight(options: ManagedPreflightOptions)
             expect(entries.filter((entry) => /__tests__|test-support|jest\.|\.test\.|\.env|\.pem$|\.key$/.test(entry))).toEqual([])
             const contents = execFileSync('tar', ['-xzOf', tarPath], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
             for (const pattern of SECRET_PATTERNS) expect([dirName, pattern.source, pattern.test(contents)]).toEqual([dirName, pattern.source, false])
-            const packedManifest = JSON.parse(execFileSync('tar', ['-xzOf', tarPath, 'package/package.json'], { encoding: 'utf8' })) as { license: string; dependencies: Record<string, string> }
+            const packedManifest = JSON.parse(execFileSync('tar', ['-xzOf', tarPath, 'package/package.json'], { encoding: 'utf8' })) as { license: string; dependencies: Record<string, string>; exports?: unknown }
             expect(packedManifest.license).toBe('SEE LICENSE IN LICENSE.md')
             expect(JSON.stringify(packedManifest.dependencies)).not.toContain('workspace:')
+            for (const target of exportTargets(packedManifest.exports)) expect([dirName, target, entries.includes(`package/${target.replace(/^\.\//, '')}`)]).toEqual([dirName, target, true])
           }
-          const output = packed.run(packedSmokeScript(options.packed), {
+          const output = packed.run(packedSmokeScript(options.packed, providerId), {
             SMOKE_SETTINGS: JSON.stringify(settingsFor()),
             SMOKE_USER: current.username ?? '',
             SMOKE_PASSWORD: current.password,
@@ -348,6 +356,7 @@ export function defineManagedProviderPreflight(options: ManagedPreflightOptions)
           const result = JSON.parse(output)
           expect(result).toMatchObject({
             id: providerId,
+            ungatedExports: [],
             closed: 'unavailable',
             settingsEvaluatedWhileClosed: false,
             get: { ok: 1 },

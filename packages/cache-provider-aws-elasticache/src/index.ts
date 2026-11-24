@@ -1,11 +1,12 @@
-import type { CacheProviderDefinition, CacheProviderRegistration } from '@open-mercato/cache/provider'
+import type { CacheProviderRegistration } from '@open-mercato/cache/provider'
 import { defineEnterpriseCacheProviderRegistration } from '@open-mercato/cache-provider-managed-kit'
+import type { EnterpriseCacheProviderRegistrationOptions } from '@open-mercato/cache-provider-managed-kit'
 import { AWS_ELASTICACHE_CACHE_PROVIDER_ID, createAwsElastiCacheProvider } from './provider'
-import type { AwsElastiCacheSettings } from './provider'
 
 export {
   AWS_DEFAULT_REAUTH_INTERVAL_MS,
   AWS_ELASTICACHE_CACHE_PROVIDER_ID,
+  AWS_MAX_REAUTH_INTERVAL_MS,
   createAwsElastiCacheProvider,
   createElastiCacheIamToken,
   createElastiCacheIamTokenSource,
@@ -33,22 +34,21 @@ export {
   isEnterpriseCacheProviderActivationEnabled,
   OFFICIAL_MANAGED_CACHE_PROVIDER_IDS,
 } from '@open-mercato/cache-provider-managed-kit'
-export type { OfficialManagedCacheProviderId } from '@open-mercato/cache-provider-managed-kit'
+export type { EnterpriseCacheProviderRegistrationOptions, OfficialManagedCacheProviderId } from '@open-mercato/cache-provider-managed-kit'
 export type { ManagedAccessToken, ManagedAccessTokenSource } from '@open-mercato/cache-provider-managed-kit'
-
-export const provider: CacheProviderDefinition<AwsElastiCacheSettings> = createAwsElastiCacheProvider()
-
-export default provider
 
 /**
  * Supported registration path: the provider definition is built and the AWS
  * SDK is imported only after the Enterprise activation gate passes; with the
- * gate closed the app's settings thunk is never evaluated.
+ * gate closed the app's settings thunk is never evaluated. This is the only
+ * supported entry point: the package exports no ungated provider definition.
+ * Pass `env` when the host resolves providers with an explicit env.
  */
-export function awsElastiCacheCacheProviderRegistration(registration: { settings: () => unknown }): CacheProviderRegistration {
+export function awsElastiCacheCacheProviderRegistration(registration: EnterpriseCacheProviderRegistrationOptions): CacheProviderRegistration {
   return defineEnterpriseCacheProviderRegistration({
     id: AWS_ELASTICACHE_CACHE_PROVIDER_ID,
-    load: async () => createAwsElastiCacheProvider(),
+    load: async (env) => createAwsElastiCacheProvider({ env }),
     settings: registration.settings,
+    ...(registration.env !== undefined ? { env: registration.env } : {}),
   })
 }

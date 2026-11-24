@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import { defineEnterpriseGateSuite } from '../../test-support/gate'
+import type { CacheProviderEnv } from '@open-mercato/cache/provider'
+import { defineEnterpriseCacheProviderRegistration } from '../enterprise'
 import { createManagedRespProvider, MANAGED_REAUTH_LIMITS, managedHostSchema, managedPortSchema, managedTlsSchema, managedTuningShape, redactManagedTls, redactManagedTuning, toRespTls } from '../managed'
 
 const settings = z.object({
@@ -11,8 +13,9 @@ const settings = z.object({
 
 type FixtureSettings = z.infer<typeof settings>
 
-const provider = createManagedRespProvider<FixtureSettings>({
+const createProvider = (options: { env?: CacheProviderEnv } = {}) => createManagedRespProvider<FixtureSettings>({
   id: 'open-mercato/azure-managed-redis',
+  ...(options.env !== undefined ? { env: options.env } : {}),
   settings,
   toRespSettings: (config) => ({
     mode: 'standalone',
@@ -36,6 +39,11 @@ const provider = createManagedRespProvider<FixtureSettings>({
 })
 
 defineEnterpriseGateSuite({
-  provider: provider as never,
+  createProvider,
+  registration: (options) => defineEnterpriseCacheProviderRegistration({
+    id: 'open-mercato/azure-managed-redis',
+    load: async (env) => createProvider({ env }),
+    ...options,
+  }),
   validSettings: { host: 'cache.example.internal' },
 })
