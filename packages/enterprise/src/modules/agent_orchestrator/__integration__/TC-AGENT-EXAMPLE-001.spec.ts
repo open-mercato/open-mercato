@@ -45,7 +45,9 @@ async function setupTenant(
     const code = error instanceof Error && 'code' in error ? String(error.code) : 'unknown'
     throw new Error(`[internal] Fixture tenant setup exited with code ${code}.`)
   })
-  return JSON.parse(stdout) as SetupResult
+  const result = stdout.split('\n').find((line) => line.trimStart().startsWith('{"tenantId":'))
+  if (!result) throw new Error('[internal] Fixture tenant setup did not report its result.')
+  return JSON.parse(result) as SetupResult
 }
 
 async function listExamples(request: APIRequestContext, token: string, workflowId: string): Promise<WorkflowExample[]> {

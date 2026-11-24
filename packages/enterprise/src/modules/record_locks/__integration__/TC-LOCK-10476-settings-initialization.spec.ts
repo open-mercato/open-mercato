@@ -69,7 +69,9 @@ test('TC-LOCK-10476 repairs the global legacy resource list during CLI setup', a
       '--password', password,
       '--json',
     ])
-    provisioned = JSON.parse(output.trim().split('\n').at(-1) ?? '') as ProvisionedTenant
+    const result = output.split('\n').find((line) => line.trimStart().startsWith('{"tenantId":'))
+    if (!result) throw new Error('[internal] Fixture tenant setup did not report its result.')
+    provisioned = JSON.parse(result) as ProvisionedTenant
     expect(provisioned.tenantId).toBeTruthy()
 
     const token = await getAuthToken(request, email, password)
