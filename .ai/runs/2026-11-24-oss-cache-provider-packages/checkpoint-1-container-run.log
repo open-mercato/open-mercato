@@ -1,0 +1,29 @@
+=== cache-redis-protocol 13:32:17
+=== cache-redis-protocol EXIT 0
+Tests:       19 passed, 19 total
+=== cache-redis-protocol unit EXIT 0 Tests:       19 skipped, 11 passed, 30 total
+=== cache-provider-valkey 13:32:27
+=== cache-provider-valkey EXIT 0
+Tests:       32 passed, 32 total
+=== cache-provider-valkey unit EXIT 0 Tests:       32 skipped, 5 passed, 37 total
+=== cache-provider-redis 13:32:39
+=== cache-provider-redis EXIT 0
+Tests:       33 passed, 33 total
+=== cache-provider-redis unit EXIT 0 Tests:       33 skipped, 5 passed, 38 total
+=== cache-provider-keydb 13:32:51
+=== cache-provider-keydb EXIT 0
+Tests:       32 passed, 32 total
+=== cache-provider-keydb unit EXIT 0 Tests:       32 skipped, 5 passed, 37 total
+=== cache-provider-memcached 13:33:02
+=== cache-provider-memcached EXIT 0
+Tests:       44 passed, 44 total
+=== cache-provider-memcached unit EXIT 0 Tests:       21 passed, 21 total
+=== cache-provider-infinispan 13:33:24
+=== cache-provider-infinispan EXIT 0
+Tests:       44 passed, 44 total
+=== cache-provider-infinispan unit EXIT 0 Tests:       4 skipped, 36 passed, 40 total
+=== cache-provider-ignite 13:34:38
+=== cache-provider-ignite EXIT 0
+Tests:       50 passed, 50 total
+=== cache-provider-ignite unit EXIT 0 Tests:       50 skipped, 39 passed, 89 total
+ALL-DONE

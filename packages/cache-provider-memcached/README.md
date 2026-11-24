@@ -158,7 +158,7 @@ The trade-off: more buckets mean cheaper writes and fewer conflicts, but more ex
 
 ```bash
 yarn workspace @open-mercato/cache-provider-memcached test            # unit tests, no Docker
-yarn workspace @open-mercato/cache-provider-memcached test:container  # real memcached via Testcontainers
+yarn workspace @open-mercato/cache-provider-memcached test:containers # real memcached via Testcontainers
 yarn workspace @open-mercato/cache-provider-memcached qualify         # performance qualification (Docker)
 yarn workspace @open-mercato/cache-provider-memcached build
 ```

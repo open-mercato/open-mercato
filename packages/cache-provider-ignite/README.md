@@ -218,7 +218,7 @@ Run them:
 
 ```bash
 yarn workspace @open-mercato/cache-provider-ignite test                    # unit, no Docker
-yarn workspace @open-mercato/cache-provider-ignite test:container          # all container suites (sequential)
+yarn workspace @open-mercato/cache-provider-ignite test:containers         # all container suites (sequential)
 yarn workspace @open-mercato/cache-provider-ignite qualify                 # performance (below)
 ```
 

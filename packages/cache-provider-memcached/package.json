@@ -11,7 +11,7 @@
     "build": "node build.mjs",
     "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
-    "test:container": "cross-env OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand 'src/.+\\.container\\.test\\.ts$'",
+    "test:containers": "cross-env OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand 'src/.+\\.container\\.test\\.ts$'",
     "qualify": "node scripts/qualify.mjs",
     "typecheck": "tsc --noEmit"
   },

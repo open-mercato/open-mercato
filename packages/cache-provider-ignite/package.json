@@ -15,7 +15,7 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "jest --config jest.config.cjs",
-    "test:container": "OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand --testPathPatterns container",
+    "test:containers": "OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand --testPathPatterns container",
     "qualify": "node scripts/qualify.mjs",
     "typecheck": "tsc --noEmit"
   },
