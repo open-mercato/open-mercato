@@ -5,7 +5,7 @@ Extends: .ai/specs/2026-11-05-redis-cache-batched-invalidation.md
 
 ## TLDR
 
-Open Mercato operators can currently choose four built-in cache strategies. This proposal lets a deployment select an installed npm provider with its own typed configuration, including packages Open Mercato has never seen. Six opt-in open-source engine packages ship through that extension point, each tested against its actual engine in Docker.
+Open Mercato operators can currently choose four built-in cache strategies. This proposal lets a deployment select an installed npm provider with its own typed configuration, including packages Open Mercato has never seen. A packed provider fixture proves the extension works independently. Engine packages follow in the linked delivery specs.
 
 ## Overview
 
@@ -20,7 +20,7 @@ Cache provider selection is deployment-wide and takes effect on restart. Applica
 
 ## Proposed Solution
 
-Use an explicit app-owned registration list and one additive `CACHE_PROVIDER` selector. Keep the core independent of provider package names and deliver each adapter as a separately installable workspace and npm package. The [Enterprise companion](enterprise/2026-11-24-managed-cloud-cache-providers.md) qualifies cloud services through the same interface.
+Use an explicit app-owned registration list and one additive `CACHE_PROVIDER` selector. Keep the core independent of provider package names. The [open-source provider catalog](2026-11-24-oss-cache-provider-packages.md) and [Enterprise companion](enterprise/2026-11-24-managed-cloud-cache-providers.md) specify independent delivery of adapter packages through this interface.
 
 Keyv demonstrates independently packaged adapters and a common conformance suite. Symfony illustrates why tag invalidation deserves engine-specific implementation and verification. A generic get/set adaptor or an Awilix-only override would bypass required enumeration or process entry points. [Keyv adapter guidance](https://v5.keyv.org/docs/third-party-storage-adapters/), [Symfony Cache](https://symfony.com/doc/current/cache.html)
 
@@ -50,15 +50,6 @@ A provider SHALL preserve documented tenant scope, TTL, enumeration and tag inva
 
 - WHEN one process overwrites a record's tags and another invalidates several tags for the same tenant
 - THEN matching current entries are removed once and unrelated entries and other scopes survive. A subsequent read misses a removed entry unless another writer has repopulated it
-
-#### ADDED Requirement: Individually installable OSS adapters
-
-The project SHALL publish separate, opt-in npm packages for Valkey, Redis, Memcached, KeyDB, Infinispan and Apache Ignite 2.x. Each advertised configuration requires passing real-engine verification.
-
-##### Scenario: Fresh app with one adapter
-
-- WHEN an operator installs only one supported adapter in a scaffolded app
-- THEN that adapter works with the existing DI service and the other five providers remain optional dependencies at deployment time
 
 ## Architecture
 
@@ -110,24 +101,6 @@ No SQL tables, migrations or settings entities are introduced. A new provider ow
 
 - Enumerate a namespace via bounded pages or deterministic shards. Deduplicate multi-tag candidates and count confirmed removals. Full operations either inspect their complete target or report failure. Avoid global flush, blocking key enumeration and unaudited key dumps.
 - Candidate indexes, if used, must not lose membership for a live payload through eviction, expiry or partial writes. Re-read current tags and compare the observed version before removing a retagged entry. A provider may colocate data and metadata or use an authoritative bounded enumeration. Confirm success only when all required batches succeed. Document partial progress, retry semantics, and absence of a snapshot across concurrent writes. If the wrapper's second write fails, the provider integration must keep the data eligible for tag invalidation and reconcile or remove an orphan before claiming complete logical enumeration. Verify repair or cleanup cannot delete a newer concurrent write.
-- Keep Redis-compatible cluster commands single-key or placed within the same hash slot, route mutations to primaries and follow topology changes. Test the primary and metadata writes, concurrent refresh/retag, failure between batches, and retry. No builtin key or wire formats are changed. [Redis Cluster specification](https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/)
-- Memcached's portable protocol provides keyed access and CAS. Use a deterministic, bounded array of deployment buckets, each held in one CAS item with its own entries, tags and expiry metadata. Enumerate by fetching the known bucket keys. Missing or evicted buckets are misses in their entirety. CAS from the latest state for mutations and use atomic add for a missing bucket. Keep key and encoded bucket sizes under the configured server limits, cap retry/concurrency, reclaim expired entries, and document capacity eviction. Normal cache entries and tags must fit together within one item or produce an explicit error. Store per-entry logical TTL in the bucket to avoid shared expiry and protocol range surprises. No side index may hide a surviving value. [Memcached basic protocol](https://docs.memcached.org/protocols/basic/)
-
-### Open-source provider catalog
-
-Each proposed package lives in its own `packages/cache-provider-*` workspace, API-compatible with v1, and ships a README and runnable Docker recipe. First-party IDs follow `open-mercato/<package suffix>`, for example `open-mercato/valkey`. The initial release supports the modes listed below after qualification. Any additional mode advertised by a package takes the same qualification, and unsupported configuration combinations are rejected.
-
-| npm package | Initial support and configuration | Required real-engine proof |
-|---|---|---|
-| `@open-mercato/cache-provider-valkey` | Valkey, single primary and Valkey Cluster. Endpoint seeds, ACL credentials, TLS and timeouts. | Valkey containers for standalone and a real sharded cluster. Test redirects, scope and failover/reconnect. [Valkey overview](https://valkey.io/topics/introduction/), [Valkey clients](https://valkey.io/clients/) |
-| `@open-mercato/cache-provider-redis` | Redis Open Source, single primary and Redis Cluster. Endpoint seeds, ACL credentials, TLS and timeouts. Document exact tested versions and upstream licensing. | Redis containers for standalone and a real sharded cluster. Exercise stock-versus-opt-in configuration and slot-safe batches. [Redis licenses by version](https://redis.io/legal/licenses/), [Redis Cluster specification](https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/) |
-| `@open-mercato/cache-provider-memcached` | Self-hosted Memcached, one or more configured servers with identical routing across clients. Explicit item, bucket and CAS retry limits. | Memcached containers, including multi-server routing, TTL, item size, restart/eviction, conflicting writes and false-miss prevention after partial mutations. [Memcached basic protocol](https://docs.memcached.org/protocols/basic/) |
-| `@open-mercato/cache-provider-keydb` | KeyDB single writable endpoint, TLS/auth as supported by the verified profile. Active-active replication requires separate consistency qualification. | KeyDB container, documented client compatibility, full tag, expiry and bounded enumeration suite. [KeyDB project](https://github.com/Snapchat/KeyDB) |
-| `@open-mercato/cache-provider-infinispan` | Infinispan Server with a dedicated remote cache, endpoint, auth, TLS and cache name. Spike Hot Rod or REST for paged enumeration and conditional mutation. | Distributed Infinispan server containers. Prove that the chosen protocol provides atomic conditional replacement/removal and complete scoped enumeration, or use bounded CAS buckets if the protocol can support them. [Infinispan REST API](https://infinispan.org/docs/stable/titles/rest/rest.html), [JavaScript Hot Rod client](https://infinispan.org/docs/hotrod-clients/js-client/latest/) |
-| `@open-mercato/cache-provider-ignite` | Apache Ignite **2.x** with a dedicated cache. Endpoint, auth, TLS and cache name. Pin a maintained, compatible thin-client path after the spike. | Ignite 2.x server containers. Verify scan pagination, conditional mutation, expiry and reconnect against the pinned client and server. [Ignite 2.x Node.js thin client](https://ignite.apache.org/docs/ignite2/latest/thin-clients/nodejs-thin-client), [Ignite expiry policies](https://ignite.apache.org/docs/ignite2/latest/configuring-caches/expiry-policies) |
-
-Client selection remains an implementation qualification step. Verify maintenance status, licensing, supported Node/runtime targets, package ESM/types, binary safety, operation deadlines, shutdown, and the required engine operations before proposing a production dependency. Reuse proven wire-level code and the same conformance suite across providers. Keep transport/dependency ownership in the respective package.
-
 ## API Contracts
 
 Existing `CacheStrategy`, `CacheService`, Awilix token, HTTP routes, and CLI command shapes remain stable. The new entry point and optional provider input are additive. The existing cache admin route (`GET` and `POST /api/configs/cache`) still uses tenant scope and ACLs. `GET /api/healthz` probes the selected provider without exposing its version, endpoint, settings or error details. User-facing cache management and authorization are exercised through existing test paths.
@@ -150,35 +123,27 @@ With `CACHE_PROVIDER` unset, keep legacy selection precedence, defaults, connect
 ## Verification
 
 - **Selection and backward compatibility** · Unit and entry-point tests cover built-ins, unknown legacy values, explicit override precedence, duplicate IDs, invalid/unsupported config, absent package, incompatible API version, unselected packages, singleton off, shutdown, and timeout/redaction. Use an independently packed npm fixture with a custom ID and schema to prove the host has no allowlist for open-source providers. Exercise monorepo and a freshly scaffolded Verdaccio install, production server, worker/scheduler CLI, and structural generation purge.
-- **Engine contract** · Reuse one suite with pinned container images and isolated namespaces. Use Testcontainers or the repo's Docker harness. For every row and advertised topology, run CRUD cache primitives, expiry with default and override, tag overlap/retag, glob and stats, scoped clear, cleanup, foreign namespace, interleaved tenant contexts, independent process propagation, reconnect, corrupt value behavior, bounded batch/failure, and close. Cover entries larger than a page and driver limits. CI publishes per-variant evidence and fails when a required engine test is skipped.
+- **Provider conformance kit** · Run one reusable suite against the separately packed fixture in a disposable environment. The kit covers CRUD cache primitives, expiry with default and override, tag overlap/retag, glob and stats, scoped clear, cleanup, foreign namespace, interleaved tenant contexts, independent process propagation, reconnect, corrupt value behavior, bounded batch/failure, and close. Include enough entries to cross a batch boundary. Export the fixture lifecycle and assertions so delivery work can exercise each engine and topology.
 - **Application boundaries** · Run readiness for reachable, unavailable and misconfigured selections, cache admin API stats/authorized purge and denied access (see `TC-CONF-002/003`), and the cache management page's stats and purge through the existing admin workflow. Run a real cached CRUD list read plus post-commit write invalidation across processes, and a webhook or another runtime-dependent cache consumer. Verify global and tenant CLI stats/purge and maintenance-pattern targeting. Fixtures and namespaces are created per run and removed or allowed to expire in disposable environments.
-- **Packaging and performance** · Run relevant cache/core/CLI tests, build packages, generate registries, and verify template sync for any mirrored readiness/env changes. Test package installation and type imports without other providers. Capture per supported topology key cardinality, payload sizes, p50/p95, command counts, timeout errors and cleanup under steady traffic and retag/invalidate churn. Compare to the stock Redis baseline and record the operating envelope before promotion.
+- **Packaging and performance** · Run relevant cache/core/CLI tests, build packages, generate registries, and verify template sync for any mirrored readiness/env changes. Install the fixture without engine packages. With provider selection unset, compare startup and cache calls to the stock baseline and confirm no adapter package is resolved.
 
 ## Phasing
 
-1. Land the neutral v1 extension point with an independently packed fixture and stock regression coverage.
-2. Ship the Valkey, Redis and KeyDB packages once each passes its container and installation gates.
-3. Ship Memcached, Infinispan and Ignite 2.x as each passes its engine-specific feasibility, contract and performance gates. Cloud packages build on the same contract through the companion spec.
+1. Characterize stock behavior and add the optional provider contract and app registration manifest.
+2. Wire the real runtime and maintenance paths. Release v1 after the packed fixture, conformance kit, stock regression checks and documentation pass. The delivery status of any engine package is independent of this release.
 
 ## Implementation Plan
 
-### Phase 1 — Extension point
+### Phase 1 — Provider contract
 
-1. Pin stock selection/fallback, both DI bootstrap paths, health and generation purge behavior with characterization tests. Keep existing callers and published package exports working.
+1. Pin stock selection/fallback, both DI bootstrap paths, health and generation purge behavior with characterization tests.
 2. Add the server provider contract, schema validation, app manifest generation, synchronous strategy wrapper integration, and effective selection/lifecycle tests.
-3. Connect readiness, production topology guard, OAuth warning and post-generate maintenance. Prove that an independently packed fixture drives the actual monorepo and standalone entry points, and pin the cache admin and CRUD workflows.
-4. Publish provider-author and operator docs, typed configuration examples, sanitized diagnostics and coordinated cutover steps.
 
-### Phase 2 — Redis-compatible packages
+### Phase 2 — Runtime, conformance kit and documentation
 
-1. Prove the bounded, slot-safe storage and client primitives on standalone and clustered Valkey, then package and test Valkey.
-2. Package Redis and KeyDB individually, each with its own pinned image matrix and compatible settings. Verify shared code does not alter the stock Redis layout or runtime defaults.
-
-### Phase 3 — Other OSS engines
-
-1. Prove and package the Memcached bucket protocol with two independent clients, forced contention, auth/TLS if advertised, eviction and size-limit tests.
-2. Qualify the Infinispan and Ignite 2.x client paths against actual clusters. Package each with an isolated integration test lane. Hold any engine or variant that misses the correctness or runtime gate.
-3. Record the accepted version/topology and performance envelopes per package. Archive the landed Delta into `.ai/specs/capabilities/pluggable-cache-providers.md` as the corresponding requirements ship.
+1. Connect readiness, production topology guard, OAuth warning and post-generate maintenance. Prove that an independently packed fixture drives the actual monorepo and standalone entry points, and pin the cache admin and CRUD workflows.
+2. Publish the conformance kit, provider-author and operator docs, typed configuration examples, sanitized diagnostics and coordinated cutover steps.
+3. Archive the Delta into `.ai/specs/capabilities/pluggable-cache-providers.md` when the fixture and stock regressions pass.
 
 ## Final Compliance Report — 2026-11-24
 
@@ -186,12 +151,12 @@ With `CACHE_PROVIDER` unset, keep legacy selection precedence, defaults, connect
 |---|---|
 | Root, cache and shared guides | Uses the existing DI token, tenant wrapper and tag invalidation. Adds a versioned provider contract without a public rename or removal. |
 | Core and CLI guides | Keeps post-commit invalidation and public commands. Covers both bootstrap paths, deterministic generation and optional post-generation failures. |
-| Create-app and QA guides | Requires scaffolded install verification, health/env template parity where touched, per-run fixtures, and real-engine tests for each adapter. |
-| Specs and Enterprise guides | OSS extension and engines are specified here. Commercial distribution, activation and live-test prerequisites are in the companion spec. |
+| Create-app and QA guides | Requires scaffolded install verification, health/env template parity where touched, and per-run fixtures through the conformance kit. |
+| Specs and Enterprise guides | This spec defines the OSS extension contract. The delivery specs define engine and cloud package qualification. |
 | Backward compatibility | Additive activation, preserved stock formats and defaults, and an explicit coordinated migration and rollback. |
 
-**Design status** · Proposed. Client, topology and runtime checks are part of implementation qualification.
+**Design status** · Proposed. Runtime and packaging checks are part of v1 implementation qualification.
 
 ## Changelog
 
-- 2026-11-24 · Drafted the npm provider extension point, six OSS adapters and their verification plan.
+- 2026-11-24 · Drafted the npm provider extension point. Scope review separated v1 completion from adapter release qualification.

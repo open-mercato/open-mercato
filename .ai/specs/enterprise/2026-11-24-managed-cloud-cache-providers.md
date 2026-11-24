@@ -55,7 +55,7 @@ The project SHALL mark a managed configuration supported after running cache con
 
 ### Package and support matrix
 
-These are the target profiles, grouped by managed offering. A package can land support incrementally. Its schema and docs list only combinations with live qualification. Pin supported service versions and client versions in the implementation record.
+These are the target profiles, grouped by managed offering. The first profile for each package is defined in the Implementation Plan. Each package can release independently and expand support incrementally. Its schema and docs list only combinations with live qualification. Pin supported service versions and client versions in the implementation record.
 
 | npm package and managed engine | Topologies to qualify | Auth and configuration to qualify |
 |---|---|---|
@@ -63,7 +63,7 @@ These are the target profiles, grouped by managed offering. A package can land s
 | `@open-mercato/cache-provider-aws-elasticache` · Valkey, Redis OSS, Memcached | For **each** Redis-compatible engine, node-based cluster mode disabled (writable primary), node-based cluster mode enabled (configuration endpoint), and Serverless. For Memcached, node-based cluster with tested discovery/routing and Serverless TLS endpoint. | Discriminated settings by engine and deployment mode. Redis-compatible profiles exercise applicable least-privilege ACL user credentials and IAM auth with refresh, re-auth/reconnect and correct signing resource. Memcached uses its documented connectivity and TLS profile, with the node-based discovery path tested separately. [ElastiCache deployment and engine options](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/WhatIs.corecomponents.html), [IAM authentication](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/auth-iam.html), [TLS](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/in-transit-encryption.html), [Memcached Auto Discovery](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/AutoDiscovery.html) |
 | `@open-mercato/cache-provider-google-memorystore` · Memorystore for Valkey, Redis and Redis Cluster | Qualify Valkey cluster-mode enabled and disabled separately, Redis at its primary endpoint, and Redis Cluster at its discovery endpoint. | Product, endpoints, topology, CA and auth mode. Exercise Valkey and Redis Cluster IAM with Google workload credentials, token refresh and new shard connections. Exercise Redis AUTH for the standalone Redis offering. Additional native auth options require their own live evidence. [Memorystore for Valkey](https://docs.cloud.google.com/memorystore/docs/valkey/faq), [Redis access control](https://docs.cloud.google.com/memorystore/docs/redis/access-control), [Redis Cluster IAM](https://docs.cloud.google.com/memorystore/docs/cluster/about-iam-auth), [Redis Cluster TLS](https://docs.cloud.google.com/memorystore/docs/cluster/about-in-transit-encryption) |
 
-Each package validates only its own fields, including the topology/auth pairing, namespace, endpoint roles, transport trust and deadline bounds. Prefer short-lived workload identity where provided. The supported connections verify TLS certificates and hostnames. No verification bypass is an advertised mode. Ensure authentication succeeds on each connection after reconnect, resharding or rotation. For Redis-compatible engines use primary reads and confirm the scoped command set under the actual managed role. For ElastiCache Memcached reuse the CAS bucket design and prove the needed conditional commands, item limits, discovery and routing on both deployment modes.
+Each package validates only its own fields, including the topology/auth pairing, namespace, endpoint roles, transport trust and deadline bounds. Prefer short-lived workload identity where provided. The supported connections verify TLS certificates and hostnames. No verification bypass is an advertised mode. Ensure authentication succeeds on each connection after reconnect, resharding or rotation. For Redis-compatible engines use primary reads and confirm the scoped command set under the actual managed role. For ElastiCache Memcached use the [CAS bucket design](../2026-11-24-oss-cache-provider-packages.md#data-model) and prove the needed conditional commands, item limits, discovery and routing on both deployment modes. Only verified protocol code is a reuse candidate. The Enterprise adapter does not require a public Memcached package release.
 
 A connectivity check proves access only. Before promoting a profile, exercise tag invalidation, enumeration, namespace fencing, and partial-failure handling using actual commands on that service. Use a TLS-capable text protocol client for Serverless Memcached and batch multi-key reads within its 16 KB command limit. Test the Azure Enterprise proxy with its narrower multikey command set. Cross-region active-active deployments need separate consistency qualification. If an operation is blocked or unsafe in a topology, qualify an alternate implementation on that topology or keep the profile disabled. Never return synthetic success or silently route to another provider. [ElastiCache command restrictions](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/SupportedCommands.html), [Azure cross-slot restrictions](https://learn.microsoft.com/en-us/azure/redis/choose-clustering-policy#multikey-commands-and-crossslot-behavior)
 
@@ -100,8 +100,9 @@ Managed providers are explicit opt-ins. Apply the coordinated rollout and rollba
 ## Phasing
 
 1. Establish commercial packaging, the activation boundary and the protected live harness on top of the shared v1 extension.
-2. Deliver Azure Managed Redis as its live profiles qualify.
-3. Deliver Amazon ElastiCache and Google Cloud Memorystore independently. Add each engine/topology/auth profile as its own live gate passes.
+2. Deliver Azure Managed Redis, Amazon ElastiCache and Google Cloud Memorystore in independent workstreams. Each depends on the Phase 1 foundation and its own live qualification. No provider's release depends on another provider's live environment or release.
+
+A provider's first release is complete when its package installs on its own through the commercial channel, its listed first profile passes live conformance, and its redacted evidence, operator runbook and supported matrix are published. Add the remaining target profiles individually as their gates pass.
 
 ## Implementation Plan
 
@@ -110,16 +111,22 @@ Managed providers are explicit opt-ins. Apply the coordinated rollout and rollba
 1. Pin OSS and Enterprise default install behavior, then prove an official commercial fixture cannot load or connect without activation. Verify the runtime gate on web, worker and cache maintenance.
 2. Establish the commercial release manifests, one protected runbook per provider and a conformance harness driven by explicit approved sandbox profiles. Prove missing-secret output is actionable and fully redacted.
 
-### Phase 2 — Azure
+### Phase 2A — Azure Managed Redis
 
-1. Build the Azure package and qualify the Non-clustered and OSS clustering profiles with Entra identity, TLS and refresh tests.
-2. Qualify the Enterprise proxy policy with its allowed command set, then activate only the tested policy/auth combinations in package settings and docs.
+1. Build the Azure package. The first release profile is **Non-clustered, Microsoft Entra authentication, and TLS**. Prove credential refresh and reconnect and complete the shared release checks on that profile.
+2. Qualify OSS clustering and the Enterprise proxy policy separately with their routing and allowed command sets. Qualify access keys separately if offered.
 
-### Phase 3 — AWS and Google
+### Phase 2B — Amazon ElastiCache
 
-1. Build ElastiCache and qualify the node-based and Serverless Valkey, Redis OSS and Memcached paths. Release only profiles with remote conformance evidence.
-2. Build Memorystore and qualify Valkey, Redis and Redis Cluster profiles independently, exercising the corresponding identity, discovery and certificate requirements.
-3. Record profile-by-profile compatibility, verified evidence and operator configuration. Archive the landed Delta into `.ai/specs/enterprise/capabilities/managed-cloud-cache-providers.md` as requirements ship.
+1. Build the ElastiCache package. The first release profile is **node-based Valkey, cluster mode disabled, IAM authentication, and TLS**. Prove signing, reconnect and re-authentication on the writable endpoint and complete the shared release checks.
+2. Qualify remaining node-based and Serverless Valkey, Redis OSS and Memcached profiles through their matching endpoint, identity and command tests.
+
+### Phase 2C — Google Cloud Memorystore
+
+1. Build the Memorystore package. The first release profile is **Memorystore for Valkey, cluster mode enabled, IAM authentication, and TLS**. Prove discovery and credential refresh on shard connections and complete the shared release checks.
+2. Qualify Valkey cluster mode disabled, Memorystore for Redis and Memorystore for Redis Cluster, including the identity and certificate requirements for each.
+
+After each workstream releases, archive its qualified profiles and applicable Delta into `.ai/specs/enterprise/capabilities/managed-cloud-cache-providers.md`. Record the Phase 1 activation and packaging behavior when its fixture tests pass.
 
 ## Final Compliance Report — 2026-11-24
 
@@ -134,3 +141,4 @@ Managed providers are explicit opt-ins. Apply the coordinated rollout and rollba
 ## Changelog
 
 - 2026-11-24 · Drafted commercial package boundaries, managed service profiles, and credentialed verification gates.
+- 2026-11-24 · Scope review clarified independent cloud workstreams and initial release profiles.
