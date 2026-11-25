@@ -109,13 +109,20 @@ for (const file of [
   test(`${file} resolves LocalStack on loopback when the storage profile is enabled`, { skip: skipReason }, () => {
     assert.equal(composeConfig([file], {}, []).services.localstack, undefined)
     const { app, localstack } = composeConfig(
-      [file], { LOCALSTACK_PORT: '14566', INFRA_BIND_HOST: '192.0.2.5' }, ['storage-s3'],
+      [file], { LOCALSTACK_PORT: '14566' }, ['storage-s3'],
     ).services
 
     assert.deepEqual(localstack.ports.map(({ host_ip, published, target }) => [host_ip, published, target]), [
       ['127.0.0.1', '14566', 4566],
     ])
     assert.ok(Object.keys(app.networks).some(network => network in localstack.networks))
+
+    const overriddenLocalstack = composeConfig(
+      [file], { LOCALSTACK_PORT: '14566', INFRA_BIND_HOST: '192.0.2.5' }, ['storage-s3'],
+    ).services.localstack
+    assert.deepEqual(overriddenLocalstack.ports.map(({ host_ip, published, target }) => [host_ip, published, target]), [
+      ['192.0.2.5', '14566', 4566],
+    ])
   })
 }
 
