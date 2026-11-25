@@ -11,7 +11,7 @@ test.use({ locale: 'en-US', timezoneId: 'America/Los_Angeles' })
 
 test('TC-CRM-8390 UI: ends employment, reloads company history, and links the person again', async ({ page, request }, testInfo) => {
   const token = await getAuthToken(request, 'admin')
-  const stamp = randomUUID()
+  const stamp = randomUUID().slice(0, 8)
   const companyName = `Employment company ${stamp}`
   const displayName = `Employee ${stamp}`
   let companyId: string | null = null
@@ -65,8 +65,10 @@ test('TC-CRM-8390 UI: ends employment, reloads company history, and links the pe
     const departureDate = endDialog.getByRole('button', { name: 'Departure date', exact: true })
     await departureDate.click()
     await page.getByRole('button', { name: /^Go to previous month:/ }).click()
-    await page.getByRole('button', { name: new RegExp(dayButton) }).click()
-    await testInfo.attach('end-employment-dialog', { body: await page.screenshot(), contentType: 'image/png' })
+    const calendarDay = page.getByRole('button', { name: new RegExp(dayButton) })
+    await calendarDay.click()
+    await expect(calendarDay).toBeHidden()
+    await testInfo.attach('end-employment-dialog', { body: await endDialog.screenshot({ animations: 'disabled' }), contentType: 'image/png' })
     const endPath = `/api/customers/people/${personId}/companies/${companyId}/end`
     const endWrite = page.waitForRequest((submitted) => submitted.method() === 'POST' && new URL(submitted.url()).pathname === endPath)
     await departureDate.press('Control+Enter')
@@ -82,7 +84,7 @@ test('TC-CRM-8390 UI: ends employment, reloads company history, and links the pe
     await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(formerPerson).toBeVisible()
     await expect(activeActions).toBeHidden()
-    await testInfo.attach('former-employees', { body: await page.screenshot(), contentType: 'image/png' })
+    await testInfo.attach('former-employees', { body: await history.screenshot({ animations: 'disabled' }), contentType: 'image/png' })
 
     await page.getByRole('button', { name: 'Link existing person', exact: true }).click()
     const linkDialog = page.getByRole('dialog')
