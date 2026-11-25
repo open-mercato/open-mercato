@@ -268,3 +268,4 @@ This catalog indexes 198 focused lessons. Route the task first, then read only r
 
 - [Resolve script entrypoints through symlinks](lessons/resolve-script-entrypoints-through-symlinks.md) — area:debugging,testing; module:starter,create_app; topic:symlinks,script-entrypoints,encryption,setup
 - [Handle timestamp ties when filtering undone price history](lessons/catalog-history-undo-timestamp-ties.md) — area:module-data,testing; module:catalog; topic:undo-redo,data-integrity,timestamp-ordering
+- [Route URL-bearing test fixtures by exact structured values](lessons/url-fixture-routing-needs-exact-structured-values.md) — area:testing; module:agent_orchestrator; topic:network-security,codeql,fixtures

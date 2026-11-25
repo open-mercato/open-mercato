@@ -1521,6 +1521,8 @@
   "agent_orchestrator.settings.webSearch.allowPrivateHostsHint": "Hosts separados por comas a los que se permite resolver a una dirección privada, para un servicio propio como SearXNG. Todo lo demás sigue bloqueado. Un host indicado aquí también es accesible por web_fetch, así que añádelo también a la lista de bloqueo si solo un adaptador debe alcanzarlo.",
   "agent_orchestrator.settings.webSearch.allowPrivateHostsInstanceOnly": "Lo define el despliegue en OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS. No es editable por inquilino, porque alcanzar una dirección privada es una propiedad de la red en la que se ejecuta la aplicación.",
   "agent_orchestrator.settings.webSearch.allowPrivateHostsPlaceholder": "ninguno — se rechaza toda dirección privada",
+  "agent_orchestrator.settings.webSearch.apiKeyMissing": "No se ha configurado la clave API de {provider}",
+  "agent_orchestrator.settings.webSearch.baseUrlMissing": "No se ha configurado la URL base de {provider}",
   "agent_orchestrator.settings.webSearch.cacheTtlHint": "Cuánto tiempo una consulta idéntica reutiliza su respuesta anterior.",
   "agent_orchestrator.settings.webSearch.cacheTtlMs": "TTL de caché (ms)",
   "agent_orchestrator.settings.webSearch.concurrency": "Adaptadores concurrentes",
@@ -1549,6 +1551,8 @@
   "agent_orchestrator.settings.webSearch.minConfidence": "Umbral de confianza",
   "agent_orchestrator.settings.webSearch.minResults": "Resultados mínimos",
   "agent_orchestrator.settings.webSearch.needsConfig": "Configuración necesaria",
+  "agent_orchestrator.settings.webSearch.noModelResolver": "La aplicación anfitriona no ha proporcionado un selector de modelos",
+  "agent_orchestrator.settings.webSearch.noSearchEngines": "No hay motores de búsqueda habilitados",
   "agent_orchestrator.settings.webSearch.none": "No hay paquetes de adaptadores instalados. Añade uno con yarn add y luego ejecuta yarn generate.",
   "agent_orchestrator.settings.webSearch.notInstalled": "No instalado",
   "agent_orchestrator.settings.webSearch.preview.blocked": "Bloqueado por reglas de dominio",
@@ -1959,6 +1963,7 @@
   "agent_orchestrator.webSearch.activity.stage.merging": "Combinando resultados",
   "agent_orchestrator.webSearch.activity.stage.reading": "Leyendo páginas",
   "agent_orchestrator.webSearch.activity.title": "Búsqueda web",
+  "agent_orchestrator.webSearch.errors.reenterCredentials": "Vuelve a introducir las credenciales al cambiar la URL de un adaptador.",
   "agent_orchestrator.workInbox.disposition.title": "Propuesta del agente para revisar: {agent}",
   "notifications.categories.agent_orchestrator": "Agentes de IA"
 }

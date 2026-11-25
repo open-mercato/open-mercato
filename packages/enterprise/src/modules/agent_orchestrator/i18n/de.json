@@ -1521,6 +1521,8 @@
   "agent_orchestrator.settings.webSearch.allowPrivateHostsHint": "Kommagetrennte Hosts, die zu einer privaten Adresse auflösen dürfen, für einen selbst betriebenen Dienst wie SearXNG. Alles andere bleibt blockiert. Ein hier genannter Host ist auch über web_fetch erreichbar — nehmen Sie ihn zusätzlich in die Sperrliste auf, wenn nur ein Adapter ihn erreichen soll.",
   "agent_orchestrator.settings.webSearch.allowPrivateHostsInstanceOnly": "Wird vom Deployment über OM_WEB_SEARCH_ALLOW_PRIVATE_HOSTS gesetzt. Nicht pro Mandant editierbar, denn der Zugriff auf eine private Adresse ist eine Eigenschaft des Netzwerks, in dem die App läuft.",
   "agent_orchestrator.settings.webSearch.allowPrivateHostsPlaceholder": "keine — jede private Adresse wird abgelehnt",
+  "agent_orchestrator.settings.webSearch.apiKeyMissing": "Der API-Schlüssel für {provider} ist nicht festgelegt",
+  "agent_orchestrator.settings.webSearch.baseUrlMissing": "Die Basis-URL für {provider} ist nicht festgelegt",
   "agent_orchestrator.settings.webSearch.cacheTtlHint": "Wie lange eine identische Anfrage ihre vorherige Antwort wiederverwendet.",
   "agent_orchestrator.settings.webSearch.cacheTtlMs": "Cache-TTL (ms)",
   "agent_orchestrator.settings.webSearch.concurrency": "Parallele Adapter",
@@ -1549,6 +1551,8 @@
   "agent_orchestrator.settings.webSearch.minConfidence": "Konfidenzschwelle",
   "agent_orchestrator.settings.webSearch.minResults": "Mindestanzahl Ergebnisse",
   "agent_orchestrator.settings.webSearch.needsConfig": "Konfiguration erforderlich",
+  "agent_orchestrator.settings.webSearch.noModelResolver": "Die Host-Anwendung hat keinen Modellresolver bereitgestellt",
+  "agent_orchestrator.settings.webSearch.noSearchEngines": "Es sind keine Suchmaschinen aktiviert",
   "agent_orchestrator.settings.webSearch.none": "Es sind keine Adapter-Pakete installiert. Fügen Sie eines mit yarn add hinzu und führen Sie dann yarn generate aus.",
   "agent_orchestrator.settings.webSearch.notInstalled": "Nicht installiert",
   "agent_orchestrator.settings.webSearch.preview.blocked": "Durch Domainregeln blockiert",
@@ -1959,6 +1963,7 @@
   "agent_orchestrator.webSearch.activity.stage.merging": "Ergebnisse werden zusammengeführt",
   "agent_orchestrator.webSearch.activity.stage.reading": "Seiten werden gelesen",
   "agent_orchestrator.webSearch.activity.title": "Websuche",
+  "agent_orchestrator.webSearch.errors.reenterCredentials": "Geben Sie die Zugangsdaten erneut ein, wenn Sie eine Adapter-URL ändern.",
   "agent_orchestrator.workInbox.disposition.title": "Zu prüfender Agentenvorschlag: {agent}",
   "notifications.categories.agent_orchestrator": "KI-Agenten"
 }
