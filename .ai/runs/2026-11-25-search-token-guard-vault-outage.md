@@ -76,6 +76,8 @@ returns `false`. Guard and decrypt therefore read one signal: decrypt skipped or
 
 ## Progress
 
+PR: #10634
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Guard reads the decrypting service's health
