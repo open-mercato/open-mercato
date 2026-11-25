@@ -116,6 +116,12 @@ Scope binding is enforced inside the envelope as well as in storage. Define a ve
 - Keep plaintext DEKs only in memory, with bounded lifetime and count. Reuse the existing service-level cache with explicit invalidation and a single authoritative cache policy. Never use Redis or persisted cache for DEK bytes. A still-valid DEK from the same binding can serve normal work while readiness is healthy. Once a process observes failure or epoch mismatch, revoke cached eligibility for new affected operations. Document the bounded detection window across replicas and restart all processes on a maintenance cutover. On a cold outage use the strict shared unavailable behavior. Never provision a new DEK after denial, timeout or corruption.
 - Readiness tests a bounded wrap/unwrap of disposable bytes and a read-only store check for the selected active profile. It creates no tenant record, provider key, or provider version. Reuse the request-independent probe and backoff so health traffic does not amplify an outage. Protected maintenance verifies source access by unwrapping retained envelopes and needs no source wrap permission. It verifies all required scopes separately. Logs and metrics expose safe reason classes, operation, duration, readiness state and aggregate counts. Keep plaintext, wrapped blobs, tokens, customer identifiers and unrestricted SDK error bodies out of telemetry.
 
+### Maintenance DEK isolation
+
+The shared field encryption service caches DEKs and deduplicates in-flight provisioning by logical scope across service instances. A second service instance with a different driver profile still shares those maps.
+
+All maintenance reads, including preview, staged-wrapper verification, rotation and isolated restore, bypass both shared maps. The maintenance resolver obtains each DEK directly through the pinned source or target profile and its versioned key handle. The handle pins deployment namespace, logical scope, profile identity and settings revision, binding epoch, DEK generation and wrapper revision. Resolve the exact recorded wrapper for an envelope-backed handle. Recheck the pinned binding and checkpoint before using a result or activating a target. A missing or mismatched result blocks verification. Maintenance reads neither populate the ordinary cache nor provision a missing key. Staging writes use the coordinator's explicit, guarded provisioning path.
+
 ### Migration, KEK rollover and DEK rotation
 
 Cloud KEK rollover changes what wraps an existing DEK. A DEK rotation changes the key that protects application data.
@@ -165,6 +171,7 @@ Stock installations use their existing factory behavior until explicit adoption.
 - Use self-contained PostgreSQL tests for two-process provisioning, process restart, valid tenant/system scopes, swapped envelopes, missing established slots, invalid wrapper versions, health/outage recovery, authorization failures, restore quarantine and pool saturation. Exercise actual setup and worker entry points, `/api/healthz`, and representative existing protected APIs from the OSS spec.
 - Qualify each initial package against a disposable real cloud key and the documented production identity. Exercise credential refresh, allowed operations, denied or disabled key, historical unwrap after key-version transition, cancellation and redacted telemetry. Use workload identities and scoped keys. Run fast mock-based tests in ordinary CI and keep live evidence per provider for release.
 - Prove Vault → cloud and derived → cloud migrations. Test rewrap between distinct cloud profiles and through an external envelope fixture. Verify unchanged application ciphertext and lookup hashes, crash before/after activation, resume with changed references, actual DEK rotation and failure to verify a tampered row. Exercise both source and target roles for each qualified cloud driver.
+- In a single process, warm the ordinary cache with the source DEK and verify a distinct target generation for the same logical scope. Assert that maintenance calls the target resolver, obtains the target DEK and verifies target-encrypted data. Repeat with an unresolved ordinary source provisioning promise for the same scope and assert the target completes independently. Verify that an unavailable target fails even with a warm source and that maintenance leaves the ordinary cache unchanged. For same-DEK rewrap, verify target unwrap against the staged wrapper through the target profile even when the key bytes match.
 - Create and verify encrypted backups and restore to isolated disposable targets. Confirm restoration with current and historical wrappers, then restore across provider profiles. Prove archive verification can succeed while missing source key custody keeps restore quarantined. Measure request, probe and maintenance budgets including database connections and cloud throttling. Keep fixtures and cloud resources disposable and clean them up through the approved maintenance environment.
 
 ## Phasing
@@ -179,6 +186,7 @@ The OSS seam stays provider-neutral. Enterprise packages own cloud SDKs, protect
 ## Changelog
 
 - 2026-11-25 · Proposed Enterprise AWS KMS, Google Cloud KMS and Azure Key Vault driver packages for #9344.
+- 2026-11-25 · Specified cache isolation and regression coverage for pinned maintenance DEK lookups.
 
 ## Implementation Plan
 
