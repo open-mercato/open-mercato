@@ -759,6 +759,13 @@ export class SearchIndexer {
             await this.searchService.bulkIndex(records)
             result.recordsIndexed += records.length
           } catch (error) {
+            if (result.success) {
+              result.success = false
+              result.errors.push({
+                entityId: params.entityId,
+                error: error instanceof Error ? error.message : String(error),
+              })
+            }
             searchDebugWarn('SearchIndexer', 'Failed to bulk index records', {
               entityId: params.entityId,
               recordCount: records.length,
@@ -1236,6 +1243,13 @@ export class SearchIndexer {
                 }, exclusions)
                 totalProcessed++
               } catch (error) {
+                if (result.success) {
+                  result.success = false
+                  result.errors.push({
+                    entityId,
+                    error: error instanceof Error ? error.message : String(error),
+                  })
+                }
                 searchDebugWarn('SearchIndexer', 'Failed to index record to vector', {
                   entityId,
                   recordId,

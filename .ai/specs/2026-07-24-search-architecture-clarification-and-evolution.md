@@ -144,8 +144,9 @@ with single-record indexing. Configured source errors, null, and empty text skip
 vector embedding rather than activating raw-field fallback; other strategies still
 run. An explicit null also removes any prior document for that record when the
 vector strategy processes the write (#5930), matching the legacy vector service.
-Use `shouldIndex` to exclude a record from all strategies. Provider-boundary tests
-exercise these cases through single, by-ID, queued
+Use `shouldIndex` to exclude a record from all strategies. Synchronous reindexing
+reports a failed retirement in its existing result while continuing to process
+other records. Provider-boundary tests exercise these cases through single, by-ID, queued
 batch, and bulk paths, plus scoped live encryption additions and lookup failures.
 Real-service regressions cover the encryption toggle both on and off, with an
 unhealthy fake KMS, active scoped declarations, and captured provider/write boundaries.

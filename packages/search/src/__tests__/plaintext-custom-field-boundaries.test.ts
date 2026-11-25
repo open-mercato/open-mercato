@@ -5,7 +5,7 @@ import { FullTextSearchStrategy } from '../strategies/fulltext.strategy'
 import { VectorSearchStrategy } from '../strategies/vector.strategy'
 import { TokenSearchStrategy } from '../strategies/token.strategy'
 import type { FullTextSearchDriver, FullTextSearchDocument } from '../fulltext/types'
-import type { VectorDriver } from '../vector/types'
+import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 import type { SearchEntityConfig, IndexableRecord } from '../types'
 import type { QueryEngine, QueryResult } from '@open-mercato/shared/lib/query/types'
 import type { EncryptedCustomFieldKeysResolver } from '../lib/encrypted-custom-field-resolver'
@@ -55,7 +55,11 @@ function createHarness(options: {
 } = {}) {
   const documents: FullTextSearchDocument[] = []
   const embeddings: string[] = []
-  const deleteVector = jest.fn(async (..._key: Parameters<VectorDriver['delete']>) => {})
+  const vectorDocuments = new Map<string, VectorDriverDocument>()
+  const vectorKey = (...identity: Parameters<VectorDriver['delete']>) => JSON.stringify(identity)
+  const deleteVector = jest.fn(async (...identity: Parameters<VectorDriver['delete']>) => {
+    vectorDocuments.delete(vectorKey(...identity))
+  })
   const driver: FullTextSearchDriver = {
     id: 'capture',
     ensureReady: async () => {},
@@ -70,7 +74,9 @@ function createHarness(options: {
   const vectorDriver: VectorDriver = {
     id: 'pgvector',
     ensureReady: async () => {},
-    upsert: async () => {},
+    upsert: async (document) => {
+      vectorDocuments.set(vectorKey(document.entityId, document.recordId, document.tenantId), document)
+    },
     query: async () => [],
     delete: deleteVector,
     getChecksum: async () => null,
@@ -98,7 +104,7 @@ function createHarness(options: {
     queryEngine,
     ...(resolver ? { encryptedCustomFieldKeysResolver: resolver } : {}),
   })
-  return { indexer, service, documents, embeddings, deleteVector, resolver }
+  return { indexer, service, documents, embeddings, vectorDocuments, deleteVector, resolver }
 }
 
 function expectPlaintextSafe(harness: ReturnType<typeof createHarness>, count = 1) {
@@ -193,17 +199,19 @@ describe('plaintext custom-field boundaries (#7894)', () => {
   it.each(['by-id', 'batch-by-id'] as const)('retires a prior vector when buildSource returns null through %s', async (entryPoint) => {
     const buildSource = jest.fn<ReturnType<NonNullable<SearchEntityConfig['buildSource']>>, []>()
       .mockResolvedValueOnce({ text: 'Vector-only source' })
+      .mockResolvedValueOnce({ text: 'Vector-only source' })
       .mockResolvedValue(null)
     const harness = createHarness({ buildSource })
     const record = { entityId, recordId: 'record-1' } as const
     const tenantId = 'tenant-1'
 
     await harness.indexer.indexRecord({ ...record, tenantId, record: makeFields() })
-    expect(harness.embeddings).toEqual(['Vector-only source'])
+    await harness.indexer.indexRecord({ ...record, tenantId: 'tenant-2', record: makeFields() })
+    expect(harness.vectorDocuments.size).toBe(2)
 
     if (entryPoint === 'by-id') {
       await harness.indexer.indexRecordById({ ...record, tenantId })
-      expect(replaceSearchTokensForRecord).toHaveBeenCalledTimes(2)
+      expect(replaceSearchTokensForRecord).toHaveBeenCalledTimes(3)
     } else {
       const result = await harness.indexer.indexRecordsById({ items: [record], tenantId })
       expect(result).toEqual({ indexed: 1, skipped: 0 })
@@ -212,12 +220,53 @@ describe('plaintext custom-field boundaries (#7894)', () => {
 
     expect(harness.deleteVector).toHaveBeenCalledTimes(1)
     expect(harness.deleteVector).toHaveBeenCalledWith(entityId, record.recordId, tenantId)
-    expect(harness.embeddings).toEqual(['Vector-only source'])
-    expect(harness.documents.map((document) => document.fields)).toEqual([
+    expect(harness.embeddings).toEqual(['Vector-only source', 'Vector-only source'])
+    expect(Array.from(harness.vectorDocuments.values())).toEqual([expect.objectContaining({ tenantId: 'tenant-2' })])
+    expect(harness.documents.filter((document) => document.tenantId === tenantId).map((document) => document.fields)).toEqual([
       { id: 'record-1', title: 'Public title', cf_note: 'Visible custom note' },
       { id: 'record-1', title: 'Public title', cf_note: 'Visible custom note' },
     ])
     expect(JSON.stringify(harness.documents)).not.toContain('Vector-only source')
+  })
+
+  it.each(['general', 'direct-vector'] as const)('reports a failed vector retirement and retries safely in %s reindex', async (mode) => {
+    const buildSource = jest.fn<ReturnType<NonNullable<SearchEntityConfig['buildSource']>>, []>()
+      .mockResolvedValueOnce({ text: 'Vector-only source' })
+      .mockResolvedValue(null)
+    const harness = createHarness({ buildSource })
+    const params = { entityId, tenantId: 'tenant-1' } as const
+    const reindex = () => mode === 'general'
+      ? harness.indexer.reindexEntity(params)
+      : harness.indexer.reindexEntityToVector({ ...params, useQueue: false })
+
+    await harness.indexer.indexRecord({ ...params, recordId: 'record-1', record: makeFields() })
+    harness.deleteVector.mockRejectedValueOnce(new Error('[internal] Vector store unavailable'))
+
+    expect(await reindex()).toMatchObject({
+      success: false,
+      recordsIndexed: 0,
+      errors: [{ entityId, error: expect.stringContaining('Vector store unavailable') }],
+    })
+    expect(harness.vectorDocuments.size).toBe(1)
+
+    expect(await reindex()).toMatchObject({ success: true, recordsIndexed: 1, errors: [] })
+    expect(harness.vectorDocuments.size).toBe(0)
+    expect(harness.embeddings).toEqual(['Vector-only source'])
+  })
+
+  it('preserves a prior vector when a source returns empty text', async () => {
+    const buildSource = jest.fn<ReturnType<NonNullable<SearchEntityConfig['buildSource']>>, []>()
+      .mockResolvedValueOnce({ text: 'Vector-only source' })
+      .mockResolvedValue({ text: [] })
+    const harness = createHarness({ buildSource })
+    const params = { entityId, recordId: 'record-1', tenantId: 'tenant-1', record: makeFields() } as const
+
+    await harness.indexer.indexRecord(params)
+    await harness.indexer.indexRecord(params)
+
+    expect(harness.vectorDocuments.size).toBe(1)
+    expect(harness.deleteVector).not.toHaveBeenCalled()
+    expect(harness.embeddings).toEqual(['Vector-only source'])
   })
 
   it.each(['by-id', 'bulk', 'reindex'] as const)('keeps fulltext exclusions and skips vector fallback when buildSource throws through %s', async (entryPoint) => {
