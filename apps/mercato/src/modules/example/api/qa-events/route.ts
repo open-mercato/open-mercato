@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   CROSS_PROCESS_EVENT_INSTANCE_ID,
@@ -25,6 +26,10 @@ const querySchema = z.object({
   event: z.string().trim().optional(),
   prefix: z.string().trim().optional(),
 })
+
+function isQaEventCaptureEnabled(): boolean {
+  return parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
+}
 
 function getCapturedEventsStore(): CapturedEvent[] {
   const globalScope = globalThis as Record<string, unknown>
@@ -88,6 +93,8 @@ function replacePersistedEvents(events: CapturedEvent[]): void {
 }
 
 function captureEvent(event: string, payload: unknown): void {
+  if (!isQaEventCaptureEnabled()) return
+
   const normalizedPayload = payload && typeof payload === 'object' && !Array.isArray(payload)
     ? payload as Record<string, unknown>
     : {}
@@ -132,11 +139,13 @@ export const metadata = {
 }
 
 export async function GET(request: Request) {
-  ensureCaptureTap()
+  if (!isQaEventCaptureEnabled()) return new Response(null, { status: 404 })
+
   const auth = await getAuthFromRequest(request)
   if (!auth?.tenantId || !auth.orgId) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  ensureCaptureTap()
 
   const url = new URL(request.url)
   const query = querySchema.parse({
@@ -155,11 +164,13 @@ export async function GET(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  ensureCaptureTap()
+  if (!isQaEventCaptureEnabled()) return new Response(null, { status: 404 })
+
   const auth = await getAuthFromRequest(request)
   if (!auth?.tenantId || !auth.orgId) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  ensureCaptureTap()
 
   const store = getCapturedEventsStore()
   for (let index = store.length - 1; index >= 0; index -= 1) {
@@ -178,6 +189,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List QA-captured server events for the current tenant scope',
       tags: [exampleTag],
+      errors: [{ status: 404, description: 'Not an integration-test runtime' }],
       responses: [
         {
           status: 200,
@@ -195,6 +207,7 @@ export const openApi: OpenApiRouteDoc = {
     DELETE: {
       summary: 'Clear QA-captured server events for the current tenant scope',
       tags: [exampleTag],
+      errors: [{ status: 404, description: 'Not an integration-test runtime' }],
       responses: [
         {
           status: 200,
