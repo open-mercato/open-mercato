@@ -8,7 +8,11 @@ export type EntryViewData = {
   importPath: string
   description?: string
   usage: { do: string[]; dont: string[] }
-  variants: Array<{ id: string; title: string; code: string }>
+  since?: string
+  accessibility: string[]
+  faq: Array<{ question: string; answer: string }>
+  tokens: string[]
+  variants: Array<{ id: string; title: string; code: string; description?: string }>
   contract: { file: string; rows: PropRow[] } | null
   sources: { component?: string; contract?: string; gallery: string }
 }

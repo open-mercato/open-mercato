@@ -30,13 +30,15 @@ const resizableVariants: Readonly<Partial<Record<string, readonly string[]>>> = 
   'section-page': ['section-nav'],
   page: ['basic', 'with-actions'],
   table: ['default', 'with-footer'],
+  splitter: ['basic', 'vertical', 'nested'],
+  'border-beam': ['basic'],
   'schedule-grid': ['three-day-board'],
   'schedule-view': ['week', 'month'],
 }
 
 export function PreviewFrame({ entryId, variantId, title }: PreviewFrameProps) {
   const t = useT()
-  const { theme, mode } = useDesignSettings()
+  const { mode } = useDesignSettings()
   const iframeRef = React.useRef<HTMLIFrameElement>(null)
   const [height, setHeight] = React.useState(INITIAL_HEIGHT)
 
@@ -56,7 +58,7 @@ export function PreviewFrame({ entryId, variantId, title }: PreviewFrameProps) {
       <iframe
         ref={iframeRef}
         title={t('design.frame.title', { title })}
-        src={previewHref(entryId, variantId, theme, mode)}
+        src={previewHref(entryId, variantId, mode)}
         loading="lazy"
         className="block w-full border-0"
         style={{ height }}

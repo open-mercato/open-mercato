@@ -43,7 +43,7 @@ export async function run(): Promise<void> {
       if (family.id === 'blocks' && !entry.contract) {
         throw new Error(`[internal] Missing block contract for ${entry.id}`)
       }
-      const variants = entry.variants.map(({ id, title, code }) => ({ id, title, code }))
+      const variants = entry.variants.map(({ id, title, code, description }) => ({ id, title, code, ...(description ? { description } : {}) }))
       if (entry.contract) {
         const file = sourceFileForImport(entry.contract.importPath)
         if (!file) throw new Error(`[internal] Cannot locate contract: ${entry.contract.importPath}`)
@@ -77,6 +77,10 @@ export async function run(): Promise<void> {
         ...(entry.descriptionKey ? { descriptionKey: entry.descriptionKey } : {}),
         keywords: entry.keywords ?? [],
         ...(entry.usage ? { usage: entry.usage } : {}),
+        ...(entry.since ? { since: entry.since } : {}),
+        ...(entry.accessibility?.length ? { accessibility: entry.accessibility } : {}),
+        ...(entry.faq?.length ? { faq: entry.faq } : {}),
+        ...(entry.tokens?.length ? { tokens: entry.tokens } : {}),
         galleryFile,
         ...(sourceFile ? { sourceFile } : {}),
         ...(contract ? { contract } : {}),

@@ -37,7 +37,19 @@ export default async function EntryPage({ params }: { params: Promise<Params> })
       do: (entry.usage?.do ?? []).map((rule, index) => serverT(`design_system.gallery.usage.${entry.id}.do.${index}`, rule)),
       dont: (entry.usage?.dont ?? []).map((rule, index) => serverT(`design_system.gallery.usage.${entry.id}.dont.${index}`, rule)),
     },
-    variants: entry.variants.map((variant) => ({ id: variant.id, title: variantTitle(variant.title), code: variant.code })),
+    ...(entry.since ? { since: entry.since } : {}),
+    accessibility: (entry.accessibility ?? []).map((note, index) => serverT(`design_system.gallery.accessibility.${entry.id}.${index}`, note)),
+    faq: (entry.faq ?? []).map((item, index) => ({
+      question: serverT(`design_system.gallery.faq.${entry.id}.${index}.question`, item.question),
+      answer: serverT(`design_system.gallery.faq.${entry.id}.${index}.answer`, item.answer),
+    })),
+    tokens: entry.tokens ?? [],
+    variants: entry.variants.map((variant) => ({
+      id: variant.id,
+      title: variantTitle(variant.title),
+      code: variant.code,
+      ...(variant.description ? { description: serverT(`design_system.gallery.variantDescriptions.${entry.id}.${variant.id}`, variant.description) } : {}),
+    })),
     contract,
     sources: {
       ...(entry.sourceFile ? { component: entry.sourceFile } : {}),

@@ -1,13 +1,11 @@
 'use client'
 
 import * as React from 'react'
-import type { PreviewMode, PreviewTheme } from '@/lib/links'
-import { DARK_MODE_STORAGE_KEY, PREVIEW_THEME_STORAGE_KEY } from '@/lib/theme-init'
+import type { PreviewMode } from '@/lib/links'
+import { DARK_MODE_STORAGE_KEY } from '@/lib/theme-init'
 
 type DesignSettings = {
-  theme: PreviewTheme
   mode: PreviewMode
-  setTheme: (theme: PreviewTheme) => void
   setMode: (mode: PreviewMode) => void
 }
 
@@ -30,11 +28,9 @@ function writeStorage(key: string, value: string): void {
 }
 
 export function DesignSettingsProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = React.useState<PreviewTheme>('admin')
   const [mode, setModeState] = React.useState<PreviewMode>('light')
 
   React.useEffect(() => {
-    if (readStorage(PREVIEW_THEME_STORAGE_KEY) === 'storefront') setThemeState('storefront')
     if (readStorage(DARK_MODE_STORAGE_KEY) === 'dark') setModeState('dark')
   }, [])
 
@@ -45,18 +41,13 @@ export function DesignSettingsProvider({ children }: { children: React.ReactNode
 
   const value = React.useMemo<DesignSettings>(
     () => ({
-      theme,
       mode,
-      setTheme: (next) => {
-        setThemeState(next)
-        writeStorage(PREVIEW_THEME_STORAGE_KEY, next)
-      },
       setMode: (next) => {
         setModeState(next)
         writeStorage(DARK_MODE_STORAGE_KEY, next)
       },
     }),
-    [theme, mode],
+    [mode],
   )
 
   return <DesignSettingsContext.Provider value={value}>{children}</DesignSettingsContext.Provider>

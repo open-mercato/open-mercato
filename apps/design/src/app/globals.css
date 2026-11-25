@@ -1,6 +1,5 @@
 @import "@fontsource-variable/inter";
 @import "../../../../packages/ui/.storybook/generated/theme.css";
-@import "../../../../packages/ui/src/theme/storefront.css";
 
 @source "../../../../packages/ui/src";
 @source "../../../../packages/core/src/modules/design_system";

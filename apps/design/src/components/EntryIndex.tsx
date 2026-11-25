@@ -13,7 +13,6 @@ import { StepIndicator } from '@open-mercato/ui/primitives/step-indicator'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import type { EntryGroup } from '@/lib/groups'
 import { PageHeader } from './PageHeader'
-import { useDesignSettings } from './DesignSettings'
 
 export type EntryCardData = {
   id: string
@@ -95,7 +94,6 @@ function BlockSpecimen({ id }: { id: string }) {
 
 export function EntryIndex({ group, cards }: { group: EntryGroup; cards: EntryCardData[] }) {
   const t = useT()
-  const { theme } = useDesignSettings()
   const [query, setQuery] = React.useState('')
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
   const matches = cards.filter((card) => {
@@ -123,7 +121,7 @@ export function EntryIndex({ group, cards }: { group: EntryGroup; cards: EntryCa
                 className="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-input bg-card transition-colors hover:border-foreground focus-visible:outline-none focus-visible:shadow-focus"
               >
                 {group === 'blocks' ? (
-                  <div data-design-specimen="" data-theme={theme} aria-hidden="true" inert className="grid min-h-48 place-items-center border-b border-border bg-muted font-sans text-foreground px-5 py-6">
+                  <div data-design-specimen="" aria-hidden="true" inert className="grid min-h-48 place-items-center border-b border-border bg-muted font-sans text-foreground px-5 py-6">
                     <div className="w-full max-w-sm rounded-card border border-border bg-card p-4 text-foreground shadow-xs">
                       <BlockSpecimen id={card.id} />
                     </div>

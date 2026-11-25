@@ -10,7 +10,6 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import type { EntryGroup } from '@/lib/groups'
-import { useDesignSettings } from './DesignSettings'
 
 const sections = [
   { group: 'blocks', icon: Layers, description: 'design.intro.howBlocks' },
@@ -22,7 +21,6 @@ type ExampleModule = 'service' | 'warehouse'
 
 function RecordPreview() {
   const t = useT()
-  const { theme } = useDesignSettings()
   const [module, setModule] = React.useState<ExampleModule>('service')
   const [completed, setCompleted] = React.useState({ service: false, warehouse: false })
   const done = completed[module]
@@ -39,7 +37,7 @@ function RecordPreview() {
           <SegmentedControlItem value="warehouse">{t('design.intro.warehouse.label')}</SegmentedControlItem>
         </SegmentedControl>
       </div>
-      <div data-design-specimen="" data-theme={theme} className="font-sans rounded-card border border-border bg-card p-5 text-card-foreground shadow-sm sm:p-6">
+      <div data-design-specimen="" className="font-sans rounded-card border border-border bg-card p-5 text-card-foreground shadow-sm sm:p-6">
         <Stack gap={4}>
           <div className="flex items-center justify-between gap-3">
             <span className="inline-flex items-center gap-2 font-mono text-xs text-muted-foreground">
