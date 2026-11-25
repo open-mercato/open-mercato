@@ -764,7 +764,7 @@ function CryptoSwap({ step = 1 }: { step?: 1 | 2 | 3 }) {
               <Settings className="size-4" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-60 min-w-0 p-4">
+          <PopoverContent className="w-60 min-w-0 p-panel">
             <label className="grid gap-2 text-sm">
               {cryptoLabel('slippage')}
               <Input
@@ -1064,7 +1064,7 @@ function CryptoTableButton({ kind = 'explorer', state = 'default' }: { kind?: st
           <CryptoGlyph name={kind === 'explorer' ? 'link' : 'more'} className="size-5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-72 p-4">
+      <PopoverContent className="w-72 p-panel">
         <h4 className="text-sm font-medium">{cryptoLabel('transactionDetails')}</h4>
         <dl className="mt-3 grid gap-2 text-xs">
           <div className="flex justify-between">

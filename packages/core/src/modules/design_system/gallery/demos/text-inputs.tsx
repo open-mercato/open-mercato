@@ -77,14 +77,14 @@ export function SourceTextInput({ kind, size = 36, state = 'filled' }: { kind: I
 }
 
 export function SourceTextInputMatrix({ size = 36, state = 'filled' }: { size?: InputSize; state?: InputState }) {
-  return <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">{inputKinds.map(kind => <SourceTextInput key={`${kind}-${size}-${state}`} kind={kind} size={size} state={state} />)}</div>
+  return <div className="grid w-full grid-cols-1 gap-x-gutter gap-y-field-stack lg:grid-cols-2 xl:grid-cols-3">{inputKinds.map(kind => <SourceTextInput key={`${kind}-${size}-${state}`} kind={kind} size={size} state={state} />)}</div>
 }
 
 export function SourcePhoneExamples({ state = 'filled' }: { state?: InputState }) {
-  return <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-3">{([32, 36, 40] as const).map(size => <SourceTextInput key={`${size}-${state}`} kind="phone" size={size} state={state} />)}</div>
+  return <div className="grid w-full grid-cols-1 gap-x-gutter gap-y-field-stack lg:grid-cols-3">{([32, 36, 40] as const).map(size => <SourceTextInput key={`${size}-${state}`} kind="phone" size={size} state={state} />)}</div>
 }
 
 export function SourceTextareaExamples() {
   const t = useT()
-  return <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-2">{(['placeholder', 'filled', 'error', 'disabled'] as const).map(state => <FormField key={state} label={t('design_system.gallery.samples.textInput.note')} description={t('design_system.gallery.samples.textInput.hint')} disabled={state === 'disabled'} error={state === 'error' ? t('design_system.gallery.samples.textInput.error') : undefined}><Textarea appearance="source" showCount maxLength={200} placeholder={t('design_system.gallery.samples.textInput.placeholder')} defaultValue={state === 'placeholder' ? '' : t('design_system.gallery.samples.textInput.noteValue')} /></FormField>)}</div>
+  return <div className="grid w-full grid-cols-1 gap-x-gutter gap-y-field-stack lg:grid-cols-2">{(['placeholder', 'filled', 'error', 'disabled'] as const).map(state => <FormField key={state} label={t('design_system.gallery.samples.textInput.note')} description={t('design_system.gallery.samples.textInput.hint')} disabled={state === 'disabled'} error={state === 'error' ? t('design_system.gallery.samples.textInput.error') : undefined}><Textarea appearance="source" showCount maxLength={200} placeholder={t('design_system.gallery.samples.textInput.placeholder')} defaultValue={state === 'placeholder' ? '' : t('design_system.gallery.samples.textInput.noteValue')} /></FormField>)}</div>
 }

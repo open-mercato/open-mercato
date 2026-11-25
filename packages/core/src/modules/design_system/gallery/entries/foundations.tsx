@@ -4,6 +4,8 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { FormField } from '@open-mercato/ui/primitives/form-field'
+import { Input } from '@open-mercato/ui/primitives/input'
 import type { GalleryEntry } from '../types'
 import { TypesetStudio } from '../demos/typeset-studio'
 import { SourceColors, SourceGrids, SourceRadius, SourceShadows, SourceTypography } from '../demos/foundation-references'
@@ -715,6 +717,96 @@ function SpacingRhythmPreview() {
   )
 }
 
+const SPACING_ROLES = [
+  { id: 'fieldLabel', utility: 'mb-field-label', token: '--om-space-field-label', pixels: 8, compact: 4 },
+  { id: 'fieldHint', utility: 'mt-field-hint', token: '--om-space-field-hint', pixels: 8, compact: 4 },
+  { id: 'fieldStack', utility: 'gap-y-field-stack', token: '--om-space-field-stack', pixels: 24, compact: 16 },
+  { id: 'group', utility: 'gap-group', token: '--om-space-group', pixels: 40, compact: 24 },
+  { id: 'controlX', utility: 'px-control-x', token: '--om-space-control-x', pixels: 12, compact: 12 },
+  { id: 'panel', utility: 'p-panel', token: '--om-space-panel', pixels: 16, compact: 12 },
+  { id: 'card', utility: 'p-card', token: '--om-space-card', pixels: 24, compact: 16 },
+  { id: 'dialog', utility: 'p-dialog', token: '--om-space-dialog', pixels: 24, compact: 16 },
+  { id: 'section', utility: 'gap-section', token: '--om-space-section', pixels: 32, compact: 24 },
+  { id: 'page', utility: 'px-page', token: '--om-space-page', pixels: 24, compact: 24 },
+  { id: 'gutter', utility: 'gap-x-gutter', token: '--om-space-gutter', pixels: 24, compact: 24 },
+] as const
+
+function SpacingRolesPreview() {
+  const t = useT()
+  return (
+    <div className="w-full overflow-x-auto">
+      <table className="w-full min-w-xl text-left text-sm">
+        <thead className="text-xs text-muted-foreground">
+          <tr className="border-b border-border">
+            <th scope="col" className="py-2 pr-4">{t('design_system.foundations.spacing.columns.role')}</th>
+            <th scope="col" className="py-2 pr-4">{t('design_system.foundations.spacing.columns.utility')}</th>
+            <th scope="col" className="py-2 pr-4">{t('design_system.foundations.spacing.columns.value')}</th>
+            <th scope="col" className="py-2">{t('design_system.foundations.spacing.columns.compact')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {SPACING_ROLES.map((role) => (
+            <tr key={role.id} className="border-b border-border last:border-b-0">
+              <td className="py-3 pr-4 text-foreground">{t(`design_system.foundations.spacing.roles.${role.id}`)}</td>
+              <td className="py-3 pr-4"><code className="text-xs text-muted-foreground">{role.utility}</code></td>
+              <td className="py-3 pr-4">
+                <span className="flex items-center gap-3">
+                  <span aria-hidden className="block h-3 rounded-sm bg-primary/30" style={{ width: `${role.pixels}px` }} />
+                  <span className="font-mono text-xs tabular-nums">{role.pixels} px</span>
+                </span>
+              </td>
+              <td className="py-3 font-mono text-xs tabular-nums text-muted-foreground">{role.compact} px</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-4 text-xs text-muted-foreground">{t('design_system.foundations.spacing.pageNote')}</p>
+    </div>
+  )
+}
+
+function FieldRhythmColumn({ density }: { density: 'default' | 'compact' }) {
+  const t = useT()
+  return (
+    <div data-density={density} className="space-y-3">
+      <p className="text-xs text-muted-foreground">{t(`design_system.foundations.spacing.density.${density}`)}</p>
+      <div className="flex flex-col gap-y-field-stack rounded-card border border-border bg-card p-card">
+        <FormField label={t('design_system.foundations.spacing.sample.name')} description={t('design_system.foundations.spacing.sample.nameHint')}>
+          <Input defaultValue="Alex Morgan" />
+        </FormField>
+        <FormField label={t('design_system.foundations.spacing.sample.email')}>
+          <Input defaultValue="alex@example.com" />
+        </FormField>
+      </div>
+    </div>
+  )
+}
+
+function FieldRhythmPreview() {
+  return (
+    <div className="grid w-full gap-gutter md:grid-cols-2">
+      <FieldRhythmColumn density="default" />
+      <FieldRhythmColumn density="compact" />
+    </div>
+  )
+}
+
+function PageGridPreview() {
+  return (
+    <div className="w-full rounded-card border border-border bg-muted/30 px-page py-6">
+      <div className="page-grid" aria-hidden>
+        {Array.from({ length: 12 }, (_, index) => (
+          <span key={index} className="h-16 rounded-sm bg-primary/10" />
+        ))}
+      </div>
+      <div className="page-grid mt-4" aria-hidden>
+        <span className="col-span-12 h-10 rounded-sm border border-border bg-background md:col-span-8" />
+        <span className="col-span-12 h-10 rounded-sm border border-border bg-background md:col-span-4" />
+      </div>
+    </div>
+  )
+}
+
 const spacingEntry: GalleryEntry = {
   id: 'spacing',
   title: 'Spacing',
@@ -722,8 +814,14 @@ const spacingEntry: GalleryEntry = {
   figmaNodeId: '553:14958',
   keywords: ['padding', 'gap', 'margin', 'grid', 'rhythm'],
   usage: {
-    do: ['Use the 4px spacing grid. Start with gap-2 between controls, p-4 within containers and p-6 for larger panels.'],
-    dont: ['Do not invent arbitrary spacing values or compensate for layout problems with negative margins.'],
+    do: [
+      'Use the spacing roles first (gap-y-field-stack, p-card, gap-section) and fall back to the 4px scale only inside a component.',
+      'Wrap dense forms, tables and side panels in data-density="compact" instead of picking smaller values by hand.',
+    ],
+    dont: [
+      'Do not invent arbitrary spacing values or compensate for layout problems with negative margins.',
+      'Do not glue a label, field and hint together with gap-1; the field roles keep them readable.',
+    ],
   },
   variants: [
     {
@@ -733,6 +831,36 @@ const spacingEntry: GalleryEntry = {
       code: `import { SourceGrids } from '@open-mercato/core/modules/design_system/gallery/demos/foundation-references'
 
 <SourceGrids />`,
+    },
+    {
+      id: 'roles',
+      title: 'Spacing roles',
+      render: () => <SpacingRolesPreview />,
+      code: `<FormField label="Name" description="Shown on invoices">
+  <Input />
+</FormField>
+<div className="flex flex-col gap-y-field-stack p-card">{fields}</div>
+<section className="flex flex-col gap-section">{sections}</section>`,
+    },
+    {
+      id: 'field-rhythm',
+      title: 'Form field rhythm',
+      render: () => <FieldRhythmPreview />,
+      code: `<div className="flex flex-col gap-y-field-stack">{fields}</div>
+<aside data-density="compact">
+  <div className="flex flex-col gap-y-field-stack">{fields}</div>
+</aside>`,
+    },
+    {
+      id: 'page-grid',
+      title: 'Page grid',
+      render: () => <PageGridPreview />,
+      code: `<main className="px-page">
+  <div className="page-grid">
+    <section className="col-span-12 md:col-span-8">{content}</section>
+    <aside className="col-span-12 md:col-span-4">{details}</aside>
+  </div>
+</main>`,
     },
     {
       id: 'scale',

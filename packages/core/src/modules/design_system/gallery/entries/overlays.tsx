@@ -1,5 +1,15 @@
 import * as React from 'react'
 import {
+  DropdownMenuAccountExample,
+  DropdownMenuBasicExample,
+  DropdownMenuCheckboxesExample,
+  DropdownMenuComplexExample,
+  DropdownMenuDestructiveExample,
+  DropdownMenuIconsExample,
+  DropdownMenuRadioExample,
+  DropdownMenuSubmenuExample,
+} from '../demos/dropdown-menu'
+import {
   CircleAlert,
   CircleCheck,
   Globe,
@@ -765,7 +775,7 @@ import {
   <PopoverTrigger asChild>
     <Button variant="outline">Open popover</Button>
   </PopoverTrigger>
-  <PopoverContent className="p-4">
+  <PopoverContent className="p-panel">
     {/* content */}
   </PopoverContent>
 </Popover>`,
@@ -785,7 +795,7 @@ import {
   <PopoverTrigger asChild>
     <Button variant="outline">Open above</Button>
   </PopoverTrigger>
-  <PopoverContent side="top" align="end" className="p-4">
+  <PopoverContent side="top" align="end" className="p-panel">
     {/* content */}
   </PopoverContent>
 </Popover>`,
@@ -868,6 +878,107 @@ const commandMenuEntry: GalleryEntry = {
   ],
 }
 
+const DROPDOWN_MENU_IMPORT = `import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@open-mercato/ui/primitives/dropdown-menu'`
+
+const dropdownMenuEntry: GalleryEntry = {
+  id: 'dropdown-menu',
+  title: 'DropdownMenu',
+  importPath: '@open-mercato/ui/primitives/dropdown-menu',
+  descriptionKey: 'design_system.entries.dropdown-menu.description',
+  keywords: ['menu', 'actions', 'context', 'submenu', 'checkbox', 'radio', 'shortcut', 'kebab'],
+  since: '0.11.0',
+  usage: {
+    do: [
+      'Use it for actions and view options opened from a button, a kebab icon or an avatar',
+      'Group related items with labels and separators and put destructive actions last',
+      'Show keyboard shortcuts only when the shortcut really works on the page',
+    ],
+    dont: [
+      'Do not use it to pick a form value; use Select',
+      'Do not use it for long searchable lists; use Dropdown or CommandMenu',
+      'Do not nest submenus more than one level deep',
+    ],
+  },
+  accessibility: [
+    'Follows the WAI-ARIA menu pattern: arrow keys move, Enter or Space selects, typing jumps to an item, Escape closes',
+    'ArrowRight opens a submenu and ArrowLeft closes it; the direction flips in right-to-left layouts',
+    'Checkbox and radio items expose menuitemcheckbox and menuitemradio with aria-checked',
+  ],
+  faq: [
+    {
+      question: 'How is it different from Dropdown?',
+      answer: 'Dropdown is a searchable list for picking from many options. DropdownMenu is a short action menu with checkbox, radio and submenu items.',
+    },
+    {
+      question: 'How do I keep the menu open after toggling a checkbox?',
+      answer: 'Call event.preventDefault() in onSelect of the checkbox item, as in the Checkboxes example.',
+    },
+  ],
+  tokens: ['--popover', '--border', '--muted', '--status-error-text', '--status-error-bg'],
+  variants: [
+    { id: 'basic', title: 'Basic', description: 'A label, plain items, a separator and a disabled item.', render: () => <DropdownMenuBasicExample />, code: `${DROPDOWN_MENU_IMPORT}
+
+<DropdownMenu>
+  <DropdownMenuTrigger asChild><Button variant="outline">Open</Button></DropdownMenuTrigger>
+  <DropdownMenuContent>
+    <DropdownMenuItem>Profile</DropdownMenuItem>
+    <DropdownMenuItem disabled>API</DropdownMenuItem>
+  </DropdownMenuContent>
+</DropdownMenu>` },
+    { id: 'icons-shortcuts', title: 'Icons and shortcuts', description: 'Leading icons and keyboard shortcuts aligned to the right.', render: () => <DropdownMenuIconsExample />, code: `${DROPDOWN_MENU_IMPORT}
+
+<DropdownMenuItem>
+  <User aria-hidden />Profile
+  <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
+</DropdownMenuItem>` },
+    { id: 'checkboxes', title: 'Checkboxes', description: 'Toggle visible columns; the menu stays open while you choose.', render: () => <DropdownMenuCheckboxesExample />, code: `${DROPDOWN_MENU_IMPORT}
+
+<DropdownMenuCheckboxItem
+  checked={visible}
+  onCheckedChange={setVisible}
+  onSelect={(event) => event.preventDefault()}
+>
+  Owner
+</DropdownMenuCheckboxItem>` },
+    { id: 'radio-group', title: 'Radio group', description: 'Pick one sort order; the trigger shows the current choice.', render: () => <DropdownMenuRadioExample />, code: `${DROPDOWN_MENU_IMPORT}
+
+<DropdownMenuRadioGroup value={sort} onValueChange={setSort}>
+  <DropdownMenuRadioItem value="newest">Newest</DropdownMenuRadioItem>
+  <DropdownMenuRadioItem value="oldest">Oldest</DropdownMenuRadioItem>
+</DropdownMenuRadioGroup>` },
+    { id: 'submenu', title: 'Submenu', description: 'A nested menu opened with hover or ArrowRight.', render: () => <DropdownMenuSubmenuExample />, code: `${DROPDOWN_MENU_IMPORT}
+
+<DropdownMenuSub>
+  <DropdownMenuSubTrigger>Invite users</DropdownMenuSubTrigger>
+  <DropdownMenuSubContent>
+    <DropdownMenuItem>Email</DropdownMenuItem>
+  </DropdownMenuSubContent>
+</DropdownMenuSub>` },
+    { id: 'destructive', title: 'Destructive', description: 'A destructive action set apart at the end with error colours.', render: () => <DropdownMenuDestructiveExample />, code: `${DROPDOWN_MENU_IMPORT}
+
+<DropdownMenuItem variant="destructive">
+  <Trash2 aria-hidden />Delete
+</DropdownMenuItem>` },
+    { id: 'account', title: 'Account menu', description: 'Opened from the user, with a workspace switcher and log out.', render: () => <DropdownMenuAccountExample />, code: `${DROPDOWN_MENU_IMPORT}
+
+<DropdownMenuTrigger asChild>
+  <Button variant="ghost"><Avatar size="sm" label="Maya Chen" />Maya Chen</Button>
+</DropdownMenuTrigger>` },
+    { id: 'complex', title: 'Complex', description: 'Radio, checkbox, submenu and shortcut items in one view menu.', render: () => <DropdownMenuComplexExample />, code: `${DROPDOWN_MENU_IMPORT}
+
+<DropdownMenuContent>
+  <DropdownMenuRadioGroup value={density} onValueChange={setDensity}>...</DropdownMenuRadioGroup>
+  <DropdownMenuCheckboxItem checked={notify} onCheckedChange={setNotify}>Notify me</DropdownMenuCheckboxItem>
+  <DropdownMenuSub>...</DropdownMenuSub>
+</DropdownMenuContent>` },
+  ],
+}
+
 export const entries: GalleryEntry[] = [
   dialogEntry,
   drawerEntry,
@@ -875,6 +986,7 @@ export const entries: GalleryEntry[] = [
   popoverEntry,
   tooltipEntry,
   commandMenuEntry,
+  dropdownMenuEntry,
 ]
 
 function DialogOverlaysDefaultSample() {
@@ -1035,7 +1147,7 @@ function PopoverOverlaysDefaultSample() {
           <PopoverTrigger asChild>
             <Button variant="outline">{t('design_system.gallery.samples.overlay.openPopover')}</Button>
           </PopoverTrigger>
-          <PopoverContent className="p-4">
+          <PopoverContent className="p-panel">
             <div className="flex flex-col gap-1">
               <span className="text-sm font-medium text-foreground">{t('design_system.gallery.sampleCopy.displayDensity')}</span>
               <span className="text-sm text-muted-foreground">
@@ -1052,7 +1164,7 @@ function PopoverOverlaysAlignEndSample() {
           <PopoverTrigger asChild>
             <Button variant="outline">{t('design_system.gallery.sampleCopy.openAbove')}</Button>
           </PopoverTrigger>
-          <PopoverContent side="top" align="end" className="p-4">
+          <PopoverContent side="top" align="end" className="p-panel">
             <span className="text-sm text-muted-foreground">
               {t('design_system.gallery.sampleCopy.placementFollowsRadixSidealignPropsAndFlipsWhenSpaceRuns')}
             </span>

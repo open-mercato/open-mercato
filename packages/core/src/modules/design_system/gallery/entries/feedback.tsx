@@ -10,6 +10,7 @@ import { Skeleton } from '@open-mercato/ui/primitives/skeleton'
 import { CircularProgress, Progress } from '@open-mercato/ui/primitives/progress'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { RatingCellDemo, RatingReviewDemo } from '../demos/rating-reviews'
+import { ResultErrorExample, ResultPageErrorsExample, ResultStatusesExample, ResultSuccessExample } from '../demos/result-scope'
 import { Rating } from '@open-mercato/ui/primitives/rating'
 import { RatingBar, type RatingBarProps } from '@open-mercato/ui/primitives/rating-bar'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -1450,6 +1451,91 @@ import { NotificationFeedIconBadge } from '@open-mercato/ui/primitives/notificat
   ],
 }
 
+const RESULT_IMPORT = `import { Result } from '@open-mercato/ui/primitives/result'`
+
+const resultEntry: GalleryEntry = {
+  id: 'result',
+  title: 'Result',
+  importPath: '@open-mercato/ui/primitives/result',
+  descriptionKey: 'design_system.entries.result.description',
+  keywords: ['success', 'error', '404', '403', '500', 'outcome', 'status page'],
+  since: '0.11.0',
+  usage: {
+    do: [
+      'Show it after an action finishes: an order placed, a payment that failed, an import that completed',
+      'Use status 403, 404 or 500 for page-level errors and keep a way back',
+      'List the reasons inside the result when people need to fix something before retrying',
+    ],
+    dont: [
+      'Do not use it for an empty list; use EmptyState instead',
+      'Do not use it for a short confirmation inside a page; use a flash message or Alert',
+    ],
+  },
+  accessibility: [
+    'Errors are announced with role alert, other statuses with role status, named by the title',
+    'Pass focusTitle when the result replaces a whole page so keyboard and screen reader users land on it',
+    'The icon is decorative; the title carries the meaning',
+  ],
+  faq: [
+    {
+      question: 'Can I change the default text for 403, 404 and 500?',
+      answer: 'Yes. Pass title and subtitle; without them the result uses translated defaults.',
+    },
+    {
+      question: 'How is it different from EmptyState?',
+      answer: 'EmptyState says there is no data yet. Result reports the outcome of an action or a page error.',
+    },
+  ],
+  tokens: ['--muted', '--foreground', '--muted-foreground'],
+  variants: [
+    {
+      id: 'success',
+      title: 'Success',
+      description: 'An order was placed; the main action opens it, the second starts a new one.',
+      render: () => <ResultSuccessExample />,
+      code: `${RESULT_IMPORT}
+
+<Result
+  status="success"
+  title="Order placed"
+  subtitle="Order SO-1042 is waiting for payment."
+  actions={<Button>View order</Button>}
+/>`,
+    },
+    {
+      id: 'error-with-reasons',
+      title: 'Error with reasons',
+      description: 'A submission failed; the reasons sit under the actions so people know what to fix.',
+      render: () => <ResultErrorExample />,
+      code: `${RESULT_IMPORT}
+
+<Result status="error" title="Submission failed" actions={<Button>Fix and resubmit</Button>}>
+  <ul>
+    <li>Tax ID is missing</li>
+  </ul>
+</Result>`,
+    },
+    {
+      id: 'page-errors',
+      title: 'Page errors',
+      description: 'No access, page not found and server error, with translated default text.',
+      render: () => <ResultPageErrorsExample />,
+      code: `${RESULT_IMPORT}
+
+<Result status="404" actions={<Button variant="outline">Back</Button>} />`,
+    },
+    {
+      id: 'statuses',
+      title: 'Info and warning',
+      description: 'Compact results inside a card for neutral and cautionary outcomes.',
+      render: () => <ResultStatusesExample />,
+      code: `${RESULT_IMPORT}
+
+<Result status="warning" size="compact" title="Import finished with warnings" />`,
+    },
+  ],
+}
+
 export const entries: GalleryEntry[] = [
   bannerEntry,
   alertEntry,
@@ -1463,6 +1549,7 @@ export const entries: GalleryEntry[] = [
   stepIndicatorEntry,
   notificationEntry,
   notificationFeedEntry,
+  resultEntry,
 ]
 
 function AlertFeedbackStatusesLightSample() {

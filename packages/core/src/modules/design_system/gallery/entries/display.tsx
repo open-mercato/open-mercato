@@ -1618,7 +1618,7 @@ const separatorEntry: GalleryEntry = {
       render: () => <SeparatorEntryLabeledPreview />,
       code: `import { Separator } from '@open-mercato/ui/primitives/separator'
 
-<Separator label="OR" />`,
+<Separator label="or" />`,
     },
     {
       id: 'text-divider',

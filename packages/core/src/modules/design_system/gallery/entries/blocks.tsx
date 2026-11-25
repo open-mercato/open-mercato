@@ -276,6 +276,7 @@ const keyValueEntry: GalleryEntry = {
     do: [
       'Update the item value in the parent after saving it in onEdit',
       'Use columns={2} for dense detail panels',
+      'Use layout="vertical" in narrow side panels and bordered for dense comparison tables',
     ],
     dont: [
       'Do not mark an item editable without providing onEdit',
@@ -299,6 +300,31 @@ const keyValueEntry: GalleryEntry = {
       render: () => <KeyValue {...keyValueFixtures.twoColumns} />,
       code: keyValueCode(`  columns={2}
   items={items}`),
+    },
+    {
+      id: 'vertical',
+      title: 'Vertical',
+      render: () => <KeyValue {...keyValueFixtures.vertical} />,
+      code: keyValueCode(`  layout="vertical"
+  columns={2}
+  items={items}`),
+    },
+    {
+      id: 'bordered',
+      title: 'Bordered',
+      render: () => <KeyValue {...keyValueFixtures.bordered} />,
+      code: keyValueCode(`  bordered
+  columns={2}
+  items={items}`),
+    },
+    {
+      id: 'with-icons',
+      title: 'With icons',
+      render: () => <KeyValue {...keyValueFixtures.withIcons} />,
+      code: keyValueCode(`  items={[
+    { key: 'owner', label: 'Owner', icon: <UserRound />, value: 'Anna Kowalska' },
+    { key: 'email', label: 'Email', icon: <Mail />, value: 'anna@example.com' },
+  ]}`),
     },
     {
       id: 'editable',
@@ -368,6 +394,7 @@ const timelineEntry: GalleryEntry = {
       'Pass items already sorted',
       'Use groupBy="day" for long histories',
       'Resolve onLoadMore only after the next page is appended to items',
+      'Use groupBy="period" for record histories that span months, and group several field updates into one item with changes',
     ],
     dont: [
       'Do not fetch data inside the block',
@@ -382,6 +409,35 @@ const timelineEntry: GalleryEntry = {
       code: timelineCode(`  items={items}
   order="desc"
   onItemAction={(itemId, actionKey) => handleAction(itemId, actionKey)}`),
+    },
+    {
+      id: 'field-changes',
+      title: 'Field changes',
+      render: () => <Timeline {...timelineFixtures.fieldChanges} />,
+      code: timelineCode(`  items={[
+    {
+      id: 'chg-1',
+      occurredAt: '2026-11-24T11:54:00Z',
+      kind: 'update',
+      icon: 'pencil-line',
+      title: 'changed Stage and 4 other fields in',
+      author: { name: 'Alex Smith' },
+      target: { label: 'Sales pipeline', icon: 'briefcase' },
+      changes: [
+        { key: 'stage', label: 'Stage', icon: 'trending-up', from: 'Qualified', to: 'Meeting' },
+        { key: 'priority', label: 'Priority', icon: 'flag', to: 'Medium' },
+      ],
+    },
+  ]}
+  order="desc"`),
+    },
+    {
+      id: 'grouped-by-period',
+      title: 'Grouped by period',
+      render: () => <Timeline {...timelineFixtures.groupedByPeriod} />,
+      code: timelineCode(`  items={items}
+  order="desc"
+  groupBy="period"`),
     },
     {
       id: 'grouped-by-day',
