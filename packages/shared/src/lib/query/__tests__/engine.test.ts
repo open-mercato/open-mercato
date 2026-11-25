@@ -2254,3 +2254,39 @@ describe('BasicQueryEngine all-of caller compatibility (#7996)', () => {
     ]))
   })
 })
+
+describe('BasicQueryEngine cf ne/nin value-set routing (#10168)', () => {
+  test.each([
+    ['ne', { 'cf:labels': { $ne: 'a' } }, 'a'],
+    ['nin', { 'cf:labels': { $nin: ['a', 'b'] } }, ['a', 'b']],
+    ['ne inside an OR group', { $or: [{ 'cf:labels': { $ne: 'a' } }, { 'cf:labels': { $eq: 'z' } }] }, 'a'],
+  ])('%s compiles to the value-set EXISTS on both the page and the count shape', async (_label, filters, value) => {
+    const fakeDb = createFakeKysely({
+      users: [],
+      custom_field_defs: [{ key: 'labels', entity_id: 'auth:user', is_active: true, config_json: '{"multi":true}', kind: 'select' }],
+      'information_schema.columns': [{ table_name: 'users', column_name: 'id' }, { table_name: 'users', column_name: 'tenant_id' }],
+    })
+    const engine = new BasicQueryEngine(
+      {} as ConstructorParameters<typeof BasicQueryEngine>[0],
+      (() => fakeDb) as unknown as NonNullable<ConstructorParameters<typeof BasicQueryEngine>[1]>,
+    )
+    const tracked = engine as unknown as {
+      buildCfValueExistsExpression: (eb: unknown, options: { key: string; op: string; value: unknown }) => unknown
+      applyColumnOp: (builder: unknown, column: unknown, op: string, value: unknown) => unknown
+      buildColumnOpExpression: (eb: unknown, column: unknown, op: string, value: unknown) => unknown
+    }
+    const existsSpy = jest.spyOn(tracked, 'buildCfValueExistsExpression')
+    const columnOpSpy = jest.spyOn(tracked, 'applyColumnOp')
+    const columnExpressionSpy = jest.spyOn(tracked, 'buildColumnOpExpression')
+    await engine.query('auth:user', { tenantId: 'tenant-1', fields: ['id', 'cf:labels'], filters })
+    const op = Array.isArray(value) ? 'nin' : 'ne'
+    const existsCalls = existsSpy.mock.calls.map((call) => call[1]).filter((options) => options.op === op)
+    expect(existsCalls).toHaveLength(2)
+    expect(existsCalls).toEqual([
+      expect.objectContaining({ key: 'labels', op, value }),
+      expect.objectContaining({ key: 'labels', op, value }),
+    ])
+    expect(columnOpSpy.mock.calls.filter((call) => call[2] === op)).toHaveLength(0)
+    expect(columnExpressionSpy.mock.calls.filter((call) => call[2] === op)).toHaveLength(0)
+  })
+})
