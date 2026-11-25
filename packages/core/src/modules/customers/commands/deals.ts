@@ -30,6 +30,8 @@ import {
   type DealUpdateInput,
 } from '../data/validators'
 import {
+  commandScopeWhere,
+  type CommandScopeWhere,
   ensureOrganizationScope,
   ensureTenantScope,
   requireCustomerEntity,
@@ -339,8 +341,12 @@ type DealChangeMap = Record<string, { from: unknown; to: unknown }> & {
   custom?: CustomFieldChangeSet
 }
 
-async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnapshot | null> {
-  const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null })
+async function loadDealSnapshot(
+  em: EntityManager,
+  id: string,
+  scopeWhere: CommandScopeWhere = {},
+): Promise<DealSnapshot | null> {
+  const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null, ...scopeWhere })
   if (!deal) return null
   const decryptionScope = { tenantId: deal.tenantId ?? null, organizationId: deal.organizationId ?? null }
   const peopleLinks = await findWithDecryption(
@@ -804,14 +810,14 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(dealUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadDealSnapshot(em, parsed.id)
+    const snapshot = await loadDealSnapshot(em, parsed.id, commandScopeWhere(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const { parsed: parsedInput, custom } = parseWithCustomFields(dealUpdateSchema, rawInput)
     const parsed = withExactAmounts(parsedInput, rawInput, ['valueAmount'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const deal = await findOneWithDecryption(em, CustomerDeal, { id: parsed.id, deletedAt: null })
+    const deal = await findOneWithDecryption(em, CustomerDeal, { id: parsed.id, deletedAt: null, ...commandScopeWhere(ctx) })
     const record = deal ?? null
     if (!record) throw notFound('Deal not found')
     ensureTenantScope(ctx, record.tenantId)
@@ -1180,13 +1186,13 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     async prepare(input, ctx) {
       const id = requireId(input, 'Deal id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadDealSnapshot(em, id)
+      const snapshot = await loadDealSnapshot(em, id, commandScopeWhere(ctx))
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Deal id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null })
+      const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null, ...commandScopeWhere(ctx) })
       const record = deal ?? null
       if (!record) throw notFound('Deal not found')
       ensureTenantScope(ctx, record.tenantId)
