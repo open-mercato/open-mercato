@@ -171,6 +171,7 @@ export async function runWorkflowErrorHandler(
     },
     tenantId: payload.tenantId,
     organizationId: payload.organizationId,
+    allowRetainedCodeVersion: true,
   })
 
   await logWorkflowEvent(em, {

@@ -23,6 +23,19 @@ const sendSignalMock = jest.fn<Promise<void>, [unknown, unknown, unknown]>()
 const completeWorkflowMock = jest.fn<Promise<void>, [unknown, unknown, string, string, unknown?]>()
 const compensateWorkflowMock = jest.fn<Promise<any>, [unknown, unknown, unknown, unknown, unknown?]>()
 
+const mockLoggerInstance = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  child: jest.fn(),
+}
+mockLoggerInstance.child.mockImplementation(() => mockLoggerInstance)
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: jest.fn(() => mockLoggerInstance),
+}))
+
 jest.mock('@open-mercato/queue', () => ({
   createModuleQueue: jest.fn(() => ({ enqueue: enqueueMock })),
 }))
@@ -225,7 +238,11 @@ describe('resumeParentAfterSubWorkflow', () => {
         if (where?.id === childInstanceId) return child
         return null
       }
-      if (name === 'WorkflowDefinition') return where?.workflowId ? childDef : def
+      if (name === 'WorkflowDefinition') {
+        if (where?.workflowId) return childDef
+        if (child && where?.id === child.definitionId) return childDef
+        return def
+      }
       if (name === 'StepInstance') return { id: stepInstanceId, status: 'ACTIVE' }
       return null
     })
@@ -323,6 +340,37 @@ describe('resumeParentAfterSubWorkflow', () => {
       expect(options.payload).toEqual({ parentResult: 'code-mapped-value' })
     })
 
+    test('a code-defined parent on v1 resumes with v1 outputMapping while v2 is latest (#7184)', async () => {
+      registerCodeWorkflows([
+        {
+          workflowId: 'parent-workflow',
+          workflowName: 'Parent Workflow v2',
+          version: 2,
+          enabled: true,
+          moduleId: 'test_module',
+          definition: {
+            ...parentDefinition.definition!,
+            steps: parentDefinition.definition!.steps.map((step) =>
+              step.stepId === parentStepId
+                ? { ...step, config: { ...step.config, outputMapping: { renamedInV2: 'childResult' } } }
+                : step,
+            ),
+          },
+        } as never,
+      ])
+      const em = makeEm(
+        { id: parentInstanceId, definitionId: codeParentDefinitionId, workflowId: 'parent-workflow', version: 1, currentStepId: parentStepId, status: 'PAUSED', context: {}, tenantId, organizationId },
+        { id: childInstanceId, context: { childResult: 'v1-mapped-value' }, tenantId, organizationId },
+        null,
+      )
+
+      await resumeParentAfterSubWorkflow(em, {} as AwilixContainer, makeResumeJob())
+
+      expect(sendSignalMock).toHaveBeenCalledTimes(1)
+      const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { payload: Record<string, unknown> }]
+      expect(options.payload).toEqual({ parentResult: 'v1-mapped-value' })
+    })
+
     test('a persisted definition row still wins over the code registry', async () => {
       const persistedOverride: Partial<WorkflowDefinition> = {
         ...parentDefinition,
@@ -385,7 +433,7 @@ describe('resumeParentAfterSubWorkflow', () => {
     test('renamed required port resumes the parent with the renamed, coerced keys', async () => {
       const em = makeEm(
         parkedParent(),
-        { id: childInstanceId, context: { childValue: 'port-alpha', childAmount: '12.5' }, tenantId, organizationId },
+        { id: childInstanceId, definitionId: childDefWithOutputs.id, context: { childValue: 'port-alpha', childAmount: '12.5' }, tenantId, organizationId },
         parentWithOutputMapping({ renamedValue: 'childValue', renamedAmount: 'childAmount' }),
         childDefWithOutputs,
       )
@@ -401,7 +449,7 @@ describe('resumeParentAfterSubWorkflow', () => {
     test('identity mapping still resumes the parent', async () => {
       const em = makeEm(
         parkedParent(),
-        { id: childInstanceId, context: { childValue: 'port-alpha' }, tenantId, organizationId },
+        { id: childInstanceId, definitionId: childDefWithOutputs.id, context: { childValue: 'port-alpha' }, tenantId, organizationId },
         parentWithOutputMapping({ childValue: 'childValue' }),
         childDefWithOutputs,
       )
@@ -416,7 +464,7 @@ describe('resumeParentAfterSubWorkflow', () => {
       const completeSpy = jest.spyOn(workflowExecutor, 'completeWorkflow').mockResolvedValue(undefined)
       const em = makeEm(
         parkedParent(),
-        { id: childInstanceId, context: { childAmount: 3 }, tenantId, organizationId },
+        { id: childInstanceId, definitionId: childDefWithOutputs.id, context: { childAmount: 3 }, tenantId, organizationId },
         parentWithOutputMapping({ renamedValue: 'childValue' }),
         childDefWithOutputs,
       )
@@ -481,5 +529,260 @@ describe('completeWorkflow resumes the parent even when the failed child compens
       childInstanceId,
       childStatus: 'FAILED',
     })
+  })
+})
+
+describe('completed child output contract is pinned to the version the child ran on (#7184)', () => {
+  const codeChildDefinitionId = codeWorkflowUuid('child-workflow')
+  const dbChildDefinitionId = '00000000-0000-4000-8000-000000000009'
+
+  const unpinnedParentDefinition: Partial<WorkflowDefinition> = {
+    ...parentDefinition,
+    definition: {
+      ...parentDefinition.definition!,
+      steps: parentDefinition.definition!.steps.map((step) =>
+        step.stepId === parentStepId
+          ? {
+              ...step,
+              config: {
+                subWorkflowId: 'child-workflow',
+                inputMapping: { childOrderId: 'orderId' },
+                outputMapping: { parentResult: 'childResult' },
+              },
+            }
+          : step,
+      ),
+    },
+  }
+
+  const childIo = (requiredOutputs: string[]) => ({
+    outputs: requiredOutputs.map((name) => ({ name, type: 'text', label: name, required: true })),
+  })
+
+  const codeChild = (version: number, requiredOutputs: string[]) => ({
+    workflowId: 'child-workflow',
+    workflowName: `Child v${version}`,
+    version,
+    enabled: true,
+    moduleId: 'test_module',
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [{ transitionId: 'start_to_end', fromStepId: 'start', toStepId: 'end', trigger: 'auto' }],
+      io: childIo(requiredOutputs),
+    },
+  }) as never
+
+  const parkedParent = () => ({
+    id: parentInstanceId, definitionId: parentDefinitionId, workflowId: 'parent-workflow', version: 1,
+    currentStepId: parentStepId, status: 'PAUSED', context: {}, tenantId, organizationId,
+  })
+
+  function makeEm(
+    child: Record<string, unknown>,
+    definitions: { byId?: Record<string, unknown>; byWorkflowId?: Record<string, unknown> | null } = {},
+  ): EntityManager {
+    const findOne = jest.fn(async (entity: any, where: any) => {
+      const name = typeof entity === 'function' ? entity.name : entity
+      if (name === 'WorkflowInstance') {
+        if (where?.id === parentInstanceId) return parkedParent()
+        if (where?.id === childInstanceId) return child
+        return null
+      }
+      if (name === 'WorkflowDefinition') {
+        if (where?.id === parentDefinitionId) return unpinnedParentDefinition
+        if (where?.workflowId) return definitions.byWorkflowId ?? null
+        if (where?.id && definitions.byId?.[where.id]) return definitions.byId[where.id]
+        return null
+      }
+      if (name === 'StepInstance') return { id: stepInstanceId, status: 'ACTIVE' }
+      return null
+    })
+    return {
+      findOne,
+      find: jest.fn().mockResolvedValue([]),
+      create: jest.fn((_e: any, data: any) => ({ ...data, id: 'evt' })),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn().mockResolvedValue(undefined),
+    } as unknown as EntityManager
+  }
+
+  beforeEach(() => {
+    clearCodeWorkflowRegistry()
+    mockLoggerInstance.warn.mockClear()
+  })
+
+  afterAll(() => {
+    clearCodeWorkflowRegistry()
+  })
+
+  test('an unpinned code child parked on v1 is validated against v1 after v2 (new required port) becomes latest', async () => {
+    registerCodeWorkflows([codeChild(1, ['childResult']), codeChild(2, ['childResult', 'addedInV2'])])
+    const completeSpy = jest.spyOn(workflowExecutor, 'completeWorkflow').mockResolvedValue(undefined)
+    const em = makeEm({
+      id: childInstanceId, definitionId: codeChildDefinitionId, workflowId: 'child-workflow', version: 1,
+      context: { childResult: 'from-v1' }, tenantId, organizationId,
+    })
+
+    await resumeParentAfterSubWorkflow(em, {} as AwilixContainer, makeResumeJob())
+
+    expect(completeSpy).not.toHaveBeenCalled()
+    expect(sendSignalMock).toHaveBeenCalledTimes(1)
+    const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { payload: Record<string, unknown> }]
+    expect(options.payload).toEqual({ parentResult: 'from-v1' })
+    completeSpy.mockRestore()
+  })
+
+  test('a child whose version was removed falls back to the latest contract with one warning', async () => {
+    registerCodeWorkflows([codeChild(2, ['childResult', 'addedInV2'])])
+    const completeSpy = jest.spyOn(workflowExecutor, 'completeWorkflow').mockResolvedValue(undefined)
+    const em = makeEm({
+      id: childInstanceId, definitionId: codeChildDefinitionId, workflowId: 'child-workflow', version: 1,
+      context: { childResult: 'from-v1' }, tenantId, organizationId,
+    })
+    const container = {} as AwilixContainer
+
+    await resumeParentAfterSubWorkflow(em, container, makeResumeJob())
+
+    expect(sendSignalMock).not.toHaveBeenCalled()
+    expect(completeSpy).toHaveBeenCalledWith(em, container, parentInstanceId, 'FAILED', {
+      error: 'Sub-workflow output validation failed: Required port "addedInV2" is missing',
+    })
+    const fallbackWarnings = mockLoggerInstance.warn.mock.calls.filter(
+      ([message]) => typeof message === 'string' && message.startsWith('Pinned code workflow version is not registered'),
+    )
+    expect(fallbackWarnings).toHaveLength(1)
+    expect(fallbackWarnings[0][1]).toEqual({ workflowId: 'child-workflow', requestedVersion: 1, resolvedVersion: 2 })
+    completeSpy.mockRestore()
+  })
+
+  test('a DB-defined child is validated against its own row, not the newest published one', async () => {
+    const ownRow = {
+      id: dbChildDefinitionId, workflowId: 'child-workflow', version: 1, enabled: true,
+      definition: { steps: [], transitions: [], io: childIo(['childResult']) }, tenantId, organizationId,
+    }
+    const newerRow = {
+      ...ownRow, id: '00000000-0000-4000-8000-00000000000a', version: 2,
+      definition: { steps: [], transitions: [], io: childIo(['childResult', 'addedInV2']) },
+    }
+    const completeSpy = jest.spyOn(workflowExecutor, 'completeWorkflow').mockResolvedValue(undefined)
+    const em = makeEm(
+      {
+        id: childInstanceId, definitionId: dbChildDefinitionId, workflowId: 'child-workflow', version: 1,
+        context: { childResult: 'from-db-v1' }, tenantId, organizationId,
+      },
+      { byId: { [dbChildDefinitionId]: ownRow }, byWorkflowId: newerRow },
+    )
+
+    await resumeParentAfterSubWorkflow(em, {} as AwilixContainer, makeResumeJob())
+
+    expect(completeSpy).not.toHaveBeenCalled()
+    const [, , options] = sendSignalMock.mock.calls[0] as [unknown, unknown, { payload: Record<string, unknown> }]
+    expect(options.payload).toEqual({ parentResult: 'from-db-v1' })
+    expect((em.findOne as jest.Mock)).toHaveBeenCalledWith(expect.anything(), { id: dbChildDefinitionId })
+    completeSpy.mockRestore()
+  })
+})
+
+describe('SUB_WORKFLOW start-time child selection is unchanged (#7184)', () => {
+  const childV1 = {
+    workflowId: 'child-workflow',
+    workflowName: 'Child v1',
+    version: 1,
+    enabled: true,
+    moduleId: 'test_module',
+    definition: {
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'end', stepName: 'End', stepType: 'END' },
+      ],
+      transitions: [{ transitionId: 'start_to_end', fromStepId: 'start', toStepId: 'end', trigger: 'auto' }],
+      io: { inputs: [{ name: 'childOrderId', type: 'text', label: 'Order', required: true }] },
+    },
+  }
+  const childV2 = {
+    ...childV1,
+    workflowName: 'Child v2',
+    version: 2,
+    definition: {
+      ...childV1.definition,
+      io: {
+        inputs: [
+          { name: 'childOrderId', type: 'text', label: 'Order', required: true },
+          { name: 'addedInV2', type: 'text', label: 'Added in v2', required: true },
+        ],
+      },
+    },
+  }
+
+  function parentWithChildVersion(version: number | undefined): Partial<WorkflowDefinition> {
+    const definition = parentDefinition.definition!
+    return {
+      ...parentDefinition,
+      definition: {
+        ...definition,
+        steps: definition.steps.map((step) => {
+          if (step.stepId !== parentStepId) return step
+          const { version: _ignored, ...config } = step.config as Record<string, unknown>
+          return { ...step, config: version === undefined ? config : { ...config, version } }
+        }),
+      },
+    }
+  }
+
+  function makeEm(parentDef: Partial<WorkflowDefinition>): EntityManager {
+    return {
+      findOne: jest.fn(async (entity: any, where: any) => {
+        const name = typeof entity === 'function' ? entity.name : entity
+        if (name === 'WorkflowDefinition') return where?.id === parentDefinitionId ? parentDef : null
+        return null
+      }),
+      create: jest.fn((_entity: any, data: any) => ({ ...data, id: stepInstanceId })),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn().mockResolvedValue(undefined),
+    } as unknown as EntityManager
+  }
+
+  beforeEach(() => {
+    clearCodeWorkflowRegistry()
+    registerCodeWorkflows([childV1, childV2] as never)
+  })
+
+  afterAll(() => {
+    clearCodeWorkflowRegistry()
+  })
+
+  test('a pinned SUB_WORKFLOW validates and starts the pinned version', async () => {
+    const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      .mockResolvedValue({ ...childInstance } as WorkflowInstance)
+    const executeWorkflowSpy = jest.spyOn(workflowExecutor, 'executeWorkflow')
+      .mockResolvedValue({ status: 'COMPLETED', currentStep: 'end', context: { childResult: 'ok' }, events: [], executionTime: 1 })
+    const instance = { ...parentInstance } as WorkflowInstance
+
+    const result = await stepHandler.executeStep(
+      makeEm(parentWithChildVersion(1)), instance, parentStepId, { workflowContext: instance.context! }, {} as AwilixContainer,
+    )
+
+    expect(result.status).toBe('COMPLETED')
+    expect(startWorkflowSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workflowId: 'child-workflow', version: 1, allowRetainedCodeVersion: true }))
+    startWorkflowSpy.mockRestore()
+    executeWorkflowSpy.mockRestore()
+  })
+
+  test('an unpinned SUB_WORKFLOW validates against the latest version', async () => {
+    const startWorkflowSpy = jest.spyOn(workflowExecutor, 'startWorkflow')
+      .mockResolvedValue({ ...childInstance } as WorkflowInstance)
+    const instance = { ...parentInstance } as WorkflowInstance
+
+    const result = await stepHandler.executeStep(
+      makeEm(parentWithChildVersion(undefined)), instance, parentStepId, { workflowContext: instance.context! }, {} as AwilixContainer,
+    )
+
+    expect(result.status).toBe('FAILED')
+    expect(result.error).toContain('addedInV2')
+    expect(startWorkflowSpy).not.toHaveBeenCalled()
+    startWorkflowSpy.mockRestore()
   })
 })

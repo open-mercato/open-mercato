@@ -715,13 +715,11 @@ export async function resumeParentAfterSubWorkflow(
 
   // COMPLETED child: map its output against the SUB_WORKFLOW step's outputMapping
   // and the child's declared io output ports.
-  const { findWorkflowDefinition, findDefinitionForInstance } = await import('./find-definition')
+  const { findDefinitionForInstance } = await import('./find-definition')
   const parentDefinition = await findDefinitionForInstance(em, parent)
   const stepDef = parentDefinition?.definition.steps.find((s: any) => s.stepId === parentStepId)
-  const { subWorkflowId, outputMapping, version } = (stepDef?.config || {}) as {
-    subWorkflowId?: string
+  const { outputMapping } = (stepDef?.config || {}) as {
     outputMapping?: Record<string, string>
-    version?: number
   }
 
   const childInstance = await em.findOne(WorkflowInstance, {
@@ -733,9 +731,7 @@ export async function resumeParentAfterSubWorkflow(
     throw new Error(`Child workflow instance ${childInstanceId} not found for resume_subworkflow_parent job`)
   }
 
-  const childDefinition = subWorkflowId
-    ? await findWorkflowDefinition(em, { workflowId: subWorkflowId, version, tenantId, organizationId })
-    : null
+  const childDefinition = await findDefinitionForInstance(em, childInstance)
   const ioContract = (childDefinition?.definition as { io?: WorkflowIoContract } | undefined)?.io
 
   const { mapSubWorkflowOutput } = await import('./step-handler')
