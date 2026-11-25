@@ -303,6 +303,25 @@ describe.each(['order', 'quote'] as const)('sales %s create through command bus'
     expect(em.rows.get(lineEntity)).toEqual([])
   })
 
+  it('restores the frozen line when a tag was deleted after undo', async () => {
+    const { bus, ctx, em, logs, service } = harness()
+    const survivingTag = { id: randomUUID(), organizationId, tenantId }
+    const deletedTag = { id: randomUUID(), organizationId, tenantId }
+    em.rows.set('SalesDocumentTag', [survivingTag, deletedTag])
+    const taggedInput = { ...input, tags: [survivingTag.id, deletedTag.id] }
+    await bus.execute(commandId, { input: taggedInput, ctx })
+    const originalLines = em.rows.get(lineEntity)?.map(lineIdentity)
+    await bus.undo(logs[0].undoToken, ctx)
+    em.rows.set('SalesDocumentTag', [survivingTag])
+    service.getConfig.mockClear()
+
+    await bus.execute(commandId, { input: taggedInput, ctx, redoLogEntry: logs[0] })
+
+    expect(em.rows.get(lineEntity)?.map(lineIdentity)).toEqual(originalLines)
+    expect(em.rows.get('SalesDocumentTagAssignment')?.map((assignment) => assignment.tag)).toEqual([survivingTag])
+    expect(service.getConfig).not.toHaveBeenCalled()
+  })
+
   it('ignores public IDs and snapshot fields on initial create', async () => {
     const { bus, ctx, em } = harness()
     await bus.execute(commandId, { input: {
