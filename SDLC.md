@@ -29,8 +29,10 @@ sets `qa` to indicate manual testing is underway.
 
 Every ready PR needs a category, one priority and one risk label, using the
 configuration's taxonomy. Priority measures urgency; risk measures blast radius.
-A `needs-qa` PR cannot merge without `qa-approved`. Never combine `skip-qa` with
-`needs-qa` or `qa-approved`. QA sign-off describes evidence and the tested head;
+A `needs-human-qa` PR cannot merge without `qa-approved`; `needs-qa` asks for
+automatic QA and `qa-batch-check` for a check in the next daily batch, and neither
+blocks the merge. Never combine `skip-qa` with `needs-qa`, `needs-human-qa` or
+`qa-approved`. QA sign-off describes evidence and the tested head;
 changed scope needs fresh verification. Self-QA follows the exception and evidence
 requirements in the PR workflow, including both approval and self-verification labels.
 
@@ -64,7 +66,7 @@ every automated merge. `automerge-force` grants nothing alone: only together
 with `automerge-now` does it select the automation-only approval policy, and
 the buddy then posts a PR notice that human QA and the protected-area check were
 skipped. That pair never overrides this repository's QA-approval gate: a
-`needs-qa` PR still needs `qa-approved`. Removing either label restores the
+`needs-human-qa` PR still needs `qa-approved`. Removing either label restores the
 ordinary rules; `automerge-prepare` limits the buddy to preparation.
 
 `automerge-signal-3-passes-local-ci-checks` is the alternative CI signal: every
@@ -80,7 +82,9 @@ GitHub's branch rules enforced. Neither a replacement PR nor a fresh commit
 attests to a contributor's CLA: the CLA service must evaluate the new head.
 
 The configuration records the collection's default triage eligibility and QA
-gate keys explicitly. `qaGateLabel` stays `needs-qa`; `qaReadyLabel` is unset.
+gate keys explicitly. `qaGateLabel` is `needs-human-qa`; `qaReadyLabel` is unset.
+`humanQaPolicy` holds the triage rules and `qaBatch` the daily batch QA settings
+([PR workflow](.ai/docs/pr-workflow.md#daily-batch-qa)).
 The `claim-reset`, `automerge-signal-*` and `automerge-blocked` labels are additive
 audit and queue markers. `claim-reset` is human-owned; automation only reads its
 audit history. A local-CI signal does not waive this repository's required host

@@ -9,7 +9,8 @@ readable taxonomy lives in `.ai/agentic.config.json` (`labels.*`, `qaGate`).
 
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`.
 - Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
-- Meta labels are additive: `needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`.
+- Meta labels are additive: `needs-qa`, `needs-human-qa`, `qa-batch-check`, `qa-in-progress`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`.
+- Issue labels for QA findings: `bug` + `daily-qa` (a defect found in a daily batch or a release QA pass) and `qa-blocker` (that defect blocks the batch). `weekly-qa` is kept on old issues only.
 - Priority labels are mutually exclusive within their group (only one at a time): `priority-low`, `priority-medium`, `priority-high`, `priority-extreme`.
 - Risk labels are mutually exclusive within their group (only one at a time): `risk-low`, `risk-medium`, `risk-high`.
 - Release-line labels are additive: `backport release/vX.Y.x` (cherry-pick into that line once merged), `backport main` (forward-port a line hotfix), `backport` (marks a PR the Backport workflow opened), `skip-changelog` (left out of generated release notes).
@@ -109,19 +110,20 @@ the higher risk and say why in the label comment. A `risk-high` PR strengthens t
 ## Pipeline transitions
 
 - A ready non-draft PR should carry `review` unless it is already in another pipeline state.
-- `auto-review-pr` MUST move approved PRs to `merge-queue`. For a PR that carries `needs-qa`
-  (without `skip-qa`) it keeps `needs-qa` in place, so the QA-approval gate holds the actual
-  merge until a QA reviewer adds `qa-approved`. Auto-skills MUST NOT set the `qa` pipeline
-  label — see the `qa` rule below.
+- `auto-review-pr` MUST move approved PRs to `merge-queue`. For a PR that carries
+  `needs-human-qa` it keeps it in place, so the QA-approval gate holds the actual merge until a
+  QA reviewer adds `qa-approved`. Auto-skills MUST NOT set the `qa` pipeline label — see the
+  `qa` rule below.
 - `auto-review-pr` MUST move review failures to `changes-requested`.
 - `qa` (pipeline) means **manual QA is in progress**: a QA reviewer has picked the PR up and is
   actively testing it. It is applied **manually by a QA reviewer**, never by an `om-auto-*`
-  skill. Auto-skills request QA with the `needs-qa` meta label only; they never set, move to, or
-  remove `qa`. A QA reviewer flips a queued `needs-qa` PR from `merge-queue` to `qa` while
-  testing, then records the outcome with `qa-approved` (pass) or `qa-failed` (fail).
+  skill. Auto-skills request QA with the `needs-qa` / `needs-human-qa` meta labels only; they
+  never set, move to, or remove `qa`. A QA reviewer flips a queued `needs-human-qa` PR from
+  `merge-queue` to `qa` (or adds `qa-in-progress`) while testing, then records the outcome with
+  `qa-approved` (pass) or `qa-failed` (fail).
 
 The `qa` pipeline label is driven manually by QA reviewers, not by auto-skills. When a QA
-reviewer starts testing a queued `needs-qa` PR, they move it from `merge-queue` to `qa`
+reviewer starts testing a queued `needs-human-qa` PR, they move it from `merge-queue` to `qa`
 (`gh pr edit <number> --remove-label merge-queue --add-label qa`) to signal QA is in progress.
 When QA passes, move it back and record approval (`gh pr edit <number> --remove-label qa
 --add-label merge-queue --add-label qa-approved`); via the self-QA exception add
@@ -130,9 +132,25 @@ When QA passes, move it back and record approval (`gh pr edit <number> --remove-
 
 ## QA meta labels and the merge gate
 
-- `needs-qa` is for UI changes, new features, sales or order flows, and other customer-facing
-  behavior that needs manual exercise. It presumes there is a surface a QA reviewer can actually
-  exercise by hand; when there is not, see the automated-verification exemption below.
+- QA triage (`om-auto-review-pr`, rules in `.ai/agentic.config.json` → `humanQaPolicy`) puts
+  every PR in one lane, judging what the change does, not who wrote it:
+  - `needs-human-qa`: a tester MUST check it **before merge**, because fixing forward would not
+    help. A new feature or visible UX change without an approved design (a merged spec with
+    mockups for the changed screens), money or payments, lowered security or widened access or
+    tenant scoping, removed fields, tables, API fields or routes without a simple upgrade path,
+    destructive migrations, installation and default credentials, external systems automation
+    cannot reach, architecture or backward-incompatible contracts, and global styles
+    (`globals.css`). Tightening security or fixing a scoping leak does not count.
+  - `qa-batch-check` (next to `needs-qa`): merge freely; a tester checks it in the next daily
+    batch. Approved-design UX, customer-facing paths (portal pages of any module, customer accounts,
+    login, checkout, onboarding), drag and drop, keyboard, focus, responsive layout or printing, more
+    than 10 changed UI files, and user-visible changes triage is unsure about.
+  - `needs-qa`: automatic QA (`om-auto-qa-pr`) is enough. It does not block the merge.
+  - `skip-qa`: nothing user-visible to exercise.
+
+  A reviewer, the author or a tester may add `needs-human-qa` or `qa-batch-check` by hand;
+  automation never removes either. When there is no surface to exercise by hand, see the
+  automated-verification exemption below.
 - `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, changes with no
   manually exercisable surface (see the exemption below), or similarly low-risk
   non-customer-facing changes.
@@ -155,24 +173,26 @@ When QA passes, move it back and record approval (`gh pr edit <number> --remove-
   PR is a reason to demand the integration test and a deeper review, not a reason to demand
   clicking that cannot happen. A reviewer may always override the exemption back to `needs-qa`
   with a stated reason (for example when the change alters a response the UI renders). It does not
-  touch the QA-approval merge gate below: a PR that carries `needs-qa` still MUST NOT merge
-  without `qa-approved`.
-- `qa-approved` records that manual QA passed for a `needs-qa` PR. It is the durable proof that
+  touch the QA-approval merge gate below: a PR that carries `needs-human-qa` still MUST NOT
+  merge without `qa-approved`.
+- `qa-approved` records that manual QA passed for a `needs-human-qa` PR (on a batch PR: that
+  the batch is stable, see Daily batch QA). It is the durable proof that
   gates the merge; the `merge-queue` pipeline label is the routing state, while `qa-approved` is
   the evidence that QA actually happened. Set both when QA passes.
 - `screenshots` records that UI QA visual evidence was attached to the PR (posted by
   `om-auto-qa-pr`, which first runs `om-auto-review-pr` when the PR is still unreviewed); it is
   informational only — it does not gate merge and is orthogonal to `needs-qa`/`qa-approved`.
 
-**QA-approval merge gate (hard rule): a PR that carries `needs-qa` MUST NOT be merged unless it
-also carries `qa-approved`, even when every other check is green.** Moving such a PR to
+**QA-approval merge gate (hard rule): a PR that carries `needs-human-qa` MUST NOT be merged
+unless it also carries `qa-approved`, even when every other check is green.** `needs-qa` and
+`qa-batch-check` do not gate the merge. Moving a gated PR to
 `merge-queue` without `qa-approved` is not sufficient — the QA-approval gate blocks it. This is
 a **label policy enforced by reviewers and the PR-automation tooling** (`om-merge-buddy`
 classifies it as not-mergeable; `om-approve-merge-pr` and the auto-review/continue skills refuse
 to merge it); there is no longer a dedicated `merge-gate` CI workflow, so the maintainer is
 responsible for upholding it (optionally via a branch-protection rule that requires the
 `qa-approved` label). `skip-qa` is the explicit opt-out: a PR with `skip-qa` does not require
-`qa-approved`. Never combine `skip-qa` with `needs-qa`/`qa-approved`.
+`qa-approved`. Never combine `skip-qa` with `needs-qa`/`needs-human-qa`/`qa-approved`.
 
 **Self-QA exception:** the manual QA is normally performed by the dedicated QA reviewers. When
 they have no capacity to test in time, any engineer may self-QA instead — but only by
@@ -190,13 +210,47 @@ For them it splits into two halves: the contributor posts the evidence comment o
 comment is the durable artifact, the labels only record it — and a maintainer applies the two
 labels on the strength of it. A maintainer doing so is upholding the gate, not bypassing it, as
 long as the linked evidence actually exists. Until the labels are on the PR it stays gated: an
-attached evidence comment alone does not make a `needs-qa` PR merge-ready, and an `om-auto-*`
+attached evidence comment alone does not make a `needs-human-qa` PR merge-ready, and an `om-auto-*`
 skill that cannot apply the labels MUST report that it stopped there rather than treat the
 self-QA as complete.
 
 `qa-failed` is a hard block: a PR carrying it MUST NOT merge until QA re-runs and it is cleared.
 `do-not-merge` and `blocked` are likewise hard merge blocks. The QA-approval gate (reviewers +
 PR-automation tooling) treats any of these as not-mergeable.
+
+## Daily batch QA
+
+Once a day `main` is cut into `stabilize/main-<date>` and opened as one PR back to `main` (the
+batch). A tester runs one QA pass on that build: the smoke in `.ai/qa/batch-smoke.md` plus only
+the merged PRs that need a human eye. The `om-qa-batch` skill lists them: PRs labelled
+`qa-batch-check`, PRs that reached `main` with `needs-human-qa` but without `qa-approved`, and
+customer-facing or visibly changed PRs with no QA evidence. QA judges quality; the day's
+stabilizer owns the branch, fixes blockers with small PRs into the batch, tags it and merges it
+back.
+
+Labels on the batch PR:
+
+- `qa-in-progress` + the tester as assignee: testing started. The batch MUST NOT be refreshed with
+  newer `main` commits while it carries this label. An untouched batch may be refreshed.
+- `qa-failed`: verdict **unstable**, at least one open blocker. It stays frozen until the retest.
+- `qa-approved`: verdict **stable** for the tested head. The stabilizer may tag `green/<date>` and
+  merge back. A new head needs a new verdict.
+
+The verdict comment carries `QA verdict: STABLE|UNSTABLE`, `QA head: <full sha>` and the range.
+The tester also posts the same verdict, with blockers when unstable, as a short message on the
+team's QA channel. Retests after fixes cover only the fixed area.
+
+A defect **blocks** the batch when a user cannot finish a main task: a main screen does not load
+or a main path returns a server error; signing in, saving or creating a basic record fails; data
+is lost, saved wrong or shown to another organization or tenant; a migration fails or the app
+does not start. A blocker is an issue with `bug` + `daily-qa` + `qa-blocker` plus a comment on
+the batch PR mentioning the stabilizer; open `qa-blocker` issues are listed at the start of the
+next batch. Everything else (cosmetics, translations, small UX issues) is an issue with `bug` +
+`daily-qa` and never blocks the batch.
+
+When nobody tests on a given day, no new batch is cut while one is open; the open batch grows
+with `main` until a tester claims it. The same pass, with an upgrade from the previous version
+and migrations, runs on a release line before each release.
 
 ## Auto-skill protocol
 
