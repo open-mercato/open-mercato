@@ -49,6 +49,7 @@ async function openNoteEditor(page: Page, title: string) {
 
 async function editNote(page: Page, title: string): Promise<string> {
   const { dialog, editor } = await openNoteEditor(page, title)
+  await dialog.getByRole('button', { name: 'Note', exact: true }).click()
   await editor.click()
   await editor.press('ControlOrMeta+a')
   await page.keyboard.insertText(authoredBody)
@@ -67,8 +68,11 @@ async function editNote(page: Page, title: string): Promise<string> {
 
 async function expectPreviews(page: Page) {
   const activityHistory = history(page)
-  await expect(activityHistory.getByText(authoredBody.trimEnd(), { exact: true })).toBeVisible()
+  const markdownPreview = activityHistory.getByText(authoredBody.trimEnd(), { exact: true })
+  await expect(markdownPreview).toBeVisible()
+  expect(await markdownPreview.textContent()).toBe(authoredBody)
   await expect(activityHistory.getByText(legacyBody, { exact: true })).toBeVisible()
+  await markdownPreview.scrollIntoViewIfNeeded()
 }
 
 test('TC-CRM-10328: deal and person previews distinguish serialized Markdown from literal entities', async ({ page, request }) => {

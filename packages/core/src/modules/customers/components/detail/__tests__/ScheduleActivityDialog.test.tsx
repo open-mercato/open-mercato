@@ -214,7 +214,7 @@ describe('ScheduleActivityDialog', () => {
     { description: 'Original&#x20;', expectedBody: undefined, expectedFormat: undefined },
     { description: 'Edited \\&#x20; then a space&#x20;', expectedBody: 'Edited \\&#x20; then a space&#x20;', expectedFormat: 'markdown' },
     { description: '', expectedBody: null, expectedFormat: null },
-  ])('writes note body provenance only when the description changes to $description', async ({ description, expectedBody, expectedFormat }) => {
+  ])('preserves note metadata when reselecting its type and editing the description to $description', async ({ description, expectedBody, expectedFormat }) => {
     mockScheduleState = createScheduleState({ activityType: 'note', title: 'Existing note', description })
     apiCallOrThrowMock.mockResolvedValue({ ok: true })
     renderWithProviders(
@@ -226,6 +226,7 @@ describe('ScheduleActivityDialog', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: /^Note$/ }))
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
 
     const init = apiCallOrThrowMock.mock.calls[0][1] as { method: string; body: string }
