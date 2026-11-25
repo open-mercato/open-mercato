@@ -719,3 +719,13 @@ The STABLE attachment library API response and the enrichment helper signature r
 ## #10331 #10332 (2026-11-23)
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
+
+## 2026-11-25 — System dictionary preservation (#10341)
+
+The STABLE dictionary PATCH and DELETE routes now reject key changes and
+archival for system dictionaries. Keeping those writes available during a
+bridge release would still let module-owned records disappear from key lookups.
+Clients can update descriptive settings and use custom dictionaries for
+mutable keys or archival. See the [upgrade notes](UPGRADE_NOTES.md#system-dictionary-preservation-10341)
+and [specification](.ai/specs/2026-09-18-dictionary-key-namespaces.md#system-dictionary-preservation-10341).
+Named human maintainer approval of the security exception is pending.

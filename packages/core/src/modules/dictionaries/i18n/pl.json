@@ -116,6 +116,7 @@
   "dictionaries.errors.invalid_key": "Używaj małych liter, cyfr, myślnika, podkreślenia lub kropki między segmentami.",
   "dictionaries.errors.not_found": "Nie znaleziono słownika",
   "dictionaries.errors.organization_required": "Wymagany jest kontekst organizacji",
+  "dictionaries.errors.system_protected": "Słowników systemowych nie można archiwizować ani zmieniać ich kluczy.",
   "dictionaries.errors.unauthorized": "Brak autoryzacji",
   "dictionaries.form.colorClear": "Wyczyść kolor",
   "dictionaries.form.colorHelp": "Wybierz kolor wyróżnienia dla tego wpisu.",

@@ -133,18 +133,20 @@ describe('dictionary custom write routes mutation guard', () => {
   })
 
   it('runs the mutation guard lifecycle when updating a dictionary', async () => {
-    em.findOne.mockResolvedValueOnce(makeDictionaryRecord())
+    const dictionary = makeDictionaryRecord()
+    em.findOne.mockResolvedValueOnce(dictionary).mockResolvedValueOnce(null)
 
     const response = await updateDictionary(
       new Request(`http://localhost/api/dictionaries/${dictionaryId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Renamed' }),
+        body: JSON.stringify({ key: 'renamed', name: 'Renamed' }),
       }),
       { params: { dictionaryId } },
     )
 
     expect(response.status).toBe(200)
+    expect(dictionary).toMatchObject({ key: 'renamed', name: 'Renamed' })
     expect(em.flush).toHaveBeenCalled()
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
       container,
@@ -174,7 +176,8 @@ describe('dictionary custom write routes mutation guard', () => {
   })
 
   it('runs the mutation guard lifecycle when deleting a dictionary', async () => {
-    em.findOne.mockResolvedValueOnce(makeDictionaryRecord())
+    const dictionary = makeDictionaryRecord()
+    em.findOne.mockResolvedValueOnce(dictionary)
 
     const response = await deleteDictionary(
       new Request(`http://localhost/api/dictionaries/${dictionaryId}`, { method: 'DELETE' }),
@@ -182,6 +185,7 @@ describe('dictionary custom write routes mutation guard', () => {
     )
 
     expect(response.status).toBe(200)
+    expect(dictionary).toMatchObject({ isActive: false, deletedAt: expect.any(Date) })
     expect(em.flush).toHaveBeenCalled()
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
       container,
@@ -204,5 +208,51 @@ describe('dictionary custom write routes mutation guard', () => {
 
     expect(response.status).toBe(423)
     expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  describe.each([
+    { key: 'sales.order_status', isSystem: true, error: 'System dictionaries cannot be archived or have their keys changed.' },
+    { key: 'currency', isSystem: false, error: 'The currency dictionary cannot be modified or deleted.' },
+    { key: 'currencies', isSystem: true, error: 'The currency dictionary cannot be modified or deleted.' },
+  ])('protected dictionary $key', ({ key, isSystem, error }) => {
+    it.each([
+      { operation: 'update', method: 'PATCH', handler: updateDictionary, payload: { key: 'renamed', name: 'Renamed' } },
+      { operation: 'update', method: 'PATCH', handler: updateDictionary, payload: { isActive: false } },
+      { operation: 'delete', method: 'DELETE', handler: deleteDictionary, payload: undefined },
+    ])('returns 400 for a protected $method mutation ($payload)', async ({ operation, method, handler, payload }) => {
+      const original = makeDictionaryRecord({ key, isSystem })
+      const dictionary = { ...original }
+      em.findOne.mockResolvedValueOnce(dictionary)
+
+      const response = await handler(
+        new Request(`http://localhost/api/dictionaries/${dictionaryId}`, { method, body: JSON.stringify(payload) }),
+        { params: { dictionaryId } },
+      )
+
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({ error })
+      expect(dictionary).toEqual(original)
+      expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(container, expect.objectContaining({ operation }))
+      expect(em.flush).not.toHaveBeenCalled()
+      expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+    })
+  })
+
+  it.each(['sales.order_status', 'legacy.SystemKey', 'currency'])('updates descriptive settings for %s', async (key) => {
+    const dictionary = makeDictionaryRecord({ key, isSystem: key !== 'currency' })
+    em.findOne.mockResolvedValueOnce(dictionary)
+
+    const response = await updateDictionary(
+      new Request(`http://localhost/api/dictionaries/${dictionaryId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ key, name: 'Renamed', description: 'Updated', entrySortMode: 'value_asc' }),
+      }),
+      { params: { dictionaryId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(dictionary).toMatchObject({ key, name: 'Renamed', description: 'Updated', entrySortMode: 'value_asc' })
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledTimes(1)
   })
 })

@@ -116,6 +116,7 @@
   "dictionaries.errors.invalid_key": "Use lowercase letters, numbers, hyphen, underscore, or a dot between segments.",
   "dictionaries.errors.not_found": "Dictionary not found",
   "dictionaries.errors.organization_required": "Organization context is required",
+  "dictionaries.errors.system_protected": "System dictionaries cannot be archived or have their keys changed.",
   "dictionaries.errors.unauthorized": "Unauthorized",
   "dictionaries.form.colorClear": "Clear color",
   "dictionaries.form.colorHelp": "Pick a highlight color for this entry.",

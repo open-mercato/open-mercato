@@ -69,3 +69,35 @@ declaration is audited when its name ends in `DICTIONARY_KEY`, `DICTIONARY_KEYS`
 when its name ends in `DEFINITIONS` and its type annotation mentions "dictionary" (the bare
 `DEFINITIONS` suffix is too generic to trust on its own); or, regardless of the declaration's name,
 whenever a descriptor object carries an explicit `dictionaryKey` property.
+
+## System dictionary preservation (#10341)
+
+Dictionary writes preserve the keys and availability of records marked
+`isSystem`. PATCH accepts an unchanged key and permits display name,
+description, and entry sort order edits. PATCH that changes the key or archives
+the record, and DELETE, return HTTP 400 in the existing localized error envelope.
+The check runs after scope, optimistic lock, and mutation guard checks and before
+the row or its update timestamp changes. Currency-specific protection continues
+to apply to both reserved aliases.
+
+### Migration & Backward Compatibility
+
+The existing PATCH and DELETE routes retain their schemas. Their mutation policy
+rejects destructive operations on system dictionaries so the owning module can
+continue to resolve the same key. A bridge would still permit the destructive
+mutation. Clients can edit descriptive settings or use custom dictionaries for
+data they need to rename or archive. No migration is required. Operators who
+already have a missing system dictionary should follow the owning module's
+recovery procedure. See the [upgrade notes](../../UPGRADE_NOTES.md#system-dictionary-preservation-10341).
+Named human maintainer approval of the security exception is required before merge.
+
+### Regression coverage
+
+Route tests cover the rejection and mutation guard lifecycle, both reserved
+currency aliases, and permitted system and custom edits. The API integration
+test creates a system dictionary and verifies that Sales can still resolve its
+order status after the mutations are rejected.
+
+## Changelog
+
+- 2026-11-25. Added server-side preservation of system dictionary keys and availability (#10341).

@@ -1,5 +1,19 @@
 # Upgrade Notes
 
+## System dictionary preservation (#10341)
+
+Dictionary PATCH and DELETE return HTTP 400 with a localized error when a request
+would archive a system dictionary or change its lookup key. Clients can still
+update the display name, description, and entry sort order. Use a custom
+dictionary for lists that need a mutable key or an archive lifecycle.
+
+Operators should review scripts that retire dictionaries and limit them to
+custom dictionaries. If a module's dictionary is already missing, consult that
+module's recovery procedure and check for an archived row before reseeding. This
+release does not repair prior changes or require a database migration. The
+security exception requires named maintainer approval before merge. See the
+[dictionary key specification](.ai/specs/2026-09-18-dictionary-key-namespaces.md#system-dictionary-preservation-10341).
+
 ## Production fullapp LocalStack binds to loopback (#10342)
 
 The production fullapp `storage-s3` profile now publishes LocalStack on

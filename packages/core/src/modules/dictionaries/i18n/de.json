@@ -116,6 +116,7 @@
   "dictionaries.errors.invalid_key": "Verwenden Sie Kleinbuchstaben, Zahlen, Bindestrich, Unterstrich oder einen Punkt zwischen Segmenten.",
   "dictionaries.errors.not_found": "Wörterbuch nicht gefunden",
   "dictionaries.errors.organization_required": "Organisationskontext ist erforderlich",
+  "dictionaries.errors.system_protected": "Systemwörterbücher können nicht archiviert werden. Ihre Schlüssel können nicht geändert werden.",
   "dictionaries.errors.unauthorized": "Nicht autorisiert",
   "dictionaries.form.colorClear": "Farbe entfernen",
   "dictionaries.form.colorHelp": "Hervorhebungsfarbe für diesen Eintrag wählen.",
