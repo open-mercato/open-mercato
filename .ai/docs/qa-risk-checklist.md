@@ -23,6 +23,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 
 - Every new route: from tenant B, request tenant A's ids and expect 404.
 - Check "All organizations" on reads and on writes. The symptom can be an endless reload, not an error.
+- On a fresh login, start editing while the organization switcher is loading. An edit survives initialization of the same scope, and switching scopes rechecks the form policy.
 - Seeded `employee` is not a no-permission role for sales. Build a narrow role.
 - A role that cannot use an action must not see it, and direct URLs must be refused too.
 - Run a negative control, so that "still visible" proves something.
@@ -79,6 +80,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 - Long operations need polling while active, plus a manual refresh.
 - Persistent events run with a delay. Wait before reporting that a trigger did not fire.
 - An async workflow step must resume in a separate worker process.
+- For external form delivery, test an organization that predates integration setup. Verify that a credential-free integration saves and syncs without stored credentials and provisions its recovery schedule.
 
 ## Undo and audit
 

@@ -926,6 +926,7 @@ None.
 
 ## Changelog
 
+- **2026-11-25:** Added coverage for a first edit during organization switcher initialization. When the switcher confirms the same server-selected organization and tenant, persisting the initial cookies preserves the active form and its edits. An actual scope change still invalidates the policy.
 - **2026-11-24:** Added coverage for an organization that predates Todo ERP setup. Zero-field integrations can deliver without a credentials record, the first intent registers the recovery sweep for its organization, and the form localizes temporary delivery failures. [QA finding](https://github.com/open-mercato/open-mercato/issues/10537)
 
 - **2026-11-06 (F1–F4 autofix):** Require final post-interceptor transactional validation of extension rules and authorized leaves/resources; make normal command lifecycle, audit/snapshot writes and commit-only effects explicit prerequisites of atomic sinks; require remote monotonic revision fencing across redelivery/delete/restore; add the optional `mandatory` refinement flag with default false and semantic revision coverage. Correct the example/business-domain boundary. These are design requirements, not claims of shipped implementation or executed runtime tests.

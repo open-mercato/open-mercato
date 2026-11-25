@@ -28,6 +28,7 @@ test('TC-EXAMPLE-FORM-009 saves ERP details in an organization that predates set
   let userId: string | null = null
   let todoId: string | null = null
   let token: string | null = null
+  const switcherReady = Promise.withResolvers<void>()
   const readUpgradeState = () => withClient(async (client) => (await client.query<{
     credential_count: number; schedule_count: number
   }>(`select
@@ -53,6 +54,10 @@ test('TC-EXAMPLE-FORM-009 saves ERP details in an organization that predates set
     expect(created.status()).toBe(201)
     const record = await created.json() as { id: string }
     todoId = record.id
+    await page.route('**/api/directory/organization-switcher', async (route) => {
+      await switcherReady.promise
+      await route.continue()
+    })
     await page.goto('/login')
     await page.getByLabel('Email', { exact: true }).fill(email)
     await page.getByLabel('Password', { exact: true }).fill(password)
@@ -61,8 +66,15 @@ test('TC-EXAMPLE-FORM-009 saves ERP details in an organization that predates set
     await readReadyShowcasePolicy(page, async () => { await page.goto(`${showcase}/${record.id}`, { waitUntil: 'commit' }) })
     await expect(field(page, 'cf_priority').getByRole('textbox', { name: 'Priority level' })).toHaveValue('2')
     const supplier = field(page, 'erpSupplierRef').getByRole('textbox')
-    await supplier.fill('SUP-100')
+    await supplier.fill('invalid')
+    switcherReady.resolve()
+    await page.waitForFunction((selected) => document.cookie.split('; ').includes(`om_selected_org=${selected}`), organizationId)
     await field(page, 'is_done').getByRole('checkbox').check()
+    await expect(supplier).toHaveValue('invalid')
+    expect((await saveShowcase(page)).status()).toBe(422)
+    await expect(field(page, 'erpSupplierRef').getByText('The ERP could not verify this supplier reference.')).toBeVisible()
+    expect(await readUpgradeState()).toEqual({ credential_count: 0, schedule_count: 0 })
+    await supplier.fill('SUP-100')
     expect((await saveShowcase(page)).status()).toBe(200)
     await expect(page.getByRole('status').filter({ hasText: 'ERP delivery synced' })).toBeVisible({ timeout: 20_000 })
     expect(await readUpgradeState()).toEqual({ credential_count: 0, schedule_count: 1 })
@@ -71,6 +83,7 @@ test('TC-EXAMPLE-FORM-009 saves ERP details in an organization that predates set
     await expect(supplier).toHaveValue('SUP-100')
     await expect(field(page, 'is_done').getByRole('checkbox')).toBeChecked()
   } finally {
+    switcherReady.resolve()
     if (token && todoId) await deleteEntityIfExists(request, token, todoApi, todoId)
     await withClient(async (client) => {
       const scope = [tenantId, organizationId]

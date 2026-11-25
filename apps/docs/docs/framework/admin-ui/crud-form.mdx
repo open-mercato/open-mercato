@@ -199,6 +199,8 @@ An explicit field store takes precedence over the section's store. With neither 
 | `store.sink(config)` | Supply the persistence, load, and lifecycle callbacks appropriate to the declared transaction, locking, and undo contract. |
 | `store.external(config)` | Export an owned mirror entity with the same scoped tuple, `updatedAt`, the shared `outboxColumns` mixin, and nullable JSON `values`. Ship its migration and implement the versioned delivery callback. Share the mirror's delivery `contractId` across create and update, and advance it when remote behavior changes. |
 
+When an integration declares an empty credentials schema, its external sink can validate and deliver in an existing organization without a stored credentials record. With the scheduler enabled, the first delivery intent ensures that the organization has an outbox recovery sweep. An integration that declares credential fields still needs configured credentials.
+
 Run `yarn generate`, review the extension summary, and commit `form-sections.revisions.json`. The generator assigns `<extension>.<section>` for one target and `<extension>.<variant>.<operation>.<section>` for multiple targets. The round-trip ID appends `@v<n>` to the contribution ID. For a conflict, use the exact contribution ID in [`overrides.forms.sections`](../modules/overrides.mdx#crudform-sections) or set that address to `null` to mask it.
 
 ### Advanced host declarations and hand-written contributions
