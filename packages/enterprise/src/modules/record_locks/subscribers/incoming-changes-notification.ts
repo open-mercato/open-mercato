@@ -1,6 +1,7 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import { isNotificationsModuleAvailable } from '../lib/notificationsAvailability'
+import type { RecordLockService } from '../lib/recordLockService'
 import {
   resolveRecordLockNotificationType,
   resolveRecordResourceLink,
@@ -35,6 +36,7 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
   if (!recipientUserIds.length) return
 
   if (!(await isNotificationsModuleAvailable(ctx))) return
+  const recordLockService = ctx.resolve<RecordLockService>('recordLockService')
   const notificationService = resolveNotificationService(ctx)
   const typeDef = resolveRecordLockNotificationType('record_locks.incoming_changes.available')
   if (!typeDef) return
@@ -45,6 +47,14 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
     : '-'
 
   for (const recipientUserId of recipientUserIds) {
+    if (!await recordLockService.canReadTarget({
+      userId: recipientUserId,
+      resourceKind: payload.resourceKind,
+      resourceId: payload.resourceId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
+    })) continue
+
     const notificationInput = buildNotificationFromType(typeDef, {
       recipientUserId,
       bodyVariables: {

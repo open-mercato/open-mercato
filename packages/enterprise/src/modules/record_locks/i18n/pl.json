@@ -34,6 +34,7 @@
   "record_locks.errors.acquire_failed": "Nie udało się pobrać statusu blokady rekordu.",
   "record_locks.errors.force_release_failed": "Nie udało się przejąć edycji rekordu.",
   "record_locks.errors.force_release_unavailable": "Nie można przejąć edycji, bo wymuszone odblokowanie jest wyłączone albo blokada nie jest już aktywna.",
+  "record_locks.errors.not_found": "Nie znaleziono rekordu",
   "record_locks.notifications.actions.accept_incoming": "Zastosuj przychodzące",
   "record_locks.notifications.actions.accept_mine": "Odrzuć przychodzące",
   "record_locks.notifications.actions.see_incoming_changes": "Zobacz zmiany przychodzące",

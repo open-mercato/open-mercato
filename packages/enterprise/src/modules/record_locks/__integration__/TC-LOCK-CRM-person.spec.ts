@@ -1,4 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures';
+import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures';
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { createPersonFixture } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
 import {
@@ -30,6 +39,62 @@ import {
  */
 test.describe('TC-LOCK-CRM-person: record locks on the CRM v2 person screen', () => {
   test.describe.configure({ timeout: 120_000 });
+
+  for (const strategy of ['optimistic', 'pessimistic'] as const) {
+    test(`requires person read access for ${strategy} participation`, async ({ request }) => {
+      const superadminToken = await getAuthToken(request, 'superadmin');
+      const adminToken = await getAuthToken(request, 'admin');
+      const { organizationId } = getTokenContext(adminToken);
+      const email = `qa-record-lock-${randomUUID()}@example.test`;
+      const password = `Lock!9-${randomUUID()}`;
+      const previousSettings = await getRecordLockSettings(request, superadminToken);
+      let roleId: string | null = null;
+      let userId: string | null = null;
+      let personId: string | null = null;
+      let editorLockToken: string | null = null;
+
+      try {
+        await saveRecordLockSettings(request, superadminToken, {
+          ...previousSettings,
+          enabled: true,
+          strategy,
+          enabledResources: ['customers.person'],
+        });
+        roleId = await createRoleFixture(request, adminToken, { name: email });
+        await setRoleAclFeatures(request, adminToken, {
+          roleId,
+          organizations: [organizationId],
+          features: ['record_locks.view'],
+        });
+        userId = await createUserFixture(request, adminToken, {
+          email, password, organizationId, roles: [roleId],
+        });
+        const restrictedToken = await getAuthToken(request, email, password);
+        personId = await createPersonFixture(request, adminToken, {
+          firstName: 'QA',
+          lastName: `Record lock ${strategy}`,
+          displayName: `QA Record lock ${strategy}`,
+        });
+
+        const denied = await acquireRecordLock(request, restrictedToken, 'customers.person', personId);
+        expect(denied.status).toBe(404);
+        expect(denied.body).toMatchObject({ code: 'record_not_found', lock: null });
+
+        const accepted = await acquireRecordLock(request, adminToken, 'customers.person', personId);
+        editorLockToken = (accepted.body?.lock as { token?: string | null } | undefined)?.token ?? null;
+        expect(accepted.status).toBe(200);
+        expect(editorLockToken).toBeTruthy();
+      } finally {
+        if (personId && editorLockToken) {
+          await releaseRecordLock(request, adminToken, 'customers.person', personId, editorLockToken).catch(() => {});
+        }
+        await cleanupPerson(request, adminToken, personId);
+        await deleteUserIfExists(request, adminToken, userId);
+        await deleteRoleIfExists(request, adminToken, roleId);
+        await saveRecordLockSettings(request, superadminToken, previousSettings);
+      }
+    });
+  }
 
   test('presence + pessimistic block + force release', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');

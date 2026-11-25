@@ -34,6 +34,7 @@
   "record_locks.errors.acquire_failed": "No se pudo cargar el estado del bloqueo del registro.",
   "record_locks.errors.force_release_failed": "No se pudo tomar el control de la edición.",
   "record_locks.errors.force_release_unavailable": "La toma de control no está disponible porque el desbloqueo forzado está deshabilitado o el bloqueo ya no está activo.",
+  "record_locks.errors.not_found": "Registro no encontrado",
   "record_locks.notifications.actions.accept_incoming": "Aplicar entrantes",
   "record_locks.notifications.actions.accept_mine": "Rechazar entrantes",
   "record_locks.notifications.actions.see_incoming_changes": "Ver cambios entrantes",

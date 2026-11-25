@@ -55,6 +55,29 @@ describe('record_locks acquire route', () => {
     expect(response.status).toBe(400)
   })
 
+  test('returns the same generic response for an empty request scope and an unavailable target', async () => {
+    const acquire = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      error: 'record_locks.errors.not_found',
+      code: 'record_not_found',
+      allowForceUnlock: false,
+      lock: null,
+    })
+    const body = { resourceKind: 'customers.person', resourceId: '40000000-0000-4000-8000-000000000001' }
+    jest.mocked(resolveRecordLocksApiContext)
+      .mockResolvedValueOnce(makeContext({ hasReadScope: false, recordLockService: { acquire } }) as never)
+      .mockResolvedValueOnce(makeContext({ hasReadScope: true, recordLockService: { acquire } }) as never)
+
+    const emptyScope = await POST(makeRequest(body))
+    expect(acquire).not.toHaveBeenCalled()
+    const unavailableTarget = await POST(makeRequest(body))
+    expect(acquire).toHaveBeenCalledTimes(1)
+    expect(emptyScope.status).toBe(404)
+    expect(unavailableTarget.status).toBe(404)
+    expect(await emptyScope.json()).toEqual(await unavailableTarget.json())
+  })
+
   test('returns lock error payload when service reports lock', async () => {
     const acquire = jest.fn().mockResolvedValue({
       ok: false,

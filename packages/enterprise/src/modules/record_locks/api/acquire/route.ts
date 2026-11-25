@@ -9,6 +9,17 @@ import { resolveRecordLocksApiContext, resolveRequestIp } from '../utils'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+
+async function recordNotFoundResponse() {
+  const { translate } = await resolveTranslations()
+  return NextResponse.json({
+    error: translate('record_locks.errors.not_found', 'Record not found'),
+    code: 'record_not_found',
+    allowForceUnlock: false,
+    lock: null,
+  }, { status: 404 })
+}
 
 type LockPayload = {
   lockedByUserId?: string
@@ -123,6 +134,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid acquire payload', details: parsed.error.issues }, { status: 400 })
   }
+  if (ctxOrResponse.hasReadScope === false) return recordNotFoundResponse()
 
   const result = await ctxOrResponse.recordLockService.acquire({
     resourceKind: parsed.data.resourceKind,
@@ -132,6 +144,7 @@ export async function POST(req: Request) {
     userId: ctxOrResponse.auth.sub,
     lockedByIp: resolveRequestIp(req),
   })
+  if (!result.ok && result.code === 'record_not_found') return recordNotFoundResponse()
 
   const em = ctxOrResponse.container.resolve<EntityManager>('em').fork()
   const canForceRelease = result.allowForceUnlock
@@ -190,6 +203,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload', schema: recordLockErrorSchema },
         { status: 401, description: 'Unauthorized', schema: recordLockErrorSchema },
+        { status: 404, description: 'Record unavailable', schema: recordLockErrorSchema },
         { status: 423, description: 'Record locked by another user', schema: recordLockErrorSchema },
         { status: 429, description: 'Per-user active lock quota exceeded', schema: recordLockErrorSchema },
       ],

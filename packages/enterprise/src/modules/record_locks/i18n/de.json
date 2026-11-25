@@ -34,6 +34,7 @@
   "record_locks.errors.acquire_failed": "Der Sperrstatus des Datensatzes konnte nicht geladen werden.",
   "record_locks.errors.force_release_failed": "Die Bearbeitung konnte nicht ubernommen werden.",
   "record_locks.errors.force_release_unavailable": "Die Ubernahme ist nicht verfugbar, weil erzwungenes Entsperren deaktiviert ist oder die Sperre nicht mehr aktiv ist.",
+  "record_locks.errors.not_found": "Datensatz nicht gefunden",
   "record_locks.notifications.actions.accept_incoming": "Eingehende anwenden",
   "record_locks.notifications.actions.accept_mine": "Eingehende ablehnen",
   "record_locks.notifications.actions.see_incoming_changes": "Eingehende Änderungen anzeigen",
