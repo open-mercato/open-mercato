@@ -59,6 +59,7 @@ describe('setRecordCustomFields', () => {
     function createValueStore(encrypted = false) {
       const definitions = [
         { key: 'labels', kind: 'text', configJson: { multi: true, encrypted } },
+        { key: 'protected', kind: 'text', configJson: { encrypted } },
         { key: 'assignee', kind: 'select', configJson: { multi: true } },
         { key: 'counts', kind: 'integer', configJson: { multi: true, encrypted } },
         { key: 'flags', kind: 'boolean', configJson: { multi: true, encrypted } },
@@ -116,6 +117,28 @@ describe('setRecordCustomFields', () => {
         if (previousEncryptionToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
         else process.env.TENANT_DATA_ENCRYPTION = previousEncryptionToggle
       }
+    })
+
+    it('rejects scalar reconciliation when the existing encrypted value cannot obtain its key', async () => {
+      const { rows, em, emMock } = createValueStore(true)
+      rows.push({ ...scope, id: 'existing', fieldKey: 'protected', valueText: 'existing value' })
+      const before = structuredClone(rows)
+      const cause = new Error('[internal] test key provider failure')
+      const encryptionService = {
+        isEnabled: () => true,
+        getDek: async () => { throw cause },
+      } as unknown as TenantDataEncryptionService
+
+      await expect(setRecordCustomFields(em, {
+        ...scope,
+        encryptionService,
+        values: { protected: ['existing value', 'extra legacy row'] },
+      })).rejects.toMatchObject({ status: 503, body: { code: 'ENCRYPTION_UNAVAILABLE' }, cause })
+
+      expect(rows).toEqual(before)
+      expect(emMock.rollback).toHaveBeenCalledTimes(1)
+      expect(emMock.nativeDelete).not.toHaveBeenCalled()
+      expect(emMock.commit).not.toHaveBeenCalled()
     })
 
     it('keeps empty fields absent and all other values intact when an unrelated edit echoes nulls', async () => {

@@ -252,8 +252,14 @@ export async function setRecordCustomFields(
     let cf = existingRows.find((row) => !row.deletedAt
       && (row.organizationId ?? null) === organizationId
       && (row.tenantId ?? null) === tenantId) ?? null
+    const currentValue = collapseToSingle && cf
+      ? await decryptCustomFieldValue(valueFromRow(cf), tenantId, encrypted ? getEncryptionService() : null, encryptionCache, {
+        kind: def?.kind ?? null,
+        writeContext: encrypted ? { entityId, fieldKey } : undefined,
+      })
+      : undefined
     const value: Primitive = collapseToSingle
-      ? pickSingleValue(raw as Primitive[], cf ? await decryptCustomFieldValue(valueFromRow(cf), tenantId, encrypted ? getEncryptionService() : null, encryptionCache, { kind: def?.kind ?? null }) : undefined)
+      ? pickSingleValue(raw as Primitive[], currentValue)
       : raw as Primitive
     const column: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(value)
     const storedValue = encrypted

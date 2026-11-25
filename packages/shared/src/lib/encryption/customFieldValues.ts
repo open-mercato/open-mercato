@@ -34,6 +34,7 @@ const STRING_TYPED_CUSTOM_FIELD_KINDS = new Set([
 export type DecryptCustomFieldOptions = {
   /** Field kind, e.g. from `CustomFieldDef.kind`. When string-typed, the helper preserves the decrypted string verbatim. */
   kind?: string | null
+  writeContext?: EncryptCustomFieldOptions
 }
 
 function shouldPreserveAsString(kind: string | null | undefined): boolean {
@@ -55,6 +56,10 @@ export function resolveTenantEncryptionService(
   return service
 }
 
+function isUsableDekKey(key: string | null): boolean {
+  return typeof key === 'string' && Buffer.from(key, 'base64').byteLength === 32
+}
+
 async function resolveDekKey(
   service: TenantDataEncryptionService | null,
   tenantId: string | null | undefined,
@@ -65,7 +70,7 @@ async function resolveDekKey(
   if (!service || !service.isEnabled() || !scopedTenantId) return null
   if (cache?.has(scopedTenantId)) {
     const cached = cache.get(scopedTenantId) ?? null
-    if (cached || !opts?.createIfMissing) return cached
+    if (!opts?.createIfMissing || isUsableDekKey(cached)) return cached
   }
   const dek = await service.getDek(scopedTenantId)
   let key = dek?.key ?? null
@@ -73,6 +78,7 @@ async function resolveDekKey(
     const created = await service.createDek(scopedTenantId)
     key = created?.key ?? null
   }
+  if (opts?.createIfMissing && !isUsableDekKey(key)) key = null
   cache?.set(scopedTenantId, key)
   return key
 }
@@ -123,6 +129,18 @@ export type EncryptCustomFieldOptions = {
   fieldKey?: string | null
 }
 
+function rejectEncryptedWrite(
+  tenantId: string,
+  options?: EncryptCustomFieldOptions,
+  cause?: unknown,
+): never {
+  warnOnEncryptionUnavailable(tenantId, options)
+  throw new CrudHttpError(503, {
+    error: 'api.errors.serviceUnavailable',
+    code: 'ENCRYPTION_UNAVAILABLE',
+  }, { cause })
+}
+
 export async function encryptCustomFieldValue(
   value: unknown,
   tenantId: string | null | undefined,
@@ -139,16 +157,11 @@ export async function encryptCustomFieldValue(
   } catch (error) {
     cause = error
   }
-  if (!key) {
-    warnOnEncryptionUnavailable(tenantId, options)
-    throw new CrudHttpError(503, {
-      error: 'api.errors.serviceUnavailable',
-      code: 'ENCRYPTION_UNAVAILABLE',
-    }, { cause })
-  }
-  clearEncryptionUnavailableWarnings(tenantId)
+  if (!key) rejectEncryptedWrite(tenantId, options, cause)
   const serialized = typeof value === 'string' ? value : JSON.stringify(value)
-  return encryptWithAesGcm(serialized, key).value
+  const encrypted = encryptWithAesGcm(serialized, key).value
+  clearEncryptionUnavailableWarnings(tenantId)
+  return encrypted
 }
 
 export async function decryptCustomFieldValue(
@@ -159,7 +172,15 @@ export async function decryptCustomFieldValue(
   options?: DecryptCustomFieldOptions,
 ): Promise<unknown> {
   if (value === undefined || value === null || typeof value !== 'string') return value
-  const key = await resolveDekKey(service, tenantId, cache)
+  let key: string | null
+  try {
+    key = await resolveDekKey(service, tenantId, cache)
+  } catch (error) {
+    if (tenantId && options?.writeContext && isTenantDataEncryptionEnabled()) {
+      rejectEncryptedWrite(tenantId, options.writeContext, error)
+    }
+    throw error
+  }
   if (!key) return value
   const decrypted = decryptWithAesGcm(value, key)
   if (decrypted === null) return value

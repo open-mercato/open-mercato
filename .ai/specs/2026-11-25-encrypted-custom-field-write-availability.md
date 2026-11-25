@@ -6,7 +6,7 @@ Require a usable tenant data encryption key before committing a value configured
 
 ## Behavior
 
-The custom-field writer resolves or provisions a tenant key before sealing a non-null encrypted value. A missing key or a failed key lookup returns HTTP 503 with code `ENCRYPTION_UNAVAILABLE` through the shared CRUD error handler. A custom-field replacement transaction rolls back when sealing cannot proceed. Clearing a value, reading existing values, tenantless values, and deployments with encryption explicitly disabled retain their respective behavior.
+The EAV custom-field writer resolves or provisions a tenant key before sealing a non-null encrypted value. A missing key or a failed key lookup returns HTTP 503 with code `ENCRYPTION_UNAVAILABLE` through the shared CRUD error handler. A custom-field replacement transaction rolls back when sealing cannot proceed. Clearing a value, reading existing values, tenantless values, and deployments with encryption explicitly disabled retain their respective behavior.
 
 ## Migration & Backward Compatibility
 

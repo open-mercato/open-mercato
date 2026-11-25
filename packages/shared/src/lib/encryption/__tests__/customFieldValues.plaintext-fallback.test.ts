@@ -105,6 +105,24 @@ describe('encryptCustomFieldValue with an unavailable tenant key', () => {
     })
   })
 
+  it('rejects malformed keys without replacing them and permits a write when the key is restored', async () => {
+    const malformed = 'invalid-key'
+    const cache = new Map<string | null, string | null>([['tenant-1', malformed]])
+    const getDek = jest.fn()
+      .mockResolvedValueOnce({ key: malformed })
+      .mockResolvedValueOnce({ key: fixedKey })
+    const service = unresolvableDekService({ getDek })
+
+    await expectUnavailable(encryptCustomFieldValue('protected', 'tenant-1', service, cache))
+    expect(cache.get('tenant-1')).toBeNull()
+    expect(service.createDek).not.toHaveBeenCalled()
+    expect(warnCalls()).toHaveLength(1)
+
+    const encrypted = await encryptCustomFieldValue('protected', 'tenant-1', service, cache)
+    expect(cache.get('tenant-1')).toBe(fixedKey)
+    await expect(decryptCustomFieldValue(encrypted, 'tenant-1', service, cache)).resolves.toBe('protected')
+  })
+
   it('skips key access for cleared values or intentional plaintext writes', async () => {
     const service = unresolvableDekService()
     process.env.TENANT_DATA_ENCRYPTION = 'no'
