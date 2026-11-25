@@ -2081,7 +2081,7 @@ export class HybridQueryEngine implements QueryEngine {
     search?: SearchRuntime
   ): AnyBuilder {
     const textExpr = this.cfTextExprAlias(alias, key)
-    const arrExpr = sql<unknown>`(${sql.ref(alias + '.doc')} -> ${key})`
+    const arrExpr = this.jsonbSqlAlias(alias, key)
     const arrContains = (val: unknown) => sql<boolean>`${arrExpr} @> ${JSON.stringify([val])}::jsonb`
 
     if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
@@ -2118,7 +2118,7 @@ export class HybridQueryEngine implements QueryEngine {
       case 'ne':
         return value === null
           ? q.where(sql<boolean>`${textExpr} is not null`)
-          : q.where(sql<boolean>`${textExpr} <> ${value}`)
+          : q.where(sql<boolean>`not (${textExpr} = ${value} or ${arrContains(value)})`)
       case 'in': {
         const vals = this.toArray(value)
         if (!vals.length) return q.where(sql<boolean>`false`)
@@ -2145,7 +2145,8 @@ export class HybridQueryEngine implements QueryEngine {
         // Empty list: `not in ()` is invalid SQL (#7637); exclude nothing, mirroring applyColumnFilter.
         const vals = this.toArray(value)
         if (vals.length === 0) return q.where(sql<boolean>`true`)
-        return q.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
+        const matches = vals.map((val) => sql<boolean>`${textExpr} = ${val} or ${arrContains(val)}`)
+        return q.where(sql<boolean>`not (${sql.join(matches, sql` or `)})`)
       }
       case 'like':
         return q.where(sql<boolean>`${textExpr} like ${value}`)
