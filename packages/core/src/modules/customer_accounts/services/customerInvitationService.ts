@@ -1,6 +1,6 @@
 import { LockMode, UniqueConstraintViolationException, type RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
-import { hash } from 'bcryptjs'
+import { getPasswordHasher } from '@open-mercato/shared/lib/auth/passwordHasher'
 import {
   CustomerUser,
   CustomerUserInvitation,
@@ -12,7 +12,6 @@ import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/en
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
 
-const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
 
 // Use Symbol.for so the marker survives module duplication across bundle
@@ -242,7 +241,7 @@ export class CustomerInvitationService {
     if (!invitation) return null
     if (!(await isCustomerTenantActive(this.em, invitation.tenantId))) return null
 
-    const passwordHash = await hash(password, BCRYPT_COST)
+    const passwordHash = await getPasswordHasher().hash(password)
     try {
       const result = await this.em.transactional(async (transactionEm) => {
         const acceptedAt = new Date()

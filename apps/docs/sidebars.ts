@@ -525,6 +525,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/security/rate-limiting",
             "framework/security/cross-site-login",
+            "framework/security/password-hashing",
           ],
         },
         {
