@@ -7247,5 +7247,21 @@
   "design_system.styleAgents.title": "스타일 에이전트",
   "design_system.styleAgents.tokenScope": "로고, 주요 작업 색상, 브랜드 강조색이 적용됩니다. 상태의 의미는 유지됩니다. 스튜디오의 중립 배경, 선택 색상 및 포커스 설정은 미리보기 전용입니다.",
   "design_system.styleAgents.upload": "로고 업로드",
-  "design_system.styleAgents.uploading": "로고 읽는 중…"
+  "design_system.styleAgents.uploading": "로고 읽는 중…",
+  "design_system.entries.kanban.description": "끌어서 옮길 수 있는 카드, 이동 메뉴, 열별 페이지 나누기와 열별 상태를 갖춘 열 보드입니다.",
+  "design_system.gallery.usage.kanban.do.0": "count에는 서버 전체 개수를, remaining에는 더 보기 레이블용 개수를 전달하세요",
+  "design_system.gallery.usage.kanban.do.1": "onMove가 완료된 뒤 columns를 업데이트하세요. columns가 바뀔 때까지 블록이 카드를 제자리에 유지합니다",
+  "design_system.gallery.usage.kanban.do.2": "이동 메뉴와 스크린 리더가 막힌 열을 설명할 수 있도록 canMove에서 이유를 반환하세요",
+  "design_system.gallery.usage.kanban.do.3": "onMove 오류와 충돌은 페이지에서 알림이나 충돌 표시줄로 보여 주세요",
+  "design_system.gallery.usage.kanban.dont.0": "renderCard 안에서 데이터를 가져오거나 API를 호출하지 마세요",
+  "design_system.gallery.usage.kanban.dont.1": "renderCard에 Enter나 Space에 반응하는 버튼을 넣지 마세요. 카드 셸이 카드를 여는 데 사용합니다",
+  "design_system.gallery.usage.kanban.dont.2": "서버가 열을 정렬하는 경우 reorderable을 설정하지 마세요",
+  "design_system.gallery.variantTitles.Column error": "열 오류",
+  "design_system.gallery.variantTitles.Empty column": "빈 열",
+  "design_system.gallery.variantTitles.Pending move": "이동 대기 중",
+  "design_system.gallery.variantTitles.Reorderable": "순서 변경 가능",
+  "design_system.gallery.variantTitles.Show more": "더 보기",
+  "design_system.gallery.variantTitles.Typeset studio": "타이포그래피 스튜디오",
+  "design_system.gallery.variantTitles.With summaries": "요약 포함",
+  "design_system.gallery.variantTitles.With trailing and footer": "끝 슬롯과 푸터 포함"
 }

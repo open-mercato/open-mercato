@@ -7247,5 +7247,21 @@
   "design_system.styleAgents.title": "Style agents",
   "design_system.styleAgents.tokenScope": "Apply changes the logo, primary actions and brand accents. Status meanings stay fixed. Neutral surfaces, selection colors and focus settings in the studio are exploratory previews only.",
   "design_system.styleAgents.upload": "Upload logo",
-  "design_system.styleAgents.uploading": "Reading logo…"
+  "design_system.styleAgents.uploading": "Reading logo…",
+  "design_system.entries.kanban.description": "Board of columns with draggable cards, a Move to menu, column paging and per-column states.",
+  "design_system.gallery.usage.kanban.do.0": "Pass count as the server total and remaining for the Show more label",
+  "design_system.gallery.usage.kanban.do.1": "Update columns after onMove resolves; the block keeps the card in place until columns change",
+  "design_system.gallery.usage.kanban.do.2": "Return a reason from canMove so the Move to menu and screen readers can explain a blocked column",
+  "design_system.gallery.usage.kanban.do.3": "Show onMove errors and conflicts on the page with a flash or the conflict bar",
+  "design_system.gallery.usage.kanban.dont.0": "Do not fetch data or call APIs inside renderCard",
+  "design_system.gallery.usage.kanban.dont.1": "Do not put buttons inside renderCard that react to Enter or Space; the card shell owns them to open the card",
+  "design_system.gallery.usage.kanban.dont.2": "Do not set reorderable when the server sorts the column itself",
+  "design_system.gallery.variantTitles.Column error": "Column error",
+  "design_system.gallery.variantTitles.Empty column": "Empty column",
+  "design_system.gallery.variantTitles.Pending move": "Pending move",
+  "design_system.gallery.variantTitles.Reorderable": "Reorderable",
+  "design_system.gallery.variantTitles.Show more": "Show more",
+  "design_system.gallery.variantTitles.Typeset studio": "Typeset studio",
+  "design_system.gallery.variantTitles.With summaries": "With summaries",
+  "design_system.gallery.variantTitles.With trailing and footer": "With trailing and footer"
 }

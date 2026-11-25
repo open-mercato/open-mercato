@@ -3,16 +3,18 @@ import { EntityHeader } from '@open-mercato/ui/blocks/entity-header'
 import { entityHeaderFixtures } from '@open-mercato/ui/blocks/entity-header/fixtures'
 import { Inline, Stack } from '@open-mercato/ui/blocks/stack'
 import { stackFixtures } from '@open-mercato/ui/blocks/stack/fixtures'
+import { Kanban, kanbanFixtures } from '@open-mercato/ui/blocks/kanban'
 import { KeyValue, keyValueFixtures } from '@open-mercato/ui/blocks/key-value'
 import { Timeline, timelineFixtures } from '@open-mercato/ui/blocks/timeline'
 import { Wizard } from '@open-mercato/ui/blocks/wizard'
 import { wizardFixtures } from '@open-mercato/ui/blocks/wizard/fixtures'
 import { entityHeaderPropsSchema } from '@open-mercato/ui/blocks/contracts/entity-header'
+import { kanbanPropsSchema } from '@open-mercato/ui/blocks/contracts/kanban'
 import { keyValuePropsSchema } from '@open-mercato/ui/blocks/contracts/key-value'
 import { stackPropsSchema } from '@open-mercato/ui/blocks/contracts/stack'
 import { timelinePropsSchema } from '@open-mercato/ui/blocks/contracts/timeline'
 import { wizardPropsSchema } from '@open-mercato/ui/blocks/contracts/wizard'
-import { EditableKeyValueExample, WizardNavigationExample } from '../demos/block-interactions'
+import { EditableKeyValueExample, KanbanBoardExample, WizardNavigationExample } from '../demos/block-interactions'
 import type { GalleryEntry } from '../types'
 
 function StackSamples({ count }: { count: number }) {
@@ -456,6 +458,169 @@ const timelineEntry: GalleryEntry = {
   ],
 }
 
+const kanbanCode = (props: string) => `import { Kanban } from '@open-mercato/ui/blocks/kanban'
+
+<Kanban
+${props}
+/>`
+
+const kanbanEntry: GalleryEntry = {
+  id: 'kanban',
+  title: 'Kanban',
+  importPath: '@open-mercato/ui/blocks/kanban',
+  contract: {
+    schema: kanbanPropsSchema,
+    importPath: '@open-mercato/ui/blocks/contracts/kanban',
+    implementationPath: '@open-mercato/ui/blocks/kanban/Kanban',
+  },
+  descriptionKey: 'design_system.entries.kanban.description',
+  keywords: ['board', 'pipeline', 'columns', 'drag and drop', 'stages'],
+  usage: {
+    do: [
+      'Pass count as the server total and remaining for the Show more label',
+      'Update columns after onMove resolves; the block keeps the card in place until columns change',
+      'Return a reason from canMove so the Move to menu and screen readers can explain a blocked column',
+      'Show onMove errors and conflicts on the page with a flash or the conflict bar',
+    ],
+    dont: [
+      'Do not fetch data or call APIs inside renderCard',
+      'Do not put buttons inside renderCard that react to Enter or Space; the card shell owns them to open the card',
+      'Do not set reorderable when the server sorts the column itself',
+    ],
+  },
+  variants: [
+    {
+      id: 'default',
+      title: 'Default',
+      render: () => <KanbanBoardExample initial="default" />,
+      code: kanbanCode(`  columns={stages.map((stage) => ({
+    id: stage.id,
+    title: stage.name,
+    count: stage.total,
+    cards: stage.deals,
+  }))}
+  onMove={async (dealId, stageId) => {
+    await moveDeal(dealId, stageId)
+  }}
+  canMove={(dealId, stageId) => canEnterStage(dealId, stageId)}
+  onCardOpen={openDeal}
+  renderCard={(deal, { pending }) => <DealCard deal={deal} pending={pending} />}`),
+    },
+    {
+      id: 'with-summaries',
+      title: 'With summaries',
+      render: () => <Kanban {...kanbanFixtures.withSummaries} />,
+      code: kanbanCode(`  columns={stages.map((stage) => ({
+    id: stage.id,
+    title: stage.name,
+    count: stage.total,
+    summary: formatAmount(stage.totalAmount),
+    cards: stage.deals,
+  }))}
+  onMove={moveDeal}
+  renderCard={(deal) => <DealCard deal={deal} />}`),
+    },
+    {
+      id: 'reorderable',
+      title: 'Reorderable',
+      render: () => <KanbanBoardExample initial="reorderable" />,
+      code: kanbanCode(`  columns={columns}
+  reorderable
+  onMove={async (taskId, statusId, toIndex) => {
+    await moveTask(taskId, statusId, toIndex)
+  }}
+  renderCard={(task) => <TaskCard task={task} />}`),
+    },
+    {
+      id: 'empty-column',
+      title: 'Empty column',
+      render: () => <Kanban {...kanbanFixtures.emptyColumn} />,
+      code: kanbanCode(`  columns={columns}
+  onMove={moveTask}
+  renderCard={(task) => <TaskCard task={task} />}
+  emptyColumn={(column) => <EmptyColumnHint title={column.title} />}`),
+    },
+    {
+      id: 'show-more',
+      title: 'Show more',
+      render: () => <Kanban {...kanbanFixtures.showMore} />,
+      code: kanbanCode(`  columns={stages.map((stage) => ({
+    id: stage.id,
+    title: stage.name,
+    count: stage.total,
+    remaining: stage.total - stage.deals.length,
+    hasMore: stage.deals.length < stage.total,
+    cards: stage.deals,
+  }))}
+  onLoadMoreColumn={async (stageId) => {
+    await fetchNextPage(stageId)
+  }}
+  onMove={moveDeal}
+  renderCard={(deal) => <DealCard deal={deal} />}`),
+    },
+    {
+      id: 'pending',
+      title: 'Pending move',
+      render: () => <Kanban {...kanbanFixtures.pending} />,
+      code: kanbanCode(`  columns={columns}
+  onMove={(taskId, statusId) => saveStatus(taskId, statusId)}
+  renderCard={(task, { pending }) => <TaskCard task={task} muted={pending} />}`),
+    },
+    {
+      id: 'column-error',
+      title: 'Column error',
+      render: () => <Kanban {...kanbanFixtures.columnError} />,
+      code: kanbanCode(`  columns={stages.map((stage) => ({
+    id: stage.id,
+    title: stage.name,
+    status: stage.error ? 'error' : stage.loading ? 'loading' : 'ready',
+    errorMessage: stage.error ? t('customers.deals.stageLoadError') : undefined,
+    cards: stage.deals,
+  }))}
+  onMove={moveDeal}
+  renderCard={(deal) => <DealCard deal={deal} />}`),
+    },
+    {
+      id: 'with-trailing-and-footer',
+      title: 'With trailing and footer',
+      render: () => <Kanban {...kanbanFixtures.withTrailingAndFooter} />,
+      code: kanbanCode(`  columns={columns}
+  onMove={moveDeal}
+  renderCard={(deal) => <DealCard deal={deal} />}
+  columnFooter={(column) => <AddDealButton stageId={column.id} />}
+  trailing={<AddStageColumn />}`),
+    },
+    {
+      id: 'loading',
+      title: 'Loading',
+      render: () => <Kanban {...kanbanFixtures.loading} />,
+      code: kanbanCode(`  columns={[]}
+  status="loading"
+  onMove={moveDeal}
+  renderCard={(deal) => <DealCard deal={deal} />}`),
+    },
+    {
+      id: 'error',
+      title: 'Error',
+      render: () => <Kanban {...kanbanFixtures.error} />,
+      code: kanbanCode(`  columns={[]}
+  status="error"
+  errorMessage={t('customers.deals.loadError')}
+  onMove={moveDeal}
+  renderCard={(deal) => <DealCard deal={deal} />}`),
+    },
+    {
+      id: 'empty',
+      title: 'Empty',
+      render: () => <Kanban {...kanbanFixtures.empty} />,
+      code: kanbanCode(`  columns={[]}
+  status="empty"
+  onMove={moveDeal}
+  renderCard={(deal) => <DealCard deal={deal} />}`),
+    },
+  ],
+}
+
 const wizardCode = (props: string, steps = 'steps') => `import { Wizard } from '@open-mercato/ui/blocks/wizard'
 
 <Wizard
@@ -579,4 +744,4 @@ const wizardEntry: GalleryEntry = {
   ],
 }
 
-export const entries: GalleryEntry[] = [stackEntry, entityHeaderEntry, keyValueEntry, timelineEntry, wizardEntry]
+export const entries: GalleryEntry[] = [stackEntry, entityHeaderEntry, keyValueEntry, timelineEntry, kanbanEntry, wizardEntry]

@@ -7247,5 +7247,21 @@
   "design_system.styleAgents.title": "Style-Agenten",
   "design_system.styleAgents.tokenScope": "Angewendet werden Logo, primäre Aktionen und Markenakzente. Statusbedeutungen bleiben erhalten. Neutrale Flächen, Auswahlfarben und Fokuseinstellungen im Studio dienen nur der Vorschau.",
   "design_system.styleAgents.upload": "Logo hochladen",
-  "design_system.styleAgents.uploading": "Logo wird geladen…"
+  "design_system.styleAgents.uploading": "Logo wird geladen…",
+  "design_system.entries.kanban.description": "Board aus Spalten mit ziehbaren Karten, einem Menü Verschieben nach, Spalten-Paging und Zuständen pro Spalte.",
+  "design_system.gallery.usage.kanban.do.0": "Übergib count als Gesamtzahl vom Server und remaining für die Beschriftung Mehr anzeigen",
+  "design_system.gallery.usage.kanban.do.1": "Aktualisiere columns, nachdem onMove aufgelöst ist; der Block hält die Karte an ihrem Platz, bis sich columns ändert",
+  "design_system.gallery.usage.kanban.do.2": "Gib aus canMove einen Grund zurück, damit das Menü Verschieben nach und Screenreader eine gesperrte Spalte erklären",
+  "design_system.gallery.usage.kanban.do.3": "Zeige Fehler und Konflikte von onMove auf der Seite mit einer Meldung oder der Konfliktleiste",
+  "design_system.gallery.usage.kanban.dont.0": "Keine Daten laden oder APIs in renderCard aufrufen",
+  "design_system.gallery.usage.kanban.dont.1": "Keine Schaltflächen in renderCard, die auf Enter oder Leertaste reagieren; die Kartenhülle nutzt sie zum Öffnen",
+  "design_system.gallery.usage.kanban.dont.2": "reorderable nicht setzen, wenn der Server die Spalte selbst sortiert",
+  "design_system.gallery.variantTitles.Column error": "Spaltenfehler",
+  "design_system.gallery.variantTitles.Empty column": "Leere Spalte",
+  "design_system.gallery.variantTitles.Pending move": "Ausstehende Verschiebung",
+  "design_system.gallery.variantTitles.Reorderable": "Sortierbar",
+  "design_system.gallery.variantTitles.Show more": "Mehr anzeigen",
+  "design_system.gallery.variantTitles.Typeset studio": "Typografie-Studio",
+  "design_system.gallery.variantTitles.With summaries": "Mit Zusammenfassungen",
+  "design_system.gallery.variantTitles.With trailing and footer": "Mit Abschluss und Fußzeile"
 }

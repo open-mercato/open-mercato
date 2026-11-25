@@ -7247,5 +7247,21 @@
   "design_system.styleAgents.title": "Agenty stylu",
   "design_system.styleAgents.tokenScope": "Zastosowanie obejmuje logo, główne akcje i akcenty marki. Znaczenie statusów pozostaje stałe. Neutralne tła, kolory zaznaczenia i ustawienia fokusu w studiu służą wyłącznie eksperymentom w podglądzie.",
   "design_system.styleAgents.upload": "Wgraj logo",
-  "design_system.styleAgents.uploading": "Wczytywanie logo…"
+  "design_system.styleAgents.uploading": "Wczytywanie logo…",
+  "design_system.entries.kanban.description": "Tablica kolumn z przeciąganymi kartami, menu Przenieś do, stronicowaniem kolumn i stanami pojedynczych kolumn.",
+  "design_system.gallery.usage.kanban.do.0": "Przekazuj count jako liczbę z serwera, a remaining jako etykietę Pokaż więcej",
+  "design_system.gallery.usage.kanban.do.1": "Zaktualizuj kolumny po zakończeniu onMove; blok trzyma kartę na miejscu, dopóki kolumny się nie zmienią",
+  "design_system.gallery.usage.kanban.do.2": "Zwracaj powód z canMove, aby menu Przenieś do i czytniki ekranu wyjaśniły zablokowaną kolumnę",
+  "design_system.gallery.usage.kanban.do.3": "Pokazuj błędy i konflikty onMove na stronie przez flash albo pasek konfliktu",
+  "design_system.gallery.usage.kanban.dont.0": "Nie pobieraj danych ani nie wywołuj API w renderCard",
+  "design_system.gallery.usage.kanban.dont.1": "Nie umieszczaj w renderCard przycisków reagujących na Enter lub Spację; obsługuje je powłoka karty, aby ją otworzyć",
+  "design_system.gallery.usage.kanban.dont.2": "Nie ustawiaj reorderable, gdy serwer sam sortuje kolumnę",
+  "design_system.gallery.variantTitles.Column error": "Błąd kolumny",
+  "design_system.gallery.variantTitles.Empty column": "Pusta kolumna",
+  "design_system.gallery.variantTitles.Pending move": "Oczekujące przeniesienie",
+  "design_system.gallery.variantTitles.Reorderable": "Z ręczną kolejnością",
+  "design_system.gallery.variantTitles.Show more": "Pokaż więcej",
+  "design_system.gallery.variantTitles.Typeset studio": "Studio typografii",
+  "design_system.gallery.variantTitles.With summaries": "Z podsumowaniami",
+  "design_system.gallery.variantTitles.With trailing and footer": "Ze slotem końcowym i stopką"
 }

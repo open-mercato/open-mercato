@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Kanban, applyMove, kanbanFixtures, type KanbanColumn } from '@open-mercato/ui/blocks/kanban'
 import { KeyValue, keyValueFixtures, type KeyValueItem } from '@open-mercato/ui/blocks/key-value'
 import { Wizard } from '@open-mercato/ui/blocks/wizard'
 import { wizardFixtures } from '@open-mercato/ui/blocks/wizard/fixtures'
@@ -15,6 +16,20 @@ export function EditableKeyValueExample() {
       items={items}
       onEdit={async (key, value) => {
         setItems((current) => current.map((item) => item.key === key ? { ...item, value } : item))
+      }}
+    />
+  )
+}
+
+export function KanbanBoardExample({ initial }: { initial: 'default' | 'reorderable' }) {
+  const fixture = kanbanFixtures[initial]
+  const [columns, setColumns] = React.useState<KanbanColumn[]>(fixture.columns)
+  return (
+    <Kanban
+      {...fixture}
+      columns={columns}
+      onMove={async (cardId, toColumnId, toIndex) => {
+        setColumns((current) => applyMove(current, cardId, toColumnId, toIndex))
       }}
     />
   )

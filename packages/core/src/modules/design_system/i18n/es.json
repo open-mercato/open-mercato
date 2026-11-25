@@ -7247,5 +7247,21 @@
   "design_system.styleAgents.title": "Agentes de estilo",
   "design_system.styleAgents.tokenScope": "Se aplican el logotipo, las acciones principales y los acentos de marca. Los estados mantienen su significado. Las superficies neutras, los colores de selección y el foco del estudio son solo vistas previas.",
   "design_system.styleAgents.upload": "Subir logotipo",
-  "design_system.styleAgents.uploading": "Cargando logotipo…"
+  "design_system.styleAgents.uploading": "Cargando logotipo…",
+  "design_system.entries.kanban.description": "Tablero de columnas con tarjetas arrastrables, menú Mover a, paginación por columna y estados por columna.",
+  "design_system.gallery.usage.kanban.do.0": "Pasa count como total del servidor y remaining para la etiqueta Mostrar más",
+  "design_system.gallery.usage.kanban.do.1": "Actualiza columns cuando onMove se resuelva; el bloque mantiene la tarjeta en su sitio hasta que columns cambie",
+  "design_system.gallery.usage.kanban.do.2": "Devuelve un motivo desde canMove para que el menú Mover a y los lectores de pantalla expliquen una columna bloqueada",
+  "design_system.gallery.usage.kanban.do.3": "Muestra los errores y conflictos de onMove en la página con un aviso o la barra de conflictos",
+  "design_system.gallery.usage.kanban.dont.0": "No cargues datos ni llames a APIs dentro de renderCard",
+  "design_system.gallery.usage.kanban.dont.1": "No pongas en renderCard botones que respondan a Intro o Espacio; la tarjeta los usa para abrirse",
+  "design_system.gallery.usage.kanban.dont.2": "No uses reorderable cuando el servidor ordena la columna",
+  "design_system.gallery.variantTitles.Column error": "Error de columna",
+  "design_system.gallery.variantTitles.Empty column": "Columna vacía",
+  "design_system.gallery.variantTitles.Pending move": "Movimiento pendiente",
+  "design_system.gallery.variantTitles.Reorderable": "Reordenable",
+  "design_system.gallery.variantTitles.Show more": "Mostrar más",
+  "design_system.gallery.variantTitles.Typeset studio": "Estudio tipográfico",
+  "design_system.gallery.variantTitles.With summaries": "Con resúmenes",
+  "design_system.gallery.variantTitles.With trailing and footer": "Con columna final y pie"
 }
