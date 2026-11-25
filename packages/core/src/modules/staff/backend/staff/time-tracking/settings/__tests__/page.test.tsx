@@ -391,6 +391,20 @@ describe('time tracking settings page', () => {
     expect(String(putCall?.[0])).toBe('/api/staff/timesheets/settings?expectedTenantId=tenant-a&changedKeys=targets.dailyHours')
   })
 
+  it('sends each changed key as its own query parameter', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
+    fireEvent.change(screen.getByLabelText('Access grace period after an assignment ends'), { target: { value: '21' } })
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+    const putCall = mockApiCall.mock.calls.find(([, init]) => init?.method === 'PUT')
+    const changedKeys = new URL(String(putCall?.[0]), 'http://localhost').searchParams.getAll('changedKeys')
+    expect(changedKeys.sort()).toEqual(['access.assignmentGraceDays', 'targets.dailyHours'])
+  })
+
   it('redisplays a Polish decimal after applying the complete partial-save response', async () => {
     mockLocale = 'pl'
     settings = { ...settings, targets: { dailyHours: 7.123456789 } }

@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
@@ -84,6 +85,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 import { GET, PUT, metadata } from '../route'
 import { DEFAULT_TIME_TRACKING_SETTINGS, STAFF_TIME_TRACKING_MODULE_ID, TIME_TRACKING_SETTING_KEYS } from '../../../../lib/time-tracking/settings'
+import { registerTimeTrackingSettingKey } from '../../../../lib/time-tracking/settingKeys'
 
 const getRequest = () => new Request('http://localhost/api/staff/timesheets/settings')
 
@@ -233,6 +235,40 @@ describe('staff time tracking settings route', () => {
       defaults: { chainStartFromPreviousEnd: false },
       targets: { dailyHours: 7.5 },
     })
+  })
+
+  it('saves a contributed key containing a comma alongside a built-in key', async () => {
+    const unregister = registerTimeTrackingSettingKey({
+      group: 'support',
+      key: 'integrations,region',
+      schema: z.string(),
+      default: 'eu',
+      labelKey: 'test.settings.region',
+    })
+    try {
+      const query = new URLSearchParams()
+      query.append('changedKeys', 'targets.dailyHours')
+      query.append('changedKeys', 'support.integrations,region')
+
+      const response = await PUT(putRequest({
+        targets: { dailyHours: 7.5 },
+        support: { 'integrations,region': 'us' },
+      }, `?${query.toString()}`))
+
+      expect(response.status).toBe(200)
+      expect(setTenantValuesSpy).toHaveBeenCalledWith(STAFF_TIME_TRACKING_MODULE_ID, {
+        'targets.dailyHours': 7.5,
+        'support.integrations,region': 'us',
+      }, tenantA)
+      expect(configStore.get(storeKey(tenantA, 'targets.dailyHours'))).toBe(7.5)
+      expect(configStore.get(storeKey(tenantA, 'support.integrations,region'))).toBe('us')
+      await expect(response.json()).resolves.toMatchObject({
+        targets: { dailyHours: 7.5 },
+        support: { referencePrefix: 'SUP', 'integrations,region': 'us' },
+      })
+    } finally {
+      unregister()
+    }
   })
 
   it.each(['', 'unknown.key', 'targets.dailyHours,warnings.overlap'])(

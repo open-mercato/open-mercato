@@ -338,7 +338,7 @@ export default function TimeTrackingSettingsPage() {
     const saveTenantId = saveScope.tenantId
     const query = new URLSearchParams()
     if (saveTenantId) query.set('expectedTenantId', saveTenantId)
-    query.set('changedKeys', changedKeys.join(','))
+    for (const key of changedKeys) query.append('changedKeys', key)
     const saveUrl = `${SETTINGS_API}?${query.toString()}`
     const reportTenantScopeChanged = () => {
       flash(

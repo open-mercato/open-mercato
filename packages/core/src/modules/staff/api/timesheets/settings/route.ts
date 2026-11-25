@@ -36,7 +36,7 @@ const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.settings
 const RESOURCE_ID = 'time_tracking'
 const EXPECTED_TENANT_PARAM = 'expectedTenantId'
 const CHANGED_KEYS_PARAM = 'changedKeys'
-const changedKeysSchema = z.string().min(1).describe('Comma-separated registry keys to update. Omit for a legacy full settings update.')
+const changedKeysSchema = z.array(z.string().min(1)).min(1).describe('Registry keys to update, one changedKeys query parameter per key. Omit for a legacy full settings update.')
 const TENANT_SCOPE_CHANGED_CODE = 'tenant_scope_changed'
 
 export const metadata = {
@@ -125,8 +125,8 @@ function assertExpectedTenant(req: Request, context: SettingsContext): void {
 }
 
 function readChangedKeys(req: Request, body: Record<string, unknown>): TimeTrackingSettingKeyDefinition[] | null {
-  const rawKeys = new URL(req.url).searchParams.get(CHANGED_KEYS_PARAM)
-  if (rawKeys === null) return null
+  const searchParams = new URL(req.url).searchParams
+  if (!searchParams.has(CHANGED_KEYS_PARAM)) return null
 
   return z.array(z.string().transform((key, validation) => {
     const entry = getTimeTrackingSettingKey(key)
@@ -136,7 +136,7 @@ function readChangedKeys(req: Request, body: Record<string, unknown>): TimeTrack
       return z.NEVER
     }
     return entry
-  })).parse([...new Set(changedKeysSchema.parse(rawKeys).split(','))])
+  })).parse([...new Set(changedKeysSchema.parse(searchParams.getAll(CHANGED_KEYS_PARAM)))])
 }
 
 async function PUT(req: Request) {
