@@ -156,11 +156,19 @@ function statusForDenyCode(code: AgentPolicyDenyCode): number {
   }
 }
 
-function isStructuredOutputFailure(error: unknown): boolean {
-  const matches = (candidate: unknown): boolean =>
-    NoObjectGeneratedError.isInstance(candidate) || NoOutputGeneratedError.isInstance(candidate)
-  if (matches(error)) return true
-  return error instanceof Error && matches(error.cause)
+type StructuredOutputFailure = { errorName: string; finishReason: string | null }
+
+function findStructuredOutputFailure(error: unknown): StructuredOutputFailure | null {
+  const candidates = [error, error instanceof Error ? error.cause : undefined]
+  for (const candidate of candidates) {
+    if (NoObjectGeneratedError.isInstance(candidate)) {
+      return { errorName: candidate.name, finishReason: candidate.finishReason ?? null }
+    }
+    if (NoOutputGeneratedError.isInstance(candidate)) {
+      return { errorName: candidate.name, finishReason: null }
+    }
+  }
+  return null
 }
 
 type RunObjectAuth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
@@ -361,10 +369,20 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (error instanceof AiModelFactoryError) {
       return jsonError(503, 'No LLM provider is configured for this deployment.', error.code)
     }
-    if (isStructuredOutputFailure(error)) {
+    const structuredOutputFailure = findStructuredOutputFailure(error)
+    if (structuredOutputFailure) {
       const agentId = bodyResult.data.agent
-      logger.warn('AI Run Object — model answer did not match the output schema', { agentId, err: error })
-      reportAiAssistantError(error, 'ai_assistant.run_object_output_invalid', { agentId })
+      const { errorName, finishReason } = structuredOutputFailure
+      logger.warn('AI Run Object — model answer did not match the output schema', {
+        agentId,
+        errorName,
+        finishReason,
+      })
+      reportAiAssistantError(
+        new Error(`[internal] run-object structured output invalid (${errorName})`),
+        'ai_assistant.run_object_output_invalid',
+        { agentId, errorName },
+      )
       return jsonError(
         502,
         'The model did not return an answer that matches the agent output schema.',

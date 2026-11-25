@@ -31,7 +31,21 @@ jest.mock('../../../../lib/report-ai-assistant-error', () => ({
   reportAiAssistantError: (...args: unknown[]) => reportAiAssistantErrorMock(...args),
 }))
 
-import { NoObjectGeneratedError, NoOutputGeneratedError } from 'ai'
+const loggerWarnMock = jest.fn()
+const loggerErrorMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const logger = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: (...args: unknown[]) => loggerWarnMock(...args),
+    error: (...args: unknown[]) => loggerErrorMock(...args),
+    child: () => logger,
+  }
+  return { createLogger: () => logger }
+})
+
+import { NoObjectGeneratedError, NoOutputGeneratedError, TypeValidationError } from 'ai'
 import { POST } from '../route'
 import { AiAgentDispatchDeniedError } from '../../../../lib/agent-run-dispatcher'
 
@@ -432,10 +446,15 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
 
   describe('structured-output failures', () => {
     const MODEL_TEXT = 'Sorry, here is a summary instead of JSON: secret-ish tenant data'
+    const MODEL_VALUE_MARKER = 'customer Jane Roe owes 500'
 
     function noObjectError(): NoObjectGeneratedError {
       return new NoObjectGeneratedError({
         message: 'No object generated: response did not match schema.',
+        cause: new TypeValidationError({
+          value: { title: 42, note: MODEL_VALUE_MARKER },
+          cause: new Error('Expected string, received number'),
+        }),
         text: MODEL_TEXT,
         response: { id: 'resp-1', timestamp: new Date(0), modelId: 'test-model' },
         usage: { inputTokens: 3, outputTokens: 5 } as never,
@@ -482,19 +501,47 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
         code: 'structured_output_invalid',
       })
       expect(reportAiAssistantErrorMock).toHaveBeenCalledWith(
-        expect.anything(),
+        expect.any(Error),
         'ai_assistant.run_object_output_invalid',
-        { agentId: 'catalog.extract' },
+        { agentId: 'catalog.extract', errorName: expect.stringMatching(/^AI_No(Object|Output)GeneratedError$/) },
       )
+      expect(loggerErrorMock).not.toHaveBeenCalled()
     })
 
-    it('never echoes the model answer text in the response body', async () => {
-      runAiAgentObjectMock.mockRejectedValueOnce(noObjectError())
+    it('keeps the model answer out of the response, the log and the telemetry report', async () => {
+      const sdkError = noObjectError()
+      expect(String((sdkError.cause as Error).message)).toContain(MODEL_VALUE_MARKER)
+      runAiAgentObjectMock.mockRejectedValueOnce(sdkError)
 
       const response = await postExtract()
 
       expect(response.status).toBe(502)
-      expect(await response.text()).not.toContain(MODEL_TEXT)
+      const leaked = (value: unknown): boolean => {
+        const seen = new Set<unknown>()
+        const visit = (node: unknown): string => {
+          if (node instanceof Error) {
+            return [node.message, String(node.stack), visit(node.cause), visit({ ...node })].join('\n')
+          }
+          if (node && typeof node === 'object') {
+            if (seen.has(node)) return ''
+            seen.add(node)
+            return Object.values(node).map(visit).join('\n')
+          }
+          return String(node)
+        }
+        const text = visit(value)
+        return text.includes(MODEL_TEXT) || text.includes(MODEL_VALUE_MARKER)
+      }
+      expect(leaked(await response.text())).toBe(false)
+      expect(loggerWarnMock).toHaveBeenCalledTimes(1)
+      expect(leaked(loggerWarnMock.mock.calls)).toBe(false)
+      expect(reportAiAssistantErrorMock).toHaveBeenCalledTimes(1)
+      expect(leaked(reportAiAssistantErrorMock.mock.calls)).toBe(false)
+      expect(loggerWarnMock.mock.calls[0][1]).toEqual({
+        agentId: 'catalog.extract',
+        errorName: 'AI_NoObjectGeneratedError',
+        finishReason: 'stop',
+      })
     })
   })
 
