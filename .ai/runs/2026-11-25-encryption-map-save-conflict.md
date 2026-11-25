@@ -48,6 +48,8 @@ Root cause in `packages/core/src/modules/entities/components/EncryptionManager.t
 
 ## Progress
 
+PR: #10641
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Component fix
