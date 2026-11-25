@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { DEFAULT_CREDENTIALS, login } from '@open-mercato/core/helpers/integration/auth'
-import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 /**
  * TC-AUTH-075: Login clears the organization-scope cookies (GHSA-6729-5rxh-qg37)
@@ -39,19 +39,26 @@ test.describe('TC-AUTH-075: login clears the organization-scope cookies', () => 
     ])
     expect(await readScopeCookieNames(page)).toEqual(expect.arrayContaining(SCOPE_COOKIE_NAMES))
 
-    const loginResponse = await page.request.post('/api/auth/login', {
-      form: DEFAULT_CREDENTIALS.superadmin,
-    })
-    expect(loginResponse.status(), 'The super-admin should sign in without logging out first').toBe(200)
-    const session = await readJsonSafe<{ token: string }>(loginResponse)
-    if (!session?.token) throw new Error('[internal] Successful login did not return a token')
+    const session = await page.evaluate(async (credentials) => {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        body: new URLSearchParams(credentials),
+      })
+      const body = response.ok ? (await response.json()) as { token?: string } : null
+      return { status: response.status, token: body?.token }
+    }, DEFAULT_CREDENTIALS.superadmin)
+    expect(session.status, 'The super-admin should sign in without logging out first').toBe(200)
+    if (!session.token) throw new Error('[internal] Successful login did not return a token')
     const homeOrganizationId = getTokenContext(session.token).organizationId || null
 
     expect(await readScopeCookieNames(page), 'Login must remove both scope cookies').toEqual([])
 
-    const switcher = await page.request.get('/api/directory/organization-switcher')
-    expect(switcher.status()).toBe(200)
-    const scope = await readJsonSafe<{ selectedId: string | null }>(switcher)
-    expect(scope?.selectedId, 'The switcher should resolve the new session’s home organization').toBe(homeOrganizationId)
+    const switcher = await page.evaluate(async () => {
+      const response = await fetch('/api/directory/organization-switcher')
+      const body = response.ok ? (await response.json()) as { selectedId: string | null } : null
+      return { status: response.status, selectedId: body?.selectedId }
+    })
+    expect(switcher.status).toBe(200)
+    expect(switcher.selectedId, 'The switcher should resolve the new session’s home organization').toBe(homeOrganizationId)
   })
 })
