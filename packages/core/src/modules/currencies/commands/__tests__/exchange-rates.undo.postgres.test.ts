@@ -114,6 +114,137 @@ testWithPostgres.each(['rate', 'metadata', 'deletedAt'] as const)('preserves int
   })
 })
 
+testWithPostgres.each([false, true])('checks sequential undo with an intervening timestamp-only write: %s', async (interveningWrite) => {
+  await withPostgres(async ({ orm, scope, date, context, bus, logs, sideEffects }) => {
+    const manager = orm.em.fork()
+    const original = manager.create(ExchangeRate, {
+      ...scope, fromCurrencyCode: 'USD', toCurrencyCode: 'PLN', rate: '4.25', date,
+      source: 'manual', createdAt: date, updatedAt: date,
+    })
+    manager.persist(original)
+    await manager.flush()
+    const scopedRate = { ...scope, id: original.id }
+    const first = await bus.execute(updateExchangeRateCommand.id, { input: { id: original.id, rate: '5.25' }, ctx: context() })
+    const second = await bus.execute(updateExchangeRateCommand.id, { input: { id: original.id, rate: '6.25' }, ctx: context() })
+    const token = first.logEntry?.undoToken
+    expect(typeof token).toBe('string')
+    await bus.undo(second.logEntry.undoToken, context())
+    const firstRestored = await orm.em.fork().findOneOrFail(ExchangeRate, scopedRate)
+    expect(firstRestored.rate).toBe('5.25')
+    expect(firstRestored.updatedAt.toISOString() > second.logEntry.snapshotAfter.updatedAt).toBe(true)
+    expect(firstRestored.undoLineage).toEqual({
+      restoredUpdatedAt: first.logEntry.snapshotAfter.updatedAt,
+      writtenUpdatedAt: firstRestored.updatedAt.toISOString(),
+    })
+
+    if (interveningWrite) {
+      const newerVersion = new Date(firstRestored.updatedAt.getTime() + 1)
+      await orm.em.fork().nativeUpdate(ExchangeRate, scopedRate, { updatedAt: newerVersion })
+      const effectsBeforeUndo = sideEffects.mock.calls.length
+      await expect(bus.undo(token, context())).rejects.toMatchObject({ status: 409 })
+      expect(sideEffects).toHaveBeenCalledTimes(effectsBeforeUndo)
+      expect(await orm.em.fork().findOneOrFail(ExchangeRate, scopedRate)).toMatchObject({ rate: '5.25', updatedAt: newerVersion })
+      expect(await logs()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: first.logEntry.id, executionState: 'done', undoToken: token }),
+        expect.objectContaining({ id: second.logEntry.id, executionState: 'undone', undoToken: null }),
+      ]))
+      return
+    }
+
+    const service = new ActionLogService(orm.em.fork())
+    expect(await service.latestUndoableForResource({ ...scope, actorUserId: context().auth!.sub, resourceKind: 'currencies.exchange_rate', resourceId: original.id })).toMatchObject({ undoToken: token })
+    await bus.undo(token, context())
+    const restored = await orm.em.fork().findOneOrFail(ExchangeRate, scopedRate)
+    expect(restored.rate).toBe(original.rate)
+    expect(restored.updatedAt.getTime()).toBeGreaterThan(firstRestored.updatedAt.getTime())
+    expect(await logs()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: first.logEntry.id, executionState: 'undone', undoToken: null }),
+      expect.objectContaining({ id: second.logEntry.id, executionState: 'undone', undoToken: null }),
+    ]))
+  })
+})
+
+testWithPostgres('carries the restored version through editing and undoing a previously restored rate', async () => {
+  await withPostgres(async ({ context, bus, edit, scope, rows }) => {
+    const original = (await rows(scope))[0]
+    const first = await edit(original.id)
+    const write = async (rate: string) => bus.execute(updateExchangeRateCommand.id, { input: { id: original.id, rate }, ctx: context() })
+    const second = await write('9.25')
+    await bus.undo(second.logEntry.undoToken, context())
+    const third = await write('10.25')
+    const fourth = await write('11.25')
+    await bus.undo(fourth.logEntry.undoToken, context())
+    await bus.undo(third.logEntry.undoToken, context())
+    await bus.undo(first.token, context())
+    expect(await rows(scope)).toEqual([expect.objectContaining({ id: original.id, rate: original.rate, externalReference: original.externalReference })])
+  })
+})
+
+testWithPostgres('uses the provider-refreshed predecessor when another write happens before the update lock', async () => {
+  await withPostgres(async ({ bus, context, date, fetchRates, scope, rows }) => {
+    const original = (await rows(scope))[0]
+    const write = (metadata: Record<string, unknown>, ctx = context()) => bus.execute(updateExchangeRateCommand.id, { input: { id: original.id, metadata }, ctx })
+    const first = await write({ note: 'first' })
+    const second = await write({ note: 'second' })
+    await bus.undo(second.logEntry.undoToken, context())
+    const restored = (await rows(scope))[0]
+    expect(restored.undoLineage?.restoredUpdatedAt).toBe(first.logEntry.snapshotAfter.updatedAt)
+
+    const third = await write({ note: 'third' }, {
+      ...context(), beforeTransactionalWrite: async () => {
+        const result = await fetchRates.fetchRatesForDate(date, scope, { providers: ['nbp_average'] })
+        expect(result.errors).toEqual([])
+      },
+    })
+    expect(third.logEntry.snapshotBefore.updatedAt > restored.updatedAt.toISOString()).toBe(true)
+    await bus.undo(third.logEntry.undoToken, context())
+    const after = (await rows(scope))[0]
+    expect(after.metadata).toEqual({ note: 'first' })
+    expect(after.undoLineage?.restoredUpdatedAt).toBe(third.logEntry.snapshotBefore.updatedAt)
+    await expect(bus.undo(first.logEntry.undoToken, context())).rejects.toMatchObject({ status: 409 })
+  })
+})
+
+testWithPostgres('keeps the committed after-version if a later write lands before audit capture', async () => {
+  await withPostgres(async ({ orm, bus, context, scope, rows }) => {
+    const original = (await rows(scope))[0]
+    const captureAfter = updateExchangeRateCommand.captureAfter!
+    const capture = jest.spyOn(updateExchangeRateCommand, 'captureAfter').mockImplementationOnce(async (input, result, ctx) => {
+      const manager = orm.em.fork()
+      const where = { ...scope, id: original.id }
+      const committed = await manager.findOneOrFail(ExchangeRate, where)
+      await manager.nativeUpdate(ExchangeRate, where, { updatedAt: new Date(committed.updatedAt.getTime() + 1) })
+      return captureAfter(input, result, ctx)
+    })
+    try {
+      const write = await bus.execute(updateExchangeRateCommand.id, { input: { id: original.id, rate: '9.25' }, ctx: context() })
+      expect(write.logEntry.snapshotAfter.updatedAt < (await rows(scope))[0].updatedAt.toISOString()).toBe(true)
+      await expect(bus.undo(write.logEntry.undoToken, context())).rejects.toMatchObject({ status: 409 })
+    } finally {
+      capture.mockRestore()
+    }
+  })
+})
+
+testWithPostgres('clears the undo marker on redo and records the restored predecessor', async () => {
+  await withPostgres(async ({ orm, bus, context, edit, scope, rows }) => {
+    const original = (await rows(scope))[0]
+    const first = await edit(original.id)
+    const input = { id: original.id, rate: '9.25' }
+    const second = await bus.execute(updateExchangeRateCommand.id, { input, ctx: context() })
+    await bus.undo(second.logEntry.undoToken, context())
+    expect((await rows(scope))[0].undoLineage).toBeDefined()
+    const source = await new ActionLogService(orm.em.fork()).findById(second.logEntry.id)
+    if (!source) throw new Error('[internal] Missing redo source')
+    const redo = await bus.execute(updateExchangeRateCommand.id, { input, ctx: context(), redoLogEntry: source })
+    expect(redo.replaySourceFinalized).toBe(true)
+    expect((await rows(scope))[0]).toMatchObject({ rate: '9.25', undoLineage: null })
+    await bus.undo(redo.logEntry.undoToken, context())
+    await bus.undo(first.token, context())
+    expect((await rows(scope))[0]).toMatchObject({ rate: original.rate, externalReference: original.externalReference })
+  })
+})
+
 testWithPostgres.each(['organizationId', 'tenantId'] as const)('cannot undo a record outside the caller %s', async (field) => {
   await withPostgres(async ({ scope, context, bus, edit, rows, sideEffects }) => {
     const original = (await rows(scope))[0]
@@ -183,6 +314,31 @@ testWithPostgres('rolls back an already flushed undo if its transaction fails an
   })
 })
 
+testWithPostgres('rolls back a restored rate and its lineage when action-log finalization fails', async () => {
+  await withPostgres(async ({ scope, context, bus, edit, rows, logs, sideEffects }) => {
+    const original = (await rows(scope))[0]
+    const { token, logId } = await edit(original.id)
+    const beforeUndo = await rows(scope)
+    const effectsBeforeUndo = sideEffects.mock.calls.length
+    const markUndone = ActionLogService.prototype.markUndone
+    const failure = jest.spyOn(ActionLogService.prototype, 'markUndone').mockImplementationOnce(async function (this: ActionLogService, ...args) {
+      await markUndone.apply(this, args)
+      throw new Error('[internal] Injected action-log failure')
+    })
+    try {
+      await expect(bus.undo(token, context())).rejects.toThrow('[internal] Injected action-log failure')
+    } finally {
+      failure.mockRestore()
+    }
+    expect(await rows(scope)).toEqual(beforeUndo)
+    expect(await logs()).toEqual([expect.objectContaining({ id: logId, executionState: 'done', undoToken: token })])
+    expect(sideEffects).toHaveBeenCalledTimes(effectsBeforeUndo)
+    await bus.undo(token, context())
+    expect(await rows(scope)).toEqual([expect.objectContaining({ id: original.id, rate: original.rate })])
+    expect(sideEffects).toHaveBeenCalledTimes(effectsBeforeUndo + 1)
+  })
+})
+
 testWithPostgres('treats soft-deleted and inactive replacement keys as occupied', async () => {
   await withPostgres(async ({ orm, scope, date, fetchRates, context, bus, edit, rows }) => {
     const original = (await rows(scope))[0]
@@ -242,6 +398,7 @@ async function withPostgres(run: (fixture: {
     fetchRates.registerProvider(new NBPAverageRateProvider())
     expect((await fetchRates.fetchRatesForDate(date, scope, { providers: ['nbp_average'] })).errors).toEqual([])
     const sideEffects = jest.fn()
+    const actorId = randomUUID()
     const context = (selectedScope: Scope = scope): CommandRuntimeContext => {
       const container = createContainer()
       container.register({
@@ -249,7 +406,7 @@ async function withPostgres(run: (fixture: {
         actionLogService: asValue(new ActionLogService(activeOrm.em.fork())),
         dataEngine: asValue({ markOrmEntityChange: sideEffects, flushOrmEntityChanges: jest.fn() }),
       })
-      return { container, auth: { sub: randomUUID(), tenantId: selectedScope.tenantId, orgId: selectedScope.organizationId }, selectedOrganizationId: selectedScope.organizationId, organizationScope: null, organizationIds: null }
+      return { container, auth: { sub: actorId, tenantId: selectedScope.tenantId, orgId: selectedScope.organizationId }, selectedOrganizationId: selectedScope.organizationId, organizationScope: null, organizationIds: null }
     }
     const bus = new CommandBus()
     const edit = async (id: string) => {

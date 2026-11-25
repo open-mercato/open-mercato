@@ -46,6 +46,11 @@ function setup(overrides: Partial<ExchangeRate> = {}, duplicates: ExchangeRate[]
     findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) =>
       entity === Currency ? { code: where.code } : records.find((item) => matches(item, where)) ?? null),
     find: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => records.filter((item) => matches(item, where))),
+    nativeUpdate: jest.fn(async (_entity: unknown, where: Record<string, unknown>, update: Partial<ExchangeRate>) => {
+      const matching = records.filter((item) => matches(item, where))
+      matching.forEach((item) => Object.assign(item, update))
+      return matching.length
+    }),
   }
   em.fork.mockReturnValue(em)
   const markOrmEntityChange = jest.fn()
@@ -142,7 +147,6 @@ const factChanges: Array<[string, Partial<ExchangeRateUpdateInput>]> = [
 it.each(factChanges)('detaches changed %s, excludes it from official lookup, and restores facts on undo', async (_label, change) => {
   const { record, em, ctx, markOrmEntityChange, officialLookup } = setup()
   const input = { id: recordId, ...change }
-  const prepared = await command.prepare!(input, ctx)
   expect((await officialLookup()).rates).toEqual([record])
 
   const result = await command.execute(input, ctx)
@@ -155,7 +159,7 @@ it.each(factChanges)('detaches changed %s, excludes it from official lookup, and
   expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(markOrmEntityChange.mock.invocationCallOrder[0])
 
   const after = await command.captureAfter!(input, result, ctx)
-  const log = await command.buildLog!({ input, result, ctx, snapshots: { before: prepared?.before, after } })
+  const log = await command.buildLog!({ input, result, ctx, snapshots: { after } })
   expect(log?.snapshotAfter).toMatchObject({ source: 'manual', externalReference: null })
   expect(log?.snapshotBefore).toMatchObject({ rate: '4.12345678901234567890123456789', source: 'nbp_average', externalReference: '011/A/NBP/2024' })
   await command.undo!({ input, ctx, logEntry: { commandPayload: log?.payload } })
@@ -212,10 +216,9 @@ it.each(['tenantId', 'organizationId'] as const)('cannot edit or undo a foreign 
 it('refuses an occupied original publication key before dirtying or flushing either row', async () => {
   const { record, records, ctx, em, markOrmEntityChange } = setup()
   const input = { id: recordId, rate: '8.125' }
-  const prepared = await command.prepare!(input, ctx)
   const result = await command.execute(input, ctx)
   const after = await command.captureAfter!(input, result, ctx)
-  const log = await command.buildLog!({ input, result, ctx, snapshots: { before: prepared?.before, after } })
+  const log = await command.buildLog!({ input, result, ctx, snapshots: { after } })
   records.push(setup({ id: '44444444-4444-4444-8444-444444444444', deletedAt: new Date(), isActive: false }).record)
   const unchanged = records.map((row) => ({ ...row }))
   em.flush.mockClear()
@@ -233,10 +236,9 @@ it('refuses an occupied original publication key before dirtying or flushing eit
 it.each(['rate', 'metadata', 'updatedAt'] as const)('refuses intervening %s edits before dirtying or flushing', async (field) => {
   const { record, ctx, em, markOrmEntityChange } = setup()
   const input = { id: recordId, rate: '8.125' }
-  const prepared = await command.prepare!(input, ctx)
   const result = await command.execute(input, ctx)
   const after = await command.captureAfter!(input, result, ctx)
-  const log = await command.buildLog!({ input, result, ctx, snapshots: { before: prepared?.before, after } })
+  const log = await command.buildLog!({ input, result, ctx, snapshots: { after } })
   if (field === 'rate') record.rate = '9.75'
   if (field === 'metadata') record.metadata = { intervening: true }
   if (field === 'updatedAt') record.updatedAt = new Date(record.updatedAt.getTime() + 1)

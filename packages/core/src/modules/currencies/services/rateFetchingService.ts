@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/core'
+import { LockMode, type EntityManager } from '@mikro-orm/core'
 import { RateProviderError, type ProviderSelectionMode, type RateProvider, type RateProviderResult, type RateType } from './providers/base'
 import { Currency, ExchangeRate } from '../data/entities'
 
@@ -246,7 +246,7 @@ export class RateFetchingService {
         toCurrencyCode: { $in: toCurrencyCodes },
         date: { $in: dates },
         source: { $in: sources },
-      })
+      }, { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } })
 
       const existingByKey = new Map<string, ExchangeRate>()
       for (const existing of existingRates) {
@@ -267,7 +267,8 @@ export class RateFetchingService {
           existing.type = rate.type ?? null
           existing.externalReference = rate.externalReference ?? null
           if (rate.metadata !== undefined) existing.metadata = rate.metadata
-          existing.updatedAt = now
+          existing.undoLineage = null
+          existing.updatedAt = new Date(Math.max(now.getTime(), existing.updatedAt.getTime() + 1))
           em.persist(existing)
         } else {
           // Create new rate

@@ -6,6 +6,7 @@ import { Client } from 'pg'
 import { resolveIntegrationDatabaseUrl } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { Currency, ExchangeRate } from '../../data/entities'
 import { Migration20260826143024_currencies } from '../../migrations/Migration20260826143024_currencies'
+import { Migration20261125165127_currencies } from '../../migrations/Migration20261125165127_currencies'
 import { NBPAverageRateProvider } from '../providers/nbpAverage'
 import { RateFetchingService } from '../rateFetchingService'
 import { ExchangeRateService } from '../exchangeRateService'
@@ -191,10 +192,9 @@ testWithPostgres('persists NBP publications atomically and round-trips the prove
     expect(await activeOrm.em.fork().findOneOrFail(ExchangeRate, { id: original.id })).toMatchObject({ source: 'nbp_average', externalReference: '001/A/NBP/2024', isActive: false })
     await updateCommand.execute({ id: original.id, isActive: true }, commandContext)
     const input = { id: original.id, rate: '4.25000000000000000000000000001' }
-    const prepared = await updateCommand.prepare!(input, commandContext)
     const result = await updateCommand.execute(input, commandContext)
     const after = await updateCommand.captureAfter!(input, result, commandContext)
-    const log = await updateCommand.buildLog!({ input, result, ctx: commandContext, snapshots: { before: prepared?.before, after } })
+    const log = await updateCommand.buildLog!({ input, result, ctx: commandContext, snapshots: { after } })
     expect(await activeOrm.em.fork().findOneOrFail(ExchangeRate, { id: original.id })).toMatchObject({
       rate: input.rate, source: 'manual', type: 'average', externalReference: null,
       metadata: { note: 'preserve existing provider metadata' },
@@ -208,6 +208,24 @@ testWithPostgres('persists NBP publications atomically and round-trips the prove
     expect(markOrmEntityChange).toHaveBeenCalledTimes(5)
 
     await admin.query('select set_config($1, $2, false)', ['search_path', schema])
+    const retainedLineageRowsQuery = "select to_jsonb(exchange_rates) - 'undo_lineage' as record from exchange_rates order by id"
+    const beforeLineageMigration = await admin.query(retainedLineageRowsQuery)
+    const lineageMigration = new Migration20261125165127_currencies(orm.em.getDriver(), orm.config)
+    await lineageMigration.down()
+    for (const statement of lineageMigration.getQueries()) {
+      if (typeof statement !== 'string') throw new Error('[internal] Unexpected migration query')
+      await admin.query(statement)
+    }
+    expect((await admin.query(retainedLineageRowsQuery)).rows).toEqual(beforeLineageMigration.rows)
+    lineageMigration.reset()
+    await lineageMigration.up()
+    for (const statement of lineageMigration.getQueries()) {
+      if (typeof statement !== 'string') throw new Error('[internal] Unexpected migration query')
+      await admin.query(statement)
+    }
+    expect((await admin.query('select count(*)::text as count from exchange_rates where undo_lineage is not null')).rows).toEqual([{ count: '0' }])
+    expect((await admin.query(retainedLineageRowsQuery)).rows).toEqual(beforeLineageMigration.rows)
+
     const retainedRowsQuery = "select to_jsonb(exchange_rates) - 'external_reference' as record from exchange_rates order by id"
     const beforeMigration = await admin.query(retainedRowsQuery)
     const migration = new Migration20260826143024_currencies(orm.em.getDriver(), orm.config)

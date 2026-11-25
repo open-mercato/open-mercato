@@ -284,6 +284,8 @@ If validation, lookup, insert/update, or flush fails, the provider transaction r
 
 Provider ingestion stays in the existing internal service rather than introducing a user command. It is an idempotent synchronization operation with no meaningful operator undo; fetched publications can be corrected by re-fetching the authoritative source. Manual CRUD mutations continue through `currencies.exchange_rates.*` commands with audit snapshots and undo/redo. Their snapshots gain `externalReference` so undo/redo never drops provider provenance, even though manual input cannot modify it.
 
+Rate updates capture the real before and after states while holding the scoped row lock. Update undo records the version it restored and the fresh `updatedAt` it wrote in `undo_lineage`, in the same transaction as the restored rate and the undo audit trace. A preceding edit may be undone if its business snapshot matches and either its saved version or a verified restored version matches the locked row. A later write that advances `updatedAt` invalidates the marker. Provider refreshes lock existing rates in ID order and clear the marker, as do ordinary rate writes. A command that edits an already restored rate retains the predecessor version in its private undo payload, so that later undo can restore the chain. Public audit snapshots keep the actual historical timestamps.
+
 ### Mutation guard boundary
 
 `POST /api/currencies/fetch-rates` remains an action endpoint but is a custom write route. Before invoking the fetch service it runs `getAllMutationGuardInstances()`, appends `bridgeLegacyGuard(container)` when available, and calls `runMutationGuards(...)` with operation `update`, the scoped `currencies.fetch_rates` resource context, validated payload, and caller features. It uses `modifiedPayload` as the effective input. After the fetch transaction and fetch-config status update commit, it executes `afterSuccessCallbacks`; callback failures are logged and do not turn a committed write into an HTTP failure.
@@ -354,14 +356,15 @@ Existing fields and indexes remain unchanged. Add:
 | Property | Database column | Type | Nullability | Ownership |
 |---|---|---|---|---|
 | `externalReference` | `external_reference` | `text` | Nullable | Provider-supplied source publication identifier; NBP uses table `No`. |
+| `undoLineage` | `undo_lineage` | `jsonb` | Nullable | Internal replay state containing the restored version and the version written by the undo. |
 
 Constraints:
 
 - Keep `exchange_rates_pair_datetime_source_unique` exactly on `organization_id`, `tenant_id`, `from_currency_code`, `to_currency_code`, `date`, and `source`.
 - Keep current organization/tenant and pair indexes.
 - Do not add a foreign key or cross-module ORM relationship.
-- Existing rows have `NULL`; no backfill is needed.
-- The field is not sensitive or personal data and requires no encryption map.
+- Existing rows have `NULL`; no backfill is needed. Older undo payloads use their saved version as the restored predecessor.
+- The fields contain no personal data. `undoLineage` is omitted from REST and public audit snapshots and is never accepted as write input.
 
 ### CurrencyFetchConfig (unchanged schema)
 
@@ -580,10 +583,10 @@ The type select gains Average through the shared form helper. `externalReference
 ### Database migration
 
 1. Add `external_reference text null` to `exchange_rates` in a new generated currencies migration.
-2. Update `packages/core/src/modules/currencies/migrations/.snapshot-open-mercato.json` in the same change.
-3. Do not edit a historical migration.
+2. Add `undo_lineage jsonb null` in a separate generated currencies migration. Rolling back that migration removes the lineage while keeping the rates and provenance intact.
+3. Update `packages/core/src/modules/currencies/migrations/.snapshot-open-mercato.json` alongside each migration.
 4. No backfill, default, lock-heavy index, or data rewrite is required.
-5. Run the schema-diff probe after editing the entity. If it generates unrelated churn, keep only the scoped nullable-column migration and the matching snapshot update.
+5. Run the schema-diff probe after editing the entity. Keep the scoped nullable-column migrations and matching snapshot changes.
 
 ### Backward compatibility matrix
 
@@ -597,7 +600,7 @@ The type select gains Average through the shared form helper. `externalReference
 | Existing default fetch | Continues to fetch default providers only; new provider does not add network traffic. |
 | REST responses | Additive nullable property and additive enum member. |
 | REST writes | Existing payloads valid; no required field added. `POST /api/currencies/fetch-rates` keeps the legacy date-only, empty-provider-list and unknown-property shapes during a bridge release, with strictness planned for a later release. |
-| Database | Nullable additive column; existing rows valid. |
+| Database | Two nullable additive columns; existing rows and audit snapshots remain valid. |
 | Standalone apps | Receive capability in a future `@open-mercato/core` release; no eject required. |
 
 ### Deployment and rollback
@@ -616,7 +619,7 @@ The type select gains Average through the shared form helper. `externalReference
 3. Generate and inspect the scoped migration and snapshot update.
 4. Extend `RateFetchingService` registry queries, default/explicit selection, batch conflict validation, and provenance persistence.
 
-**Verification:** focused validator, command snapshot, and rate-fetching service tests pass; generated diff contains only `external_reference` plus snapshot metadata.
+**Verification:** focused validator, command snapshot, and rate-fetching service tests cover the changes. The schema diff adds `external_reference` and the private `undo_lineage` column. PostgreSQL exercises consecutive edit undo, same-value intervening writes, provider refresh, and rollback after audit finalization fails.
 
 ### Phase 2 — NBP average provider
 
@@ -682,7 +685,7 @@ The type select gains Average through the shared form helper. `externalReference
 | `packages/core/src/modules/currencies/data/entities.ts` | Modify | Add nullable `externalReference`. |
 | `packages/core/src/modules/currencies/data/validators.ts` | Modify | Add `average` and `nbp_average`. |
 | `packages/core/src/modules/currencies/data/__tests__/validators.test.ts` | Modify | Prove additive enum behavior and legacy inputs. |
-| `packages/core/src/modules/currencies/migrations/Migration<timestamp>.ts` | Create | Add nullable `external_reference`. |
+| `packages/core/src/modules/currencies/migrations/Migration<timestamp>.ts` | Create | Add nullable `external_reference` and `undo_lineage` in separate migrations. |
 | `packages/core/src/modules/currencies/migrations/.snapshot-open-mercato.json` | Modify | Synchronize schema snapshot. |
 | `packages/core/src/modules/currencies/commands/exchange-rates.ts` | Modify | Preserve provenance in snapshots/undo/redo without accepting it as input. |
 | `packages/core/src/modules/currencies/di.ts` | Modify | Register `NBPAverageRateProvider`. |
@@ -950,6 +953,10 @@ None identified. The provider-ingestion command exception is an existing interna
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+### Undo review fix — 2026-11-25
+
+- Preserve sequential rate-edit undo with a private version marker on the locked exchange-rate row. Verify both the restored values and action-log states with PostgreSQL, including rollback and intervening writes.
 
 ### Repair — 2026-11-20
 

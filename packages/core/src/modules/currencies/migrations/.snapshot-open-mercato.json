@@ -806,6 +806,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "undo_lineage": {
+          "name": "undo_lineage",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamptz(6)",
