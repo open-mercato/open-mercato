@@ -43,6 +43,8 @@ Found while reviewing #10504. It was already there before that PR.
 
 ## Progress
 
+PR: #10637
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Map structured-output failures
