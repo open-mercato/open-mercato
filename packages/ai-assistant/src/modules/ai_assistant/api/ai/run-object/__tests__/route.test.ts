@@ -25,6 +25,13 @@ jest.mock('../../../../lib/agent-runtime', () => ({
   runAiAgentObject: (...args: unknown[]) => runAiAgentObjectMock(...args),
 }))
 
+const reportAiAssistantErrorMock = jest.fn()
+
+jest.mock('../../../../lib/report-ai-assistant-error', () => ({
+  reportAiAssistantError: (...args: unknown[]) => reportAiAssistantErrorMock(...args),
+}))
+
+import { NoObjectGeneratedError, NoOutputGeneratedError } from 'ai'
 import { POST } from '../route'
 import { AiAgentDispatchDeniedError } from '../../../../lib/agent-run-dispatcher'
 
@@ -420,6 +427,75 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
 
     expect(response.status).toBe(500)
     expect((await response.json()).code).toBe('internal_error')
+    expect(reportAiAssistantErrorMock).not.toHaveBeenCalled()
+  })
+
+  describe('structured-output failures', () => {
+    const MODEL_TEXT = 'Sorry, here is a summary instead of JSON: secret-ish tenant data'
+
+    function noObjectError(): NoObjectGeneratedError {
+      return new NoObjectGeneratedError({
+        message: 'No object generated: response did not match schema.',
+        text: MODEL_TEXT,
+        response: { id: 'resp-1', timestamp: new Date(0), modelId: 'test-model' },
+        usage: { inputTokens: 3, outputTokens: 5 } as never,
+        finishReason: 'stop',
+      })
+    }
+
+    beforeEach(() => {
+      seedAgentRegistryForTests([
+        makeAgent({
+          id: 'catalog.extract',
+          moduleId: 'catalog',
+          executionMode: 'object',
+          output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+        }),
+      ])
+    })
+
+    async function postExtract(): Promise<Response> {
+      return POST(
+        buildRequest({
+          agent: 'catalog.extract',
+          messages: [{ role: 'user', content: 'hi' }],
+        }) as never,
+      )
+    }
+
+    it.each([
+      ['an answer that does not match the schema', () => noObjectError()],
+      ['a tool loop that ends without a final answer', () => new NoOutputGeneratedError()],
+      [
+        'a schema failure wrapped as the cause of another error',
+        () => new Error('object run failed', { cause: noObjectError() }),
+      ],
+    ])('maps %s to 502 structured_output_invalid', async (_label, makeError) => {
+      runAiAgentObjectMock.mockRejectedValueOnce(makeError())
+
+      const response = await postExtract()
+
+      expect(response.status).toBe(502)
+      const json = await response.json()
+      expect(json).toEqual({
+        error: 'The model did not return an answer that matches the agent output schema.',
+        code: 'structured_output_invalid',
+      })
+      expect(reportAiAssistantErrorMock).toHaveBeenCalledWith(
+        expect.anything(),
+        'ai_assistant.run_object_output_invalid',
+        { agentId: 'catalog.extract' },
+      )
+    })
+
+    it('never echoes the model answer text in the response body', async () => {
+      runAiAgentObjectMock.mockRejectedValueOnce(noObjectError())
+
+      const response = await postExtract()
+
+      expect(response.status).toBe(502)
+      expect(await response.text()).not.toContain(MODEL_TEXT)
+    })
   })
 
   it('maps AgentPolicyError thrown by the runtime to the canonical HTTP status', async () => {
