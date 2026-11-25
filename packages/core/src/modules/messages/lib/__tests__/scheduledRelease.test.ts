@@ -1,6 +1,11 @@
 import { DummyDriver, Kysely, PostgresAdapter, PostgresIntrospector, PostgresQueryCompiler } from 'kysely'
 import { buildClaimDueScheduledMessagesQuery, type ScheduledReleaseDatabase } from '../scheduledRelease'
-import { registerMessagesScheduledReleaseSchedule, MESSAGES_SCHEDULED_RELEASE_QUEUE_NAME, isSchedulingAvailable } from '../scheduledSend'
+import {
+  registerMessagesScheduledReleaseSchedule,
+  MESSAGES_SCHEDULED_RELEASE_QUEUE_NAME,
+  SCHEDULED_RELEASE_LEASE_MINUTES,
+  isSchedulingAvailable,
+} from '../scheduledSend'
 import { getScheduleMaxDays } from '../scheduleLimits'
 
 const db = new Kysely<ScheduledReleaseDatabase>({
@@ -16,16 +21,21 @@ const tenantId = '22222222-2222-4222-8222-222222222222'
 const organizationId = '33333333-3333-4333-8333-333333333333'
 
 describe('claim of due scheduled messages', () => {
-  it('flips only due scheduled rows of one organization in a single bounded UPDATE ... RETURNING', () => {
+  it('moves due scheduled rows of one organization to releasing in a single bounded UPDATE ... RETURNING', () => {
     const { sql, parameters } = buildClaimDueScheduledMessagesQuery(db, { tenantId, organizationId }).compile()
-    expect(sql).toMatch(/^update "messages" set "status" = \$\d+, "is_draft" = \$\d+, "sent_at" = now\(\), "updated_at" = now\(\), "scheduled_release_attempts" = scheduled_release_attempts \+ 1/)
+    expect(sql).toMatch(/^update "messages" set "status" = \$\d+, "updated_at" = now\(\), "scheduled_release_attempts" = scheduled_release_attempts \+ 1/)
+    expect(sql).not.toContain('"sent_at"')
+    expect(sql).not.toContain('"is_draft"')
     expect(sql).toContain('"scheduled_at" <= now()')
+    expect(sql).toMatch(/"updated_at" < now\(\) - make_interval\(mins => \$\d+\)/)
+    expect(sql).toMatch(/"status" in \(\$\d+, \$\d+\)/)
+    expect(parameters).toEqual(expect.arrayContaining(['releasing', 'scheduled', SCHEDULED_RELEASE_LEASE_MINUTES]))
     expect(sql).toContain('"tenant_id" = $')
     expect(sql).toContain('"organization_id" = $')
     expect(sql).toContain('"deleted_at" is null')
     expect(sql).toContain('for update skip locked')
     expect(sql).toMatch(/returning "id", "scheduled_at", "scheduled_release_attempts"$/)
-    expect(parameters).toEqual(expect.arrayContaining(['sent', false, 'scheduled', tenantId, organizationId, 100]))
+    expect(parameters).toEqual(expect.arrayContaining([tenantId, organizationId, 100]))
   })
 
   it('scopes an organization-less tenant to organization_id IS NULL', () => {

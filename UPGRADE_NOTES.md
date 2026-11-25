@@ -216,12 +216,13 @@ Additive fields: `supportsAttachments` on `GET /api/communication_channels/me/ch
 
 A scheduled message (Messages compose or draft "Send later", and `sendAsUser` with `scheduledAt`) no longer charges the external email budget (`message_external_email_windows`, `message_external_recipient_days`) when it is scheduled or rescheduled. The release worker charges it once, for every external addressee (to, cc, bcc, every "send separately" copy), before anything is delivered. When the budget refuses, nothing is sent: the message goes back to the author's drafts (scheduled time cleared, content, recipients and sender kept) and the author gets a `messages.scheduled_send_failed` notification with the `messages.notifications.scheduledSendFailed.budgetExceeded` body. This is not retried. Immediate sends, draft "Send now" and "Resend to failed" charge as before.
 
-## `sendEmail` accepts multiple recipients and returns a delivery result
+## `sendEmail` accepts multiple recipients; `sendEmailWithResult` reports the delivery result
 
 `sendEmail()` from `@open-mercato/shared/lib/email/send` now accepts `to: string | string[]` and
-`sendSeparately?: boolean`, and resolves with `EmailSendResult` (`{ accepted, rejected, retryAt? }`)
-instead of `void`. Existing callers that pass one address and ignore the result are unaffected; it
-still throws when no address was accepted.
+`sendSeparately?: boolean`. Its signature still resolves with `void`, so existing callers and typed
+wrappers are unaffected; it still throws when no address was accepted. The new
+`sendEmailWithResult()` takes the same options and resolves with `EmailSendResult`
+(`{ accepted, rejected, retryAt? }`) for callers that need per-address outcomes.
 
 **Custom `EmailTransport` authors:** nothing is required. `ResolvedEmailPayload.to` stays a single
 string, and `sendSeparately` makes one `send()` call per address. A joint send to more than one
@@ -287,6 +288,12 @@ value `scheduled`, folder `scheduled`, event `messages.message.scheduled`, notif
 to schedule the 60 s release tick for existing organizations. Requires the `scheduler` module;
 without it the API answers 422 `messages.errors.schedulingUnavailable`. Drafts no longer count
 towards the unread badge and no longer appear in the `all` and `archived` folders.
+
+While the worker sends a due message it holds it as `status = 'releasing'` (still `is_draft = true`,
+listed in the `scheduled` folder, not editable: a draft edit answers 409). A message whose worker
+stopped is claimed again after 10 minutes; its hand-off is idempotent. Code that reads
+`MessageStatus` should treat `releasing` like `scheduled`. A draft edit locks the message row, so an
+edit and a release never both win.
 
 ## Messages: scheduled send and saved drafts through a connected mailbox
 

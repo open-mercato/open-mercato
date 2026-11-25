@@ -201,4 +201,3 @@ describe('reply-all external addresses', () => {
     expect(buildReplyAllExternalEmails({ externalEmail: null, externalParticipants: null })).toEqual([])
   })
 })
-

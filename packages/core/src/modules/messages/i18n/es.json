@@ -293,6 +293,7 @@
   "messages.status.archived": "Archivado",
   "messages.status.draft": "Borrador",
   "messages.status.read": "Leído",
+  "messages.status.releasing": "Enviando…",
   "messages.status.unread": "Sin leer",
   "messages.subject": "Asunto",
   "messages.table.attachmentsCount": "{count} adjuntos",

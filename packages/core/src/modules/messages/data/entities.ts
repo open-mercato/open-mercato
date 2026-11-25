@@ -1,7 +1,7 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
-export type MessageStatus = 'draft' | 'sent' | 'scheduled'
+export type MessageStatus = 'draft' | 'sent' | 'scheduled' | 'releasing'
 export type MessagePriority = 'low' | 'normal' | 'high' | 'urgent'
 export type MessageBodyFormat = 'text' | 'markdown'
 
@@ -34,6 +34,11 @@ export type MessageActionData = {
   name: 'messages_scheduled_release_idx',
   expression:
     'create index "messages_scheduled_release_idx" on "messages" ("tenant_id", "organization_id", "scheduled_at") where "status" = \'scheduled\'',
+})
+@Index({
+  name: 'messages_releasing_lease_idx',
+  expression:
+    'create index "messages_releasing_lease_idx" on "messages" ("tenant_id", "organization_id", "updated_at") where "status" = \'releasing\'',
 })
 @Index({
   name: 'messages_idempotency_key_uq',

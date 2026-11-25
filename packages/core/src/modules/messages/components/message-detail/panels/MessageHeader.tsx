@@ -58,7 +58,9 @@ export function MessageHeader(props: MessageHeaderProps) {
   const unknownDate = t('messages.unknownDate', 'Unknown date')
   const dateLabel = props.detail.status === 'scheduled' && props.detail.scheduledAt
     ? t('messages.detail.scheduledFor', 'Scheduled for {date}', { date: formatDateTime(props.detail.scheduledAt, unknownDate) })
-    : props.detail.isDraft
+    : props.detail.status === 'releasing'
+      ? t('messages.status.releasing', 'Sending…')
+      : props.detail.isDraft
       ? t('messages.status.draft', 'Draft')
       : formatDateTime(props.detail.sentAt, unknownDate)
   const toLabel = formatExternalAddressees(props.detail)

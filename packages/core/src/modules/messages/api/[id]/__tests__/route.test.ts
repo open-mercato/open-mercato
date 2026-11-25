@@ -1,5 +1,5 @@
 import { GET, PATCH, DELETE } from '@open-mercato/core/modules/messages/api/[id]/route'
-import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
+import { Message, MessageExternalParticipant, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
@@ -308,6 +308,93 @@ describe('messages /api/messages/[id] GET', () => {
       isArchived: false,
       senderUserId: actorUserId,
     }))
+  })
+
+  it.each([
+    ['the author', true],
+    ['a recipient who is not the author', false],
+  ])('shows blind-copy recipients only to the author (viewer: %s)', async (_viewer, viewerIsAuthor) => {
+    const authorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const recipientUserId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const actorUserId = viewerIsAuthor ? authorUserId : recipientUserId
+    const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const messageId = '22222222-2222-4222-8222-222222222222'
+    const message = {
+      id: messageId,
+      threadId: messageId,
+      senderUserId: authorUserId,
+      organizationId,
+      tenantId,
+      deletedAt: null,
+      isDraft: false,
+      type: 'default',
+      visibility: 'public',
+      sourceEntityType: null,
+      sourceEntityId: null,
+      externalEmail: 'to@example.com',
+      externalName: null,
+      parentMessageId: null,
+      subject: 'Quote',
+      body: 'Body',
+      bodyFormat: 'markdown',
+      priority: 'normal',
+      sentAt: new Date('2026-02-24T10:00:00.000Z'),
+      actionData: null,
+      actionTaken: null,
+      actionTakenAt: null,
+      actionTakenByUserId: null,
+    }
+    const recipientRow = {
+      messageId,
+      recipientUserId,
+      status: 'read',
+      readAt: new Date('2026-02-24T10:05:00.000Z'),
+      archivedAt: null,
+      deletedAt: null,
+    }
+    const em = {
+      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => (
+        entity === MessageRecipient && where.recipientUserId === actorUserId && !viewerIsAuthor ? recipientRow : null
+      )),
+      find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => (
+        entity === MessageRecipient && where.recipientUserId === actorUserId && !viewerIsAuthor ? [recipientRow] : []
+      )),
+    }
+    findWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown) => {
+      if (entity === Message) return [message]
+      if (entity === User) return [{ id: authorUserId, name: 'Author', email: 'author@example.com' }]
+      if (entity === MessageExternalParticipant) {
+        return [
+          { id: 'p-to', role: 'to', email: 'to@example.com', deliveryStatus: 'sent' },
+          { id: 'p-cc', role: 'cc', email: 'cc@example.com', deliveryStatus: 'sent' },
+          { id: 'p-bcc', role: 'bcc', email: 'hidden@example.com', deliveryStatus: 'sent' },
+        ]
+      }
+      return []
+    })
+    findOneWithDecryptionMock.mockImplementation(async (_entityManager: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === Message) return message
+      if (entity === User) return { id: authorUserId, name: 'Author', email: 'author@example.com' }
+      if (entity === MessageRecipient && where.recipientUserId === actorUserId && !viewerIsAuthor) return recipientRow
+      return null
+    })
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: { container: { resolve: (name: string) => (name === 'em' ? em : null) } },
+      scope: { tenantId, organizationId, userId: actorUserId },
+    })
+
+    const response = await GET(
+      new Request(`http://localhost/api/messages/${messageId}?skipMarkRead=1`),
+      { params: { id: messageId } },
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as { externalParticipants: Array<{ email: string }> }
+    const emails = body.externalParticipants.map((participant) => participant.email)
+    expect(emails).toEqual(viewerIsAuthor
+      ? ['to@example.com', 'cc@example.com', 'hidden@example.com']
+      : ['to@example.com', 'cc@example.com'])
   })
 
   async function getDetailWithRecipientStatus(status: 'archived' | 'unread' | 'read') {

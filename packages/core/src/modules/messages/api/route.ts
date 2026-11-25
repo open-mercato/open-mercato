@@ -238,13 +238,13 @@ export async function GET(req: Request) {
         q = q
           .where('m.sender_user_id', '=', scope.userId)
           .where('m.is_draft', '=', true)
-          .where('m.status', '<>', 'scheduled')
+          .where('m.status', 'not in', ['scheduled', 'releasing'])
         joinRecipient()
         break
       case 'scheduled':
         q = q
           .where('m.sender_user_id', '=', scope.userId)
-          .where('m.status', '=', 'scheduled')
+          .where('m.status', 'in', ['scheduled', 'releasing'])
         joinRecipient()
         break
       case 'all':
@@ -273,7 +273,9 @@ export async function GET(req: Request) {
             .whereRef('mep.message_id', '=', 'm.id')
             .where('mep.tenant_id', '=', scope.tenantId)
             .where('mep.organization_id', scope.organizationId ? '=' : 'is', scope.organizationId ?? null)
-            .where('mep.email_hash', 'in', hashCandidates),
+            .where('mep.email_hash', 'in', hashCandidates)
+            // A blind copy matches only for the author, so the filter cannot reveal who was copied.
+            .where(sql<boolean>`(${sql.ref('mep.role')} <> ${'bcc'} or ${sql.ref('m.sender_user_id')} = ${scope.userId})`),
         ),
       ]))
     }
@@ -465,7 +467,7 @@ export async function GET(req: Request) {
           bodyPreview,
           senderUserId: message.senderUserId,
           priority: message.priority,
-          status: row.recipient_status ?? (row.message_status === 'scheduled' ? 'scheduled' : row.is_draft ? 'draft' : 'sent'),
+          status: row.recipient_status ?? (row.message_status === 'scheduled' || row.message_status === 'releasing' ? 'scheduled' : row.is_draft ? 'draft' : 'sent'),
           isDraft: row.is_draft,
           hasObjects: (objectsByMessage[message.id] || []).length > 0,
           objectCount: (objectsByMessage[message.id] || []).length,

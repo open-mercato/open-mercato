@@ -197,6 +197,8 @@ describe('messages GET — externalEmail filter', () => {
     expect(sqlText).toContain('"mep"."tenant_id" = $')
     expect(sqlText).toContain('"mep"."organization_id" = $')
     expect(sqlText).toContain('"mep"."email_hash" in (')
+    expect(sqlText).toMatch(/\("mep"\."role" <> \$\d+ or "m"\."sender_user_id" = \$\d+\)/)
+    expect(scopeQuery!.parameters).toEqual(expect.arrayContaining(['bcc', userId]))
 
     const candidates = lookupHashCandidates('second@example.com')
     for (const candidate of candidates) {

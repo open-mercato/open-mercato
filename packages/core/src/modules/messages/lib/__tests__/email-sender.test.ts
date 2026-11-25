@@ -13,6 +13,7 @@ const messageEmailMock = jest.fn((props: Record<string, unknown>) => ({ props })
 
 jest.mock('@open-mercato/shared/lib/email/send', () => ({
   sendEmail: (...args: unknown[]) => sendEmailMock(...args),
+  sendEmailWithResult: (...args: unknown[]) => sendEmailMock(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({

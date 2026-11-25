@@ -293,6 +293,7 @@
   "messages.status.archived": "보관됨",
   "messages.status.draft": "임시보관",
   "messages.status.read": "읽음",
+  "messages.status.releasing": "보내는 중…",
   "messages.status.unread": "읽지 않음",
   "messages.subject": "제목",
   "messages.table.attachmentsCount": "첨부 파일 {count}개",

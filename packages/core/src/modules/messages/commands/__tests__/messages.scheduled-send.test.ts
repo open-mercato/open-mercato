@@ -323,6 +323,35 @@ describe('messages scheduled send commands', () => {
       expect(eventBus.emitEvent).toHaveBeenCalledWith('query_index.upsert_one', expect.objectContaining({ recordId: messageId }), expect.anything())
     })
 
+    it('refuses to edit a message the release worker already holds', async () => {
+      const message = draftMessage({ status: 'releasing', scheduledAt: inMinutes(-1) })
+      const { em, ctx } = setup(message)
+
+      await expect(command('messages.messages.update_draft').execute({ messageId, scheduledAt: null, ...scope, userId: senderUserId }, ctx))
+        .rejects.toThrow('Only draft messages can be edited')
+      expect(em.flush).not.toHaveBeenCalled()
+    })
+
+    it('re-checks the state under a row lock and loses to a release that claimed the message first', async () => {
+      const message = draftMessage({ status: 'scheduled', scheduledAt: inMinutes(30) })
+      const { em, ctx } = setup(message)
+      findOneWithDecryptionMock
+        .mockResolvedValueOnce(message)
+        .mockResolvedValueOnce({ ...message, status: 'releasing' })
+
+      await expect(command('messages.messages.update_draft').execute({ messageId, scheduledAt: null, isDraft: false, ...scope, userId: senderUserId }, ctx))
+        .rejects.toThrow('Only draft messages can be edited')
+      expect(findOneWithDecryptionMock).toHaveBeenCalledWith(
+        em,
+        Message,
+        { id: messageId, ...scope },
+        expect.objectContaining({ lockMode: expect.anything(), refresh: true }),
+        scope,
+      )
+      expect(em.rollback).toHaveBeenCalled()
+      expect(eventIds()).toEqual([])
+    })
+
     it('refuses to schedule a draft that would not be sendable', async () => {
       const message = draftMessage({ subject: '  ' })
       const { em, ctx } = setup(message)
@@ -368,6 +397,14 @@ describe('messages scheduled send commands', () => {
         { deliveryStatus: 'pending' },
       )
       expect(em.nativeUpdate).toHaveBeenCalledWith(Message, { id: messageId, ...scope, threadId: null }, { threadId: messageId })
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        Message,
+        { id: messageId, ...scope, status: 'releasing' },
+        { status: 'sent', isDraft: false, sentAt: expect.any(Date), scheduledAt: null },
+      )
+      const flipOrder = em.nativeUpdate.mock.calls.findIndex(([entity, where]) => entity === Message && (where as { status?: string }).status === 'releasing')
+      const pendingOrder = em.nativeUpdate.mock.calls.findIndex(([entity]) => entity === MessageExternalParticipant)
+      expect(pendingOrder).toBeLessThan(flipOrder)
       expect(eventBus.emitEvent).toHaveBeenCalledWith('query_index.upsert_one', expect.objectContaining({ recordId: messageId }), expect.anything())
       expect(invalidateCrudCacheMock).toHaveBeenCalledWith(ctx.container, 'messages.message', { id: messageId, ...scope }, tenantId, expect.any(String))
       expect(eventIds()).toEqual(['messages.message.sent'])
@@ -430,7 +467,7 @@ describe('messages scheduled send commands', () => {
       expect(result).toEqual({ released: [], reverted: [], returnedToDraft: [messageId] })
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         Message,
-        { id: messageId, ...scope, status: 'sent' },
+        { id: messageId, ...scope, status: 'releasing' },
         { status: 'draft', isDraft: true, sentAt: null, scheduledAt: null },
       )
       expect(em.nativeUpdate).not.toHaveBeenCalledWith(
@@ -476,14 +513,14 @@ describe('messages scheduled send commands', () => {
       const { em, ctx } = setup()
       const scheduledAt = inMinutes(-1)
       claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt, attempts: 1 }])
-      emitMessagesEventMock.mockRejectedValueOnce(new Error('bus down'))
+      findOneWithDecryptionMock.mockRejectedValueOnce(new Error('db down'))
 
       const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
 
       expect(result).toEqual({ released: [], reverted: [messageId], returnedToDraft: [] })
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         Message,
-        { id: messageId, ...scope, status: 'sent' },
+        { id: messageId, ...scope, status: 'releasing' },
         { status: 'scheduled', isDraft: true, sentAt: null, scheduledAt },
       )
       expect(em.nativeUpdate).toHaveBeenCalledWith(
@@ -494,17 +531,29 @@ describe('messages scheduled send commands', () => {
       expect(createBatchMock).not.toHaveBeenCalled()
     })
 
+    it('keeps a flipped message sent when announcing it fails', async () => {
+      const { em, ctx } = setup()
+      claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 1 }])
+      emitMessagesEventMock.mockRejectedValueOnce(new Error('bus down'))
+
+      const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+      expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
+      expect(em.nativeUpdate).not.toHaveBeenCalledWith(Message, expect.anything(), expect.objectContaining({ status: 'scheduled' }))
+      expect(em.nativeUpdate).not.toHaveBeenCalledWith(MessageExternalParticipant, expect.anything(), { deliveryStatus: null })
+    })
+
     it('returns the message to drafts and notifies the author after the attempt cap', async () => {
       const { em, ctx } = setup()
       claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 3 }])
-      emitMessagesEventMock.mockRejectedValueOnce(new Error('bus down'))
+      findOneWithDecryptionMock.mockRejectedValueOnce(new Error('db down'))
 
       const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
 
       expect(result).toEqual({ released: [], reverted: [], returnedToDraft: [messageId] })
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         Message,
-        { id: messageId, ...scope, status: 'sent' },
+        { id: messageId, ...scope, status: 'releasing' },
         { status: 'draft', isDraft: true, sentAt: null, scheduledAt: null },
       )
       expect(createBatchMock).toHaveBeenCalledWith(
@@ -598,7 +647,7 @@ describe('messages scheduled send commands', () => {
 
       it('hands a released message to the mailbox and emits messages.message.sent once, last', async () => {
         const sendAsUser = jest.fn(async () => ({ ok: true, messageId, threadId: messageId, channelId: senderChannelId, providerKey: 'imap' }))
-        const { ctx } = setup({ communicationChannelsSendAsUser: sendAsUser })
+        const { em, ctx } = setup({ communicationChannelsSendAsUser: sendAsUser })
 
         const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
 
@@ -607,15 +656,21 @@ describe('messages scheduled send commands', () => {
         expect(eventIds()).toEqual(['messages.message.sent'])
         expect(emitMessagesEventMock.mock.invocationCallOrder[0]).toBeGreaterThan(sendAsUser.mock.invocationCallOrder[0])
         expect(settleExternalParticipantsMock).not.toHaveBeenCalled()
+        expect(em.nativeUpdate).not.toHaveBeenCalledWith(MessageExternalParticipant, expect.anything(), { deliveryStatus: 'pending' })
       })
 
       it('counts "already linked" from a previous attempt as released', async () => {
         const sendAsUser = jest.fn(async () => ({ ok: false, status: 409, error: 'already linked', code: 'already_linked' }))
-        const { ctx } = setup({ communicationChannelsSendAsUser: sendAsUser })
+        const { em, ctx } = setup({ communicationChannelsSendAsUser: sendAsUser })
 
         const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
 
         expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
+        expect(em.nativeUpdate).toHaveBeenCalledWith(
+          MessageExternalParticipant,
+          { messageId, ...scope, deliveryStatus: null },
+          { deliveryStatus: 'pending' },
+        )
         expect(eventIds()).toEqual(['messages.message.sent'])
       })
 
@@ -667,7 +722,7 @@ describe('messages scheduled send commands', () => {
         expect(result).toEqual({ released: [], reverted: [messageId], returnedToDraft: [] })
         expect(em.nativeUpdate).toHaveBeenCalledWith(
           Message,
-          { id: messageId, ...scope, status: 'sent' },
+          { id: messageId, ...scope, status: 'releasing' },
           expect.objectContaining({ status: 'scheduled', isDraft: true }),
         )
         expect(emitMessagesEventMock).not.toHaveBeenCalled()

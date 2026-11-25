@@ -183,7 +183,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export async function sendEmail(options: SendEmailOptions): Promise<EmailSendResult> {
+export async function sendEmail(options: SendEmailOptions): Promise<void> {
+  await sendEmailWithResult(options)
+}
+
+/**
+ * `sendEmail` that also reports which addresses the provider accepted or
+ * rejected (and when to retry a rate-limited send). Throws when none was accepted.
+ */
+export async function sendEmailWithResult(options: SendEmailOptions): Promise<EmailSendResult> {
   const addresses = Array.isArray(options.to) ? options.to : [options.to]
   if (addresses.length === 0) {
     throw new Error('[internal] EMAIL_RECIPIENT_REQUIRED: provide at least one recipient')

@@ -293,6 +293,7 @@
   "messages.status.archived": "Zarchiwizowana",
   "messages.status.draft": "Szkic",
   "messages.status.read": "Przeczytana",
+  "messages.status.releasing": "Wysyłanie…",
   "messages.status.unread": "Nieprzeczytana",
   "messages.subject": "Temat",
   "messages.table.attachmentsCount": "{count} załączników",

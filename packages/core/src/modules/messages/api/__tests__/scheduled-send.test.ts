@@ -221,13 +221,13 @@ describe('GET /api/messages folder filters for drafts and scheduled messages', (
   it('excludes scheduled messages from drafts', async () => {
     const calls = await whereCallsFor('drafts')
     expect(calls).toContainEqual(['m.is_draft', '=', true])
-    expect(calls).toContainEqual(['m.status', '<>', 'scheduled'])
+    expect(calls).toContainEqual(['m.status', 'not in', ['scheduled', 'releasing']])
   })
 
   it('lists only the sender\'s scheduled messages in the scheduled folder', async () => {
     const calls = await whereCallsFor('scheduled')
     expect(calls).toContainEqual(['m.sender_user_id', '=', userId])
-    expect(calls).toContainEqual(['m.status', '=', 'scheduled'])
+    expect(calls).toContainEqual(['m.status', 'in', ['scheduled', 'releasing']])
   })
 
   it.each(['archived', 'all', 'inbox', 'sent'])('hides drafts and scheduled messages from %s', async (folder) => {

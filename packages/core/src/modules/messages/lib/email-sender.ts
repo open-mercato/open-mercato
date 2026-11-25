@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { sendEmail, type EmailSendResult } from '@open-mercato/shared/lib/email/send'
+import { sendEmail, sendEmailWithResult, type EmailSendResult } from '@open-mercato/shared/lib/email/send'
 import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
@@ -211,7 +211,7 @@ export async function sendMessageEmailToExternal(params: {
     from: resolveDefaultEmailFromAddress() ?? null,
   })
 
-  const result = await sendEmail({
+  const result = await sendEmailWithResult({
     to: email,
     sendSeparately,
     subject: message.subject,

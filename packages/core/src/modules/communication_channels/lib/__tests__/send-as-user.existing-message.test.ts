@@ -230,6 +230,14 @@ describe('sendAsUser — existing message', () => {
     await expect(sendAsUser(makeContainer().container, actor, input)).resolves.toMatchObject({ ok: false, status: 409 })
   })
 
+  it('hands over a scheduled message the release worker holds as releasing', async () => {
+    prime({ message: { isDraft: true, status: 'releasing' } })
+    const { container, created } = makeContainer()
+
+    await expect(sendAsUser(container, actor, input)).resolves.toMatchObject({ ok: true, messageId: 'msg-1' })
+    expect(links(created)).toHaveLength(1)
+  })
+
   it('answers 409 "already linked" when an outbound link exists', async () => {
     prime({ linked: true })
     const { container, created } = makeContainer()

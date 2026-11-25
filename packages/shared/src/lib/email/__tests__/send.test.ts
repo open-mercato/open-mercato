@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { isEmailDeliveryConfigured } from '../config'
-import { EmailSendError, readEmailDeliveryErrorHints, sendEmail } from '../send'
+import { EmailSendError, readEmailDeliveryErrorHints, sendEmail, sendEmailWithResult } from '../send'
 import {
   clearRegisteredEmailTransportForTests,
   registerEmailTransport,
@@ -256,10 +256,17 @@ describe('sendEmail', () => {
     expect(sendMock).not.toHaveBeenCalled()
   })
 
+  it('keeps sendEmail resolving void for existing callers', async () => {
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    await expect(sendEmail({ to: 'user@example.com', subject: 'Hello', text: 'Hi' })).resolves.toBeUndefined()
+    expect(sendMock).toHaveBeenCalledTimes(1)
+  })
+
   it('returns every address as accepted when the transport resolves void', async () => {
     registerEmailTransport({ id: 'test', send: sendMock })
 
-    await expect(sendEmail({ to: 'user@example.com', subject: 'Hello', text: 'Hi' })).resolves.toEqual({
+    await expect(sendEmailWithResult({ to: 'user@example.com', subject: 'Hello', text: 'Hi' })).resolves.toEqual({
       accepted: ['user@example.com'],
       rejected: [],
     })
@@ -269,7 +276,7 @@ describe('sendEmail', () => {
   it('passes all recipients in one call to a transport that supports multiple recipients', async () => {
     registerEmailTransport({ id: 'test', send: sendMock, supportsMultipleRecipients: true })
 
-    const result = await sendEmail({ to: ['a@example.com', 'b@example.com'], subject: 'Hello', text: 'Hi' })
+    const result = await sendEmailWithResult({ to: ['a@example.com', 'b@example.com'], subject: 'Hello', text: 'Hi' })
 
     expect(sendMock).toHaveBeenCalledTimes(1)
     expect(sendMock.mock.calls[0][0]).toEqual(expect.objectContaining({
@@ -282,7 +289,7 @@ describe('sendEmail', () => {
   it('refuses a joint multi-recipient send through a transport without the flag', async () => {
     registerEmailTransport({ id: 'test', send: sendMock })
 
-    await expect(sendEmail({ to: ['a@example.com', 'b@example.com'], subject: 'Hello', text: 'Hi' }))
+    await expect(sendEmailWithResult({ to: ['a@example.com', 'b@example.com'], subject: 'Hello', text: 'Hi' }))
       .rejects.toThrow('EMAIL_TRANSPORT_MULTI_RECIPIENT_UNSUPPORTED')
     expect(sendMock).not.toHaveBeenCalled()
   })
@@ -294,7 +301,7 @@ describe('sendEmail', () => {
       .mockRejectedValueOnce(new Error('connection reset'))
     registerEmailTransport({ id: 'test', send: sendMock })
 
-    const result = await sendEmail({
+    const result = await sendEmailWithResult({
       to: ['a@example.com', 'b@example.com', 'c@example.com'],
       sendSeparately: true,
       subject: 'Hello',
@@ -321,7 +328,7 @@ describe('sendEmail', () => {
       .mockResolvedValueOnce({ accepted: ['b@example.com'], rejected: [], retryAt: late })
     registerEmailTransport({ id: 'test', send: sendMock })
 
-    const result = await sendEmail({ to: ['a@example.com', 'b@example.com'], sendSeparately: true, subject: 'Hello', text: 'Hi' })
+    const result = await sendEmailWithResult({ to: ['a@example.com', 'b@example.com'], sendSeparately: true, subject: 'Hello', text: 'Hi' })
 
     expect(result.retryAt).toEqual(late)
   })
@@ -332,11 +339,11 @@ describe('sendEmail', () => {
       rejected: [{ address: 'b@example.com', error: 'rejected' }],
     })
     registerEmailTransport({ id: 'test', send: sendMock, supportsMultipleRecipients: true })
-    await expect(sendEmail({ to: ['a@example.com', 'b@example.com'], subject: 'Hello', text: 'Hi' }))
+    await expect(sendEmailWithResult({ to: ['a@example.com', 'b@example.com'], subject: 'Hello', text: 'Hi' }))
       .resolves.toEqual({ accepted: ['a@example.com'], rejected: [{ address: 'b@example.com', error: 'rejected' }] })
 
     sendMock.mockResolvedValueOnce({ accepted: [], rejected: [{ address: 'user@example.com', error: 'rejected' }] })
-    await expect(sendEmail({ to: 'user@example.com', subject: 'Hello', text: 'Hi' }))
+    await expect(sendEmailWithResult({ to: 'user@example.com', subject: 'Hello', text: 'Hi' }))
       .rejects.toThrow('EMAIL_SEND_REJECTED: user@example.com: rejected')
   })
 
@@ -344,7 +351,7 @@ describe('sendEmail', () => {
     sendMock.mockRejectedValueOnce(new Error('SMTP_SEND_FAILED: down'))
     registerEmailTransport({ id: 'test', send: sendMock })
 
-    await expect(sendEmail({ to: 'user@example.com', subject: 'Hello', text: 'Hi' })).rejects.toThrow('SMTP_SEND_FAILED: down')
+    await expect(sendEmailWithResult({ to: 'user@example.com', subject: 'Hello', text: 'Hi' })).rejects.toThrow('SMTP_SEND_FAILED: down')
   })
 
   it('keeps transient hints per address on a separate send and on the all-rejected error', async () => {
@@ -354,7 +361,7 @@ describe('sendEmail', () => {
       .mockRejectedValueOnce(new EmailSendError('rate limited', { transient: true }))
     registerEmailTransport({ id: 'test', send: sendMock })
 
-    const failure = await sendEmail({ to: ['a@example.com', 'b@example.com'], sendSeparately: true, subject: 'Hello', text: 'Hi' })
+    const failure = await sendEmailWithResult({ to: ['a@example.com', 'b@example.com'], sendSeparately: true, subject: 'Hello', text: 'Hi' })
       .catch((error: unknown) => error)
 
     expect(readEmailDeliveryErrorHints(failure)).toEqual({
@@ -373,7 +380,7 @@ describe('sendEmail', () => {
       .mockRejectedValueOnce(new Error('mailbox unavailable'))
     registerEmailTransport({ id: 'test', send: sendMock })
 
-    const failure = await sendEmail({ to: ['a@example.com', 'b@example.com'], sendSeparately: true, subject: 'Hello', text: 'Hi' })
+    const failure = await sendEmailWithResult({ to: ['a@example.com', 'b@example.com'], sendSeparately: true, subject: 'Hello', text: 'Hi' })
       .catch((error: unknown) => error)
 
     expect(readEmailDeliveryErrorHints(failure).transient).toBe(false)
@@ -387,7 +394,7 @@ describe('sendEmail', () => {
     process.env.OM_TEST_EMAIL_CAPTURE_PATH = capturePath
     registerEmailTransport({ id: 'test', send: sendMock })
 
-    await expect(sendEmail({ to: ['a@example.com', 'b@example.com'], subject: 'Joint', text: 'Hi' }))
+    await expect(sendEmailWithResult({ to: ['a@example.com', 'b@example.com'], subject: 'Joint', text: 'Hi' }))
       .resolves.toEqual({ accepted: ['a@example.com', 'b@example.com'], rejected: [] })
     await sendEmail({ to: ['c@example.com', 'd@example.com'], sendSeparately: true, subject: 'Separate', text: 'Hi' })
 

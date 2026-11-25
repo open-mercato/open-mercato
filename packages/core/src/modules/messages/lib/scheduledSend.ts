@@ -4,6 +4,8 @@ export const MESSAGES_SCHEDULED_RELEASE_QUEUE_NAME = 'messages-scheduled-release
 export const RELEASE_SCHEDULED_COMMAND_ID = 'messages.messages.release_scheduled'
 export const SCHEDULED_RELEASE_BATCH = 100
 export const MAX_SCHEDULED_RELEASE_ATTEMPTS = 3
+/** A `releasing` message whose worker went silent this long is claimed again. */
+export const SCHEDULED_RELEASE_LEASE_MINUTES = 10
 
 const SCHEDULED_RELEASE_SCHEDULE_VALUE = '60s'
 

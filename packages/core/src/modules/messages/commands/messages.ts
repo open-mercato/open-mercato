@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -660,6 +661,12 @@ async function sendDraftThroughMailbox(
   throw new CrudHttpError(result.status, { error: result.error, fieldErrors: result.fieldErrors })
 }
 
+const DRAFT_NOT_EDITABLE_ERROR = 'Only draft messages can be edited'
+
+function isEditableDraft(message: Pick<Message, 'isDraft' | 'status'>): boolean {
+  return message.isDraft && (message.status === 'draft' || message.status === 'scheduled')
+}
+
 const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
   id: 'messages.messages.update_draft',
   async prepare(rawInput, ctx) {
@@ -677,7 +684,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     const message = await requireMessageById(em, input, input.messageId)
 
     if (message.senderUserId !== input.userId) throw new Error('Access denied')
-    if (!message.isDraft) throw new Error('Only draft messages can be edited')
+    if (!isEditableDraft(message)) throw new Error(DRAFT_NOT_EDITABLE_ERROR)
 
     const isSending = input.isDraft === false
     const isScheduling = input.scheduledAt instanceof Date
@@ -765,7 +772,17 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     // between a scalar mutation and the terminal flush on the same EntityManager
     // silently drops the pending changeset, so keeping the scalar edits in their
     // own phase guarantees subject/body/etc. are persisted (SPEC-018 Problem 1).
-    await withAtomicFlush(em, [() => {
+    await withAtomicFlush(em, [async () => {
+      // Contends with the release claim (`FOR UPDATE SKIP LOCKED`) on the same row, so an
+      // edit and a release never both win: whichever locks first decides the state.
+      const locked = await findOneWithDecryption(
+        em,
+        Message,
+        { id: message.id, tenantId: input.tenantId, organizationId: input.organizationId },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
+      if (!locked || !isEditableDraft(locked)) throw new Error(DRAFT_NOT_EDITABLE_ERROR)
       if (input.type !== undefined) message.type = input.type
       if (input.visibility !== undefined) message.visibility = input.visibility
       if (input.sourceEntityType !== undefined) message.sourceEntityType = input.sourceEntityType
@@ -1646,6 +1663,12 @@ async function chargeReleasedMessageBudget(
   }
 }
 
+/**
+ * Runs while the claimed message is `releasing`, i.e. still a draft: the retry
+ * tick and the editor leave it alone until `flipReleasedMessage` makes it
+ * `sent`. Every step before the flip is safe to repeat when an expired lease
+ * hands the message to another worker.
+ */
 async function handOffReleasedMessage(
   container: ReleaseContainer,
   em: EntityManager,
@@ -1654,31 +1677,60 @@ async function handOffReleasedMessage(
 ): Promise<'released' | 'budgetExceeded'> {
   // Charged before anything is delivered; a refusal delivers nothing.
   if (!(await chargeReleasedMessageBudget(container, em, messageId, scope))) return 'budgetExceeded'
-  await em.fork().transactional(async (trx) => {
-    await markDraftParticipantsPending(trx, { messageId, ...scope })
-    await trx.nativeUpdate(Message, { id: messageId, ...scope, threadId: null }, { threadId: messageId })
-    await trx.nativeUpdate(Message, { id: messageId, ...scope }, { scheduledAt: null })
-  })
-  const readEm = em.fork()
-  const message = await findOneWithDecryption(readEm, Message, { id: messageId, ...scope, deletedAt: null }, undefined, scope)
-  if (!message) throw new Error('Message not found')
-  const recipients = await findWithDecryption(readEm, MessageRecipient, { messageId, deletedAt: null }, undefined, scope)
-  await emitMessageIndexUpsert(container, { messageId, ...scope })
-  await invalidateCrudCache(
-    container,
-    'messages.message',
-    { id: messageId, ...scope },
-    scope.tenantId,
-    `command:${RELEASE_SCHEDULED_COMMAND_ID}:execute`,
-  )
+  const message = await findOneWithDecryption(em.fork(), Message, { id: messageId, ...scope, deletedAt: null }, undefined, scope)
+  if (!message) throw new Error('[internal] Message not found')
+  // The mailbox stamps the route and marks the participants pending together with its channel link.
   if (message.senderChannelId) await handOffReleasedToMailbox(container, em, message, message.senderChannelId, scope)
-  // Emitted last and never reverted afterwards, so recipients are not notified twice.
-  await emitDraftSentEvent(container, message, recipients.map((recipient) => recipient.recipientUserId))
+  else await markDraftParticipantsPending(em.fork(), { messageId, ...scope })
+  await flipReleasedMessage(em, messageId, scope)
+  await announceReleasedMessage(container, em, messageId, scope)
   return 'released'
 }
 
+async function flipReleasedMessage(em: EntityManager, messageId: string, scope: ScheduledReleaseScope): Promise<void> {
+  await em.fork().transactional(async (trx) => {
+    await trx.nativeUpdate(Message, { id: messageId, ...scope, threadId: null }, { threadId: messageId })
+    await trx.nativeUpdate(
+      Message,
+      { id: messageId, ...scope, status: 'releasing' },
+      { status: 'sent', isDraft: false, sentAt: new Date(), scheduledAt: null },
+    )
+  })
+}
+
 /**
- * A previous attempt that already linked the message counts as delivered. A
+ * The message is already sent, so a failure here is logged, never reverted:
+ * recipients are not notified twice, and pending participants are picked up by
+ * the retry tick through the route stamped before the flip.
+ */
+async function announceReleasedMessage(
+  container: ReleaseContainer,
+  em: EntityManager,
+  messageId: string,
+  scope: ScheduledReleaseScope,
+): Promise<void> {
+  try {
+    const readEm = em.fork()
+    const message = await findOneWithDecryption(readEm, Message, { id: messageId, ...scope, deletedAt: null }, undefined, scope)
+    if (!message) return
+    const recipients = await findWithDecryption(readEm, MessageRecipient, { messageId, deletedAt: null }, undefined, scope)
+    await emitMessageIndexUpsert(container, { messageId, ...scope })
+    await invalidateCrudCache(
+      container,
+      'messages.message',
+      { id: messageId, ...scope },
+      scope.tenantId,
+      `command:${RELEASE_SCHEDULED_COMMAND_ID}:execute`,
+    )
+    await emitDraftSentEvent(container, message, recipients.map((recipient) => recipient.recipientUserId))
+  } catch (error) {
+    releaseLogger.warn('Released scheduled message could not be announced', { messageId, err: error })
+  }
+}
+
+/**
+ * A previous attempt that already linked the message counts as handed off; its
+ * participants are marked pending again in case a revert cleared them. A
  * mailbox that cannot deliver (or no mailbox module) or cannot carry the
  * message's attachments fails the participants instead of retrying; any other
  * refusal throws so the release is reverted.
@@ -1695,17 +1747,24 @@ async function handOffReleasedToMailbox(
     { userId: message.senderUserId, ...scope },
     { senderChannelId, messageId: message.id },
   )
-  if (result.ok || result.code === 'already_linked') return
+  if (result.ok) return
+  if (result.code === 'already_linked') {
+    await markDraftParticipantsPending(em.fork(), { messageId: message.id, ...scope })
+    return
+  }
   if (!result.code) {
     throw new Error(`[internal] mailbox hand-off refused (${result.status}): ${result.error}`)
   }
   const failureReason = result.code === 'channel_unavailable' ? MAILBOX_UNAVAILABLE_ERROR : result.error
   // Marked as mailbox-routed like a delivered one, so "resend to failed" retries through the mailbox, not the platform sender.
-  await em.fork().nativeUpdate(
-    Message,
-    { id: message.id, ...scope },
-    { sourceEntityType: SEND_AS_USER_SOURCE_ENTITY_TYPE, sourceEntityId: senderChannelId },
-  )
+  await em.fork().transactional(async (trx) => {
+    await trx.nativeUpdate(
+      Message,
+      { id: message.id, ...scope },
+      { sourceEntityType: SEND_AS_USER_SOURCE_ENTITY_TYPE, sourceEntityId: senderChannelId },
+    )
+    await markDraftParticipantsPending(trx, { messageId: message.id, ...scope })
+  })
   const pending = await findWithDecryption(
     em.fork(),
     MessageExternalParticipant,
@@ -1767,7 +1826,7 @@ async function revertFailedRelease(
     )
     await trx.nativeUpdate(
       Message,
-      { id: claimed.id, ...scope, status: 'sent' },
+      { id: claimed.id, ...scope, status: 'releasing' },
       toDraft
         ? { status: 'draft', isDraft: true, sentAt: null, scheduledAt: null }
         : { status: 'scheduled', isDraft: true, sentAt: null, scheduledAt: claimed.scheduledAt ?? new Date() },

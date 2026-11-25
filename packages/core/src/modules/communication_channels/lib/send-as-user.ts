@@ -487,7 +487,8 @@ async function sendExistingMessageAsUser(
   if (message.visibility !== 'public') {
     return { ok: false, status: 422, error: 'Only a message addressed to external recipients can be sent through a channel' }
   }
-  if (message.isDraft) return { ok: false, status: 409, error: 'Message has not been sent yet' }
+  // A scheduled message is handed over while the release worker holds it as `releasing`.
+  if (message.isDraft && message.status !== 'releasing') return { ok: false, status: 409, error: 'Message has not been sent yet' }
   const existingLink = await findOneWithDecryption(
     em,
     MessageChannelLink,

@@ -292,7 +292,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     status: message.status,
     scheduledAt: message.scheduledAt ? message.scheduledAt.toISOString() : null,
     senderChannelId: message.senderUserId === scope.userId ? message.senderChannelId ?? null : null,
-    canEditDraft: message.isDraft && message.senderUserId === scope.userId,
+    canEditDraft: message.isDraft && message.status !== 'releasing' && message.senderUserId === scope.userId,
     canArchive: Boolean(recipient),
     isArchived: recipient?.status === 'archived',
     visibility: message.visibility,
@@ -302,7 +302,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     externalName: message.externalName,
     emailSendSeparately: message.emailSendSeparately ?? false,
     canResendFailed: message.senderUserId === scope.userId && !message.isDraft,
-    externalParticipants: externalParticipants.map((participant) => ({
+    // Blind copies stay with the author: other thread viewers must not learn who was copied.
+    externalParticipants: externalParticipants
+      .filter((participant) => participant.role !== 'bcc' || message.senderUserId === scope.userId)
+      .map((participant) => ({
       id: participant.id,
       role: participant.role,
       email: participant.email,

@@ -293,6 +293,7 @@
   "messages.status.archived": "Archived",
   "messages.status.draft": "Draft",
   "messages.status.read": "Read",
+  "messages.status.releasing": "Sending…",
   "messages.status.unread": "Unread",
   "messages.subject": "Subject",
   "messages.table.attachmentsCount": "{count} attachments",

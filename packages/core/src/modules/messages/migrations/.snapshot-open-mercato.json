@@ -449,6 +449,15 @@
           "primary": false,
           "unique": false,
           "expression": "create index \"messages_scheduled_release_idx\" on \"messages\" (\"tenant_id\", \"organization_id\", \"scheduled_at\") where \"status\" = 'scheduled'"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "messages_releasing_lease_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"messages_releasing_lease_idx\" on \"messages\" (\"tenant_id\", \"organization_id\", \"updated_at\") where \"status\" = 'releasing'"
         }
       ],
       "checks": [],
