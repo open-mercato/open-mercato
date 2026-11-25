@@ -12,6 +12,8 @@ See [Staff identity boundaries](.ai/specs/2026-11-24-staff-identity-boundaries.m
 
 ## Scoped resource administration and execution limits
 
+Authorization and vector request shapes and the vector driver signature remain stable. Unsafe delegation, writes, and index resizing are rejected.
+
 - Attachment partition administration follows the caller's organization and limits edits of shared partitions to platform administrators. Staff invitation flows must use roles in their own tenant and organization. Callers that invite users with roles reserved for administrators need an authorized staff identity with `customer_accounts.roles.manage`. Reissue outstanding privileged invitations from an active staff user with the grant.
 - HTTP MCP clients that delegate to a chat session must authenticate with the configured `MCP_SERVER_API_KEY` or its file-backed equivalent. The chat session's own ephemeral API key can also authenticate that session. Managed API key listings omit ephemeral chat credentials.
 - Grouped analytics returns at most 100 groups when a request omits a limit. Its grouped total reflects the returned buckets. Supply a lower limit or narrow the underlying data as needed. Analytics interceptors can narrow filters for the requested entity.
