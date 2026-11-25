@@ -1,5 +1,34 @@
 # Upgrade Notes
 
+## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
+
+When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.
+
+Clients that treated this 500 as a server fault can retry on `structured_output_invalid`. The request contract and response fields are unchanged. No database migration or configuration change is required.
+
+## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
+
+An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
+
+Callers that send `callSettings` to such an agent must drop them, or the agent author must allow runtime overrides. The agent's own `modelSettings` still apply, an empty `callSettings` object is treated as absent, and agents without the flag (the default, permissive) are unaffected. No first-party agent sets the flag to `false`. No database migration or configuration change is required.
+
+## Production fullapp LocalStack binds to loopback (#10342)
+
+The production fullapp `storage-s3` profile now publishes LocalStack on
+`127.0.0.1` by default. `LOCALSTACK_PORT` still controls the host port, and
+containers on the Compose network can still connect to `localstack:4566`.
+Operators who intentionally use remote tooling must set `INFRA_BIND_HOST`
+to the specific host interface they want to expose, then recreate LocalStack
+with the updated Compose file.
+
+## Agent trace ingest signing and workflow references
+
+Each trace-ingest adapter now needs a signing key provisioned for its tenant and organization. Provision separate scoped keys server-side with `traceIngestSecret(tenantId, organizationId)` and distribute only the derived key to each adapter. The Standard Webhooks header names, signed body format, and five-minute timestamp tolerance still apply. Adapters using the server-side signing helper pass `organizationId` as its second argument.
+
+Operators should pause trace delivery during the server and adapter cutover, replace the old signing keys, and retry queued deliveries with fresh timestamps and signatures. Previously issued tenant-wide signatures return HTTP 401. The webhook no longer establishes workflow attribution. Use the external run ID of the workflow-created agent invocation or send a standalone trace under its own run ID. Review previously ingested workflow links that lack a server-recorded invocation before relying on their process rollups. There is no schema migration.
+
+[Implementation spec](.ai/specs/enterprise/agent-orchestrator/2026-11-24-trace-ingest-scope.md)
+
 ## CRUD factory security and query correctness bundle
 
 These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
@@ -137,6 +166,29 @@ on every request:
   multi-instance deployments, or lower the TTL, to converge sooner.
 
 No configuration, database, route, event or DI-key change is required.
+
+## Kernel modules keep working when optional modules are disabled (#10129)
+
+Several modules used to fail when an optional peer was removed from `src/modules.ts`. They now
+degrade instead. With every module enabled, behavior is unchanged. No migration or new
+configuration is required. What changes when a peer is disabled:
+
+- **scheduler** — module-authored schedules whose `source_module` is no longer enabled are skipped
+  (`scheduler.job.skipped` is emitted and `nextRunAt` still advances) instead of failing on every
+  tick. `mercato scheduler list` marks them. Re-enabling the module resumes them.
+- **record_locks** (enterprise) — works without `configs` (built-in default settings apply) and
+  without `audit_logs`. The OSS `updated_at` optimistic-lock floor is always enforced. Without
+  `audit_logs`, the extra conflict detection based on action-log history is not available.
+- **workflows** — bulk replay runs without `progress` (`progressJobId: null`). A `CALL_API` step
+  fails with a translated error without `api_keys`. Without `business_rules`, guard-rule seeds are
+  skipped and a workflow with a *required* start pre-condition refuses to start with
+  `RULE_ENGINE_UNAVAILABLE`. `workflows` still declares `requires: ['business_rules']` (#9217).
+- **messages** — works without `attachments` (attachment counts are 0, and the attachments route
+  answers 404) and without `notifications` (email delivery still runs).
+- **configs** — upgrade actions declare the module they need. Actions for disabled modules are not
+  offered and are rejected with `UPGRADE_ACTION_NOT_AVAILABLE`.
+- **Translate actions** on dictionary entries and custom-field definitions appear only when the
+  `translations` module is enabled and the user holds `translations.manage`.
 
 ## Optional process DI root (#8989)
 
@@ -4473,13 +4525,45 @@ invitation — with no failure at boot to warn you. Add the dependency and the e
 ```
 
 ```ts
-// src/modules.ts — alongside the other channel_* entries
+// src/modules.ts — the hub and its dependencies first, then the provider entries
+{ id: 'progress', from: '@open-mercato/core' },
+{ id: 'integrations', from: '@open-mercato/core' },
+{ id: 'communication_channels', from: '@open-mercato/core' },
 { id: 'channel_resend', from: '@open-mercato/channel-resend' },
 { id: 'channel_ses', from: '@open-mercato/channel-ses' },
 ```
 
 Enable the package matching `SYSTEM_EMAIL_PROVIDER` (default `resend`); the other is optional.
 The monorepo app (`apps/mercato`) and newly scaffolded apps already carry both.
+
+**The provider module alone is not enough — `communication_channels` MUST be enabled too
+(#6278).** The provider package's `di.ts` only registers its channel adapter and its system-email
+config resolver; the outbound email transport itself (`registerEmailTransport()`) is registered
+by `communication_channels/di.ts` and nowhere else. An app that adds `channel_resend` /
+`channel_ses` but not `communication_channels` typechecks, passes tests that mock `sendEmail`,
+and then throws `EMAIL_TRANSPORT_NOT_CONFIGURED: enable an outbound email provider module` on the
+first real send. `communication_channels` in turn needs `integrations` (the provider credentials)
+and `progress` (its import-history worker, see "`communication_channels` now requires `progress`"
+below). From 0.9.0 the provider modules declare `requires: ['communication_channels',
+'integrations']`, so `yarn generate` fails fast instead (see "`yarn generate` now enforces a
+module's declared `requires` dependencies" in the 0.8.0 → 0.9.0 section).
+
+**`yarn generate` also expects `@open-mercato/web-research` to be installed.** The generated
+`.mercato/generated/web-research-adapters.generated.ts` always contains
+`import type { AdapterRegistryEntry } from '@open-mercato/web-research'`, even when no installed
+package declares a web-research adapter and the registry is empty. An app that does not depend on
+`@open-mercato/web-research` (directly or through `@open-mercato/enterprise`) fails its typecheck
+with `TS2307: Cannot find module '@open-mercato/web-research'`. Add it to `package.json` at the
+same version as your other `@open-mercato/*` packages:
+
+```jsonc
+"@open-mercato/web-research": "0.8.0",
+```
+
+From the release that ships #10129 the generator declares the `AdapterRegistryEntry` type inline,
+so the generated registry no longer imports `@open-mercato/web-research`. After upgrading the CLI
+and re-running `yarn generate`, the dependency above is only needed if the app actually uses
+web research.
 
 Only the **selected** provider's env preset seeds anything. Enabling both packages is therefore
 safe: with `SYSTEM_EMAIL_PROVIDER` unset or `resend`, the SES preset stores no credentials, creates

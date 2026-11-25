@@ -769,7 +769,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     const restoredProfile = profile
 
     await withAtomicFlush(em, [
-      () => syncEntityTags(em, restoredEntity, after.tagIds),
+      () => syncEntityTags(em, restoredEntity, after.tagIds, { ignoreMissing: true }),
     ], { transaction: true })
 
     const restoreValues = buildCustomFieldResetMap(after.custom, undefined)
@@ -796,7 +796,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
   },
 }
 
-const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: string }> = {
+const updateCompanyCommand = {
   id: 'customers.companies.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(companyUpdateSchema, rawInput)
@@ -804,7 +804,11 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const snapshot = await loadCompanySnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
-  async execute(rawInput, ctx) {
+  async execute(
+    rawInput: CompanyUpdateInput,
+    ctx: CommandRuntimeContext,
+    ignoreMissingTags = false,
+  ): Promise<{ entityId: string; updatedAt: Date }> {
     const { parsed: parsedInput, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
     const parsed = withExactAmounts(parsedInput, rawInput, ['annualRevenue'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -873,7 +877,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
           record.updatedAt = new Date()
         }
       },
-      () => syncEntityTags(em, record, parsed.tags),
+      () => syncEntityTags(em, record, parsed.tags, { ignoreMissing: ignoreMissingTags }),
     ], { transaction: true })
 
     await setCompanyCustomFields(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
@@ -1014,7 +1018,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     }
 
     await em.flush()
-    await syncEntityTags(em, entity, before.tagIds)
+    await syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true })
     await em.flush()
 
     await em.nativeDelete(CustomerDealCompanyLink, { company: entity })
@@ -1088,7 +1092,10 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       await setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
     }
   },
-}
+  redo({ input, ctx }): Promise<{ entityId: string }> {
+    return updateCompanyCommand.execute(input, ctx, true)
+  },
+} satisfies CommandHandler<CompanyUpdateInput, { entityId: string }>
 
 const deleteCompanyCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
@@ -1386,7 +1393,7 @@ const deleteCompanyCommand: CommandHandler<
       let restoredLabelAssignments: LabelAssignmentRestoreSnapshot[] = []
 
       await withAtomicFlush(em, [
-        () => syncEntityTags(em, entity, before.tagIds),
+        () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
         async () => {
           const relatedDealIds = new Set<string>()
           for (const link of beforeDeals) relatedDealIds.add(link.dealId)

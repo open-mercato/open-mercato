@@ -9,6 +9,7 @@ import {
   type RuleDiscoveryCache,
 } from '@open-mercato/core/modules/business_rules/lib/rule-engine'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isBusinessRulesModuleEnabled } from './optional-modules'
 
 const logger = createLogger('workflows')
 
@@ -148,6 +149,10 @@ async function seedGuardRules(
   fileName: string,
   cache?: RuleDiscoveryCache | null,
 ): Promise<{ seeded: number; skipped: number; updated: number }> {
+  if (!isBusinessRulesModuleEnabled()) {
+    logger.info('business_rules module is disabled; skipping guard-rule seed', { component: 'seed', fileName })
+    return { seeded: 0, skipped: 0, updated: 0 }
+  }
   const seeds = readExampleJson<GuardRuleSeed[]>(fileName)
   if (!Array.isArray(seeds)) {
     throw new Error('Invalid guard rules seed data.')
