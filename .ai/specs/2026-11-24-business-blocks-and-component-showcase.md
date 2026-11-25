@@ -90,7 +90,8 @@ Each contract below becomes a TypeScript type plus a zod schema (`propsSchema`) 
 
 ### KeyValue
 
-- **Input:** `items: { key: string; label: string; value: React.ReactNode; hint?: string; editable?: boolean; editor?: 'text' | 'textarea' | 'select' | 'date'; options?: { value: string; label: string }[] }[]`, `columns?: 1 | 2`.
+- **Input:** `items: { key: string; label: string; icon?: React.ReactNode; value: React.ReactNode; hint?: string; editable?: boolean; editor?: 'text' | 'textarea' | 'select' | 'date'; options?: { value: string; label: string }[] }[]`, `columns?: 1 | 2`, `layout?: 'horizontal' | 'vertical'` (default horizontal: label column beside the value, stacked below `sm`), `bordered?: boolean`.
+- **Look:** rows of a list, not a card per pair; labels in sentence case, `text-muted-foreground`, never uppercase. The edit button shows on row hover or focus for fine pointers and stays visible on touch.
 - **Events:** `onEdit(key, nextValue) => Promise<void>`.
 - **Slots:** per-item `value` (rich display), `footer`.
 - **State:** the block owns the edit draft of the item being edited; it commits through `onEdit` and returns to read mode on resolve, keeps the draft on reject.
@@ -99,11 +100,12 @@ Each contract below becomes a TypeScript type plus a zod schema (`propsSchema`) 
 
 ### Timeline
 
-- **Input:** `items: TimelineItem[]`, `groupBy?: 'day' | 'none'`, `order: 'desc' | 'asc'` (describes the order the caller already applied; the block does not sort), `filters?: { key: string; label: string; count?: number }[]`, `activeFilterKey?: string`, `hasMore?: boolean`.
-- **`TimelineItem`:** `id`, `occurredAt`, `kind: string`, `icon?: LucideIconName`, `title`, `body?: React.ReactNode`, `author?: { name: string; avatarSrc?: string }`, `attachments?: { name: string; href?: string; format?: string }[]`, `status?: { label: string; tone: BlockTone }`, `actions?: BlockAction[]`.
+- **Input:** `items: TimelineItem[]`, `groupBy?: 'day' | 'period' | 'none'` (`period`: This week, then months, a year heading for earlier years; sections collapse), `order: 'desc' | 'asc'` (describes the order the caller already applied; the block does not sort), `filters?: { key: string; label: string; count?: number }[]`, `activeFilterKey?: string`, `hasMore?: boolean`.
+- **`TimelineItem`:** `id`, `occurredAt`, `kind: string`, `icon?: LucideIconName`, `title`, `body?: React.ReactNode`, `author?: { name: string; avatarSrc?: string }`, `attachments?: { name: string; href?: string; format?: string }[]`, `status?: { label: string; tone: BlockTone }`, `changes?: { key?: string; label: string; icon?: LucideIconName; from?: React.ReactNode; to: React.ReactNode }[]` (more than three collapse behind a toggle), `target?: { label: string; href?: string; icon?: LucideIconName; avatarSrc?: string }`, `actions?: BlockAction[]`.
+- **Look:** an event icon on a vertical rail for every item; the author avatar sits in the sentence (author, verb, target chip, relative time); text bodies sit in a bordered card and clamp to three lines.
 - **Events:** `onItemAction(itemId, actionKey)`, `onFilterChange(filterKey)`, `onLoadMore() => Promise<void>`.
 - **Slots:** `renderItemBody(item)` override, `header`.
-- **State:** none beyond focus; ordering and filtering of data are the caller's (the block only groups what it receives).
+- **State:** expanded change lists, expanded bodies and collapsed period sections; ordering and filtering of data are the caller's (the block only groups what it receives).
 - **Never:** merges sources or pages (CRM history merges cursor-paged and page-numbered endpoints; that stays in the module adapter).
 - **Visual source:** Figma Activity Feed `166035:46833` and the `activity-feed` primitive.
 
@@ -245,6 +247,9 @@ Nothing is removed or renamed. Existing components keep their APIs. `GalleryEntr
 
 ## Changelog
 
+- 2026-11-25: Added the `Result` and `DesignScope` primitives (DesignScope backs the home page panel; the light token block also answers to `.light` so a light scope works inside a dark page); the showcase home page follows the Ant Design layout with a live token panel, a new and updated strip and a grain texture.
+- 2026-11-25: Spacing roles (`--om-space-*` tokens with Tailwind keys, compact density scope, `page-grid`) applied to FormField, CrudForm, Card, Dialog and the blocks; Timeline rebuilt in the Attio style with `groupBy: 'period'`, per-item `changes` and `target`.
+- 2026-11-25: KeyValue moved from a card per pair to list rows with `layout` and `bordered`, plus an optional label icon; labels across the DS and primitives switched from uppercase to sentence case.
 - 2026-11-25: Component pages gained optional When to use, example descriptions, accessibility, FAQ, design tokens and an On this page table of contents; added the `BorderBeam`, `Splitter` and `Anchor` primitives.
 - 2026-11-25: Removed the storefront preview theme and the Admin / Storefront switch; blocks target the back office, the storefront keeps `packages/storefront-ui`. Role radius tokens stay.
 - 2026-11-24: Phase 3: Kanban contract extended after reconciling the CRM pipeline and Staff board; block implemented on existing primitives.

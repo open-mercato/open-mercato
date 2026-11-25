@@ -60,6 +60,9 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [BorderBeam](#borderbeam)
 - [Splitter](#splitter)
 - [Anchor](#anchor)
+- [Result](#result)
+- [DesignScope](#designscope)
+- [DropdownMenu](#dropdownmenu)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -877,7 +880,7 @@ Default `min-h-[80px]` and `resize-y` (user can drag the bottom-right grabber to
 
 ### Character counter
 
-Set `showCount` + `maxLength` to render a `current/max` indicator below the textarea (positioned bottom-right, uppercase, `text-overline`, color shifts to `text-destructive` if overflowing).
+Set `showCount` + `maxLength` to render a `current/max` indicator below the textarea (positioned bottom-right, `text-xs`, color shifts to `text-destructive` if overflowing).
 
 ```tsx
 <Textarea
@@ -5884,3 +5887,40 @@ Table of contents for long pages. Props: `items` (`{ href: '#id', title, childre
 - Only for sections on the same page; use the sidebar or `Tabs` for page navigation.
 - Match `offset` to sticky headers.
 - Hide it below the breakpoint that has room for it instead of stacking it above content.
+
+## Result
+
+Import: `@open-mercato/ui/primitives/result`.
+
+Outcome of an action or a page-level error. Props: `status` (`success` | `error` | `info` | `warning` | `403` | `404` | `500`, default `info`), `title`, `subtitle`, `icon` (replaces the face; each status draws its own face in a muted tile, Height style), `actions`, `size` (`default` | `compact`), `focusTitle` (moves focus to the title on mount); `children` render as a details box under the actions. Errors and 500 use `role="alert"`, the rest `role="status"`. 403, 404 and 500 fall back to translated `ui.result.*` text when `title` is omitted.
+
+### MUST rules
+
+- Use it for outcomes and page errors; use `EmptyState` for lists without data and `flash()` or `Alert` for in-page confirmations.
+- Always give page errors a way back in `actions`.
+- Pass `focusTitle` when the result replaces the whole page.
+
+## DesignScope
+
+Import: `@open-mercato/ui/primitives/design-scope` (`DesignScope`, `useDesignScope`, `designScopeRadiusStyle`).
+
+Scopes tokens to part of the page, like a configuration provider. Props: `mode` (`light` | `dark`, adds the `.light` / `.dark` token class plus `bg-background text-foreground`), `density` (`default` | `compact`, sets `data-density`), `shape` (`default` | `round` | `sharp`, sets the `--om-radius-*` roles), `radius` (`{ button?, field?, card?, badge? }` in px, rem, em or percent), `dir` (`ltr` | `rtl`), `asChild`. Scopes nest; unset props inherit from the closest parent. `useDesignScope()` returns the resolved values.
+
+### MUST rules
+
+- Wrap regions, not single components; restyle a component through its tokens or props.
+- Portaled overlays (Select, Popover, Dialog) mount at the end of the page and follow the page scope.
+- Use `ThemeProvider` for the app-wide mode; `DesignScope` only for a part of the page.
+
+## DropdownMenu
+
+Import: `@open-mercato/ui/primitives/dropdown-menu` (Radix `@radix-ui/react-dropdown-menu`).
+
+Action menu: `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent` (`align` defaults to `start`), `DropdownMenuItem` (`variant="destructive"`, `inset`, `disabled`), `DropdownMenuCheckboxItem`, `DropdownMenuRadioGroup` + `DropdownMenuRadioItem`, `DropdownMenuLabel`, `DropdownMenuGroup`, `DropdownMenuSeparator`, `DropdownMenuShortcut`, `DropdownMenuSub` + `DropdownMenuSubTrigger` + `DropdownMenuSubContent`. WAI-ARIA menu keyboard model, type-ahead, RTL aware.
+
+### MUST rules
+
+- Use it for actions and view options; `Select` for form values, `Dropdown` / `CommandMenu` for searchable lists.
+- Destructive items go last, after a separator, with `variant="destructive"`.
+- Keep submenus to one level; keep checkbox menus open with `onSelect={(event) => event.preventDefault()}`.
+- Only show `DropdownMenuShortcut` for shortcuts that work on the page.

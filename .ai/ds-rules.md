@@ -136,9 +136,10 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 
 ## Typography
 - NEVER use arbitrary text sizes (`text-[10px]`, `text-[11px]`, `text-[13px]`, `text-[15px]`)
-- NEVER use arbitrary tracking — use `tracking-widest` (0.1em) for uppercase labels
+- NEVER write labels, section headings, field names, menu group titles or table headers in uppercase (`uppercase`, `tracking-wide*`). Use sentence case and let size and color carry the hierarchy. Uppercase is kept only for text that is uppercase by nature: abbreviations (`VISA`), codes, hex values, keyboard keys
+- NEVER use arbitrary tracking
 - USE Tailwind scale: `text-xs` (12px), `text-sm` (14px), `text-base` (16px), `text-lg` (18px), `text-xl` (20px), `text-2xl` (24px)
-- For 11px uppercase labels: use `text-overline` (custom token, 11px / 16px line-height)
+- `text-overline` (11px / 16px line-height) is for the smallest chips and counters only, never for labels people read as names
 - Source widget typography: `text-compact` is 13px / 20px, `text-ai-body` is 15px / 24px, and `text-title-4` is 32px / 40px. Use these only for the corresponding Figma compositions; ordinary application copy keeps the standard scale.
 - Exception: `text-[9px]` for notification badge count and `Avatar size="sm"` initials (documented exceptions)
 - Font families come from tokens: `--font-geist-sans` (default UI) and `--font-geist-mono` (`font-mono`) — never declare `font-family` inline
@@ -152,7 +153,8 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 | Default body text | `text-sm` |
 | Emphasized body text | `text-base` |
 | Secondary info, timestamps, hints | `text-xs text-muted-foreground` |
-| Section label / category tag (uppercase) | `text-overline font-semibold uppercase tracking-widest` |
+| Section label, field label, menu group title | `text-xs text-muted-foreground` (sentence case) |
+| Field label beside its value (key-value rows) | `text-sm text-muted-foreground` (sentence case) |
 | Code / technical content | `text-sm font-mono` |
 
 ## Feedback
@@ -165,23 +167,38 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 - The Alert `variant` prop (`destructive`/`info`/…) is **deprecated BC** — in-repo migration complete (2026-07); the lint rule `om-ds/no-legacy-alert-variant` guards against regressions, the shim in `primitives/alert.tsx` stays for third-party code
 
 ## Spacing
-- NEVER use arbitrary spacing values (`p-[13px]`, `gap-[10px]`, `mt-[7px]`, etc.)
-- USE Tailwind 4px grid scale: `1` (4px), `2` (8px), `3` (12px), `4` (16px), `6` (24px), `8` (32px), `12` (48px)
-- AVOID half-steps (`0.5`, `1.5`, `2.5`) unless matching a specific visual rhythm
+- USE the spacing roles first. Each role is a token (`--om-space-<role>`) and a Tailwind spacing key, so it works with any spacing utility (`gap-`, `p-`, `px-`, `mt-`, `space-y-`):
 
-| What am I spacing? | Classes |
+| Role | Utility example | Default | Compact |
+|------|-----------------|---------|---------|
+| Label to its field | `mb-field-label` | 8px | 4px |
+| Field to its hint or error | `mt-field-hint` | 8px | 4px |
+| Field to the next field | `gap-y-field-stack`, `space-y-field-stack` | 24px | 16px |
+| Field group to the next group | `gap-group` | 40px | 24px |
+| Horizontal padding in controls | `px-control-x` | 12px | 12px |
+| Section inside a page or form | `p-panel` | 16px | 12px |
+| Standalone card | `p-card`, `px-card`, `py-card` | 24px | 16px |
+| Dialog | `p-dialog` | 24px | 16px |
+| Between page sections | `gap-section` | 32px | 24px |
+| Page margin | `px-page` | 16px, 24px from 640px | same |
+| Gutter between grid columns | `gap-x-gutter` | 16px, 24px from 640px | same |
+
+- Compact density: wrap dense forms, tables and side panels in `<DesignScope density="compact">` (or `data-density="compact"`); every role inside shrinks. `CrudForm density="compact"` sets it for you. Never pick smaller values by hand.
+- `DesignScope` also scopes colour mode (`mode`), corner radius (`shape`, `radius`) and direction (`dir`) for a region; see `.ai/ui-components.md` § DesignScope.
+- Page grid: `page-grid` is a 12-column grid with the gutter role; forms in one column stop at `max-w-form` (640px).
+- `FormField` and `CrudForm` already apply the field roles. Never glue a label, field and hint together with `gap-1` or `space-y-1`.
+- Component inner padding, heights and gaps follow `.ai/specs/2026-11-25-component-spacing-standard.md` (anchored to IBM Carbon, cross-checked with Ant Design). Key values: controls 32 / 36 / 40 high with 8 / 12 / 12 px horizontal padding (buttons 12 / 16 / 20), icon gap 8 (4 at sm), 8 between buttons, menus 4 container + 32 px items with 8 px padding, popovers 16, tooltips 4x8 / 8x12, cards 24, dialogs 24, alerts 16, tags 20 / 24 high with 8 px padding, table rows 32 / 40 / 48 with 16 px cell padding.
+- No half steps (2, 6, 10, 14 px) for padding, margin or gap anywhere, inside controls included; height drives vertical padding of controls and rows.
+- Inside a component, fall back to the 4px scale: `1` (4px), `2` (8px), `3` (12px), `4` (16px), `6` (24px), `8` (32px), `12` (48px).
+- NEVER use arbitrary spacing values (`p-[13px]`, `gap-[10px]`, `mt-[7px]`, etc.)
+- NEVER use half-steps (`0.5`, `1.5`, `2.5`, `3.5`) for layout spacing; they break the grid
+
+| Inside a component | Classes |
 |---------------------|---------|
 | Icon-to-text gap, chip internals, tight inline flex | `gap-1` (4px) or `gap-2` (8px) |
 | Standard gap between inline/flex items | `gap-2` (8px) — **default** |
-| Gap between distinct items in a list (cards, sections) | `gap-3` (12px) or `gap-4` (16px) |
-| Padding inside an interactive control (button, input, select) | `px-3 py-2` |
+| Gap between distinct items in a list (cards, rows) | `gap-3` (12px) or `gap-4` (16px) |
 | Padding inside a compact container (tag, inline panel, row) | `p-3` (12px) |
-| Padding inside a card, section, or alert | `p-4` (16px) — **default for containers** |
-| Padding inside a dialog, large card, or feature panel | `p-6` (24px) |
-| Vertical stack of related items (form fields, list rows) | `space-y-2` (8px) |
-| Vertical stack of distinct sections on a page | `space-y-4` (16px) or `space-y-6` (24px) |
-| Page-level section separation | `space-y-8` (32px) or `py-8` |
-| Margin below heading / above content | `mb-2` inline, `mb-4` sections |
 
 ## Opacity & Transparency
 - NEVER invent new opacity values ad hoc — stick to the DS scale
