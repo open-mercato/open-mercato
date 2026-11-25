@@ -121,8 +121,8 @@ Zod schemas validate ids (`<moduleId>.<snake>`), that a strategy only claims ent
 
 ### Default exporter (`table-json`)
 
-- Inventory: `listEntityMetadataFromRegistry` (`shared/lib/db/entityMetadata.ts:39`) + `resolveEntityIdFromMetadata` (`shared/lib/encryption/entityIds.ts:80`), grouped by owning module. Tables without a mapped entity but with a `tenant_id` column (`information_schema`, e.g. pgvector) are exported by `tenant_id` under `modules/_unmapped/` and flagged in the manifest.
-- Scope: rows with `tenant_id = :tenant`; organization scope adds `organization_id = :org` (tenant-shared `organization_id IS NULL` rows excluded unless the owning module opts in, and listed as `excludedTenantShared` counts). Child tables without scope columns are reached through their parent FK (same parent rules the DSR engine's tenant purge inventory defines; a unit test fails when a snapshot table resolves to no rule).
+- Inventory: `listEntityMetadataFromRegistry` (`shared/lib/db/entityMetadata.ts:39`) + `resolveEntityIdFromMetadata` (`shared/lib/encryption/entityIds.ts:80`), grouped by owning module. Tables without a mapped entity but with a `tenant_id` column (`information_schema`, e.g. pgvector) are exported by `tenant_id` under `modules/_unmapped/` and flagged in the manifest — **tenant scope only**; in organization scope such a table is exported only when it has an `organization_id` column or a parent rule, otherwise it is skipped and listed.
+- Scope: rows with `tenant_id = :tenant`; organization scope adds `organization_id = :org` (tenant-shared `organization_id IS NULL` rows excluded unless the owning module opts in, and listed as `excludedTenantShared` counts). Child tables without scope columns are reached through their parent FK (same parent rules the DSR engine's tenant purge inventory defines). A unit test fails when a snapshot table resolves to no tenant rule, and when an exported table resolves to no **organization** rule (organization column, parent rule, or explicit tenant-only skip).
 - Paging: keyset on primary key (`id > :last ORDER BY id LIMIT 1000`), one read-only repeatable-read transaction **per batch** (not per run — long snapshots would bloat vacuum on 100 GB databases); the manifest declares `consistency: 'per-batch'` and the run's `startedAt/finishedAt` window.
 - Values: database column names; `plain` mode decrypts via `tenantEncryptionService.decryptEntityPayload(entityId, row, tenantId, orgId)` (`tenantDataEncryptionService.ts:642`), custom-field values via `decryptCustomFieldValue`, custom-entity documents via `decryptCustomEntityDocument`. `encrypted` mode reads raw rows and never calls the decryptor.
 - Always denied (both modes, cannot be overridden by a declaration): password/secret/token hashes and encryption-map `hashField` lookup hashes, whole credential tables (`api_keys`, `integration_credentials`, sessions, password resets, email verifications, `user_mfa_methods`, `mfa_recovery_codes`, `sudo_sessions`, `scim_tokens`), plus every module's `denyFields`. The denylist lives in `lib/secretsDenylist.ts`; omitted column **names** (never values) are listed in the manifest.
@@ -157,7 +157,7 @@ last part additionally:
 ### Resume
 
 - Checkpoint = at part seal: `data_exit_parts` row (seq, storage key, size, sha256) + each item's `cursor` and counters as of the seal, written in one transaction after the upload is confirmed.
-- On restart (`attempts` > 1, or `POST …/resume`): delete the unsealed local part, reload item cursors from the last sealed checkpoint, continue with part `seq + 1`. Strategy cursors must be deterministic (a strategy that cannot resume returns `cursor: null` and restarts its item; the manifest records `restartedItems`).
+- On restart (`attempts` > 1, or `POST …/resume`): delete the unsealed local part, reload item cursors from the last sealed checkpoint, continue with part `seq + 1`. The file-dedupe set is not separate state: it is rebuilt from `data_exit_part_files` (attachment ids written per sealed part), so resume neither duplicates nor misses files. At most one part of work (≤ `partSizeBytes`) is redone after a crash. Strategy cursors must be deterministic (a strategy that cannot resume returns `cursor: null` and restarts its item; the manifest records `restartedItems`).
 - A run failing 3 times becomes `failed` with a resumable flag; operator resume is explicit.
 
 ### Scheduling
@@ -167,7 +167,7 @@ last part additionally:
 
 ### Expiry
 
-Completed/failed/cancelled runs get `retentionExpiresAt = finishedAt + OM_DATA_EXIT_RETENTION_DAYS` (default 7). Worker `data_exit:expire` (daily) deletes parts from storage and marks the run `expired`; the row (no data) stays for audit.
+Completed/failed/cancelled runs get `retentionExpiresAt = finishedAt + OM_DATA_EXIT_RETENTION_DAYS` (default 7; **plain-mode runs use `OM_DATA_EXIT_PLAIN_RETENTION_HOURS`, default 48**). Worker `data_exit:expire` (daily) deletes parts from storage and marks the run `expired`; the row (no data) stays for audit.
 
 ### Access control (`acl.ts`)
 
@@ -186,17 +186,19 @@ Completed/failed/cancelled runs get `retentionExpiresAt = finishedAt + OM_DATA_E
 
 All tables in the `data_exit` module; `id uuid PK`, `created_at`, `updated_at`, `deleted_at`. Runs are system-managed background-job rows (exempt from the optimistic-lock UI contract per `packages/core/AGENTS.md`; cancel/resume are idempotent state transitions guarded by `status`).
 
-**`data_exit_runs`** — `tenant_id` (target tenant, not null), `organization_id` (null = whole tenant), `kind` (`scope` | `subject`), `mode` (`encrypted` | `plain`), `include_files` bool, `part_size_bytes` bigint, `module_ids` jsonb null (null = all enabled), `status` (`scheduled` | `queued` | `running` | `completed` | `incomplete` | `failed` | `cancelled` | `expired`), `scheduled_for`, `started_at`, `finished_at`, `retention_expires_at`, `requested_by_user_id`, `progress_job_id`, `totals` jsonb (`records`, `files`, `bytes`, `parts`), `estimate` jsonb (last dry run), `resumable` bool, `attempt` int, `error_code` text (no free-text echo of data), `subject_request` jsonb null (companion spec; holds identifiers **encrypted** via the module's `encryption.ts`). Indexes: `(tenant_id, created_at desc)`, `(status, scheduled_for)`.
+**`data_exit_runs`** — `tenant_id` (target tenant, not null), `organization_id` (null = whole tenant), `kind` (`scope` | `subject`), `mode` (`encrypted` | `plain`), `include_files` bool, `part_size_bytes` bigint, `module_ids` jsonb null (null = all enabled), `status` (`scheduled` | `queued` | `running` | `completed` | `incomplete` | `failed` | `cancelled` | `expired`), `scheduled_for`, `started_at`, `finished_at`, `retention_expires_at`, `requested_by_user_id`, `progress_job_id`, `totals` jsonb (`records`, `files`, `bytes`, `parts`), `estimate` jsonb (last dry run), `resumable` bool, `attempt` int, `last_heartbeat_at`, `error_code` text (no free-text echo of data). `kind` accepts only `scope` here; the companion subject-export spec adds `subject` and the encrypted `subject_request` column in its own migration. Indexes: `(tenant_id, created_at desc)`, `(status, scheduled_for)`.
 
 **`data_exit_run_items`** — `run_id`, `module_id`, `strategy_id` (`table-json:<entityId>` for defaults), `status` (`queued`|`running`|`done`|`failed`|`skipped`), `records_done`, `records_estimated`, `bytes_done`, `files_done`, `cursor` jsonb (checkpointed), `restarted` bool, `error_code`. Index `(run_id, module_id)`.
 
 **`data_exit_parts`** — `run_id`, `seq`, `storage_key`, `size_bytes`, `sha256`, `entries`, `oversize` bool, `sealed_at`, `deleted_at`. Unique `(run_id, seq)`.
 
-Sensitive data: parts in `plain` mode contain decrypted PII. They are stored in a dedicated storage partition `data_exit` (private, no public URL), never cached, never indexed; `data_exit` declares `encryption.ts` for `subject_request` and declares itself in `privacy.ts` with class `data_exit.requests` (exports/erases the request rows of a subject; archives expire by age).
+**`data_exit_part_files`** — `run_id`, `part_seq`, `attachment_id`. Unique `(run_id, attachment_id)`; written in the seal transaction; source of the dedupe set on resume.
+
+Sensitive data: parts in `plain` mode contain decrypted PII. They are stored in a dedicated storage partition `data_exit` (private, no public URL), never cached, never indexed. `data_exit` declares itself exempt in `privacy.ts` here (run rows hold ids and counts only); the companion spec adds `encryption.ts` for `subject_request` and the `data_exit.requests` class.
 
 ## 📝 API Contracts
 
-All under `/api/data-exit`, `requireAuth`, per-method `requireFeatures`, zod-validated, `openApi` exported, writes through `runMutationGuards`. Tenant comes from the auth context except for superadmin-provided `tenantId`.
+All under `/api/data-exit`, `requireAuth`, per-method `requireFeatures`, zod-validated, `openApi` exported, writes through `runMutationGuards`. Tenant comes from the auth context except for superadmin-provided `tenantId`. **Record access:** every route that reads or acts on an existing run (list, detail, cancel, resume, download) filters by `run.tenant_id = auth.tenantId` and, for organization-scope runs, `run.organization_id ∈ caller's organization access`; tenant-scope runs additionally require access to all organizations. Only superadmin bypasses this filter. A run outside the caller's access returns 404.
 
 | Method & path | Feature | Request → Response |
 |---|---|---|
@@ -259,10 +261,10 @@ Clickable prototype: [`.ai/prototypes/discovery/data-exit-kit/revision-001/index
 
 | # | Question | Applied default | Why | Confirm? |
 |---|---|---|---|---|
-| Q1 | One spec or split (data exit / backups UI / GDPR subject export)? | Three specs on one PR, each independently deployable; this one has no dependency on the other two. | Brief bundles three deployable capabilities. | reversible |
+| Q1 | One spec or split (data exit / backups UI / GDPR subject export)? | Three specs on one PR. This one depends on neither companion; subject-export columns, ACL use and the `data_exit.requests` privacy class arrive with the companion spec. The companion depends on this spec and on the privacy contract specs. | Brief bundles three deployable capabilities. | reversible |
 | Q2 | Relation to the planned `privacy export-tenant` (DSR engine)? | `data_exit` supersedes that section; `privacy` keeps erasure, retention, purge. | Two tenant exporters would diverge; the user asked for UI, queue, modes and module strategies the CLI section lacks. | ⚠ NEEDS HUMAN CONFIRMATION (changes the GDPR program's module split, #8593) |
 | Q3 | Field policy: allow-by-default (all data) or deny-by-default (DSR engine rule)? | Allow-by-default with a hard secrets denylist and a guard test. | Brief requires "ALL the data"; deny-by-default would export almost nothing until ~50 modules declare fields. | ⚠ NEEDS HUMAN CONFIRMATION (security trade-off) |
-| Q4 | Encrypt the ZIP parts themselves? | No archive encryption in v1; private partition, ACL-gated download, audit, 7-day expiry. Follow-up: optional age recipients reusing the backup engine's adapter. | Avoids a new production dependency before #9333's age dependency is approved. | ⚠ NEEDS HUMAN CONFIRMATION |
+| Q4 | Encrypt the ZIP parts themselves? | No archive encryption in v1; private partition, record-scoped ACL-gated download, audit, 7-day expiry (48 h for plain). Follow-up: optional age recipients reusing the backup engine's adapter. Recommended gate: do not enable `plain` mode in production releases until this is decided. | Avoids a new production dependency before #9333's age dependency is approved. | ⚠ NEEDS HUMAN CONFIRMATION |
 | Q5 | Output format? | JSON Lines (`.jsonl`) per entity, database column names, inside ZIP64 parts. | Streamable at 100 GB+; still JSON per record. | reversible |
 | Q6 | Recurring scheduled exits? | No; one-off "queue now" or "at date/time". | Smallest scope; scheduler UI can add later. | reversible |
 | Q7 | Who may use it by default? | Superadmin only (`defaultRoleFeatures: { superadmin: ['data_exit.*'] }`); others by explicit grant. | Brief requirement. | reversible |
@@ -286,7 +288,7 @@ Clickable prototype: [`.ai/prototypes/discovery/data-exit-kit/revision-001/index
 
 ### Phase 2 — Engine core
 1. Scaffold `data_exit` (index, acl, setup with superadmin-only grants, di, i18n, modules.ts flag + template sync).
-2. Entities `data_exit_runs`, `data_exit_run_items`, `data_exit_parts` + migration and snapshot.
+2. Entities `data_exit_runs`, `data_exit_run_items`, `data_exit_parts`, `data_exit_part_files` + migration and snapshot; record-access filter helper with tests (other tenant's run → 404, org outside access → 404).
 3. `lib/scope.ts` + parent-rule resolution; unit tests per scope type, incl. org exclusion of tenant-shared rows.
 4. `lib/tableJsonExporter.ts` (keyset, per-batch tx, encrypted/plain) — integration test on a seeded tenant: counts equal DB counts; encrypted values byte-equal to stored; plain values decrypted.
 5. `lib/secretsDenylist.ts` + guard test over all ORM metadata.
@@ -321,3 +323,4 @@ Clickable prototype: [`.ai/prototypes/discovery/data-exit-kit/revision-001/index
 
 ### 2026-11-25
 - Initial spec (autonomous, `om-auto-write-spec`).
+- Scope review: org-scope rules for unmapped/child tables, record-level access on run routes, dedupe state in checkpoints, 48 h plain retention, subject hooks moved to companion spec.

@@ -13,7 +13,7 @@ Supersedes: .ai/specs/enterprise/GDPR/2026-11-16-privacy-dsr-engine.md — secti
 
 ## 📝 TLDR
 
-**Proposal, not implementation.** A controller answering an access or portability request must today find a person across ~50 modules by hand; only `forms` has a subject export (`forms/services/export-service.ts:148`). **Proposed (future):** with the Enterprise `data_exit` module enabled, a permitted user (superadmin by default, `data_exit.subject_export`) enters **an identifier — email, phone, national ID number, user/person/portal-user id or any module-declared kind** — runs a **dry run** that shows the matched people and **how many records and files each module will export**, then queues the export. Every module that holds personal data contributes its own **subject exporter** (the privacy contract's `exportSubject`, extended with identifier kinds and a cheap `countSubject` for dry runs); the result is a Data Exit archive (`subject.json` + per-module JSON + files). Without `data_exit` (or the privacy runner) enabled, the declarations are inert and modules work exactly as today.
+**Proposal, not implementation.** A controller answering an access or portability request must today find a person across ~50 modules by hand; only `forms` has a subject export (`forms/services/export-service.ts:148`). **Proposed (future):** with the Enterprise `data_exit` module enabled, a permitted user (superadmin by default, `data_exit.subject_export`) enters **an identifier — email, phone, national ID number, user/person/portal-user id or any module-declared kind** — runs a **dry run** that shows the matched people and **how many records and files each module will export**, then queues the export. Every module that holds personal data contributes its own **subject exporter** (the privacy contract's `exportSubject`, extended with identifier kinds and a cheap `countSubject` for dry runs); the result is a Data Exit archive (`subject.json` + per-module JSON + files). Without `data_exit` enabled, the declarations are inert for export and modules work exactly as today (the `privacy` module, if enabled, uses the same handlers only for erasure and links its Export action to `data_exit`).
 
 ## 📝 Problem Statement
 
@@ -28,7 +28,7 @@ One per-module exporter, two callers. This spec does **not** add a second regist
 1. **Identifiers (contract, additive).** `PrivacyLookup` gains `identifiers?: Array<{ kind: string; value: string }>`. Kinds are declared: platform kinds `email`, `phone`, `national_id`, `tax_id`, `user_id` (`auth:user`), `person_id` (`customers:person`), `portal_user_id` (`customer_accounts:user`), `team_member_id` (`staff:team_member`); modules may declare more (`<moduleId>.<name>`, e.g. `sales.customer_number`). Each `PrivacyDataClass` gains `identifierKinds?: string[]` — the kinds its `findSubjects` / `exportSubject` can match.
 2. **Custom-field identifiers.** A custom field definition may carry `privacyIdentifierKind` (e.g. `national_id`) — additive option in the `entities` module (`cf.*` DSL + definition JSON). The `entities` privacy handler resolves such identifiers by a decrypting scan of the tenant's values for those fields only and returns the owning records' subjects (e.g. a CRM person whose custom field "PESEL" equals the value).
 3. **Dry-run counts.** `PrivacyHandler` gains optional `countSubject(request): Promise<{ sections: Array<{ key: string; records: number }>; files: number; bytes?: number }>`. Without it, the runner calls `exportSubject` with a 10 000-record guard and counts (exact but slower); the UI labels such modules "counted by full read".
-4. **Run.** Resolve (identifiers → `findSubjects` on every class declaring the kind) → user confirms the matched people (masked labels, avoids exporting the wrong person) → dry run (`countSubject` per class) → queue a `data_exit_runs` row with `kind = 'subject'` → the worker calls `exportSubject` per class and subject in class-id order and streams sections and files into the Data Exit part writer (always `plain` mode — an Art. 15 copy must be intelligible; secrets never exported per contract).
+4. **Run.** Each class × subject is one run item with no cursor: after a crash the item restarts whole (subject items are small), and file dedupe comes from `data_exit_part_files`. Resolve (identifiers → `findSubjects` on every class declaring the kind) → user confirms the matched people (masked labels, avoids exporting the wrong person) → dry run (`countSubject` per class) → queue a `data_exit_runs` row with `kind = 'subject'` → the worker calls `exportSubject` per class and subject in class-id order and streams sections and files into the Data Exit part writer (always `plain` mode — an Art. 15 copy must be intelligible; secrets never exported per contract).
 5. **Every module registers.** Each module listed in [Module coverage](#module-coverage) ships its `privacy.ts` class(es) with `identifierKinds` and a handler (most handlers are already specified in the coverage specs; this spec adds identifier kinds and `countSubject`). Modules with no personal data declare `exemptTables` with a reason. The existing coverage test fails on an undeclared table.
 
 ### Gating: "only when `data_exit` is registered and turned on"
@@ -82,7 +82,7 @@ Same ZIP parts as Data Exit; content:
 
 ```
 subject.json                  request (identifier kinds only, values masked), scope, generatedAt, subjects (kind, id, masked label), per class { classId, status, sections: [{ key, file, records }] }, files, related, notCovered, coverLetter (as defined by the DSR engine)
-modules/<moduleId>/<section>.json   records of that section (JSON array; subject exports are small — the 10 000-record guard per class bounds them, larger sections switch to .jsonl)
+modules/<moduleId>/<section>.jsonl  records of that section (JSON Lines, same as Data Exit)
 files/<attachmentId>          attachment bytes via `attachmentService.readByIds(scope, ids)` (seam from the coverage spec) streamed
 ```
 
@@ -132,7 +132,7 @@ Free-text mentions (a name inside someone else's note) remain a stated limit, as
 
 ## 📝 Data Model
 
-No new table: a subject export is a `data_exit_runs` row with `kind = 'subject'`, `mode = 'plain'`, `subject_request` (encrypted jsonb: identifier kinds + values, selected subjects), and items per class (`strategy_id = privacy:<classId>`). Dry-run results are returned, not stored (only totals in `estimate`). DSR log: one action-log entry per resolve/estimate/export (`data_exit.subject.resolve|estimate|export`) with kinds and counts, never values — consistent with the DSR engine's request log.
+This spec's migration adds `kind = 'subject'` and the encrypted `subject_request` column to `data_exit_runs`, declares `data_exit/encryption.ts` and the `data_exit.requests` privacy class. A subject export is a `data_exit_runs` row with `kind = 'subject'`, `mode = 'plain'`, `subject_request` (encrypted jsonb: identifier kinds + values, selected subjects), and items per class (`strategy_id = privacy:<classId>`). Dry-run results are returned, not stored (only totals in `estimate`). DSR log: one action-log entry per resolve/estimate/export (`data_exit.subject.resolve|estimate|export`) with kinds and counts, never values — consistent with the DSR engine's request log.
 
 `entities`: `CustomFieldDefinition` config gains optional `privacyIdentifierKind: string` (JSON config, no column) — additive.
 
@@ -145,7 +145,7 @@ Under `/api/data-exit/subjects`, `requireFeatures: ['data_exit.subject_export']`
 | `GET /api/data-exit/subjects/identifier-kinds` | → `[{ kind, label, subjectKind?, modules: string[] }]` (only kinds some enabled class declares) |
 | `POST /api/data-exit/subjects/resolve` | `{ organizationId?, identifiers: [{ kind, value }] (1–10) }` → `{ subjects: [{ kind, id, maskedLabel, matchedBy: [{ kind, moduleId }] }], unmatchedKinds: string[] }` |
 | `POST /api/data-exit/subjects/estimate` | `{ organizationId?, subjects: [{kind,id}] (1–20), identifiers? }` → `{ classes: [{ classId, moduleId, sections: [{key, records}], files, bytes?, method: 'count' \| 'full_read', status }], totals, notCovered }` |
-| `POST /api/data-exit/runs` (`kind: 'subject'`) | `{ organizationId?, subjects, identifiers?, partSizeBytes? }` → `202 { runId }` |
+| `POST /api/data-exit/runs` (`kind: 'subject'`) | `{ organizationId?, subjects, identifiers?, partSizeBytes? }` → `202 { runId }`. Gate: `data_exit.subject_export` only. Subject runs are always plain; they are **exempt from `data_exit.export_plain`** because they contain one person's data for an Art. 15 answer, not a tenant dump. Granting `subject_export` is therefore a plaintext-PII grant, and the ACL docs say so. |
 
 Download, progress, cancel, expiry: as in [Data Exit Kit](../2026-11-25-data-exit-kit.md#api-contracts).
 
@@ -234,3 +234,4 @@ Prototype: [`.ai/prototypes/discovery/data-exit-kit/revision-001/index.html#subj
 
 ### 2026-11-25
 - Initial spec (autonomous, `om-auto-write-spec`).
+- Scope review: owns subject columns/encryption, `.jsonl` layout, explicit `export_plain` exemption, restart-whole items.

@@ -59,11 +59,13 @@ flowchart LR
 
 Takeaway: the UI only enqueues and observes; every backup byte goes through the reviewed engine, and restore never leaves the CLI.
 
-Single-flight: a `backup_runs` row in `running` blocks new runs (409) — scheduled jobs that find one no-op with a log line. Worker heartbeat every 5 s; a run with no heartbeat for 10 min is marked `interrupted` (resumable) by the retention sweep.
+Single-flight: a `backup_runs` row in `running` **with `last_heartbeat_at` younger than 10 min** blocks new runs (409) — scheduled jobs that find one no-op with a log line. The single-flight check itself marks an older `running` row `interrupted` (resumable) before admitting the new run, so a crashed worker never blocks backups longer than 10 min. Worker heartbeat every 5 s.
+
+Workspace and upload: the worker requires a **persistent workspace volume** (`OM_BACKUP_WORKSPACE`, the private persistent recovery volume #9333 adds for Docker) and uploads each chunk as soon as the engine seals it (journal-driven uploader), mirroring the journal to the target. Free space needed is bounded by in-flight chunks, not database size; resume works on the same host from the local journal, and on a new host only after the local workspace is restored from the mirror (v1: same-host only; documented).
 
 ## 📝 Data Model
 
-`backup_runs` (instance-scoped, no `tenant_id`/`organization_id` — deviation and compensating controls exactly as 07-08 *Data Model*): `id`, `status` (`pending` | `running` | `completed` | `failed` | `interrupted` | `expired` | `deleted`), `trigger` (`schedule` | `manual` | `cli`), `schedule_id` null, `triggered_by_user_id` null, `engine_backup_id`, `started_at`, `finished_at`, `size_bytes`, `chunk_count`, `manifest_sha256`, `recipient_set_fingerprint`, `consistency` (`single-snapshot` | `quiesced` | `multi-snapshot`), `engine_version`, `storage_prefix`, `progress` jsonb (overall + last N entity states, throttled to 1 write / 2 s), `resumable` bool, `verify_status` (`none` | `running` | `passed` | `failed`), `verified_at`, `retention_expires_at`, `error_code`, `created_at`, `updated_at`. System-managed rows — exempt from the optimistic-lock UI contract. Indexes per 07-08.
+`backup_runs` (renames 07-08's `backup_run`; instance-scoped, no `tenant_id`/`organization_id` — deviation and compensating controls exactly as 07-08 *Data Model*): `id`, `status` (`pending` | `running` | `completed` | `failed` | `interrupted` | `expired` | `deleted`), `trigger` (`schedule` | `manual` | `cli`), `schedule_id` null, `triggered_by_user_id` null, `engine_backup_id`, `started_at`, `finished_at`, `size_bytes`, `chunk_count`, `manifest_sha256`, `recipient_set_fingerprint`, `consistency` (`single-snapshot` | `quiesced` | `multi-snapshot`), `engine_version`, `storage_prefix`, `progress` jsonb (overall + last N entity states, throttled to 1 write / 2 s), `last_heartbeat_at`, `resumable` bool, `verify_status` (`none` | `running` | `passed` | `failed`), `verified_at`, `retention_expires_at`, `error_code`, `created_at`, `updated_at`. System-managed rows — exempt from the optimistic-lock UI contract. Indexes per 07-08.
 
 No schedule table: schedules are scheduler rows filtered by `sourceModule = 'backups'`.
 
@@ -79,13 +81,15 @@ No schedule table: schedules are scheduler rows filtered by `sourceModule = 'bac
 | `POST /api/backups/runs` | manage | `{ label?: string }` → `202 { runId, progressJobId }`; 409 `backup_running`; 412 `backup_not_configured` |
 | `POST /api/backups/runs/:id/resume` | manage | only when `resumable` and workspace present |
 | `POST /api/backups/runs/:id/verify` | manage | → `202 { runId }` |
+| `GET /api/backups/runs/:id/manifest` | view | the artifact's non-secret `manifest.json` (no recipients' private parts, no keys) |
+| `DELETE /api/backups/runs/:id` | manage | deletes the artifact and marks the row `deleted`; refused for the newest completed backup |
 | `GET/PUT /api/backups/schedules` | view / schedule | `{ schedules: [{ id, enabled, preset: 'daily'\|'twice_daily'\|'weekly'\|'custom', cron, timezone: 'UTC', verifyAfter: boolean, nextRunAt }] }` — validated cron (min interval 1 h), stored via `schedulerService` |
 
 Events: `backups.run.started|completed|failed|interrupted`, `backups.verify.completed|failed` (ids, sizes, status only; `clientBroadcast: true`). Manual runs notify the triggering user; scheduled failures are surfaced by freshness (tenant-less notification limitation from 07-08 stands).
 
 ## 📝 UI/UX
 
-**Settings → System → Backups** (`pageContext: 'settings'`, `requireFeatures: ['backups.view']`):
+**Settings → System → Backups** (instance-level, so not under the tenant-level "Data & compliance" section used by Data Exit) (`pageContext: 'settings'`, `requireFeatures: ['backups.view']`):
 
 - KPI row: freshness (`ok`/`stale`/`never` with threshold `OM_BACKUP_FRESHNESS_HOURS`), encryption (age, recipient count, fingerprint), retention + archive count/size, target (read-only).
 - **Back up now** primary action (confirmation dialog with expected duration from the last run; `Cmd/Ctrl+Enter`/`Escape`).
@@ -107,7 +111,7 @@ Prototype: [`.ai/prototypes/discovery/data-exit-kit/revision-001/index.html#back
 | Not configured (no recipients/target) | Run now and schedule disabled; status `configured: false` with missing items. |
 | Run already running | 409; button disabled with link to the current run. |
 | Worker killed mid-backup | Row `interrupted`, `resumable`; Resume continues from the journal on the same host; on another host Resume disabled and a fresh run suggested. |
-| Upload fails after engine success | Artifact kept in workspace; retry upload only (`resume` skips engine). |
+| Upload fails after engine success | Chunks not yet uploaded stay in the workspace; resume retries uploads only. |
 | Disk full in workspace | Engine exit `refused/failed` mapped to `error_code: workspace_full`, resumable after cleanup. |
 | Verification fails | Run keeps `completed`, `verify_status: failed`, freshness `stale` until a verified backup exists (configurable `OM_BACKUP_REQUIRE_VERIFIED_FOR_FRESHNESS`, default false). |
 | Scheduler module absent | Schedule card shows "scheduler unavailable"; run now still works. |
@@ -166,3 +170,4 @@ Prototype: [`.ai/prototypes/discovery/data-exit-kit/revision-001/index.html#back
 
 ### 2026-11-25
 - Initial spec (autonomous, `om-auto-write-spec`).
+- Scope review: heartbeat-based single-flight, persistent workspace + per-chunk upload, manifest/delete routes, naming.
