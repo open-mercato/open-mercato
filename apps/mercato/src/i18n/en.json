@@ -1253,5 +1253,7 @@
   "vector.api.errors.purgeFailed": "Vector index purge failed",
   "vector.api.errors.reindexFailed": "Vector reindex failed",
   "vector.api.errors.searchFailed": "Vector search failed",
-  "vector.api.errors.updateFailed": "Failed to update vector settings."
+  "vector.api.errors.updateFailed": "Failed to update vector settings.",
+  "ui.splitter.handle.ariaLabel": "Resize panels",
+  "ui.anchor.ariaLabel": "On this page"
 }

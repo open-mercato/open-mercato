@@ -1253,5 +1253,7 @@
   "vector.api.errors.purgeFailed": "Vektor-Index-Bereinigung fehlgeschlagen",
   "vector.api.errors.reindexFailed": "Vektor-Neuindizierung fehlgeschlagen",
   "vector.api.errors.searchFailed": "Vektorsuche fehlgeschlagen",
-  "vector.api.errors.updateFailed": "Vektor-Einstellungen konnten nicht aktualisiert werden."
+  "vector.api.errors.updateFailed": "Vektor-Einstellungen konnten nicht aktualisiert werden.",
+  "ui.splitter.handle.ariaLabel": "Bereichsgröße ändern",
+  "ui.anchor.ariaLabel": "Auf dieser Seite"
 }

@@ -1253,5 +1253,7 @@
   "vector.api.errors.purgeFailed": "Error al purgar el índice vectorial",
   "vector.api.errors.reindexFailed": "Reindexación vectorial fallida",
   "vector.api.errors.searchFailed": "Búsqueda vectorial fallida",
-  "vector.api.errors.updateFailed": "No se pudieron actualizar la configuración vectorial."
+  "vector.api.errors.updateFailed": "No se pudieron actualizar la configuración vectorial.",
+  "ui.splitter.handle.ariaLabel": "Cambiar el tamaño de los paneles",
+  "ui.anchor.ariaLabel": "En esta página"
 }

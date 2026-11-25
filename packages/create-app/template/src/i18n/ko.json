@@ -1253,5 +1253,7 @@
   "vector.api.errors.purgeFailed": "벡터 인덱스 삭제에 실패했습니다",
   "vector.api.errors.reindexFailed": "벡터 재인덱싱에 실패했습니다",
   "vector.api.errors.searchFailed": "벡터 검색에 실패했습니다",
-  "vector.api.errors.updateFailed": "벡터 설정 업데이트에 실패했습니다."
+  "vector.api.errors.updateFailed": "벡터 설정 업데이트에 실패했습니다.",
+  "ui.splitter.handle.ariaLabel": "패널 크기 조절",
+  "ui.anchor.ariaLabel": "이 페이지에서"
 }
