@@ -27,7 +27,7 @@ async function hasManageAllFeature(context: InterceptorContext): Promise<boolean
       return await rbac.userHasAllFeatures(
         context.userId,
         ['staff.timesheets.manage_all'],
-        { tenantId: context.tenantId ?? null, organizationId: context.organizationId ?? null },
+        { tenantId: context.tenantId || null, organizationId: context.organizationId || null },
       )
     }
   } catch {
@@ -58,8 +58,8 @@ export const interceptors: ApiInterceptor[] = [
       const staffMember = await getStaffMemberByUserId(
         context.em,
         context.userId,
-        context.tenantId ?? null,
-        context.organizationId ?? null,
+        context.tenantId || null,
+        context.organizationId || null,
       )
 
       if (!staffMember) {
@@ -100,8 +100,8 @@ export const interceptors: ApiInterceptor[] = [
       const staffMember = await getStaffMemberByUserId(
         context.em,
         context.userId,
-        context.tenantId ?? null,
-        context.organizationId ?? null,
+        context.tenantId || null,
+        context.organizationId || null,
       )
 
       if (!staffMember) {

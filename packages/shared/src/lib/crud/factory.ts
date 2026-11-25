@@ -1451,6 +1451,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   }
 
   /**
+   * Scope handed to response enrichers and API interceptors. Their context types keep
+   * `organizationId: string` / `tenantId: string`, so a caller without one (an API key
+   * created for all organizations) gets the documented `''` sentinel and never a
+   * fallback organization the request did not select (#10188).
+   */
+  function resolveExtensionContextScope(
+    ctx: CrudCtx,
+    auth: NonNullable<CrudCtx['auth']>,
+  ): { organizationId: string; tenantId: string } {
+    return {
+      organizationId: ctx.selectedOrganizationId ?? auth.orgId ?? '',
+      tenantId: auth.tenantId ?? '',
+    }
+  }
+
+  /**
    * Build enricher context from CRUD context and resolve user features for ACL gating.
    * Returns null if enrichers are not configured or auth is missing.
    */
@@ -1461,8 +1477,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     const userFeatures = await resolveUserFeaturesOnce(ctx)
 
     return {
-      organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
-      tenantId: ctx.auth.tenantId ?? '',
+      ...resolveExtensionContextScope(ctx, ctx.auth),
       userId: ctx.auth.sub,
       em: ctx.container.resolve('em') as EntityManager,
       container: ctx.container,
@@ -1495,8 +1510,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     if (!ctx.auth) return null
     return {
       userId: ctx.auth.sub,
-      organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? '',
-      tenantId: ctx.auth.tenantId ?? '',
+      ...resolveExtensionContextScope(ctx, ctx.auth),
       em: ctx.container.resolve('em') as EntityManager,
       container: ctx.container,
       userFeatures: await resolveUserFeatures(ctx),

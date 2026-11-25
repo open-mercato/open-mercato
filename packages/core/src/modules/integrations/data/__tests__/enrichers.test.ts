@@ -125,4 +125,61 @@ describe('external ID mapping response enricher', () => {
     ])
     expect(result._meta.enrichedBy).toEqual(['integrations.external-id-mapping'])
   })
+
+  describe('without an organization in scope (#10188)', () => {
+    function orglessContext(overrides: Record<string, unknown> = {}) {
+      return {
+        organizationId: '',
+        tenantId: 'tenant-1',
+        userId: 'api_key:key-1',
+        userFeatures: ['integrations.view'],
+        em: { fork: jest.fn(() => ({ id: 'forked-em' })) },
+        container: {},
+        ...overrides,
+      }
+    }
+
+    beforeEach(() => {
+      mockedFindWithDecryption.mockRejectedValue(new Error('invalid input syntax for type uuid: ""'))
+    })
+
+    it('skips the mapping query for a list instead of binding an empty organization id', async () => {
+      const result = await applyResponseEnrichers(
+        [{ id: 'record-1' }, { id: 'record-2' }],
+        'customers.company',
+        orglessContext(),
+      )
+
+      expect(mockedFindWithDecryption).not.toHaveBeenCalled()
+      expect(result.items).toEqual([
+        { id: 'record-1', _integrations: {} },
+        { id: 'record-2', _integrations: {} },
+      ])
+      expect(result._meta.enrichedBy).toEqual(['integrations.external-id-mapping'])
+      expect(result._meta.enricherErrors).toBeUndefined()
+    })
+
+    it('skips the mapping query for a single record instead of binding an empty organization id', async () => {
+      const result = await applyResponseEnricherToRecord(
+        { id: 'record-1' },
+        'customers.company',
+        orglessContext(),
+      )
+
+      expect(mockedFindWithDecryption).not.toHaveBeenCalled()
+      expect(result.record).toEqual({ id: 'record-1', _integrations: {} })
+      expect(result._meta.enricherErrors).toBeUndefined()
+    })
+
+    it('skips the mapping query when the tenant is missing too', async () => {
+      const result = await applyResponseEnrichers(
+        [{ id: 'record-1' }],
+        'customers.company',
+        orglessContext({ organizationId: 'org-1', tenantId: '' }),
+      )
+
+      expect(mockedFindWithDecryption).not.toHaveBeenCalled()
+      expect(result.items).toEqual([{ id: 'record-1', _integrations: {} }])
+    })
+  })
 })

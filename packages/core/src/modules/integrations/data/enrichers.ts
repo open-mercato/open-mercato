@@ -17,6 +17,10 @@ import { SyncExternalIdMapping } from './entities'
 type EntityRecord = Record<string, unknown> & { id: string }
 type EnricherScope = EnricherContext & { targetEntity?: string; em: EntityManager }
 
+function hasMappingScope(context: EnricherScope): context is EnricherScope & { targetEntity: string } {
+  return Boolean(context.targetEntity && context.organizationId && context.tenantId)
+}
+
 function buildIntegrationData(
   mappings: SyncExternalIdMapping[],
 ): ExternalIdEnrichment['_integrations'] {
@@ -45,9 +49,9 @@ const externalIdMappingEnricher: ResponseEnricher<EntityRecord, ExternalIdEnrich
   fallback: {},
 
   async enrichOne(record, context: EnricherScope) {
+    if (!hasMappingScope(context)) return { ...record, _integrations: {} }
     const em = context.em.fork()
     const targetEntity = context.targetEntity
-    if (!targetEntity) return { ...record, _integrations: {} }
 
     const mappings = await findWithDecryption(
       em,
@@ -72,9 +76,9 @@ const externalIdMappingEnricher: ResponseEnricher<EntityRecord, ExternalIdEnrich
   },
 
   async enrichMany(records, context: EnricherScope) {
+    if (!hasMappingScope(context) || records.length === 0) return records.map((r) => ({ ...r, _integrations: {} }))
     const em = context.em.fork()
     const targetEntity = context.targetEntity
-    if (!targetEntity || records.length === 0) return records.map((r) => ({ ...r, _integrations: {} }))
 
     const recordIds = records.map((r) => r.id)
     const allMappings = await findWithDecryption(
