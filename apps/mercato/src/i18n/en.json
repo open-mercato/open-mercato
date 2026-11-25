@@ -760,6 +760,11 @@
   "ui.blocks.timeline.itemActions": "Item actions",
   "ui.blocks.timeline.loading": "Loading activity",
   "ui.blocks.timeline.showMore": "Show more",
+  "ui.blocks.timeline.thisWeek": "This week",
+  "ui.blocks.timeline.showAllChanges": "Show all changes ({count})",
+  "ui.blocks.timeline.hideChanges": "Hide changes",
+  "ui.blocks.timeline.expandBody": "Show more",
+  "ui.blocks.timeline.collapseBody": "Show less",
   "ui.blocks.timeline.today": "Today",
   "ui.blocks.timeline.yesterday": "Yesterday",
   "ui.blocks.wizard.back": "Back",
@@ -1255,5 +1260,11 @@
   "vector.api.errors.searchFailed": "Vector search failed",
   "vector.api.errors.updateFailed": "Failed to update vector settings.",
   "ui.splitter.handle.ariaLabel": "Resize panels",
-  "ui.anchor.ariaLabel": "On this page"
+  "ui.anchor.ariaLabel": "On this page",
+  "ui.result.forbidden.title": "You do not have access to this page",
+  "ui.result.forbidden.subtitle": "Ask an administrator for access, or go back to a page you can open.",
+  "ui.result.notFound.title": "Page not found",
+  "ui.result.notFound.subtitle": "The page was moved or deleted, or the link is incorrect.",
+  "ui.result.serverError.title": "Something went wrong on our side",
+  "ui.result.serverError.subtitle": "Try again in a moment. If the problem continues, contact support."
 }

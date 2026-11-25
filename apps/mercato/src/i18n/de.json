@@ -760,6 +760,11 @@
   "ui.blocks.timeline.itemActions": "Eintragsaktionen",
   "ui.blocks.timeline.loading": "Aktivität wird geladen",
   "ui.blocks.timeline.showMore": "Mehr anzeigen",
+  "ui.blocks.timeline.thisWeek": "Diese Woche",
+  "ui.blocks.timeline.showAllChanges": "Alle Änderungen anzeigen ({count})",
+  "ui.blocks.timeline.hideChanges": "Änderungen ausblenden",
+  "ui.blocks.timeline.expandBody": "Mehr anzeigen",
+  "ui.blocks.timeline.collapseBody": "Weniger anzeigen",
   "ui.blocks.timeline.today": "Heute",
   "ui.blocks.timeline.yesterday": "Gestern",
   "ui.blocks.wizard.back": "Zurück",
@@ -1255,5 +1260,11 @@
   "vector.api.errors.searchFailed": "Vektorsuche fehlgeschlagen",
   "vector.api.errors.updateFailed": "Vektor-Einstellungen konnten nicht aktualisiert werden.",
   "ui.splitter.handle.ariaLabel": "Bereichsgröße ändern",
-  "ui.anchor.ariaLabel": "Auf dieser Seite"
+  "ui.anchor.ariaLabel": "Auf dieser Seite",
+  "ui.result.forbidden.title": "Du hast keinen Zugriff auf diese Seite",
+  "ui.result.forbidden.subtitle": "Bitte einen Administrator um Zugriff oder kehre zu einer zugänglichen Seite zurück.",
+  "ui.result.notFound.title": "Seite nicht gefunden",
+  "ui.result.notFound.subtitle": "Die Seite wurde verschoben oder gelöscht, oder der Link ist falsch.",
+  "ui.result.serverError.title": "Bei uns ist etwas schiefgelaufen",
+  "ui.result.serverError.subtitle": "Versuche es gleich noch einmal. Bleibt das Problem, wende dich an den Support."
 }

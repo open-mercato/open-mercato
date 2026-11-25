@@ -760,6 +760,11 @@
   "ui.blocks.timeline.itemActions": "Akcje wpisu",
   "ui.blocks.timeline.loading": "Ładowanie aktywności",
   "ui.blocks.timeline.showMore": "Pokaż więcej",
+  "ui.blocks.timeline.thisWeek": "Ten tydzień",
+  "ui.blocks.timeline.showAllChanges": "Pokaż wszystkie zmiany ({count})",
+  "ui.blocks.timeline.hideChanges": "Ukryj zmiany",
+  "ui.blocks.timeline.expandBody": "Pokaż więcej",
+  "ui.blocks.timeline.collapseBody": "Pokaż mniej",
   "ui.blocks.timeline.today": "Dzisiaj",
   "ui.blocks.timeline.yesterday": "Wczoraj",
   "ui.blocks.wizard.back": "Wstecz",
@@ -1255,5 +1260,11 @@
   "vector.api.errors.searchFailed": "Wyszukiwanie wektorowe nie powiodło się",
   "vector.api.errors.updateFailed": "Nie udało się zaktualizować ustawień wektorowych.",
   "ui.splitter.handle.ariaLabel": "Zmień rozmiar paneli",
-  "ui.anchor.ariaLabel": "Na tej stronie"
+  "ui.anchor.ariaLabel": "Na tej stronie",
+  "ui.result.forbidden.title": "Nie masz dostępu do tej strony",
+  "ui.result.forbidden.subtitle": "Poproś administratora o dostęp albo wróć do strony, którą możesz otworzyć.",
+  "ui.result.notFound.title": "Nie znaleziono strony",
+  "ui.result.notFound.subtitle": "Strona została przeniesiona lub usunięta albo link jest błędny.",
+  "ui.result.serverError.title": "Coś poszło nie tak po naszej stronie",
+  "ui.result.serverError.subtitle": "Spróbuj ponownie za chwilę. Jeśli problem nie zniknie, skontaktuj się z pomocą."
 }

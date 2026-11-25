@@ -760,6 +760,11 @@
   "ui.blocks.timeline.itemActions": "Acciones de la entrada",
   "ui.blocks.timeline.loading": "Cargando actividad",
   "ui.blocks.timeline.showMore": "Mostrar más",
+  "ui.blocks.timeline.thisWeek": "Esta semana",
+  "ui.blocks.timeline.showAllChanges": "Mostrar todos los cambios ({count})",
+  "ui.blocks.timeline.hideChanges": "Ocultar cambios",
+  "ui.blocks.timeline.expandBody": "Mostrar más",
+  "ui.blocks.timeline.collapseBody": "Mostrar menos",
   "ui.blocks.timeline.today": "Hoy",
   "ui.blocks.timeline.yesterday": "Ayer",
   "ui.blocks.wizard.back": "Atrás",
@@ -1255,5 +1260,11 @@
   "vector.api.errors.searchFailed": "Búsqueda vectorial fallida",
   "vector.api.errors.updateFailed": "No se pudieron actualizar la configuración vectorial.",
   "ui.splitter.handle.ariaLabel": "Cambiar el tamaño de los paneles",
-  "ui.anchor.ariaLabel": "En esta página"
+  "ui.anchor.ariaLabel": "En esta página",
+  "ui.result.forbidden.title": "No tienes acceso a esta página",
+  "ui.result.forbidden.subtitle": "Pide acceso a un administrador o vuelve a una página que puedas abrir.",
+  "ui.result.notFound.title": "Página no encontrada",
+  "ui.result.notFound.subtitle": "La página se movió o eliminó, o el enlace es incorrecto.",
+  "ui.result.serverError.title": "Algo salió mal por nuestra parte",
+  "ui.result.serverError.subtitle": "Inténtalo de nuevo en un momento. Si el problema continúa, contacta con soporte."
 }
