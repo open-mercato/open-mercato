@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { screen, fireEvent } from '@testing-library/react'
+import { act, screen, fireEvent } from '@testing-library/react'
 import { RowActions, type RowActionItem } from '../RowActions'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
@@ -190,6 +190,31 @@ describe('RowActions — keyboard navigation (#6718)', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: TRIGGER_LABEL }))
   })
 
+  it('keeps a deliberately opened menu focused after the pointer leaves', () => {
+    jest.useFakeTimers()
+    try {
+      renderMenu(THREE_ITEMS)
+      const trigger = screen.getByRole('button', { name: TRIGGER_LABEL })
+      fireEvent.pointerEnter(trigger, { pointerType: 'mouse' })
+      fireEvent.pointerLeave(trigger, { pointerType: 'mouse' })
+      trigger.focus()
+      openMenu()
+
+      act(() => jest.advanceTimersByTime(200))
+      const first = itemNamed('Set as primary')
+      expect(first).toHaveFocus()
+      fireEvent.pointerLeave(screen.getByRole('menu'), { pointerType: 'mouse' })
+      act(() => jest.advanceTimersByTime(200))
+      expect(first).toHaveFocus()
+
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      expect(trigger).toHaveFocus()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   it('still runs the action when an item is activated', () => {
     const onSelect = jest.fn()
     renderMenu([{ id: 'poll-now', label: 'Poll now', onSelect }])
@@ -198,5 +223,22 @@ describe('RowActions — keyboard navigation (#6718)', () => {
     fireEvent.click(itemNamed('Poll now'))
 
     expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('RowActions — item icons', () => {
+  it('renders a decorative icon next to the label without changing the item name', () => {
+    renderMenu([
+      { id: 'edit', label: 'Edit', icon: <svg data-testid="edit-icon" />, onSelect: () => {} },
+      { id: 'docs', label: 'Docs', icon: <svg data-testid="docs-icon" />, href: '/docs' },
+      { id: 'delete', label: 'Delete', onSelect: () => {} },
+    ])
+    openMenu()
+
+    const edit = screen.getByRole('menuitem', { name: 'Edit' })
+    expect(edit).toContainElement(screen.getByTestId('edit-icon'))
+    expect(screen.getByTestId('edit-icon').parentElement).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByRole('menuitem', { name: 'Docs' })).toContainElement(screen.getByTestId('docs-icon'))
+    expect(screen.getByRole('menuitem', { name: 'Delete' }).querySelector('svg')).toBeNull()
   })
 })

@@ -321,6 +321,7 @@ export async function createCartProductFixture(
     label: string
     salesChannelId: string
     categoryId?: string | null
+    taxRate?: number
     unitPriceNet?: number | string
     unitPriceGross?: number | string
   },
@@ -368,6 +369,7 @@ export async function createCartProductFixture(
       currencyCode: 'EUR',
       unitPriceNet: input.unitPriceNet ?? 10,
       unitPriceGross: input.unitPriceGross ?? 12,
+      ...(input.taxRate !== undefined ? { taxRate: input.taxRate } : {}),
     },
     'price fixture',
   );

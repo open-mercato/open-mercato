@@ -36,6 +36,7 @@
   "availability.policies.errors.integerTooLarge": "This value is too large. Enter a number no greater than 2147483647.",
   "availability.policies.errors.maxBelowMin": "Maximum order quantity cannot be less than the minimum order quantity",
   "availability.policies.errors.organizationRequired": "Select a specific organization in the header before creating a policy.",
+  "availability.policies.errors.undoConflict": "This policy changed since the action you are undoing. Undo was refused.",
   "availability.policies.errors.variantRequiresProduct": "A variant-level policy requires a product",
   "availability.policies.flash.created": "Availability policy created",
   "availability.policies.flash.deleted": "Availability policy deleted",
