@@ -49,13 +49,16 @@ function createService(
     userHasAllFeatures: jest.fn().mockResolvedValue(options?.canOverrideIncoming ?? true),
   } as any
 
+  const service = new RecordLockService({
+    em,
+    moduleConfigService,
+    actionLogService: (actionLogService as any) ?? null,
+    rbacService,
+  })
+  const canReadTarget = jest.spyOn(service, 'canReadTarget').mockResolvedValue(true)
   return {
-    service: new RecordLockService({
-      em,
-      moduleConfigService,
-      actionLogService: (actionLogService as any) ?? null,
-      rbacService,
-    }),
+    service,
+    canReadTarget,
     em,
     moduleConfigService,
     actionLogService,
@@ -503,6 +506,22 @@ describe('RecordLockService.validateMutation', () => {
 describe('RecordLockService.acquire', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+  })
+
+  test.each(['optimistic', 'pessimistic'] as const)('denies unreadable targets before accessing %s lock state', async (strategy) => {
+    const { service, em, moduleConfigService, canReadTarget } = createService({ ...DEFAULT_SETTINGS, strategy })
+    canReadTarget.mockResolvedValue(false)
+    const { tenantId, organizationId, resourceKind, resourceId, lockedByUserId } = buildLock()
+
+    await expect(service.acquire({ tenantId, organizationId, resourceKind, resourceId, userId: lockedByUserId }))
+      .resolves.toMatchObject({ ok: false, status: 404, code: 'record_not_found', lock: null })
+
+    expect(moduleConfigService.getValue).not.toHaveBeenCalled()
+    expect(em.find).not.toHaveBeenCalled()
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(em.transactional).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(emitRecordLocksEvent).not.toHaveBeenCalled()
   })
 
   test('allows optimistic participant join when another user is already active', async () => {
@@ -987,59 +1006,26 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
     )
   })
 
-  test('emits incoming-changes event when scoped query misses lock but tenant-scope fallback finds it', async () => {
-    const { service, em } = createService(DEFAULT_SETTINGS)
-    const serviceAny = service as any
-
-    em.find
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        buildLock({
-          lockedByUserId: '40000000-0000-4000-8000-000000000001',
-          organizationId: '70000000-0000-4000-8000-000000000001',
-          expiresAt: new Date(Date.now() + 86_400_000),
-        }),
-      ])
-
-    serviceAny.findLatestActionLog = jest
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: '80000000-0000-4000-8000-000000000556',
-        actorUserId: '90000000-0000-4000-8000-000000000001',
-        changesJson: {
-          'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
-        },
-        createdAt: new Date('2026-02-17T10:04:00.000Z'),
-      })
-    serviceAny.findLatestActionLogByActor = jest
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: '80000000-0000-4000-8000-000000000556',
-        actorUserId: '90000000-0000-4000-8000-000000000001',
-        changesJson: {
-          'entity.displayName': { from: 'Acme Before', to: 'Acme Incoming' },
-        },
-        createdAt: new Date('2026-02-17T10:04:00.000Z'),
-      })
+  test('suppresses incoming changes for an unreadable target discovered by lock fallback', async () => {
+    const { service, em, canReadTarget } = createService()
+    const lock = buildLock({ expiresAt: new Date(Date.now() + 60_000) })
+    em.find.mockResolvedValueOnce([]).mockResolvedValueOnce([lock])
+    canReadTarget.mockResolvedValue(false)
 
     await service.emitIncomingChangesNotificationAfterMutation({
-      tenantId: '60000000-0000-4000-8000-000000000001',
+      tenantId: lock.tenantId,
       organizationId: '70000000-0000-4000-8000-000000000777',
       userId: '90000000-0000-4000-8000-000000000001',
-      resourceKind: 'sales.quote',
-      resourceId: '20000000-0000-4000-8000-000000000001',
+      resourceKind: lock.resourceKind,
+      resourceId: lock.resourceId,
       method: 'PUT',
     })
 
-    expect(emitRecordLocksEvent).toHaveBeenCalledWith(
-      'record_locks.incoming_changes.available',
-      expect.objectContaining({
-        recipientUserIds: ['40000000-0000-4000-8000-000000000001'],
-        incomingActionLogId: '80000000-0000-4000-8000-000000000556',
-      }),
-    )
+    expect(canReadTarget).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: '70000000-0000-4000-8000-000000000777',
+      userId: lock.lockedByUserId,
+    }))
+    expect(emitRecordLocksEvent).not.toHaveBeenCalled()
   })
 
   test('emits incoming-changes event for recent lock owner when active lock list is empty', async () => {
@@ -1154,6 +1140,18 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
 describe('RecordLockService.heartbeat', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+  })
+
+  test('does not renew an existing session after target access is revoked', async () => {
+    const { service, em, canReadTarget } = createService()
+    canReadTarget.mockResolvedValue(false)
+    const { token, tenantId, organizationId, resourceKind, resourceId, lockedByUserId } = buildLock()
+
+    await expect(service.heartbeat({ token, tenantId, organizationId, resourceKind, resourceId, userId: lockedByUserId }))
+      .resolves.toEqual({ ok: true, expiresAt: null })
+
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   test('refreshes heartbeat and expiration for active owned lock', async () => {

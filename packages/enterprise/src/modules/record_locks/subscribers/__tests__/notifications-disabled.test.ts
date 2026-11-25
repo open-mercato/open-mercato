@@ -39,7 +39,11 @@ type Context = { resolve: <T = unknown>(name: string) => T }
 
 function contextWithNotifications(enabled: boolean): Context {
   const em = { getMetadata: () => ({ find: (entity: unknown) => enabled && entity === Notification }) }
-  return { resolve: (<T,>(name: string) => (name === 'em' ? em : undefined) as T) }
+  const services: Record<string, unknown> = {
+    em,
+    recordLockService: { canReadTarget: jest.fn().mockResolvedValue(true) },
+  }
+  return { resolve: <Value,>(name: string) => services[name] as Value }
 }
 
 const cases: Array<[string, (payload: typeof basePayload, context: Context) => Promise<void>]> = [

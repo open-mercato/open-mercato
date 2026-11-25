@@ -33,6 +33,7 @@ import {
   type RecordLockStrategy,
 } from './config'
 import { isRecordValue, valuesEqual } from './conflictValues'
+import { canReadRecordLockTarget } from './recordReadAccess'
 
 const ACTIVE_LOCK_STATUS: RecordLockStatus = 'active'
 const ACTIVE_SCOPE_UNIQUE_CONSTRAINTS = new Set([
@@ -145,8 +146,8 @@ export type RecordLockAcquireResult = {
 }
 
 export type RecordLockAcquireFailure = Omit<RecordLockValidationFailure, 'status' | 'code'> & {
-  status: RecordLockValidationFailure['status'] | 429
-  code: RecordLockValidationFailure['code'] | 'record_lock_quota_exceeded'
+  status: RecordLockValidationFailure['status'] | 404 | 429
+  code: RecordLockValidationFailure['code'] | 'record_lock_quota_exceeded' | 'record_not_found'
   allowForceUnlock: boolean
 }
 
@@ -473,6 +474,17 @@ export class RecordLockService {
   }
 
   async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockAcquireFailure> {
+    if (!await this.canReadTarget(input)) {
+      return {
+        ok: false,
+        status: 404,
+        error: 'record_locks.errors.not_found',
+        code: 'record_not_found',
+        lock: null,
+        allowForceUnlock: false,
+      }
+    }
+
     this.scheduleCleanup(input.tenantId)
     const settings = await this.getSettings()
     const latest = await this.findLatestActionLogWithScopeFallback(input)
@@ -819,6 +831,8 @@ export class RecordLockService {
   }
 
   async heartbeat(input: RecordLockHeartbeatInput): Promise<RecordLockHeartbeatResult> {
+    if (!await this.canReadTarget(input)) return { ok: true, expiresAt: null }
+
     const settings = await this.getSettings()
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     if (!resourceEnabled) return { ok: true, expiresAt: null }
@@ -1139,6 +1153,10 @@ export class RecordLockService {
     if (!releaseResult.released) return
   }
 
+  canReadTarget(input: RecordLockScope & RecordLockResource): Promise<boolean> {
+    return canReadRecordLockTarget(this.em, this.rbacService, input)
+  }
+
   async emitIncomingChangesNotificationAfterMutation(input: {
     tenantId: string
     organizationId?: string | null
@@ -1190,24 +1208,18 @@ export class RecordLockService {
     }
     if (!recipientUserIds.size) return
 
-    let latest = await this.findLatestActionLog(input)
-    if (!latest) {
-      latest = await this.findLatestActionLog({
-        tenantId: input.tenantId,
-        resourceKind: input.resourceKind,
-        resourceId: input.resourceId,
-      })
+    const latest = await this.findLatestActionLogWithScopeFallback(input)
+    const organizationId = normalizeScopeOrganization(input.organizationId ?? latest?.organizationId)
+    const notificationScope = { ...input, organizationId }
+    const authorizedRecipients: string[] = []
+    for (const userId of recipientUserIds) {
+      if (await this.canReadTarget({ ...notificationScope, userId })) authorizedRecipients.push(userId)
     }
-    let actorLog = latest?.actorUserId === input.userId
+    if (!authorizedRecipients.length) return
+
+    const actorLog = latest?.actorUserId === input.userId
       ? latest
-      : await this.findLatestActionLogByActor(input, input.userId)
-    if (!actorLog) {
-      actorLog = await this.findLatestActionLogByActor({
-        tenantId: input.tenantId,
-        resourceKind: input.resourceKind,
-        resourceId: input.resourceId,
-      }, input.userId)
-    }
+      : await this.findLatestActionLogByActor(notificationScope, input.userId)
     const incomingLog = actorLog ?? latest
 
     const changedFields = incomingLog
@@ -1220,10 +1232,10 @@ export class RecordLockService {
       resourceKind: input.resourceKind,
       resourceId: input.resourceId,
       tenantId: input.tenantId,
-      organizationId: normalizeScopeOrganization(input.organizationId),
+      organizationId,
       incomingActorUserId: input.userId,
       incomingActionLogId: incomingLog?.id ?? null,
-      recipientUserIds: Array.from(recipientUserIds),
+      recipientUserIds: authorizedRecipients,
       changedFields: changedFields || '-',
       changedRowsJson,
     })

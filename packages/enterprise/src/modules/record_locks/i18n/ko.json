@@ -34,6 +34,7 @@
   "record_locks.errors.acquire_failed": "레코드 잠금 상태를 불러오지 못했습니다.",
   "record_locks.errors.force_release_failed": "편집 권한을 가져오지 못했습니다.",
   "record_locks.errors.force_release_unavailable": "가져오기가 비활성화되었거나 잠금이 더 이상 활성 상태가 아니므로 강제 해제를 사용할 수 없습니다.",
+  "record_locks.errors.not_found": "레코드를 찾을 수 없습니다",
   "record_locks.notifications.actions.accept_incoming": "수신 내용 적용",
   "record_locks.notifications.actions.accept_mine": "수신 내용 거부",
   "record_locks.notifications.actions.see_incoming_changes": "수신된 변경 사항 보기",

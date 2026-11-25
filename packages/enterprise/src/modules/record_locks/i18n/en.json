@@ -34,6 +34,7 @@
   "record_locks.errors.acquire_failed": "Failed to load record lock status.",
   "record_locks.errors.force_release_failed": "Failed to take over editing.",
   "record_locks.errors.force_release_unavailable": "Force release is unavailable because takeover is disabled or the lock is no longer active.",
+  "record_locks.errors.not_found": "Record not found",
   "record_locks.notifications.actions.accept_incoming": "Apply incoming",
   "record_locks.notifications.actions.accept_mine": "Reject incoming",
   "record_locks.notifications.actions.see_incoming_changes": "See incoming changes",

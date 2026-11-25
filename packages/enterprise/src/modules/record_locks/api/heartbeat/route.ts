@@ -20,6 +20,9 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid heartbeat payload', details: parsed.error.issues }, { status: 400 })
   }
+  if (ctxOrResponse.hasReadScope === false) {
+    return NextResponse.json({ ok: true, expiresAt: null })
+  }
 
   const result = await ctxOrResponse.recordLockService.heartbeat({
     token: parsed.data.token,

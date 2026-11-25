@@ -1,4 +1,5 @@
 const mockCreateNotification = jest.fn()
+const mockCanReadTarget = jest.fn()
 
 jest.mock('@open-mercato/core/modules/notifications/lib/notificationBuilder', () => ({
   buildNotificationFromType: jest.fn((_type: unknown, input: unknown) => input),
@@ -26,6 +27,7 @@ import handle from '../conflict-detected-notification'
 describe('record_locks conflict detected notification subscriber', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockCanReadTarget.mockResolvedValue(true)
   })
 
   test('uses changed fields from decrypted stringified action log changes', async () => {
@@ -46,12 +48,25 @@ describe('record_locks conflict detected notification subscriber', () => {
         incomingActionLogId: 'log-1',
       },
       {
-        resolve: jest.fn(() => ({
-          fork: jest.fn(() => ({})),
-        })),
+        resolve: jest.fn((key: string) => key === 'recordLockService'
+          ? { canReadTarget: mockCanReadTarget }
+          : { fork: jest.fn(() => ({})) }),
       },
     )
 
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        id: 'log-1',
+        resourceKind: 'customers.company',
+        resourceId: 'company-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      }),
+      undefined,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
     expect(mockCreateNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         recipientUserId: 'owner-1',

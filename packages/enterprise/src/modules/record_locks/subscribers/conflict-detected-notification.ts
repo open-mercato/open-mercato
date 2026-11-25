@@ -10,6 +10,8 @@ import {
   resolveRecordResourceLink,
 } from '../lib/notificationHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { RecordLockService } from '../lib/recordLockService'
 
 const logger = createLogger('record_locks').child({ subscriber: 'conflict-detected-notification' })
 
@@ -76,12 +78,29 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
   if (!notificationsEnabled) return
 
   try {
+    const organizationId = payload.organizationId ?? null
+    const recordLockService = ctx.resolve<RecordLockService>('recordLockService')
+    if (!await recordLockService.canReadTarget({
+      userId: payload.conflictActorUserId,
+      resourceKind: payload.resourceKind,
+      resourceId: payload.resourceId,
+      tenantId: payload.tenantId,
+      organizationId,
+    })) return
+
     const em = (ctx.resolve('em') as EntityManager).fork()
     const incomingLog = payload.incomingActionLogId
       ? await findOneWithDecryption(
           em,
           ActionLog,
-          { id: payload.incomingActionLogId, deletedAt: null },
+          {
+            id: payload.incomingActionLogId,
+            tenantId: payload.tenantId,
+            organizationId,
+            resourceKind: payload.resourceKind,
+            resourceId: payload.resourceId,
+            deletedAt: null,
+          },
           undefined,
           { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null },
         )
@@ -113,5 +132,6 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
     })
   } catch (error) {
     logger.error('Failed to create notification', { err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'record_locks', code: 'record_locks.conflict_notification_failed' })
   }
 }
