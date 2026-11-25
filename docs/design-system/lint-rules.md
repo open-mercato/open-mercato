@@ -419,6 +419,16 @@ Shipped implementation (`packages/eslint-plugin-ds/rules/no-legacy-alert-variant
 
 Mapping table: `.ai/skills/om-ds-guardian/references/token-mapping.md` § "Legacy Alert `variant` → `status`".
 
+### L.7a `om-ds/no-off-grid-spacing`
+
+**Goal**: Keep primitives and blocks on the 4 px spacing grid set by `.ai/specs/2026-11-25-component-spacing-standard.md` (anchored to IBM Carbon, cross-checked with Ant Design).
+
+Shipped implementation (`packages/eslint-plugin-ds/rules/no-off-grid-spacing.js`):
+
+- Scans every string literal and template chunk, so class lists inside `cva`, `cn` and variant maps are covered, not only `className` attributes.
+- Flags half steps (`px-2.5`, `gap-1.5`, `-ml-0.5`, also behind variants such as `hover:` or `[&>*]:`) and arbitrary spacing (`p-[13px]`). CSS-variable shorthands such as `pl-(--accordion-indent)` and sizing utilities (`size-3.5`, `w-1.5`) are not spacing and pass.
+- Scope: `packages/ui/src/primitives/**` and `packages/ui/src/blocks/**` at `error`. Structural geometry opts out per line with `eslint-disable-next-line om-ds/no-off-grid-spacing -- <reason>` (today: switch track inset, file-format artwork, avatar stack overlap).
+
 ### L.8 Rules Summary
 
 | Rule | Severity (new code) | Severity (legacy) | Auto-fix |
@@ -430,6 +440,7 @@ Mapping table: `.ai/skills/om-ds-guardian/references/token-mapping.md` § "Legac
 | `om-ds/require-status-badge` | error | warn | No |
 | `om-ds/no-hardcoded-status-colors` | error | error | Yes (suggestion) |
 | `om-ds/no-legacy-alert-variant` | error | warn | No (suggestions) |
+| `om-ds/no-off-grid-spacing` | error (primitives, blocks) | n/a | No |
 
 **Success metric**: 0 warnings on new modules, legacy warnings down 30% per sprint.
 

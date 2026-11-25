@@ -87,6 +87,18 @@ export default [
     plugins,
     rules: { 'om-ds/no-legacy-alert-variant': 'warn' },
   },
+  // Spacing standard (.ai/specs/2026-11-25-component-spacing-standard.md):
+  // primitives and blocks carry no half-step or arbitrary spacing. Structural
+  // geometry (switch track, file-format artwork, avatar overlap) opts out per
+  // line with an eslint-disable-next-line comment that says why.
+  {
+    files: ['packages/ui/src/primitives/**/*.tsx', 'packages/ui/src/blocks/**/*.tsx'],
+    ignores: ['**/__tests__/**', '**/*.generated.*'],
+    linterOptions,
+    languageOptions,
+    plugins,
+    rules: { 'om-ds/no-off-grid-spacing': 'error' },
+  },
   // --- escalation overrides — see .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md ---
   // A module enters this list when its counter for the rule reads zero in two
   // consecutive runs of the rolling report .ai/reports/ds-health-latest.txt —

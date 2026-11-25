@@ -5,6 +5,7 @@ import { requireLoadingState } from './rules/require-loading-state.js'
 import { requireStatusBadge } from './rules/require-status-badge.js'
 import { noHardcodedStatusColors } from './rules/no-hardcoded-status-colors.js'
 import { noLegacyAlertVariant } from './rules/no-legacy-alert-variant.js'
+import { noOffGridSpacing } from './rules/no-off-grid-spacing.js'
 
 const plugin = {
   meta: {
@@ -19,6 +20,7 @@ const plugin = {
     'require-status-badge': requireStatusBadge,
     'no-hardcoded-status-colors': noHardcodedStatusColors,
     'no-legacy-alert-variant': noLegacyAlertVariant,
+    'no-off-grid-spacing': noOffGridSpacing,
   },
 }
 
