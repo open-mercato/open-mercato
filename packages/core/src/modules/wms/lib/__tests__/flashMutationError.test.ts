@@ -43,4 +43,32 @@ describe('flashMutationError', () => {
 
     expect(flash).toHaveBeenCalledWith('Failed to save location.', 'error')
   })
+
+  it.each([
+    ['location_capacity_exceeded', 'wms.errors.codes.locationCapacityExceeded'],
+    ['putaway_lot_mismatch', 'wms.errors.codes.putawayLotMismatch'],
+    ['invalid_putaway_quantity', 'wms.errors.codes.invalidPutawayQuantity'],
+    ['putaway_quantity_exceeds_task', 'wms.errors.codes.putawayQuantityExceedsTask'],
+    ['duplicate_serial', 'wms.errors.codes.duplicateSerial'],
+    ['invalid_qc_transition', 'wms.errors.codes.invalidQcTransition'],
+  ])('translates the %s error code instead of flashing the raw token', (code, key) => {
+    const error = Object.assign(new Error(code), { status: 422, error: code })
+    const translate = jest.fn((translationKey: string) => `translated:${translationKey}`)
+
+    flashMutationError(error, 'Failed to save.', translate)
+
+    expect(translate).toHaveBeenCalledWith(key, expect.any(String))
+    expect(flash).toHaveBeenCalledWith(`translated:${key}`, 'error')
+  })
+
+  it('keeps the server message for unmapped error codes', () => {
+    const error = Object.assign(new Error('Something specific went wrong'), {
+      status: 422,
+      error: 'some_other_code',
+    })
+
+    flashMutationError(error, 'Failed to save.', (key, fallback) => fallback ?? key)
+
+    expect(flash).toHaveBeenCalledWith('Something specific went wrong', 'error')
+  })
 })

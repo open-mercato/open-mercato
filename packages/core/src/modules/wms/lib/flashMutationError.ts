@@ -35,6 +35,47 @@ const FORBIDDEN_FEATURE_MESSAGE_FALLBACKS: Record<string, string> = {
 }
 
 /**
+ * Maps WMS command error codes (the `error` field of the response body, copied
+ * onto the thrown error by `raiseCrudError`) to translated operator messages so
+ * dialogs never flash a raw token such as `location_capacity_exceeded`.
+ */
+const ERROR_CODE_MESSAGES: Record<string, { key: string; fallback: string }> = {
+  duplicate_serial: {
+    key: 'wms.errors.codes.duplicateSerial',
+    fallback: 'One or more serial numbers are already in stock. Check the serials and try again.',
+  },
+  invalid_putaway_quantity: {
+    key: 'wms.errors.codes.invalidPutawayQuantity',
+    fallback: 'Enter a valid quantity greater than zero.',
+  },
+  invalid_qc_transition: {
+    key: 'wms.errors.codes.invalidQcTransition',
+    fallback: 'This line already has a QC decision that cannot be changed.',
+  },
+  location_capacity_exceeded: {
+    key: 'wms.errors.codes.locationCapacityExceeded',
+    fallback: 'The destination location does not have enough free capacity for this quantity.',
+  },
+  putaway_lot_mismatch: {
+    key: 'wms.errors.codes.putawayLotMismatch',
+    fallback: 'The lot does not match the lot assigned to this putaway task.',
+  },
+  putaway_quantity_exceeds_task: {
+    key: 'wms.errors.codes.putawayQuantityExceedsTask',
+    fallback: 'The confirmed quantity exceeds the open quantity of this putaway task.',
+  },
+}
+
+function resolveErrorCodeMessage(error: unknown, t?: TranslateFn): string | null {
+  if (!error || typeof error !== 'object') return null
+  const code = (error as Record<string, unknown>).error
+  if (typeof code !== 'string') return null
+  const entry = ERROR_CODE_MESSAGES[code]
+  if (!entry) return null
+  return t ? t(entry.key, entry.fallback) : entry.fallback
+}
+
+/**
  * Reads the 403 response's `requiredFeatures` (attached to the thrown error
  * by `raiseCrudError`) and, when the missing feature is a known WMS
  * permission, resolves a translated message naming it. Returns `null` when
@@ -59,14 +100,20 @@ function resolveForbiddenFeatureMessage(error: unknown, t?: TranslateFn): string
 /**
  * Surfaces a mutation failure as an error flash toast. Prefers a
  * feature-specific 403 message derived from the server's `requiredFeatures`
- * hint (#4102 follow-up), then the thrown error's own message (already
- * server-derived and translated by `raiseCrudError`/`useGuardedMutation`),
- * and falls back to a translated, dialog-specific message otherwise (#4103).
+ * hint (#4102 follow-up), then a translated message for a known WMS error
+ * code, then the thrown error's own message (already server-derived and
+ * translated by `raiseCrudError`/`useGuardedMutation`), and falls back to a
+ * translated, dialog-specific message otherwise (#4103).
  */
 export function flashMutationError(error: unknown, fallbackMessage: string, t?: TranslateFn): void {
   const forbiddenMessage = resolveForbiddenFeatureMessage(error, t)
   if (forbiddenMessage) {
     flash(forbiddenMessage, 'error')
+    return
+  }
+  const errorCodeMessage = resolveErrorCodeMessage(error, t)
+  if (errorCodeMessage) {
+    flash(errorCodeMessage, 'error')
     return
   }
   // apiFetch throws ForbiddenError with a bare "Forbidden" message when the

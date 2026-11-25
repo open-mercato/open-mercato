@@ -68,7 +68,7 @@ const mockApiCall = jest.fn(async (input: unknown) => {
       result: { items: [{ id: UUID_LOT, lot_number: 'LOT-100' }], total: 1, totalPages: 1 },
     }
   }
-  if (path === '/api/catalog/variants') {
+  if (path === '/api/wms/catalog-variant-labels') {
     return {
       ok: true,
       result: { items: [{ id: UUID_VARIANT_1, sku: 'SKU-1', name: 'Widget' }], total: 1, totalPages: 1 },

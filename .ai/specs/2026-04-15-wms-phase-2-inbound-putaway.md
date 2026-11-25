@@ -576,6 +576,10 @@ None.
 
 ## Changelog
 
+### 2026-11-02 (rev 49) — putaway destination capacity
+- Completing a putaway task rejects with `422 location_capacity_exceeded` when the locked destination's on-hand quantity plus the confirmed quantity exceeds `capacity_units`
+- A null or unset capacity stays unlimited. The check runs only on the stock-moving completion path, so a replay of an already posted move is not rejected
+
 ### 2026-10-29 (rev 48) — partial serial batches and visible putaway serials
 - A later ASN receive rejects serials already stored on the line (`422 duplicate_serial`) and appends new serials instead of replacing history
 - The receive dialog treats the serial field as the current batch after the first receipt
