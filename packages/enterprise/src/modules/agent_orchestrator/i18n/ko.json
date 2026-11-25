@@ -1285,6 +1285,7 @@
   "agent_orchestrator.settings.webSearch.timeoutHint": "이 어댑터 단독으로 허용되는 시간(밀리초)입니다. 정책 전체 예산을 사용하려면 비워 두세요.",
   "agent_orchestrator.settings.webSearch.title": "웹 검색",
   "agent_orchestrator.settings.webSearch.tuning": "세부 조정",
+  "agent_orchestrator.settings.webSearch.unreadableStoredSecret": "저장된 검색 어댑터 키를 복호화할 수 없습니다. 테넌트 암호화 키를 복원하거나 어댑터 키를 교체하세요.",
   "agent_orchestrator.settings.webSearch.unsaved": "저장하지 않은 변경 사항",
   "agent_orchestrator.settings.webSearch.unsavedHint": "아직 저장되지 않음",
   "agent_orchestrator.settings.webSearch.weight": "가중치",
