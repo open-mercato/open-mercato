@@ -714,7 +714,7 @@ STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/to
 
 ## 2026-11-22 — Attachment assignment label authorization (#10336)
 
-The STABLE attachment library API response and the enrichment helper signature retain their shapes. Referenced records contribute optional labels and links only for an authorized read in the selected tenant and organization. Retaining an unrestricted fallback would keep the unauthorized read available. Server callers can supply verified request authorization and clients can fall back to existing assignment metadata. See the [upgrade notes](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [implementation spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
+STABLE attachment API and enrichment helper shapes stay unchanged. Optional labels and links require read access in the selected tenant and organization. An unrestricted fallback can expose metadata. Pass verified request authorization or use existing assignment metadata. [Upgrade](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336). [Spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
 
 ## #10331 #10332 (2026-11-23)
 
