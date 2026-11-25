@@ -215,8 +215,7 @@ async function ensurePendingStatus(request: StaffLeaveRequest): Promise<void> {
   })
 }
 
-async function ensureValidDateRange(request: StaffLeaveRequest): Promise<void> {
-  if (request.endDate.getTime() >= request.startDate.getTime()) return
+async function throwInvalidDateRange(): Promise<never> {
   const { translate } = await resolveTranslations()
   const message = translate('staff.leaveRequests.errors.invalidDateRange', 'End date must be after start date.')
   throw new CrudHttpError(400, {
@@ -224,6 +223,18 @@ async function ensureValidDateRange(request: StaffLeaveRequest): Promise<void> {
     fieldErrors: { endDate: message },
     details: [{ path: ['endDate'], message, code: 'custom', origin: 'validation' }],
   })
+}
+
+async function ensureValidDateRange(request: StaffLeaveRequest): Promise<void> {
+  if (request.endDate.getTime() >= request.startDate.getTime()) return
+  await throwInvalidDateRange()
+}
+
+async function resolveLeaveDateKeys(request: StaffLeaveRequest): Promise<string[]> {
+  await ensureValidDateRange(request)
+  const dates = listDateKeysInRange(request.startDate, request.endDate)
+  if (dates.length) return dates
+  return throwInvalidDateRange()
 }
 
 async function ensureUndoablePending(request: StaffLeaveRequest): Promise<void> {
@@ -685,11 +696,11 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
     await ensurePendingStatus(request)
+    const dates = await resolveLeaveDateKeys(request)
 
     const memberId = typeof request.member === 'string' ? request.member : request.member.id
     const decidedByUserId = parsed.decidedByUserId ?? resolveAuthUserId(ctx)
     const now = new Date()
-    const dates = listDateKeysInRange(request.startDate, request.endDate)
     let createdRuleIds: string[] = []
 
     await em.transactional(async (trx) => {
