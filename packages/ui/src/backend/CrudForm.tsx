@@ -641,19 +641,21 @@ function normalizeDirtySnapshotValue(value: unknown): unknown {
   return Object.keys(normalized).length ? normalized : undefined
 }
 
-function readMissingCustomFieldDefaults(
+function readUninitializedCustomFieldValues(
   definitions: readonly CustomFieldDefDto[],
   values: Record<string, unknown>,
   bareIds: boolean,
   editedFieldIds: ReadonlySet<string>,
 ): Record<string, unknown> {
-  const defaults: Record<string, unknown> = {}
+  const initial: Record<string, unknown> = {}
   for (const { key, defaultValue } of definitions) {
     const fieldId = bareIds ? key : `cf_${key}`
-    if (defaultValue == null || values[fieldId] !== undefined || editedFieldIds.has(fieldId)) continue
-    defaults[fieldId] = defaultValue
+    if (values[fieldId] !== undefined || editedFieldIds.has(fieldId)) continue
+    const supplied = readInitialCustomFieldValue(values, key)
+    if (supplied !== undefined) initial[fieldId] = supplied
+    else if (defaultValue != null) initial[fieldId] = defaultValue
   }
-  return defaults
+  return initial
 }
 
 function createDirtySnapshot(source: Record<string, unknown>): string {
@@ -3113,9 +3115,9 @@ function CrudFormImpl<
     cfDefaultsAppliedRef.current = true
 
     const currentValues = valuesRef.current
-    const defaults = readMissingCustomFieldDefaults(cfDefinitions, currentValues, customEntity, everEditedFieldIdsRef.current)
-    if (Object.keys(defaults).length === 0) return
-    const mergedValues = { ...currentValues, ...defaults } as CrudFormValues<TValues>
+    const initialized = readUninitializedCustomFieldValues(cfDefinitions, currentValues, customEntity, everEditedFieldIdsRef.current)
+    if (Object.keys(initialized).length === 0) return
+    const mergedValues = { ...currentValues, ...initialized } as CrudFormValues<TValues>
 
     // Update the dirty baseline only after the defaults commit so an interrupted
     // render cannot make the navigation guard observe values the user never saw.
@@ -3239,16 +3241,16 @@ function CrudFormImpl<
     let legacySubmitValues: Record<string, unknown> | undefined
     if (resolvedEntityIds.length) {
       try {
-        const needsCreateDefaults = !acceptedSectionPolicy && !initialValuesHasId && !cfDefaultsAppliedRef.current
+        const needsCreateDefaults = !acceptedSectionPolicy && !isLoading && !initialValuesHasId && !cfDefaultsAppliedRef.current
         submitDefinitions = acceptedSectionPolicy || cfDefinitions.length
           ? cfDefinitions
           : await import('./utils/customFieldDefs').then((mod) => mod.fetchCustomFieldDefs(resolvedEntityIds))
         const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
         const currentValues = valuesRef.current
-        const defaults = needsCreateDefaults
-          ? readMissingCustomFieldDefaults(submitDefinitions, currentValues, customEntity, everEditedFieldIdsRef.current)
+        const initialized = needsCreateDefaults
+          ? readUninitializedCustomFieldValues(submitDefinitions, currentValues, customEntity, everEditedFieldIdsRef.current)
           : undefined
-        const validationValues = defaults ? { ...currentValues, ...defaults } : currentValues
+        const validationValues = initialized ? { ...currentValues, ...initialized } : currentValues
         if (!sectionValues) legacySubmitValues = validationValues
         // Build values keyed by def.key for validation
         const cfValues: Record<string, unknown> = {}

@@ -121,6 +121,7 @@ test('TC-EXAMPLE-FORM-012 keeps ordinary create and edit on the legacy Todo endp
     const created = await pendingCreate
     expect(created.status()).toBe(201)
     id = (await created.json() as { id: string }).id
+    expect(created.request().postDataJSON()).toMatchObject({ cf_priority: 3, cf_severity: 'medium' })
     await page.goto(`/backend/todos/${id}/edit`)
     await expect(title).toBeVisible()
     await expect(page.locator('[data-crud-field-id="cf_season"], [data-crud-field-id="brand"], [data-crud-field-id="erpSupplierRef"]')).toHaveCount(0)
