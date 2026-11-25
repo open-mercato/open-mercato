@@ -653,10 +653,12 @@ export async function reindexEntity(
         doc: Record<string, unknown>,
         scope: { organizationId: string | null; tenantId: string | null },
       ) => {
+        const tenantId = scope.tenantId ?? null
+        if (dekKeyCache.get(tenantId) === null) dekKeyCache.delete(tenantId)
         const result = await decryptIndexDocForSearch(
           targetEntity,
           doc,
-          { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+          { tenantId, organizationId: scope.organizationId ?? null },
           encryption,
           dekKeyCache,
         )
