@@ -1,5 +1,6 @@
 export type ChangeRow = {
   field: string
+  label?: string
   from: unknown
   to: unknown
 }

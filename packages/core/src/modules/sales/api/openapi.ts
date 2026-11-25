@@ -7,6 +7,11 @@ import {
   type CrudOpenApiOptions,
 } from '@open-mercato/shared/lib/openapi/crud'
 
+export const recurringQuoteConversionErrorSchema = z.object({
+  error: z.string(),
+  code: z.enum(['recurring_quote_no_lines', 'recurring_quote_started']),
+})
+
 export const defaultCreateResponseSchema = sharedDefaultCreateResponseSchema
 export const defaultOkResponseSchema = z.object({ ok: z.boolean() })
 export const defaultDeleteRequestSchema = z.object({ id: z.string().uuid() })

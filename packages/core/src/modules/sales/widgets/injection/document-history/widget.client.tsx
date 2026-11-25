@@ -68,6 +68,7 @@ const KIND_BG_COLORS = {
 
 export const CHANGED_FIELD_LABELS: Record<string, { key: string; fallback: string }> = {
   lines: { key: 'sales.documents.items.title', fallback: 'Items' },
+  recurrence: { key: 'sales.recurring.section.title', fallback: 'Recurring billing' },
   productId: { key: 'sales.documents.history.fields.product', fallback: 'Product' },
   productVariantId: { key: 'sales.documents.history.fields.variant', fallback: 'Variant' },
   name: { key: 'sales.documents.history.fields.name', fallback: 'Name' },

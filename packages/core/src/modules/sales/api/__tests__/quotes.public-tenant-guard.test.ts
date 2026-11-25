@@ -18,6 +18,7 @@ import { GET as getPublicQuote } from '@open-mercato/core/modules/sales/api/quot
 import { POST as acceptQuote } from '@open-mercato/core/modules/sales/api/quotes/accept/route'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { isForeignTenantActor, resolveEffectiveTenantId } from '@open-mercato/core/modules/sales/lib/publicQuoteTenantScope'
+import { SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 
 const TENANT_A = '00000000-0000-4000-8000-00000000000a'
 const TENANT_B = '00000000-0000-4000-8000-00000000000b'
@@ -114,7 +115,7 @@ beforeAll(() => {
 beforeEach(() => {
   jest.clearAllMocks()
   mockEm.fork.mockReturnValue(mockEm)
-  mockEm.findOne.mockResolvedValue({ ...quote })
+  mockEm.findOne.mockImplementation(async (entity: unknown) => entity === SalesQuote ? { ...quote } : null)
   mockEm.find.mockResolvedValue([])
 })
 

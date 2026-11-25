@@ -23,6 +23,7 @@ import {
   invalidateCrudCache,
 } from "@open-mercato/shared/lib/crud/cache";
 import { resolveTranslations } from "@open-mercato/shared/lib/i18n/server";
+import type { RbacService } from "@open-mercato/core/modules/auth/services/rbacService";
 import { resolveNotificationService } from "../../notifications/lib/notificationService";
 import { buildFeatureNotificationFromType } from "../../notifications/lib/notificationBuilder";
 import { emitSalesEvent } from "../events";
@@ -58,6 +59,7 @@ import {
   SalesDocumentTag,
   SalesDocumentTagAssignment,
   SalesReturn,
+  SalesQuoteRecurrence,
   type SalesLineKind,
   type SalesAdjustmentKind,
   type SalesSettings,
@@ -94,6 +96,7 @@ import {
   creditMemoCreateSchema,
   creditMemoUpdateSchema,
   customerSnapshotSchema,
+  recurrenceInputSchema,
   type QuoteCreateInput,
   type QuoteLineCreateInput,
   type QuoteAdjustmentCreateInput,
@@ -130,6 +133,29 @@ import {
   type PaymentSnapshot,
 } from "./payments";
 import { resolveConvertedOrderFeeTotals } from "../lib/convertedOrderTotals";
+import {
+  findOrderRecurrenceRow,
+  hasRecurringPeriods,
+  loadOrderRecurrenceSnapshot,
+  loadQuoteRecurrenceSnapshot,
+  orderRecurrenceChanges,
+  persistOrderRecurrence,
+  restoreOrderRecurrence,
+  retireOrderRecurrence,
+  restoreQuoteRecurrence,
+  sameRecurrenceState,
+  schedulesEqual,
+  writeOrderRecurrence,
+  writeQuoteRecurrence,
+  type OrderRecurrenceSnapshot,
+  type QuoteRecurrenceSnapshot,
+} from "../lib/recurrenceStore";
+import {
+  assertOrderRecurrenceUnlocked,
+  assertRecurringOrderDeletable,
+  assertRecurringOrderStatusAllowed,
+  assertRecurringQuoteConvertible,
+} from "../lib/recurringOrderGuard";
 import { resequenceLinesForUpsert } from "../lib/lineOrdering";
 import type { SalesCalculationService } from "../services/salesCalculationService";
 import {
@@ -329,6 +355,7 @@ type QuoteGraphSnapshot = {
   addresses: DocumentAddressSnapshot[];
   notes: NoteSnapshot[];
   tags: TagAssignmentSnapshot[];
+  recurrence?: QuoteRecurrenceSnapshot | null;
 };
 
 type QuoteLineSnapshot = {
@@ -449,6 +476,7 @@ type OrderGraphSnapshot = {
   tags: TagAssignmentSnapshot[];
   shipments: ShipmentSnapshot[];
   payments: PaymentSnapshot[];
+  recurrence?: OrderRecurrenceSnapshot | null;
 };
 
 type OrderLineSnapshot = {
@@ -705,6 +733,7 @@ const documentUpdateFieldsSchema = z
     tags: z.array(z.string().uuid()).optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customFieldSetId: z.string().uuid().nullable().optional(),
+    recurrence: recurrenceInputSchema.nullable().optional(),
     totalsMode: amountsModeSchema.optional(),
     ...orderHeaderTotalsSchema.shape,
   });
@@ -744,7 +773,8 @@ function carriesDocumentEdit(input: DocumentUpdateFields): boolean {
     input.paymentMethodSnapshot !== undefined ||
     input.tags !== undefined ||
     input.customFields !== undefined ||
-    input.customFieldSetId !== undefined
+    input.customFieldSetId !== undefined ||
+    input.recurrence !== undefined
   );
 }
 
@@ -764,6 +794,20 @@ const documentEditSchema = documentUpdateFieldsSchema.refine(carriesDocumentEdit
 });
 
 export type DocumentUpdateInput = z.infer<typeof documentUpdateSchema>;
+
+const RECURRING_LOCKED_ORDER_FIELDS = [
+  "currencyCode",
+  "channelId",
+  "customerEntityId",
+  "customerContactId",
+  "customerSnapshot",
+  "shippingMethodId",
+  "shippingMethodCode",
+  "shippingMethodSnapshot",
+  "paymentMethodId",
+  "paymentMethodCode",
+  "paymentMethodSnapshot",
+] as const satisfies ReadonlyArray<keyof DocumentUpdateInput>;
 
 type DocumentLineCreateInput = QuoteLineCreateInput | OrderLineCreateInput;
 type DocumentAdjustmentCreateInput =
@@ -1651,6 +1695,7 @@ async function applyDocumentUpdate({
 async function loadQuoteSnapshot(
   em: EntityManager,
   id: string,
+  recurrence?: QuoteRecurrenceSnapshot | null,
 ): Promise<QuoteGraphSnapshot | null> {
   const quote = await findOneWithDecryption(em, SalesQuote, { id, deletedAt: null });
   if (!quote) return null;
@@ -1916,12 +1961,14 @@ async function loadQuoteSnapshot(
     addresses: addressSnapshots,
     notes: noteSnapshots,
     tags: tagSnapshots,
+    recurrence: recurrence === undefined ? await loadQuoteRecurrenceSnapshot(em, quote) : recurrence,
   };
 }
 
 async function loadOrderSnapshot(
   em: EntityManager,
   id: string,
+  recurrence?: OrderRecurrenceSnapshot | null,
 ): Promise<OrderGraphSnapshot | null> {
   const order = await findOneWithDecryption(em, SalesOrder, { id, deletedAt: null });
   if (!order) return null;
@@ -2227,6 +2274,7 @@ async function loadOrderSnapshot(
     tags: tagSnapshots,
     shipments: shipmentSnapshots,
     payments: paymentSnapshots,
+    recurrence: recurrence === undefined ? await loadOrderRecurrenceSnapshot(em, order) : recurrence,
   };
 }
 
@@ -3982,6 +4030,19 @@ function ensureOrderScope(
   ensureOrganizationScope(ctx, organizationId);
 }
 
+async function ensureRecurrenceWritePermission(
+  ctx: CommandRuntimeContext,
+  kind: "quote" | "order",
+  scope: { tenantId: string; organizationId: string },
+): Promise<void> {
+  if (!ctx.request) return;
+  const feature = kind === "order" ? "sales.orders.manage" : "sales.quotes.manage";
+  const rbac = ctx.container.resolve<RbacService>("rbacService");
+  if (ctx.auth?.sub && await rbac.userHasAllFeatures(ctx.auth.sub, [feature], scope)) return;
+  const { translate } = await resolveTranslations();
+  throw new CrudHttpError(403, { error: translate("api.errors.forbidden", "Forbidden") });
+}
+
 function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
   if (!Array.isArray(tags)) return [];
   const set = new Set<string>();
@@ -4022,6 +4083,21 @@ function buildTagChange(
     return null;
   }
   return { from: beforeIds, to: afterIds };
+}
+
+function auditRecurrenceSchedule(snapshot: QuoteRecurrenceSnapshot | null | undefined): QuoteRecurrenceSnapshot | null {
+  if (!snapshot) return null;
+  const { frequency, startsOn, anchorDay, periodCount } = snapshot;
+  return { frequency, startsOn, anchorDay, periodCount };
+}
+
+function buildRecurrenceAuditChange(
+  before: QuoteRecurrenceSnapshot | null | undefined,
+  after: QuoteRecurrenceSnapshot | null | undefined,
+): { from: QuoteRecurrenceSnapshot | null; to: QuoteRecurrenceSnapshot | null } | null {
+  const from = auditRecurrenceSchedule(before);
+  const to = auditRecurrenceSchedule(after);
+  return schedulesEqual(from, to) ? null : { from, to };
 }
 
 function documentGraphAuditValue(snapshot: OrderGraphSnapshot | QuoteGraphSnapshot) {
@@ -4345,7 +4421,8 @@ async function assertQuoteGraphUndoCurrent(
     sameIds(current.adjustments, expected.adjustments) &&
     sameRecords(current.notes, expected.notes) &&
     sameRecords(current.tags, expected.tags) &&
-    sameRecords(current.addresses, expected.addresses);
+    sameRecords(current.addresses, expected.addresses) &&
+    sameRecurrenceState(current.recurrence, expected.recurrence);
   if (!unchanged) return throwDocumentUndoStale("quote");
 }
 
@@ -4690,6 +4767,11 @@ async function restoreQuoteGraph(
     });
   }
 
+  if (snapshot.recurrence !== undefined) {
+    await em.flush();
+    await restoreQuoteRecurrence(em, quote, snapshot.recurrence);
+  }
+
   return quote;
 }
 
@@ -4798,7 +4880,7 @@ async function assertOrderGraphUndoCurrent(
   const current = await loadOrderSnapshot(em, orderId);
   if (!current) return throwDocumentUndoStale("order");
   const lineIds = current.lines.map((line) => line.id);
-  const [returnCount, invoiceLineCount, creditMemoLineCount] = await Promise.all([
+  const [returnCount, invoiceLineCount, creditMemoLineCount, hasPeriods] = await Promise.all([
     em.count(SalesReturn, { order: orderId }),
     lineIds.length
       ? em.count(SalesInvoiceLine, { orderLine: { $in: lineIds } })
@@ -4806,8 +4888,9 @@ async function assertOrderGraphUndoCurrent(
     lineIds.length
       ? em.count(SalesCreditMemoLine, { orderLine: { $in: lineIds } })
       : Promise.resolve(0),
+    hasRecurringPeriods(em, current.order),
   ]);
-  if (returnCount > 0 || invoiceLineCount > 0 || creditMemoLineCount > 0) {
+  if (returnCount > 0 || invoiceLineCount > 0 || creditMemoLineCount > 0 || hasPeriods) {
     return throwDocumentUndoStale("order");
   }
   const unchanged =
@@ -4817,7 +4900,8 @@ async function assertOrderGraphUndoCurrent(
     sameRecords(withoutAllocationIds(current.payments), withoutAllocationIds(expected.payments)) &&
     sameRecords(current.notes, expected.notes) &&
     sameRecords(current.tags, expected.tags) &&
-    sameRecords(current.addresses, expected.addresses);
+    sameRecords(current.addresses, expected.addresses) &&
+    sameRecurrenceState(current.recurrence, expected.recurrence);
   if (!unchanged) return throwDocumentUndoStale("order");
 }
 
@@ -5260,12 +5344,17 @@ async function restoreOrderGraph(
     await restorePaymentSnapshot(em, payment);
   }
 
+  if (snapshot.recurrence !== undefined) {
+    await em.flush();
+    await restoreOrderRecurrence(em, order, snapshot.recurrence);
+  }
+
   return order;
 }
 
 const createQuoteCommand: CommandHandler<
   QuoteCreateInput,
-  { quoteId: string }
+  { quoteId: string; recurrence?: QuoteRecurrenceSnapshot }
 > = {
   id: "sales.quotes.create",
   async execute(rawInput, ctx) {
@@ -5273,6 +5362,13 @@ const createQuoteCommand: CommandHandler<
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
     const initial = quoteCreateSchema.parse(rawInput ?? {});
+    if (initial.recurrence) {
+      ensureQuoteScope(ctx, initial.organizationId, initial.tenantId);
+      await ensureRecurrenceWritePermission(ctx, "quote", {
+        organizationId: initial.organizationId,
+        tenantId: initial.tenantId,
+      });
+    }
     const quoteNumber =
       typeof initial.quoteNumber === "string" &&
       initial.quoteNumber.trim().length
@@ -5513,6 +5609,7 @@ const createQuoteCommand: CommandHandler<
     // Persist the quote header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built quote committed (#2336).
+    let recurrence: QuoteRecurrenceSnapshot | null | undefined;
     await withAtomicFlush(
       em,
       [
@@ -5549,6 +5646,9 @@ const createQuoteCommand: CommandHandler<
             tenantId: quote.tenantId,
             customFields: parsed.customFields,
           });
+        },
+        async () => {
+          recurrence = await writeQuoteRecurrence(em, quote, parsed.recurrence);
         },
       ],
       { transaction: true },
@@ -5624,11 +5724,11 @@ const createQuoteCommand: CommandHandler<
       "created",
     );
 
-    return { quoteId: quote.id };
+    return { quoteId: quote.id, ...(recurrence ? { recurrence } : {}) };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadQuoteSnapshot(em, result.quoteId);
+    return loadQuoteSnapshot(em, result.quoteId, result.recurrence ?? null);
   },
   buildLog: async ({ result, snapshots }) => {
     const after = snapshots.after as QuoteGraphSnapshot | undefined;
@@ -5667,6 +5767,11 @@ const createQuoteCommand: CommandHandler<
       );
       if (!quote) return;
       await assertQuoteGraphUndoCurrent(tx, quote.id, after);
+      await tx.nativeDelete(SalesQuoteRecurrence, {
+        quote: quote.id,
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+      });
       await tx.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
       await tx.nativeDelete(SalesQuoteLine, { quote: quote.id });
       tx.remove(quote);
@@ -5742,6 +5847,11 @@ const deleteQuoteCommand: CommandHandler<
           await em.nativeDelete(SalesDocumentTagAssignment, {
             documentId: quote.id,
             documentKind: "quote",
+          });
+          await em.nativeDelete(SalesQuoteRecurrence, {
+            quote: quote.id,
+            tenantId: quote.tenantId,
+            organizationId: quote.organizationId,
           });
           await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
           await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
@@ -6059,7 +6169,7 @@ async function captureLockedQuoteGraphAfter(
 
 const updateQuoteCommand: CommandHandler<
   DocumentUpdateInput,
-  { quote: SalesQuote }
+  { quote: SalesQuote; recurrence: QuoteRecurrenceSnapshot | null }
 > = {
   id: "sales.quotes.update",
   async prepare(input, ctx) {
@@ -6084,6 +6194,7 @@ const updateQuoteCommand: CommandHandler<
     documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let quote!: SalesQuote;
+    let recurrence: QuoteRecurrenceSnapshot | null = null;
     let totalsEvent: TotalsCalculatedPayload | null = null;
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
@@ -6102,6 +6213,12 @@ const updateQuoteCommand: CommandHandler<
       [
         async () => {
           quote = await lockQuoteForTotalsWrite(em, ctx, parsed.id, "Sales quote not found");
+          if (parsed.recurrence !== undefined) {
+            await ensureRecurrenceWritePermission(ctx, "quote", {
+              tenantId: quote.tenantId,
+              organizationId: quote.organizationId,
+            });
+          }
           const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
           await applyDocumentUpdate({
             kind: "quote",
@@ -6122,6 +6239,12 @@ const updateQuoteCommand: CommandHandler<
               value: "draft",
             });
           }
+        },
+        async () => {
+          const writtenRecurrence = await writeQuoteRecurrence(em, quote, parsed.recurrence);
+          recurrence = writtenRecurrence === undefined
+            ? await loadQuoteRecurrenceSnapshot(em, quote)
+            : writtenRecurrence;
         },
         // Scalar mutations above are persisted by withAtomicFlush's per-phase
         // flush boundary before the recalc reads below run any query on the same
@@ -6241,11 +6364,11 @@ const updateQuoteCommand: CommandHandler<
       ctx.auth?.tenantId ?? null,
       "updated",
     );
-    return { quote };
+    return { quote, recurrence };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadQuoteSnapshot(em, result.quote.id);
+    return loadQuoteSnapshot(em, result.quote.id, result.recurrence);
   },
   buildLog: async ({ input, snapshots, result }) => {
     const parsed = documentUpdateSchema.parse(input ?? {});
@@ -6263,6 +6386,10 @@ const updateQuoteCommand: CommandHandler<
     if (parsed.tags !== undefined) {
       const tagChange = buildTagChange(before?.tags, after.tags);
       if (tagChange) changes.tags = tagChange;
+    }
+    if (before && parsed.recurrence !== undefined) {
+      const recurrenceChange = buildRecurrenceAuditChange(before.recurrence, after.recurrence);
+      if (recurrenceChange) changes.recurrence = recurrenceChange;
     }
     return {
       actionLabel: translate("sales.audit.quotes.update", "Update sales quote"),
@@ -6337,7 +6464,7 @@ const orderIdOutputSchema = z.object({ orderId: z.string().uuid() });
 
 const updateOrderCommand: CommandHandler<
   DocumentUpdateInput,
-  { order: SalesOrder }
+  { order: SalesOrder; recurrence: OrderRecurrenceSnapshot | null; recurrenceLocked: boolean }
 > = {
   id: "sales.orders.update",
   outputSchema: orderUpdateOutputSchema,
@@ -6362,6 +6489,8 @@ const updateOrderCommand: CommandHandler<
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let order!: SalesOrder;
+    let recurrence: OrderRecurrenceSnapshot | null = null;
+    let recurrenceLocked = false;
     let previousStatus: string | null = null;
     let nextTotalsMode: SalesAmountsMode = "computed";
     let totalsModeChanged = false;
@@ -6386,6 +6515,12 @@ const updateOrderCommand: CommandHandler<
       [
         async () => {
           order = await lockOrderForTotalsWrite(em, ctx, parsed.id, "Sales order not found");
+          if (parsed.recurrence !== undefined) {
+            await ensureRecurrenceWritePermission(ctx, "order", {
+              tenantId: order.tenantId,
+              organizationId: order.organizationId,
+            });
+          }
           const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
           nextTotalsMode = parsed.totalsMode ?? currentTotalsMode;
           totalsModeChanged = nextTotalsMode !== currentTotalsMode;
@@ -6402,16 +6537,32 @@ const updateOrderCommand: CommandHandler<
               ? buildExternalHeaderTotals(parsed)
               : readPersistedHeaderTotals(order)
             : null;
+          const recurrenceChanges = await orderRecurrenceChanges(em, order, parsed.recurrence);
+          if (
+            totalsModeChanged ||
+            externalHeaderSupplied ||
+            recurrenceChanges ||
+            RECURRING_LOCKED_ORDER_FIELDS.some((field) => parsed[field] !== undefined)
+          ) {
+            await assertOrderRecurrenceUnlocked(em, order);
+          }
           previousStatus = normalizeStatusValue(order.status);
-          if (parsed.statusEntryId && !isCancelledOrderStatus(previousStatus)) {
-            const requestedStatus = normalizeStatusValue(
-              await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
-                tenantId: order.tenantId,
-              }),
-            );
-            if (isCancelledOrderStatus(requestedStatus)) {
-              await assertOrderCanBeCancelled(em, order);
-            }
+          const requestedStatus = parsed.statusEntryId === undefined
+            ? previousStatus
+            : normalizeStatusValue(
+                await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
+                  tenantId: order.tenantId,
+                }),
+              );
+          if (requestedStatus !== previousStatus || recurrenceChanges) {
+            await assertRecurringOrderStatusAllowed(em, order, requestedStatus, parsed.recurrence);
+          }
+          if (
+            parsed.statusEntryId &&
+            !isCancelledOrderStatus(previousStatus) &&
+            isCancelledOrderStatus(requestedStatus)
+          ) {
+            await assertOrderCanBeCancelled(em, order);
           }
           await applyDocumentUpdate({
             kind: "order",
@@ -6419,6 +6570,12 @@ const updateOrderCommand: CommandHandler<
             input: parsed,
             em,
           });
+        },
+        async () => {
+          const writtenRecurrence = await writeOrderRecurrence(em, order, parsed.recurrence);
+          recurrence = writtenRecurrence === undefined
+            ? await loadOrderRecurrenceSnapshot(em, order)
+            : writtenRecurrence;
         },
         // Scalar mutations above are persisted by withAtomicFlush's per-phase
         // flush boundary before the recalc reads and the status-change-note
@@ -6534,6 +6691,9 @@ const updateOrderCommand: CommandHandler<
           });
           order.updatedAt = new Date();
         },
+        async () => {
+          recurrenceLocked = recurrence !== null && await hasRecurringPeriods(em, order);
+        },
       ],
       { transaction: true },
     );
@@ -6582,11 +6742,11 @@ const updateOrderCommand: CommandHandler<
       ctx.auth?.tenantId ?? null,
       "updated",
     );
-    return { order };
+    return { order, recurrence, recurrenceLocked };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadOrderSnapshot(em, result.order.id);
+    return loadOrderSnapshot(em, result.order.id, result.recurrence);
   },
   buildLog: async ({ input, snapshots, result }) => {
     const parsed = documentUpdateSchema.parse(input ?? {});
@@ -6604,6 +6764,10 @@ const updateOrderCommand: CommandHandler<
     if (parsed.tags !== undefined) {
       const tagChange = buildTagChange(before?.tags, after.tags);
       if (tagChange) changes.tags = tagChange;
+    }
+    if (before && parsed.recurrence !== undefined) {
+      const recurrenceChange = buildRecurrenceAuditChange(before.recurrence, after.recurrence);
+      if (recurrenceChange) changes.recurrence = recurrenceChange;
     }
     return {
       actionLabel: translate("sales.audit.orders.update", "Update sales order"),
@@ -6635,7 +6799,7 @@ const updateOrderCommand: CommandHandler<
 
 const createOrderCommand: CommandHandler<
   OrderCreateInput,
-  { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
+  { orderId: string; warnings?: OrderPaymentLedgerWarning[]; recurrence?: OrderRecurrenceSnapshot }
 > = {
   id: "sales.orders.create",
   outputSchema: orderIdOutputSchema,
@@ -6645,6 +6809,13 @@ const createOrderCommand: CommandHandler<
     ) as SalesDocumentNumberGenerator;
     const deprecatedPaymentLedgerFields = resolveSuppliedOrderPaymentLedgerFields(rawInput)
     const initial = orderCreateSchema.parse(rawInput ?? {});
+    if (initial.recurrence) {
+      ensureOrderScope(ctx, initial.organizationId, initial.tenantId);
+      await ensureRecurrenceWritePermission(ctx, "order", {
+        organizationId: initial.organizationId,
+        tenantId: initial.tenantId,
+      });
+    }
     if (deprecatedPaymentLedgerFields.length && !warnedDeprecatedOrderPaymentLedgerInput) {
       warnedDeprecatedOrderPaymentLedgerInput = true
       logger.warn("sales.orders.create ignored deprecated payment ledger input", {
@@ -6694,6 +6865,14 @@ const createOrderCommand: CommandHandler<
     } = await resolveDocumentReferences(em, parsed);
 
     const orderId = randomUUID()
+    if (parsed.recurrence) {
+      await assertRecurringOrderStatusAllowed(
+        em,
+        { id: orderId, tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+        normalizeStatusValue(status),
+        parsed.recurrence,
+      );
+    }
     const order = em.create(SalesOrder, {
       id: orderId,
       organizationId: parsed.organizationId,
@@ -6947,6 +7126,7 @@ const createOrderCommand: CommandHandler<
     // Persist the order header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built order committed (#2336).
+    let recurrence: OrderRecurrenceSnapshot | null | undefined;
     await withAtomicFlush(
       em,
       [
@@ -6983,6 +7163,9 @@ const createOrderCommand: CommandHandler<
             tenantId: order.tenantId,
             customFields: parsed.customFields,
           });
+        },
+        async () => {
+          recurrence = await writeOrderRecurrence(em, order, parsed.recurrence);
         },
       ],
       { transaction: true },
@@ -7065,6 +7248,7 @@ const createOrderCommand: CommandHandler<
 
     return {
       orderId: order.id,
+      ...(recurrence ? { recurrence } : {}),
       ...(deprecatedPaymentLedgerFields.length
         ? {
             warnings: [
@@ -7079,7 +7263,7 @@ const createOrderCommand: CommandHandler<
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadOrderSnapshot(em, result.orderId);
+    return loadOrderSnapshot(em, result.orderId, result.recurrence ?? null);
   },
   buildLog: async ({ result, snapshots }) => {
     const after = snapshots.after as OrderGraphSnapshot | undefined;
@@ -7125,6 +7309,7 @@ const createOrderCommand: CommandHandler<
           },
         );
         if (!order) return;
+        await retireOrderRecurrence(tx, order);
         await tx.nativeDelete(SalesOrderAdjustment, { order: order.id });
         await tx.nativeDelete(SalesOrderLine, { order: order.id });
         tx.remove(order);
@@ -7219,6 +7404,7 @@ const deleteOrderCommand: CommandHandler<
             throw notFound(translate("sales.documents.detail.notFound", "Document not found."));
           }
           await enforceSalesDocumentOptimisticLock(ctx, lockedOrder, SALES_RESOURCE_KIND_ORDER);
+          await assertRecurringOrderDeletable(em, lockedOrder);
           if (shipmentIds.length) {
             await em.nativeDelete(SalesShipmentItem, {
               shipment: { $in: shipmentIds },
@@ -7239,6 +7425,7 @@ const deleteOrderCommand: CommandHandler<
             documentId: order.id,
             documentKind: "order",
           });
+          await retireOrderRecurrence(em, lockedOrder);
           await em.nativeDelete(SalesOrderAdjustment, { order: order.id });
           await em.nativeDelete(SalesOrderLine, { order: order.id });
           em.remove(lockedOrder);
@@ -7373,6 +7560,7 @@ const convertQuoteToOrderCommand: CommandHandler<
             "sales.documents.detail.error",
             "Document not found or inaccessible.",
           ));
+      await assertRecurringQuoteConvertible(snapshot.recurrence, snapshot.lines.length);
       const orderId = payload.orderId ?? quote.id;
       const existingOrder = await findOneWithDecryption(em, SalesOrder, {
         id: orderId,
@@ -7386,6 +7574,22 @@ const convertQuoteToOrderCommand: CommandHandler<
           ),
         });
       }
+      const orderScope = {
+        id: orderId,
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+      };
+      if (snapshot.recurrence) {
+        await assertRecurringOrderStatusAllowed(
+          em,
+          orderScope,
+          normalizeStatusValue(snapshot.quote.status),
+          snapshot.recurrence,
+        );
+      }
+      const existingRecurrence = snapshot.recurrence
+        ? await findOrderRecurrenceRow(em, orderScope)
+        : null;
 
       const generator = ctx.container.resolve(
         "salesDocumentNumberGenerator",
@@ -7678,6 +7882,14 @@ const convertQuoteToOrderCommand: CommandHandler<
         }
       }
 
+      if (snapshot.recurrence) {
+        persistOrderRecurrence(em, order, snapshot.recurrence, existingRecurrence);
+        await em.nativeDelete(SalesQuoteRecurrence, {
+          quote: quote.id,
+          tenantId: quote.tenantId,
+          organizationId: quote.organizationId,
+        });
+      }
       await em.nativeDelete(SalesQuoteAdjustment, { quote: snapshot.quote.id });
       await em.nativeDelete(SalesQuoteLine, { quote: snapshot.quote.id });
       em.remove(quote);
@@ -7762,6 +7974,7 @@ const convertQuoteToOrderCommand: CommandHandler<
             documentId: orderId,
             documentKind: "order",
           });
+          await retireOrderRecurrence(em, existingOrder);
           await em.nativeDelete(SalesOrderAdjustment, { order: orderId });
           await em.nativeDelete(SalesOrderLine, { order: orderId });
           em.remove(existingOrder);
@@ -8518,6 +8731,7 @@ const orderLineUpsertCommand: CommandHandler<
       LINE_EXACT_AMOUNT_FIELDS,
     );
     return writeLockedOrderGraph(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
+      await assertOrderRecurrenceUnlocked(em, order);
       const [existingLines, adjustments] = await Promise.all([
         em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
         em.find(
@@ -8677,6 +8891,7 @@ const orderLineDeleteCommand: CommandHandler<
       "sales.documents.detail.error",
       "Document not found or inaccessible.",
     ), async (em, order) => {
+      await assertOrderRecurrenceUnlocked(em, order);
       const shipmentCount = await em.count(SalesShipmentItem, {
         orderLine: parsed.id,
         shipment: { deletedAt: null },
@@ -8867,6 +9082,7 @@ const orderLineBulkUpsertCommand: CommandHandler<
       lines: withExactListAmounts(parsedBody.lines, rawBody, "lines", LINE_EXACT_AMOUNT_FIELDS) ?? parsedBody.lines,
     };
     return writeLockedOrderGraph(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
+      await assertOrderRecurrenceUnlocked(em, order);
       const totalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
       await assertUniformAmountsMode(totalsMode, parsed.lines);
       const orderTotals = parsed.orderTotals
@@ -9532,6 +9748,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       ADJUSTMENT_EXACT_AMOUNT_FIELDS,
     );
     return writeLockedOrderGraph(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
+      await assertOrderRecurrenceUnlocked(em, order);
       if (isExternalAmountsMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
       if (parsed.scope === "line") {
         throw new CrudHttpError(400, {
@@ -9804,6 +10021,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
       (input?.body as Record<string, unknown> | undefined) ?? {},
     );
     return writeLockedOrderGraph(input, ctx, parsed.orderId, "Sales order not found", async (em, order) => {
+      await assertOrderRecurrenceUnlocked(em, order);
       if (isExternalAmountsMode(order.totalsMode ?? "computed")) await refuseOnExternalOrder();
       const [existingLines, adjustments] = await Promise.all([
         em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),

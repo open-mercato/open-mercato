@@ -83,6 +83,8 @@ import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/compon
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { commitPendingCc, isQuoteCcAddress } from '@open-mercato/core/modules/sales/lib/quoteSendCc'
+import type { SalesRecurrenceFrequency } from '@open-mercato/core/modules/sales/lib/recurrence'
+import { formatRecurringTotalLabel } from '@open-mercato/core/modules/sales/lib/recurrenceLabel'
 import { documentEmailForCustomerChange, readDocumentEmail, resolveSavedContactEmail, syncDocumentEmailWithSnapshot } from '@open-mercato/core/modules/sales/lib/documentEmail'
 
 const logger = createLogger('sales')
@@ -906,6 +908,7 @@ type DocumentRecord = {
   surchargeTotalAmount?: number | null
   grandTotalNetAmount?: number | null
   grandTotalGrossAmount?: number | null
+  recurrence?: { frequency: SalesRecurrenceFrequency } | null
   paidTotalAmount?: number | null
   refundedTotalAmount?: number | null
   outstandingAmount?: number | null
@@ -2942,13 +2945,17 @@ export default function SalesDocumentDetailPage({
     items.push(
       {
         key: 'grandTotalNetAmount',
-        label: t('sales.documents.detail.totals.grandTotalNet', 'Grand total (net)'),
+        label: formatRecurringTotalLabel(
+          t('sales.documents.detail.totals.grandTotalNet', 'Grand total (net)'), record.recurrence?.frequency, t,
+        ),
         amount: record.grandTotalNetAmount ?? null,
         emphasize: true,
       },
       {
         key: 'grandTotalGrossAmount',
-        label: t('sales.documents.detail.totals.grandTotalGross', 'Grand total (gross)'),
+        label: formatRecurringTotalLabel(
+          t('sales.documents.detail.totals.grandTotalGross', 'Grand total (gross)'), record.recurrence?.frequency, t,
+        ),
         amount: record.grandTotalGrossAmount ?? null,
         emphasize: true,
       }

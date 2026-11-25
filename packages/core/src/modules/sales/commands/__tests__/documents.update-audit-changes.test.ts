@@ -26,6 +26,8 @@ const DOCUMENT_ID = '11111111-1111-4111-8111-111111111111'
 const ORG_ID = '22222222-2222-4222-8222-222222222222'
 const TENANT_ID = '33333333-3333-4333-8333-333333333333'
 const METHOD_ID = '44444444-4444-4444-8444-444444444444'
+const RECURRENCE = { frequency: 'monthly', startsOn: '2027-01-31', anchorDay: null, periodCount: 3 }
+const REVISED_RECURRENCE = { ...RECURRENCE, periodCount: 6 }
 
 /** A fresh copy on every call, as `loadOrderSnapshot` / `loadQuoteSnapshot` produce one. */
 function documentSnapshot(overrides: Record<string, unknown> = {}) {
@@ -94,10 +96,11 @@ describe.each(['sales.orders.update', 'sales.quotes.update'] as const)('%s audit
     graphOverrides: Record<string, unknown> = {},
     inputOverrides: Record<string, unknown> = {},
     withBefore = true,
+    beforeGraphOverrides: Record<string, unknown> = {},
   ) {
     const key = commandId === 'sales.orders.update' ? 'order' : 'quote'
     const handler = commandRegistry.get(commandId)!
-    const before = { [key]: documentSnapshot(), tags: [], lines: [], adjustments: [] }
+    const before = { [key]: documentSnapshot(), tags: [], lines: [], adjustments: [], ...beforeGraphOverrides }
     const after = {
       ...before,
       [key]: documentSnapshot({ updatedAt: '2026-11-16T10:00:01.000Z', ...afterOverrides }),
@@ -192,6 +195,27 @@ describe.each(['sales.orders.update', 'sales.quotes.update'] as const)('%s audit
       {}, { tags: [{ tagId: METHOD_ID }] }, { tags: [METHOD_ID] },
     )
     expect(log.mock.calls[0][0].changes).toEqual({ tags: { from: [], to: [METHOD_ID] } })
+  })
+
+  it.each([
+    { from: null, to: RECURRENCE },
+    { from: RECURRENCE, to: REVISED_RECURRENCE },
+    { from: RECURRENCE, to: null },
+  ])('records the recurrence schedule before and after the edit ($from → $to)', async ({ from, to }) => {
+    const snapshot = (schedule: typeof RECURRENCE | null, scheduleVersion: number) =>
+      schedule && commandId === 'sales.orders.update' ? { ...schedule, scheduleVersion } : schedule
+    const { log } = await executeWithSnapshots(
+      {}, { recurrence: snapshot(to, 2) }, { recurrence: to }, true, { recurrence: snapshot(from, 1) },
+    )
+    expect(log).toHaveBeenCalledTimes(1)
+    expect(log.mock.calls[0][0].changes).toEqual({ recurrence: { from, to } })
+  })
+
+  it('does not persist an audit entry when the recurrence schedule is unchanged', async () => {
+    const { log } = await executeWithSnapshots(
+      {}, { recurrence: { ...RECURRENCE } }, { recurrence: RECURRENCE }, true, { recurrence: RECURRENCE },
+    )
+    expect(log).not.toHaveBeenCalled()
   })
 
   it('keeps logging when the before snapshot is unavailable', async () => {

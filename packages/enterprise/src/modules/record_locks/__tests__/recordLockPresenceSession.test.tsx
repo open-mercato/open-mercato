@@ -19,6 +19,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() })
 jest.mock('next/navigation', () => ({ useSearchParams: () => null }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback,
+  useLocale: () => 'en',
 }))
 jest.mock('@open-mercato/core/modules/audit_logs/lib/display-helpers', () => ({
   ChangedFieldsTable: () => null,

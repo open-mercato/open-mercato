@@ -16,6 +16,9 @@ import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 import { isForeignTenantActor } from "../../../../lib/publicQuoteTenantScope";
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { loadQuoteRecurrenceSnapshot, toRecurrenceResponse } from "../../../../lib/recurrenceStore";
+import { localToday, SALES_RECURRENCE_FREQUENCIES } from "../../../../lib/recurrence";
+import { hasRecurringQuoteStarted } from "../../../../lib/recurringOrderGuard";
 
 const logger = createLogger('sales')
 
@@ -51,7 +54,7 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
     const isExpired =
       !!quote.validUntil && quote.validUntil.getTime() < now.getTime();
 
-    const [lines, adjustments] = await Promise.all([
+    const [lines, adjustments, recurrenceSnapshot] = await Promise.all([
       findWithDecryption(
         em,
         SalesQuoteLine,
@@ -64,8 +67,10 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
         { quote: quote.id, organizationId: quote.organizationId, tenantId: quote.tenantId },
         { orderBy: { position: "asc" } },
       ),
+      loadQuoteRecurrenceSnapshot(em, quote),
     ]);
 
+    const recurrence = toRecurrenceResponse(recurrenceSnapshot);
     return NextResponse.json({
       quote: {
         quoteNumber: quote.quoteNumber,
@@ -80,6 +85,14 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
         grandTotalNetAmount: quote.grandTotalNetAmount,
         grandTotalGrossAmount: quote.grandTotalGrossAmount,
       },
+      recurrence: recurrence
+        ? {
+            frequency: recurrence.frequency,
+            startsOn: recurrence.startsOn,
+            periodCount: recurrence.periodCount,
+            endsOn: recurrence.endsOn,
+          }
+        : null,
       lines: lines.map((line) => ({
         lineNumber: line.lineNumber ?? null,
         kind: line.kind,
@@ -131,6 +144,7 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
         quoteLineId: adj.quoteLine?.id ?? null,
       })),
       isExpired,
+      isRecurrenceStarted: hasRecurringQuoteStarted(recurrence, localToday(now)),
     });
   } catch (err) {
     if (isCrudHttpError(err)) {
@@ -161,6 +175,14 @@ const publicQuoteResponseSchema = z.object({
     grandTotalNetAmount: z.string(),
     grandTotalGrossAmount: z.string(),
   }),
+  recurrence: z
+    .object({
+      frequency: z.enum(SALES_RECURRENCE_FREQUENCIES),
+      startsOn: z.string(),
+      periodCount: z.number().int().nullable(),
+      endsOn: z.string().nullable(),
+    })
+    .nullable(),
   lines: z.array(
     z.object({
       lineNumber: z.number().nullable(),
@@ -213,6 +235,7 @@ const publicQuoteResponseSchema = z.object({
     }),
   ),
   isExpired: z.boolean(),
+  isRecurrenceStarted: z.boolean().optional(),
 });
 
 export const openApi: OpenApiRouteDoc = {

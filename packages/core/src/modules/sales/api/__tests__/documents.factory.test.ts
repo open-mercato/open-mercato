@@ -414,6 +414,14 @@ describe('buildDocumentCrudOptions', () => {
       mockRecalculateOrderTotalsForDisplay.mockReset()
     })
 
+    const periodQuery = {
+      selectFrom: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      distinct: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      execute: jest.fn(async () => []),
+    }
+
     const orderBinding = {
       kind: 'order' as const,
       entity: SalesOrder,
@@ -438,6 +446,7 @@ describe('buildDocumentCrudOptions', () => {
       const channels = [{ id: channelId, name: 'Web shop', code: 'web-shop' }]
       const entitiesSeen: string[] = []
       const em = {
+        getKysely: () => periodQuery,
         find: (entity: { name?: string }, where: Record<string, unknown>) => {
           const name = entity?.name ?? ''
           entitiesSeen.push(name)
@@ -463,7 +472,13 @@ describe('buildDocumentCrudOptions', () => {
 
       expect(payload.items[0].tags).toEqual([{ id: 'tag-1', label: 'Priority', color: '#fff' }])
       expect(payload.items[0].channelName).toBe('Web shop')
-      expect(entitiesSeen).toEqual(['SalesDocumentTagAssignment', 'SalesChannel', 'SalesOrder'])
+      expect(payload.items[0].recurrence).toBeNull()
+      expect(entitiesSeen).toEqual([
+        'SalesDocumentTagAssignment',
+        'SalesChannel',
+        'SalesOrderRecurrence',
+        'SalesOrder',
+      ])
     })
 
     it('keeps persisted totals when the response contains exactly one order (#5438)', async () => {
@@ -484,6 +499,7 @@ describe('buildDocumentCrudOptions', () => {
 
       const options = buildDocumentCrudOptions(orderBinding)
       const em = {
+        getKysely: () => periodQuery,
         find: jest.fn(async () => []),
         fork: jest.fn(function fork(this: { find: unknown }) {
           return this

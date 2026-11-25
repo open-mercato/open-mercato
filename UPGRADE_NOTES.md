@@ -1172,6 +1172,23 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
 
+### Recurring sales orders: new guards on recurring orders (spec `2026-10-21-sales-recurring-orders`)
+
+Quotes and orders accept an optional `recurrence` (`{ frequency, startsOn, anchorDay?, periodCount? }`, `null` removes it). Documents without a recurrence behave exactly as before. A recurring document gets these new refusals, each with a machine-readable `code` in the error body:
+
+| Operation | Refused when | Response |
+|---|---|---|
+| `sales.quotes.convert_to_order` and public quote acceptance, `POST /api/sales/quotes/send` | The recurring quote's start date has passed | `422` `recurring_quote_started` |
+| The same operations | The recurring quote has no lines | `422` `recurring_quote_no_lines` |
+| Order line and order-level adjustment upsert/delete (including `sales.orders.lines.upsert_many`, `POST /api/sales/order-lines/batch`), `recurrence` set/change/remove (sending the current schedule back is accepted), and changes to currency, channel, customer, shipping/payment method, `totalsMode` or externally supplied order totals | The recurring order has an issued period | `409` `recurring_order_locked` |
+| `sales.returns.create`, `sales.returns.delete`, and undo or redo of a return | The recurring order has an issued period | `409` `recurring_order_locked` |
+| Setting the order status to `canceled`/`cancelled`/`rejected`/`on_hold` (including through payment and shipment `documentStatusEntryId`), creating an order with such a status and a recurrence, adding a recurrence to an order with such a status, or converting a recurring quote with such a status (`sales.quotes.convert_to_order`) | The order would be left with a `scheduled`, `active` or `cancelling` recurrence | `409` `recurring_order_use_cancel`, or `recurring_order_invoiced_stop` after a period is issued |
+| `sales.orders.delete` | The recurring order has an issued period | `409` `recurring_order_invoiced` |
+
+**What to change:** a module that sets order statuses, edits lines, records returns or deletes orders on behalf of users should handle these codes. In particular, automations that cancel or reject orders by status must skip recurring orders or remove their schedule first, or (once Phase 3 ships) use *Cancel recurring order*. `QuoteGraphSnapshot` and `OrderGraphSnapshot` undo payloads gain an optional `recurrence` field; snapshots recorded before this change leave the recurrence untouched on undo.
+
+Public quote clients can use the optional `isRecurrenceStarted` response field to hide acceptance once the start date passes. `isExpired` still describes the configured quote validity. Continue handling `422 recurring_quote_started` for a quote that becomes ineligible after it was loaded.
+
 ### Money and exchange-rate amounts are arbitrary precision (exact decimals)
 
 Money columns and `exchange_rates.rate` are now unconstrained `numeric`, and all built-in money math

@@ -14,12 +14,13 @@
  * revert of the locale-aware parse would stay green.
  */
 import * as React from 'react'
-import { act, render } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import type {
   CrudCustomField,
   CrudCustomFieldRenderProps,
   CrudField,
 } from '@open-mercato/ui/backend/CrudForm'
+import type { SalesLineRecord } from '../lineItemTypes'
 
 type FormValues = Record<string, unknown>
 type SubmitHandler = (values: FormValues) => Promise<void>
@@ -29,6 +30,7 @@ const mockCreateCrud = jest.fn()
 const mockUpdateCrud = jest.fn()
 
 let capturedSubmit: SubmitHandler | null = null
+let capturedValues: FormValues = {}
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
@@ -119,6 +121,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => {
     }, [initialValues])
 
     capturedSubmit = onSubmit
+    capturedValues = values
 
     const setFormValue = ReactLib.useCallback((id: string, next: unknown) => {
       setValues((current) => ({ ...current, [id]: next }))
@@ -193,13 +196,14 @@ import { LineItemDialog } from '../LineItemDialog'
 import { addDecimals, decimalToString } from '@open-mercato/shared/lib/decimal'
 import { createSalesCalculationRegistry } from '../../../lib/calculations'
 
-const renderDialog = (currencyCode = 'USD') =>
+const renderDialog = (currencyCode = 'USD', initialLine?: SalesLineRecord) =>
   render(
     <LineItemDialog
       open
       kind="order"
       documentId="order-1"
       currencyCode={currencyCode}
+      initialLine={initialLine}
       organizationId="org-1"
       tenantId="tenant-1"
       onOpenChange={() => {}}
@@ -241,6 +245,7 @@ describe('LineItemDialog locale decimal separator (issue #5552)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     capturedSubmit = null
+    capturedValues = {}
     mockApiCall.mockImplementation(async () => ({ ok: true, result: { items: [] } }))
     mockCreateCrud.mockResolvedValue({ ok: true })
     mockUpdateCrud.mockResolvedValue({ ok: true })
@@ -258,6 +263,65 @@ describe('LineItemDialog locale decimal separator (issue #5552)', () => {
     const payload = await submit('2.5', '110.70')
     expect(payload.quantity).toBe(2.5)
     expect(payload.unitPriceGross).toBe('110.7')
+  })
+
+  it.each([
+    {
+      priceMode: 'gross',
+      price: 110.75,
+      exactPrice: null,
+      displayedPrice: '110,75',
+      submittedPrice: '110.75',
+      total: '276.875',
+    },
+    {
+      priceMode: 'net',
+      price: 0.12345678901234568,
+      exactPrice: '0.123456789012345678',
+      displayedPrice: '0,123456789012345678',
+      submittedPrice: '0.123456789012345678',
+      total: '0.308641972530864195',
+    },
+  ] as const)('reopens a saved $priceMode price in Polish and submits the same amounts', async ({
+    priceMode, price, exactPrice, displayedPrice, submittedPrice, total,
+  }) => {
+    renderDialog('USD', {
+      id: 'line-1',
+      name: 'Custom line',
+      productId: null,
+      productVariantId: null,
+      quantity: 2.5,
+      quantityUnit: 'pcs',
+      normalizedQuantity: 2.5,
+      normalizedUnit: 'pcs',
+      currencyCode: 'USD',
+      unitPriceGross: price,
+      unitPriceNet: price,
+      ...(priceMode === 'net' ? { unitPriceNetExact: exactPrice } : {}),
+      taxRate: 0,
+      totalGross: Number(total),
+      totalNet: Number(total),
+      priceMode: 'gross',
+      uomSnapshot: null,
+      metadata: { priceMode },
+      catalogSnapshot: null,
+    })
+
+    expect(within(screen.getByTestId('field-quantity')).getByRole('textbox')).toHaveValue('2,5')
+    expect(within(screen.getByTestId('field-unitPrice')).getByRole('textbox')).toHaveValue(displayedPrice)
+    await act(async () => {
+      await capturedSubmit?.(capturedValues)
+    })
+
+    expect(mockUpdateCrud).toHaveBeenCalledTimes(1)
+    expect(mockUpdateCrud.mock.calls[0][1]).toMatchObject({
+      id: 'line-1',
+      quantity: 2.5,
+      unitPriceNet: submittedPrice,
+      unitPriceGross: submittedPrice,
+      totalNetAmount: total,
+      totalGrossAmount: total,
+    })
   })
 
   it('submits every digit of a price beyond float precision', async () => {
