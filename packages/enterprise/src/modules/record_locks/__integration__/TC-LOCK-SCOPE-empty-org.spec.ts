@@ -5,6 +5,7 @@ import {
   createOrganizationFixture,
   createRoleFixture,
   createUserFixture,
+  deleteOrganizationIfExists,
   deleteRoleIfExists,
   deleteUserIfExists,
   setRoleAclFeatures,
@@ -41,13 +42,17 @@ function buildRouteProbes(resourceId: string): RouteProbe[] {
   ]
 }
 
-async function probe(request: APIRequestContext, token: string, route: RouteProbe): Promise<number> {
+type ProbeResult = { status: number; body: string }
+
+async function probe(request: APIRequestContext, token: string, route: RouteProbe): Promise<ProbeResult> {
   const response = await apiRequest(request, route.method, route.path, {
     token,
     ...(route.data === undefined ? {} : { data: route.data }),
   })
-  return response.status()
+  return { status: response.status(), body: await response.text() }
 }
+
+type AcquiredLock = { resourceId: string; token: string }
 
 /**
  * TC-LOCK-SCOPE-empty-org: record_locks routes fail closed on an explicitly
@@ -59,20 +64,22 @@ async function probe(request: APIRequestContext, token: string, route: RouteProb
  * reads `null` as "all organizations" and widened action-log lookups to the
  * whole tenant, so an empty-scope caller holding `record_locks.view` received
  * other organizations' action-log ids. Every route now denies that caller with
- * 403 before any service call, while an unrestricted caller keeps working.
+ * 403 before any service call, while a single-organization caller and an
+ * unrestricted "All organizations" caller keep working.
  *
  * The deny-all scope is built through public APIs only: the role stores
  * `organizations: []`, and soft-deleting the temporary home organization
  * removes the resolver's account-organization fallback before login.
  *
- * Self-contained: creates its own role, user and temporary home organization;
- * deletes the user and role in `finally` (the home organization is soft-deleted
- * as part of the scenario).
+ * Self-contained: creates its own role, user, temporary home organization and
+ * allowed organization; releases acquired locks and deletes the user, role and
+ * allowed organization in `finally` (the home organization is soft-deleted as
+ * part of the scenario).
  */
 test.describe('TC-LOCK-SCOPE-empty-org: empty organization scope is denied', () => {
   test.describe.configure({ timeout: 120_000 })
 
-  test('every record_locks route returns 403 for an empty scope and stays open for an unrestricted scope', async ({ request }) => {
+  test('every record_locks route returns 403 for an empty scope and stays open for single-org and unrestricted scopes', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin')
     const { tenantId } = getTokenContext(superadminToken)
     expectId(tenantId, 'Superadmin token should carry the actor tenant')
@@ -83,12 +90,16 @@ test.describe('TC-LOCK-SCOPE-empty-org: empty organization scope is denied', () 
     let roleId: string | null = null
     let actorUserId: string | null = null
     let actorToken: string | null = null
-    let acquiredLockToken: string | null = null
-    const resourceId = randomUUID()
+    let allowedOrganizationId: string | null = null
+    const acquiredLocks: AcquiredLock[] = []
 
     try {
       const homeOrganizationId = await createOrganizationFixture(request, superadminToken, {
         name: `QA TC-LOCK-SCOPE Temporary home ${stamp}`,
+        tenantId,
+      })
+      allowedOrganizationId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-LOCK-SCOPE Allowed ${stamp}`,
         tenantId,
       })
       roleId = await createRoleFixture(request, superadminToken, {
@@ -117,30 +128,42 @@ test.describe('TC-LOCK-SCOPE-empty-org: empty organization scope is denied', () 
       expect(removeHome.status(), 'Temporary home organization should be soft-deleted').toBe(200)
 
       actorToken = await getAuthToken(request, actorEmail, password)
-      for (const route of buildRouteProbes(resourceId)) {
-        const status = await probe(request, actorToken, route)
-        expect(status, `${route.name} must deny an explicitly empty organization scope`).toBe(403)
+      for (const route of buildRouteProbes(randomUUID())) {
+        const result = await probe(request, actorToken, route)
+        expect(result.status, `${route.name} must deny an explicitly empty organization scope`).toBe(403)
+        expect(result.body, `${route.name} must not leak an action-log id`).not.toContain('latestActionLogId')
       }
 
-      await setRoleAclFeatures(request, superadminToken, {
-        roleId,
-        features: RECORD_LOCK_FEATURES,
-        organizations: null,
-      })
+      const controls: Array<{ label: string; organizations: string[] | null }> = [
+        { label: 'a single-organization', organizations: [allowedOrganizationId] },
+        { label: 'an unrestricted "All organizations"', organizations: null },
+      ]
+      for (const control of controls) {
+        await setRoleAclFeatures(request, superadminToken, {
+          roleId,
+          features: RECORD_LOCK_FEATURES,
+          organizations: control.organizations,
+        })
 
-      const settingsStatus = await probe(request, actorToken, SETTINGS_PROBE)
-      expect(settingsStatus, 'an unrestricted "All organizations" caller keeps settings access').toBe(200)
+        const settings = await probe(request, actorToken, SETTINGS_PROBE)
+        expect(settings.status, `${control.label} caller keeps settings access`).toBe(200)
 
-      const acquire = await acquireRecordLock(request, actorToken, RESOURCE_KIND, resourceId)
-      expect(acquire.status, 'an unrestricted "All organizations" caller is not denied by the scope guard').not.toBe(403)
-      expect(acquire.status, 'an unrestricted acquire must not error').toBeLessThan(500)
-      acquiredLockToken = (acquire.body?.lock as { token?: string | null } | null | undefined)?.token ?? null
+        const resourceId = randomUUID()
+        const acquire = await acquireRecordLock(request, actorToken, RESOURCE_KIND, resourceId)
+        expect(acquire.status, `${control.label} caller is not denied by the scope guard`).not.toBe(403)
+        expect(acquire.status, `${control.label} acquire must not error`).toBeLessThan(500)
+        const lockToken = (acquire.body?.lock as { token?: string | null } | null | undefined)?.token ?? null
+        if (lockToken) acquiredLocks.push({ resourceId, token: lockToken })
+      }
     } finally {
-      if (actorToken && acquiredLockToken) {
-        await releaseRecordLock(request, actorToken, RESOURCE_KIND, resourceId, acquiredLockToken).catch(() => undefined)
+      if (actorToken) {
+        for (const lock of acquiredLocks) {
+          await releaseRecordLock(request, actorToken, RESOURCE_KIND, lock.resourceId, lock.token).catch(() => undefined)
+        }
       }
       await deleteUserIfExists(request, superadminToken, actorUserId)
       await deleteRoleIfExists(request, superadminToken, roleId)
+      await deleteOrganizationIfExists(request, superadminToken, allowedOrganizationId)
     }
   })
 })
