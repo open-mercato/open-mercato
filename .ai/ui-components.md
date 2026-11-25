@@ -57,6 +57,9 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [ActivityFeed](#activityfeed)
 - [NotificationFeed](#notificationfeed)
 - [Progress / CircularProgress](#progress--circularprogress)
+- [BorderBeam](#borderbeam)
+- [Splitter](#splitter)
+- [Anchor](#anchor)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -5842,3 +5845,42 @@ Controlled multiline message composer. Required: `value: string`, `onValueChange
 Enter submits trimmed non-empty text. Shift+Enter inserts a line break; IME composition does not submit. A native disabled fieldset disables the textarea, attachment controls and toolbar controls. Text height follows controlled value changes. The component owns no transport, model selection, attachment upload or tenant state; consumers supply slots and submission behavior.
 
 The shared Design System `prompt-area` entry includes all 18 measured source variants through six desktop/mobile and empty/file/image compositions with real hover/focus. `ai-controls`, `ai-sidebar` and `ai-mobile-navigation` cover the other 15 source sets using existing primitives. Source radius/15px typography tokens are additive; existing application defaults are unchanged. See `docs/design-system/figma-audit/ai-product.md` for source/runtime differences and validation.
+
+## BorderBeam
+
+Import: `@open-mercato/ui/primitives/border-beam`.
+
+Decorative light that travels along a container border. Props: `color` (token string or `{ color, percent }[]` stops, default `var(--accent-indigo)`), `size` (beam length, default 100), `lineWidth` (default 1), `outset`, `duration` (seconds per loop, default 6), `count` (evenly spaced beams), `items` (per-beam `color`/`size`/`lineWidth`/`outset`, overrides `count`), `trigger` (`always` | `hover`, hover also covers focus inside), `asChild` (draw inside the single child, e.g. `Card`).
+
+### MUST rules
+
+- Decoration only: never a focus ring, validation border or status signal.
+- Put the `rounded-*` class on the container (or use `asChild`); the beam reads that radius.
+- Pass token colors (`var(--accent-indigo)`, `var(--chart-*)`), never hex.
+- At most one always-on beam per screen; use `trigger="hover"` for groups of cards.
+- The layer is `aria-hidden`, ignores pointer events and is hidden under `prefers-reduced-motion: reduce`.
+
+## Splitter
+
+Import: `@open-mercato/ui/primitives/splitter` (`Splitter`, `SplitterPanel`).
+
+Resizable panels. `Splitter` props: `orientation` (`horizontal` | `vertical`), `keyboardStep` (percent, default 5), `onResize(sizes)`, `onResizeEnd(sizes)`, `handleLabel`. `SplitterPanel` props: `defaultSize`, `minSize`, `maxSize` (percent); panels without `defaultSize` share the rest. Handles are focusable `separator`s with `aria-valuenow/min/max` and `aria-controls`; arrow keys move them, Home/End jump to the limits.
+
+### MUST rules
+
+- Give the splitter a height (class or flex parent); panels fill it.
+- Set `minSize` on every panel.
+- Persist layouts from `onResizeEnd`, not `onResize`.
+- No more than two nested levels; pass `handleLabel` when a screen has several splitters.
+
+## Anchor
+
+Import: `@open-mercato/ui/primitives/anchor`.
+
+Table of contents for long pages. Props: `items` (`{ href: '#id', title, children? }[]`), `offset` (sticky header height in px), `getContainer` (scroll element, default window), `onChange(href)`, `onClick(event, item)`, `label` (nav name, default "On this page"). The link of the section in view gets `aria-current="location"`; clicks scroll (instantly under reduced motion) and update the hash.
+
+### MUST rules
+
+- Only for sections on the same page; use the sidebar or `Tabs` for page navigation.
+- Match `offset` to sticky headers.
+- Hide it below the breakpoint that has room for it instead of stacking it above content.

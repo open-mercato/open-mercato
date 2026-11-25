@@ -130,7 +130,7 @@ Shape roles (themeable): the core primitives round through role utilities backed
 | `rounded-card` | `--om-radius-card` | `calc(var(--radius) + 6px)` (= `rounded-xl`) | `Card` |
 | `rounded-badge` | `--om-radius-badge` | `calc(infinity * 1px)` (= `rounded-full`) | `Badge` |
 
-Override the `--om-radius-*` variables in a theme scope (see `@open-mercato/ui/theme/storefront.css`), never the `--radius-*` utilities. They need no `.dark` override.
+Override the `--om-radius-*` variables in a theme scope (for example `[data-theme="<name>"] { --om-radius-button: 9999px; }`), never the `--radius-*` utilities. They need no `.dark` override.
 
 Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `SegmentedControl`, `ActiveFilterChips`) are `rounded-full` by design. When a design explicitly calls for **no-pill chips** (dense filter rows, "Add filter" affordances, toolbar chips), do NOT force the pill primitives — build the chip on semantic tokens with `rounded-md` (or use `Tag shape="square"`). Never mix pill and no-pill chips in one row.
 
