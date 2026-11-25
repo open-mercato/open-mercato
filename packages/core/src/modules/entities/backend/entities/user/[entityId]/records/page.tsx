@@ -300,7 +300,7 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
 
   return (
     <Page>
-      <PageBody>
+      <PageBody className="[&_h1]:wrap-anywhere">
         <ContextHelp bulb title={t('entities.userEntities.records.apiHelp.title')} className="mb-4">
           <p className="mb-2">
             {t('entities.userEntities.records.apiHelp.intro')}{' '}

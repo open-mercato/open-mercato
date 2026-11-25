@@ -42,7 +42,11 @@ for (const [locale, dictionary] of [['en', english], ['pl', polish]] as const) {
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records`)
         const heading = dictionary['entities.userEntities.records.title'].replace('{{entityId}}', entityId)
-        await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+        const recordHeading = page.getByRole('heading', { name: heading, exact: true })
+        await expect(recordHeading).toBeVisible()
+        await expect.poll(() => recordHeading.evaluate((element) => (
+          element.getBoundingClientRect().right - element.ownerDocument.documentElement.clientWidth
+        ))).toBeLessThanOrEqual(1)
         await expect(page.getByRole('link', { name: dictionary['entities.userEntities.records.actions.editDefinition'], exact: true })).toBeVisible()
         await expect(page.getByRole('link', { name: dictionary['entities.userEntities.records.form.submitCreate'], exact: true })).toBeVisible()
         const help = page.getByRole('button').filter({ hasText: dictionary['entities.userEntities.records.apiHelp.title'] })
