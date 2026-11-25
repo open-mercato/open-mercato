@@ -57,3 +57,56 @@ export function groupTimelineByDay<TItem extends { occurredAt: string }>(
   }
   return groups
 }
+
+export type TimelinePeriodGroup<TItem extends { occurredAt: string }> = {
+  periodKey: string
+  label: string
+  year: number | null
+  items: TItem[]
+}
+
+const THIS_WEEK_KEY = 'ui.blocks.timeline.thisWeek'
+
+function startOfWeek(date: Date): Date {
+  const day = startOfDay(date)
+  const offset = (day.getDay() + 6) % 7
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate() - offset)
+}
+
+export function groupTimelineByPeriod<TItem extends { occurredAt: string }>(
+  items: readonly TItem[],
+  locale: string,
+  now: Date | number,
+  translate?: TimelineDayTranslator,
+): TimelinePeriodGroup<TItem>[] {
+  const reference = typeof now === 'number' ? new Date(now) : now
+  const weekStart = startOfWeek(reference)
+  const currentYear = reference.getFullYear()
+  const monthFormat = new Intl.DateTimeFormat(locale, { month: 'long' })
+  const groups: TimelinePeriodGroup<TItem>[] = []
+  for (const item of items) {
+    const date = new Date(item.occurredAt)
+    let periodKey: string
+    let label: string
+    let year: number | null = null
+    if (Number.isNaN(date.getTime())) {
+      periodKey = 'invalid'
+      label = ''
+    } else if (date >= weekStart) {
+      periodKey = 'this-week'
+      label = translate ? translate(THIS_WEEK_KEY, 'This week') : 'This week'
+    } else {
+      periodKey = `${date.getFullYear()}-${pad(date.getMonth() + 1)}`
+      const month = monthFormat.format(date)
+      label = month.charAt(0).toLocaleUpperCase(locale) + month.slice(1)
+      year = date.getFullYear() === currentYear ? null : date.getFullYear()
+    }
+    const last = groups[groups.length - 1]
+    if (last && last.periodKey === periodKey) {
+      last.items.push(item)
+      continue
+    }
+    groups.push({ periodKey, label, year, items: [item] })
+  }
+  return groups
+}

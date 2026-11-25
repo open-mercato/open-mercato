@@ -132,7 +132,7 @@ export function Wizard({
     title: activeStep.title,
   })
   return (
-    <div data-slot="wizard" className={cn('flex flex-col gap-6', className)} onKeyDown={handleKeyDown}>
+    <div data-slot="wizard" className={cn('flex flex-col gap-section', className)} onKeyDown={handleKeyDown}>
       <div className="hidden md:block">
         {activeStep.state === 'error' ? (
           <span data-slot="wizard-current-step-marker" aria-current="step" className="sr-only">

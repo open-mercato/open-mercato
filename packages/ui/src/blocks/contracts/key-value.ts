@@ -4,10 +4,14 @@ import { blockBasePropsSchema, callbackSchema, hasUniqueKeys, slotSchema } from 
 export const keyValueEditorSchema = z.enum(['text', 'textarea', 'select', 'date'])
 export type KeyValueEditor = z.infer<typeof keyValueEditorSchema>
 
+export const keyValueLayoutSchema = z.enum(['horizontal', 'vertical'])
+export type KeyValueLayout = z.infer<typeof keyValueLayoutSchema>
+
 export const keyValueItemSchema = z
   .object({
     key: z.string().min(1),
     label: z.string().min(1),
+    icon: slotSchema.optional(),
     value: slotSchema,
     hint: z.string().optional(),
     editable: z.boolean().optional(),
@@ -32,6 +36,8 @@ export const keyValuePropsSchema = blockBasePropsSchema
   .extend({
     items: z.array(keyValueItemSchema),
     columns: z.union([z.literal(1), z.literal(2)]).optional(),
+    layout: keyValueLayoutSchema.optional(),
+    bordered: z.boolean().optional(),
     onEdit: callbackSchema<(key: string, nextValue: string) => Promise<void>>().optional(),
     footer: slotSchema.optional(),
   })

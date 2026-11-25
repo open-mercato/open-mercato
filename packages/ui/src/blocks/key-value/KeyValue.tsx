@@ -119,6 +119,8 @@ function EditorField({ fieldId, item, draft, pending, onChange }: EditorFieldPro
 export function KeyValue({
   items,
   columns = 1,
+  layout = 'horizontal',
+  bordered = false,
   onEdit,
   footer,
   status,
@@ -187,34 +189,54 @@ export function KeyValue({
     )
   }
 
+  const horizontal = layout === 'horizontal'
+  const twoColumns = columns === 2
+  const spanLast = bordered && twoColumns && items.length % 2 === 1
+
   return (
     <div className={cn('flex flex-col gap-4', className)}>
-      <dl className={cn('grid grid-cols-1 gap-4', columns === 2 && 'md:grid-cols-2')}>
-        {items.map((item) => {
+      <dl
+        data-layout={layout}
+        className={cn(
+          'grid grid-cols-1',
+          twoColumns && 'md:grid-cols-2',
+          bordered ? 'gap-px overflow-hidden rounded-lg border border-border bg-border' : cn(twoColumns && 'md:gap-x-gutter'),
+        )}
+      >
+        {items.map((item, index) => {
           const editing = editingKey === item.key
+          const spanned = spanLast && index === items.length - 1
           return (
-            <div key={item.key} className="min-w-0 rounded-lg border border-border bg-card px-3 py-2">
-              <div className="flex items-start justify-between gap-2">
-                <dt className="min-w-0 break-words text-xs uppercase tracking-wide text-muted-foreground">{item.label}</dt>
-                {item.editable && !editing ? (
-                  <IconButton
-                    variant="ghost"
-                    size="xs"
-                    className="shrink-0"
-                    ref={(node: HTMLButtonElement | null) => {
-                      if (node) editButtons.current.set(item.key, node)
-                      else editButtons.current.delete(item.key)
-                    }}
-                    aria-label={t('ui.blocks.keyValue.edit', 'Edit {label}', { label: item.label })}
-                    disabled={pending}
-                    onClick={() => startEdit(item)}
-                  >
-                    <Pencil aria-hidden />
-                  </IconButton>
+            <div
+              key={item.key}
+              data-slot="key-value-row"
+              className={cn(
+                'group/key-value-row flex min-w-0 flex-col',
+                horizontal ? 'sm:flex-row sm:items-start' : 'gap-1',
+                horizontal && !bordered && 'gap-1 sm:gap-4',
+                horizontal && bordered && 'gap-1 sm:gap-0',
+                bordered ? 'bg-card' : 'py-1',
+                bordered && !horizontal && 'px-3 py-2',
+                spanned && 'md:col-span-2',
+              )}
+            >
+              <dt
+                className={cn(
+                  'flex min-w-0 items-start gap-2 break-words text-muted-foreground',
+                  horizontal ? 'text-sm sm:w-1/3 sm:min-w-24 sm:max-w-40 sm:shrink-0' : 'text-xs',
+                  horizontal && spanned && 'md:w-1/6',
+                  bordered && horizontal && 'px-3 pt-2 sm:self-stretch sm:bg-muted/50 sm:py-2',
+                )}
+              >
+                {item.icon ? (
+                  <span aria-hidden className="flex h-5 w-4 shrink-0 items-center justify-center *:size-4">
+                    {item.icon}
+                  </span>
                 ) : null}
-              </div>
+                <span className="min-w-0">{item.label}</span>
+              </dt>
               {editing ? (
-                <dd className="mt-1">
+                <dd className={cn('min-w-0 flex-1', bordered && horizontal && 'px-3 pb-2 sm:py-2')}>
                   <form
                     className="flex flex-col gap-3"
                     onSubmit={(event) => {
@@ -251,9 +273,31 @@ export function KeyValue({
                   </form>
                 </dd>
               ) : (
-                <dd className="mt-1 min-w-0 break-words text-sm text-foreground">{displayValue(item, locale)}</dd>
+                <dd className={cn('flex min-w-0 flex-1 items-start gap-2', bordered && horizontal && 'px-3 pb-2 sm:py-2')}>
+                  <div className="min-w-0 flex-1">
+                    <div className="break-words text-sm text-foreground">
+                      {displayValue(item, locale)}
+                    </div>
+                    {item.hint ? <p className="mt-1 text-xs text-muted-foreground">{item.hint}</p> : null}
+                  </div>
+                  {item.editable ? (
+                    <IconButton
+                      variant="ghost"
+                      size="xs"
+                      className="shrink-0 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover/key-value-row:opacity-100 pointer-fine:group-focus-within/key-value-row:opacity-100"
+                      ref={(node: HTMLButtonElement | null) => {
+                        if (node) editButtons.current.set(item.key, node)
+                        else editButtons.current.delete(item.key)
+                      }}
+                      aria-label={t('ui.blocks.keyValue.edit', 'Edit {label}', { label: item.label })}
+                      disabled={pending}
+                      onClick={() => startEdit(item)}
+                    >
+                      <Pencil aria-hidden />
+                    </IconButton>
+                  ) : null}
+                </dd>
               )}
-              {item.hint ? <p className="mt-1 text-xs text-muted-foreground">{item.hint}</p> : null}
             </div>
           )
         })}

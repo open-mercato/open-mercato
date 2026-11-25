@@ -12,6 +12,23 @@ import {
   toneLabelSchema,
 } from './shared'
 
+export const timelineChangeSchema = z.object({
+  key: z.string().min(1).optional(),
+  label: z.string().min(1),
+  icon: iconNameSchema.optional(),
+  from: slotSchema.optional(),
+  to: slotSchema,
+})
+export type TimelineChange = z.infer<typeof timelineChangeSchema>
+
+export const timelineTargetSchema = z.object({
+  label: z.string().min(1),
+  href: z.string().optional(),
+  icon: iconNameSchema.optional(),
+  avatarSrc: z.string().optional(),
+})
+export type TimelineTarget = z.infer<typeof timelineTargetSchema>
+
 export const timelineItemSchema = z.object({
   id: z.string().min(1),
   occurredAt: isoDateTimeSchema,
@@ -24,6 +41,8 @@ export const timelineItemSchema = z.object({
     .array(z.object({ name: z.string().min(1), href: z.string().optional(), format: z.string().optional() }))
     .optional(),
   status: toneLabelSchema.optional(),
+  changes: z.array(timelineChangeSchema).optional(),
+  target: timelineTargetSchema.optional(),
   actions: z.array(blockActionSchema).optional(),
 })
 export type TimelineItem = z.infer<typeof timelineItemSchema>
@@ -38,7 +57,7 @@ export type TimelineFilter = z.infer<typeof timelineFilterSchema>
 export const timelinePropsSchema = blockBasePropsSchema
   .extend({
     items: z.array(timelineItemSchema),
-    groupBy: z.enum(['day', 'none']).optional(),
+    groupBy: z.enum(['day', 'period', 'none']).optional(),
     order: z.enum(['desc', 'asc']),
     filters: z.array(timelineFilterSchema).optional(),
     activeFilterKey: z.string().min(1).optional(),

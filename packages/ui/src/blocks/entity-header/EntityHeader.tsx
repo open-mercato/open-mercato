@@ -200,7 +200,7 @@ export function EntityHeader(props: EntityHeaderProps) {
   return (
     <div data-slot="entity-header" className={cn('flex flex-col gap-3', className)}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-        <div className="flex min-w-0 flex-1 items-start gap-3.5">
+        <div className="flex min-w-0 flex-1 items-start gap-4">
           {leading ? (
             <div data-slot="entity-header-leading" className="flex shrink-0">
               {leading}
@@ -217,7 +217,7 @@ export function EntityHeader(props: EntityHeaderProps) {
             {meta && meta.length > 0 ? (
               <dl data-slot="entity-header-meta" className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
                 {meta.map((item) => (
-                  <div key={item.key} className="flex min-w-0 items-baseline gap-1.5">
+                  <div key={item.key} className="flex min-w-0 items-baseline gap-1">
                     <dt className="min-w-0 break-words text-muted-foreground">{item.label}</dt>
                     <dd className="min-w-0 break-words text-foreground">{item.value}</dd>
                   </div>

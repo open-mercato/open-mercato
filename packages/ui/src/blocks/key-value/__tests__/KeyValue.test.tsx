@@ -56,6 +56,35 @@ describe('KeyValue', () => {
     expect(container.querySelector('dl')?.className).not.toContain('md:grid-cols-2')
   })
 
+  it('lays rows out horizontally by default with sentence-case labels', () => {
+    const { container } = renderBlock(keyValueFixtures.readOnly)
+    const list = container.querySelector('dl') as HTMLElement
+    expect(list).toHaveAttribute('data-layout', 'horizontal')
+    expect(container.querySelector('[data-slot="key-value-row"]')?.className).toContain('sm:flex-row')
+    const label = screen.getByText('Owner').closest('dt') as HTMLElement
+    expect(label.className).not.toContain('uppercase')
+    expect(label.className).toContain('sm:max-w-40')
+  })
+
+  it('stacks the label above the value in the vertical layout', () => {
+    const { container } = renderBlock({ ...keyValueFixtures.readOnly, layout: 'vertical' })
+    expect(container.querySelector('dl')).toHaveAttribute('data-layout', 'vertical')
+    expect(container.querySelector('[data-slot="key-value-row"]')?.className).not.toContain('sm:flex-row')
+  })
+
+  it('draws cell borders and spans the last cell of an odd two-column list', () => {
+    const { container } = renderBlock({ ...keyValueFixtures.twoColumns, items: keyValueFixtures.readOnly.items.slice(0, 3), bordered: true })
+    expect(container.querySelector('dl')?.className).toContain('bg-border')
+    const rows = container.querySelectorAll('[data-slot="key-value-row"]')
+    expect(rows[2].className).toContain('md:col-span-2')
+    expect(rows[0].className).not.toContain('md:col-span-2')
+  })
+
+  it('renders an icon before the label', () => {
+    renderBlock({ items: [{ key: 'owner', label: 'Owner', value: 'Anna', icon: <svg data-testid="owner-icon" /> }] })
+    expect(screen.getByTestId('owner-icon').closest('dt')).toHaveTextContent('Owner')
+  })
+
   it('shows no edit affordance on non-editable items', () => {
     renderBlock({ items: editableItems, onEdit: jest.fn().mockResolvedValue(undefined) })
     expect(screen.getByRole('button', { name: 'Edit Name' })).toBeInTheDocument()

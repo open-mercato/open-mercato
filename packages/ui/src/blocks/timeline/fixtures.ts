@@ -70,6 +70,59 @@ const groupedItems: TimelineItem[] = [
   { id: 'g-4', occurredAt: at(200), kind: 'meeting', icon: 'calendar', title: 'Meeting scheduled' },
 ]
 
+const changeItems: TimelineItem[] = [
+  {
+    id: 'chg-1',
+    occurredAt: at(0.1),
+    kind: 'update',
+    icon: 'pencil-line',
+    title: 'changed Stage and 4 other fields in',
+    author: { name: 'Alex Smith' },
+    target: { label: 'Sales pipeline', icon: 'briefcase' },
+    changes: [
+      { key: 'stage', label: 'Stage', icon: 'trending-up', from: 'Qualified', to: 'Meeting' },
+      { key: 'priority', label: 'Priority', icon: 'flag', to: 'Medium' },
+      { key: 'owner', label: 'Owner', icon: 'user-round', to: 'Alex Smith' },
+      { key: 'value', label: 'Estimated value', icon: 'banknote', to: '$50,000' },
+      { key: 'close', label: 'Close date', icon: 'calendar', to: 'Sep 29, 2026' },
+    ],
+    actions: rowActions,
+  },
+  {
+    id: 'chg-2',
+    occurredAt: at(4),
+    kind: 'note',
+    title: 'added a note',
+    author: { name: 'Anna Nowak' },
+    body: 'Call went well. They want volume pricing for three warehouses and a pilot in Q1. Procurement needs the security questionnaire before the next meeting, and legal will review the master agreement in parallel. Follow up with the revised quote on Friday and loop in the regional manager for the pilot scope.',
+    actions: rowActions,
+  },
+  {
+    id: 'chg-3',
+    occurredAt: at(5),
+    kind: 'list',
+    icon: 'list',
+    title: 'Acme Corp was added to',
+    target: { label: 'Enterprise accounts', icon: 'building', href: '/backend/customers' },
+  },
+  {
+    id: 'chg-4',
+    occurredAt: at(30),
+    kind: 'created',
+    title: 'Acme Corp was created',
+  },
+]
+
+const DAY = 24 * HOUR
+
+const periodItems: TimelineItem[] = [
+  { id: 'p-1', occurredAt: at(2), kind: 'call', title: 'logged a call', author: { name: 'Anna Nowak' } },
+  { id: 'p-2', occurredAt: at(20), kind: 'email', title: 'sent a follow-up', author: { name: 'Jan Kowalski' } },
+  { id: 'p-3', occurredAt: new Date(baseTime - 12 * DAY).toISOString(), kind: 'meeting', title: 'Meeting scheduled' },
+  { id: 'p-4', occurredAt: new Date(baseTime - 160 * DAY).toISOString(), kind: 'stage-change', title: 'Deal moved to Qualified' },
+  { id: 'p-5', occurredAt: new Date(baseTime - 520 * DAY).toISOString(), kind: 'created', title: 'Acme Corp was created' },
+]
+
 const noop = (): void => undefined
 const noopAsync = async (): Promise<void> => undefined
 
@@ -90,6 +143,16 @@ export const timelineFixtures = {
     items: groupedItems,
     order: 'desc',
     groupBy: 'day',
+  },
+  fieldChanges: {
+    items: changeItems,
+    order: 'desc',
+    onItemAction: noop,
+  },
+  groupedByPeriod: {
+    items: periodItems,
+    order: 'desc',
+    groupBy: 'period',
   },
   withFilters: {
     items: mixedItems.slice(0, 3),

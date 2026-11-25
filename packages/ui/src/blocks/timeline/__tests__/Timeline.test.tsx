@@ -12,6 +12,11 @@ const dict = {
   'ui.blocks.timeline.today': 'Today',
   'ui.blocks.timeline.yesterday': 'Yesterday',
   'ui.blocks.timeline.showMore': 'Show more',
+  'ui.blocks.timeline.thisWeek': 'This week',
+  'ui.blocks.timeline.showAllChanges': 'Show all changes ({count})',
+  'ui.blocks.timeline.hideChanges': 'Hide changes',
+  'ui.blocks.timeline.expandBody': 'Show more',
+  'ui.blocks.timeline.collapseBody': 'Show less',
   'ui.blocks.timeline.itemActions': 'Item actions',
   'ui.blocks.timeline.filters': 'Filter activity',
   'ui.blocks.timeline.loading': 'Loading activity',
@@ -59,7 +64,7 @@ describe('Timeline', () => {
     const title = container.querySelector('[data-slot="timeline-item-title"]') as HTMLElement
     expect(author.textContent).toBe('Anna Nowak')
     expect(title.textContent).toBe('added a note')
-    const row = container.querySelector('[data-slot="activity-feed-item-title"]') as HTMLElement
+    const row = container.querySelector('[data-slot="timeline-item-sentence"]') as HTMLElement
     for (const node of [author, title, row, ...Array.from(row.querySelectorAll('*'))]) {
       expect(node.className).not.toMatch(/font-(semibold|bold)/)
     }
@@ -72,11 +77,73 @@ describe('Timeline', () => {
     expect(time.getAttribute('title')).toBeTruthy()
   })
 
-  it('uses a lucide icon in a circle when there is no author', () => {
+  it('puts an event icon on the rail for every item and the author avatar in the sentence', () => {
     const { container } = renderTimeline({ items })
     const icons = container.querySelectorAll('[data-slot="timeline-item-icon"]')
-    expect(icons).toHaveLength(2)
-    expect(icons[0].querySelector('svg')).not.toBeNull()
+    expect(icons).toHaveLength(items.length)
+    for (const icon of Array.from(icons)) expect(icon.querySelector('svg')).not.toBeNull()
+    const sentence = container.querySelector('[data-timeline-item-id="a"] [data-slot="timeline-item-sentence"]') as HTMLElement
+    expect(sentence.textContent).toContain('Anna Nowak')
+  })
+
+  it('lists field changes and collapses more than three behind a toggle', () => {
+    renderTimeline({
+      items: [
+        {
+          id: 'chg',
+          occurredAt: '2026-11-24T10:00:00Z',
+          kind: 'update',
+          title: 'changed 4 fields',
+          author: { name: 'Alex Smith' },
+          changes: [
+            { label: 'Stage', from: 'New', to: 'Meeting' },
+            { label: 'Priority', to: 'Medium' },
+            { label: 'Owner', to: 'Alex Smith' },
+            { label: 'Close date', to: 'Sep 29, 2026' },
+          ],
+        },
+      ],
+    })
+    expect(screen.getByText('Stage')).toBeTruthy()
+    expect(screen.getByText('New').getAttribute('data-slot')).toBe('timeline-change-from')
+    expect(screen.queryByText('Close date')).toBeNull()
+    const toggle = screen.getByRole('button', { name: 'Show all changes (4)' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(screen.getByText('Close date')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Hide changes' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('renders the target as a chip and links it only for safe hrefs', () => {
+    const { container } = renderTimeline({
+      items: [
+        { id: 't1', occurredAt: '2026-11-24T10:00:00Z', kind: 'list', title: 'was added to', target: { label: 'Sales', href: '/backend/lists/sales' } },
+        { id: 't2', occurredAt: '2026-11-24T09:00:00Z', kind: 'list', title: 'was added to', target: { label: 'Bad', href: 'javascript:alert(1)' } },
+      ],
+    })
+    expect(screen.getByRole('link', { name: 'Sales' })).toHaveAttribute('href', '/backend/lists/sales')
+    expect(screen.queryByRole('link', { name: 'Bad' })).toBeNull()
+    expect(container.querySelectorAll('[data-slot="timeline-item-target"]')).toHaveLength(2)
+  })
+
+  it('clamps a long text body and expands it on request', () => {
+    jest.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(120)
+    jest.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(60)
+    const long = 'Customer feedback. '.repeat(20)
+    renderTimeline({ items: [{ id: 'b1', occurredAt: '2026-11-24T10:00:00Z', kind: 'note', title: 'added a note', body: long }] })
+    const body = document.querySelector('[data-slot="timeline-item-body"] > div') as HTMLElement
+    expect(body.className).toContain('line-clamp-3')
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }))
+    expect(body.className).not.toContain('line-clamp-3')
+    jest.restoreAllMocks()
+  })
+
+  it('hides the expand toggle when a long body still fits in three lines', () => {
+    jest.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(60)
+    jest.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(60)
+    renderTimeline({ items: [{ id: 'b2', occurredAt: '2026-11-24T10:00:00Z', kind: 'note', title: 'added a note', body: 'Short line. '.repeat(25) }] })
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull()
+    jest.restoreAllMocks()
   })
 
   it('calls onItemAction from the kebab menu', async () => {
@@ -227,6 +294,36 @@ describe('Timeline', () => {
     })
     expect(screen.queryByRole('link')).toBeNull()
     expect(screen.getByText('bad.pdf')).toBeTruthy()
+  })
+
+  describe('period grouping', () => {
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask'] })
+      jest.setSystemTime(new Date('2026-11-25T12:00:00Z'))
+    })
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    it('groups into this week, months and years with collapsible sections', () => {
+      const { container } = renderTimeline({
+        groupBy: 'period',
+        items: [
+          { id: 'w1', occurredAt: '2026-11-24T10:00:00Z', kind: 'note', title: 'this week' },
+          { id: 'm1', occurredAt: '2026-11-10T10:00:00Z', kind: 'note', title: 'november' },
+          { id: 'm2', occurredAt: '2026-06-10T10:00:00Z', kind: 'note', title: 'june' },
+          { id: 'y1', occurredAt: '2024-06-10T10:00:00Z', kind: 'note', title: 'old june' },
+        ],
+      })
+      const labels = Array.from(container.querySelectorAll('[data-slot="timeline-day-label"] button')).map((node) => node.textContent)
+      expect(labels).toEqual(['This week 1', 'November 1', 'June 1', 'June 1'])
+      const years = Array.from(container.querySelectorAll('[data-slot="timeline-year-label"]')).map((node) => node.textContent)
+      expect(years).toEqual(['2024'])
+      const toggle = screen.getByRole('button', { name: /This week/ })
+      fireEvent.click(toggle)
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(container.querySelector('[data-timeline-item-id="w1"]')?.closest('[hidden]')).not.toBeNull()
+    })
   })
 
   describe('day grouping', () => {

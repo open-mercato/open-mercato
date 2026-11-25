@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { Building2, CalendarDays, Mail, UserRound } from 'lucide-react'
 import type { KeyValueProps } from '../contracts/key-value'
 
 const resolveEdit = async (): Promise<void> => undefined
@@ -10,12 +11,22 @@ const readOnlyItems: KeyValueProps['items'] = [
   { key: 'created', label: 'Created', value: '2026-03-14' },
 ]
 
+const itemIcons: Record<string, React.ReactNode> = {
+  owner: React.createElement(UserRound),
+  email: React.createElement(Mail),
+  segment: React.createElement(Building2),
+  created: React.createElement(CalendarDays),
+}
+
 export const keyValueFixtures: Record<
-  'readOnly' | 'twoColumns' | 'editable' | 'richValue' | 'loading' | 'error' | 'empty',
+  'readOnly' | 'twoColumns' | 'vertical' | 'bordered' | 'withIcons' | 'editable' | 'richValue' | 'loading' | 'error' | 'empty',
   KeyValueProps
 > = {
   readOnly: { items: readOnlyItems },
   twoColumns: { items: readOnlyItems, columns: 2 },
+  vertical: { items: readOnlyItems, columns: 2, layout: 'vertical' },
+  bordered: { items: readOnlyItems, columns: 2, bordered: true },
+  withIcons: { items: readOnlyItems.map((item) => ({ ...item, icon: itemIcons[item.key] })) },
   editable: {
     columns: 2,
     onEdit: resolveEdit,
