@@ -1,5 +1,6 @@
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import RecordLockingWidget, { resolveLockAfterValidate, validateBeforeSave } from './widget.client'
+import { forgetLockedOperation, rememberLockedOperation } from './conflictResolution'
 import { getRecordLockFormState, setRecordLockFormState, type RecordLockFormState } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
@@ -63,6 +64,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
   eventHandlers: {
     async onBeforeSave(data, context) {
       if (context.formId) {
+        rememberLockedOperation(context.formId, context.retryLastMutation)
         const currentState = getRecordLockFormState(context.formId)
         if (currentState?.recordDeleted) {
           return {
@@ -174,6 +176,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
     },
     async onAfterSave(_data, context) {
       if (!context.formId) return
+      forgetLockedOperation(context.formId)
       const state = getRecordLockFormState(context.formId)
       if (!state?.resourceKind || !state.resourceId) {
         clearSavedRecordLockState(context.formId)

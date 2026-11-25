@@ -41,3 +41,37 @@ export async function runAcceptIncoming(flow: AcceptIncomingFlow): Promise<Accep
   flow.reload()
   return conflictId ? 'released' : 'reloaded'
 }
+
+export type RecordLockRetry = () => Promise<boolean | void> | boolean | void
+
+const lockedOperationRetries = new Map<string, RecordLockRetry>()
+
+export function rememberLockedOperation(formId: string, retry: RecordLockRetry | undefined): void {
+  if (retry) lockedOperationRetries.set(formId, retry)
+  else lockedOperationRetries.delete(formId)
+}
+
+export function forgetLockedOperation(formId: string): void {
+  lockedOperationRetries.delete(formId)
+}
+
+export function getLockedOperationRetry(formId: string): RecordLockRetry | undefined {
+  return lockedOperationRetries.get(formId)
+}
+
+export type KeepMineRetryFlow = {
+  operationRetry?: RecordLockRetry
+  submitForm: () => boolean
+  fallbackRetry?: RecordLockRetry
+}
+
+async function runRetry(retry: RecordLockRetry | undefined): Promise<boolean> {
+  if (!retry) return false
+  return Boolean(await Promise.resolve(retry()).catch(() => false))
+}
+
+export async function retryAfterKeepMine(flow: KeepMineRetryFlow): Promise<boolean> {
+  if (flow.operationRetry) return runRetry(flow.operationRetry)
+  if (flow.submitForm()) return true
+  return runRetry(flow.fallbackRetry)
+}
