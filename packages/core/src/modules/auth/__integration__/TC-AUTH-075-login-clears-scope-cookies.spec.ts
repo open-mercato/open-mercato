@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
-import { login } from '@open-mercato/core/helpers/integration/auth'
-import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { DEFAULT_CREDENTIALS, login } from '@open-mercato/core/helpers/integration/auth'
+import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 /**
  * TC-AUTH-075: Login clears the organization-scope cookies (GHSA-6729-5rxh-qg37)
@@ -39,26 +39,19 @@ test.describe('TC-AUTH-075: login clears the organization-scope cookies', () => 
     ])
     expect(await readScopeCookieNames(page)).toEqual(expect.arrayContaining(SCOPE_COOKIE_NAMES))
 
-    const loginStatus = await page.evaluate(
-      async (credentials) => {
-        const response = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'content-type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams(credentials).toString(),
-        })
-        return response.status
-      },
-      { email: process.env.OM_INIT_SUPERADMIN_EMAIL || 'superadmin@acme.com', password: process.env.OM_INIT_SUPERADMIN_PASSWORD || 'secret' },
-    )
-    expect(loginStatus, 'The super-admin should sign in on the same browser without logging out first').toBe(200)
+    const loginResponse = await page.request.post('/api/auth/login', {
+      form: DEFAULT_CREDENTIALS.superadmin,
+    })
+    expect(loginResponse.status(), 'The super-admin should sign in without logging out first').toBe(200)
+    const session = await readJsonSafe<{ token: string }>(loginResponse)
+    if (!session?.token) throw new Error('[internal] Successful login did not return a token')
+    const homeOrganizationId = getTokenContext(session.token).organizationId || null
 
     expect(await readScopeCookieNames(page), 'Login must remove both scope cookies').toEqual([])
 
-    const switcher = await page.evaluate(async () => {
-      const response = await fetch('/api/directory/organization-switcher')
-      return { status: response.status, body: (await response.json()) as { selectedId?: string | null } }
-    })
-    expect(switcher.status).toBe(200)
-    expect(switcher.body.selectedId, 'The fresh session must not inherit the previous user\'s organization').toBeNull()
+    const switcher = await page.request.get('/api/directory/organization-switcher')
+    expect(switcher.status()).toBe(200)
+    const scope = await readJsonSafe<{ selectedId: string | null }>(switcher)
+    expect(scope?.selectedId, 'The switcher should resolve the new session’s home organization').toBe(homeOrganizationId)
   })
 })
