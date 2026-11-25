@@ -111,7 +111,6 @@ export async function GET(req: Request, ctx: RouteContext) {
       ]),
     )
 
-  // Org-scope: pin the caller's organization so a human's chain never crosses orgs.
   if (Array.isArray(scopedOrganizationIds)) {
     query = query.where('action_logs.organization_id', 'in', scopedOrganizationIds)
   }
@@ -140,7 +139,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     Array.isArray(row.correlationKeys) ? (row.correlationKeys as string[]) : null
   const attributions = await resolveActionAgentAttribution(
     em,
-    { tenantId: auth.tenantId, organizationId },
+    { tenantId: auth.tenantId, organizationId, organizationIds: scopedOrganizationIds ?? undefined },
     typedRows.map((row) => parseCorrelationKeys(readKeys(row))),
   )
 
