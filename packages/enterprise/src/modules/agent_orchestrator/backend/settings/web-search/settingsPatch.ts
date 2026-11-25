@@ -15,13 +15,14 @@ function equalValues(left: unknown, right: unknown): boolean {
 
 export function buildWebSearchSettingsPatch(current: Record<string, unknown>, baseline: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(current).flatMap(([key, value]) => {
-    let previous = baseline[key]
-    if (key === 'guardrails' && isRecord(previous)) {
-      previous = Object.fromEntries(Object.entries(previous).filter(([name]) => name !== 'allowPrivateHosts'))
-    }
-    if (key === 'adapterOptions' && isRecord(value)) {
+    const previous = baseline[key]
+    if ((key === 'adapterOptions' || key === 'guardrails') && isRecord(value)) {
       const saved = isRecord(previous) ? previous : {}
-      const changed = Object.fromEntries(Object.entries(value).filter(([adapter, options]) => !equalValues(options, saved[adapter])))
+      const changed = Object.fromEntries(
+        Object.entries(value).filter(([name, entry]) =>
+          (key !== 'guardrails' || name !== 'allowPrivateHosts') && !equalValues(entry, saved[name]),
+        ),
+      )
       return Object.keys(changed).length ? [[key, changed]] : []
     }
     return equalValues(value, previous) ? [] : [[key, value]]
