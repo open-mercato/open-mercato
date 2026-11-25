@@ -17,6 +17,7 @@ import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@ope
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useInFlightGuard } from '@open-mercato/ui/hooks/useInFlightGuard'
 import { useCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Plus, Save, Trash2 } from 'lucide-react'
@@ -280,8 +281,11 @@ export function EncryptionManager() {
       flash(t('entities.encryption.flash.saved', 'Encryption map saved'), 'success')
       await refetchMap()
     },
-    onError: (err: any) => {
-      const message = err?.message || t('entities.encryption.errors.save', 'Failed to save encryption map')
+    onError: (err: unknown) => {
+      if (surfaceRecordConflict(err, t, { onRefresh: () => { void refetchMap() } })) return
+      const message = err instanceof Error && err.message
+        ? err.message
+        : t('entities.encryption.errors.save', 'Failed to save encryption map')
       flash(message, 'error')
     },
   })
