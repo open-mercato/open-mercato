@@ -142,7 +142,10 @@ fake embedding provider and captured vector driver writes. These tests
 cover direct, by-ID, and bulk entry points. Bulk indexing shares source preparation
 with single-record indexing. Configured source errors, null, and empty text skip
 vector embedding rather than activating raw-field fallback; other strategies still
-run. Provider-boundary tests exercise these cases through single, by-ID, queued
+run. An explicit null also removes any prior document for that record when the
+vector strategy processes the write (#5930), matching the legacy vector service.
+Use `shouldIndex` to exclude a record from all strategies. Provider-boundary tests
+exercise these cases through single, by-ID, queued
 batch, and bulk paths, plus scoped live encryption additions and lookup failures.
 Real-service regressions cover the encryption toggle both on and off, with an
 unhealthy fake KMS, active scoped declarations, and captured provider/write boundaries.
@@ -356,6 +359,8 @@ writer inputs without external services.
 - **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
+
+- 2026-11-25 — Retired stale vector documents on explicit null from `buildSource`, preserving fulltext fields and token indexing (#5930).
 
 - 2026-11-21 — Preserved source-row organization ownership through direct and queued batch reindexing (#8397), including callback context, global rows and omitted-column compatibility. Historical null-owner documents require a tenant-wide fulltext rebuild; no public shape or configuration changes.
 

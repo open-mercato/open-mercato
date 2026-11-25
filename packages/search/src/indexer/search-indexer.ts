@@ -9,6 +9,7 @@ import type {
   SearchResultLink,
 } from '../types'
 import type { FullTextSearchStrategy } from '../strategies/fulltext.strategy'
+import { VECTOR_SOURCE_EXCLUDED } from '../strategies/vector.strategy'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { Queue } from '@open-mercato/queue'
@@ -427,10 +428,12 @@ export class SearchIndexer {
     let url: string | undefined
     let links: SearchResultLink[] | undefined
     let checksumSource: unknown | undefined
+    let vectorSourceExcluded = false
 
     if (config.buildSource) {
       try {
         const source = await config.buildSource(buildContext)
+        vectorSourceExcluded = source === null
         if (source) {
           text = source.text ?? []
           if (source.presenter) presenter = source.presenter
@@ -502,6 +505,7 @@ export class SearchIndexer {
       links,
       text,
       checksumSource,
+      ...(vectorSourceExcluded ? { [VECTOR_SOURCE_EXCLUDED]: true } : {}),
     }
   }
 
@@ -1385,10 +1389,12 @@ export class SearchIndexer {
       let url: string | undefined
       let links: SearchResultLink[] | undefined
       let checksumSource: unknown | undefined
+      let vectorSourceExcluded = false
 
       if (config.buildSource) {
         try {
           const source = await config.buildSource(buildContext)
+          vectorSourceExcluded = source === null
           if (source) {
             text = source.text ?? []
             if (source.presenter) presenter = source.presenter
@@ -1448,6 +1454,7 @@ export class SearchIndexer {
         links,
         text,
         checksumSource,
+        ...(vectorSourceExcluded ? { [VECTOR_SOURCE_EXCLUDED]: true } : {}),
       })
     }
 
