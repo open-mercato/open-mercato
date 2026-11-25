@@ -35,7 +35,7 @@ for (const width of [320, 1280]) {
       await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records`);
 
       const sidebar = page.getByRole('button', { name: 'Perspektywy', exact: true });
-      const selector = page.getByRole('button', { name: 'Wszystkie widoki', exact: true });
+      const selector = sidebar.locator('..').locator('button[aria-haspopup="dialog"]');
       const expectToolbarFits = async () => {
         await expect.poll(() => sidebar.evaluate((button) => {
           const toolbar = button.parentElement;
@@ -51,7 +51,7 @@ for (const width of [320, 1280]) {
       };
 
       await expect(sidebar).toBeVisible();
-      await expectToolbarFits();
+      await expect(selector).toHaveAccessibleName(viewName);
       await sidebar.focus();
       await page.keyboard.press('Enter');
       const savedViews = page.getByRole('heading', { name: 'Zapisane widoki' });
@@ -64,14 +64,20 @@ for (const width of [320, 1280]) {
       await expect(selector).toBeFocused();
       await page.keyboard.press('Enter');
       const popover = page.getByRole('dialog');
+      await popover.getByRole('button', { name: '— Brak widoku —', exact: true }).press('Enter');
+      await expect(popover).toBeHidden();
+      await expect(selector).toHaveAccessibleName('Wszystkie widoki');
+      await expect(selector).toBeFocused();
+      await expectToolbarFits();
+
+      await page.keyboard.press('Enter');
       const option = popover.getByRole('button', { name: viewName, exact: true });
       await expect(option).toBeVisible();
       await option.press('Enter');
       await expect(popover).toBeHidden();
 
-      const active = page.getByRole('button', { name: viewName, exact: true })
-        .and(page.locator('button[aria-haspopup="dialog"]'));
-      await expect(active).toBeFocused();
+      await expect(selector).toHaveAccessibleName(viewName);
+      await expect(selector).toBeFocused();
       await expectToolbarFits();
       await expect.poll(() => sidebar.getByText('Perspektywy', { exact: true }).evaluate(
         (label) => label.scrollWidth - label.clientWidth,
@@ -79,7 +85,7 @@ for (const width of [320, 1280]) {
       await page.keyboard.press('Enter');
       await expect(popover).toBeVisible();
       await page.keyboard.press('Escape');
-      await expect(active).toBeFocused();
+      await expect(selector).toBeFocused();
     } finally {
       if (perspectiveId) {
         await apiRequest(request, 'DELETE', `/api/perspectives/${tableId}/${perspectiveId}`, { token });
