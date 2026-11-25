@@ -26,6 +26,7 @@
   "translations.manager.fields.field": "Field",
   "translations.manager.fields.label": "Label",
   "translations.manager.fields.translation": "Translation",
+  "translations.manager.fields.translationInputLabel": "{{field}} translation ({{locale}})",
   "translations.manager.flash.saved": "Translations saved",
   "translations.manager.loading": "Loading...",
   "translations.manager.loadingTranslations": "Loading translations...",

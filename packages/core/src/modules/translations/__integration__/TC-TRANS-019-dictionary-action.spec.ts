@@ -82,7 +82,7 @@ test('TC-TRANS-019: injected dictionary action saves entry translations', async 
     await translate.click()
     await expect(dialog).toBeVisible()
     await dialog.getByRole('tab', { name: 'DE', exact: true }).click()
-    const translationInput = dialog.getByRole('textbox', { name: 'Label — Translation (DE)', exact: true })
+    const translationInput = dialog.getByRole('textbox', { name: 'Label translation (DE)', exact: true })
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 900 })
       await expect(translationInput).toBeInViewport({ ratio: 1 })

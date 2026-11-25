@@ -262,6 +262,30 @@ describe('TranslationManager guarded mutations (#3316)', () => {
     expect(screen.getByText('Custom help')).toBeVisible()
   })
 
+  it('names each translation input after its field and the active target locale (#10517)', async () => {
+    renderWithProviders(
+      <TranslationManager mode="embedded" compact entityType="entities:custom_field_def" recordId="field-1" baseValues={{ label: 'Custom caption', description: 'Custom help', 'options.new.label': 'New status' }} translatableFields={['label', 'description', 'options.new.label']} />,
+    )
+    expect(await screen.findByRole('textbox', { name: 'Label translation (EN)', exact: true })).toHaveAttribute('placeholder', 'Custom caption')
+    expect(screen.getByRole('textbox', { name: 'Description translation (EN)', exact: true })).toHaveAttribute('placeholder', 'Custom help')
+    expect(screen.getAllByRole('textbox')).toHaveLength(3)
+    for (const textbox of screen.getAllByRole('textbox')) {
+      expect(textbox).toHaveAccessibleName(/translation \(EN\)$/)
+    }
+
+    fireEvent.click(screen.getByRole('tab', { name: 'DE' }))
+    expect(await screen.findByRole('textbox', { name: 'Label translation (DE)', exact: true })).toBeVisible()
+    expect(screen.queryByRole('textbox', { name: 'Label translation (EN)', exact: true })).toBeNull()
+  })
+
+  it('localizes the translation input names in Polish', async () => {
+    renderWithProviders(
+      <TranslationManager mode="embedded" entityType="entities:custom_field_def" recordId="field-1" baseValues={{ label: 'Custom caption' }} translatableFields={['label']} />,
+      { locale: 'pl', dict: polishTranslations },
+    )
+    expect(await screen.findByRole('textbox', { name: 'Etykieta: tłumaczenie (EN)', exact: true })).toBeVisible()
+  })
+
 })
 
 describe('LocaleManager guarded mutations (#3316)', () => {

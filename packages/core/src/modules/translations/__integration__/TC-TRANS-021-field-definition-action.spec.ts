@@ -7,7 +7,7 @@ import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/tra
 
 export const integrationMeta = { dependsOnModules: ['translations', 'entities'] }
 
-test('TC-TRANS-021: injected field action saves labels, descriptions and option translations', async ({ page, request, baseURL }) => {
+test('TC-TRANS-021: injected field action saves labels, descriptions and option translations', async ({ page, request, baseURL }, testInfo) => {
   const token = await getAuthToken(request, 'superadmin')
   const originalLocales = await getLocales(request, token)
   const entityId = uniqueEntityId('translated_fields')
@@ -47,9 +47,33 @@ test('TC-TRANS-021: injected field action saves labels, descriptions and option 
     const dialog = page.getByRole('dialog', { name: `Translate field: ${fieldKey}`, exact: true })
     await expect(dialog).toBeVisible()
     await dialog.getByRole('tab', { name: 'DE', exact: true }).click()
-    await dialog.getByPlaceholder('Status label', { exact: true }).fill('Statusbezeichnung')
-    await dialog.getByPlaceholder('Status help', { exact: true }).fill('Statushilfe')
-    await dialog.getByPlaceholder('New status', { exact: true }).fill('Neuer Status')
+    const labelInput = dialog.getByRole('textbox', { name: 'Label translation (DE)', exact: true })
+    const descriptionInput = dialog.getByRole('textbox', { name: 'Description translation (DE)', exact: true })
+    const optionInput = dialog.getByRole('textbox', { name: 'New (option) translation (DE)', exact: true })
+    await expect(labelInput).toHaveAttribute('placeholder', 'Status label')
+    await expect(descriptionInput).toHaveAttribute('placeholder', 'Status help')
+    await expect(optionInput).toHaveAttribute('placeholder', 'New status')
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      const dialogBounds = await dialog.boundingBox()
+      expect(dialogBounds).not.toBeNull()
+      expect(dialogBounds!.x).toBeGreaterThanOrEqual(0)
+      expect(dialogBounds!.x + dialogBounds!.width).toBeLessThanOrEqual(width)
+      for (const input of [labelInput, descriptionInput, optionInput]) {
+        await input.scrollIntoViewIfNeeded()
+        await expect(input).toBeInViewport({ ratio: 1 })
+        const inputBounds = await input.boundingBox()
+        expect(inputBounds).not.toBeNull()
+        expect(inputBounds!.x).toBeGreaterThanOrEqual(dialogBounds!.x)
+        expect(inputBounds!.x + inputBounds!.width).toBeLessThanOrEqual(dialogBounds!.x + dialogBounds!.width)
+      }
+      if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+        await page.screenshot({ path: testInfo.outputPath(`field-translation-${width}.png`), fullPage: true })
+      }
+    }
+    await labelInput.fill('Statusbezeichnung')
+    await descriptionInput.fill('Statushilfe')
+    await optionInput.fill('Neuer Status')
     const saved = page.waitForResponse((response) => response.request().method() === 'PUT'
       && decodeURIComponent(new URL(response.url()).pathname) === `/api/translations/entities:custom_field_def/${recordId}`)
     await dialog.getByRole('button', { name: 'Save translations', exact: true }).click()

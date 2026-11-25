@@ -26,6 +26,7 @@
   "translations.manager.fields.field": "Pole",
   "translations.manager.fields.label": "Etykieta",
   "translations.manager.fields.translation": "Tłumaczenie",
+  "translations.manager.fields.translationInputLabel": "{{field}}: tłumaczenie ({{locale}})",
   "translations.manager.flash.saved": "Tłumaczenia zapisane",
   "translations.manager.loading": "Ładowanie...",
   "translations.manager.loadingTranslations": "Ładowanie tłumaczeń...",

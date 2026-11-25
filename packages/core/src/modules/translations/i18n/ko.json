@@ -26,6 +26,7 @@
   "translations.manager.fields.field": "필드",
   "translations.manager.fields.label": "레이블",
   "translations.manager.fields.translation": "번역",
+  "translations.manager.fields.translationInputLabel": "{{field}} 번역 ({{locale}})",
   "translations.manager.flash.saved": "번역이 저장되었습니다",
   "translations.manager.loading": "불러오는 중...",
   "translations.manager.loadingTranslations": "번역을 불러오는 중...",

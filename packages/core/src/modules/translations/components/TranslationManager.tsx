@@ -430,7 +430,8 @@ export function TranslationManager({
     }
 
     const localeTranslations = editedTranslations[activeLocale] ?? {}
-    const translationLabel = `${t('translations.manager.fields.translation', 'Translation')} (${activeLocale.toUpperCase()})`
+    const activeLocaleLabel = activeLocale.toUpperCase()
+    const translationLabel = `${t('translations.manager.fields.translation', 'Translation')} (${activeLocaleLabel})`
 
     return (
       <div className="min-w-0">
@@ -460,7 +461,11 @@ export function TranslationManager({
                 : isPropertyTranslation && field.key === 'description'
                   ? t('translations.manager.fields.description', 'Description')
                   : field.label
-              const inputLabel = `${fieldLabel} — ${translationLabel}`
+              const inputLabel = t(
+                'translations.manager.fields.translationInputLabel',
+                '{{field}} translation ({{locale}})',
+                { field: fieldLabel, locale: activeLocaleLabel },
+              )
 
               return (
                 <tr key={field.key} className="block border-t py-2 sm:table-row sm:py-0">
