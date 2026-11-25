@@ -1,15 +1,24 @@
+import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import { buildCollectionTags, debugCrudCache, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerPipeline } from '../../../../data/entities'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { decimalToString, decimalToNumber, parseDecimal } from '@open-mercato/shared/lib/decimal'
+
+const DEAL_STATS_CACHE_NAMESPACE = 'customers:deal-stats:v1'
+const DEAL_STATS_CACHE_TTL_MS = 60_000
+const DEAL_STATS_COLLECTIONS = ['customers.deal', 'customers.pipeline', 'dictionaries.entry']
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
@@ -47,6 +56,10 @@ function calculateSalesCycleDays(createdAt: Date, closedAt: Date): number {
   const diffMs = closedAt.getTime() - createdAt.getTime()
   if (diffMs <= 0) return 0
   return Math.floor(diffMs / 86400000)
+}
+
+function compareScopeIds(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
 }
 
 export async function GET(request: Request, context: { params?: Record<string, unknown> }) {
@@ -94,6 +107,36 @@ export async function GET(request: Request, context: { params?: Record<string, u
   const now = new Date()
   const weekStart = startOfIsoWeek(now)
   const quarterStart = startOfQuarter(now)
+  const cache = isCrudCacheEnabled() && deal.tenantId ? resolveCrudCache(container) : null
+  const cacheKey = cache
+    ? `${DEAL_STATS_CACHE_NAMESPACE}:${createHash('sha256').update(JSON.stringify({
+      tenantId: deal.tenantId,
+      organizationId: deal.organizationId,
+      dealId: deal.id,
+      weekStart,
+      quarterStart,
+      scope: {
+        isSuperAdmin: auth.isSuperAdmin === true,
+        homeOrganizationId: auth.orgId,
+        tenantId: scope?.tenantId,
+        selectedId: scope?.selectedId,
+        allowedIds: scope?.allowedIds ? [...scope.allowedIds].sort(compareScopeIds) : scope?.allowedIds,
+        filterIds: scope?.filterIds ? [...scope.filterIds].sort(compareScopeIds) : scope?.filterIds,
+      },
+    })).digest('hex')}`
+    : null
+
+  if (cache && cacheKey) {
+    try {
+      const cached = await runWithCacheTenant(deal.tenantId, () => cache.get(cacheKey))
+      const parsed = dealStatsResponseSchema.safeParse(cached)
+      if (parsed.success) return NextResponse.json(parsed.data)
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.deal_stats_cache_read_failed' })
+      debugCrudCache('get-failed', { resource: DEAL_STATS_CACHE_NAMESPACE })
+    }
+  }
+
   const dealsClosedThisPeriod = await em.count(CustomerDeal, {
     organizationId: deal.organizationId,
     tenantId: deal.tenantId,
@@ -148,8 +191,11 @@ export async function GET(request: Request, context: { params?: Record<string, u
     }
   }
 
-  return NextResponse.json({
-    dealValue: deal.valueAmount !== null ? Number(deal.valueAmount) : null,
+  const dealValue = parseDecimal(deal.valueAmount)
+
+  const payload = {
+    dealValue: dealValue ? decimalToNumber(dealValue) : null,
+    dealValueExact: dealValue ? decimalToString(dealValue) : null,
     dealCurrency: deal.valueCurrency ?? null,
     closureOutcome: deal.closureOutcome,
     closedAt: deal.updatedAt.toISOString(),
@@ -158,11 +204,28 @@ export async function GET(request: Request, context: { params?: Record<string, u
     salesCycleDays: calculateSalesCycleDays(deal.createdAt, deal.updatedAt),
     dealRankInQuarter,
     lossReason: lossReasonLabel,
-  })
+  }
+
+  if (cache && cacheKey) {
+    const tags = DEAL_STATS_COLLECTIONS.flatMap((resource) =>
+      buildCollectionTags(resource, deal.tenantId, [deal.organizationId]),
+    )
+    try {
+      await runWithCacheTenant(deal.tenantId, () =>
+        cache.set(cacheKey, payload, { tags, ttl: DEAL_STATS_CACHE_TTL_MS }),
+      )
+    } catch (error) {
+      getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.deal_stats_cache_write_failed' })
+      debugCrudCache('set-failed', { resource: DEAL_STATS_CACHE_NAMESPACE })
+    }
+  }
+
+  return NextResponse.json(payload)
 }
 
 const dealStatsResponseSchema = z.object({
   dealValue: z.number().nullable(),
+  dealValueExact: z.string().nullable(),
   dealCurrency: z.string().nullable(),
   closureOutcome: z.enum(['won', 'lost']),
   closedAt: z.string(),

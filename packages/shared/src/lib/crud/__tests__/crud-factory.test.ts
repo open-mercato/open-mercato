@@ -13,6 +13,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import * as crudCacheHelpers from '@open-mercato/shared/lib/crud/cache'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
@@ -37,6 +38,8 @@ import {
   resetTelemetryRuntime,
   type TelemetryRuntime,
 } from '@open-mercato/shared/lib/telemetry/runtime'
+import { normalizeFilters } from '@open-mercato/shared/lib/query/join-utils'
+import type { QueryOptions } from '@open-mercato/shared/lib/query/types'
 import { z } from 'zod'
 import { NotFoundError as MikroOrmNotFoundError, ValidationError as MikroOrmValidationError } from '@mikro-orm/core'
 
@@ -67,6 +70,9 @@ let crudMutationGuardService: { validateMutation: jest.Mock; afterMutationSucces
 let mockOrganizationScopeOverride: MockOrganizationScope | null
 
 const em = {
+  getMetadata: jest.fn<{
+    find: (entityName: string) => { properties: Record<string, { fieldNames: string[] }> }
+  } | undefined, []>(),
   transactional: async (cb: () => any) => {
     const snapshot = Object.fromEntries(Object.entries(db).map(([key, value]) => [key, { ...value }]))
     try {
@@ -325,6 +331,148 @@ describe('CRUD Factory', () => {
     }))
   })
 
+  describe('soft-deleted list visibility (#9154)', () => {
+    const liveRow = { id: 'live', title: 'Visible', deleted_at: null }
+    const deletedRow = { id: 'deleted', title: 'Retracted', deleted_at: '2026-01-01T00:00:00Z' }
+
+    function makeDeletedRoute(allowWithDeleted?: boolean, useQueryEngine = true) {
+      return makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: z.object({ withDeleted: z.string().optional() }),
+          allowWithDeleted,
+          ...(useQueryEngine ? { entityId: 'example.todo', fields: ['id', 'title', 'deleted_at'] } : {}),
+          export: { enabled: true, formats: ['json'] },
+        },
+      })
+    }
+
+    function queueDeletedRows() {
+      queryEngine.query.mockImplementationOnce(async (_entityId: string, options: { withDeleted?: boolean }) => {
+        const items = options.withDeleted ? [liveRow, deletedRow] : [liveRow]
+        return { items, total: items.length }
+      })
+    }
+
+    it.each([undefined, false])('ignores withDeleted=true when allowWithDeleted is %s despite the schema declaration', async (allowWithDeleted) => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(allowWithDeleted).GET(new Request('http://x/api/example/todos?withDeleted=true'))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual([liveRow])
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({
+        withDeleted: false,
+        tenantId: defaultTenantId,
+        organizationIds: [defaultOrganizationId],
+      }))
+    })
+
+    it('ignores a raw flag stripped by the default route schema', async () => {
+      queueDeletedRows()
+      const response = await route.GET(new Request('http://x/api/example/todos?withDeleted=true'))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items.map((item: { id: string }) => item.id)).toEqual(['live'])
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({ withDeleted: false }))
+    })
+
+    it.each([
+      ['true', true], ['1', true], ['yes', true], ['on', true],
+      ['false', false], ['0', false], ['no', false], ['off', false], ['', false], ['invalid', false],
+    ])('allows opted-in routes to parse withDeleted=%s as %s', async (token, expected) => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(true).GET(new Request(`http://x/api/example/todos?withDeleted=${token}`))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual(expected ? [liveRow, deletedRow] : [liveRow])
+    })
+
+    it.each([true, 1, ['true'], { value: 'true' }, null])('ignores non-string withDeleted values supplied by an interceptor: %j', async (withDeleted) => {
+      registerApiInterceptors([{
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.rewrite-deletion-flag',
+          targetRoute: 'example/todos',
+          methods: ['GET'],
+          async before() {
+            return { ok: true, query: { withDeleted } }
+          },
+        }],
+      }])
+      const interceptedRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: z.object({ withDeleted: z.unknown().optional() }),
+          allowWithDeleted: true,
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'deleted_at'],
+        },
+      })
+      queueDeletedRows()
+
+      const response = await interceptedRoute.GET(new Request('http://x/api/example/todos?withDeleted=true'))
+
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual([liveRow])
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({ withDeleted: false }))
+    })
+
+    it('keeps deleted rows hidden on an opted-in route when the flag is absent', async () => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(true).GET(new Request('http://x/api/example/todos'))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual([liveRow])
+    })
+
+    it.each([false, true])('applies the explicit opt-in policy to full exports (allowWithDeleted=%s)', async (allowWithDeleted) => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(allowWithDeleted).GET(new Request('http://x/api/example/todos?withDeleted=true&format=json&exportScope=full'))
+      expect(response.status).toBe(200)
+      const exported = await response.json()
+      expect(JSON.stringify(exported)).toContain('Visible')
+      expect(JSON.stringify(exported).includes('Retracted')).toBe(allowWithDeleted)
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({ withDeleted: allowWithDeleted }))
+    })
+
+    it.each([undefined, false, true])('applies the opt-in policy to the ORM fallback (allowWithDeleted=%s)', async (allowWithDeleted) => {
+      db = {
+        live: { id: 'live', title: 'Visible', organizationId: defaultOrganizationId, tenantId: defaultTenantId },
+        deleted: { id: 'deleted', title: 'Retracted', deletedAt: new Date(), organizationId: defaultOrganizationId, tenantId: defaultTenantId },
+      }
+      const response = await makeDeletedRoute(allowWithDeleted, false).GET(new Request('http://x/api/example/todos?withDeleted=true'))
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual(allowWithDeleted ? ['live', 'deleted'] : ['live'])
+      expect(queryEngine.query).not.toHaveBeenCalled()
+    })
+
+    it('separates opted-in cached results from default-hidden routes and legacy cache keys', async () => {
+      const cacheEnabled = jest.spyOn(crudCacheHelpers, 'isCrudCacheEnabled').mockReturnValue(true)
+      try {
+        queueDeletedRows()
+        queueDeletedRows()
+        const request = new Request('http://x/api/example/todos?withDeleted=true')
+        const allowedResponse = await makeDeletedRoute(true).GET(request)
+        expect((await allowedResponse.json()).items).toEqual([liveRow, deletedRow])
+        const allowedKey = crudCache.get.mock.calls.at(-1)?.[0] ?? ''
+        expect(allowedKey).toContain('deletedPolicy:allowed')
+        const legacyKey = allowedKey.replace('|deletedPolicy:allowed', '')
+        expect(legacyKey).toBeDefined()
+        crudCacheStore.set(legacyKey, { payload: { items: [liveRow, deletedRow], total: 2 } })
+        const hiddenRoute = makeDeletedRoute()
+        const hiddenResponse = await hiddenRoute.GET(request)
+        expect((await hiddenResponse.json()).items).toEqual([liveRow])
+        expect(crudCache.get.mock.calls.at(-1)?.[0]).toContain('deletedPolicy:hidden')
+        const cachedResponse = await hiddenRoute.GET(request)
+        expect((await cachedResponse.json()).items).toEqual([liveRow])
+        expect(queryEngine.query).toHaveBeenCalledTimes(2)
+      } finally {
+        cacheEnabled.mockRestore()
+      }
+    })
+  })
+
   it('GET returns an empty page before hooks, cache, query engine, EM, RBAC, or data engine for explicit empty scope', async () => {
     const beforeList = jest.fn()
     const emptyScopeRoute = makeCrudRoute({
@@ -452,6 +600,126 @@ describe('CRUD Factory', () => {
     const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
     expect(queryArgs?.filters).toEqual({
       id: { $in: [idA, idB] },
+    })
+  })
+
+  describe('advanced filters preserve buildFilters security predicates (#9016)', () => {
+    const nilId = '00000000-0000-0000-0000-000000000000'
+    const rows = [
+      { id: 'allowed-1', member_id: 'member-1', title: 'A' },
+      { id: 'allowed-2', member_id: 'member-2', title: 'B' },
+      { id: 'forbidden', member_id: 'outsider', title: 'A' },
+    ]
+
+    const matches = (row: Record<string, unknown>, filters: ReturnType<typeof normalizeFilters>) => {
+      const matchesLeaf = (filter: (typeof filters)[number]) => {
+        const value = row[filter.field]
+        if (filter.op === 'eq') return value === filter.value
+        if (filter.op === 'ne') return value !== null && value !== filter.value
+        if (filter.op === 'exists') return (value !== null && value !== undefined) === filter.value
+        throw new Error('[internal] Unexpected filter operator in security regression')
+      }
+      const groups = new Map<string, typeof filters>()
+      for (const filter of filters) {
+        if (!filter.orGroup) continue
+        const group = groups.get(filter.orGroup) ?? []
+        group.push(filter)
+        groups.set(filter.orGroup, group)
+      }
+      return filters.filter((filter) => !filter.orGroup).every(matchesLeaf)
+        && (groups.size === 0 || [...groups.values()].some((group) => group.every(matchesLeaf)))
+    }
+
+    it.each([
+      { name: 'member equality', server: { member_id: 'member-1' }, field: 'member_id', op: 'is_not_empty', expected: ['allowed-1'] },
+      { name: 'member operator', server: { member_id: { $eq: 'member-1' } }, field: 'member_id', op: 'is_not', value: 'nobody', expected: ['allowed-1'] },
+      { name: 'deny-all id', server: { id: nilId }, field: 'id', op: 'is_not_empty', expected: [] },
+      { name: 'deny-all id operator', server: { id: { $eq: nilId } }, field: 'id', op: 'is_not', value: nilId, expected: [] },
+      { name: 'conflicting member', server: { member_id: 'member-1' }, field: 'member_id', op: 'is', value: 'outsider', expected: [] },
+      { name: 'non-overlapping filter', server: { member_id: 'member-1' }, field: 'title', op: 'is', value: 'A', expected: ['allowed-1'] },
+      { name: 'client OR against direct member', server: { member_id: 'member-1' }, field: 'member_id', op: 'is_not_empty', or: true, expected: ['allowed-1'] },
+      { name: 'overlapping OR cross product', server: { $or: [{ member_id: 'member-1' }, { member_id: 'member-2' }] }, field: 'member_id', op: 'is_not_empty', or: true, expected: ['allowed-1', 'allowed-2'] },
+    ])('GET intersects $name with client predicates through query normalization', async (scenario) => {
+      const secureRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema.passthrough(),
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'member_id'],
+          buildFilters: () => scenario.server,
+        },
+      })
+      queryEngine.query.mockImplementationOnce(async (_entityId: string, options: QueryOptions) => {
+        expect(options.tenantId).toBe(defaultTenantId)
+        const filters = normalizeFilters(options.filters)
+        expect(filters.length).toBeGreaterThan(0)
+        const items = rows.filter((row) => matches(row, filters)).map((row) => ({
+          ...row, is_done: false, organization_id: defaultOrganizationId, tenant_id: defaultTenantId,
+        }))
+        return { items, total: items.length }
+      })
+      const params = new URLSearchParams({
+        'filter[conditions][0][field]': scenario.field,
+        'filter[conditions][0][op]': scenario.op,
+      })
+      if (scenario.value) params.set('filter[conditions][0][value]', scenario.value)
+      if (scenario.or) {
+        params.set('filter[logic]', 'or')
+        params.set('filter[conditions][1][field]', 'member_id')
+        params.set('filter[conditions][1][op]', 'is')
+        params.set('filter[conditions][1][value]', 'outsider')
+      }
+      const response = await secureRoute.GET(new Request(`http://x/api/example/todos?${params}`))
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual(scenario.expected)
+      expect(body.total).toBe(scenario.expected.length)
+    })
+  })
+
+  describe('repeated legacy AND fields (#10397)', () => {
+    it.each([false, true])('GET retains contradictory predicates (reversed: %s)', async (reversed) => {
+      const route = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema.passthrough(),
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'is_done'],
+          buildFilters: () => ({ member_id: 'member-1' }),
+        },
+      })
+      queryEngine.query.mockImplementationOnce(async (_entityId: string, options: QueryOptions) => {
+        expect(options.tenantId).toBe(defaultTenantId)
+        const filters = normalizeFilters(options.filters)
+        expect(filters).toEqual(expect.arrayContaining([
+          { field: 'member_id', op: 'eq', value: 'member-1' },
+          { field: 'is_done', op: 'eq', value: true },
+          { field: 'is_done', op: 'eq', value: false },
+        ]))
+        const rows = [
+          { id: 'done', title: 'A', is_done: true, member_id: 'member-1' },
+          { id: 'pending', title: 'B', is_done: false, member_id: 'member-1' },
+        ]
+        const items = rows.filter((row) => filters.every((filter) => (
+          filter.op === 'eq' && row[filter.field as keyof typeof row] === filter.value
+        )))
+        return { items, total: items.length }
+      })
+      const params = new URLSearchParams({ 'filter[logic]': 'and' })
+      const operators = reversed ? ['is_false', 'is_true'] : ['is_true', 'is_false']
+      operators.forEach((operator, index) => {
+        params.set(`filter[conditions][${index}][field]`, 'is_done')
+        params.set(`filter[conditions][${index}][op]`, operator)
+      })
+      const response = await route.GET(new Request(`http://x/api/example/todos?${params}`))
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.items).toEqual([])
+      expect(body.total).toBe(0)
     })
   })
 
@@ -584,6 +852,30 @@ describe('CRUD Factory', () => {
       disableListCache: true,
       ...list,
     } as any,
+  })
+
+  it.each(['secret_column', 'toString', 'constructor', '__proto__'])(
+    'GET ignores unmapped ordinary sort field %s when a map is configured',
+    async (sortField) => {
+      const response = await makeSortedRoute({ defaultSort: { field: 'lineNumber', dir: 'asc' } }).GET(
+        new Request(`http://x/api/example/todos?sortField=${sortField}&sortDir=desc`),
+      )
+
+      expect(response.status).toBe(200)
+      expect(queryEngine.query.mock.calls.at(-1)?.[1]?.sort).toEqual([
+        { field: 'line_number', dir: 'asc' },
+      ])
+    },
+  )
+
+  it('GET preserves raw ordinary sort fields when no map is configured', async () => {
+    await makeSortedRoute({ sortFieldMap: undefined }).GET(
+      new Request('http://x/api/example/todos?sortField=created_at&sortDir=desc'),
+    )
+
+    expect(queryEngine.query.mock.calls.at(-1)?.[1]?.sort).toEqual([
+      { field: 'created_at', dir: 'desc' },
+    ])
   })
 
   it('GET forwards list.decryptEncryptedFields=false to the query engine (#5430)', async () => {
@@ -729,6 +1021,52 @@ describe('CRUD Factory', () => {
     const body = await res.json()
     expect(body.items).toHaveLength(1)
     expect(body.items[0]?.id).toBe(first.id)
+  })
+
+  it('GET ORM fallback translates column names inside logical filters', async () => {
+    const repository = em.getRepository(Todo)
+    const find = jest.fn(repository.find)
+    em.getMetadata.mockReturnValueOnce({
+      find: () => ({
+        properties: {
+          isDone: { fieldNames: ['is_done'] },
+          member: { fieldNames: ['member_id'] },
+        },
+      }),
+    })
+    const getRepository = jest.spyOn(em, 'getRepository').mockReturnValueOnce({ ...repository, find })
+    try {
+      const route = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        list: {
+          schema: querySchema.passthrough(),
+          fields: ['id', 'is_done'],
+          buildFilters: () => ({
+            $or: [{ member_id: 'first' }, { $not: { member_id: 'second' } }],
+          }),
+        },
+      })
+      const params = new URLSearchParams({
+        'filter[conditions][0][field]': 'is_done',
+        'filter[conditions][0][op]': 'is',
+        'filter[conditions][0][value]': 'true',
+      })
+
+      const response = await route.GET(new Request(`http://x/api/example/todos?${params}`))
+
+      expect(response.status).toBe(200)
+      expect(find).toHaveBeenCalledWith(expect.objectContaining({
+        tenantId: defaultTenantId,
+        organizationId: defaultOrganizationId,
+        $and: [
+          { $or: [{ member: 'first' }, { $not: { member: 'second' } }] },
+          { isDone: { $eq: 'true' } },
+        ],
+      }))
+    } finally {
+      getRepository.mockRestore()
+    }
   })
 
   it('GET ORM fallback keeps automatic tenant/org scoping by default', async () => {
@@ -954,6 +1292,31 @@ describe('CRUD Factory', () => {
     }))
     const lastQueryCall = queryEngine.query.mock.calls.at(-1)
     expect(lastQueryCall?.[1]?.filters).toEqual({ tenant_id: { $eq: '123e4567-e89b-12d3-a456-426614174000' } })
+  })
+
+  it('GET applies row-level buildFilters on a full export for ordinary routes (#9015)', async () => {
+    const ownRowsOnly = jest.fn((_query: z.infer<typeof querySchema>, ctx: CrudCtx) => ({
+      created_by: { $eq: ctx.auth?.sub ?? null },
+    }))
+    const ownRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema,
+        entityId: 'example.todo',
+        fields: ['id', 'title', 'is_done'],
+        sortFieldMap: { id: 'id' },
+        buildFilters: ownRowsOnly,
+      },
+    })
+
+    const res = await ownRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full&title=ignored'))
+    expect(res.status).toBe(200)
+    expect(ownRowsOnly).toHaveBeenCalledTimes(1)
+    expect(ownRowsOnly.mock.calls[0]?.[0]).not.toHaveProperty('title')
+    const lastQueryCall = queryEngine.query.mock.calls.at(-1)
+    expect(lastQueryCall?.[1]?.filters).toEqual({ created_by: { $eq: expect.anything() } })
   })
 
   describe('afterList hook ordering on the export paths', () => {
@@ -2378,6 +2741,61 @@ describe('CRUD Factory', () => {
     expect(await res.json()).toMatchObject({ error: 'Record is locked' })
     expect(seenQueries).toEqual([{ id: lockedId }])
     expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('drops reserved prototype extension headers in applyInterceptorsBefore while keeping valid headers and subsequent requests healthy (#10331)', async () => {
+    const seenExtensionHeaders: Array<Record<string, Record<string, string>> | undefined> = []
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.inspect-extension-headers',
+            targetRoute: 'example/todos',
+            methods: ['GET'],
+            async before(_request, context) {
+              seenExtensionHeaders.push(context.extensionHeaders)
+              return { ok: true }
+            },
+          },
+        ],
+      },
+    ])
+
+    const route = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: { schema: z.object({}).passthrough() as any },
+    })
+
+    const probeRes = await route.GET(
+      new Request('http://x/api/example/todos', {
+        method: 'GET',
+        headers: {
+          'x-om-ext-__proto__-schema': 'evil schema',
+          'x-om-ext-constructor-prototype': 'polluted',
+          'x-om-ext-prototype-polluted': 'yes',
+          'x-om-ext-record_locks-token': 'lock-123',
+        },
+      }),
+    )
+    expect(probeRes.status).toBe(200)
+    expect(seenExtensionHeaders).toHaveLength(1)
+    expect(seenExtensionHeaders[0]).toEqual({ record_locks: { token: 'lock-123' } })
+    expect(Object.getPrototypeOf(seenExtensionHeaders[0])).toBeNull()
+    expect(Object.getPrototypeOf(seenExtensionHeaders[0]?.record_locks)).toBeNull()
+    expect(({} as Record<string, unknown>).schema).toBeUndefined()
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+
+    const followUpRes = await route.GET(
+      new Request('http://x/api/example/todos', {
+        method: 'GET',
+        headers: { 'x-om-ext-record_locks-token': 'lock-456' },
+      }),
+    )
+    expect(followUpRes.status).toBe(200)
+    expect(seenExtensionHeaders[1]).toEqual({ record_locks: { token: 'lock-456' } })
   })
 
   it('DELETE route passes the whole query string to interceptor before hooks', async () => {

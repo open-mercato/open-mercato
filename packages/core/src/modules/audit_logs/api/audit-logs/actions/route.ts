@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
@@ -14,6 +16,7 @@ import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import { redactActionLogEntries } from '@open-mercato/core/modules/audit_logs/lib/actionLogRedaction'
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { getEnrichersForEntity } from '@open-mercato/shared/lib/crud/enricher-registry'
 
@@ -160,6 +163,12 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const { organizationId: defaultOrganizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  try {
+    resolveSingleOrganizationIdOrDeny(scope, auth)
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
 
   const rbac = (container.resolve('rbacService') as RbacService)
   const actionLogs = (container.resolve('actionLogService') as ActionLogService)
@@ -248,13 +257,26 @@ export async function GET(req: Request) {
   }
 
   const { translate } = await resolveTranslations()
+
+  // Redaction is a generic extension point an optional module (e.g. `customers`)
+  // registers into (#8887, #8978) — this route never statically imports or names
+  // that module (see `packages/core/AGENTS.md` § Cross-Module Coupling and
+  // `audit_logs/lib/actionLogRedaction.ts`).
+  const redactedItems = await redactActionLogEntries(
+    container,
+    em,
+    { tenantId: auth.tenantId ?? '', organizationId: organizationId ?? null },
+    auth.sub,
+    list.items,
+  )
+
   const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: list.items.map((entry: any) => entry.actorUserId).filter((value: any): value is string => !!value),
-    tenantIds: list.items.map((entry: any) => entry.tenantId).filter((value: any): value is string => !!value),
-    organizationIds: list.items.map((entry: any) => entry.organizationId).filter((value: any): value is string => !!value),
+    userIds: redactedItems.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
+    tenantIds: redactedItems.map((entry) => entry.tenantId).filter((value): value is string => !!value),
+    organizationIds: redactedItems.map((entry) => entry.organizationId).filter((value): value is string => !!value),
   }, { translate })
 
-  const items = list.items.map((entry: any) => ({
+  const items = redactedItems.map((entry) => ({
     id: entry.id,
     commandId: entry.commandId,
     actionLabel: entry.actionLabel,
@@ -352,7 +374,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid filter values', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
-        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin', schema: errorSchema },
+        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin, or its organization scope is explicitly empty', schema: errorSchema },
       ],
     },
   },

@@ -275,6 +275,7 @@
   "staff.leaveRequests.errors.accept": "No se pudo aprobar la solicitud de ausencia.",
   "staff.leaveRequests.errors.alreadyFinalized": "La solicitud de ausencia ya está finalizada.",
   "staff.leaveRequests.errors.forbidden": "Prohibido",
+  "staff.leaveRequests.errors.invalidDateRange": "La fecha de fin debe ser posterior a la fecha de inicio.",
   "staff.leaveRequests.errors.load": "No se pudieron cargar las solicitudes de ausencia.",
   "staff.leaveRequests.errors.notFound": "Solicitud de ausencia no encontrada.",
   "staff.leaveRequests.errors.profileLoad": "No se pudo cargar tu perfil.",
@@ -2179,6 +2180,7 @@
   "staff.timesheets.my.saving": "Guardando...",
   "staff.timesheets.my.status": "Estado",
   "staff.timesheets.my.status_open": "Abierto",
+  "staff.timesheets.my.timer.alreadyStopped": "Este temporizador ya se detuvo en otra ventana.",
   "staff.timesheets.my.timer.noProjects": "No se encontraron proyectos",
   "staff.timesheets.my.timer.noteChangedElsewhere": "La nota de este temporizador se cambió en otra pestaña. Tu texto sin guardar se conserva; al guardarlo se te pedirá que resuelvas el conflicto.",
   "staff.timesheets.my.timer.noteConflictTitle": "Nota del temporizador cambiada en otro lugar",
@@ -2197,6 +2199,7 @@
   "staff.timesheets.my.timer.stopError": "No se pudo detener el temporizador",
   "staff.timesheets.my.timer.stopLocked": "Otra persona está editando esta entrada de tiempo, así que el temporizador no se detuvo. Inténtalo de nuevo en un momento.",
   "staff.timesheets.my.timer.stoppedNoteNotSaved": "El temporizador se detuvo, pero no se pudo guardar tu nota en él. El texto se conserva en el campo de nota para que puedas añadirlo a la entrada.",
+  "staff.timesheets.my.timer.unsavedNoteDropped": "Tu nota del temporizador sin guardar «{note}» no se guardó: este temporizador se detuvo o se reemplazó en otra ventana.",
   "staff.timesheets.my.timerStart": "Iniciar temporizador",
   "staff.timesheets.my.timerStop": "Detener temporizador",
   "staff.timesheets.my.total": "Total",
@@ -2397,5 +2400,6 @@
   "staff.timesheets.widgets.timeReporting.stop": "Detener temporizador",
   "staff.timesheets.widgets.timeReporting.stopError": "No se pudo detener el temporizador",
   "staff.timesheets.widgets.timeReporting.taskNote": "Tarea / Nota",
-  "staff.timesheets.widgets.timeReporting.unknownProject": "Proyecto desconocido"
+  "staff.timesheets.widgets.timeReporting.unknownProject": "Proyecto desconocido",
+  "staff.validation.nonNegativeAmount": "Introduce un importe válido."
 }

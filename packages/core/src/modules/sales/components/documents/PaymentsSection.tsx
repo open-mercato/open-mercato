@@ -21,6 +21,7 @@ import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './Payme
 import { extractCustomFieldValues } from './customFieldHelpers'
 import { Plus } from 'lucide-react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('sales')
 
@@ -34,6 +35,7 @@ type PaymentRow = {
   statusEntryId: string | null
   statusLabel: string | null
   amount: number
+  amountExact: string | null
   currencyCode: string | null
   receivedAt: string | null
   createdAt: string | null
@@ -68,6 +70,13 @@ function formatMoney(value: number, currency: string | null | undefined, locale?
   } catch {
     return `${currency.toUpperCase()} ${value.toFixed(2)}`
   }
+}
+
+const PaymentActionsContext = React.createContext<(payment: PaymentRow) => React.ReactNode>(() => null)
+
+function PaymentActionsCell({ row }: { row: { original: PaymentRow } }) {
+  const renderActions = React.useContext(PaymentActionsContext)
+  return renderActions(row.original)
 }
 
 export function SalesDocumentPaymentsSection({
@@ -142,6 +151,7 @@ export function SalesDocumentPaymentsSection({
                   ? (item as any).statusLabel
                   : null,
             amount: normalizeNumber(item.amount),
+            amountExact: resolveExactDecimal(item.amount, normalizeNumber(item.amount)),
             currencyCode:
               typeof item.currency_code === 'string'
                 ? item.currency_code
@@ -196,7 +206,7 @@ export function SalesDocumentPaymentsSection({
       setEditingPayment({
         id: record.id,
         updatedAt: record.updatedAt ?? null,
-        amount: record.amount ?? '',
+        amount: record.amountExact ?? record.amount ?? '',
         paymentMethodId: record.paymentMethodId ?? '',
         paymentReference: record.paymentReference ?? '',
         receivedAt: record.receivedAt ? record.receivedAt.slice(0, 10) : '',
@@ -311,24 +321,10 @@ export function SalesDocumentPaymentsSection({
       {
         id: 'actions',
         header: t('ui.dataTable.actionsColumn', 'Actions'),
-        cell: ({ row }) => {
-          return (
-            <RowActions
-              items={[
-                { id: 'edit', label: editActionLabel, onSelect: () => openEditPayment(row.original) },
-                {
-                  id: 'delete',
-                  label: deleteActionLabel,
-                  destructive: true,
-                  onSelect: () => void handleDelete(row.original),
-                },
-              ]}
-            />
-          )
-        },
+        cell: PaymentActionsCell,
       },
     ],
-    [currencyCode, deleteActionLabel, editActionLabel, handleDelete, locale, openEditPayment, t]
+    [currencyCode, locale, t]
   )
 
   if (loading) {
@@ -356,12 +352,21 @@ export function SalesDocumentPaymentsSection({
   return (
     <div className="space-y-4">
       {payments.length ? (
-        <DataTable<PaymentRow>
-          columns={columns}
-          data={payments}
-          onRowClick={openEditPayment}
-          extensionTableId={extensionPoints.hosts.paymentsTable.tableId}
-        />
+        <PaymentActionsContext.Provider value={(payment) => (
+          <RowActions
+            items={[
+              { id: 'edit', label: editActionLabel, onSelect: () => openEditPayment(payment) },
+              { id: 'delete', label: deleteActionLabel, destructive: true, onSelect: () => void handleDelete(payment) },
+            ]}
+          />
+        )}>
+          <DataTable<PaymentRow>
+            columns={columns}
+            data={payments}
+            onRowClick={openEditPayment}
+            extensionTableId={extensionPoints.hosts.paymentsTable.tableId}
+          />
+        </PaymentActionsContext.Provider>
       ) : (
         <TabEmptyState
           title={t('sales.documents.payments.emptyTitle', 'No payments yet.')}

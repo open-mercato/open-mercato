@@ -19,7 +19,7 @@ async function runConversationReadMutation(
   id: string,
   commandId: 'messages.conversation.mark_read_for_actor' | 'messages.conversation.mark_unread_for_actor',
 ) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, id)
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
 
   const guardResult = await runMessageMutationGuards(

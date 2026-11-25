@@ -1,12 +1,12 @@
-import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+import type { ApiInterceptor, InterceptorBeforeResult, InterceptorContext, InterceptorRequest } from '@open-mercato/shared/lib/crud/api-interceptor'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
 import {
   decodeCatalogInventoryProfileIntent,
   WMS_CATALOG_PROFILE_HEADER,
 } from '../lib/catalogInventoryProfileIntent'
-import {
-  syncCatalogInventoryProfile,
-} from '../lib/catalogInventoryProfileSync'
+import { assertCommandFeatures } from '../commands/featureGuard'
+import { buildCatalogInventoryProfileCommandContext, syncCatalogInventoryProfile } from '../lib/catalogInventoryProfileSync'
 
 function resolveRecordId(
   requestBody: Record<string, unknown> | undefined,
@@ -25,27 +25,36 @@ function resolveRecordId(
   return null
 }
 
+async function prepareCatalogInventoryProfile(
+  request: InterceptorRequest,
+  context: InterceptorContext,
+  target: 'product' | 'variant',
+): Promise<InterceptorBeforeResult> {
+  const rawHeader = request.headers[WMS_CATALOG_PROFILE_HEADER]
+  if (!rawHeader) return { ok: true }
+
+  const targetEntityId = target === 'product' ? E.catalog.catalog_product : E.catalog.catalog_product_variant
+  const intent = decodeCatalogInventoryProfileIntent(rawHeader)
+  if (intent?.sourceEntityId !== targetEntityId) return { ok: true }
+
+  try {
+    await assertCommandFeatures(buildCatalogInventoryProfileCommandContext(context), [['wms.manage_inventory']])
+  } catch (error) {
+    if (!isCrudHttpError(error)) throw error
+    return { ok: false, statusCode: error.status, message: error.message }
+  }
+
+  return { ok: true, metadata: { intent, target } }
+}
+
 export const interceptors: ApiInterceptor[] = [
   {
     id: 'wms.catalog-products.inventory-profile-sync',
     targetRoute: 'catalog/products',
     methods: ['POST', 'PUT'],
     priority: 120,
-    async before(request) {
-      const rawHeader = request.headers[WMS_CATALOG_PROFILE_HEADER]
-      if (!rawHeader) return { ok: true }
-
-      const intent = decodeCatalogInventoryProfileIntent(rawHeader)
-      // CrudForm scopes `onBeforeSave` request headers around the whole
-      // `onSubmit` callback, so a page whose submit handler also creates
-      // other records (e.g. the product-create wizard implicitly creating
-      // its default variant) can leak this header onto those unrelated
-      // requests. Only honor an intent the product form itself computed.
-      if (intent?.sourceEntityId !== E.catalog.catalog_product) return { ok: true }
-      return {
-        ok: true,
-        metadata: { intent, target: 'product' },
-      }
+    before(request, context) {
+      return prepareCatalogInventoryProfile(request, context, 'product')
     },
     async after(request, response, context) {
       if (response.statusCode >= 400) return {}
@@ -76,17 +85,8 @@ export const interceptors: ApiInterceptor[] = [
     targetRoute: 'catalog/variants',
     methods: ['POST', 'PUT'],
     priority: 120,
-    async before(request) {
-      const rawHeader = request.headers[WMS_CATALOG_PROFILE_HEADER]
-      if (!rawHeader) return { ok: true }
-
-      const intent = decodeCatalogInventoryProfileIntent(rawHeader)
-      // See the product interceptor's `before` for why this check exists.
-      if (intent?.sourceEntityId !== E.catalog.catalog_product_variant) return { ok: true }
-      return {
-        ok: true,
-        metadata: { intent, target: 'variant' },
-      }
+    before(request, context) {
+      return prepareCatalogInventoryProfile(request, context, 'variant')
     },
     async after(request, response, context) {
       if (response.statusCode >= 400) return {}

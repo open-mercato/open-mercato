@@ -15,6 +15,7 @@ import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
+import { isApiKeysModuleEnabled } from './optional-modules'
 import { createModuleQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import {
@@ -626,6 +627,7 @@ export async function executeActivity(
       // it would only re-log the same refusal N times before reaching the same
       // answer.
       if (isDryRunRefusal(error)) break
+      if (error instanceof CallApiRefusalError) break
 
       // Log activity retry attempt with context
       if (attempt < retryPolicy.maxAttempts - 1) {
@@ -1786,6 +1788,13 @@ export async function executeCallApi(
   // 2. Build full URL (prepend APP_URL for relative paths)
   const requestUrl = await resolveCallApiUrl(endpoint)
 
+  if (!isApiKeysModuleEnabled()) {
+    throw await createCallApiError(
+      'workflows.errors.callApi.apiKeysModuleDisabled',
+      'CALL_API needs the api_keys module to authenticate internal calls',
+    )
+  }
+
   // 3. Import the one-time API key helper
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
 
@@ -2059,9 +2068,11 @@ export async function resolveWorkflowPrincipalUserId(
 const CALL_API_MAX_REDIRECTS = 3
 const CALL_API_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
+class CallApiRefusalError extends Error {}
+
 async function createCallApiError(key: string, fallback: string, params?: TranslateParams): Promise<Error> {
   const { translate } = await resolveTranslations()
-  return new Error(translate(key, fallback, params))
+  return new CallApiRefusalError(translate(key, fallback, params))
 }
 
 function createAppUrlNotHttpError(appUrl: string): Promise<Error> {
@@ -2093,11 +2104,8 @@ async function resolveCallApiUrl(endpoint: string): Promise<URL> {
     target = endpoint.startsWith('/')
       ? new URL(`${appUrl.replace(/\/+$/, '')}${endpoint}`)
       : new URL(endpoint)
-  } catch (error) {
-    if (error instanceof TypeError) {
-      throw new Error(`Invalid endpoint URL: ${endpoint}`)
-    }
-    throw error
+  } catch {
+    throw new CallApiRefusalError(`Invalid endpoint URL: ${endpoint}`)
   }
 
   if (appUrlObj.protocol !== 'http:' && appUrlObj.protocol !== 'https:') {
@@ -2123,7 +2131,7 @@ async function resolveCallApiUrl(endpoint: string): Promise<URL> {
 
   const apiPathPrefix = `${appUrlObj.pathname.replace(/\/+$/, '')}/api/`
   if (!target.pathname.startsWith(apiPathPrefix)) {
-    throw new Error(`CALL_API only supports /api/* paths, got: ${endpoint}`)
+    throw new CallApiRefusalError(`CALL_API only supports /api/* paths, got: ${endpoint}`)
   }
 
   return target
@@ -2157,7 +2165,7 @@ async function fetchCallApiWithGuardedRedirects(
     const location = response.headers.get('location')
     const refuse = async () => {
       const { translate } = await resolveTranslations()
-      return new Error(
+      return new CallApiRefusalError(
         translate(
           'workflows.errors.callApi.redirectRefused',
           'CALL_API refused to follow redirect {status} to {location}',
