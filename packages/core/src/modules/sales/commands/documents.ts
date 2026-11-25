@@ -10546,13 +10546,20 @@ const createInvoiceCommand: CommandHandler<
     const after = payload?.after;
     if (!after) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const invoice = await em.findOne(SalesInvoice, { id: after.invoice.id });
-    if (!invoice) return;
-    ensureOrganizationScope(ctx, invoice.organizationId);
-    ensureTenantScope(ctx, invoice.tenantId);
-    await em.nativeDelete(SalesInvoiceLine, { invoice: invoice.id });
-    em.remove(invoice);
-    await em.flush();
+    await em.transactional(async (tx) => {
+      const invoice = await findOneWithDecryption(
+        tx,
+        SalesInvoice,
+        { id: after.invoice.id },
+        { fields: ["id", "organizationId", "tenantId"] },
+      );
+      if (!invoice) return;
+      ensureOrganizationScope(ctx, invoice.organizationId);
+      ensureTenantScope(ctx, invoice.tenantId);
+      await tx.nativeDelete(SalesInvoiceLine, { invoice: invoice.id });
+      tx.remove(invoice);
+      await tx.flush();
+    });
   },
 };
 
@@ -11138,13 +11145,20 @@ const createCreditMemoCommand: CommandHandler<
     const after = payload?.after;
     if (!after) return;
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const creditMemo = await em.findOne(SalesCreditMemo, { id: after.creditMemo.id });
-    if (!creditMemo) return;
-    ensureOrganizationScope(ctx, creditMemo.organizationId);
-    ensureTenantScope(ctx, creditMemo.tenantId);
-    await em.nativeDelete(SalesCreditMemoLine, { creditMemo: creditMemo.id });
-    em.remove(creditMemo);
-    await em.flush();
+    await em.transactional(async (tx) => {
+      const creditMemo = await findOneWithDecryption(
+        tx,
+        SalesCreditMemo,
+        { id: after.creditMemo.id },
+        { fields: ["id", "organizationId", "tenantId"] },
+      );
+      if (!creditMemo) return;
+      ensureOrganizationScope(ctx, creditMemo.organizationId);
+      ensureTenantScope(ctx, creditMemo.tenantId);
+      await tx.nativeDelete(SalesCreditMemoLine, { creditMemo: creditMemo.id });
+      tx.remove(creditMemo);
+      await tx.flush();
+    });
   },
 };
 

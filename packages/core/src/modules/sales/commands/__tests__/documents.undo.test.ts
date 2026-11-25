@@ -1,6 +1,8 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { asValue, createContainer } from 'awilix'
+import { SalesCreditMemoLine, SalesInvoiceLine } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -166,5 +168,44 @@ describe('sales order line undo payloads', () => {
     expect(log.snapshotBefore).toEqual(before)
     expect(log.snapshotAfter).toEqual(after)
     expect(log.payload?.undo).toMatchObject({ before, after })
+  })
+})
+
+describe('sales document create undo', () => {
+  beforeAll(async () => {
+    await import('../documents')
+  })
+
+  it.each([
+    ['sales.invoices.create', 'invoice', SalesInvoiceLine],
+    ['sales.credit_memos.create', 'creditMemo', SalesCreditMemoLine],
+  ] as const)('checks scope before deleting records in %s', async (commandId, relation, lineEntity) => {
+    const document = { id: 'document-1', organizationId: 'org-1', tenantId: 'tenant-1' }
+    const tx = { findOne: jest.fn(async () => document), nativeDelete: jest.fn(), remove: jest.fn(), flush: jest.fn() }
+    const transactional = jest.fn(async (run: (em: typeof tx) => Promise<void>) => run(tx))
+    const container = createContainer().register({ em: asValue({ fork: () => ({ transactional }) }) })
+    const undoCommand = commandRegistry.get(commandId)?.undo
+    if (!undoCommand) throw new Error(`[internal] Missing undo handler for ${commandId}`)
+    const undo = async (orgId: string, tenantId: string) => undoCommand({
+      input: {},
+      logEntry: { commandPayload: { undo: { after: { [relation]: { id: document.id } } } } },
+      ctx: {
+        container,
+        auth: { sub: 'user-1', orgId, tenantId },
+        organizationScope: null,
+        selectedOrganizationId: orgId,
+        organizationIds: [orgId],
+      },
+    })
+
+    await expect(undo('org-2', document.tenantId)).rejects.toMatchObject({ status: 403 })
+    await expect(undo(document.organizationId, 'tenant-2')).rejects.toMatchObject({ status: 403 })
+    expect(tx.nativeDelete).not.toHaveBeenCalled()
+    expect(tx.remove).not.toHaveBeenCalled()
+
+    await expect(undo(document.organizationId, document.tenantId)).resolves.toBeUndefined()
+    expect(tx.nativeDelete).toHaveBeenCalledWith(lineEntity, { [relation]: document.id })
+    expect(tx.remove).toHaveBeenCalledWith(document)
+    expect(tx.flush).toHaveBeenCalledTimes(1)
   })
 })
