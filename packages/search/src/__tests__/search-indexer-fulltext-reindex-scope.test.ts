@@ -1,8 +1,8 @@
 import { SearchIndexer } from '../indexer/search-indexer'
 import { SearchService } from '../service'
 import { FullTextSearchStrategy } from '../strategies/fulltext.strategy'
-import type { FullTextSearchDocument, FullTextSearchDriver, ListDocumentIdsOptions } from '../fulltext/types'
-import type { SearchModuleConfig } from '../types'
+import type { FullTextSearchDocument, FullTextSearchDriver, FullTextSearchQuery, ListDocumentIdsOptions } from '../fulltext/types'
+import type { SearchBuildContext, SearchModuleConfig } from '../types'
 import type { SearchIndexerOptions } from '../indexer/search-indexer'
 import type { QueryEngine, QueryResult } from '@open-mercato/shared/lib/query/types'
 
@@ -27,7 +27,17 @@ function createTenantIndexDriver() {
     id: 'meilisearch',
     ensureReady: jest.fn(async () => {}),
     isHealthy: jest.fn(async () => true),
-    search: jest.fn(async () => []),
+    search: jest.fn(async (_query: string, options: FullTextSearchQuery) => (
+      [...tenantIndex(options.tenantId).values()]
+        .filter((document) => !options.organizationId || document.organizationId === options.organizationId)
+        .filter((document) => !options.entityTypes?.length || options.entityTypes.includes(document.entityId))
+        .map((document) => ({
+          recordId: document.recordId,
+          entityId: document.entityId,
+          organizationId: document.organizationId,
+          score: 1,
+        }))
+    )),
     index: jest.fn(upsert),
     delete: jest.fn(async () => {}),
     bulkIndex: jest.fn(async (docs: FullTextSearchDocument[]) => {
@@ -87,11 +97,15 @@ const moduleConfigs: SearchModuleConfig[] = [
   },
 ]
 
-function makeQueryEngine(rows: Record<string, Array<{ id: string; organization_id: string }>>): QueryEngine {
+type SourceRow = { id: string; organization_id?: string | null }
+
+function makeQueryEngine(rows: Record<string, SourceRow[]>): QueryEngine {
   return {
     query: jest.fn(async (entity, opts) => {
       const all = rows[entity as string] ?? []
-      const items = opts?.organizationId ? all.filter((row) => row.organization_id === opts.organizationId) : all
+      const scoped = opts?.organizationId ? all.filter((row) => row.organization_id === opts.organizationId) : all
+      const recordId = opts?.filters?.id
+      const items = typeof recordId === 'string' ? scoped.filter((row) => row.id === recordId) : scoped
       return { items, total: items.length } as QueryResult
     }),
   }
@@ -108,23 +122,121 @@ async function setup(
   await fake.upsert(seedDoc('test:product', 'p-b-1', ORG_B))
   await fake.upsert(seedDoc('test:customer', 'c-a-1', ORG_A))
   await fake.upsert(seedDoc('test:customer', 'c-b-1', ORG_B))
+  const sourceRows: Record<string, SourceRow[]> = {
+    'test:product': [
+      { id: 'p-a-1', organization_id: ORG_A },
+      { id: 'p-b-1', organization_id: ORG_B },
+    ],
+    'test:customer': [
+      { id: 'c-a-1', organization_id: ORG_A },
+      { id: 'c-b-1', organization_id: ORG_B },
+    ],
+  }
   const indexer = new SearchIndexer(searchService, moduleConfigs, {
     fulltextQueue,
-    queryEngine: makeQueryEngine({
-      'test:product': [
-        { id: 'p-a-1', organization_id: ORG_A },
-        { id: 'p-b-1', organization_id: ORG_B },
-      ],
-      'test:customer': [
-        { id: 'c-a-1', organization_id: ORG_A },
-        { id: 'c-b-1', organization_id: ORG_B },
-      ],
-    }),
+    queryEngine: makeQueryEngine(sourceRows),
+    encryptedCustomFieldKeysResolver: async () => new Set<string>(),
   })
-  return { ...fake, driver, indexer }
+  return { ...fake, driver, indexer, sourceRows }
 }
 
 describe('SearchIndexer fulltext reindex keeps other entities and organizations in the shared tenant index', () => {
+  it.each(['entity', 'all'] as const)('preserves row ownership during a tenant-wide %s reindex', async (mode) => {
+    const { indexer, tenantIndex } = await setup()
+
+    const result = mode === 'entity'
+      ? await indexer.reindexEntityToFulltext({ entityId: 'test:product', tenantId: TENANT })
+      : await indexer.reindexAllToFulltext({ tenantId: TENANT })
+
+    expect(result.success).toBe(true)
+    expect(tenantIndex(TENANT).get('test:product:p-a-1')?.organizationId).toBe(ORG_A)
+    expect(tenantIndex(TENANT).get('test:product:p-b-1')?.organizationId).toBe(ORG_B)
+    expect(tenantIndex(TENANT).get('test:customer:c-a-1')?.organizationId).toBe(ORG_A)
+    expect(tenantIndex(TENANT).get('test:customer:c-b-1')?.organizationId).toBe(ORG_B)
+  })
+
+  it('can purge a removed organization-owned row after a tenant-wide reindex', async () => {
+    const { indexer, keys, sourceRows, tenantIndex } = await setup()
+    await indexer.reindexEntityToFulltext({ entityId: 'test:product', tenantId: TENANT })
+    sourceRows['test:product'] = sourceRows['test:product'].filter((row) => row.organization_id !== ORG_A)
+
+    const result = await indexer.reindexEntityToFulltext({
+      entityId: 'test:product',
+      tenantId: TENANT,
+      organizationId: ORG_A,
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.recordsIndexed).toBe(0)
+    expect(keys(TENANT)).toEqual(['test:customer:c-a-1', 'test:customer:c-b-1', 'test:product:p-b-1'])
+    expect(tenantIndex(TENANT).get('test:product:p-b-1')?.organizationId).toBe(ORG_B)
+  })
+
+  it('keeps tenant-wide reindexed records readable only through their own organization scope', async () => {
+    const { indexer, driver } = await setup()
+    await indexer.reindexAllToFulltext({ tenantId: TENANT })
+    const strategy = new FullTextSearchStrategy(driver)
+
+    const organizationA = await strategy.search('', { tenantId: TENANT, organizationId: ORG_A, entityTypes: ['test:product'] })
+    const organizationB = await strategy.search('', { tenantId: TENANT, organizationId: ORG_B, entityTypes: ['test:product'] })
+    const otherTenant = await strategy.search('', { tenantId: 'tenant-other', organizationId: ORG_A })
+
+    expect(organizationA.map((record) => record.recordId)).toEqual(['p-a-1'])
+    expect(organizationB.map((record) => record.recordId)).toEqual(['p-b-1'])
+    expect(otherTenant).toEqual([])
+  })
+
+  it('preserves row ownership when a tenant-wide queued batch reloads the records', async () => {
+    const enqueue = jest.fn(async () => 'job-1')
+    const { indexer, tenantIndex } = await setup({ enqueue } as unknown as SearchIndexerOptions['fulltextQueue'])
+    const items = [
+      { entityId: 'test:product' as const, recordId: 'p-a-1' },
+      { entityId: 'test:product' as const, recordId: 'p-b-1' },
+    ]
+    const result = await indexer.reindexEntityToFulltext({ entityId: 'test:product', tenantId: TENANT, useQueue: true })
+    expect(result.success).toBe(true)
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ jobType: 'batch-index', records: items }))
+
+    await expect(indexer.indexRecordsById({ tenantId: TENANT, items })).resolves.toEqual({ indexed: 2, skipped: 0 })
+
+    expect(tenantIndex(TENANT).get('test:product:p-a-1')?.organizationId).toBe(ORG_A)
+    expect(tenantIndex(TENANT).get('test:product:p-b-1')?.organizationId).toBe(ORG_B)
+  })
+
+  it('uses row ownership for callbacks and documents while preserving global rows and omitted-column fallback', async () => {
+    const { driver, tenantIndex } = createTenantIndexDriver()
+    const buildSource = jest.fn(async (context: SearchBuildContext) => ({
+      text: String(context.record.id),
+      checksumSource: context.record.id,
+    }))
+    const searchService = new SearchService({ strategies: [new FullTextSearchStrategy(driver)] })
+    const indexer = new SearchIndexer(searchService, [{ entities: [{ entityId: 'test:product', enabled: true, buildSource }] }], {
+      queryEngine: {
+        query: jest.fn(async () => ({
+          items: [
+            { id: 'owned', organization_id: ORG_A },
+            { id: 'global', organization_id: null },
+            { id: 'omitted' },
+          ],
+          total: 3,
+        })),
+      } as unknown as QueryEngine,
+      encryptedCustomFieldKeysResolver: async () => new Set<string>(),
+    })
+
+    const result = await indexer.reindexEntityToFulltext({
+      entityId: 'test:product',
+      tenantId: TENANT,
+      organizationId: ORG_B,
+    })
+
+    expect(result.success).toBe(true)
+    expect(buildSource.mock.calls.map(([context]) => context.organizationId)).toEqual([ORG_A, null, ORG_B])
+    expect(tenantIndex(TENANT).get('test:product:owned')?.organizationId).toBe(ORG_A)
+    expect(tenantIndex(TENANT).get('test:product:global')?.organizationId).toBeNull()
+    expect(tenantIndex(TENANT).get('test:product:omitted')?.organizationId).toBe(ORG_B)
+  })
+
   it('reindexEntityToFulltext keeps other entity types and other organizations searchable', async () => {
     const { indexer, driver, keys } = await setup()
 
