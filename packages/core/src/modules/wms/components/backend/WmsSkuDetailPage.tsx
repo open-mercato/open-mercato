@@ -5,7 +5,7 @@ import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import {
   ArrowDown,
@@ -401,6 +401,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
 
   const [warehouseId, setWarehouseId] = React.useState<string>('all')
   const [distributionFilter, setDistributionFilter] = React.useState<DistributionFilter>('all')
+  const [showEmptyBalances, setShowEmptyBalances] = React.useState(false)
   const [distributionPage, setDistributionPage] = React.useState(1)
   const [selectedBalanceIds, setSelectedBalanceIds] = React.useState<Set<string>>(() => new Set())
   const [adjustOpen, setAdjustOpen] = React.useState(false)
@@ -473,8 +474,9 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
   })
 
   const balancesQuery = useQuery({
-    queryKey: ['wms-sku-detail', 'balances', catalogVariantId, warehouseId],
+    queryKey: ['wms-sku-detail', 'balances', catalogVariantId, warehouseId, showEmptyBalances],
     enabled: Boolean(catalogVariantId),
+    placeholderData: keepPreviousData,
     queryFn: async () => {
       const params = new URLSearchParams({
         catalogVariantId: catalogVariantId!,
@@ -484,6 +486,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
         sortDir: 'desc',
       })
       if (warehouseId !== 'all') params.set('warehouseId', warehouseId)
+      if (!showEmptyBalances) params.set('hideEmpty', 'true')
       const call = await apiCall<PagedResponse<InventoryBalanceRow>>(
         `/api/wms/inventory/balances?${params.toString()}`,
       )
@@ -601,7 +604,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
   React.useEffect(() => {
     setDistributionPage(1)
     setSelectedBalanceIds(new Set())
-  }, [distributionFilter, warehouseId])
+  }, [distributionFilter, showEmptyBalances, warehouseId])
 
   const selectedBalances = React.useMemo(
     () => filteredBalances.filter((row) => selectedBalanceIds.has(row.id)),
@@ -1051,6 +1054,17 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
                       {chip.label}
                     </Button>
                   ))}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={showEmptyBalances ? 'ghost' : 'outline'}
+                    className="rounded-full"
+                    onClick={() => setShowEmptyBalances((prev) => !prev)}
+                  >
+                    {showEmptyBalances
+                      ? t('wms.backend.sku.distribution.filters.hideEmpty', 'Hide empty')
+                      : t('wms.backend.sku.distribution.filters.showEmpty', 'Show empty')}
+                  </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Button type="button" variant="outline" onClick={handleExportDistributionCsv}>

@@ -676,6 +676,9 @@ None.
 
 ## Changelog
 
+### 2026-11-26
+- Balance buckets emptied by a move, issue or putaway (on hand, reserved and allocated all 0) stayed in the inventory console balances table and the SKU stock distribution. `GET /api/wms/inventory/balances` now accepts an optional `hideEmpty=true` that drops those buckets; without it the list is unchanged. Both views send it by default and offer a Show empty toggle. Coverage: `balances.route.test.ts`, `TC-WMS-037`.
+
 ### 2026-11-22
 - A lot update that sent only one or two dates compared them with each other but not with the lot's stored dates, so `PUT /api/wms/lots` with just `expiresAt` could save an expiry earlier than the stored manufactured or best-before date. `wms.lots.update` now checks the stored dates merged with the patched ones before writing and answers with the same 400 validation error as create. Updates that don't touch a date are not re-checked, and existing lots are not repaired. Coverage: `configuration.lotDateOrdering.test.ts`, `TC-WMS-036`.
 

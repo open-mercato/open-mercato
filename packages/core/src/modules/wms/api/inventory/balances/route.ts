@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance } from '../../../data/entities'
 import { inventoryBalanceListQuerySchema } from '../../../data/validators'
@@ -33,6 +34,19 @@ export function transformInventoryBalanceListItem(
     ...item,
     quantity_available: rawAvailable != null ? Number(rawAvailable) : onHand - reserved - allocated,
   }
+}
+
+export function buildHideEmptyBalanceFilters(hideEmpty: string | undefined): Record<string, unknown>[] | null {
+  if (parseBooleanToken(hideEmpty) !== true) return null
+  return [
+    {
+      $or: [
+        { quantity_on_hand: { $ne: 0 } },
+        { quantity_reserved: { $ne: 0 } },
+        { quantity_allocated: { $ne: 0 } },
+      ],
+    },
+  ]
 }
 
 const crud = makeCrudRoute({
@@ -83,6 +97,8 @@ const crud = makeCrudRoute({
       if (query.locationId) filters.location_id = { $eq: query.locationId }
       if (query.lotId) filters.lot_id = { $eq: query.lotId }
       if (query.serialNumber) filters.serial_number = { $eq: query.serialNumber }
+      const hideEmptyFilters = buildHideEmptyBalanceFilters(query.hideEmpty)
+      if (hideEmptyFilters) filters.$and = hideEmptyFilters
 
       let lowStockVariantIds: string[] | null = null
       if (query.lowStock === 'belowReorder' || query.lowStock === 'belowSafety') {

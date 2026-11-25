@@ -319,9 +319,11 @@ function InventoryDataTableSection<T extends RowData>({
     return urlParams.toString()
   }, [extraParams, lowStock, lotId, page, search, sorting, variantId, warehouseId])
 
+  const extraParamsKey = extraParams ? new URLSearchParams(extraParams).toString() : ''
+
   React.useEffect(() => {
     setPage(1)
-  }, [warehouseId, variantId, lotId, lowStock])
+  }, [warehouseId, variantId, lotId, lowStock, extraParamsKey])
 
   const query = useQuery({
     queryKey: ['wms-inventory-console', sectionQueryKey, params],
@@ -493,6 +495,8 @@ function InventoryScopeBar({
   )
 }
 
+const HIDE_EMPTY_BALANCES_PARAMS: Record<string, string> = { hideEmpty: 'true' }
+
 export function InventoryBalancesSection({
   access,
   warehouseId = '',
@@ -512,6 +516,7 @@ export function InventoryBalancesSection({
   const [movePreset, setMovePreset] = React.useState<InventoryBalanceRow | null>(null)
   const [receiveOpen, setReceiveOpen] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
+  const [showEmpty, setShowEmpty] = React.useState(false)
 
   const openMoveDialog = React.useCallback((row: InventoryBalanceRow) => {
     setMovePreset(row)
@@ -669,8 +674,16 @@ export function InventoryBalancesSection({
         searchFallback="Search balances"
         emptyTitleKey="wms.backend.inventory.balances.empty.title"
         emptyTitleFallback="No balance buckets"
-        emptyDescriptionKey="wms.backend.inventory.balances.empty.description"
-        emptyDescriptionFallback="Balances appear after receipts, adjustments, or moves create inventory buckets."
+        emptyDescriptionKey={
+          showEmpty
+            ? 'wms.backend.inventory.balances.empty.description'
+            : 'wms.backend.inventory.balances.empty.descriptionEmptyHidden'
+        }
+        emptyDescriptionFallback={
+          showEmpty
+            ? 'Balances appear after receipts, adjustments, or moves create inventory buckets.'
+            : 'No balances with stock. Choose Show empty to include emptied buckets.'
+        }
         tableId={extensionPoints.hosts.balancesTable.tableId}
         entityId={E.wms.inventory_balance}
         icon={<Boxes className="size-5" />}
@@ -680,6 +693,19 @@ export function InventoryBalancesSection({
         variantId={variantId}
         lotId={lotId}
         lowStock={lowStock}
+        extraParams={showEmpty ? undefined : HIDE_EMPTY_BALANCES_PARAMS}
+        toolbarActions={
+          <Button
+            type="button"
+            variant={showEmpty ? 'ghost' : 'outline'}
+            size="sm"
+            onClick={() => setShowEmpty((prev) => !prev)}
+          >
+            {showEmpty
+              ? t('wms.backend.inventory.balances.filter.hideEmpty', 'Hide empty')
+              : t('wms.backend.inventory.balances.filter.showEmpty', 'Show empty')}
+          </Button>
+        }
         emptyStateAction={
           access.canReceive || access.canImport ? (
             <div className="flex flex-wrap items-center justify-center gap-2">
