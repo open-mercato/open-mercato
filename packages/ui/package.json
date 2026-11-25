@@ -19,7 +19,6 @@
       "types": "./src/theme/index.ts",
       "default": "./dist/theme/index.js"
     },
-    "./theme/storefront.css": "./src/theme/storefront.css",
     "./blocks/contracts": {
       "types": "./src/blocks/contracts/index.ts",
       "default": "./dist/blocks/contracts/index.js"

@@ -17,7 +17,6 @@ import galleryKorean from '../../core/src/modules/design_system/i18n/ko.json'
 import '@fontsource-variable/inter'
 import './generated/theme.css'
 import './preview.css'
-import '../src/theme/storefront.css'
 
 const localeDictionaries = {
   en: { ...appEnglish, ...galleryEnglish },
@@ -27,30 +26,27 @@ const localeDictionaries = {
   ko: { ...appKorean, ...galleryKorean },
 }
 
-function PreviewBoundary({ theme, brand, font, locale, children }: React.PropsWithChildren<{ theme: string; brand: string; font: string; locale: Locale }>) {
+function PreviewBoundary({ theme, font, locale, children }: React.PropsWithChildren<{ theme: string; font: string; locale: Locale }>) {
   const [client] = React.useState(() => new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } }))
   React.useLayoutEffect(() => {
     const root = document.documentElement
     root.classList.toggle('dark', theme === 'dark')
     root.style.colorScheme = theme
     root.dataset.storybookFont = font
-    if (brand === 'storefront') root.dataset.theme = 'storefront'
-    else delete root.dataset.theme
-  }, [theme, brand, font])
+  }, [theme, font])
   return <QueryClientProvider client={client}><I18nProvider locale={locale} dict={localeDictionaries[locale]}>
     <div className="om-story-surface">{children}</div><FlashMessages />
   </I18nProvider></QueryClientProvider>
 }
 
 const preview: Preview = {
-  initialGlobals: { theme: 'light', brand: 'admin', font: 'application', locale: 'en' },
+  initialGlobals: { theme: 'light', font: 'application', locale: 'en' },
   globalTypes: {
     locale: { description: 'Example language', toolbar: { title: 'Language', icon: 'globe', dynamicTitle: true, items: [{ value: 'en', title: 'English' }, { value: 'pl', title: 'Polski' }, { value: 'de', title: 'Deutsch' }, { value: 'es', title: 'Español' }, { value: 'ko', title: '한국어' }] } },
     theme: { description: 'Color scheme including portaled overlays', toolbar: { title: 'Theme', icon: 'circlehollow', dynamicTitle: true, items: [{ value: 'light', title: 'Light' }, { value: 'dark', title: 'Dark' }] } },
-    brand: { description: 'Brand theme applied through data-theme on the preview root', toolbar: { title: 'Brand', icon: 'paintbrush', dynamicTitle: true, items: [{ value: 'admin', title: 'Admin' }, { value: 'storefront', title: 'Storefront' }] } },
     font: { description: 'Compare runtime typography with the Figma reference', toolbar: { title: 'Typography', icon: 'paragraph', dynamicTitle: true, items: [{ value: 'application', title: 'Application font' }, { value: 'figma', title: 'Figma reference: Inter' }] } },
   },
-  decorators: [(Story, context) => <PreviewBoundary theme={String(context.globals.theme)} brand={String(context.globals.brand)} font={String(context.globals.font)} locale={Object.hasOwn(localeDictionaries, String(context.globals.locale)) ? context.globals.locale as Locale : 'en'}><Story /></PreviewBoundary>],
+  decorators: [(Story, context) => <PreviewBoundary theme={String(context.globals.theme)} font={String(context.globals.font)} locale={Object.hasOwn(localeDictionaries, String(context.globals.locale)) ? context.globals.locale as Locale : 'en'}><Story /></PreviewBoundary>],
   parameters: {
     layout: 'fullscreen',
     nextjs: { appDirectory: true, navigation: { pathname: '/backend/design-system', query: {} } },
