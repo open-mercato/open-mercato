@@ -1,5 +1,29 @@
 # Upgrade Notes
 
+## Encryption policy read once per request (#8990)
+
+`TenantDataEncryptionService` decides which fields to encrypt or decrypt from the
+`encryption_maps` table. It used to memoize that read per EntityManager only, and calls
+made without an EntityManager were never memoized. A single request touches several
+EntityManagers, so the same map was read many times per request. Within one request
+or worker job (an owned request scope), every EntityManager and EntityManager-less call
+now shares one read per entity and scope.
+
+- **Freshness:**
+  - Entries are re-read after `OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS` (default 5000 ms).
+  - Every map write in the process, and every flush in the request, drops them
+    immediately, as before.
+  - The only new window is a map changed **by another process** during the same
+    request, bounded by that setting.
+- **Transactions:** reads made on an EntityManager inside an open transaction keep their
+  own transaction-scoped memo. They never use or fill the request memo, so a map written
+  in an uncommitted transaction is not visible to other reads.
+- **Kill switch:** `OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS=0` restores per-EntityManager
+  memoization.
+- **For module authors:** `getRequestScopeSlot(slot, create)` from
+  `@open-mercato/shared/lib/di/request-scope` gives other per-request memos the same
+  lifetime. It returns `null` outside an owned request scope.
+
 ## Extension header parsing and analytics SQL identifier hardening (#10331, #10332)
 
 Two security-hardening narrowings landed on shared request-header parsing and dashboard analytics SQL construction:

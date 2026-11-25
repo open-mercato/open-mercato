@@ -292,3 +292,4 @@ Priority implication: the benchmarked build already contained the shipped P0 fix
   - Added a `[2026-08 correction]` pointer under the Risks table for the superseded 2.1 row.
   - Spelled out the sub-item ids that were undefined before (`P2.2b`, `P2.4d`).
 - **2026-11-21** — #2967 row: process-wide query_index column map and DI-cached custom-field definitions and sort kinds; the event-wiring half shipped with #9628. `customEntityCache` deliberately stays per instance (#2939).
+- **2026-11-23** — #8990 (request-scoped memos, encryption-policy part): encryption-policy reads are shared across one owned request or worker job (`getRequestScopeSlot` in `lib/di/request-scope`), bounded by `OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS` (default 5000, `0` = per-EntityManager as before); transactional reads keep their own memo.

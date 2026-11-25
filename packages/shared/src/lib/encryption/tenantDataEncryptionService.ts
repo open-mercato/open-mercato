@@ -12,8 +12,8 @@ import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
 import { createLogger } from '../logger'
 import {
-  getEncryptionPolicyMemo,
   invalidateEncryptionPolicyMemos,
+  resolveMemoizedEncryptionPolicy,
   type ResolvedEncryptionPolicy,
 } from './policyMemo'
 import type { EncryptionKeyScope, ModuleEncryptionMap } from '../../modules/encryption'
@@ -454,26 +454,17 @@ export class TenantDataEncryptionService {
    * invalidation protocol can make process-local state authoritative after an independent worker
    * commits a map mutation.
    *
-   * Within one unit of work — the caller's EntityManager, or its open transaction — repeated
-   * decisions for the same scope share a single read, so loading N rows or running the before/after
-   * hooks of one flush costs one query instead of one per row and hook. That memo dies with the
-   * EntityManager/transaction, is dropped for the EntityManager that writes a map
-   * (`forgetEncryptionPolicyMemo`) and after its flush, and for every EntityManager when this
-   * process invalidates a map. Calls that do not hand in an EntityManager fall back to the
-   * long-lived service EntityManager and are never memoized.
+   * Within one unit of work repeated decisions for the same scope share a single read, so loading N
+   * rows or running the before/after hooks of one flush costs one query instead of one per row and
+   * hook. The unit of work is the caller's open transaction when there is one, otherwise the owned
+   * request scope (bounded by `OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS`), otherwise the caller's
+   * EntityManager. Each memo is dropped for the EntityManager that writes a map
+   * (`forgetEncryptionPolicyMemo`) and after its flush, and everywhere when this process
+   * invalidates a map. Outside a request, calls that do not hand in an EntityManager fall back to the
+   * long-lived service EntityManager and are never memoized. See `resolveMemoizedEncryptionPolicy`.
    */
   private resolvePolicy(key: MapCacheKey, em?: EntityManager): Promise<ResolvedEncryptionPolicy> {
-    if (!em) return this.loadPolicy(key)
-    const memo = getEncryptionPolicyMemo(em)
-    const tag = cacheKey(key)
-    const pending = memo.get(tag)
-    if (pending) return pending
-    const loading = this.loadPolicy(key, em)
-    memo.set(tag, loading)
-    loading.catch(() => {
-      if (memo.get(tag) === loading) memo.delete(tag)
-    })
-    return loading
+    return resolveMemoizedEncryptionPolicy(cacheKey(key), em, () => this.loadPolicy(key, em))
   }
 
   /**

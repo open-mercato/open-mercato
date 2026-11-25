@@ -11,6 +11,7 @@ import {
   parseDecryptedFieldValue,
 } from '../tenantDataEncryptionService'
 import { forgetEncryptionPolicyMemo } from '../policyMemo'
+import { runInOwnedRequestScope } from '../../di/request-scope'
 
 const fixedKey = Buffer.alloc(32, 1).toString('base64')
 
@@ -904,5 +905,167 @@ describe('TenantDataEncryptionService transaction-aware map reads', () => {
       .resolves.toEqual(['display_name'])
     expect(execute).toHaveBeenCalled()
     expect(bareExecute).not.toHaveBeenCalled()
+  })
+})
+
+describe('TenantDataEncryptionService request-scoped policy memo (#8990)', () => {
+  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+  const originalMaxAge = process.env.OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS
+  const tenantId = 'tenant-request-memo'
+  const organizationId = 'org-request-memo'
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    delete process.env.OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+    if (originalMaxAge === undefined) delete process.env.OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS
+    else process.env.OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS = originalMaxAge
+  })
+
+  function makeService(entityId: string) {
+    const table = { rows: [{ entity_id: entityId, tenant_id: tenantId, organization_id: null, fields_json: [{ field: 'secret' }] }] as PolicyRow[] }
+    const { execute } = makePolicyEm(() => table.rows)
+    const service = new TenantDataEncryptionService({ execute } as never, {
+      kms: {
+        getTenantDek: jest.fn(async (keyId: string) => ({ tenantId: keyId, key: fixedKey, fetchedAt: Date.now() })),
+        createTenantDek: jest.fn(async () => null),
+        isHealthy: () => true,
+      },
+    } as never)
+    const newEntityManager = () => ({ execute }) as never
+    return { service, execute, table, newEntityManager }
+  }
+
+  it('shares one read per scope across the EntityManagers and EntityManager-less calls of a request', async () => {
+    const entityId = 'test:request_memo_shared'
+    const { service, execute, newEntityManager } = makeService(entityId)
+
+    await runInOwnedRequestScope(async () => {
+      for (const em of [newEntityManager(), newEntityManager(), newEntityManager(), undefined]) {
+        await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, em ? { em } : undefined))
+          .resolves.toEqual(['secret'])
+        await service.getEncryptedFieldNames(entityId, tenantId, null, em ? { em } : undefined)
+      }
+      const ciphertext = (await service.encryptEntityPayload(entityId, { secret: 'value' }, tenantId, organizationId, { em: newEntityManager() })).secret
+      await expect(service.decryptEntityPayload(entityId, { secret: ciphertext }, tenantId, organizationId))
+        .resolves.toEqual({ secret: 'value' })
+    })
+
+    expect(execute.mock.calls.map(([, params]) => params)).toEqual([
+      [entityId, tenantId, organizationId],
+      [entityId, tenantId],
+    ])
+    await service.getEncryptedFieldNames(entityId, tenantId, organizationId)
+    expect(execute).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps transactional reads out of the request memo so uncommitted maps never leak', async () => {
+    const entityId = 'test:request_memo_transaction'
+    const { service, execute, table, newEntityManager } = makeService(entityId)
+    const pendingRows: PolicyRow[] = [{ ...table.rows[0], fields_json: [{ field: 'secret' }, { field: 'pending' }] }]
+    const transactionalExecute = jest.fn(async (_sql: string, params: readonly unknown[] = []) => selectPolicyRows(pendingRows, params))
+    const transactionalEm = { execute: transactionalExecute, getTransactionContext: () => ({}) } as never
+
+    await runInOwnedRequestScope(async () => {
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() })
+      await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: transactionalEm }))
+        .resolves.toEqual(['secret', 'pending'])
+      await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() }))
+        .resolves.toEqual(['secret'])
+    })
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(transactionalExecute).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-reads after a map write is forgotten or a map is invalidated within the request', async () => {
+    const entityId = 'test:request_memo_invalidation'
+    const { service, execute, table, newEntityManager } = makeService(entityId)
+
+    await runInOwnedRequestScope(async () => {
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() })
+      table.rows[0].fields_json = [{ field: 'secret' }, { field: 'added' }]
+      forgetEncryptionPolicyMemo(newEntityManager())
+      await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() }))
+        .resolves.toEqual(['secret', 'added'])
+
+      table.rows[0].fields_json = [{ field: 'secret' }, { field: 'added' }, { field: 'again' }]
+      await service.invalidateMap(entityId, tenantId, null)
+      await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId))
+        .resolves.toEqual(['secret', 'added', 'again'])
+    })
+
+    expect(execute).toHaveBeenCalledTimes(3)
+  })
+
+  it('re-reads an entry older than OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS', async () => {
+    process.env.OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS = '1000'
+    const entityId = 'test:request_memo_max_age'
+    const { service, execute, table, newEntityManager } = makeService(entityId)
+    let now = 1_000_000
+    jest.spyOn(Date, 'now').mockImplementation(() => now)
+
+    await runInOwnedRequestScope(async () => {
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() })
+      now += 1000
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() })
+      expect(execute).toHaveBeenCalledTimes(1)
+      table.rows[0].fields_json = [{ field: 'secret' }, { field: 'rotated' }]
+      now += 1
+      await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() }))
+        .resolves.toEqual(['secret', 'rotated'])
+    })
+
+    expect(execute).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps per-EntityManager behaviour when OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS=0', async () => {
+    process.env.OM_ENCRYPTION_POLICY_REQUEST_MEMO_MS = '0'
+    const entityId = 'test:request_memo_disabled'
+    const { service, execute, newEntityManager } = makeService(entityId)
+
+    await runInOwnedRequestScope(async () => {
+      const em = newEntityManager()
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em })
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em })
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() })
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId)
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId)
+    })
+
+    expect(execute).toHaveBeenCalledTimes(4)
+  })
+
+  it('does not share entries between concurrent requests', async () => {
+    const entityId = 'test:request_memo_concurrent'
+    const { service, execute, newEntityManager } = makeService(entityId)
+
+    await Promise.all([1, 2].map(() => runInOwnedRequestScope(async () => {
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() })
+      await new Promise((resolve) => setImmediate(resolve))
+      await service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() })
+    })))
+
+    expect(execute).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not memoize a failed read in the request memo', async () => {
+    const entityId = 'test:request_memo_failed'
+    const { service, execute, newEntityManager } = makeService(entityId)
+    execute.mockRejectedValueOnce(new Error('connection terminated'))
+
+    await runInOwnedRequestScope(async () => {
+      await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() }))
+        .rejects.toThrow('connection terminated')
+      await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() }))
+        .resolves.toEqual(['secret'])
+    })
+
+    expect(execute).toHaveBeenCalledTimes(2)
   })
 })

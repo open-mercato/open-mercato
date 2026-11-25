@@ -1,6 +1,7 @@
 import {
   bindRequestScopeContainer,
   getRequestScopeContainer,
+  getRequestScopeSlot,
   runInRequestScope,
   runInOwnedRequestScope,
   runWithRequestScopeContainer,
@@ -183,4 +184,36 @@ it('keeps scopes alive until asynchronous source cancellation finishes despite p
   release()
   await Promise.all([reading, cancelling])
   expect(dispose).toHaveBeenCalledTimes(1)
+})
+
+describe('request scope slots', () => {
+  const slot = Symbol('request-scope-slot-test')
+
+  it('is unavailable outside an owned scope, including a bare request scope', () => {
+    expect(getRequestScopeSlot(slot, () => new Map())).toBeNull()
+    expect(runInRequestScope(() => getRequestScopeSlot(slot, () => new Map()))).toBeNull()
+  })
+
+  it('shares one value across an owned scope and its nested container stores', async () => {
+    const create = jest.fn(() => ({ hits: 0 }))
+    const [outer, nested, afterAwait] = await runInOwnedRequestScope(async () => {
+      const first = getRequestScopeSlot(slot, create)
+      const second = runWithRequestScopeContainer(makeContainer('nested'), () => getRequestScopeSlot(slot, create))
+      await tick()
+      return [first, second, getRequestScopeSlot(slot, create)]
+    })
+    expect(outer).not.toBeNull()
+    expect(nested).toBe(outer)
+    expect(afterAwait).toBe(outer)
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it('gives concurrent owned scopes their own values', async () => {
+    const values = await Promise.all([1, 2].map((label) => runInOwnedRequestScope(async () => {
+      const value = getRequestScopeSlot(slot, () => ({ label }))
+      await tick()
+      return getRequestScopeSlot(slot, () => ({ label: -1 })) === value ? value : null
+    })))
+    expect(values).toEqual([{ label: 1 }, { label: 2 }])
+  })
 })
