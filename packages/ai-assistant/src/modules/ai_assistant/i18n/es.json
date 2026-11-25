@@ -328,6 +328,7 @@
   "ai_assistant.errors.pendingRecordNotPreviewed": "Este registro no formaba parte de la vista previa aprobada, por lo que no se modificó.",
   "ai_assistant.errors.pendingRecordStale": "La versión del registro cambió desde la vista previa.",
   "ai_assistant.errors.pendingSingleRecordStale": "La versión del registro cambió desde la vista previa; vuelve a proponer el cambio.",
+  "ai_assistant.errors.structuredOutputInvalid": "El modelo no devolvió una respuesta que coincida con el esquema de salida del agente.",
   "ai_assistant.errors.toolFeaturesDenied": "Te falta uno de los permisos que requiere la herramienta: {features}",
   "ai_assistant.launcher.composerPlaceholder": "Pregunte lo que necesite…",
   "ai_assistant.launcher.dialogDescription": "Elige un asistente. Usa ↑/↓ para navegar, Enter para iniciar, Esc para cerrar.",

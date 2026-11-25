@@ -3,7 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import english from '../i18n/en.json' with { type: 'json' }
 import polish from '../i18n/pl.json' with { type: 'json' }
-import { createCustomEntity, deleteCustomEntityIfExists, saveFieldDefinitions, uniqueEntityId } from './helpers/entitiesApi'
+import { createCustomEntity, saveFieldDefinitions, uniqueEntityId } from './helpers/entitiesApi'
 
 const apiHelpText = ['environment', 'list', 'read', 'readNote', 'create', 'createNote', 'update', 'delete', 'scope', 'rotate', 'protect'] as const
 
@@ -30,11 +30,18 @@ for (const [locale, dictionary] of [['en', english], ['pl', polish]] as const) {
     const entityId = uniqueEntityId('localized_help')
     const fieldKey = 'status'
 
+    let entityCreated = false
+    let fieldCreated = false
+
     try {
-      expect((await createCustomEntity(request, token, { entityId, label: 'Localized help fixture' })).ok()).toBe(true)
-      expect((await saveFieldDefinitions(request, token, entityId, [
+      const entityResponse = await createCustomEntity(request, token, { entityId, label: 'Localized help fixture' })
+      entityCreated = entityResponse.ok()
+      expect(entityCreated).toBe(true)
+      const fieldResponse = await saveFieldDefinitions(request, token, entityId, [
         { key: fieldKey, kind: 'text', configJson: { label: 'Status' } },
-      ])).ok()).toBe(true)
+      ])
+      fieldCreated = fieldResponse.ok()
+      expect(fieldCreated).toBe(true)
 
       await login(page, 'admin')
       await page.context().addCookies([{ name: 'locale', value: locale, url: baseURL ?? 'http://localhost:3000' }])
@@ -68,8 +75,23 @@ for (const [locale, dictionary] of [['en', english], ['pl', polish]] as const) {
         }
       }
     } finally {
-      await apiRequest(request, 'DELETE', '/api/entities/definitions', { token, data: { entityId, key: fieldKey } }).catch(() => undefined)
-      await deleteCustomEntityIfExists(request, token, entityId)
+      const cleanupFailures: string[] = []
+      for (const fixture of [
+        { path: '/api/entities/definitions', data: { entityId, key: fieldKey }, created: fieldCreated },
+        { path: '/api/entities/entities', data: { entityId }, created: entityCreated },
+      ]) {
+        try {
+          const response = await apiRequest(request, 'DELETE', fixture.path, { token, data: fixture.data })
+          const status = response.status()
+          if (!response.ok() && (status !== 404 || fixture.created)) {
+            cleanupFailures.push(`DELETE ${fixture.path} returned HTTP ${status}`)
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message.split('\n')[0] : String(error)
+          cleanupFailures.push(`DELETE ${fixture.path} failed: ${detail}`)
+        }
+      }
+      expect.soft(cleanupFailures, 'Temporary entity fixtures must be removed').toEqual([])
     }
   })
 }
