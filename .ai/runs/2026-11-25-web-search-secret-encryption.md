@@ -47,9 +47,9 @@ Present since `ab4fc81f82` (2026-09-15), shipped in v0.8.0, v0.9.0 and v0.10.0.
 
 ### Phase 1: Fix and regression tests
 
-- [ ] 1.1 Resolve the registered DI name, provision the DEK on first save, and add real-service regression tests
+- [x] 1.1 Resolve the registered DI name, provision the DEK on first save, and add real-service regression tests — 6d757e7a22
 
 ### Phase 2: Spec and validation
 
-- [ ] 2.1 Record the fix in the web-search spec changelog
+- [x] 2.1 Record the fix in the web-search spec changelog — 9494a0fff9
 - [ ] 2.2 Run the full validation gate
