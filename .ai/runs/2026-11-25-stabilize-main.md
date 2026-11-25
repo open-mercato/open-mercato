@@ -18,20 +18,33 @@ No base-branch merge, release operations, test suppression, contract changes, or
 2.2 Dispatch one final independent review, address findings, and apply automerge only after green evidence.
 
 ## Risks
-Main's latest full suite is still running. Infrastructure failures must be distinguished from product defects. The existing ci-full and stabilize branch override already exists; inspect it before changing workflow behavior. Runner: to be probed before local gate.
+No current CI defect was reproduced. Historical payment-menu focus failures are intermittent and pass on the latest baseline; no speculative application change is justified. Main Snapshot Release 45497186194 was still running at the audit checkpoint and is separate from PR CI. Runner: local; compose probes found no usable running app. The optional broad script test run encountered cockpit-specific long temporary-path IPC errors; the focused rerun with TMPDIR=/tmp passed.
 
 Engine: om-auto-create-pr (steps: 4, --loop: no)
 Branch: stabilize/main-2026-11-25 (operator override).
 Delegation: one read-only CI investigation and one final review; tightly coupled fixes stay in the parent worktree.
 
+## Evidence
+
+- Main baseline: `881743bf13d4409668e3e9f2ec5b4b0a14408f7d`.
+- [Main CI 45497186129](https://github.com/open-mercato/open-mercato/actions/runs/45497186129): succeeded; 24 successful jobs, all 15 shards, audit scope-skipped.
+- [Initial PR CI 45508075375](https://github.com/open-mercato/open-mercato/actions/runs/45508075375): succeeded on `b5f36b5b39`, all 15 shards and merged coverage. Final-head checks remain authoritative.
+- Existing `FORCE_FULL_SUITE` in `.github/workflows/ci.yml` already covers trusted stabilization branches and `ci-full`; existing regression coverage passes.
+- Independent investigation traced prior terminal failures to `TC-SALES-9594-scoped-payment-ui.spec.ts` focus/visibility timeouts. Main shard 12 job `138834475837` passes that test (6.7 seconds), with 276 passed and zero failed/flaky tests. These logs do not establish an unfixed production root cause.
+- Earlier manual snapshot/package preview failures correctly rejected fork PRs; safeguards remain intact.
+- Parent reran the investigator's 48 focused CI tests: all passed with `TMPDIR=/tmp`. The investigator branch has no tracked changes and requires no merge.
+- Docs-only validation: manually reread the diff and run `git diff --check`; no docs lint command is configured. The eight configured build/generate/i18n/typecheck/test/app-build commands were not repeated locally for documentation; the PR full-suite CI supplies remote build and test evidence.
+- No source, workflow, dependency, API, schema, or UI changes are needed for this verified baseline.
+
 ## Progress
+PR: #10579
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose and repair
-- [ ] 1.1 Independently inspect recent main CI failures and identify actionable root causes.
-- [ ] 1.2 Fix evidenced CI defects and verify regression coverage.
+- [x] 1.1 Independently inspect recent main CI failures and identify actionable root causes. — b5f36b5b39 (evidence above; no code defect requiring repair)
+- [x] 1.2 Fix evidenced CI defects and verify regression coverage. — b5f36b5b39 (evidence above; no code defect requiring repair)
 
 ### Phase 2: Validate and review
-- [ ] 2.1 Run the configured validation gate and the PR full suite; resolve failures until green.
+- [x] 2.1 Run the configured validation gate and the PR full suite; resolve failures until green. — b5f36b5b39 (evidence above; no code defect requiring repair)
 - [ ] 2.2 Dispatch one final independent review, address findings, and apply automerge only after green evidence.
