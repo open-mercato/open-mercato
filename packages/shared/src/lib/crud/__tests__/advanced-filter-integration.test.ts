@@ -131,6 +131,24 @@ describe('mergeAdvancedFilters v2 tree URLs', () => {
     })
   })
 
+  it.each([{}, { kind: 'person' }])(
+    'reuses the v2 predicate when the route already merged it with %j',
+    (routeFilters) => {
+      const merged = mergeAdvancedFiltersFromQuery(routeFilters, v2Query)
+
+      expect(mergeAdvancedFilters(merged, v2Query)).toBe(merged)
+    },
+  )
+
+  it('still intersects a route OR that contains the requested predicate', () => {
+    const predicate = { display_name: { $ilike: '%Daniel%' } }
+    const routeFilters = { $or: [predicate, { kind: 'person' }] }
+
+    expect(mergeAdvancedFilters(routeFilters, v2Query)).toEqual({
+      $and: [routeFilters, predicate],
+    })
+  })
+
   it('keeps route filters unchanged when the v2 tree has no usable rules', () => {
     const routeFilters = { kind: 'person' }
     expect(mergeAdvancedFilters(routeFilters, {

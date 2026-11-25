@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import {
   deserializeAdvancedFilter,
   deserializeTree,
@@ -47,6 +48,10 @@ export function mergeAdvancedFilterTree(
   const treeWhere = compileTreeToWhere(tree)
   if (!treeWhere) return routeFilters
   if (Object.keys(routeFilters).length === 0) return treeWhere
+  if (isDeepStrictEqual(routeFilters, treeWhere)) return routeFilters
+  if (Array.isArray(routeFilters.$and) && routeFilters.$and.some((clause) => isDeepStrictEqual(clause, treeWhere))) {
+    return routeFilters
+  }
   // AND-combine via $and so any nested $and/$or in either side reaches normalize unchanged.
   return { $and: [routeFilters, treeWhere] }
 }
