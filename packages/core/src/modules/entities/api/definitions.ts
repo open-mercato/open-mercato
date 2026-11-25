@@ -691,6 +691,9 @@ export async function DELETE(req: Request) {
   }
   em.persist(def)
   await em.flush()
+  const guardedVersion = currentVersion
+    ? new Date(Math.max(Date.parse(currentVersion), def.updatedAt.getTime())).toISOString()
+    : null
   await guard.runAfterSuccess()
   await invalidateDefinitionsCache(cache, {
     tenantId: scope.tenantId,
@@ -699,7 +702,7 @@ export async function DELETE(req: Request) {
   })
   // A guarded caller still holds the checked draft. Return only the version
   // produced by this delete so another writer's version cannot bless that draft.
-  const version = currentVersion ? deletedAt.toISOString() : await resolveEntityDefinitionsVersion(em, versionScope)
+  const version = guardedVersion ?? await resolveEntityDefinitionsVersion(em, versionScope)
   return NextResponse.json({ ok: true, version })
 }
 

@@ -662,6 +662,7 @@ describe('entities/definitions DELETE', () => {
       .mockResolvedValueOnce(definition)
       .mockResolvedValueOnce({ updatedAt: new Date(expectedVersion) })
     mockEm.flush.mockImplementationOnce(async () => {
+      definition.updatedAt = new Date('2026-12-01T00:00:00.000Z')
       mockEm.findOne.mockResolvedValue({ updatedAt: new Date('2099-01-01T00:00:00.000Z') })
     })
 
