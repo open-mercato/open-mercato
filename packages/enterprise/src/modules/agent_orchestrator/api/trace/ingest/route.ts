@@ -1,20 +1,23 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { readBoundedRequestBody, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
 import { traceIngestSchema } from '../../../data/validators'
 import { enforcePublicEndpointRateLimit } from '../../../lib/guardrails/publicEndpointRateLimit'
 import { verifyTraceIngestRequest } from '../../../lib/trace/ingestAuth'
+import { withTraceIngestAuthority } from '../../../lib/trace/ingestAuthority'
 import type { IngestTraceCommandInput } from '../../../commands/trace'
 import type { IngestTraceResult } from '../../../lib/trace/traceIngestionService'
 import { agentOrchestratorTag } from '../../openapi'
 
 /**
  * Trace ingestion webhook (trace-eval overlay). Machine-to-machine: runtime
- * adapters POST a normalized trace, HMAC-signed per tenant. `requireAuth: false`
+ * adapters POST a normalized trace, HMAC-signed per tenant and organization. `requireAuth: false`
  * because there is no user session — the verified signature establishes the
- * tenant/org scope (never the body). Idempotent on `(runtime, externalRunId)`.
+ * scope, and the ingest command checks organization ownership and the
+ * server-recorded workflow invocation before writing. Idempotent on
+ * `(runtime, externalRunId)`.
  *
  * Rate-limited per client IP BEFORE the HMAC check and the write, so an unsigned
  * flood costs neither the verification nor the database round trip. The ceiling is
@@ -63,15 +66,14 @@ export async function POST(req: Request) {
   }
 
   const commandBus = container.resolve('commandBus') as CommandBus
-  const ctx: CommandRuntimeContext = {
+  const ctx = withTraceIngestAuthority({
     container,
     auth: null,
     organizationScope: null,
     selectedOrganizationId: principal.organizationId,
     organizationIds: [principal.organizationId],
     request: req,
-    systemActor: true,
-  }
+  }, { source: 'webhook', ...principal })
 
   const { result } = await commandBus.execute<IngestTraceCommandInput, IngestTraceResult>(
     'agent_orchestrator.trace.ingest',
@@ -97,9 +99,9 @@ export const openApi = {
       tags: [agentOrchestratorTag],
       responses: [
         { status: 202, description: 'Trace accepted (run upserted, spans/tool-calls appended)' },
-        { status: 401, description: 'HMAC signature verification failed' },
+        { status: 401, description: 'HMAC signature verification failed, or the declared organization does not belong to the verified tenant' },
         { status: 413, description: 'Request body exceeds the byte limit (1 MiB by default; OM_WEBHOOK_MAX_BODY_BYTES overrides)' },
-        { status: 422, description: 'Invalid trace payload' },
+        { status: 422, description: 'Invalid trace payload or mismatched workflow invocation' },
         { status: 429, description: 'Too many ingest requests from this client IP' },
         { status: 503, description: 'Rate limiter unavailable — the request is refused rather than left uncounted' },
       ],

@@ -25,6 +25,33 @@ jest.mock('../../../../lib/agent-runtime', () => ({
   runAiAgentObject: (...args: unknown[]) => runAiAgentObjectMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (key: string) => jest.requireActual<Record<string, string>>('../../../../i18n/en.json')[key],
+  }),
+}))
+
+const reportAiAssistantErrorMock = jest.fn()
+
+jest.mock('../../../../lib/report-ai-assistant-error', () => ({
+  reportAiAssistantError: (...args: unknown[]) => reportAiAssistantErrorMock(...args),
+}))
+
+const loggerWarnMock = jest.fn()
+const loggerErrorMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const logger = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: (...args: unknown[]) => loggerWarnMock(...args),
+    error: (...args: unknown[]) => loggerErrorMock(...args),
+    child: () => logger,
+  }
+  return { createLogger: () => logger }
+})
+
+import { NoObjectGeneratedError, NoOutputGeneratedError, TypeValidationError } from 'ai'
 import { POST } from '../route'
 import { AiAgentDispatchDeniedError } from '../../../../lib/agent-run-dispatcher'
 
@@ -420,6 +447,108 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
 
     expect(response.status).toBe(500)
     expect((await response.json()).code).toBe('internal_error')
+    expect(reportAiAssistantErrorMock).not.toHaveBeenCalled()
+  })
+
+  describe('structured-output failures', () => {
+    const MODEL_TEXT = 'Sorry, here is a summary instead of JSON: secret-ish tenant data'
+    const MODEL_VALUE_MARKER = 'customer Jane Roe owes 500'
+
+    function noObjectError(): NoObjectGeneratedError {
+      return new NoObjectGeneratedError({
+        message: 'No object generated: response did not match schema.',
+        cause: new TypeValidationError({
+          value: { title: 42, note: MODEL_VALUE_MARKER },
+          cause: new Error('Expected string, received number'),
+        }),
+        text: MODEL_TEXT,
+        response: { id: 'resp-1', timestamp: new Date(0), modelId: 'test-model' },
+        usage: { inputTokens: 3, outputTokens: 5 } as never,
+        finishReason: 'stop',
+      })
+    }
+
+    beforeEach(() => {
+      seedAgentRegistryForTests([
+        makeAgent({
+          id: 'catalog.extract',
+          moduleId: 'catalog',
+          executionMode: 'object',
+          output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+        }),
+      ])
+    })
+
+    async function postExtract(): Promise<Response> {
+      return POST(
+        buildRequest({
+          agent: 'catalog.extract',
+          messages: [{ role: 'user', content: 'hi' }],
+        }) as never,
+      )
+    }
+
+    it.each([
+      ['an answer that does not match the schema', () => noObjectError()],
+      ['a tool loop that ends without a final answer', () => new NoOutputGeneratedError()],
+      [
+        'a schema failure wrapped as the cause of another error',
+        () => new Error('object run failed', { cause: noObjectError() }),
+      ],
+    ])('maps %s to 502 structured_output_invalid', async (_label, makeError) => {
+      runAiAgentObjectMock.mockRejectedValueOnce(makeError())
+
+      const response = await postExtract()
+
+      expect(response.status).toBe(502)
+      const json = await response.json()
+      expect(json).toEqual({
+        error: 'The model did not return an answer that matches the agent output schema.',
+        code: 'structured_output_invalid',
+      })
+      expect(reportAiAssistantErrorMock).toHaveBeenCalledWith(
+        expect.any(Error),
+        'ai_assistant.run_object_output_invalid',
+        { agentId: 'catalog.extract', errorName: expect.stringMatching(/^AI_No(Object|Output)GeneratedError$/) },
+      )
+      expect(loggerErrorMock).not.toHaveBeenCalled()
+    })
+
+    it('keeps the model answer out of the response, the log and the telemetry report', async () => {
+      const sdkError = noObjectError()
+      expect(String((sdkError.cause as Error).message)).toContain(MODEL_VALUE_MARKER)
+      runAiAgentObjectMock.mockRejectedValueOnce(sdkError)
+
+      const response = await postExtract()
+
+      expect(response.status).toBe(502)
+      const leaked = (value: unknown): boolean => {
+        const seen = new Set<unknown>()
+        const visit = (node: unknown): string => {
+          if (node instanceof Error) {
+            return [node.message, String(node.stack), visit(node.cause), visit({ ...node })].join('\n')
+          }
+          if (node && typeof node === 'object') {
+            if (seen.has(node)) return ''
+            seen.add(node)
+            return Object.values(node).map(visit).join('\n')
+          }
+          return String(node)
+        }
+        const text = visit(value)
+        return text.includes(MODEL_TEXT) || text.includes(MODEL_VALUE_MARKER)
+      }
+      expect(leaked(await response.text())).toBe(false)
+      expect(loggerWarnMock).toHaveBeenCalledTimes(1)
+      expect(leaked(loggerWarnMock.mock.calls)).toBe(false)
+      expect(reportAiAssistantErrorMock).toHaveBeenCalledTimes(1)
+      expect(leaked(reportAiAssistantErrorMock.mock.calls)).toBe(false)
+      expect(loggerWarnMock.mock.calls[0][1]).toEqual({
+        agentId: 'catalog.extract',
+        errorName: 'AI_NoObjectGeneratedError',
+        finishReason: 'stop',
+      })
+    })
   })
 
   it('maps AgentPolicyError thrown by the runtime to the canonical HTTP status', async () => {
@@ -446,6 +575,34 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     expect(response.status).toBe(409)
     const json = await response.json()
     expect(json.code).toBe('tool_not_whitelisted')
+  })
+
+  it('maps runtime_override_disabled from the runtime to 400', async () => {
+    const { AgentPolicyError } = await import('../../../../lib/agent-tools')
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extract',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        allowRuntimeOverride: false,
+        output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+      }),
+    ])
+    runAiAgentObjectMock.mockRejectedValueOnce(
+      new AgentPolicyError('runtime_override_disabled', 'Runtime override disabled'),
+    )
+
+    const response = await POST(
+      buildRequest({
+        agent: 'catalog.extract',
+        messages: [{ role: 'user', content: 'hi' }],
+        callSettings: { temperature: 0.2 },
+      }) as any,
+    )
+
+    expect(response.status).toBe(400)
+    const json = await response.json()
+    expect(json.code).toBe('runtime_override_disabled')
   })
 
   describe('dispatcher-owned agents', () => {

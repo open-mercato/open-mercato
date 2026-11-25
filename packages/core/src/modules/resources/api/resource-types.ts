@@ -76,6 +76,7 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       name: F.name,
+      description: F.description,
       createdAt: F.created_at,
       updatedAt: F.updated_at,
     },
