@@ -571,7 +571,6 @@ export type FeatureCheckContext = {
   organizationId: string | null
   scope: OrganizationScope
   allowedOrganizationIds: string[] | null
-  featureApprovedNoOrganization?: boolean
 }
 
 export async function resolveFeatureCheckContext({
@@ -601,7 +600,6 @@ export async function resolveFeatureCheckContext({
   let organizationId = boundFeatureScope
     ? boundFeatureScope.organizationId
     : resolveFeatureCheckOrganizationId(scope, auth)
-  let featureApprovedNoOrganization = false
   if (
     auth?.sub
     && request
@@ -638,8 +636,6 @@ export async function resolveFeatureCheckContext({
       const approvedOrganizationIds = Array.from(new Set(
         featureOrganizationIds.filter((featureOrganizationId) => candidateOrganizationIds.has(featureOrganizationId)),
       )).sort((left, right) => left.localeCompare(right))
-      const visibleScopeWasEmpty = Array.isArray(scope.filterIds) && scope.filterIds.length === 0
-      featureApprovedNoOrganization = approvedOrganizationIds.length === 0 && !visibleScopeWasEmpty
       scope = {
         ...scope,
         selectedId: null,
@@ -652,7 +648,7 @@ export async function resolveFeatureCheckContext({
     bindFeatureScopeToRequest(request, { userId: auth.sub, scope, organizationId })
   }
 
-  return { organizationId, scope, allowedOrganizationIds: scope.allowedIds ?? null, featureApprovedNoOrganization }
+  return { organizationId, scope, allowedOrganizationIds: scope.allowedIds ?? null }
 }
 
 function resolveFeatureCheckOrganizationId(

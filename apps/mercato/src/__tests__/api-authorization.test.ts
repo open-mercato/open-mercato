@@ -291,7 +291,6 @@ describe('API Route Authorization', () => {
         organizationId: null,
         scope: { selectedId: null, filterIds: [], allowedIds: [], tenantId: 'tenant1' },
         allowedOrganizationIds: [],
-        featureApprovedNoOrganization: true,
       })
 
       const request = new NextRequest('http://localhost:3001/api/example/test')
@@ -299,22 +298,6 @@ describe('API Route Authorization', () => {
 
       expect(response.status).toBe(403)
       expect(mockRbac.userHasAllFeatures).not.toHaveBeenCalled()
-    })
-
-    it('still checks features for a caller whose ACL already grants no organization', async () => {
-      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
-      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValueOnce({
-        organizationId: null,
-        scope: { selectedId: null, filterIds: [], allowedIds: [], tenantId: 'tenant1' },
-        allowedOrganizationIds: [],
-        featureApprovedNoOrganization: false,
-      })
-
-      const request = new NextRequest('http://localhost:3001/api/example/test')
-      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
-
-      expect(response.status).toBe(200)
-      expect(mockRbac.userHasAllFeatures).toHaveBeenCalledTimes(1)
     })
 
     it('still checks features for a caller with no organization whose scope is unrestricted', async () => {
