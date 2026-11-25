@@ -193,6 +193,21 @@ describe('useMessageCompose draft attachment ids', () => {
     })
   }
 
+  it('allows a draft attachment refresh when the optional list route is absent', async () => {
+    jest.mocked(apiCall).mockResolvedValue({
+      ok: false,
+      status: 404,
+      result: { error: 'Not found' },
+      response: new Response(null, { status: 404 }),
+      cacheStatus: null,
+    })
+    const { result } = renderDraftCompose()
+
+    await act(async () => {
+      await expect(result.current.loadAttachmentIds()).resolves.toEqual([])
+    })
+  })
+
   it('refuses to return a partial id list when the pages hold fewer ids than the reported total (#3816)', async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) => ({ id: `att-${index}` }))
     mockAttachmentPages({
