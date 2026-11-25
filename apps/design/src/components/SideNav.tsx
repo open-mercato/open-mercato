@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Box, ChevronRight, Layers, LayoutDashboard, SwatchBook } from 'lucide-react'
+import { Box, ChevronRight, Layers, LayoutDashboard, Palette, SwatchBook } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -69,6 +69,9 @@ export function SideNav({ groups, onNavigate }: SideNavProps) {
           <div className="mb-2 border-b border-sidebar-border pb-3">
             <NavLink href="/" active={pathname === '/'} onNavigate={navigate}>
               <LayoutDashboard aria-hidden className="size-4 shrink-0" />{t('design.nav.overview')}
+            </NavLink>
+            <NavLink href="/create/" active={pathname === '/create/' || pathname === '/create'} onNavigate={navigate}>
+              <Palette aria-hidden className="size-4 shrink-0" />{t('design.nav.create')}
             </NavLink>
           </div>
         )}

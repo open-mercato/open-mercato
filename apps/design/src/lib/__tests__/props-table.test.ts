@@ -16,7 +16,7 @@ describe('buildPropsTable', () => {
   it('lists Timeline top-level props with required flags', () => {
     expect(rowByName(timelineRows, 'items')).toMatchObject({ required: true, kind: 'prop', type: 'object[]', depth: 0 })
     expect(rowByName(timelineRows, 'order')).toMatchObject({ required: true, type: "'desc' | 'asc'" })
-    expect(rowByName(timelineRows, 'groupBy')).toMatchObject({ required: false, type: "'day' | 'none'" })
+    expect(rowByName(timelineRows, 'groupBy')).toMatchObject({ required: false, type: "'day' | 'period' | 'none'" })
     expect(rowByName(timelineRows, 'hasMore')).toMatchObject({ required: false, type: 'boolean' })
   })
 
