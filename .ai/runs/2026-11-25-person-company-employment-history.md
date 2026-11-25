@@ -33,6 +33,6 @@ PR: #10682
 
 ### Phase 2: Surface former employees
 
-- [ ] 2.1 Add the company history reader and affected API integration coverage
-- [ ] 2.2 Add the date dialog, former employees table and browser test
-- [ ] 2.3 Archive the capability, document the workflow, and complete validation and review
+- [x] 2.1 Add the company history reader and affected API integration coverage — e3717d0ae3
+- [x] 2.2 Add the date dialog, former employees table and browser test — 6d98f14dc2
+- [x] 2.3 Archive the capability, document the workflow, and complete validation and review — 6d98f14dc2
