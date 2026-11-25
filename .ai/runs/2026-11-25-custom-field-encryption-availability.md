@@ -18,9 +18,11 @@ Requests writing encrypted custom fields can return a retryable error during a k
 
 ## Progress
 
+PR: #10662
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Encrypted writes
 
-- [ ] 1.1 Reject encrypted custom field writes when a tenant key is unavailable
-- [ ] 1.2 Verify rejection, recovery, and rollback
+- [x] 1.1 Reject encrypted custom field writes when a tenant key is unavailable — 9cae1e816d
+- [x] 1.2 Verify rejection, recovery, and rollback — 9cae1e816d
