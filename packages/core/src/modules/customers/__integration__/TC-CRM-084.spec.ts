@@ -239,6 +239,61 @@ test.describe('TC-CRM-084: deals map endpoint (GET /api/customers/deals/map)', (
     }
   });
 
+  test('shows linked labels according to the caller’s customer view permissions', async ({ request }) => {
+    const stamp = Date.now();
+    const email = `tc-crm-084-company-view-${stamp}@example.com`;
+    const companyName = `TC-CRM-084 Visible Co ${stamp}`;
+    const title = `TC-CRM-084 Scoped Deal ${stamp}`;
+    const adminToken = await getAuthToken(request, 'admin');
+    const { organizationId, tenantId } = getTokenContext(adminToken);
+    let roleId: string | null = null;
+    let userId: string | null = null;
+    let companyId: string | null = null;
+    let personId: string | null = null;
+    let addressId: string | null = null;
+    let dealId: string | null = null;
+
+    try {
+      roleId = await createRoleFixture(request, adminToken, { name: `TC-CRM-084 Company View ${stamp}`, tenantId });
+      userId = await createUserFixture(request, adminToken, { email, password: PASSWORD, organizationId, roles: [roleId] });
+      await setUserAclVisibility(request, adminToken, {
+        userId,
+        organizations: [organizationId],
+        features: ['customers.deals.view', 'customers.activities.view', 'customers.companies.view'],
+      });
+      companyId = await createCompanyFixture(request, adminToken, companyName);
+      personId = await createPersonFixture(request, adminToken, {
+        firstName: 'Map',
+        lastName: `Person ${stamp}`,
+        displayName: `Map Person ${stamp}`,
+      });
+      addressId = await createAddressFixture(request, adminToken, {
+        entityId: companyId,
+        addressLine1: `1 Scoped Lane ${stamp}`,
+        latitude: 52.1875,
+        longitude: 21,
+      });
+      dealId = await createDealFixture(request, adminToken, { title, companyIds: [companyId], personIds: [personId] });
+
+      const token = await getAuthToken(request, email, PASSWORD);
+      const body = await fetchMap(request, token, `companyId=${companyId}`);
+      expect(body.items).toEqual([expect.objectContaining({
+        id: dealId,
+        title,
+        companies: [{ id: companyId, label: companyName }],
+        people: [{ id: personId, label: null }],
+        location: expect.objectContaining({ addressId }),
+      })]);
+    } finally {
+      await deleteEntityIfExists(request, adminToken, DEALS_PATH, dealId);
+      await deleteEntityIfExists(request, adminToken, ADDRESSES_PATH, addressId);
+      await deleteEntityIfExists(request, adminToken, PEOPLE_PATH, personId);
+      await deleteEntityIfExists(request, adminToken, COMPANIES_PATH, companyId);
+      await deleteUserIfExists(request, adminToken, userId);
+      await deleteRoleIfExists(request, adminToken, roleId);
+    }
+  });
+
   test('falls back to person addresses with location.source = person', async ({ request }) => {
     const stamp = Date.now();
     const personDisplayName = `TC-CRM-084 Person ${stamp}`;

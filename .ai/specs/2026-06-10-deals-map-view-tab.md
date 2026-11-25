@@ -236,6 +236,8 @@ No events emitted; no subscribers. Tile-server outage degrades to a blank basema
 ### Tenant & Data Isolation Risks
 All three batch queries (deals, links, addresses) are tenant+org scoped server-side, mirroring the deals list. Addresses additionally never leave the resolved single `location` projection. Covered by TC-CRM-084 §6.
 
+Linked labels and customer search matches require `customers.companies.view` or `customers.people.view`, according to the linked record's type and organization. Associations keep their IDs and return `null` for labels outside the caller's permission. The location projection follows the map's `customers.activities.view` requirement. Route tests cover both permissions and cross-organization search. TC-CRM-084 covers the API response for a caller with company access.
+
 ### Migration & Deployment Risks
 No migrations; additive routes/exports only; deploy/rollback trivial. `yarn generate` regenerates discovery registries deterministically.
 
@@ -325,6 +327,11 @@ None.
 - [x] Phase 3 — Integration tests + gates (TC-CRM-084/085 — 11/11 green on the ephemeral env; DS guardian 0 blockers / 5 precedent-backed advisories; full gate green: build:packages → generate → build:packages → i18n:check-sync → typecheck → test [5798 core] → build:app; fresh adversarial review PASS / 0 blockers; map verified live via Playwright)
 
 ## Changelog
+
+### 2026-11-25
+
+- Applied organization-scoped customer view permissions to Deals Map labels and linked-customer search.
+
 ### 2026-06-10
 - Initial specification (map view tab, map endpoint, manual address coordinates; Leaflet stack approved by maintainer; geocoding explicitly deferred).
 - Pre-implement audit corrections applied (see `.ai/specs/analysis/ANALYSIS-2026-06-10-deals-map-view-tab.md`): filter builder already exported, snake_case projection, gated aux fetches with `x-om-forbidden-redirect: 0`, optional `AddressEditorDraft` fields + `showCoordinateFields` opt-in, i18n/crmFixtures additive overlap with #2903.
