@@ -719,3 +719,17 @@ The STABLE attachment library API response and the enrichment helper signature r
 ## #10331 #10332 (2026-11-23)
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
+
+## 2026-11-24 — Dashboard grouping limit defaults to 100 (#10333)
+
+The STABLE widget-data API routes, request/response types and OpenAPI shape are
+unchanged; every explicit in-range `groupBy.limit` keeps its exact behavior and
+oversized/invalid limits remain client errors. The only narrowing is response
+cardinality on the previously undocumented omitted-limit path: an unbounded group
+list (and the matching unbounded label-ID lookup) is a denial-of-service surface,
+and no spec or schema ever documented unlimited output — `SPEC-011` leaves the
+limit optional with a 100 maximum for explicit values, and the widest legitimate
+request already received at most 100 buckets. The narrowing was requested by the
+maintainer-authored security issue itself, so no separate waiver is claimed. See
+[upgrade notes](UPGRADE_NOTES.md#dashboard-grouping-limit-defaults-to-100-10333) and
+[SPEC-011](.ai/specs/implemented/SPEC-011-2026-01-26-dashboard-analytics-widgets.md).

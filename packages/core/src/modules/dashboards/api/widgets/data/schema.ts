@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DEFAULT_GROUP_LIMIT, MAX_GROUP_LIMIT } from '../../../lib/aggregations'
 
 export const aggregateFunctionSchema = z.enum(['count', 'sum', 'avg', 'min', 'max'])
 export const dateGranularitySchema = z.enum(['day', 'week', 'month', 'quarter', 'year'])
@@ -78,7 +79,11 @@ export const widgetDataRequestSchema = z.object({
     .object({
       field: z.string().min(1),
       granularity: dateGranularitySchema.optional(),
-      limit: z.number().int().min(1).max(100).optional(),
+      // An omitted limit normalizes to the documented default of 100 rather than removing the
+      // bound: an unbounded grouping over a high-cardinality column would return every distinct
+      // group and feed all of them into label resolution (#10333). Explicit values keep the
+      // 1..100 range — oversized or invalid limits remain client errors.
+      limit: z.number().int().min(1).max(MAX_GROUP_LIMIT).default(DEFAULT_GROUP_LIMIT),
       resolveLabels: z.boolean().optional(),
     })
     .optional(),

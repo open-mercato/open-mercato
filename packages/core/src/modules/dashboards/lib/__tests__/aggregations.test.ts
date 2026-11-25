@@ -8,9 +8,12 @@ import {
   buildAggregationQuery,
   buildDistinctCurrencyQuery,
   buildGroupSourceRowsQuery,
+  resolveGroupByLimit,
   resolveGroupExpression,
   isValidGranularity,
   isValidAggregate,
+  DEFAULT_GROUP_LIMIT,
+  MAX_GROUP_LIMIT,
 } from '../aggregations'
 import { PostgreSqlPlatform } from '@mikro-orm/postgresql'
 import { createAnalyticsRegistry } from '../../services/analyticsRegistry'
@@ -246,6 +249,50 @@ describe('aggregations', () => {
         groupBy: { field: 'status', limit: 200 },
       })
       expect(result?.sql).toContain('LIMIT 100')
+    })
+
+    /**
+     * An omitted `groupBy.limit` used to emit no LIMIT at all, so a high-cardinality column
+     * returned every distinct group (#10333). The builder seam now normalizes omission to the
+     * documented default — the same bound an explicit request is held to.
+     */
+    it('emits the default LIMIT when groupBy omits a limit (#10333)', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        groupBy: { field: 'status' },
+      })
+      expect(result?.sql).toContain(`LIMIT ${DEFAULT_GROUP_LIMIT}`)
+    })
+
+    it('normalizes a non-positive in-process limit to the default instead of dropping the bound', () => {
+      const zeroLimit = buildAggregationQuery({
+        ...baseOptions,
+        groupBy: { field: 'status', limit: 0 },
+      })
+      expect(zeroLimit?.sql).toContain(`LIMIT ${DEFAULT_GROUP_LIMIT}`)
+
+      const negativeLimit = buildAggregationQuery({
+        ...baseOptions,
+        groupBy: { field: 'status', limit: -5 },
+      })
+      expect(negativeLimit?.sql).toContain(`LIMIT ${DEFAULT_GROUP_LIMIT}`)
+    })
+
+    it('keeps the ordering contract unchanged next to the emitted LIMIT', () => {
+      const result = buildAggregationQuery({
+        ...baseOptions,
+        groupBy: { field: 'status' },
+      })
+      expect(result?.sql).toContain('ORDER BY value DESC NULLS LAST')
+      expect(result?.sql).toContain(`LIMIT ${DEFAULT_GROUP_LIMIT}`)
+      expect(result?.sql.indexOf('ORDER BY value DESC NULLS LAST')).toBeLessThan(
+        result?.sql.indexOf(`LIMIT ${DEFAULT_GROUP_LIMIT}`) ?? -1,
+      )
+    })
+
+    it('leaves the ungrouped aggregation without a LIMIT', () => {
+      const result = buildAggregationQuery(baseOptions)
+      expect(result?.sql).not.toContain('LIMIT')
     })
 
     it('includes deleted_at IS NULL filter', () => {
@@ -715,6 +762,39 @@ describe('aggregations', () => {
 
       expect(query!.sql).toContain("UPPER(NULLIF(BTRIM(currency_code), ''))")
       expect(query!.sql).toContain('LIMIT 2')
+    })
+  })
+
+  describe('resolveGroupByLimit (#10333)', () => {
+    it('resolves an omitted, null or non-finite limit to the documented default', () => {
+      expect(resolveGroupByLimit(undefined)).toBe(DEFAULT_GROUP_LIMIT)
+      expect(resolveGroupByLimit(null)).toBe(DEFAULT_GROUP_LIMIT)
+      expect(resolveGroupByLimit(Number.NaN)).toBe(DEFAULT_GROUP_LIMIT)
+      expect(resolveGroupByLimit(Number.POSITIVE_INFINITY)).toBe(DEFAULT_GROUP_LIMIT)
+    })
+
+    it('resolves a non-positive limit to the documented default', () => {
+      expect(resolveGroupByLimit(0)).toBe(DEFAULT_GROUP_LIMIT)
+      expect(resolveGroupByLimit(-100)).toBe(DEFAULT_GROUP_LIMIT)
+    })
+
+    it('keeps an explicit in-range limit', () => {
+      expect(resolveGroupByLimit(1)).toBe(1)
+      expect(resolveGroupByLimit(50)).toBe(50)
+      expect(resolveGroupByLimit(MAX_GROUP_LIMIT)).toBe(MAX_GROUP_LIMIT)
+    })
+
+    it('clamps an oversized in-process limit to the maximum', () => {
+      expect(resolveGroupByLimit(MAX_GROUP_LIMIT + 1)).toBe(MAX_GROUP_LIMIT)
+      expect(resolveGroupByLimit(10_000)).toBe(MAX_GROUP_LIMIT)
+    })
+
+    it('floors a fractional in-process limit', () => {
+      expect(resolveGroupByLimit(7.9)).toBe(7)
+    })
+
+    it('defaults to the maximum, so omission and the widest explicit request agree', () => {
+      expect(DEFAULT_GROUP_LIMIT).toBe(MAX_GROUP_LIMIT)
     })
   })
 

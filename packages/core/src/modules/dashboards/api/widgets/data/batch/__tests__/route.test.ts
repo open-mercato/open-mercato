@@ -45,6 +45,7 @@ import {
   WidgetDataScanLimitError,
   WidgetDataValidationError,
 } from '../../../../../services/widgetDataService'
+import { DEFAULT_GROUP_LIMIT, MAX_GROUP_LIMIT } from '../../../../../lib/aggregations'
 
 type BatchResult = { id: string; ok: boolean; data?: unknown; error?: string }
 
@@ -149,6 +150,72 @@ describe('widget data batch route error mapping', () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: 'Tenant context is required' })
+    expect(fetchWidgetData).not.toHaveBeenCalled()
+  })
+
+  test('normalizes an omitted groupBy.limit to the documented default for every batch entry (#10333)', async () => {
+    fetchWidgetData.mockResolvedValue({
+      value: 0,
+      data: [],
+      metadata: { fetchedAt: new Date().toISOString(), recordCount: 0 },
+    })
+
+    const response = new Request('http://localhost/api/dashboards/widgets/data/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        requests: [
+          {
+            id: 'no-limit',
+            request: {
+              entityType: 'sales:orders',
+              metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+              groupBy: { field: 'status' },
+            },
+          },
+          {
+            id: 'explicit-limit',
+            request: {
+              entityType: 'sales:orders',
+              metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+              groupBy: { field: 'status', limit: 7 },
+            },
+          },
+        ],
+      }),
+    })
+
+    const results = await readResults(await POST(response))
+
+    expect(results).toEqual([
+      expect.objectContaining({ id: 'no-limit', ok: true }),
+      expect.objectContaining({ id: 'explicit-limit', ok: true }),
+    ])
+    expect(fetchWidgetData.mock.calls[0][0].groupBy.limit).toBe(DEFAULT_GROUP_LIMIT)
+    expect(fetchWidgetData.mock.calls[1][0].groupBy.limit).toBe(7)
+  })
+
+  test('still rejects a batch entry with an oversized explicit limit (#10333)', async () => {
+    const batch = new Request('http://localhost/api/dashboards/widgets/data/batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        requests: [
+          {
+            id: 'oversized-limit',
+            request: {
+              entityType: 'sales:orders',
+              metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+              groupBy: { field: 'status', limit: MAX_GROUP_LIMIT + 1 },
+            },
+          },
+        ],
+      }),
+    })
+
+    const responseStatus = (await POST(batch)).status
+
+    expect(responseStatus).toBe(400)
     expect(fetchWidgetData).not.toHaveBeenCalled()
   })
 

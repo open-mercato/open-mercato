@@ -14,7 +14,7 @@ import {
 import { createAnalyticsRegistry, type AnalyticsRegistry } from '../analyticsRegistry'
 import type { BaseCurrencyResolver, BaseCurrencyResolution } from '../../lib/optionalBaseCurrency'
 import { analyticsConfig as salesAnalyticsConfig } from '../../../sales/analytics'
-import { buildAggregationQuery } from '../../lib/aggregations'
+import { buildAggregationQuery, DEFAULT_GROUP_LIMIT, MAX_GROUP_LIMIT } from '../../lib/aggregations'
 
 jest.mock('../../lib/aggregations', () => ({
   ...jest.requireActual('../../lib/aggregations'),
@@ -414,6 +414,141 @@ describe('WidgetDataService record-level currency uniformity (#4676)', () => {
   })
 })
 
+// Regression coverage for #10333: an omitted groupBy.limit used to materialize every group the
+// database returned and feed all of them into label resolution. The service seam now bounds its
+// own materialization — and the label-ID lookup — to the documented default.
+describe('WidgetDataService grouping output bound (#10333)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    ;(resolveTenantEncryptionService as jest.Mock).mockReturnValue(null)
+  })
+
+  test('bounds materialized groups to the documented default when the request omits a limit', async () => {
+    const rows = Array.from({ length: 250 }, (_, index) => ({
+      group_key: `group-${index}`,
+      value: 250 - index,
+    }))
+    const execute = jest.fn(async (): Promise<ExecuteResult> => rows)
+    const service = createService(execute)
+
+    const response = await service.fetchWidgetData({
+      entityType: 'sales:orders',
+      metric: { field: 'total', aggregate: 'sum' },
+      groupBy: { field: 'status' },
+    })
+
+    expect(response.data).toHaveLength(DEFAULT_GROUP_LIMIT)
+    expect(response.data[0]).toEqual({ groupKey: 'group-0', value: 250 })
+    expect(response.data[DEFAULT_GROUP_LIMIT - 1]).toEqual({
+      groupKey: `group-${DEFAULT_GROUP_LIMIT - 1}`,
+      value: 250 - (DEFAULT_GROUP_LIMIT - 1),
+    })
+    expect(response.value).toBe(20_050)
+  })
+
+  test('keeps an explicit limit bounding the materialized groups', async () => {
+    const rows = Array.from({ length: 250 }, (_, index) => ({
+      group_key: `group-${index}`,
+      value: 250 - index,
+    }))
+    const execute = jest.fn(async (): Promise<ExecuteResult> => rows)
+    const service = createService(execute)
+
+    const response = await service.fetchWidgetData({
+      entityType: 'sales:orders',
+      metric: { field: 'total', aggregate: 'sum' },
+      groupBy: { field: 'status', limit: 3 },
+    })
+
+    expect(response.data).toHaveLength(3)
+    expect(response.data.map((item) => item.groupKey)).toEqual(['group-0', 'group-1', 'group-2'])
+  })
+
+  test('bounds an oversized in-process limit to the same maximum', async () => {
+    const rows = Array.from({ length: 250 }, (_, index) => ({
+      group_key: `group-${index}`,
+      value: 1,
+    }))
+    const execute = jest.fn(async (): Promise<ExecuteResult> => rows)
+    const service = createService(execute)
+
+    const response = await service.fetchWidgetData({
+      entityType: 'sales:orders',
+      metric: { field: 'total', aggregate: 'sum' },
+      groupBy: { field: 'status', limit: 10_000 },
+    })
+
+    expect(response.data).toHaveLength(MAX_GROUP_LIMIT)
+  })
+
+  /**
+   * High-cardinality fixture: 250 distinct UUID groups with label resolution must never produce an
+   * unbounded label-ID query — the group bound runs first and the lookup carries at most
+   * MAX_GROUP_LIMIT ids (#10333).
+   */
+  test('bounds the label-ID query to the group maximum for a high-cardinality grouping', async () => {
+    const groupUuid = (index: number) => `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`
+    const rows = Array.from({ length: 250 }, (_, index) => ({
+      group_key: groupUuid(index),
+      value: 250 - index,
+    }))
+    const execute = jest.fn(async (sql: string): Promise<ExecuteResult> => {
+      if (sql.includes('FROM "customer_entities"')) return []
+      return rows
+    })
+    const registry: AnalyticsRegistry = {
+      ...createRegistry(),
+      getLabelResolverConfig: () => ({
+        table: 'customer_entities',
+        idColumn: 'id',
+        labelColumn: 'display_name',
+      }),
+    }
+    const service = createService(execute, { tenantId: 'tenant-1' }, registry)
+
+    const response = await service.fetchWidgetData({
+      entityType: 'sales:orders',
+      metric: { field: 'total', aggregate: 'sum' },
+      groupBy: { field: 'customerEntityId', resolveLabels: true },
+    })
+
+    expect(response.data).toHaveLength(MAX_GROUP_LIMIT)
+    const labelCall = execute.mock.calls.find(([sql]: [string]) => sql.includes('FROM "customer_entities"'))
+    expect(labelCall).toBeDefined()
+    const idListParam = (labelCall![1] as unknown[])[0] as string
+    expect(idListParam.split(',')).toHaveLength(MAX_GROUP_LIMIT)
+    expect(idListParam).toContain(groupUuid(0))
+    expect(idListParam).not.toContain(groupUuid(MAX_GROUP_LIMIT))
+  })
+
+  test('does not resolve labels at all when the bounded result carries no UUID keys', async () => {
+    const rows = Array.from({ length: 250 }, (_, index) => ({
+      group_key: `status-${index}`,
+      value: 250 - index,
+    }))
+    const execute = jest.fn(async (): Promise<ExecuteResult> => rows)
+    const registry: AnalyticsRegistry = {
+      ...createRegistry(),
+      getLabelResolverConfig: () => ({
+        table: 'customer_entities',
+        idColumn: 'id',
+        labelColumn: 'display_name',
+      }),
+    }
+    const service = createService(execute, { tenantId: 'tenant-1' }, registry)
+
+    const response = await service.fetchWidgetData({
+      entityType: 'sales:orders',
+      metric: { field: 'total', aggregate: 'sum' },
+      groupBy: { field: 'customerEntityId', resolveLabels: true },
+    })
+
+    expect(response.data).toHaveLength(MAX_GROUP_LIMIT)
+    expect(response.data.every((item) => item.groupLabel === undefined)).toBe(true)
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+})
+
 // Regression coverage for #4622: grouping by a column that is encrypted at rest must never bucket
 // or render ciphertext.
 describe('WidgetDataService encrypted group sources', () => {
@@ -718,5 +853,30 @@ describe('WidgetDataService encrypted group sources', () => {
     })
 
     expect(response.data).toEqual([{ groupKey: 'Mazowieckie', value: 5 }])
+  })
+
+  /**
+   * Output-bound parity with the plaintext path (#10333): the encrypted scan ceiling bounds input
+   * rows, not output groups, so an omitted limit used to return every distinct decrypted bucket.
+   * The same seam bound now applies.
+   */
+  test('bounds the decrypted buckets to the documented default when the limit is omitted', async () => {
+    const rows = Array.from({ length: 150 }, (_, index) => ({
+      group_source: encryptSnapshot({ region: `region-${index}` }),
+      metric_value: '1',
+    }))
+    const execute = jest.fn(async (): Promise<ExecuteResult> => rows)
+
+    const service = createEncryptedService(execute)
+    const response = await service.fetchWidgetData({
+      entityType: 'sales:orders',
+      metric: { field: 'grandTotalGrossAmount', aggregate: 'sum' },
+      groupBy: { field: 'shippingAddressSnapshot.region' },
+    })
+
+    expect(response.data).toHaveLength(DEFAULT_GROUP_LIMIT)
+    expect(response.data[0]).toEqual({ groupKey: 'region-0', value: 1 })
+    expect(JSON.stringify(response.data)).not.toContain('region-149')
+    expect(response.value).toBe(DEFAULT_GROUP_LIMIT)
   })
 })

@@ -6743,3 +6743,32 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+## Dashboard grouping limit defaults to 100 (#10333)
+
+Widget-data analytics requests (`POST /api/dashboards/widgets/data` and the batch
+endpoint) that omit `groupBy.limit` now normalize to a documented default of 100
+instead of returning every distinct group. The same bound is enforced at the
+service/builder seam, so in-process callers (custom dashboard widgets, server-side
+analytics) get identical protection on both the plaintext and encrypted group paths,
+and label-ID lookups stay bounded to the same maximum after limiting groups.
+
+**Client migration:** no payload change is required — the request schema accepts
+everything it accepted before, and every explicit in-range limit behaves exactly as
+before. Only a request that omitted the limit can observe a difference: a grouping
+over more than 100 distinct groups now returns the 100 highest-value buckets (the
+`ORDER BY value DESC NULLS LAST` prefix an explicit `limit: 100` already returned),
+and the response `value` is the total over the returned buckets, matching the
+explicit-limit semantics. Oversized or invalid explicit limits remain client errors
+(400). Clients that genuinely need to page through a higher-cardinality grouping
+should issue filtered requests per slice.
+
+**Operator migration:** none. No database, startup, configuration, or cache-format
+change; grouping, ordering, scoping, totals and currency-labeling semantics for
+explicit limits are unchanged. Built-in widgets group over bounded domains (order
+statuses, pipeline stages, date granularity buckets, top-N widgets that already send
+an explicit limit) and are unaffected. The narrowing closes an unbounded output and
+label-lookup path on a high-cardinality column requested in
+[#10333](https://github.com/open-mercato/open-mercato/issues/10333); see
+[SPEC-011](.ai/specs/implemented/SPEC-011-2026-01-26-dashboard-analytics-widgets.md)
+for the updated contract.
