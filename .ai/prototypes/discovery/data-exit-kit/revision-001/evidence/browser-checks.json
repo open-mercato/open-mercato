@@ -1,0 +1,94 @@
+{
+ "checks": [
+  {
+   "name": "runs visible",
+   "pass": true
+  },
+  {
+   "name": "three runs",
+   "pass": true
+  },
+  {
+   "name": "new visible",
+   "pass": true
+  },
+  {
+   "name": "org validation shown",
+   "pass": true
+  },
+  {
+   "name": "org error clears after correction",
+   "pass": true
+  },
+  {
+   "name": "plain warning",
+   "pass": true
+  },
+  {
+   "name": "dry run rows",
+   "pass": true
+  },
+  {
+   "name": "back on runs after submit",
+   "pass": true
+  },
+  {
+   "name": "new run added",
+   "pass": true
+  },
+  {
+   "name": "run detail",
+   "pass": true
+  },
+  {
+   "name": "subject validation",
+   "pass": true
+  },
+  {
+   "name": "subject result",
+   "pass": true
+  },
+  {
+   "name": "backup progress",
+   "pass": true
+  },
+  {
+   "name": "backup completes",
+   "pass": true
+  },
+  {
+   "name": "denied state",
+   "pass": true
+  },
+  {
+   "name": "unknown fragment recovery",
+   "pass": true
+  },
+  {
+   "name": "reset restores runs",
+   "pass": true
+  },
+  {
+   "name": "unknown fragment page after reset",
+   "pass": true
+  },
+  {
+   "name": "keyboard focus moves",
+   "pass": true
+  },
+  {
+   "name": "narrow viewport submit present",
+   "pass": true
+  },
+  {
+   "name": "no page errors",
+   "pass": true
+  },
+  {
+   "name": "no external requests",
+   "pass": true
+  }
+ ],
+ "errors": [],
+ "requests": []
+}

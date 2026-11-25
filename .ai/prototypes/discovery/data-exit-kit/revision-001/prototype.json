@@ -1,0 +1,30 @@
+{
+  "format": "discovery-prototype-v1",
+  "skill": "om-mockup-prototype",
+  "slug": "data-exit-kit",
+  "revision": 1,
+  "revisionPath": ".ai/prototypes/discovery/data-exit-kit/revision-001",
+  "previousRevision": null,
+  "brief": ".ai/specs/enterprise/2026-11-25-data-exit-kit.md",
+  "flow": "Data exit run, GDPR subject export, admin-panel backups",
+  "panelReport": null,
+  "verification": "passed",
+  "files": [
+    {
+      "path": "index.html",
+      "sha256": "d0003c5876c0662bc8990cb6f0546d94e985917d16cf0768661ed8b411073e3d"
+    },
+    {
+      "path": "README.md",
+      "sha256": "4eb12474401ea03c73d19cae3848b430e32efb3b82f0ceafed02190a3d0cb79c"
+    },
+    {
+      "path": "evidence/browser-checks.json",
+      "sha256": "e21b811d654a116bdfb674bd21f10f8b7fceebf3feb18c8f08fd88ce96530128"
+    },
+    {
+      "path": "evidence/narrow-new.png",
+      "sha256": "f27c534a1e1f61d8e0fa4f7040108e7395b5da49d89ca7b450bd9f4772e17753"
+    }
+  ]
+}
