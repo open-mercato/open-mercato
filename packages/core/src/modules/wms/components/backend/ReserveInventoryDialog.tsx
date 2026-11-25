@@ -34,7 +34,7 @@ import { buildInventoryMutationReferenceId } from '../../lib/inventoryMutationUi
 import {
   loadCatalogVariantOptions,
   loadInventoryProfileForVariant,
-  loadLotNumberOptions,
+  loadLotOptions,
   loadWarehouseOptions,
   resolveCatalogVariantLabel,
   resolveLotNumberFromId,
@@ -177,7 +177,7 @@ export function ReserveInventoryDialog({
 
   const loadLotSuggestions = React.useCallback(
     async (query?: string) => {
-      const options = await loadLotNumberOptions(catalogVariantId.trim(), query)
+      const options = await loadLotOptions(catalogVariantId.trim(), query)
       for (const option of options) lotLabelCacheRef.current[option.value] = option.label
       return options
     },

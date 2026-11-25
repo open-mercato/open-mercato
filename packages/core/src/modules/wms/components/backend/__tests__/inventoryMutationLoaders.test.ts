@@ -7,6 +7,7 @@ import {
   BalanceLookupError,
   fetchBalanceAvailable,
   fetchBalanceOnHand,
+  loadLotOptions,
   loadLotOptionsForBalanceLocation,
 } from '../inventoryMutationLoaders'
 
@@ -247,5 +248,31 @@ describe('loadLotOptionsForBalanceLocation', () => {
 
     expect(options).toEqual([])
     expect(mockApiCall).not.toHaveBeenCalled()
+  })
+})
+
+describe('loadLotOptions', () => {
+  beforeEach(() => {
+    mockApiCall.mockReset()
+  })
+
+  it('uses the lot ID as the option value and the lot number with expiry as the label', async () => {
+    const response: Partial<Awaited<ReturnType<typeof apiCall>>> = {
+      ok: true,
+      result: {
+        items: [
+          {
+            id: '4b5a7a52-6f0c-4c55-9f0e-1f6f3c2d9a10',
+            lot_number: 'LOT-A',
+            expires_at: '2099-12-31T12:00:00.000Z',
+          },
+        ],
+      },
+    }
+    mockApiCall.mockResolvedValue(response as Awaited<ReturnType<typeof apiCall>>)
+
+    await expect(loadLotOptions('variant-1')).resolves.toEqual([
+      { value: '4b5a7a52-6f0c-4c55-9f0e-1f6f3c2d9a10', label: 'LOT-A · exp 2099-12-31' },
+    ])
   })
 })

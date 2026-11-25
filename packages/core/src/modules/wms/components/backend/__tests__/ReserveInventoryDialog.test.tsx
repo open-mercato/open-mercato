@@ -4,6 +4,7 @@
 import * as React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ReserveInventoryDialog } from '../ReserveInventoryDialog'
+import { loadInventoryProfileForVariant } from '../inventoryMutationLoaders'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
@@ -79,7 +80,12 @@ jest.mock('../../../lib/inventoryMutationUi', () => ({
 jest.mock('../inventoryMutationLoaders', () => ({
   loadCatalogVariantOptions: jest.fn(async () => []),
   loadInventoryProfileForVariant: jest.fn(async () => null),
-  loadLotNumberOptions: jest.fn(async () => []),
+  loadLotNumberOptions: jest.fn(async () => [
+    { value: 'LOT-A', label: 'LOT-A · exp 2026-12-31' },
+  ]),
+  loadLotOptions: jest.fn(async () => [
+    { value: '4b5a7a52-6f0c-4c55-9f0e-1f6f3c2d9a10', label: 'LOT-A · exp 2026-12-31' },
+  ]),
   loadWarehouseOptions: jest.fn(async () => []),
   resolveCatalogVariantLabel: jest.fn(async () => null),
   resolveLotNumberFromId: jest.fn(async () => null),
@@ -265,6 +271,39 @@ describe('ReserveInventoryDialog', () => {
       mutationPayload: Record<string, unknown>
     }
     expect(callArg.mutationPayload).not.toHaveProperty('lotId')
+  })
+
+  it('submits the lot ID when a lot suggestion is selected for a lot-tracked variant', async () => {
+    mockRunMutation.mockResolvedValue(undefined)
+    jest.mocked(loadInventoryProfileForVariant).mockResolvedValueOnce({
+      track_lot: true,
+      track_serial: false,
+    })
+
+    render(
+      <ReserveInventoryDialog
+        open
+        onOpenChange={jest.fn()}
+        access={buildAccess()}
+        initialWarehouseId="wh-uuid-1"
+        initialCatalogVariantId="var-uuid-1"
+      />,
+    )
+
+    const lotField = await screen.findByPlaceholderText('Select lot…')
+    const { loadSuggestions, resolveLabel } = mockComboboxCaptures['Select lot…']
+    const [lotOption] = (await loadSuggestions?.()) as Array<{ value: string; label: string }>
+    expect(lotOption.label).toBe('LOT-A · exp 2026-12-31')
+    expect(await resolveLabel?.(lotOption.value)).toBe('LOT-A · exp 2026-12-31')
+
+    fireEvent.change(lotField, { target: { value: lotOption.value } })
+    fireEvent.click(screen.getByRole('button', { name: /Reserve/ }))
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
+    const callArg = mockRunMutation.mock.calls[0][0] as {
+      mutationPayload: Record<string, unknown>
+    }
+    expect(callArg.mutationPayload.lotId).toBe('4b5a7a52-6f0c-4c55-9f0e-1f6f3c2d9a10')
   })
 
   it('shows lot field after variant is selected', () => {
