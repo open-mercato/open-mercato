@@ -1,7 +1,15 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
-import { createRoleFixture, createUserFixture, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures } from '@open-mercato/core/helpers/integration/authFixtures'
+import {
+  createOrganizationFixture,
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   deleteGeneralEntityIfExists,
   expectId,
@@ -40,6 +48,24 @@ async function scopedRequest(
       Origin: appBaseUrl(),
     },
     data: options.data,
+  })
+}
+
+function sequenceName(id: string): string {
+  const backing = `sales_docseq_${id.replace(/-/g, '').toLowerCase()}`
+  expect(backing).toMatch(/^sales_docseq_[0-9a-f]{32}$/)
+  return backing
+}
+
+async function deleteNumberSequences(tenantId: string, organizationId: string): Promise<void> {
+  await withClient(async (client) => {
+    const removed = await client.query<{ id: string }>(
+      'delete from sales_document_sequences where tenant_id = $1 and organization_id = $2 returning id',
+      [tenantId, organizationId],
+    )
+    for (const sequence of removed.rows) {
+      await client.query(`drop sequence if exists "${sequenceName(sequence.id)}"`)
+    }
   })
 }
 
@@ -171,17 +197,7 @@ test.describe('TC-SALES-7877: document-numbers tenant guard through the real dis
       expect(missingFeatureResponse.status(), 'missing sales.documents.number.edit must deny').toBe(403)
     } finally {
       if (foreignTenantId && foreignOrganizationId) {
-        await withClient(async (client) => {
-          const removedSequences = await client.query<{ id: string }>(
-            'delete from sales_document_sequences where tenant_id = $1 and organization_id = $2 returning id',
-            [foreignTenantId, foreignOrganizationId],
-          )
-          for (const sequence of removedSequences.rows) {
-            const sequenceName = `sales_docseq_${sequence.id.replace(/-/g, '').toLowerCase()}`
-            expect(sequenceName).toMatch(/^sales_docseq_[0-9a-f]{32}$/)
-            await client.query(`drop sequence if exists "${sequenceName}"`)
-          }
-        })
+        await deleteNumberSequences(foreignTenantId, foreignOrganizationId)
       }
       await deleteGeneralEntityIfExists(
         request,
@@ -192,6 +208,122 @@ test.describe('TC-SALES-7877: document-numbers tenant guard through the real dis
       await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', foreignTenantId)
       await deleteUserIfExists(request, superadminToken, restrictedUserId)
       await deleteRoleIfExists(request, superadminToken, restrictedRoleId)
+    }
+  })
+
+  test('checks alternate organization grants before allocating a number', async ({ request }) => {
+    const superadmin = await getAuthToken(request, 'superadmin')
+    const tenantId = expectId(getTokenContext(superadmin).tenantId, 'Fixture tenant ID')
+    const fixture = randomUUID()
+    const organizations: Array<{ tenantId: string; id: string }> = []
+    const roles: string[] = []
+    const numberFeatures = ['sales.orders.manage', 'sales.documents.number.edit']
+    let foreignTenantId: string | null = null
+    let userId: string | null = null
+
+    const createOrganization = async (ownerTenantId: string, label: string) => {
+      const id = await createOrganizationFixture(request, superadmin, {
+        tenantId: ownerTenantId,
+        name: `QA 10338 ${label} ${fixture}`,
+      })
+      organizations.push({ tenantId: ownerTenantId, id })
+      return id
+    }
+    const createRole = async (label: string, organizationId: string, features: string[]) => {
+      const roleId = await createRoleFixture(request, superadmin, {
+        tenantId,
+        name: `qa-10338-${label}-${fixture}`,
+      })
+      roles.push(roleId)
+      await setRoleAclFeatures(request, superadmin, { roleId, organizations: [organizationId], features })
+      return roleId
+    }
+    const generate = (token: string, requestTenantId: string, selectedOrganizationId: string, targetOrganizationId: string) =>
+      scopedRequest(request, 'POST', '/api/sales/document-numbers', {
+        token,
+        cookie: scopeCookie(requestTenantId, selectedOrganizationId),
+        data: { kind: 'order', tenantId: requestTenantId, organizationId: targetOrganizationId },
+      })
+    const readPosition = (sequenceTenantId: string, organizationId: string) => withClient(async (client) => {
+      const registry = await client.query<{ id: string }>(
+        "select id from sales_document_sequences where tenant_id = $1 and organization_id = $2 and document_kind = 'order'",
+        [sequenceTenantId, organizationId],
+      )
+      expect(registry.rows).toHaveLength(1)
+      const backing = sequenceName(registry.rows[0].id)
+      const state = await client.query<{ last_value: string; is_called: boolean }>(
+        `select last_value, is_called from "${backing}"`,
+      )
+      expect(state.rows).toHaveLength(1)
+      return state.rows[0]
+    })
+
+    try {
+      const home = await createOrganization(tenantId, 'Home')
+      const alternate = await createOrganization(tenantId, 'Alternate')
+      const inaccessible = await createOrganization(tenantId, 'Inaccessible')
+      const homeRole = await createRole('home', home, numberFeatures)
+      const alternateRole = await createRole('alternate', alternate, ['sales.orders.manage'])
+      const email = `qa-sales-10338-${fixture}@example.test`
+      const password = `Guard-${fixture}!`
+      userId = await createUserFixture(request, superadmin, {
+        email, password, organizationId: home, roles: [homeRole, alternateRole],
+      })
+      const user = await getAuthToken(request, email, password)
+      const createdTenant = await apiRequest(request, 'POST', '/api/directory/tenants', {
+        token: superadmin,
+        data: { name: `QA 10338 Foreign ${fixture}` },
+      })
+      expect(createdTenant.status()).toBe(201)
+      foreignTenantId = expectId((await readJsonSafe<CreateResponse>(createdTenant))?.id, 'Foreign fixture tenant ID')
+      const foreign = await createOrganization(foreignTenantId, 'Foreign')
+
+      for (const [scope, organizationId] of [[tenantId, alternate], [tenantId, inaccessible], [foreignTenantId, foreign]]) {
+        expect((await generate(superadmin, scope, organizationId, organizationId)).status()).toBe(200)
+      }
+      const alternateBefore = await readPosition(tenantId, alternate)
+      const inaccessibleBefore = await readPosition(tenantId, inaccessible)
+      const foreignBefore = await readPosition(foreignTenantId, foreign)
+
+      const unauthorized = await generate(user, tenantId, home, inaccessible)
+      expect(unauthorized.status(), 'an explicit alternate target must be visible to the caller').toBe(403)
+      expect(await readPosition(tenantId, inaccessible)).toEqual(inaccessibleBefore)
+
+      const missingNumberEdit = await generate(user, tenantId, home, alternate)
+      expect(missingNumberEdit.status(), 'the number-edit grant must apply in the target organization').toBe(403)
+      expect(await readPosition(tenantId, alternate)).toEqual(alternateBefore)
+
+      await setRoleAclFeatures(request, superadmin, {
+        roleId: alternateRole, organizations: [alternate], features: ['sales.documents.number.edit'],
+      })
+      const missingOrderPermission = await generate(user, tenantId, home, alternate)
+      expect(missingOrderPermission.status(), 'order permission must apply in the target organization').toBe(403)
+      expect(await readPosition(tenantId, alternate)).toEqual(alternateBefore)
+
+      const wrongTenant = await generate(superadmin, tenantId, home, foreign)
+      expect(wrongTenant.status(), 'the target organization must belong to the effective tenant').toBe(403)
+      expect(await readPosition(foreignTenantId, foreign)).toEqual(foreignBefore)
+
+      await setRoleAclFeatures(request, superadmin, {
+        roleId: alternateRole, organizations: [alternate], features: numberFeatures,
+      })
+      const authorized = await generate(user, tenantId, home, alternate)
+      expect(authorized.status(), 'the same alternate target must work once both grants apply there').toBe(200)
+      const allocated = await readJsonSafe<NumberResponse>(authorized)
+      const expectedSequence = Number(alternateBefore.last_value) + 1
+      expect(allocated?.sequence).toBe(expectedSequence)
+      expect(await readPosition(tenantId, alternate)).toEqual({
+        last_value: String(expectedSequence),
+        is_called: true,
+      })
+    } finally {
+      await deleteUserIfExists(request, superadmin, userId)
+      for (const roleId of roles) await deleteRoleIfExists(request, superadmin, roleId)
+      for (const organization of organizations.reverse()) {
+        await deleteNumberSequences(organization.tenantId, organization.id)
+        await deleteGeneralEntityIfExists(request, superadmin, '/api/directory/organizations', organization.id)
+      }
+      await deleteGeneralEntityIfExists(request, superadmin, '/api/directory/tenants', foreignTenantId)
     }
   })
 })

@@ -446,7 +446,7 @@ Built reusable fixture infrastructure:
 
 ## Changelog
 ### 2026-11-25
-- Applied organization authorization to explicit scoped API payload targets. Sales document numbering verifies tenant membership and checks permissions in the target organization before allocation (#10338).
+- Applied organization authorization to explicit scoped API payload targets. Sales document numbering verifies tenant membership and checks permissions in the target organization before allocation (#10338). The dispatcher integration in `TC-SALES-7877` now covers disallowed organizations, target-specific Sales grants, cross-tenant denial even for an unrestricted actor, and the persisted sequence before and after each request.
 
 ### 2026-11-23
 - Recorded an audit gap (#10432): the action-log list and export routes reached the fail-open state through the indirect `resolveFeatureCheckContext().organizationId` fallback, which the raw-pattern inventory did not match. Both routes now deny an explicitly empty scope with `resolveSingleOrganizationIdOrDeny`. Added the indirect-fallback addendum with the sweep result and the two follow-ups (`record_locks`, `backendChrome`).
