@@ -54,8 +54,10 @@ type ExchangeRateSnapshot = {
 
 type ExchangeRateUndoPayload = UndoPayload<ExchangeRateSnapshot>
 type ExchangeRateUpdateUndoPayload = ExchangeRateUndoPayload & { restoredBeforeUpdatedAt?: string }
+type ExchangeRateDeleteUndoPayload = ExchangeRateUpdateUndoPayload & { deletedUpdatedAt?: string }
 type ExchangeRateResult = { exchangeRateId: string }
 const lockedUpdateSnapshots = new WeakMap<ExchangeRateResult, ExchangeRateUpdateUndoPayload>()
+const lockedDeleteSnapshots = new WeakMap<ExchangeRateResult, ExchangeRateDeleteUndoPayload>()
 
 async function withExchangeRateWrite<Result>(
   ctx: CommandRuntimeContext,
@@ -112,6 +114,19 @@ async function lockExchangeRate(
 function restoredUpdatedAt(record: ExchangeRate): string | undefined {
   const lineage = record.undoLineage
   if (lineage?.writtenUpdatedAt === record.updatedAt.toISOString()) return lineage.restoredUpdatedAt
+}
+
+async function flushRestoredRate(em: EntityManager, record: ExchangeRate, previousVersion: string | undefined): Promise<void> {
+  await em.flush()
+  if (typeof previousVersion !== 'string') return
+  const updated = await em.nativeUpdate(ExchangeRate, {
+    id: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  }, {
+    undoLineage: { restoredUpdatedAt: previousVersion, writtenUpdatedAt: record.updatedAt.toISOString() },
+  })
+  if (updated !== 1) throw new Error('[internal] Failed to record exchange-rate undo lineage')
 }
 
 function exchangeRateSnapshot(record: ExchangeRate): ExchangeRateSnapshot {
@@ -438,18 +453,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, Exchang
           updatedAt: new Date(Math.max(Date.now(), current.updatedAt.getTime() + 1)),
           undoLineage: null,
         })
-        await transactionEm.flush()
-        const previousVersion = payload?.restoredBeforeUpdatedAt ?? before.updatedAt
-        if (typeof previousVersion === 'string') {
-          const updated = await transactionEm.nativeUpdate(ExchangeRate, {
-            id: current.id,
-            tenantId: current.tenantId,
-            organizationId: current.organizationId,
-          }, {
-            undoLineage: { restoredUpdatedAt: previousVersion, writtenUpdatedAt: current.updatedAt.toISOString() },
-          })
-          if (updated !== 1) throw new Error('[internal] Failed to record exchange-rate undo lineage')
-        }
+        await flushRestoredRate(transactionEm, current, payload?.restoredBeforeUpdatedAt ?? before.updatedAt)
         return current
       })
     } catch (err) {
@@ -469,6 +473,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, Exchang
 
 const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { exchangeRateId: string }> = {
   id: 'currencies.exchange_rates.delete',
+  atomicReplay: true,
   async prepare(input, ctx) {
     requireId(input.id, 'Exchange rate ID is required')
     const em = ctx.container.resolve('em') as EntityManager
@@ -479,20 +484,21 @@ const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { excha
     const parsed = exchangeRateDeleteSchema.parse(input)
     requireId(parsed.id, 'Exchange rate ID is required')
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.transactional(async (transactionEm) => {
+    const { record, snapshots } = await withExchangeRateWrite(ctx, async (transactionEm) => {
       await ctx.beforeTransactionalWrite?.(transactionEm, parsed)
       const record = await lockExchangeRate(transactionEm, parsed.id, ctx)
       if (!record) throw new CrudHttpError(404, { error: 'Exchange rate not found' })
+      const before = exchangeRateSnapshot(record)
+      const restoredBeforeUpdatedAt = restoredUpdatedAt(record)
       record.deletedAt = new Date()
       record.isActive = false
       record.undoLineage = null
       await transactionEm.flush()
-      return record
+      return { record, snapshots: { before, restoredBeforeUpdatedAt, deletedUpdatedAt: record.updatedAt.toISOString() } }
     })
 
     const de = ctx.container.resolve('dataEngine') as DataEngine
-    await emitCrudSideEffects({
+    await afterExchangeRateWrite(ctx, () => emitCrudSideEffects({
       dataEngine: de,
       action: 'deleted',
       entity: record,
@@ -502,12 +508,15 @@ const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { excha
         tenantId: record.tenantId,
       },
       events: exchangeRateCrudEvents,
-    })
+    }))
 
-    return { exchangeRateId: record.id }
+    const result = { exchangeRateId: record.id }
+    lockedDeleteSnapshots.set(result, snapshots)
+    return result
   },
-  buildLog: async ({ snapshots, result }) => {
-    const before = snapshots.before as ExchangeRateSnapshot | undefined
+  buildLog: async ({ result }) => {
+    const snapshots = lockedDeleteSnapshots.get(result)
+    const before = snapshots?.before
     if (!before) return null
     const { translate } = await resolveTranslations()
     return {
@@ -517,22 +526,30 @@ const deleteExchangeRateCommand: CommandHandler<ExchangeRateDeleteInput, { excha
       tenantId: before.tenantId,
       organizationId: before.organizationId,
       snapshotBefore: before,
-      payload: { undo: { before } },
+      payload: { undo: snapshots },
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<ExchangeRateUndoPayload>(logEntry)
+    const payload = extractUndoPayload<ExchangeRateDeleteUndoPayload>(logEntry)
     const before = payload?.before ?? null
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    await em.transactional(async (transactionEm) => {
+    await withExchangeRateWrite(ctx, async (transactionEm) => {
       const record = await lockExchangeRate(transactionEm, before.id, ctx, true)
       if (!record) return
+      const deletedVersion = payload?.deletedUpdatedAt
+      if (deletedVersion && (!record.deletedAt || record.updatedAt.toISOString() !== deletedVersion)) {
+        const { translate } = await resolveTranslations()
+        throw conflict(translate('currencies.errors.undoRateChanged', 'This change cannot be undone because the exchange rate has changed since this edit.'))
+      }
       record.deletedAt = null
       record.isActive = before.isActive
       record.undoLineage = null
       record.updatedAt = new Date(Math.max(Date.now(), record.updatedAt.getTime() + 1))
-      await transactionEm.flush()
+      await flushRestoredRate(
+        transactionEm,
+        record,
+        deletedVersion ? payload?.restoredBeforeUpdatedAt ?? before.updatedAt : undefined,
+      )
     })
   },
 }

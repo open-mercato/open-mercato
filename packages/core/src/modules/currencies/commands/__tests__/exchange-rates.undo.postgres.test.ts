@@ -10,7 +10,7 @@ import { Currency, ExchangeRate } from '../../data/entities'
 import { RateFetchingService } from '../../services/rateFetchingService'
 import { NBPAverageRateProvider } from '../../services/providers/nbpAverage'
 import { ExchangeRateService } from '../../services/exchangeRateService'
-import { updateExchangeRateCommand } from '../exchange-rates'
+import { deleteExchangeRateCommand, updateExchangeRateCommand } from '../exchange-rates'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
@@ -348,6 +348,33 @@ testWithPostgres('treats soft-deleted and inactive replacement keys as occupied'
     const beforeUndo = await rows(scope)
     await expect(bus.undo(token, context())).rejects.toMatchObject({ status: 409 })
     expect(await rows(scope)).toEqual(beforeUndo)
+  })
+})
+
+testWithPostgres.each([false, true])('checks edit undo after restoring a deletion with an intervening write: %s', async (interveningWrite) => {
+  await withPostgres(async ({ orm, scope, context, bus, edit, rows }) => {
+    const original = (await rows(scope))[0]
+    const { token } = await edit(original.id)
+    const deletion = await bus.execute(deleteExchangeRateCommand.id, { input: { ...scope, id: original.id }, ctx: context() })
+    if (interveningWrite) {
+      const deleted = (await rows(scope))[0]
+      await orm.em.fork().nativeUpdate(ExchangeRate, { ...scope, id: original.id }, {
+        updatedAt: new Date(deleted.updatedAt.getTime() + 1),
+      })
+      await expect(bus.undo(deletion.logEntry.undoToken, context())).rejects.toMatchObject({ status: 409 })
+      expect((await rows(scope))[0].deletedAt).toBeInstanceOf(Date)
+      return
+    }
+
+    await bus.undo(deletion.logEntry.undoToken, context())
+    await bus.undo(token, context())
+    expect((await rows(scope))[0]).toMatchObject({
+      rate: original.rate,
+      source: original.source,
+      externalReference: original.externalReference,
+      isActive: true,
+      deletedAt: null,
+    })
   })
 })
 
