@@ -17,6 +17,18 @@ See [Staff identity boundaries](.ai/specs/2026-11-24-staff-identity-boundaries.m
 - Grouped analytics returns at most 100 groups when a request omits a limit. Its grouped total reflects the returned buckets. Supply a lower limit or narrow the underlying data as needed. Analytics interceptors can narrow filters for the requested entity.
 - The PostgreSQL vector runtime leaves the shared index intact on dimension changes. Operators should provision and validate a replacement index, then switch settings and reindex in a controlled migration.
 
+## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
+
+When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.
+
+Clients that treated this 500 as a server fault can retry on `structured_output_invalid`. The request contract and response fields are unchanged. No database migration or configuration change is required.
+
+## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
+
+An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
+
+Callers that send `callSettings` to such an agent must drop them, or the agent author must allow runtime overrides. The agent's own `modelSettings` still apply, an empty `callSettings` object is treated as absent, and agents without the flag (the default, permissive) are unaffected. No first-party agent sets the flag to `false`. No database migration or configuration change is required.
+
 ## Production fullapp LocalStack binds to loopback (#10342)
 
 The production fullapp `storage-s3` profile now publishes LocalStack on
