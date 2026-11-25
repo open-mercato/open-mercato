@@ -276,6 +276,7 @@ export type CompleteEvalRunCommandResult = {
   status: string
   outcome: string | null
   passScore: number | null
+  errorCount: number
   safetyRegressions?: string[]
   baselineSuiteRunId?: string | null
 }
@@ -306,6 +307,7 @@ const completeEvalRunCommand: CommandHandler<CompleteEvalRunCommandInput, Comple
         status: suiteRun.status,
         outcome: suiteRun.outcome ?? null,
         passScore: suiteRun.passScore ?? null,
+        errorCount: suiteRun.errorCount,
         safetyRegressions: (suiteRun.safetyRegressions as string[] | null) ?? [],
         baselineSuiteRunId: suiteRun.baselineSuiteRunId ?? null,
       }
@@ -379,6 +381,7 @@ const completeEvalRunCommand: CommandHandler<CompleteEvalRunCommandInput, Comple
       status: suiteRun.status,
       outcome: suiteRun.outcome ?? null,
       passScore: suiteRun.passScore ?? null,
+      errorCount: suiteRun.errorCount,
       safetyRegressions: comparison.safetyRegressions,
       baselineSuiteRunId: comparison.baselineSuiteRunId,
     }
