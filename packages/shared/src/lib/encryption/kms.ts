@@ -3,6 +3,7 @@ import { generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
 import { parseBooleanToken } from '../boolean'
 import { createLogger } from '../logger'
+import { createBoundedTtlMemo } from '../query/bounded-ttl-memo'
 import { fetchWithTimeout, resolveTimeoutMs } from '../http/fetchWithTimeout'
 
 const logger = createLogger('shared').child({ component: 'kms' })
@@ -33,6 +34,12 @@ export interface KmsService {
   createTenantDek(tenantId: string): Promise<TenantDek | null>
   isHealthy(): boolean
   invalidateDek?(tenantId: string): void
+  /**
+   * A DEK this KMS already holds, without contacting the key store. Unlike `getTenantDek` it does
+   * not depend on `isHealthy()`, so a key fetched before a transient outage stays usable while the
+   * circuit breaker cools down.
+   */
+  getCachedTenantDek?(tenantId: string): TenantDek | null
 }
 
 class FallbackKmsService implements KmsService {
@@ -62,7 +69,13 @@ class FallbackKmsService implements KmsService {
     }
   }
 
+  getCachedTenantDek(tenantId: string): TenantDek | null {
+    return this.primary.getCachedTenantDek?.(tenantId) ?? null
+  }
+
   async getTenantDek(tenantId: string): Promise<TenantDek | null> {
+    const cached = this.getCachedTenantDek(tenantId)
+    if (cached) return cached
     if (this.primary.isHealthy()) {
       const dek = await this.fromPrimary(() => this.primary.getTenantDek(tenantId))
       if (dek) return dek
@@ -143,30 +156,48 @@ export class NoopKmsService implements KmsService {
 const DERIVED_KEY_ITERATIONS = 310_000
 const DERIVED_KEY_LENGTH = 32
 
-const derivedTenantKeys = new Map<string, Promise<string>>()
+const derivedTenantKeys = createBoundedTtlMemo<string>({
+  ttlEnv: 'OM_KMS_DERIVED_KEY_CACHE_TTL_MS',
+  maxEntriesEnv: 'OM_KMS_DERIVED_KEY_CACHE_MAX_ENTRIES',
+  defaultTtlMs: 15 * 60 * 1000,
+  defaultMaxEntries: 1_000,
+})
+const pendingTenantKeyDerivations = new Map<string, Promise<string>>()
+const derivedRootFingerprintKey = crypto.randomBytes(32)
 
-function deriveTenantKey(root: Buffer, tenantId: string): Promise<string> {
-  const memoKey = `${root.toString('hex')}:${tenantId}`
-  const memoized = derivedTenantKeys.get(memoKey)
-  if (memoized) return memoized
+function fingerprintDerivedRoot(root: Buffer): string {
+  return crypto.createHmac('sha256', derivedRootFingerprintKey).update(root).digest('hex')
+}
+
+function deriveTenantKey(root: Buffer, rootFingerprint: string, tenantId: string): Promise<string> {
+  const memoKey = `${rootFingerprint}:${tenantId}`
+  const derived = derivedTenantKeys.get(memoKey)
+  if (derived !== undefined) return Promise.resolve(derived)
+  const pending = pendingTenantKeyDerivations.get(memoKey)
+  if (pending) return pending
   const derivation = new Promise<string>((resolve, reject) => {
-    crypto.pbkdf2(root, tenantId, DERIVED_KEY_ITERATIONS, DERIVED_KEY_LENGTH, 'sha512', (err, derived) => {
+    crypto.pbkdf2(root, tenantId, DERIVED_KEY_ITERATIONS, DERIVED_KEY_LENGTH, 'sha512', (err, key) => {
       if (err) reject(err)
-      else resolve(derived.toString('base64'))
+      else resolve(key.toString('base64'))
     })
   })
-  derivedTenantKeys.set(memoKey, derivation)
-  derivation.catch(() => {
-    if (derivedTenantKeys.get(memoKey) === derivation) derivedTenantKeys.delete(memoKey)
+  pendingTenantKeyDerivations.set(memoKey, derivation)
+  derivation.then(
+    (key) => derivedTenantKeys.set(memoKey, key),
+    () => undefined,
+  ).finally(() => {
+    if (pendingTenantKeyDerivations.get(memoKey) === derivation) pendingTenantKeyDerivations.delete(memoKey)
   })
   return derivation
 }
 
 class DerivedKmsService implements KmsService {
   private root: Buffer
+  private readonly rootFingerprint: string
   constructor(secret: string) {
     // Derive a stable root key from the provided secret so derived tenant keys are deterministic
     this.root = crypto.createHash('sha256').update(secret).digest()
+    this.rootFingerprint = fingerprintDerivedRoot(this.root)
   }
 
   isHealthy(): boolean {
@@ -175,7 +206,7 @@ class DerivedKmsService implements KmsService {
 
   async getTenantDek(tenantId: string): Promise<TenantDek | null> {
     if (!tenantId) return null
-    return { tenantId, key: await deriveTenantKey(this.root, tenantId), fetchedAt: Date.now() }
+    return { tenantId, key: await deriveTenantKey(this.root, this.rootFingerprint, tenantId), fetchedAt: Date.now() }
   }
 
   async createTenantDek(tenantId: string): Promise<TenantDek | null> {
@@ -263,6 +294,10 @@ export class HashicorpVaultKmsService implements KmsService {
       return null
     }
     return entry
+  }
+
+  getCachedTenantDek(tenantId: string): TenantDek | null {
+    return this.cacheHit(tenantId)
   }
 
   private async readVault(path: string): Promise<VaultReadResponse | null> {

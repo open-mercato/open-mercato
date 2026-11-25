@@ -127,11 +127,7 @@ function buildExposureHealth(exposureConfig: McpExposureConfig) {
 }
 
 function resolveProcessKmsService(container: AwilixContainer): KmsService | undefined {
-  try {
-    return container.resolve<KmsService>('kmsService')
-  } catch {
-    return undefined
-  }
+  return container.resolve<KmsService | undefined>('kmsService', { allowUnregistered: true }) ?? undefined
 }
 
 /**

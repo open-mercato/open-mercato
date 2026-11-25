@@ -84,7 +84,8 @@ async function decryptSessionSecret(
     // which case it is a sealed envelope no key can open and null is the honest answer.
     return looksLikeEncryptedPayload(stored) ? null : stored
   }
-  if (mode === 'unavailable') {
+  const cachedDek = kms.getCachedTenantDek?.(tenantId) ?? null
+  if (mode === 'unavailable' && !cachedDek) {
     logger.warn('Tenant data encryption is enabled but no DEK is reachable; cannot recover session secret', { tenantId })
     return null
   }
@@ -95,7 +96,7 @@ async function decryptSessionSecret(
   // live session rather than only the ones sealed under the old setting.
   if (!looksLikeEncryptedPayload(stored)) return stored
 
-  const dek = await kms.getTenantDek(tenantId)
+  const dek = cachedDek ?? await kms.getTenantDek(tenantId)
   if (!dek) return null
 
   return decryptWithAesGcm(stored, dek.key)
