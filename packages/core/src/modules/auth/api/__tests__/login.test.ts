@@ -396,6 +396,74 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     expect(setCookie).not.toContain('session_token=session-token')
   })
 
+  test('expires the super-admin scope-selection cookies on a successful login (GHSA-6729)', async () => {
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    // The 30-day om_selected_* cookies outlive sessions and applySuperAdminScope
+    // honors them without checking who made the selection, so a selection left by
+    // a previous user must not survive the identity change.
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toMatch(/om_selected_org=;[^,]*Max-Age=0/i)
+    expect(setCookie).toMatch(/om_selected_tenant=;[^,]*Max-Age=0/i)
+  })
+
+  test('expires the super-admin scope-selection cookies when an interceptor replaces the issued token (GHSA-6729)', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.replace.scope-cookies',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return {
+                replace: {
+                  ok: true,
+                  mfa_required: true,
+                  challenge_id: 'challenge-1',
+                  token: 'pending-token',
+                },
+              }
+            },
+          },
+        ],
+      },
+    ])
+
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toMatch(/om_selected_org=;[^,]*Max-Age=0/i)
+    expect(setCookie).toMatch(/om_selected_tenant=;[^,]*Max-Age=0/i)
+  })
+
+  test('leaves the super-admin scope-selection cookies untouched when the login fails (GHSA-6729)', async () => {
+    mockTenantLookup.mockResolvedValueOnce(null as never)
+    const res = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+
+    expect(res.status).toBe(401)
+    // A failed login changes no identity — the browser keeps its current selection.
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).not.toContain('om_selected_org')
+    expect(setCookie).not.toContain('om_selected_tenant')
+  })
+
   test.each([
     ['remember me disabled', {}],
     ['remember me enabled', { remember: '1' }],
