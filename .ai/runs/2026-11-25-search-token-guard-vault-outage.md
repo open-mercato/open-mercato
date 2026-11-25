@@ -79,9 +79,9 @@ returns `false`. Guard and decrypt therefore read one signal: decrypt skipped or
 
 ### Phase 1: Guard reads the decrypting service's health
 
-- [ ] 1.1 Add resolveCiphertextGuard and per-payload batch override
-- [ ] 1.2 Wire reindexSearchTokensForRecord to the decrypting service
-- [ ] 1.3 Add ciphertextGuard batch option and wire reindexer and CLI
+- [x] 1.1 Add resolveCiphertextGuard and per-payload batch override — 97e0377549
+- [x] 1.2 Wire reindexSearchTokensForRecord to the decrypting service — 73c8c97a89
+- [x] 1.3 Add ciphertextGuard batch option and wire reindexer and CLI — 49460c3530
 
 ### Phase 2: Tests
 
