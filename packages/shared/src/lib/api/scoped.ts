@@ -26,6 +26,7 @@ export type ScopedPayloadMessages = {
 
 export type ScopedPayloadOptions = {
   requireOrganization?: boolean
+  maskOrganizationDenial?: boolean
   messages?: ScopedPayloadMessages
 }
 
@@ -67,7 +68,6 @@ export function withScopedPayload<T extends Record<string, unknown>>(
   enforceActorTenant(tenantId, ctx, translate, options)
 
   const requestedOrg = (source as { organizationId?: string })?.organizationId
-  const recordId = (source as { id?: unknown }).id
   if (typeof requestedOrg === 'string' && requestedOrg && ctx.auth) {
     try {
       if (!authIsSuperAdmin(ctx.auth)
@@ -77,7 +77,7 @@ export function withScopedPayload<T extends Record<string, unknown>>(
       }
       ensureOrganizationScope(ctx, requestedOrg)
     } catch (error) {
-      if (error instanceof CrudHttpError && error.status === 403 && typeof recordId === 'string' && recordId) {
+      if (options.maskOrganizationDenial && error instanceof CrudHttpError && error.status === 403) {
         throw new CrudHttpError(404, { error: translate('api.errors.notFound', 'Not found') })
       }
       throw error

@@ -116,10 +116,10 @@ describe('withScopedPayload', () => {
     }
 
     for (const id of ['existing-record', 'missing-record']) {
-      expect(() => withScopedPayload({ id, organizationId: 'org-2' }, ctx, translate))
+      expect(() => withScopedPayload({ id, organizationId: 'org-2' }, ctx, translate, { maskOrganizationDenial: true }))
         .toThrow(expect.objectContaining({ status: 404 }))
     }
-    expect(() => withScopedPayload({ organizationId: 'org-2' }, ctx, translate))
+    expect(() => withScopedPayload({ id: 'client-supplied', organizationId: 'org-2' }, ctx, translate))
       .toThrow(expect.objectContaining({ status: 403 }))
     expect(withScopedPayload({ id: 'existing-record', organizationId: 'org-1' }, ctx, translate))
       .toMatchObject({ id: 'existing-record', organizationId: 'org-1', tenantId: 'tenant-1' })
