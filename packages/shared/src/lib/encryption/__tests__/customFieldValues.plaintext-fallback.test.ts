@@ -1,4 +1,7 @@
+import { isCrudHttpError } from '../../crud/errors'
+import type { TenantDataEncryptionService } from '../tenantDataEncryptionService'
 import {
+  decryptCustomFieldValue,
   encryptCustomFieldValue,
   resetEncryptedFieldPlaintextFallbackWarnCache,
 } from '../customFieldValues'
@@ -14,7 +17,12 @@ jest.mock('../../logger', () => {
 
 const loggerModule = jest.requireMock('../../logger') as { __warn: jest.Mock }
 
-const WARN_MESSAGE = 'Custom field configured as encrypted was stored as plaintext'
+const WARN_MESSAGE = 'Encrypted custom field write rejected because the tenant key is unavailable'
+const unavailableResponse = { status: 503, body: { code: 'ENCRYPTION_UNAVAILABLE', error: 'api.errors.serviceUnavailable' } }
+
+async function expectUnavailable(write: Promise<unknown>) {
+  await expect(write).rejects.toMatchObject(unavailableResponse)
+}
 
 const warnCalls = () =>
   loggerModule.__warn.mock.calls.filter(([message]) => message === WARN_MESSAGE)
@@ -28,10 +36,10 @@ function unresolvableDekService(overrides: Record<string, unknown> = {}) {
     getDek: jest.fn(async () => null),
     createDek: jest.fn(async () => null),
     ...overrides,
-  } as any
+  } as unknown as TenantDataEncryptionService
 }
 
-describe('encryptCustomFieldValue plaintext fallback (regression: issue #5921)', () => {
+describe('encryptCustomFieldValue with an unavailable tenant key', () => {
   const previousToggle = process.env.TENANT_DATA_ENCRYPTION
 
   beforeEach(() => {
@@ -45,15 +53,16 @@ describe('encryptCustomFieldValue plaintext fallback (regression: issue #5921)',
     else process.env.TENANT_DATA_ENCRYPTION = previousToggle
   })
 
-  it('warns when an encrypted field falls back to plaintext because the DEK is unavailable', async () => {
+  it('rejects and warns when a tenant key cannot be read or created', async () => {
     const service = unresolvableDekService()
 
-    const stored = await encryptCustomFieldValue('secret', 'tenant-1', service, undefined, {
+    const error = await encryptCustomFieldValue('secret', 'tenant-1', service, undefined, {
       entityId: 'customers:person',
       fieldKey: 'national_id',
-    })
+    }).catch((cause: unknown) => cause)
 
-    expect(stored).toBe('secret')
+    expect(isCrudHttpError(error)).toBe(true)
+    expect(error).toMatchObject(unavailableResponse)
     expect(service.createDek).toHaveBeenCalledTimes(1)
     expect(warnCalls()).toHaveLength(1)
     const [, payload] = warnCalls()[0]
@@ -66,66 +75,75 @@ describe('encryptCustomFieldValue plaintext fallback (regression: issue #5921)',
   })
 
   it('never puts the field value in the warning payload', async () => {
-    await encryptCustomFieldValue('super-secret-value', 'tenant-1', unresolvableDekService(), undefined, {
+    await expectUnavailable(encryptCustomFieldValue('super-secret-value', 'tenant-1', unresolvableDekService(), undefined, {
       entityId: 'customers:person',
       fieldKey: 'national_id',
-    })
+    }))
 
     expect(JSON.stringify(warnCalls()[0])).not.toContain('super-secret-value')
   })
 
   it('still warns when the caller does not identify the field', async () => {
-    await encryptCustomFieldValue('secret', 'tenant-1', unresolvableDekService())
+    await expectUnavailable(encryptCustomFieldValue('secret', 'tenant-1', unresolvableDekService()))
 
     expect(warnCalls()).toHaveLength(1)
     expect(warnCalls()[0][1]).toMatchObject({ tenantId: 'tenant-1', entity: null, field: null })
   })
 
-  // The issue's own reproduction: VAULT_ADDR points at an unreachable Vault and
-  // no fallback secret is set, so createKmsService() hands back a NoopKmsService
-  // whose isHealthy() is false while TENANT_DATA_ENCRYPTION is on — which makes
-  // service.isEnabled() false. Gating the warning on isEnabled() would go silent
-  // in exactly this case, so it must be driven by the env toggle instead.
-  it('warns when the KMS is unhealthy and the service therefore reports itself disabled', async () => {
-    const unhealthyKms = {
-      isEnabled: () => false,
-      getDek: jest.fn(async () => null),
-      createDek: jest.fn(async () => null),
-    } as any
-
-    const stored = await encryptCustomFieldValue('secret', 'tenant-1', unhealthyKms, undefined, {
-      entityId: 'customers:person',
-      fieldKey: 'national_id',
-    })
-
-    expect(stored).toBe('secret')
-    expect(warnCalls()).toHaveLength(1)
+  it('rejects when the encryption service is unhealthy or missing', async () => {
+    await expectUnavailable(encryptCustomFieldValue('protected', 'tenant-1', unresolvableDekService({ isEnabled: () => false })))
+    await expectUnavailable(encryptCustomFieldValue('protected', 'tenant-2', null))
+    expect(warnCalls()).toHaveLength(2)
   })
 
-  it('stays silent for the intentional plaintext cases', async () => {
-    // Operator deliberately runs unencrypted, so a plaintext write is correct.
+  it.each(['getDek', 'createDek'])('maps a failing %s call to an unavailable-key error', async (method) => {
+    const cause = new Error('[internal] test key provider failure')
+    const service = unresolvableDekService({ [method]: jest.fn().mockRejectedValue(cause) })
+    await expect(encryptCustomFieldValue('protected', 'tenant-1', service)).rejects.toMatchObject({
+      ...unavailableResponse,
+      cause,
+    })
+  })
+
+  it('skips key access for cleared values or intentional plaintext writes', async () => {
+    const service = unresolvableDekService()
     process.env.TENANT_DATA_ENCRYPTION = 'no'
-    expect(await encryptCustomFieldValue('plain', 'tenant-1', unresolvableDekService())).toBe('plain')
+    await expect(encryptCustomFieldValue('plain', 'tenant-1', service)).resolves.toBe('plain')
     delete process.env.TENANT_DATA_ENCRYPTION
 
-    // No tenant scope, so there is no tenant DEK to resolve.
-    expect(await encryptCustomFieldValue('plain', null, unresolvableDekService())).toBe('plain')
-    expect(await encryptCustomFieldValue('plain', undefined, unresolvableDekService())).toBe('plain')
-    // No encryption service wired at all.
-    expect(await encryptCustomFieldValue('plain', 'tenant-1', null)).toBe('plain')
-    // Null/undefined values are skipped before key resolution.
-    expect(await encryptCustomFieldValue(null, 'tenant-1', unresolvableDekService())).toBe(null)
+    await expect(encryptCustomFieldValue('plain', null, service)).resolves.toBe('plain')
+    await expect(encryptCustomFieldValue('plain', undefined, service)).resolves.toBe('plain')
+    await expect(encryptCustomFieldValue(null, 'tenant-1', service)).resolves.toBeNull()
+    await expect(encryptCustomFieldValue(undefined, 'tenant-1', service)).resolves.toBeUndefined()
 
+    expect(service.getDek).not.toHaveBeenCalled()
+    expect(service.createDek).not.toHaveBeenCalled()
     expect(warnCalls()).toHaveLength(0)
+  })
+
+  it('can create a key for a write after a read cached a miss', async () => {
+    const cache = new Map<string | null, string | null>()
+    const service = unresolvableDekService({
+      createDek: jest.fn(async () => ({ key: fixedKey })),
+    })
+
+    await expect(decryptCustomFieldValue('previous value', 'tenant-1', service, cache)).resolves.toBe('previous value')
+    expect(cache.get('tenant-1')).toBeNull()
+    expect(service.createDek).not.toHaveBeenCalled()
+
+    const encrypted = await encryptCustomFieldValue('protected', 'tenant-1', service, cache)
+    expect(service.createDek).toHaveBeenCalledTimes(1)
+    expect(cache.get('tenant-1')).toBe(fixedKey)
+    await expect(decryptCustomFieldValue(encrypted, 'tenant-1', service, cache)).resolves.toBe('protected')
   })
 
   it('warns once per tenant/entity/field so a key outage cannot flood the log', async () => {
     const service = unresolvableDekService()
     const field = { entityId: 'customers:person', fieldKey: 'national_id' }
 
-    await encryptCustomFieldValue('a', 'tenant-1', service, undefined, field)
-    await encryptCustomFieldValue('b', 'tenant-1', service, undefined, field)
-    await encryptCustomFieldValue('c', 'tenant-1', service, undefined, field)
+    await expectUnavailable(encryptCustomFieldValue('a', 'tenant-1', service, undefined, field))
+    await expectUnavailable(encryptCustomFieldValue('b', 'tenant-1', service, undefined, field))
+    await expectUnavailable(encryptCustomFieldValue('c', 'tenant-1', service, undefined, field))
 
     expect(warnCalls()).toHaveLength(1)
   })
@@ -133,18 +151,18 @@ describe('encryptCustomFieldValue plaintext fallback (regression: issue #5921)',
   it('reports each degraded field and tenant separately', async () => {
     const service = unresolvableDekService()
 
-    await encryptCustomFieldValue('a', 'tenant-1', service, undefined, {
+    await expectUnavailable(encryptCustomFieldValue('a', 'tenant-1', service, undefined, {
       entityId: 'customers:person',
       fieldKey: 'national_id',
-    })
-    await encryptCustomFieldValue('b', 'tenant-1', service, undefined, {
+    }))
+    await expectUnavailable(encryptCustomFieldValue('b', 'tenant-1', service, undefined, {
       entityId: 'customers:person',
       fieldKey: 'passport_no',
-    })
-    await encryptCustomFieldValue('c', 'tenant-2', service, undefined, {
+    }))
+    await expectUnavailable(encryptCustomFieldValue('c', 'tenant-2', service, undefined, {
       entityId: 'customers:person',
       fieldKey: 'national_id',
-    })
+    }))
 
     expect(warnCalls()).toHaveLength(3)
   })
@@ -153,15 +171,15 @@ describe('encryptCustomFieldValue plaintext fallback (regression: issue #5921)',
   // hide every later one — the exact blind spot this warning exists to remove.
   it('reports a second outage after the key has recovered in between', async () => {
     const field = { entityId: 'customers:person', fieldKey: 'national_id' }
-    const recovered = { isEnabled: () => true, getDek: async () => ({ key: fixedKey }) } as any
+    const recovered = { isEnabled: () => true, getDek: async () => ({ key: fixedKey }) } as unknown as TenantDataEncryptionService
 
-    await encryptCustomFieldValue('a', 'tenant-1', unresolvableDekService(), undefined, field)
+    await expectUnavailable(encryptCustomFieldValue('a', 'tenant-1', unresolvableDekService(), undefined, field))
     expect(warnCalls()).toHaveLength(1)
 
     const encrypted = await encryptCustomFieldValue('b', 'tenant-1', recovered, undefined, field)
     expect(encrypted).not.toBe('b')
 
-    await encryptCustomFieldValue('c', 'tenant-1', unresolvableDekService(), undefined, field)
+    await expectUnavailable(encryptCustomFieldValue('c', 'tenant-1', unresolvableDekService(), undefined, field))
     expect(warnCalls()).toHaveLength(2)
   })
 
@@ -174,35 +192,35 @@ describe('encryptCustomFieldValue plaintext fallback (regression: issue #5921)',
     const fieldAt = (i: number) => ({ entityId: 'customers:person', fieldKey: `field-${i}` })
 
     for (let i = 0; i < WARN_CAP; i += 1) {
-      await encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(i))
+      await expectUnavailable(encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(i)))
     }
     expect(warnCalls()).toHaveLength(WARN_CAP)
 
     // One more distinct field crosses the cap and evicts field-0 (the oldest).
-    await encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(WARN_CAP))
+    await expectUnavailable(encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(WARN_CAP)))
     expect(warnCalls()).toHaveLength(WARN_CAP + 1)
 
     // A still-degraded field reported well before the cap stays throttled.
-    await encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(WARN_CAP - 1))
+    await expectUnavailable(encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(WARN_CAP - 1)))
     expect(warnCalls()).toHaveLength(WARN_CAP + 1)
 
     // The evicted oldest entry is the one exception: it reports again.
-    await encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(0))
+    await expectUnavailable(encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(0)))
     expect(warnCalls()).toHaveLength(WARN_CAP + 2)
   })
 
   it('does not let one tenant recovering unthrottle another tenant still degraded', async () => {
     const field = { entityId: 'customers:person', fieldKey: 'national_id' }
-    const recovered = { isEnabled: () => true, getDek: async () => ({ key: fixedKey }) } as any
+    const recovered = { isEnabled: () => true, getDek: async () => ({ key: fixedKey }) } as unknown as TenantDataEncryptionService
 
-    await encryptCustomFieldValue('a', 'tenant-1', unresolvableDekService(), undefined, field)
-    await encryptCustomFieldValue('b', 'tenant-2', unresolvableDekService(), undefined, field)
+    await expectUnavailable(encryptCustomFieldValue('a', 'tenant-1', unresolvableDekService(), undefined, field))
+    await expectUnavailable(encryptCustomFieldValue('b', 'tenant-2', unresolvableDekService(), undefined, field))
     expect(warnCalls()).toHaveLength(2)
 
     await encryptCustomFieldValue('c', 'tenant-1', recovered, undefined, field)
 
     // tenant-2 never recovered, so its warning stays throttled.
-    await encryptCustomFieldValue('d', 'tenant-2', unresolvableDekService(), undefined, field)
+    await expectUnavailable(encryptCustomFieldValue('d', 'tenant-2', unresolvableDekService(), undefined, field))
     expect(warnCalls()).toHaveLength(2)
   })
 })

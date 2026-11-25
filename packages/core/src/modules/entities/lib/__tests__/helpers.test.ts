@@ -86,6 +86,38 @@ describe('setRecordCustomFields', () => {
       return { rows, emMock, em: emMock as unknown as EntityManager }
     }
 
+    it('rolls back a multi-value replacement when the encrypted field has no usable key', async () => {
+      const previousEncryptionToggle = process.env.TENANT_DATA_ENCRYPTION
+      process.env.TENANT_DATA_ENCRYPTION = 'yes'
+      try {
+        const { em, emMock } = createValueStore(true)
+        const encryptionService = {
+          isEnabled: () => true,
+          getDek: async () => null,
+          createDek: async () => null,
+        } as unknown as TenantDataEncryptionService
+        const onChanged = jest.fn()
+
+        await expect(setRecordCustomFields(em, {
+          ...scope,
+          encryptionService,
+          values: { labels: ['replacement'] },
+          onChanged,
+        })).rejects.toMatchObject({ status: 503, body: { code: 'ENCRYPTION_UNAVAILABLE' } })
+
+        expect(emMock.begin).toHaveBeenCalledTimes(1)
+        expect(emMock.nativeDelete).toHaveBeenCalledTimes(1)
+        expect(emMock.rollback).toHaveBeenCalledTimes(1)
+        expect(emMock.persist).not.toHaveBeenCalled()
+        expect(emMock.flush).not.toHaveBeenCalled()
+        expect(emMock.commit).not.toHaveBeenCalled()
+        expect(onChanged).not.toHaveBeenCalled()
+      } finally {
+        if (previousEncryptionToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+        else process.env.TENANT_DATA_ENCRYPTION = previousEncryptionToggle
+      }
+    })
+
     it('keeps empty fields absent and all other values intact when an unrelated edit echoes nulls', async () => {
       const { rows, em, emMock } = createValueStore()
       await setRecordCustomFields(em, { ...scope, values: { priority: 3, blocked: false, description: 'Keep me' } })

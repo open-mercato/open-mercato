@@ -723,3 +723,7 @@ STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
 ## 2026-11-24 — Trace ingest
 
 STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-25 — Encrypted custom field writes
+
+STABLE API behavior changes for writes of tenant-scoped encrypted custom fields when the data key is unavailable. Preserving success during the outage would persist unencrypted values. Clients handle HTTP 503 and retry after key access recovers. Operators restore key access and review historical records. [Migration](UPGRADE_NOTES.md) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
