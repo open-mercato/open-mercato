@@ -20,13 +20,13 @@ import {
   CustomerCompanyProfile,
   CustomerDeal,
   CustomerDealCompanyLink,
+  CustomerLabelAssignment,
   CustomerActivity,
   CustomerInteraction,
   CustomerTodoLink,
   CustomerEntity,
   CustomerPersonCompanyLink,
   CustomerPersonProfile,
-  CustomerTagAssignment,
 } from '../data/entities'
 import {
   captureInteractionRestoreDetails,
@@ -40,6 +40,7 @@ import {
   restoreEntityLabelAssignments,
   type LabelAssignmentRestoreSnapshot,
 } from './entityLabelAssignments'
+import { emitEntityChildDeleteEffects, loadEntityChildIndexEntries, removeEntityChildren, requireEntityCleanupAccess } from './entityChildren'
 import {
   companyCreateSchema,
   companyUpdateSchema,
@@ -137,6 +138,22 @@ function companyEntityIndexEntry(entity: CustomerEntity): QueryIndexEventEntry {
     recordId: entity.id,
     tenantId: entity.tenantId,
     organizationId: entity.organizationId,
+  }
+}
+
+async function assertCompanyHasNoBlockingDependents(
+  em: EntityManager,
+  company: CustomerEntity,
+  undoContext?: CommandRuntimeContext,
+): Promise<void> {
+  const scope = { tenantId: company.tenantId, organizationId: company.organizationId }
+  const personLinks = await em.count(CustomerPersonCompanyLink, { company, deletedAt: null, ...scope })
+  const dealLinks = await em.count(CustomerDealCompanyLink, { company })
+  const directPeople = await em.count(CustomerPersonProfile, { company, ...scope })
+  if (personLinks > 0 || dealLinks > 0 || directPeople > 0) {
+    if (undoContext) await requireEntityCleanupAccess(em, company, undoContext, 'customers.companies.manage')
+    const { translate } = await resolveTranslations()
+    throw buildCompanyHasDependentsError(translate, { personLinks, dealLinks, directPeople })
   }
 }
 
@@ -640,35 +657,46 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     const entityId = logEntry?.resourceId
     if (!entityId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await findScopedCustomerCommandRecord(em, CustomerEntity, { id: entityId }, undefined, ctx)
-    if (!entity) return
-    const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, tenantId: entity.tenantId, organizationId: entity.organizationId }, undefined, {
-      tenantId: entity.tenantId,
-      organizationId: entity.organizationId,
-    })
-    const identifiers = {
-      id: payload?.after?.profile.id ?? profile?.id ?? entity.id,
-      organizationId: entity.organizationId,
-      tenantId: entity.tenantId,
-    }
-    await withAtomicFlush(em, [
-      async () => {
-        await em.nativeDelete(CustomerCompanyProfile, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-        await em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-        em.remove(entity)
-      },
-    ], { transaction: true })
+    let removed: { entity: CustomerEntity; profileId: string; indexDeletes: QueryIndexEventEntry[] } | undefined
+    await withAtomicFlush(em, [async () => {
+      const entity = await findScopedCustomerCommandRecord(
+        em, CustomerEntity, { id: entityId, kind: 'company' }, { lockMode: LockMode.PESSIMISTIC_WRITE }, ctx,
+      )
+      if (!entity) return
+      const scope = { tenantId: entity.tenantId, organizationId: entity.organizationId }
+      const deletedPersonLinks = { company: entity, deletedAt: { $ne: null }, ...scope }
+      await assertCompanyHasNoBlockingDependents(em, entity, ctx)
+      const indexDeletes = await loadEntityChildIndexEntries(em, entity)
+      if (indexDeletes.length || await em.count(CustomerLabelAssignment, { entity, ...scope })
+        || await em.count(CustomerPersonCompanyLink, deletedPersonLinks)) {
+        await requireEntityCleanupAccess(em, entity, ctx, 'customers.companies.manage')
+      }
+      const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, ...scope }, undefined, scope)
+      const labels = await removeEntityLabelAssignments(em, entity)
+      await removeEntityChildren(em, entity)
+      await em.nativeDelete(CustomerPersonCompanyLink, deletedPersonLinks)
+      await em.nativeDelete(CustomerCompanyProfile, { entity, ...scope })
+      em.remove(entity)
+      removed = {
+        entity,
+        profileId: payload?.after?.profile.id ?? profile?.id ?? entity.id,
+        indexDeletes: [...indexDeletes, ...labelAssignmentIndexEntries(entity, labels)],
+      }
+    }], { transaction: true })
+    if (!removed) return
+    const { entity, profileId, indexDeletes } = removed
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'deleted',
       entity,
-      identifiers,
+      identifiers: { id: profileId, organizationId: entity.organizationId, tenantId: entity.tenantId },
       indexer: companyCrudIndexer,
       events: companyCrudEvents,
     })
     await emitQueryIndexDeleteEvents(ctx, [companyEntityIndexEntry(entity)])
+    await emitEntityChildDeleteEffects(ctx, entity, indexDeletes)
   },
   redo: async ({ logEntry, ctx }) => {
     const redoSnapshot = resolveRedoSnapshot<CompanySnapshot>(logEntry)
@@ -1128,22 +1156,7 @@ const deleteCompanyCommand: CommandHandler<
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         }
-        const personLinks = await em.count(CustomerPersonCompanyLink, {
-          company: record,
-          deletedAt: null,
-          ...dependentScope,
-        })
-        const dealLinks = await em.count(CustomerDealCompanyLink, {
-          company: record,
-        })
-        const directPeople = await em.count(CustomerPersonProfile, {
-          company: record,
-          ...dependentScope,
-        })
-        if (personLinks > 0 || dealLinks > 0 || directPeople > 0) {
-          const { translate } = await resolveTranslations()
-          throw buildCompanyHasDependentsError(translate, { personLinks, dealLinks, directPeople })
-        }
+        await assertCompanyHasNoBlockingDependents(em, record)
 
         const profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity: record, tenantId: record.tenantId, organizationId: record.organizationId }, undefined, {
           tenantId: record.tenantId,
@@ -1160,13 +1173,8 @@ const deleteCompanyCommand: CommandHandler<
           ...dependentScope,
         })
         await em.nativeDelete(CustomerDealCompanyLink, { company: record })
-        await em.nativeDelete(CustomerActivity, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-        await em.nativeDelete(CustomerInteraction, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-        await em.nativeDelete(CustomerTodoLink, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
         await em.nativeDelete(CustomerCompanyProfile, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-        await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-        await em.nativeDelete(CustomerComment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
-        await em.nativeDelete(CustomerTagAssignment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+        await removeEntityChildren(em, record)
         if (profile) {
           await em.nativeDelete(CustomFieldValue, { entityId: COMPANY_ENTITY_ID, recordId: profile.id })
         }

@@ -167,7 +167,12 @@ function createManager(kind: Kind, populated: boolean, encrypted = false) {
     }),
     persist: jest.fn(),
     remove: jest.fn((record: unknown) => {
-      if (record === state.entity) state.entity = null
+      if (record === state.entity) {
+        if (state.addresses.length || state.comments.length || state.interactions.length) {
+          throw new Error('[internal] Customer still has dependent rows')
+        }
+        state.entity = null
+      }
       if (record === state.profile) state.profile = null
     }),
     nativeDelete: jest.fn(async (constructor: unknown) => {
@@ -196,7 +201,7 @@ function createManager(kind: Kind, populated: boolean, encrypted = false) {
   return { manager, state, deliveryFields, decryptEntityPayload }
 }
 
-function createContext(manager: unknown): CommandRuntimeContext {
+function createContext(manager: unknown, hasManage = jest.fn(async () => true), emitEvent = jest.fn(async () => undefined)): CommandRuntimeContext {
   const dataEngine = {
     setCustomFields: jest.fn(async () => undefined),
     emitOrmEntityEvent: jest.fn(async () => undefined),
@@ -208,7 +213,8 @@ function createContext(manager: unknown): CommandRuntimeContext {
       resolve: (key: string) => {
         if (key === 'em') return manager
         if (key === 'dataEngine') return dataEngine
-        if (key === 'eventBus') return { emitEvent: jest.fn(async () => undefined) }
+        if (key === 'eventBus') return { emitEvent }
+        if (key === 'rbacService') return { userHasAllFeaturesWithEntityManager: hasManage }
         throw new Error(`[internal] Unexpected dependency ${key}`)
       },
     } as unknown as CommandRuntimeContext['container'],
@@ -240,6 +246,64 @@ async function deleteParent(kind: Kind, populated: boolean, encrypted = false) {
   })) as CommandUndoLogEntry
   return { handler, input, context, state, deliveryFields, logEntry, decryptEntityPayload }
 }
+
+describe.each<Kind>(['person', 'company'])('customers %s create undo (#7614)', (kind) => {
+  afterEach(() => jest.restoreAllMocks())
+
+  it('cleans up rows added after creation before removing the customer', async () => {
+    const { manager, state } = createManager(kind, true, true)
+    const command = commandRegistry.get(`customers.${kind === 'person' ? 'people' : 'companies'}.create`) as CommandHandler
+    const entity = state.entity
+    const scope = { organizationId: ORGANIZATION_ID, tenantId: TENANT_ID }
+    const hasManage = jest.fn(async () => true)
+    const emitEvent = jest.fn(async () => undefined)
+
+    await command.undo!({
+      input: {},
+      ctx: createContext(manager, hasManage, emitEvent),
+      logEntry: { resourceId: ENTITY_ID } as CommandUndoLogEntry,
+    })
+
+    expect(manager.findOne).toHaveBeenCalledWith(
+      CustomerEntity,
+      expect.objectContaining({ id: ENTITY_ID, ...scope }),
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    )
+    for (const child of [CustomerAddress, CustomerComment, CustomerInteraction]) {
+      expect(manager.nativeDelete).toHaveBeenCalledWith(child, { entity, ...scope })
+    }
+    expect(hasManage).toHaveBeenCalledWith(
+      manager, 'actor-user', [`customers.${kind === 'person' ? 'people' : 'companies'}.manage`], scope,
+    )
+    expect(emitEvent).toHaveBeenCalledWith(
+      'query_index.delete_one',
+      expect.objectContaining({ entityType: 'customers:customer_address', recordId: ADDRESS_ID, ...scope }),
+      scope,
+    )
+    expect(manager.commit.mock.invocationCallOrder[0]).toBeLessThan(emitEvent.mock.invocationCallOrder[0])
+    expect(state.entity).toBeNull()
+    expect(state.profile).toBeNull()
+    expect(state.addresses).toEqual([])
+    expect(state.comments).toEqual([])
+    expect(state.interactions).toEqual([])
+  })
+
+  it('preserves the record and its children after the parent manage grant is revoked', async () => {
+    const { manager, state } = createManager(kind, true)
+    const command = commandRegistry.get(`customers.${kind === 'person' ? 'people' : 'companies'}.create`) as CommandHandler
+
+    await expect(command.undo!({
+      input: {},
+      ctx: createContext(manager, jest.fn(async () => false)),
+      logEntry: { resourceId: ENTITY_ID } as CommandUndoLogEntry,
+    })).rejects.toMatchObject({ status: 403 })
+
+    expect(manager.nativeDelete).not.toHaveBeenCalled()
+    expect(manager.rollback).toHaveBeenCalled()
+    expect(state.entity).toMatchObject({ id: ENTITY_ID })
+    expect(state.addresses).toHaveLength(1)
+  })
+})
 
 describe.each<Kind>(['person', 'company'])('customers %s delete undo preserves address fields (#7854)', (kind) => {
   const originalEncryption = process.env.TENANT_DATA_ENCRYPTION

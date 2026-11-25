@@ -1669,6 +1669,8 @@ describe('customers commands undo custom fields', () => {
         if (ctor === CustomerCompanyProfile && where.entity === entity) return profile
         return null
       }),
+      find: jest.fn(async () => []),
+      count: jest.fn(async () => 0),
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
@@ -1747,6 +1749,8 @@ describe('customers commands undo custom fields', () => {
         if (ctor === CustomerPersonProfile && where.entity === entity) return profile
         return null
       }),
+      find: jest.fn(async () => []),
+      count: jest.fn(async () => 0),
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => em),
       flush: jest.fn(async () => {}),
