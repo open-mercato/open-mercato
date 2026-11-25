@@ -679,6 +679,10 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 ### 2026-11-05 — Q10 decided
 - The maintainer confirmed the platform kernel (Q10) with the seed `auth`, `directory` and `api_keys`. No maintainer decision remains open, and the spec PR leaves draft.
 
+### 2026-11-15 — E3 / #8803
+- Moved dictionary-entry and field-definition translation controls into translations-owned widgets at the two documented additive hosts. Preserved the legacy shared-editor callback and translation record identities.
+- Added absent-module browser regression specs and enabled-module save coverage, plus focused host/component tests. Runtime browser validation remains dependent on a runnable test environment.
+
 ### 2026-11-15 — Deal loss reasons (#8801)
 - Implemented resolution-table row E1 independently: `customers/lib/dealLossReasons.ts` owns the `sales.deal_loss_reason` dictionary, its defaults and the backfill helper, and `customers` seeds it in `seedDefaults`. `sales` no longer seeds it (`seedSalesStatusDictionaries` and `mercato sales seed-statuses` included) and keeps `backfillDealLossReasonDictionary` as a deprecated re-export, so `mercato sales backfill-deal-loss-reasons` is unchanged.
 - Existing tenants without `sales` get the dictionary with `mercato seed:defaults --module customers`; the seed is idempotent, reuses a dictionary that `sales` created earlier and revives a soft-deleted one instead of failing on `dictionaries_scope_key_unique`.
@@ -688,3 +692,7 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 ### 2026-11-15 — E3 / #8803
 - Moved dictionary-entry and field-definition translation controls into translations-owned widgets at the two documented additive hosts. Preserved the legacy shared-editor callback and translation record identities.
 - Added absent-module browser regression specs and enabled-module save coverage, plus focused host/component tests. Runtime browser validation remains dependent on a runnable test environment.
+
+### 2026-11-21 — E3 bundled QA repairs (#10129)
+- Carried the four focused #9569 UI repairs into the kernel bundle: non-submit field-editor controls, serialized translation saves through version refresh, visible/retryable non-404 load failures and localized built-in property captions. Existing mutation guards, translation-row optimistic headers and legacy editor callbacks remain.
+- Included enclosing-form, duplicate mouse/keyboard save, failed-load/retry and Polish-caption regressions. When All Organizations is selected, dictionary translation asks the user to choose one organization in the existing switcher before opening the editor. The scoped flow uses the existing translation authorization and storage rules.

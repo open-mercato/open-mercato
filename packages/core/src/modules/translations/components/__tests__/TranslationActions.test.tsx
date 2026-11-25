@@ -71,7 +71,7 @@ describe('translation action contributions', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Translate', exact: true }))
       expect(screen.getByRole('dialog')).toHaveAccessibleDescription(
-        'Select a specific organization in the header to edit translations.',
+        'Select one organization in the organization switcher to translate this dictionary entry.',
       )
       expect(mockTranslationManager).not.toHaveBeenCalled()
 
