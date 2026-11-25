@@ -52,9 +52,9 @@ Root cause in `packages/core/src/modules/entities/components/EncryptionManager.t
 
 ### Phase 1: Component fix
 
-- [ ] 1.1 Make the save single-flight with `useInFlightGuard` and await the post-save refetch
-- [ ] 1.2 Send 409s to `surfaceRecordConflict` with an in-place refresh
-- [ ] 1.3 Add jest regression tests
+- [x] 1.1 Make the save single-flight with `useInFlightGuard` and await the post-save refetch — 8246325774
+- [x] 1.2 Send 409s to `surfaceRecordConflict` with an in-place refresh — 6ff5a3143b
+- [x] 1.3 Add jest regression tests — 2736eca31c
 
 ### Phase 2: Integration coverage
 
