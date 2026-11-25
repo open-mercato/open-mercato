@@ -1116,7 +1116,7 @@ External channel shows reaction
 ```
 POST   /api/communication_channels/messages/:messageId/reactions
   Body: { emoji: string }
-  Response: { id, emoji, reactedByUserId, createdAt }
+  Response (201 created, 200 already present): { id, messageId, emoji, replaced, enqueued }
 
 DELETE /api/communication_channels/messages/:messageId/reactions/:reactionId
   Response: 204
@@ -2120,7 +2120,7 @@ Detailed step-by-step status:
 
   Transient outbound failures re-enqueue with `computeBackoffMs(attempt)` and incremented attempt, up to `REACTION_PROCESSOR_MAX_ATTEMPTS = 3`. Permanent failures (`status: 400`, missing adapter, channel inactive) stop without retry — reactions are inherently low-stakes (a missed reaction is not data loss).
 - [x] **Reactions API routes:**
-  - `POST /api/communication_channels/messages/[messageId]/reactions` (`requireAuth: true`, `requireFeatures: ['communication_channels.react']`). Validates uuid + body `{ emoji }` via Zod. Dispatches `toggle_outbound_reaction` command with `action: 'add'`. Returns 201 + reaction record on success; 409 on `no_channel_link` / duplicate; 422 on invalid body.
+  - `POST /api/communication_channels/messages/[messageId]/reactions` (`requireAuth: true`, `requireFeatures: ['communication_channels.react']`). Validates uuid + body `{ emoji }` via Zod. Dispatches `toggle_outbound_reaction` command with `action: 'add'`. Returns 201 for a new reaction and 200 with the existing ID for an identical add. A message without a channel link still returns 409. An invalid body returns 422.
   - `DELETE /api/communication_channels/messages/[messageId]/reactions/[reactionId]` (same auth gate). Validates ids, looks up the reaction (404 if not found), then dispatches `toggle_outbound_reaction` with `action: 'remove'` (ownership-checked inside the command). Returns 204 on success.
 - [x] **Webhook route updated** (`api/post/webhook/[provider]/route.ts`) — after signature verification, the route now dispatches by `event.eventType`:
   - `'reaction'` → if the adapter implements `normalizeInboundReaction?`, normalizes and enqueues an inbound reaction job to the reactions queue; otherwise returns 202 with `reason: 'adapter does not implement normalizeInboundReaction'`.
@@ -2135,12 +2135,13 @@ Detailed step-by-step status:
 - [x] **Module-local Playwright integration tests** (2 new files):
   - `TC-045D-004a` — both reaction commands + the worker export stable ids + queue name + max-attempts constant.
   - `TC-045D-004b` — reactions API contract: malformed params return < 500; valid auth gating.
+  - `TC-CHANNEL-REACTION-IDEMPOTENCY-001` — parallel identical POSTs return 201 and 200 with the same ID and leave one reaction row.
 - [x] **Acceptance gates:**
   - `yarn generate` — clean (361 API routes — 2 new reactions routes added).
   - `yarn build:packages` — 19/19 packages built successfully (2,646 entry points in `@open-mercato/core`).
   - `yarn test` — 20/20 package test suites pass; **125 communication_channels tests passing** (37 slice 2a + 19 slice 2b + 41 slice 2c + 28 slice 2d), 0 regressions in UI 1,074 / CLI 876 / other modules.
   - No raw SQL anywhere; all entity reads via EntityManager.
-  - Idempotency on reaction insert via UNIQUE `(message_id, emoji, reacted_by_user_id, reacted_by_external_id)` constraint + unique-violation → noop in command.
+  - Outbound add idempotency uses the unique index for internal actors on `(tenant_id, message_id, emoji, reacted_by_user_id)`. If an insert races, the command resolves the committed row in the same tenant and organization. In a single-reaction channel, an identical emoji is also detected before replacing prior reactions. The existing reaction returns `replaced: 0` and `enqueued: false`.
   - Single-vs-multi reaction semantics correctly driven by `ChannelCapabilities.multiReactionPerUser` (Slack `true` → insert; WhatsApp `false` → replace per-user reactions).
   - Adapter contract change is **additive** — `normalizeInboundReaction?` is optional; existing adapters that don't implement it work unchanged.
 
@@ -2230,6 +2231,8 @@ Slices 2a through 2f deliver Phases 1–5 of SPEC-045d's original phase plan in 
 ---
 
 ## 18. Migration & Backward Compatibility
+
+For #10389, a duplicate reaction POST returns HTTP 200 with the existing success response fields. Client code that special-cased a duplicate 409 can handle both success statuses as 2xx. The command's `added` result can carry the optional `alreadyPresent` flag. No database migration is required.
 
 This spec is the **first implementation** of the `communication_channels` hub. There is no v1 to be backward-compatible with. The BC impact is therefore characterised per the 13 contract-surface categories in `BACKWARD_COMPATIBILITY.md`:
 
@@ -2353,6 +2356,8 @@ None.
 ## Changelog
 
 - 2026-11-27: Require access to every mapped channel for Messages thread-wide access (#10612). The caller must own each personal mailbox mapped to the thread. Direct sender and recipient access follows the Messages participant rules. The reply command checks the delivery budget against the source conversation when available. `TC-CHANNEL-REPLY-003` covers the Messages detail route.
+- 2026-11-25 — Identical outbound reaction requests reuse the same reaction ID and enqueue delivery once (#10389).
+
 - 2026-11-24: Keep SMTP-style replies deliverable when the parent retains its `outbound:` reference; wait only for adoption of provider-native references (#9071).
 - 2026-11-17: Resolve native outbound replies by scoped conversation provenance; refuse ambiguous/conflicting routes and retain explicit mailbox selection (#9739).
 - 2026-11-22: Supply recipient and RFC reply headers for native replies to send-as-user email (#9071).

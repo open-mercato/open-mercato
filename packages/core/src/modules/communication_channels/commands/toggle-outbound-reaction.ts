@@ -45,6 +45,7 @@ export type ToggleOutboundReactionResult =
       emoji: string
       enqueued: boolean
       replaced: number
+      alreadyPresent?: true
     }
   | {
       status: 'removed'
@@ -57,6 +58,18 @@ export type ToggleOutboundReactionResult =
 
 export const COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID =
   'communication_channels.reaction.toggle_outbound'
+
+function existingReactionResult(reaction: MessageReaction): ToggleOutboundReactionResult {
+  return {
+    status: 'added',
+    reactionId: reaction.id,
+    messageId: reaction.messageId,
+    emoji: reaction.emoji,
+    enqueued: false,
+    replaced: 0,
+    alreadyPresent: true,
+  }
+}
 
 /**
  * Combined outbound add/remove command.
@@ -71,8 +84,8 @@ export const COMMUNICATION_CHANNELS_TOGGLE_OUTBOUND_REACTION_COMMAND_ID =
  *   - Applies single-vs-multi semantics:
  *     - WhatsApp-style (multiReactionPerUser=false): deletes prior reactions
  *       from the same internal user on the same message, then inserts the new one.
- *     - Slack-style (multiReactionPerUser=true): inserts; duplicates blocked
- *       by the unique constraint.
+ *     - Slack-style (multiReactionPerUser=true): keeps prior reactions.
+ *   - Returns the existing reaction for an identical add, including insert races.
  *   - Enqueues an `outbound_send` job carrying the new reaction id.
  *   - Emits `communication_channels.reaction.added` synchronously (optimistic).
  *
@@ -176,20 +189,13 @@ const toggleOutboundReactionCommand: CommandHandler<
     const capabilities = (resolvedChannel.capabilities as ChannelCapabilities | null) ?? null
 
     if (input.action === 'add') {
+      const reactionScope = { ...dscope, messageId: message.id, reactedByUserId: input.reactedByUserId }
       let replaced = 0
       if (!allowsMultipleReactionsPerUser(capabilities)) {
-        const prior = await findWithDecryption(
-          em,
-          MessageReaction,
-          {
-            messageId: message.id,
-            reactedByUserId: input.reactedByUserId,
-            tenantId: input.scope.tenantId,
-            organizationId: input.scope.organizationId ?? null,
-          },
-          undefined,
-          dscope,
-        )
+        const prior = await findWithDecryption(em, MessageReaction, reactionScope, undefined, dscope)
+        const existing = prior.length === 1 ? prior[0] : undefined
+        if (existing?.emoji === input.emoji) return existingReactionResult(existing)
+
         replaced = prior.length
         for (const row of prior) em.remove(row)
         if (replaced > 0) await em.flush()
@@ -210,6 +216,15 @@ const toggleOutboundReactionCommand: CommandHandler<
         await em.flush()
       } catch (err) {
         if (isUniqueViolation(err)) {
+          // Read the committed row outside the failed insert's identity map.
+          const existing = await findOneWithDecryption(
+            em.fork(),
+            MessageReaction,
+            { ...reactionScope, emoji: input.emoji },
+            undefined,
+            dscope,
+          )
+          if (existing) return existingReactionResult(existing)
           return { status: 'noop', reason: 'duplicate reaction from same user with same emoji' }
         }
         throw err
