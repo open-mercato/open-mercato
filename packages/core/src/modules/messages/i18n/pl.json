@@ -93,6 +93,7 @@
   "messages.confirmation.confirmed": "Potwierdzono",
   "messages.confirmation.confirmedAt": "Potwierdzono",
   "messages.confirmation.notConfirmed": "Nie potwierdzono",
+  "messages.dealMerge.participantLabel": "Wiadomości",
   "messages.detail.from": "Od",
   "messages.detail.hideDetails": "Ukryj szczegóły",
   "messages.detail.noAttachments": "Brak powiązanych załączników.",

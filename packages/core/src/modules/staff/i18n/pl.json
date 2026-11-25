@@ -246,6 +246,7 @@
   "staff.availabilityRuleSets.tabs.availability": "Dostępność",
   "staff.availabilityRuleSets.tabs.details": "Szczegóły",
   "staff.availabilityRuleSets.tabs.label": "Sekcje harmonogramu",
+  "staff.dealMerge.participantLabel": "Wpisy czasu",
   "staff.errors.customerAccountNotLinked": "To konto portalu nie jest powiązane z klientem.",
   "staff.errors.forbidden": "Brak dostępu",
   "staff.errors.internal": "Wewnętrzny błąd serwera",

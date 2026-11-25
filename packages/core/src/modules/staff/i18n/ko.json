@@ -246,6 +246,7 @@
   "staff.availabilityRuleSets.tabs.availability": "가용성",
   "staff.availabilityRuleSets.tabs.details": "상세 정보",
   "staff.availabilityRuleSets.tabs.label": "일정 섹션",
+  "staff.dealMerge.participantLabel": "시간 기록",
   "staff.errors.customerAccountNotLinked": "이 포털 계정은 고객과 연결되어 있지 않습니다.",
   "staff.errors.forbidden": "접근이 금지되었습니다",
   "staff.errors.internal": "내부 서버 오류",

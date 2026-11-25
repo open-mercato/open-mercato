@@ -23,6 +23,9 @@ import * as workInboxService from './lib/work-inbox/service'
 import { createWorkflowDefinitionAuthoring } from './lib/owned-definition'
 import { registerWorkInboxSources } from './lib/work-inbox/provider'
 import { userTaskWorkInboxSource, WORKFLOWS_MODULE_ID } from './lib/work-inbox/user-task-source'
+import { registerWorkflowDealMergeParticipant } from './lib/deal-merge-participant'
+
+registerWorkflowDealMergeParticipant()
 
 // Register the `workflows.definition` optimistic-lock reader at module-DI load
 // time (top-level, like sales/customers) so it is present in the global reader

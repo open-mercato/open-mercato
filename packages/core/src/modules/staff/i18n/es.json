@@ -246,6 +246,7 @@
   "staff.availabilityRuleSets.tabs.availability": "Disponibilidad",
   "staff.availabilityRuleSets.tabs.details": "Detalles",
   "staff.availabilityRuleSets.tabs.label": "Secciones del horario",
+  "staff.dealMerge.participantLabel": "Registros de tiempo",
   "staff.errors.customerAccountNotLinked": "Esta cuenta del portal no está vinculada a un cliente.",
   "staff.errors.forbidden": "Prohibido",
   "staff.errors.internal": "Error interno del servidor",

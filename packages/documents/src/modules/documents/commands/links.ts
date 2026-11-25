@@ -39,6 +39,7 @@ import {
   resolveDocumentsCommandScope,
 } from './shared'
 import { nextDocumentVersion } from './mutation-helpers'
+import { isDealLinkEntityType, lockLiveDealReference } from '../lib/dealReferenceGuard'
 
 const scopedSchema = z.object({
   tenantId: z.string().uuid(),
@@ -232,6 +233,9 @@ const createLinkCommand: CommandHandler<LinkCreateCommandInput, LinkCreateComman
     await withAtomicFlush(writeEm, [
       async () => {
         await lockDocumentAggregateRoot(writeEm, input.documentId, scope)
+        if (isDealLinkEntityType(canonicalInput.link.entityType)) {
+          await lockLiveDealReference(writeEm, canonicalInput.link.entityId, scope)
+        }
         const features = await assertDocumentCommandCanEdit(ctx, writeEm, input.documentId, scope)
         if (!isDocumentEntityRegistryModuleEnabled(registryEntry)) {
           throw new CrudHttpError(403, { error: 'documents.links.targetRestricted' })
@@ -457,6 +461,12 @@ const deleteLinkCommand: CommandHandler<LinkDeleteCommandInput, LinkDeleteComman
         tenantId: input.tenantId,
         organizationId: input.organizationId,
       })
+      if (isDealLinkEntityType(preflightRegistryEntry.type)) {
+        await lockLiveDealReference(em, verified.id, {
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+        })
+      }
       link = await loadLinkById(em, input, true, true)
       if (!link) throw new CrudHttpError(409, { error: 'Record changed by another user' })
       assertLinkStateUnchanged(link, after)

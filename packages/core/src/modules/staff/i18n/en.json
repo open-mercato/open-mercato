@@ -246,6 +246,7 @@
   "staff.availabilityRuleSets.tabs.availability": "Availability",
   "staff.availabilityRuleSets.tabs.details": "Details",
   "staff.availabilityRuleSets.tabs.label": "Schedule sections",
+  "staff.dealMerge.participantLabel": "Time entries",
   "staff.errors.customerAccountNotLinked": "This portal account is not linked to a customer.",
   "staff.errors.forbidden": "Forbidden",
   "staff.errors.internal": "Internal server error",

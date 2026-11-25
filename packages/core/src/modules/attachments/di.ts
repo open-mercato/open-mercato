@@ -18,6 +18,9 @@ import {
   createAttachmentDocumentStructureService,
 } from './lib/documentStructure/service'
 import { enqueueDocumentStructureExtraction } from './lib/documentStructure/queue'
+import { registerAttachmentDealMergeParticipant } from './lib/deal-merge-participant'
+
+registerAttachmentDealMergeParticipant()
 
 export function register(container: AppContainer) {
   container.register({

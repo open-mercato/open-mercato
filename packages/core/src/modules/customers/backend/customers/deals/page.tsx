@@ -28,7 +28,7 @@ import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitive
 import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
-import { Briefcase, AlertTriangle, X } from 'lucide-react'
+import { Briefcase, AlertTriangle, GitMerge, X } from 'lucide-react'
 import { isLostDealStatus, isWonDealStatus } from '../../../lib/dealStatus'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
@@ -133,6 +133,15 @@ type DealRow = {
   companies: { id: string; label: string }[]
   people: { id: string; label: string }[]
 } & Record<string, unknown>
+
+export function buildDealMergeHref(selectedRows: Array<{ id: string }>): string | null {
+  if (selectedRows.length !== 2) return null
+  const params = new URLSearchParams({
+    left: selectedRows[0].id,
+    right: selectedRows[1].id,
+  })
+  return `/backend/customers/deals/merge?${params.toString()}`
+}
 
 type DealsResponse = {
   items?: Array<Record<string, unknown>>
@@ -611,6 +620,24 @@ export default function CustomersDealsPage() {
     setNeedsAttentionOnly(false)
     setPage(1)
   }, [])
+
+  const handleMergeDeals = React.useCallback(
+    async (selectedRows: DealRow[]): Promise<BulkActionExecuteResult | false> => {
+      const mergeHref = buildDealMergeHref(selectedRows)
+      if (!mergeHref) {
+        return {
+          ok: false,
+          message: t(
+            'customers.deals.merge.selectExactlyTwo',
+            'Select exactly two deals to merge.',
+          ),
+        }
+      }
+      router.push(mergeHref)
+      return { ok: true }
+    },
+    [router, t],
+  )
 
   // Bulk owner reassignment. The picker needs a user choice, so onExecute parks a resolver
   // and the dialog settles it: `false` on cancel keeps the selection, and the success shape
@@ -1309,6 +1336,12 @@ export default function CustomersDealsPage() {
           sorting={sorting}
           onSortingChange={setSorting}
           bulkActions={[
+            {
+              id: 'merge',
+              label: t('customers.deals.merge.action', 'Merge deals'),
+              icon: GitMerge,
+              onExecute: handleMergeDeals,
+            },
             {
               id: 'reassign-owner',
               label: t('customers.deals.list.actions.reassignOwner', 'Reassign owner'),

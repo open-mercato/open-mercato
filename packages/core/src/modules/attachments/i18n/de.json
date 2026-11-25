@@ -3,6 +3,7 @@
   "attachments.access.notFound": "Anhang nicht gefunden.",
   "attachments.access.timeout": "Zeitüberschreitung bei der Zugriffsprüfung des Anhangs. Bitte versuchen Sie es erneut.",
   "attachments.access.unauthorized": "Nicht autorisiert",
+  "attachments.dealMerge.participantLabel": "Anhänge",
   "attachments.errors.activeContentBlocked": "Das Hochladen aktiver Inhalte ist nicht erlaubt.",
   "attachments.errors.dangerousExecutable": "Ausführbare Dateitypen sind als Anhänge nicht erlaubt.",
   "attachments.errors.maxUploadSize": "Der Anhang überschreitet die maximal zulässige Upload-Größe.",

@@ -93,6 +93,7 @@
   "messages.confirmation.confirmed": "Bestätigt",
   "messages.confirmation.confirmedAt": "Bestätigt am",
   "messages.confirmation.notConfirmed": "Nicht bestätigt",
+  "messages.dealMerge.participantLabel": "Nachrichten",
   "messages.detail.from": "Von",
   "messages.detail.hideDetails": "Details ausblenden",
   "messages.detail.noAttachments": "Keine Anhänge verknüpft.",

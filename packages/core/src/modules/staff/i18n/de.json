@@ -246,6 +246,7 @@
   "staff.availabilityRuleSets.tabs.availability": "Verfügbarkeit",
   "staff.availabilityRuleSets.tabs.details": "Details",
   "staff.availabilityRuleSets.tabs.label": "Zeitplanbereiche",
+  "staff.dealMerge.participantLabel": "Zeiteinträge",
   "staff.errors.customerAccountNotLinked": "Dieses Portalkonto ist keinem Kunden zugeordnet.",
   "staff.errors.forbidden": "Zugriff verweigert",
   "staff.errors.internal": "Interner Serverfehler",

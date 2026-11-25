@@ -236,6 +236,7 @@ function makeHarness() {
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),
     rollback: jest.fn(async () => undefined),
+    execute: jest.fn(async () => []),
     findOne: jest.fn(async (entity: unknown, where: Row) => mockRead(entity, where)[0] ?? null),
     count: jest.fn(async (entity: unknown, where: Row) => mockRead(entity, where).length),
     createQueryBuilder: jest.fn(() => ({

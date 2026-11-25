@@ -42,7 +42,11 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
     // `customers.email.share_conversation` (owner-scoped: it only ever lets you
     // share your OWN conversation, so the existing `customers.*` admin wildcard
     // grants no escalation).
-    expect(facts.events).toHaveLength(51)
+    //
+    // 52 since Deal merge added `customers.deal.merged` (lifecycle event emitted
+    // after two duplicate Deals are merged into a survivor; see
+    // .ai/specs/2026-11-24-deal-merge.md).
+    expect(facts.events).toHaveLength(52)
     expect(facts.aclFeatures).toHaveLength(22)
     expect(facts.searchEntities).toEqual([
       'customers:customer_person_profile',

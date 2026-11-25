@@ -61,6 +61,7 @@ import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
 import { resolveStageDefaultProbability } from '../lib/stageDefaultProbability'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { decimalToString, parseDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { mergeDealsCommand } from './deal-merge'
 
 const logger = createLogger('customers')
 
@@ -1310,3 +1311,4 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
 registerCommand(createDealCommand)
 registerCommand(updateDealCommand)
 registerCommand(deleteDealCommand)
+registerCommand(mergeDealsCommand)

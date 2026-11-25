@@ -54,6 +54,7 @@ import { canChangeEmailVisibility, isEmailHiddenFrom } from '../lib/visibilityFi
 import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
+import { lockEntityReferences } from '@open-mercato/shared/lib/entities/reference-lock'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from '../lib/calendar/eventTypeResolver'
 import { clearInapplicableCoreFields, findInapplicableCoreFields, omitHiddenCoreClears, preserveHiddenCoreValuesOnSameTypeEdit } from '../lib/calendar/interactionApplicability'
@@ -601,6 +602,12 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
           : null
 
       if (parsed.dealId) {
+        await lockEntityReferences(trx, [{
+          entityId: 'customers:customer_deal',
+          recordId: parsed.dealId,
+          tenantId: entity.tenantId,
+          organizationId: entity.organizationId,
+        }])
         await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
       }
 
@@ -996,6 +1003,12 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
 
       if (parsed.dealId !== undefined) {
         if (parsed.dealId) {
+          await lockEntityReferences(trx, [{
+            entityId: 'customers:customer_deal',
+            recordId: parsed.dealId,
+            tenantId: interaction.tenantId,
+            organizationId: interaction.organizationId,
+          }])
           await requireDealInScope(trx, parsed.dealId, interaction.tenantId, interaction.organizationId)
         }
         interaction.dealId = parsed.dealId ?? null

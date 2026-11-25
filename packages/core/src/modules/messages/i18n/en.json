@@ -93,6 +93,7 @@
   "messages.confirmation.confirmed": "Confirmed",
   "messages.confirmation.confirmedAt": "Confirmed at",
   "messages.confirmation.notConfirmed": "Not confirmed",
+  "messages.dealMerge.participantLabel": "Messages",
   "messages.detail.from": "From",
   "messages.detail.hideDetails": "Hide details",
   "messages.detail.noAttachments": "No attachments linked.",

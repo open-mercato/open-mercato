@@ -511,6 +511,7 @@
   "workflows.create.eventTriggersDescription": "이 워크플로우 정의를 생성한 후, 시스템에서 특정 이벤트가 발생할 때 워크플로우를 자동으로 시작하도록 이벤트 트리거를 설정할 수 있습니다.",
   "workflows.create.eventTriggersTitle": "이벤트 트리거",
   "workflows.create.title": "자동화 생성",
+  "workflows.dealMerge.participantLabel": "워크플로 작업",
   "workflows.definitions.activities": "액티비티",
   "workflows.definitions.backToList": "정의 목록으로 돌아가기",
   "workflows.definitions.category": "카테고리",

@@ -93,6 +93,7 @@
   "messages.confirmation.confirmed": "확인됨",
   "messages.confirmation.confirmedAt": "확인 시각",
   "messages.confirmation.notConfirmed": "확인되지 않음",
+  "messages.dealMerge.participantLabel": "메시지",
   "messages.detail.from": "보낸 사람",
   "messages.detail.hideDetails": "상세 정보 숨기기",
   "messages.detail.noAttachments": "연결된 첨부 파일이 없습니다.",

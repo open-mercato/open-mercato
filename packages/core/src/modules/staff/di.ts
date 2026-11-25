@@ -44,6 +44,9 @@ import {
   type ProjectCodeContext,
 } from './lib/time-tracking/projectCode'
 import type { ScopedResolverContext } from './lib/time-tracking/registries/scope'
+import { registerStaffDealMergeParticipant } from './lib/deal-merge-participant'
+
+registerStaffDealMergeParticipant()
 
 export type AvailabilityAccessResolver = {
   resolveAvailabilityWriteAccess(

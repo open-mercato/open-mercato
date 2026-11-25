@@ -224,6 +224,64 @@ export const dealsBulkUpdateResponseSchema = z.object({
   message: z.string(),
 })
 
+export const dealMergeQuerySchema = z.object({
+  left: uuid(),
+  right: uuid(),
+}).refine(({ left, right }) => left !== right, {
+  message: 'customers.deals.merge.errors.distinct_records',
+  path: ['right'],
+})
+
+export const dealMergeScalarSchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().max(DEAL_DESCRIPTION_MAX_LENGTH).nullable(),
+  status: z.string().min(1).max(50),
+  pipelineStage: z.string().max(100).nullable(),
+  pipelineId: uuid().nullable(),
+  pipelineStageId: uuid().nullable(),
+  valueAmount: moneyInputSchema(z.coerce.number().min(0)).nullable(),
+  valueCurrency: z.string().length(3).nullable(),
+  probability: z.number().min(0).max(100).nullable(),
+  expectedCloseAt: z.coerce.date().nullable(),
+  ownerUserId: uuid().nullable(),
+  source: z.string().max(150).nullable(),
+  closureOutcome: z.enum(['won', 'lost']).nullable().optional(),
+  lossReasonId: uuid().nullable(),
+  lossNotes: z.string().max(4000).nullable(),
+})
+
+export const dealMergeRequestSchema = z.object({
+  survivorId: uuid(),
+  sourceId: uuid(),
+  survivorUpdatedAt: z.string().datetime({ offset: true }),
+  sourceUpdatedAt: z.string().datetime({ offset: true }),
+  values: dealMergeScalarSchema,
+  customFields: z.record(z.string(), z.unknown()),
+  personIds: z.array(uuid()).max(1000),
+  companyIds: z.array(uuid()).max(1000),
+  primaryPersonEntityId: uuid().nullable(),
+}).superRefine((value, ctx) => {
+  if (value.survivorId === value.sourceId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'customers.deals.merge.errors.distinct_records', path: ['sourceId'] })
+  }
+  if (value.primaryPersonEntityId && !value.personIds.includes(value.primaryPersonEntityId)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'customers.deals.merge.errors.primary_person', path: ['primaryPersonEntityId'] })
+  }
+  if ((value.values.pipelineId === null) !== (value.values.pipelineStageId === null)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'customers.deals.merge.errors.pipeline_stage', path: ['values', 'pipelineStageId'] })
+  }
+})
+
+export const dealMergeResponseSchema = z.object({
+  ok: z.boolean(),
+  survivorId: uuid().nullable(),
+  sourceId: uuid().nullable(),
+  message: z.string().optional(),
+})
+
+export type DealMergeRequest = z.infer<typeof dealMergeRequestSchema>
+export type DealMergeScalarValues = z.infer<typeof dealMergeScalarSchema>
+
 export const activityCreateSchema = scopedSchema.extend({
   entityId: uuid(),
   activityType: z.string().min(1).max(100),
