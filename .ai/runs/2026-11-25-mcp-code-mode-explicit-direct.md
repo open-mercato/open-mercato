@@ -22,5 +22,5 @@ Clients that rely on implicit Code Mode execution may need to migrate to typed t
 
 ### Phase 1: MCP exposure policy
 
-- [ ] 1.1 Require explicit direct mode for Code Mode execution
-- [ ] 1.2 Verify exposure and update operator documentation
+- [x] 1.1 Require explicit direct mode for Code Mode execution — 95f5a0101a
+- [x] 1.2 Verify exposure and update operator documentation — 95f5a0101a
