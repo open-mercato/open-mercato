@@ -21,6 +21,12 @@ const scopedUpdateFields = {
   id: z.string().uuid(),
 }
 
+export const resourcesResourceTypeRepairOptionsSchema = z.strictObject({
+  tenant: scopedCreateFields.tenantId,
+  org: scopedCreateFields.organizationId,
+  apply: z.literal(true).optional(),
+})
+
 export const resourcesResourceTypeCreateSchema = z.object({
   ...scopedCreateFields,
   name: z.string().min(1),

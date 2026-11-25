@@ -1,7 +1,9 @@
 import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resourcesResourceTypeRepairOptionsSchema } from './data/validators'
 import { seedResourcesActivityTypes, seedResourcesAddressTypes, seedResourcesCapacityUnits, seedResourcesResourceExamples, type ResourcesSeedScope } from './lib/seeds'
 
 function parseArgs(rest: string[]) {
@@ -116,4 +118,31 @@ const seedExamplesCommand: ModuleCli = {
   },
 }
 
-export default [seedCapacityUnitsCommand, seedActivityTypesCommand, seedAddressTypesCommand, seedExamplesCommand]
+const repairResourceTypeReferencesCommand: ModuleCli = {
+  command: 'repair-resource-type-references',
+  help: 'mercato resources repair-resource-type-references --tenant <tenantId> --org <organizationId> [--apply]',
+  async run(rest) {
+    const { tenant, org, apply = false } = resourcesResourceTypeRepairOptionsSchema.parse(parseModuleCliOptions(rest))
+    const { repairResourceTypeReferences } = await import('./commands/resources')
+    const container = await createRequestContainer()
+    try {
+      const result = await repairResourceTypeReferences(
+        container.resolve<EntityManager>('em'),
+        container.resolve<DataEngine>('dataEngine'),
+        { tenantId: tenant, organizationId: org },
+        apply,
+      )
+      console.log(JSON.stringify({ mode: apply ? 'apply' : 'preview', ...result }))
+    } finally {
+      await container.dispose()
+    }
+  },
+}
+
+export default [
+  seedCapacityUnitsCommand,
+  seedActivityTypesCommand,
+  seedAddressTypesCommand,
+  seedExamplesCommand,
+  repairResourceTypeReferencesCommand,
+]

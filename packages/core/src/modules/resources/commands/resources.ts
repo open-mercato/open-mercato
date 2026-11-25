@@ -1,9 +1,9 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { IsolationLevel, raw, type EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, flushCrudSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
@@ -212,6 +212,14 @@ async function syncResourcesResourceTags(em: EntityManager, params: {
 
 type ResourceScope = { tenantId: string; organizationId: string }
 
+function resourceTypeScopeFilter(scope: ResourceScope, state: 'live' | 'deleted' = 'live') {
+  return {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    deletedAt: state === 'live' ? null : { $ne: null },
+  }
+}
+
 async function countResourceTypes(
   em: EntityManager,
   resourceTypeId: string,
@@ -220,10 +228,46 @@ async function countResourceTypes(
 ): Promise<number> {
   return em.count(ResourcesResourceType, {
     id: resourceTypeId,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    deletedAt: state === 'live' ? null : { $ne: null },
+    ...resourceTypeScopeFilter(scope, state),
   })
+}
+
+export async function repairResourceTypeReferences(
+  em: EntityManager,
+  dataEngine: DataEngine,
+  scope: ResourceScope,
+  apply: boolean,
+): Promise<{ found: number; cleared: number }> {
+  const { found, clearedIds } = await em.fork().transactional(async (tx) => {
+    const liveTypes = tx.createQueryBuilder(ResourcesResourceType).select('id').where(resourceTypeScopeFilter(scope))
+    const invalidReferences = {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+      resourceTypeId: { $ne: null, $nin: liveTypes },
+    }
+    if (!apply) {
+      return { found: await tx.count(ResourcesResource, invalidReferences), clearedIds: [] }
+    }
+    const cleared = await tx.createQueryBuilder(ResourcesResource).update({
+      resourceTypeId: null,
+      updatedAt: raw("greatest(clock_timestamp(), updated_at + interval '1 millisecond')"),
+    }).where(invalidReferences).returning('id').execute<Array<{ id: string }>>('all')
+    return { found: cleared.length, clearedIds: cleared.map(({ id }) => id) }
+  }, { isolationLevel: IsolationLevel.SERIALIZABLE, readOnly: !apply })
+
+  for (const id of clearedIds) {
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: em.getReference(ResourcesResource, id),
+      identifiers: { id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      events: resourcesResourceCrudEvents,
+      indexer: resourceCrudIndexer,
+    })
+  }
+  if (clearedIds.length) await flushCrudSideEffects(dataEngine)
+  return { found, cleared: clearedIds.length }
 }
 
 async function assertResourceTypeAssignable(
