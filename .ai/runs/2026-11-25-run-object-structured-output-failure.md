@@ -47,8 +47,8 @@ Found while reviewing #10504. It was already there before that PR.
 
 ### Phase 1: Map structured-output failures
 
-- [ ] 1.1 Route maps AI_NoObjectGeneratedError / AI_NoOutputGeneratedError to 502 structured_output_invalid, plus OpenAPI error entry
-- [ ] 1.2 Route unit tests: both errors, the wrapped-cause case, no model text in the body, and an unrelated error staying a 500
+- [x] 1.1 Route maps AI_NoObjectGeneratedError / AI_NoOutputGeneratedError to 502 structured_output_invalid, plus OpenAPI error entry — c2163e4f1b
+- [x] 1.2 Route unit tests: both errors, the wrapped-cause case, no model text in the body, and an unrelated error staying a 500 — 35dd042425
 
 ### Phase 2: Docs
 
