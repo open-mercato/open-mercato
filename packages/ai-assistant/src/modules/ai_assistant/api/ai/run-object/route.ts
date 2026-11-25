@@ -1,8 +1,9 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
-import type { UIMessage } from 'ai'
+import { NoObjectGeneratedError, NoOutputGeneratedError, type UIMessage } from 'ai'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -13,6 +14,7 @@ import { AgentPolicyError } from '../../../lib/agent-tools'
 import { AiModelFactoryError } from '../../../lib/model-factory'
 import { aiAgentHttpCallSettingsSchema } from '../../../lib/agent-call-contract'
 import { CORRELATION_ID_HEADER, resolveCorrelationId } from '../../../lib/mcp-audit'
+import { reportAiAssistantError } from '../../../lib/report-ai-assistant-error'
 import {
   isAiAgentDispatchDeniedError,
   resolveAiAgentRunDispatcher,
@@ -113,6 +115,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 409, description: 'Agent/tool/execution-mode policy violation, or no principal to run a dispatched agent as.' },
         { status: 422, description: 'Agent does not support object-mode execution, or a dispatched agent received an unsupported option (`dispatch_option_unsupported`).' },
         { status: 500, description: 'Internal runtime failure.' },
+        { status: 502, description: 'The model answered, but its answer did not match the agent\'s output schema, or the tool loop ended without a final answer (`structured_output_invalid`). Retrying may succeed.' },
         { status: 503, description: 'No usable LLM provider is configured for this deployment (`no_provider_configured` / `api_key_missing`).' },
       ],
     },
@@ -152,6 +155,21 @@ function statusForDenyCode(code: AgentPolicyDenyCode): number {
     default:
       return 409
   }
+}
+
+type StructuredOutputFailure = { errorName: string; finishReason: string | null }
+
+function findStructuredOutputFailure(error: unknown): StructuredOutputFailure | null {
+  const candidates = [error, error instanceof Error ? error.cause : undefined]
+  for (const candidate of candidates) {
+    if (NoObjectGeneratedError.isInstance(candidate)) {
+      return { errorName: candidate.name, finishReason: candidate.finishReason ?? null }
+    }
+    if (NoOutputGeneratedError.isInstance(candidate)) {
+      return { errorName: candidate.name, finishReason: null }
+    }
+  }
+  return null
 }
 
 type RunObjectAuth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
@@ -351,6 +369,27 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
     if (error instanceof AiModelFactoryError) {
       return jsonError(503, 'No LLM provider is configured for this deployment.', error.code)
+    }
+    const structuredOutputFailure = findStructuredOutputFailure(error)
+    if (structuredOutputFailure) {
+      const agentId = bodyResult.data.agent
+      const { errorName, finishReason } = structuredOutputFailure
+      logger.warn('AI Run Object — model answer did not match the output schema', {
+        agentId,
+        errorName,
+        finishReason,
+      })
+      reportAiAssistantError(
+        new Error(`[internal] run-object structured output invalid (${errorName})`),
+        'ai_assistant.run_object_output_invalid',
+        { agentId, errorName },
+      )
+      const { t } = await resolveTranslations()
+      return jsonError(
+        502,
+        t('ai_assistant.errors.structuredOutputInvalid'),
+        'structured_output_invalid',
+      )
     }
     logger.error('AI Run Object — Dispatch failure', { err: error })
     return jsonError(
