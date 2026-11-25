@@ -17,6 +17,7 @@ topics: ["data-integrity","encryption","query-index","filters","concurrency","te
 
 **Decrypted-query evidence (#8174)**: Moving encrypted predicates into memory must not re-evaluate SQL-applied public predicates against lossy projections. Keep storage metadata on its actual columns, retain typed JSON for deferred array predicates, and strip internal comparison aliases from responses. Real PostgreSQL tests catch projection mistakes that a row-returning query mock cannot.
 
+**Operator-composition evidence (#7996)**: When merging a new query operator with deferred decrypted filtering, audit the in-memory matcher as well as every SQL compiler. Prepared negation values carry the pattern in an object. Exercise direct encrypted fields and mixed encrypted/public OR groups, retaining the same null and array semantics as the SQL path.
 
 ## Maintenance persistence boundaries
 
