@@ -426,28 +426,31 @@ export default function WebSearchSettingsPage() {
       nextBaseline: Record<string, unknown> = patch,
     ) => {
       setSavingSection(section)
-      await runMutation({
-        context: { contextId: 'agent_orchestrator.web_search.settings' },
-        operation: async () => {
-          const call = await apiCall<{ error?: string }>(SETTINGS_URL, { method: 'PUT', body: JSON.stringify(patch) })
-          if (!call.ok) {
-            flash(
-              typeof call.result?.error === 'string'
-                ? call.result.error
-                : t('agent_orchestrator.settings.webSearch.saveError', 'Could not save web search settings.'),
-              'error',
-            )
-            return
-          }
-          setSource('tenant')
-          // Moves only for what was actually written, so every other card keeps
-          // showing its own unsaved changes.
-          setBaseline((current) => ({ ...current, ...nextBaseline }))
-          flash(t('agent_orchestrator.settings.webSearch.saved', 'Saved.'), 'success')
-          await load()
-        },
-      })
-      setSavingSection(null)
+      try {
+        await runMutation({
+          context: { contextId: 'agent_orchestrator.web_search.settings' },
+          operation: async () => {
+            const call = await apiCall<{ error?: string }>(SETTINGS_URL, { method: 'PUT', body: JSON.stringify(patch) })
+            if (!call.ok) {
+              flash(
+                typeof call.result?.error === 'string'
+                  ? call.result.error
+                  : t('agent_orchestrator.settings.webSearch.saveError', 'Could not save web search settings.'),
+                'error',
+              )
+              return
+            }
+            setSource('tenant')
+            // Moves only for what was actually written, so every other card keeps
+            // showing its own unsaved changes.
+            setBaseline((current) => ({ ...current, ...nextBaseline }))
+            flash(t('agent_orchestrator.settings.webSearch.saved', 'Saved.'), 'success')
+            await load()
+          },
+        })
+      } finally {
+        setSavingSection(null)
+      }
     },
     [runMutation, t, load],
   )
