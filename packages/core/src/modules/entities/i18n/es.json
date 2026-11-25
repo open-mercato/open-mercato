@@ -271,7 +271,7 @@
   "entities.userEntities.records.apiHelp.rotate": "Rota las claves con regularidad y elimina las que no uses en el panel de administración.",
   "entities.userEntities.records.apiHelp.scope": "Todos los endpoints requieren una clave de API válida. Las claves heredan el alcance del inquilino, la organización y las funciones.",
   "entities.userEntities.records.apiHelp.security": "Indicaciones de seguridad",
-  "entities.userEntities.records.apiHelp.title": "API: gestionar registros con cURL",
+  "entities.userEntities.records.apiHelp.title": "API: registros con cURL",
   "entities.userEntities.records.apiHelp.update": "5) Actualiza un registro",
   "entities.userEntities.records.errors.deleteFailed": "No se pudo eliminar el registro",
   "entities.userEntities.records.errors.entityIdRequired": "Se requiere el identificador de la entidad",

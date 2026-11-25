@@ -271,7 +271,7 @@
   "entities.userEntities.records.apiHelp.rotate": "Regularnie wymieniaj klucze i usuwaj nieużywane klucze w panelu administracyjnym.",
   "entities.userEntities.records.apiHelp.scope": "Wszystkie punkty końcowe wymagają prawidłowego klucza API. Klucze dziedziczą zakres tenanta, organizacji i funkcji.",
   "entities.userEntities.records.apiHelp.security": "Wskazówki dotyczące bezpieczeństwa",
-  "entities.userEntities.records.apiHelp.title": "API: zarządzanie rekordami za pomocą cURL",
+  "entities.userEntities.records.apiHelp.title": "API: rekordy przez cURL",
   "entities.userEntities.records.apiHelp.update": "5) Zaktualizuj rekord",
   "entities.userEntities.records.errors.deleteFailed": "Nie udało się usunąć rekordu",
   "entities.userEntities.records.errors.entityIdRequired": "Wymagany jest identyfikator encji",

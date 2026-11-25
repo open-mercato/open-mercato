@@ -271,7 +271,7 @@
   "entities.userEntities.records.apiHelp.rotate": "Rotate keys regularly and delete unused keys in the admin UI.",
   "entities.userEntities.records.apiHelp.scope": "All endpoints require a valid API key. Keys inherit tenant, organization, and feature scope.",
   "entities.userEntities.records.apiHelp.security": "Security notes",
-  "entities.userEntities.records.apiHelp.title": "API: Manage Records via cURL",
+  "entities.userEntities.records.apiHelp.title": "API: Records via cURL",
   "entities.userEntities.records.apiHelp.update": "5) Update a record",
   "entities.userEntities.records.errors.deleteFailed": "Failed to delete record",
   "entities.userEntities.records.errors.entityIdRequired": "Entity identifier is required",

@@ -38,7 +38,7 @@ for (const [locale, dictionary] of [['en', english], ['pl', polish]] as const) {
 
       await login(page, 'admin')
       await page.context().addCookies([{ name: 'locale', value: locale, url: baseURL ?? 'http://localhost:3000' }])
-      for (const width of [1280, 390]) {
+      for (const width of [1280, 390, 320]) {
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records`)
         const heading = dictionary['entities.userEntities.records.title'].replace('{{entityId}}', entityId)
@@ -49,6 +49,7 @@ for (const [locale, dictionary] of [['en', english], ['pl', polish]] as const) {
         await expect(help).toHaveAttribute('aria-expanded', 'false')
         await help.click()
         await expect(help).toHaveAttribute('aria-expanded', 'true')
+        await expect.poll(() => help.evaluate((button) => button.scrollWidth - button.clientWidth)).toBeLessThanOrEqual(1)
         for (const key of ['intro', 'keyHelp', 'security'] as const) {
           await expect(page.getByText(dictionary[`entities.userEntities.records.apiHelp.${key}`])).toBeVisible()
         }

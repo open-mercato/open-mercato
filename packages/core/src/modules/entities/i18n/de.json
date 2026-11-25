@@ -271,7 +271,7 @@
   "entities.userEntities.records.apiHelp.rotate": "Wechseln Sie die Schlüssel regelmäßig und löschen Sie ungenutzte Schlüssel im Adminbereich.",
   "entities.userEntities.records.apiHelp.scope": "Alle Endpunkte benötigen einen gültigen API-Schlüssel. Schlüssel übernehmen den Geltungsbereich für Mandant, Organisation und Funktionen.",
   "entities.userEntities.records.apiHelp.security": "Sicherheitshinweise",
-  "entities.userEntities.records.apiHelp.title": "API: Datensätze mit cURL verwalten",
+  "entities.userEntities.records.apiHelp.title": "API: Datensätze per cURL",
   "entities.userEntities.records.apiHelp.update": "5) Datensatz aktualisieren",
   "entities.userEntities.records.errors.deleteFailed": "Datensatz konnte nicht gelöscht werden",
   "entities.userEntities.records.errors.entityIdRequired": "Entitätskennung ist erforderlich",
