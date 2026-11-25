@@ -3,6 +3,8 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { EmptyState } from '../../primitives/empty-state'
+import { EmptyStateIllustration } from '../../primitives/empty-state-illustration'
 
 export type BarChartDataItem = Record<string, string | number | null | undefined>
 
@@ -16,8 +18,12 @@ export type BarChartProps = {
   colors?: string[]
   layout?: 'vertical' | 'horizontal'
   valueFormatter?: (value: number) => string
+  /** Shorter formatter for the value axis (e.g. compact numbers); tooltips and bar labels keep `valueFormatter`. */
+  axisValueFormatter?: (value: number) => string
   showLegend?: boolean
   showGridLines?: boolean
+  /** Emphasize one bar (single-series only): the largest value or the last item. */
+  highlight?: 'max' | 'last'
   className?: string
   emptyMessage?: string
   categoryLabels?: Record<string, string>
@@ -60,6 +66,7 @@ export function BarChart({
   colors,
   layout = 'vertical',
   valueFormatter = defaultValueFormatter,
+  axisValueFormatter,
   showLegend = true,
   showGridLines = true,
   className = '',
@@ -69,6 +76,7 @@ export function BarChart({
   heightClassName = 'h-52',
   animate = true,
   accessibilityLayer = true,
+  highlight,
 }: BarChartProps) {
   const hasWrapper = !!title && !bare
   const wrapperClass = hasWrapper ? `rounded-lg border bg-card p-4 ${className}` : className
@@ -101,7 +109,7 @@ export function BarChart({
       <div className={wrapperClass}>
         {title && !bare && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className={stateClassName}>
-          <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          <EmptyState variant="subtle" size="sm" illustration={<EmptyStateIllustration kind="mercato-records" className="size-24" />} title={emptyMessage} />
         </div>
       </div>
     )
@@ -118,9 +126,11 @@ export function BarChart({
           colors={colors}
           layout={layout}
           valueFormatter={valueFormatter}
+          axisValueFormatter={axisValueFormatter}
           showLegend={showLegend}
           showGridLines={showGridLines}
           categoryLabels={categoryLabels}
+          highlight={highlight}
           animate={animate}
           accessibilityLayer={accessibilityLayer}
           fillHeight={bare}

@@ -7,7 +7,6 @@ import {
   Cell,
   Tooltip,
   ResponsiveContainer,
-  Legend,
   Label,
 } from 'recharts'
 import { ChartTooltipContent, resolveChartColor } from './ChartUtils'
@@ -31,8 +30,8 @@ export default function PieChartImpl({
   total,
 }: ImplProps) {
   const getSliceColor = (idx: number): string => resolveChartColor(colors?.[idx], idx)
-  const innerRadius = variant === 'donut' ? '60%' : 0
-  const outerRadius = '80%'
+  const innerRadius = variant === 'donut' ? '68%' : 0
+  const outerRadius = '88%'
 
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -42,20 +41,36 @@ export default function PieChartImpl({
           dataKey="value"
           nameKey="name"
           cx="50%"
-          cy="40%"
+          cy="50%"
           innerRadius={innerRadius}
           outerRadius={outerRadius}
-          paddingAngle={2}
-          strokeWidth={0}
+          paddingAngle={data.length > 1 ? 3 : 0}
+          cornerRadius={4}
+          isAnimationActive={false}
+          stroke="var(--card)"
+          strokeWidth={2}
         >
           {data.map((_, idx) => (
             <Cell key={`cell-${idx}`} fill={getSliceColor(idx)} />
           ))}
           {showLabel && variant === 'donut' && (
             <Label
-              value={valueFormatter(total)}
-              position="center"
-              className="fill-foreground text-2xl font-bold"
+              content={(props) => {
+                const viewBox = props.viewBox
+                const cx = viewBox && 'cx' in viewBox && typeof viewBox.cx === 'number' ? viewBox.cx : 0
+                const cy = viewBox && 'cy' in viewBox && typeof viewBox.cy === 'number' ? viewBox.cy : 0
+                return (
+                  <text
+                    x={cx}
+                    y={cy}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    className="fill-foreground text-2xl font-bold"
+                  >
+                    {valueFormatter(total)}
+                  </text>
+                )
+              }}
             />
           )}
         </Pie>
@@ -69,13 +84,6 @@ export default function PieChartImpl({
             }
           />
         )}
-        <Legend
-          verticalAlign="bottom"
-          height={36}
-          formatter={(value) => (
-            <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: '12px' }}>{value}</span>
-          )}
-        />
       </RechartsPieChart>
     </ResponsiveContainer>
   )

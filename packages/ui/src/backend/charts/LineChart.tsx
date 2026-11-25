@@ -3,6 +3,8 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { EmptyState } from '../../primitives/empty-state'
+import { EmptyStateIllustration } from '../../primitives/empty-state-illustration'
 
 export type LineChartDataItem = Record<string, string | number | null | undefined>
 
@@ -16,6 +18,8 @@ export type LineChartProps = {
   colors?: string[]
   showArea?: boolean
   valueFormatter?: (value: number) => string
+  /** Shorter formatter for the value axis (e.g. compact numbers); the tooltip keeps `valueFormatter`. */
+  axisValueFormatter?: (value: number) => string
   showLegend?: boolean
   showGridLines?: boolean
   curveType?: 'linear' | 'natural' | 'monotone' | 'step'
@@ -64,6 +68,7 @@ export function LineChart({
   colors,
   showArea = false,
   valueFormatter = defaultValueFormatter,
+  axisValueFormatter,
   showLegend = true,
   showGridLines = true,
   curveType = 'monotone',
@@ -106,7 +111,7 @@ export function LineChart({
       <div className={wrapperClassName}>
         {title && !bare && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className={stateClassName}>
-          <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          <EmptyState variant="subtle" size="sm" illustration={<EmptyStateIllustration kind="mercato-records" className="size-24" />} title={emptyMessage} />
         </div>
       </div>
     )
@@ -123,6 +128,7 @@ export function LineChart({
           colors={colors}
           showArea={showArea}
           valueFormatter={valueFormatter}
+          axisValueFormatter={axisValueFormatter}
           showLegend={showLegend}
           showGridLines={showGridLines}
           curveType={curveType}

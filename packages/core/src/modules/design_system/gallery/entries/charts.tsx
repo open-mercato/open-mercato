@@ -12,6 +12,17 @@ import {
   TopNTable,
   type TopNTableColumn,
 } from '@open-mercato/ui/backend/charts'
+import {
+  BarChartHighlightExample,
+  BreakdownListExample,
+  DashboardKpiMinimalExample,
+  DashboardKpiTilesExample,
+  MetricDeltaExample,
+  SalesByRegionTileExample,
+  SignalBadgeExample,
+  StackedFlowChartExample,
+  TileHeaderExample,
+} from '../demos/dashboard-tiles'
 import type { GalleryEntry } from '../types'
 
 // Component titles and variant names are proper nouns from the codebase and
@@ -455,6 +466,35 @@ const kpiCardEntry: GalleryEntry = {
   importPath: '@open-mercato/ui/backend/charts',
   variants: [
     {
+      id: 'dashboard-tile',
+      title: 'Dashboard tile',
+      render: () => <DashboardKpiMinimalExample />,
+      code: `import { KpiCard } from '@open-mercato/ui/backend/charts'
+
+<KpiCard
+  appearance="minimal"
+  title="Revenue"
+  icon={<Banknote className="size-5" />}
+  value={68400}
+  trend={[41, 44, 43, 47, 46, 52, 55, 54, 59, 63, 61, 68]}
+  signal={{ variant: 'success', kind: 'shift-up', label: 'Above typical range' }}
+  delta={{ value: 11.5, direction: 'up' }}
+  comparisonLabel="vs previous period"
+  axisLabels={{ start: 'Oct 27', end: 'Nov 25' }}
+/>`,
+    },
+    {
+      id: 'dashboard-row',
+      title: 'Dashboard KPI row',
+      render: () => <DashboardKpiTilesExample />,
+      code: `import { KpiCard } from '@open-mercato/ui/backend/charts'
+
+<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+  <KpiCard appearance="minimal" title="Revenue" value={68400} trend={trend} signal={signal} delta={delta} />
+  <KpiCard appearance="minimal" title="Orders" value={349} trend={trend} signal={signal} delta={delta} />
+</div>`,
+    },
+    {
       id: 'trend-directions',
       title: 'Trend directions',
       render: () => <KpiCardEntryTrendDirectionsPreview />,
@@ -547,6 +587,14 @@ const barChartEntry: GalleryEntry = {
   title: 'BarChart',
   importPath: '@open-mercato/ui/backend/charts',
   variants: [
+    {
+      id: 'highlight',
+      title: 'Highlighted bar',
+      render: () => <BarChartHighlightExample />,
+      code: `import { BarChart } from '@open-mercato/ui/backend/charts'
+
+<BarChart data={data} index="month" categories={['Revenue']} highlight="max" showLegend={false} />`,
+    },
     {
       id: 'basic',
       title: 'Basic (revenue by month)',
@@ -819,6 +867,102 @@ const marketingWidgetsEntry: GalleryEntry = {
     },
   ],
 }
+const metricDeltaEntry: GalleryEntry = {
+  id: 'metric-delta',
+  title: 'MetricDelta',
+  importPath: '@open-mercato/ui/backend/charts',
+  descriptionKey: 'design_system.entries.metric-delta.description',
+  variants: [
+    {
+      id: 'default',
+      title: 'default',
+      render: () => <MetricDeltaExample />,
+      code: `import { MetricDelta } from '@open-mercato/ui/backend/charts'
+
+<MetricDelta deltaPct={0.124} label="vs previous period" />`,
+    },
+  ],
+}
+
+const signalBadgeEntry: GalleryEntry = {
+  id: 'signal-badge',
+  title: 'SignalBadge',
+  importPath: '@open-mercato/ui/backend/charts',
+  descriptionKey: 'design_system.entries.signal-badge.description',
+  variants: [
+    {
+      id: 'default',
+      title: 'default',
+      render: () => <SignalBadgeExample />,
+      code: `import { SignalBadge } from '@open-mercato/ui/backend/charts'
+
+<SignalBadge variant="success" kind="shift-up" label="Above typical range" />`,
+    },
+  ],
+}
+
+const tileHeaderEntry: GalleryEntry = {
+  id: 'tile-header',
+  title: 'TileHeader',
+  importPath: '@open-mercato/ui/backend/charts',
+  descriptionKey: 'design_system.entries.tile-header.description',
+  variants: [
+    {
+      id: 'default',
+      title: 'default',
+      render: () => <TileHeaderExample />,
+      code: `import { TileHeader } from '@open-mercato/ui/backend/charts'
+
+<TileHeader title="Sales by region" icon={<Globe />} action={<IconButton aria-label="More actions" />} />`,
+    },
+  ],
+}
+
+const breakdownListEntry: GalleryEntry = {
+  id: 'breakdown-list',
+  title: 'BreakdownList',
+  importPath: '@open-mercato/ui/backend/charts',
+  descriptionKey: 'design_system.entries.breakdown-list.description',
+  variants: [
+    {
+      id: 'default',
+      title: 'default',
+      render: () => <BreakdownListExample />,
+      code: `import { BreakdownList } from '@open-mercato/ui/backend/charts'
+
+<BreakdownList rows={[{ label: 'North', value: 28400 }, { label: 'Central', value: 17900 }]} />`,
+    },
+    {
+      id: 'in-tile',
+      title: 'Inside a dashboard tile',
+      render: () => <SalesByRegionTileExample />,
+      code: `import { BreakdownList, TileHeader } from '@open-mercato/ui/backend/charts'
+
+<section className="rounded-2xl border border-border bg-card p-5">
+  <TileHeader title="Sales by region" icon={<Globe />} as="h2" />
+  <BreakdownList rows={rows} />
+</section>`,
+    },
+  ],
+}
+
+const stackedFlowChartEntry: GalleryEntry = {
+  id: 'stacked-flow-chart',
+  title: 'StackedFlowChart',
+  importPath: '@open-mercato/ui/backend/charts',
+  descriptionKey: 'design_system.entries.stacked-flow-chart.description',
+  variants: [
+    {
+      id: 'default',
+      title: 'default',
+      render: () => <StackedFlowChartExample />,
+      code: `import { StackedFlowChart } from '@open-mercato/ui/backend/charts'
+
+<StackedFlowChart data={[{ label: 'Jan', values: { New: 18, Won: 4 } }]} series={['New', 'Won']} />`,
+    },
+  ],
+}
+
 export const entries: GalleryEntry[] = [
   marketingWidgetsEntry,
   kpiCardEntry,
@@ -827,4 +971,9 @@ export const entries: GalleryEntry[] = [
   lineChartEntry,
   pieChartEntry,
   topNTableEntry,
+  metricDeltaEntry,
+  signalBadgeEntry,
+  tileHeaderEntry,
+  breakdownListEntry,
+  stackedFlowChartEntry,
 ]
