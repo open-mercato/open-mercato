@@ -58,4 +58,4 @@ Root cause in `packages/core/src/modules/entities/components/EncryptionManager.t
 
 ### Phase 2: Integration coverage
 
-- [ ] 2.1 Add Playwright TC-ENTITIES-013 for double click and stale write
+- [x] 2.1 Add Playwright TC-ENTITIES-013 for double click and stale write — 83fe2d6ca0
