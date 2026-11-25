@@ -4,7 +4,7 @@ import { extendTailwindMerge } from "tailwind-merge"
 const mergeClasses = extendTailwindMerge({
   extend: {
     classGroups: { "font-size": [{ text: ["overline", "compact", "title-4", "ai-body"] }] },
-    theme: { radius: ["button", "field", "card", "badge", "alert", "content-card", "textarea", "upload", "selection-card", "ai-control", "ai-input", "ai-prompt", "ai-prompt-inner", "ai-prompt-mobile", "ai-prompt-mobile-inner"] },
+    theme: { spacing: ["field-label", "field-hint", "field-stack", "group", "control-x", "card", "panel", "dialog", "section", "page", "gutter"], radius: ["button", "field", "card", "badge", "alert", "content-card", "textarea", "upload", "selection-card", "ai-control", "ai-input", "ai-prompt", "ai-prompt-inner", "ai-prompt-mobile", "ai-prompt-mobile-inner"] },
   },
 })
 

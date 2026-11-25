@@ -14,7 +14,7 @@ TODO: Fix that latter to have reference by the package names
 @source "../../node_modules/@open-mercato/content/src/**/*.{ts,tsx}";
 @source "../../node_modules/@open-mercato/ai-assistant/src/**/*.{ts,tsx}";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark *):not(:is(.light *)));
 
 @utility z-popover {
   z-index: var(--z-index-popover);
@@ -135,6 +135,18 @@ TODO: Fix that latter to have reference by the package names
   --radius-field: var(--om-radius-field);
   --radius-card: var(--om-radius-card);
   --radius-badge: var(--om-radius-badge);
+  --spacing-field-label: var(--om-space-field-label);
+  --spacing-field-hint: var(--om-space-field-hint);
+  --spacing-field-stack: var(--om-space-field-stack);
+  --spacing-group: var(--om-space-group);
+  --spacing-control-x: var(--om-space-control-x);
+  --spacing-card: var(--om-space-card);
+  --spacing-panel: var(--om-space-panel);
+  --spacing-dialog: var(--om-space-dialog);
+  --spacing-section: var(--om-space-section);
+  --spacing-page: var(--om-space-page);
+  --spacing-gutter: var(--om-space-gutter);
+  --container-form: 40rem;
 
   /* ═══ Design System: Semantic Status Colors ═══ */
   --color-status-error-bg: var(--status-error-bg);
@@ -289,6 +301,8 @@ TODO: Fix that latter to have reference by the package names
   --shadow-switch-thumb: 0 1px 2px rgb(10 13 20 / 0.10), 0 0 0 0.5px rgb(10 13 20 / 0.04);
 }
 
+/* .light re-declares the light tokens so a light DesignScope works inside a dark page. */
+.light,
 :root {
   --accent-orange-text: #a15a00;
   --accent-orange: #ff9600;
@@ -310,6 +324,21 @@ TODO: Fix that latter to have reference by the package names
   --om-radius-field: calc(var(--radius) - 2px);
   --om-radius-card: calc(var(--radius) + 6px);
   --om-radius-badge: calc(infinity * 1px);
+  /* Spacing roles. Components read these through gap-field-label, p-card,
+     space-y-field-stack and the other role utilities, so spacing is set in one
+     place and a density scope can tighten every form at once. Values sit on
+     the 4px grid. Theme-invariant (no .dark override). */
+  --om-space-field-label: 0.5rem;
+  --om-space-field-hint: 0.5rem;
+  --om-space-field-stack: 1.5rem;
+  --om-space-group: 2.5rem;
+  --om-space-control-x: 0.75rem;
+  --om-space-card: 1.5rem;
+  --om-space-panel: 1rem;
+  --om-space-dialog: 1.5rem;
+  --om-space-section: 2rem;
+  --om-space-page: 1rem;
+  --om-space-gutter: 1rem;
   /* Vertical space a viewport-pinned floating CTA needs to clear: its bottom
      offset (1.5rem) plus its own height, rounded up to the spacing scale.
      Consumed by the `body[data-demo-feedback-fab]` safe-area rule below.
@@ -1159,4 +1188,30 @@ body[data-demo-feedback-fab="visible"] #main-content + footer {
 .om-mdx-editor .cm-cursor,
 .om-mdx-editor .cm-dropCursor {
   border-left-color: var(--foreground);
+}
+
+/* Spacing roles: wider page margin and gutter from the sm breakpoint, and a
+   compact density scope for dense forms, tables and side panels. */
+@media (min-width: 640px) {
+  :root {
+    --om-space-page: 1.5rem;
+    --om-space-gutter: 1.5rem;
+  }
+}
+
+[data-density="compact"] {
+  --om-space-field-label: 0.25rem;
+  --om-space-field-hint: 0.25rem;
+  --om-space-field-stack: 1rem;
+  --om-space-group: 1.5rem;
+  --om-space-card: 1rem;
+  --om-space-panel: 0.75rem;
+  --om-space-dialog: 1rem;
+  --om-space-section: 1.5rem;
+}
+
+@utility page-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--om-space-gutter);
 }

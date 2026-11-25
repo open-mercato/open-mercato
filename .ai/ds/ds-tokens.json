@@ -1055,6 +1055,11 @@
         "type": "COLOR"
       }
     },
+    "container-form": {
+      "kind": "dimension",
+      "value": "40rem",
+      "figma": null
+    },
     "destructive": {
       "kind": "color",
       "light": "oklch(0.577 0.245 27.325)",
@@ -1485,6 +1490,116 @@
       "figma": null,
       "note": "Vertical space a viewport-pinned floating CTA needs to clear: its bottom offset (1.5rem) plus its own height, rounded up to the spacing scale. Consumed by the `body[data-demo-feedback-fab]` safe-area rule below. Pure spacing — theme-invariant (no .dark override)."
     },
+    "om-radius-badge": {
+      "kind": "expression",
+      "light": "calc(infinity * 1px)",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-radius-button": {
+      "kind": "expression",
+      "light": "calc(var(--radius) - 2px)",
+      "dark": null,
+      "resolvedPx": 8,
+      "themeInvariant": true,
+      "figma": null,
+      "note": "Shape roles. Primitives read these through rounded-button / rounded-field / rounded-card / rounded-badge, so a theme scope can restyle every block by overriding four variables. Defaults equal rounded-md / rounded-md / rounded-xl / rounded-full. Theme-invariant (no .dark override)."
+    },
+    "om-radius-card": {
+      "kind": "expression",
+      "light": "calc(var(--radius) + 6px)",
+      "dark": null,
+      "resolvedPx": 16,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-radius-field": {
+      "kind": "expression",
+      "light": "calc(var(--radius) - 2px)",
+      "dark": null,
+      "resolvedPx": 8,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-space-card": {
+      "kind": "dimension",
+      "light": "1.5rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-space-control-x": {
+      "kind": "dimension",
+      "light": "0.75rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-space-dialog": {
+      "kind": "dimension",
+      "light": "1.5rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-space-field-hint": {
+      "kind": "dimension",
+      "light": "0.5rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-space-field-label": {
+      "kind": "dimension",
+      "light": "0.5rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null,
+      "note": "Spacing roles. Components read these through gap-field-label, p-card, space-y-field-stack and the other role utilities, so spacing is set in one place and a density scope can tighten every form at once. Values sit on the 4px grid. Theme-invariant (no .dark override)."
+    },
+    "om-space-field-stack": {
+      "kind": "dimension",
+      "light": "1.5rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-space-group": {
+      "kind": "dimension",
+      "light": "2.5rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-space-gutter": {
+      "kind": "dimension",
+      "light": "1rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-space-page": {
+      "kind": "dimension",
+      "light": "1rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-space-panel": {
+      "kind": "dimension",
+      "light": "1rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
+    "om-space-section": {
+      "kind": "dimension",
+      "light": "2rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null
+    },
     "popover": {
       "kind": "color",
       "light": "oklch(1 0 0)",
@@ -1627,11 +1742,43 @@
         "type": "FLOAT"
       }
     },
+    "radius-badge": {
+      "kind": "expression",
+      "value": "var(--om-radius-badge)",
+      "figma": {
+        "name": "radius/badge",
+        "type": "FLOAT"
+      }
+    },
+    "radius-button": {
+      "kind": "expression",
+      "value": "var(--om-radius-button)",
+      "figma": {
+        "name": "radius/button",
+        "type": "FLOAT"
+      }
+    },
+    "radius-card": {
+      "kind": "expression",
+      "value": "var(--om-radius-card)",
+      "figma": {
+        "name": "radius/card",
+        "type": "FLOAT"
+      }
+    },
     "radius-content-card": {
       "kind": "dimension",
       "value": "0.75rem",
       "figma": {
         "name": "radius/content-card",
+        "type": "FLOAT"
+      }
+    },
+    "radius-field": {
+      "kind": "expression",
+      "value": "var(--om-radius-field)",
+      "figma": {
+        "name": "radius/field",
         "type": "FLOAT"
       }
     },
@@ -1916,6 +2063,61 @@
         "name": "sidebar-ring",
         "type": "COLOR"
       }
+    },
+    "spacing-card": {
+      "kind": "expression",
+      "value": "var(--om-space-card)",
+      "figma": null
+    },
+    "spacing-control-x": {
+      "kind": "expression",
+      "value": "var(--om-space-control-x)",
+      "figma": null
+    },
+    "spacing-dialog": {
+      "kind": "expression",
+      "value": "var(--om-space-dialog)",
+      "figma": null
+    },
+    "spacing-field-hint": {
+      "kind": "expression",
+      "value": "var(--om-space-field-hint)",
+      "figma": null
+    },
+    "spacing-field-label": {
+      "kind": "expression",
+      "value": "var(--om-space-field-label)",
+      "figma": null
+    },
+    "spacing-field-stack": {
+      "kind": "expression",
+      "value": "var(--om-space-field-stack)",
+      "figma": null
+    },
+    "spacing-group": {
+      "kind": "expression",
+      "value": "var(--om-space-group)",
+      "figma": null
+    },
+    "spacing-gutter": {
+      "kind": "expression",
+      "value": "var(--om-space-gutter)",
+      "figma": null
+    },
+    "spacing-page": {
+      "kind": "expression",
+      "value": "var(--om-space-page)",
+      "figma": null
+    },
+    "spacing-panel": {
+      "kind": "expression",
+      "value": "var(--om-space-panel)",
+      "figma": null
+    },
+    "spacing-section": {
+      "kind": "expression",
+      "value": "var(--om-space-section)",
+      "figma": null
     },
     "status-error-bg": {
       "kind": "color",
