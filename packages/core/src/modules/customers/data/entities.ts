@@ -3,6 +3,7 @@ import { Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Un
 import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type { DictionaryEntrySortMode } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import type { CalendarEventTypeBehavior } from '../calendar-event-types'
+import type { InteractionBodyFormat } from './validators'
 
 export type CustomerEntityKind = 'person' | 'company'
 export type CustomerAddressFormat = 'line_first' | 'street_first'
@@ -595,6 +596,9 @@ export class CustomerInteraction {
 
   @Property({ name: 'body', type: 'text', nullable: true })
   body?: string | null
+
+  @Property({ name: 'body_format', type: 'text', nullable: true })
+  bodyFormat?: InteractionBodyFormat | null
 
   /**
    * UUID pointing at `communication_channels.message_channel_link.id`.

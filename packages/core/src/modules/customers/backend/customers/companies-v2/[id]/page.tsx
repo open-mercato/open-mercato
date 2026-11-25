@@ -259,6 +259,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
       title: typeof activity.title === 'string' ? activity.title : null,
       body: typeof activity.body === 'string' ? activity.body : null,
+      bodyFormat: raw.bodyFormat === 'text' || raw.bodyFormat === 'markdown' ? raw.bodyFormat : null,
       scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
       occurredAt: typeof activity.occurredAt === 'string' ? activity.occurredAt : null,
       durationMinutes: durationValue,

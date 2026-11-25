@@ -210,6 +210,34 @@ describe('ScheduleActivityDialog', () => {
     jest.restoreAllMocks()
   })
 
+  it.each([
+    { description: 'Original&#x20;', expectedBody: undefined, expectedFormat: undefined },
+    { description: 'Edited \\&#x20; then a space&#x20;', expectedBody: 'Edited \\&#x20; then a space&#x20;', expectedFormat: 'markdown' },
+    { description: '', expectedBody: null, expectedFormat: null },
+  ])('writes note body provenance only when the description changes to $description', async ({ description, expectedBody, expectedFormat }) => {
+    mockScheduleState = createScheduleState({ activityType: 'note', title: 'Existing note', description })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={jest.fn()}
+        entityId="11111111-1111-4111-8111-111111111111"
+        editData={{ id: 'note-id', interactionType: 'note', body: 'Original&#x20;', scheduledAt: null, visibility: null }}
+      />,
+    )
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ })) })
+
+    const init = apiCallOrThrowMock.mock.calls[0][1] as { method: string; body: string }
+    const payload = JSON.parse(init.body) as Record<string, unknown>
+    expect(payload.body).toBe(expectedBody)
+    expect(payload.bodyFormat).toBe(expectedFormat)
+    expect(payload).not.toHaveProperty('scheduledAt')
+    expect(payload).not.toHaveProperty('visibility')
+    expect(payload).not.toHaveProperty('dealId')
+    expect(payload).not.toHaveProperty('linkedEntities')
+  })
+
   describe('custom activity edits (#8026)', () => {
     function renderCustomActivity(baseKind: 'note' | 'task' | 'meeting', endTime = false, durationMinutes: number | null = null) {
       const baseline = calendarEventTypes.find((definition) => definition.key === baseKind)!

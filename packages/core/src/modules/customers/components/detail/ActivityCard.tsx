@@ -15,6 +15,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
 import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
 import { ActivityAiActions } from './ActivityAiActions'
+import { ActivityBodyPreview } from './ActivityBodyPreview'
 import { EmailCardActions, type EmailCardWidgetData } from './EmailCardActions'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -71,13 +72,6 @@ function formatTimeLabel(value: string): string {
   return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
-function trimSnippet(value: string | null | undefined): string | null {
-  const normalized = value?.trim()
-  if (!normalized) return null
-  if (normalized.length <= 200) return normalized
-  return `${normalized.slice(0, 197)}...`
-}
-
 function resolveTarget(activity: InteractionSummary): string | null {
   const participant = activity.participants?.find((item) => item.name || item.email)
   if (participant?.name) return participant.name
@@ -126,9 +120,8 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
   const t = useT()
   const timestamp = activity.occurredAt ?? activity.scheduledAt
   const TypeIcon = TYPE_ICONS[activity.interactionType] ?? StickyNote
-  const titleBase = activity.title ?? activity.body ?? activity.interactionType
-  const title = activity.duration ? `${titleBase} (${activity.duration} min)` : titleBase
-  const snippet = trimSnippet(activity.body && activity.title ? activity.body : activity.body ?? null)
+  const title = activity.title ?? (activity.body != null ? <ActivityBodyPreview activity={activity} /> : activity.interactionType)
+  const duration = activity.duration ? ` (${activity.duration} min)` : ''
   const actorLabel = activity.authorName ?? activity.authorEmail ?? t('customers.changelog.user.system', 'System')
   const target = resolveTarget(activity)
   const direction = activity.interactionType === 'email'
@@ -216,14 +209,14 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <h4
+              <div role="heading" aria-level={4}
                 className={cn(
                   'truncate text-sm font-semibold',
                   isCanceled ? 'text-muted-foreground line-through' : 'text-foreground',
                 )}
               >
-                {title}
-              </h4>
+                {title}{duration}
+              </div>
               {isCanceled ? (
                 <StatusBadge variant="neutral" className="shrink-0">
                   {t('customers.interactions.status.canceled', 'Canceled')}
@@ -292,8 +285,8 @@ export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutatio
           </div>
         ) : null}
 
-        {snippet ? (
-          <p className="mt-2 text-sm text-muted-foreground">{snippet}</p>
+        {activity.body?.trim() ? (
+          <div className="mt-2 text-sm text-muted-foreground"><ActivityBodyPreview activity={activity} compact /></div>
         ) : null}
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">

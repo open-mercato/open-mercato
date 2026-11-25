@@ -8,6 +8,7 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { AiActionChips } from './AiActionChips'
+import { ActivityBodyPreview } from './ActivityBodyPreview'
 import type { InteractionSummary } from './types'
 import { isCanceledInteractionStatus, isOpenInteractionStatus } from '../../lib/interactionStatus'
 
@@ -90,7 +91,7 @@ function TimelineEntry({
 }) {
   const dateStr = activity.scheduledAt ?? activity.occurredAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
-  const title = activity.title ?? activity.body ?? activity.interactionType
+  const title = activity.title ?? (activity.body != null ? <ActivityBodyPreview activity={activity} /> : activity.interactionType)
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
   const isOpen = isOpenInteractionStatus(activity.status)
   const isCanceled = isCanceledInteractionStatus(activity.status)
@@ -146,14 +147,14 @@ function TimelineEntry({
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex flex-wrap items-start justify-end gap-2">
             <div className="flex min-w-32 flex-1 flex-wrap items-center gap-1.5">
-              <span
+              <div
                 className={cn(
                   'block text-xs font-semibold leading-tight',
                   isCanceled ? 'text-muted-foreground line-through' : 'text-foreground',
                 )}
               >
                 {title}{duration}
-              </span>
+              </div>
               {isCanceled ? (
                 <StatusBadge variant="neutral" className="shrink-0">
                   {t('customers.interactions.status.canceled', 'Canceled')}
@@ -199,9 +200,9 @@ function TimelineEntry({
           </div>
 
           {activity.body && activity.title && (
-            <p className="text-[11px] leading-snug text-muted-foreground">
-              {activity.body}
-            </p>
+            <div className="text-xs leading-snug text-muted-foreground">
+              <ActivityBodyPreview activity={activity} />
+            </div>
           )}
 
           {activity.authorName && (

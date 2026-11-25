@@ -506,6 +506,9 @@ const interactionGuestPermissionsSchema = z
 
 export const calendarTimezoneSchema = z.string().trim().min(1).max(120).refine(isCalendarTimezone, { message: 'customers.calendar.editor.validation.timezoneInvalid' })
 
+export const interactionBodyFormatSchema = z.enum(['text', 'markdown'])
+export type InteractionBodyFormat = z.infer<typeof interactionBodyFormatSchema>
+
 const interactionExtendedFields = {
   timezone: calendarTimezoneSchema.optional().nullable(),
   durationMinutes: z.number().int().min(0).optional().nullable(),
@@ -527,6 +530,7 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   enforceSelectableType: z.boolean().optional(),
   title: z.string().trim().max(500).optional().nullable(),
   body: z.string().trim().max(10000).optional().nullable(),
+  bodyFormat: interactionBodyFormatSchema.nullish(),
   // Lenient like `deal_status` (status: z.string().max(50)). The `interaction-statuses`
   // dictionary drives the UI dropdown; the API accepts any string <=50 chars so existing
   // rows, external writers, and the dispatch-crm MCP keep working. Open/terminal semantics
@@ -613,6 +617,7 @@ const interactionUpdateBaseSchema = z
         confirmDiscardInapplicableValues: z.boolean().optional(),
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),
+        bodyFormat: interactionBodyFormatSchema.nullish(),
         status: z.string().max(50).optional(),
         date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
         time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),

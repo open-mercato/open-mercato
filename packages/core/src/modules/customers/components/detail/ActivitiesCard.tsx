@@ -7,6 +7,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { ActivitiesDayStrip } from './ActivitiesDayStrip'
+import { ActivityBodyPreview } from './ActivityBodyPreview'
 import { ActivitiesAddNewMenu, type ActivityKind } from './ActivitiesAddNewMenu'
 import type { InteractionSummary } from './types'
 import { isOpenInteractionStatus } from '../../lib/interactionStatus'
@@ -268,9 +269,9 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
           <Icon className="size-4 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex flex-1 flex-col gap-[4px]">
-          <span className="text-sm leading-5 tracking-[-0.084px] text-foreground">
-            {activity.title ?? activity.body ?? labelForType(activity.interactionType, t)}
-          </span>
+          <div className="text-sm leading-5 text-foreground">
+            {activity.title ?? (activity.body != null ? <ActivityBodyPreview activity={activity} /> : labelForType(activity.interactionType, t))}
+          </div>
           {duration ? (
             <span className={cn(
               'inline-flex w-fit items-center gap-[2px] rounded-full pl-[4px] pr-[8px] py-[2px] text-xs font-medium leading-[16px]',

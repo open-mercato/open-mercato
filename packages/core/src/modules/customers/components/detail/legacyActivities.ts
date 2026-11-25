@@ -10,6 +10,7 @@ function mapActivityToInteraction(activity: ActivitySummary): InteractionSummary
     interactionType: activity.activityType,
     title: activity.subject ?? null,
     body: activity.body ?? null,
+    bodyFormat: activity.bodyFormat,
     status: 'done',
     scheduledAt: null,
     occurredAt: activity.occurredAt ?? null,

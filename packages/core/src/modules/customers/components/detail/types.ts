@@ -1,5 +1,7 @@
 "use client"
 
+import type { InteractionBodyFormat } from '../../data/validators'
+
 export type Translator = (
   key: string,
   fallback?: string,
@@ -50,6 +52,7 @@ export type ActivitySummary = {
   activityType: string
   subject?: string | null
   body?: string | null
+  bodyFormat?: InteractionBodyFormat | null
   occurredAt?: string | null
   createdAt: string
   appearanceIcon?: string | null
@@ -123,6 +126,7 @@ export type InteractionSummary = {
   interactionType: string
   title?: string | null
   body?: string | null
+  bodyFormat?: InteractionBodyFormat | null
   status: string
   scheduledAt?: string | null
   occurredAt?: string | null

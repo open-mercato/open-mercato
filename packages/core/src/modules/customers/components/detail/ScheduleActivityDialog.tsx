@@ -469,15 +469,28 @@ export function ScheduleActivityDialog({
       // the activity's record on multi-entity pages like the deal detail view. This
       // dialog has no entity picker, so an edit must never silently re-link (#6050).
       const payloadEntityId = isSaveEdit && editData?.entityId ? editData.entityId : entityId
-      const hiddenFieldValue = keepsCustomType && isSaveEdit ? undefined : null
-      const preservesSchedule = keepsCustomType && isSaveEdit && !visibleFields.has('date')
+      const preservesNoteDetails = isSaveEdit && !typeChanged && presentationType === 'note'
+      const hiddenFieldValue = isSaveEdit && (keepsCustomType || preservesNoteDetails) ? undefined : null
+      const preservesSchedule = isSaveEdit && (keepsCustomType || preservesNoteDetails) && !visibleFields.has('date')
+      const preservesNoteVisibility = preservesNoteDetails && state.visibility === (editData?.visibility ?? 'team')
+      const body = state.description.trim() || null
+      const bodyChanged = !isSaveEdit || state.description !== (editData?.body ?? '')
+      const isNote = presentationType === 'note'
+      const linkedEntities = state.linkedEntities.map(({ id, type, label }) => ({ id, type, label }))
+      const existingLinks = editData?.linkedEntities ?? []
+      const preservesNoteLinks = preservesNoteDetails && linkedEntities.length === existingLinks.length
+        && linkedEntities.every((link, index) => {
+          const existing = existingLinks[index]
+          return link.id === existing.id && link.type === existing.type && link.label === existing.label
+        })
       const payload = {
         ...(isSaveEdit ? { id: editData!.id } : {}),
         entityId: payloadEntityId,
-        dealId,
+        dealId: preservesNoteDetails ? undefined : dealId,
         interactionType: keepsCustomType ? editData!.interactionType : state.activityType,
         title: state.title.trim(),
-        body: state.description.trim() || null,
+        body: !isNote || bodyChanged ? body : undefined,
+        bodyFormat: isNote && bodyChanged ? (body === null ? null : state.markdownEnabled ? 'markdown' : 'text') : undefined,
         // The dialog has no status control, so an edit must leave the stored status
         // (and its `occurredAt`) alone instead of re-opening a completed activity (#6481).
         ...(isSaveEdit ? {} : { status: 'planned' }),
@@ -501,11 +514,9 @@ export function ScheduleActivityDialog({
             : null
           : hiddenFieldValue,
         guestPermissions: visibleFields.has('participants') ? (state.participants.length > 0 ? state.guestPermissions : null) : hiddenFieldValue,
-        linkedEntities: state.linkedEntities.length > 0
-          ? state.linkedEntities.map((e) => ({ id: e.id, type: e.type, label: e.label }))
-          : null,
+        linkedEntities: preservesNoteLinks ? undefined : linkedEntities.length > 0 ? linkedEntities : null,
         reminderMinutes: visibleFields.has('reminder') ? state.reminderMinutes : hiddenFieldValue,
-        visibility: visibleFields.has('visibility') ? state.visibility : hiddenFieldValue,
+        visibility: preservesNoteVisibility ? undefined : visibleFields.has('visibility') ? state.visibility : hiddenFieldValue,
         ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
       }
       await runGuardedMutation(
@@ -556,7 +567,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [callDirection, callPhoneInvalidMessage, callPhoneNumber, catalogPending, keepsCustomType, isDateMissing, isRecurrenceCountInvalid, recurrenceEndsBeforeStart, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, recurrenceCountValue, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callPhoneInvalidMessage, callPhoneNumber, catalogPending, keepsCustomType, isDateMissing, isRecurrenceCountInvalid, recurrenceEndsBeforeStart, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, state.markdownEnabled, onActivityCreated, onClose, state.participants, recurrenceCountValue, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, typeChanged, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 

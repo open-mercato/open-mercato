@@ -7,6 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { ActivityBodyPreview } from './ActivityBodyPreview'
 import type { InteractionSummary } from './types'
 import { isSameDay } from '../../lib/localDay'
 
@@ -151,9 +152,9 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                   {TypeIcon ? <TypeIcon className="size-4 text-destructive" /> : <AlertCircle className="size-4 text-destructive" />}
                 </div>
                 <div className="min-w-32 flex-1">
-                  <span className="text-sm font-medium block truncate">
-                    {activity.title ?? activity.body ?? activity.interactionType}
-                  </span>
+                  <div className="text-sm font-medium truncate">
+                    {activity.title ?? (activity.body != null ? <ActivityBodyPreview activity={activity} /> : activity.interactionType)}
+                  </div>
                   <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1 font-medium text-destructive">
                       {t('customers.timeline.planned.overdue', 'Overdue')}
@@ -205,9 +206,9 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                   {TypeIcon ? <TypeIcon className="size-4 text-muted-foreground" /> : <Clock className="size-4 text-muted-foreground" />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <span className="text-sm font-medium block truncate">
-                    {activity.title ?? activity.body ?? activity.interactionType}
-                  </span>
+                  <div className="text-sm font-medium truncate">
+                    {activity.title ?? (activity.body != null ? <ActivityBodyPreview activity={activity} /> : activity.interactionType)}
+                  </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span>{activity.scheduledAt ? formatScheduledDate(activity.scheduledAt, t) : ''}</span>
                     {activity.authorName && (

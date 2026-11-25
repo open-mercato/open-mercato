@@ -23,6 +23,7 @@ import {
   CustomerTodoLink,
   CustomerInteraction,
 } from '../../../data/entities'
+import { interactionBodyFormatSchema } from '../../../data/validators'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '#generated/entities.ids.generated'
@@ -1271,6 +1272,7 @@ const companyDetailResponseSchema = z.object({
       activityType: z.string(),
       subject: z.string().nullable().optional(),
       body: z.string().nullable().optional(),
+      bodyFormat: interactionBodyFormatSchema.nullish(),
       occurredAt: z.string().nullable().optional(),
       dealId: z.string().uuid().nullable().optional(),
       authorUserId: z.string().uuid().nullable().optional(),
@@ -1288,6 +1290,7 @@ const companyDetailResponseSchema = z.object({
       interactionType: z.string(),
       title: z.string().nullable().optional(),
       body: z.string().nullable().optional(),
+      bodyFormat: interactionBodyFormatSchema.nullish(),
       status: z.string(),
       scheduledAt: z.string().nullable().optional(),
       occurredAt: z.string().nullable().optional(),

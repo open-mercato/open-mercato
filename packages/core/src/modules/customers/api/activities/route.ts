@@ -18,7 +18,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerActivity, CustomerDeal, CustomerInteraction } from '../../data/entities'
 import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
-import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
+import { activityCreateSchema, activityUpdateSchema, interactionBodyFormatSchema, type InteractionBodyFormat } from '../../data/validators'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import {
   mapInteractionRecordToActivitySummary,
@@ -93,6 +93,7 @@ type ActivityItem = {
   activityType: string
   subject?: string | null
   body?: string | null
+  bodyFormat?: InteractionBodyFormat | null
   occurredAt?: string | null
   createdAt: string
   appearanceIcon?: string | null
@@ -819,6 +820,7 @@ const activityListItemSchema = z
     activityType: z.string(),
     subject: z.string().nullable().optional(),
     body: z.string().nullable().optional(),
+    bodyFormat: interactionBodyFormatSchema.nullish(),
     occurredAt: z.string().nullable().optional(),
     createdAt: z.string(),
     appearanceIcon: z.string().nullable().optional(),
