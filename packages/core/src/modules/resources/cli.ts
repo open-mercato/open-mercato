@@ -1,6 +1,7 @@
 import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resourcesResourceTypeRepairOptionsSchema } from './data/validators'
@@ -123,15 +124,17 @@ const repairResourceTypeReferencesCommand: ModuleCli = {
   help: 'mercato resources repair-resource-type-references --tenant <tenantId> --org <organizationId> [--apply]',
   async run(rest) {
     const { tenant, org, apply = false } = resourcesResourceTypeRepairOptionsSchema.parse(parseModuleCliOptions(rest))
+    const scope = { tenantId: tenant, organizationId: org }
     const { repairResourceTypeReferences } = await import('./commands/resources')
     const container = await createRequestContainer()
     try {
       const result = await repairResourceTypeReferences(
         container.resolve<EntityManager>('em'),
         container.resolve<DataEngine>('dataEngine'),
-        { tenantId: tenant, organizationId: org },
+        scope,
         apply,
       )
+      if (apply) await invalidateCrudCache(container, 'resources.resource', scope, tenant, 'resource-type-reference-repair')
       console.log(JSON.stringify({ mode: apply ? 'apply' : 'preview', ...result }))
     } finally {
       await container.dispose()

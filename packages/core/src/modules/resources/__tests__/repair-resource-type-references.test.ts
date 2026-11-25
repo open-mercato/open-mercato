@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { MikroORM, PostgreSqlDriver } from '@mikro-orm/postgresql'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { StartedTestContainer } from 'testcontainers'
 import commands from '../cli'
@@ -14,6 +15,9 @@ import {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
+}))
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  invalidateCrudCache: jest.fn(),
 }))
 
 const scope = { tenantId: randomUUID(), organizationId: randomUUID() }
@@ -129,6 +133,7 @@ describePostgres('resource type repair with PostgreSQL', () => {
       expect(await snapshot()).toEqual(original)
       expect(log).toHaveBeenLastCalledWith(JSON.stringify({ mode: 'preview', found: candidateIds.length, cleared: 0 }))
       expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+      expect(invalidateCrudCache).not.toHaveBeenCalled()
 
       await repair.run([...scopeArgs, '--apply'])
       const repaired = await snapshot()
@@ -147,11 +152,16 @@ describePostgres('resource type repair with PostgreSQL', () => {
         .toEqual(expect.arrayContaining(candidateIds.map((id) => ({ id, ...scope }))))
       expect(dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(candidateIds.length)
       expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+      expect(invalidateCrudCache).toHaveBeenCalledWith(
+        expect.anything(), 'resources.resource', scope, scope.tenantId, 'resource-type-reference-repair',
+      )
+      expect(invalidateCrudCache).toHaveBeenCalledTimes(1)
 
       await repair.run([...scopeArgs, '--apply'])
       expect(log).toHaveBeenLastCalledWith(JSON.stringify({ mode: 'apply', found: 0, cleared: 0 }))
       expect(await snapshot()).toEqual(repaired)
       expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+      expect(invalidateCrudCache).toHaveBeenCalledTimes(2)
     } finally {
       log.mockRestore()
     }
@@ -173,6 +183,7 @@ describePostgres('resource type repair with PostgreSQL', () => {
       }
       expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
       expect(dataEngine.flushOrmEntityChanges).not.toHaveBeenCalled()
+      expect(invalidateCrudCache).not.toHaveBeenCalled()
     } finally {
       await em.execute('alter table resources_resources drop constraint synthetic_failure')
     }
