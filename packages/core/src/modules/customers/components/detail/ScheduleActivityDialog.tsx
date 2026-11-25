@@ -146,6 +146,7 @@ export function ScheduleActivityDialog({
     [editData, initialActivityType],
   )
   const state = useScheduleFormState({ open, editData: resolvedEditData ?? null })
+  const saveInFlightRef = React.useRef(false)
   const presentationType = resolveScheduleActivityType(state.activityType)
   const [typeChanged, setTypeChanged] = React.useState(false)
   React.useEffect(() => { setTypeChanged(false) }, [open, editData])
@@ -407,7 +408,7 @@ export function ScheduleActivityDialog({
     recurrenceEndsBeforeStart
 
   const handleSave = React.useCallback(async () => {
-    if (catalogPending) return
+    if (saveInFlightRef.current || catalogPending) return
     if (!state.title.trim()) return
     if (isDateMissing) {
       flash(t('customers.activities.errors.dateRequired', 'Date is required'), 'error')
@@ -439,6 +440,7 @@ export function ScheduleActivityDialog({
         setCallPhoneNumber(phoneNumberForPayload)
       }
     }
+    saveInFlightRef.current = true
     state.setSaving(true)
     try {
       // An undated activity (a backlog task) has no moment to compute — sending
@@ -550,6 +552,7 @@ export function ScheduleActivityDialog({
         'error',
       )
     } finally {
+      saveInFlightRef.current = false
       state.setSaving(false)
     }
   }, [callDirection, callPhoneInvalidMessage, callPhoneNumber, catalogPending, keepsCustomType, isDateMissing, isRecurrenceCountInvalid, recurrenceEndsBeforeStart, isTimeMissing, presentationType, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, recurrenceCountValue, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps

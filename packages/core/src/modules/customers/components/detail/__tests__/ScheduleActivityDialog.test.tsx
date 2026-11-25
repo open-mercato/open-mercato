@@ -210,6 +210,46 @@ describe('ScheduleActivityDialog', () => {
     jest.restoreAllMocks()
   })
 
+  it.each(['keyboard', 'button'] as const)(
+    'ignores another shortcut while a %s save is pending despite an advisory conflict',
+    async (firstActivation) => {
+      mockScheduleState = createScheduleState({ conflict: 'Overlaps with: Weekly planning' })
+      let completeSave = () => {}
+      apiCallOrThrowMock.mockReturnValueOnce(new Promise<void>((resolve) => { completeSave = resolve }))
+      const onClose = jest.fn()
+      renderWithProviders(<ScheduleActivityDialog open onClose={onClose} entityId="person-1" entityType="person" />)
+
+      const dialog = screen.getByRole('dialog')
+      const saveButton = screen.getByRole('button', { name: 'Save activity' })
+      expect(screen.getByText('Calendar conflict')).toBeVisible()
+
+      act(() => {
+        if (firstActivation === 'button') fireEvent.click(saveButton)
+        else fireEvent.keyDown(dialog, { key: 'Enter', ctrlKey: true })
+        fireEvent.keyDown(dialog, { key: 'Enter', ctrlKey: true })
+      })
+      const launches = apiCallOrThrowMock.mock.calls.length
+      await act(async () => { completeSave() })
+
+      expect(launches).toBe(1)
+      expect(onClose).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('allows a deliberate retry after a failed save', async () => {
+    apiCallOrThrowMock.mockRejectedValueOnce(new Error('save failed')).mockResolvedValueOnce({ ok: true })
+    const onClose = jest.fn()
+    renderWithProviders(<ScheduleActivityDialog open onClose={onClose} entityId="person-1" entityType="person" />)
+
+    const dialog = screen.getByRole('dialog')
+    await act(async () => { fireEvent.keyDown(dialog, { key: 'Enter', metaKey: true }) })
+    expect(onClose).not.toHaveBeenCalled()
+
+    await act(async () => { fireEvent.keyDown(dialog, { key: 'Enter', metaKey: true }) })
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(2)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   describe('custom activity edits (#8026)', () => {
     function renderCustomActivity(baseKind: 'note' | 'task' | 'meeting', endTime = false, durationMinutes: number | null = null) {
       const baseline = calendarEventTypes.find((definition) => definition.key === baseKind)!
