@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowDefinition } from './data/entities'
+import { isBusinessRulesModuleEnabled } from './lib/optional-modules'
 import { BusinessRule, type RuleType } from '@open-mercato/core/modules/business_rules/data/entities'
 import {
   invalidateBusinessRuleDiscoveryCache,
@@ -65,6 +66,11 @@ const seedDemoWithRules: ModuleCli = {
     if (!tenantId || !organizationId) {
       console.error('Usage: mercato workflows seed-demo-with-rules --tenant <tenantId> --org <organizationId>')
       console.error('   or: mercato workflows seed-demo-with-rules -t <tenantId> -o <organizationId>')
+      return
+    }
+
+    if (!isBusinessRulesModuleEnabled()) {
+      console.log('⊘ business_rules module is disabled; no guard rules to seed.')
       return
     }
 
@@ -211,6 +217,11 @@ const seedOrderApproval: ModuleCli = {
 
     if (!tenantId || !organizationId) {
       console.error('Usage: mercato workflows seed-order-approval --tenant <tenantId> --org <organizationId>')
+      return
+    }
+
+    if (!isBusinessRulesModuleEnabled()) {
+      console.log('⊘ business_rules module is disabled; no guard rules to seed.')
       return
     }
 

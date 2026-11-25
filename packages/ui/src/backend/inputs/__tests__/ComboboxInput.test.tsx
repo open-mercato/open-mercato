@@ -474,6 +474,69 @@ describe('ComboboxInput — eager label resolution', () => {
     await waitFor(() => expect(getInput(container).value).toBe('Central warehouse'))
   })
 
+  it.each(['suggestions', 'seedOptions'] as const)('shows a saved currency under autofocus with self-labeled %s', (source) => {
+    const onChange = jest.fn()
+    const { container } = render(
+      <ComboboxInput
+        value="USD"
+        onChange={onChange}
+        autoFocus
+        allowCustomValues={false}
+        {...{ [source]: [{ value: 'USD', label: 'USD' }] }}
+      />,
+    )
+
+    expect(document.activeElement).toBe(getInput(container))
+    expect(getInput(container).value).toBe('USD')
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('loads a saved currency once on autofocus and searches when the user opens suggestions', async () => {
+    jest.useFakeTimers()
+    try {
+      const onChange = jest.fn()
+      const loadSuggestions = jest.fn(async () => [{ value: 'USD', label: 'USD' }])
+      const { container } = render(
+        <ComboboxInput value="USD" onChange={onChange} autoFocus allowCustomValues={false} loadSuggestions={loadSuggestions} />,
+      )
+      const input = getInput(container)
+
+      await act(async () => { await jest.advanceTimersByTimeAsync(250) })
+      expect(input.value).toBe('USD')
+      expect(document.activeElement).toBe(input)
+      expect(loadSuggestions).toHaveBeenCalledTimes(1)
+      expect(loadSuggestions).toHaveBeenCalledWith()
+
+      fireEvent.keyDown(input, { key: 'ArrowDown' })
+      await act(async () => { await jest.advanceTimersByTimeAsync(250) })
+      expect(input).toHaveAttribute('aria-expanded', 'true')
+      expect(loadSuggestions).toHaveBeenCalledTimes(2)
+      expect(loadSuggestions).toHaveBeenLastCalledWith('USD')
+      expect(onChange).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  it('reverts an invalid query to the saved self-labeled currency on blur', async () => {
+    const onChange = jest.fn()
+    const { container } = render(
+      <ComboboxInput
+        value="USD"
+        onChange={onChange}
+        suggestions={[{ value: 'USD', label: 'USD' }]}
+        allowCustomValues={false}
+      />,
+    )
+    const input = getInput(container)
+    act(() => input.focus())
+    fireEvent.change(input, { target: { value: 'missing' } })
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(input.value).toBe('USD'))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
   // Guards the opposite direction of the case above: it passes on both the old
   // focus-based guard and the current typing-based one, so it is a behavior pin
   // rather than a regression test for any specific bug.

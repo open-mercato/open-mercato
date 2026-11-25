@@ -22,7 +22,7 @@ Build an extension module `auth_extensions` (app-level or standalone package) th
 1. API `after` interceptor for `auth/login`
 2. Login-form component wrapper for `section:auth.login.form`
 3. Event-driven UI handoff via `om:auth:login-response`
-4. Strict fail-closed behavior (interceptor failures do not block standard login)
+4. Fail-closed MFA challenge handling (see the 2026-11-23 amendment; unexpected interceptor failures deny login).
 
 Scope choice for this spec: **external extension only**.
 - Preferred location: `apps/mercato/src/modules/auth_extensions/`
@@ -133,7 +133,7 @@ This section is mandatory for contract-surface changes.
 
 ### Phase 2 — Auth Login Interceptor
 - Implement `api/interceptors.ts` with `security.auth.login.mfa-challenge` (or extension-specific id).
-- Fail-closed behavior: return `{}` on errors.
+- Return `{}` only for an account verified to have no active MFA methods; reject unexpected challenge errors (2026-11-23 amendment).
 - Add unit tests for rewrite/no-op/error branches.
 
 ### Phase 3 — Login Wrapper UI
@@ -184,6 +184,9 @@ Ready for implementation in external-extension mode, contingent on prerequisites
 ## Changelog
 ### 2026-03-06
 - Initial draft for extension-only auth login interceptor specification.
+
+### 2026-11-23
+- Correct the challenge-error contract to deny login and revoke the provisional session; add route-level MFA integration coverage and cleanup-error reporting.
 
 ## Implementation Status
 | Phase | Status | Date | Notes |
@@ -266,3 +269,17 @@ except registered MFA completion routes.
 | `POST /api/auth/login` reaching the challenge | pre-enrollment remember-me `session_token` cleared by the challenge response | `TC-SEC-014`; unit: `api/__tests__/login.test.ts` |
 | `GET /api/auth/session/refresh` replaying a planted `session_token` with a pending `auth_token` | no staff token minted; redirect to `/login`, cookies cleared | `TC-SEC-014`; unit: `api/__tests__/session.refresh.test.ts` |
 | `GET\|POST /api/auth/session/refresh` after challenge completion | refreshes normally once the token is no longer pending | unit: `api/__tests__/session.refresh.test.ts` |
+
+## Amendment 2026-11-23 — Challenge creation failures deny login
+
+Unexpected MFA method reads, unregistered MFA providers, challenge writes, timeouts, and service-resolution failures must deny `POST /api/auth/login`. Registered MFA providers are validated before persisting a new `MfaChallenge` row so unregistered-provider failures leave no orphaned challenge rows. The core login handler logs and reports the failure (`auth.login_interceptor_failed`, alongside `security.mfa_service_unavailable` / `security.mfa_challenge_creation_failed`), revokes the provisional session, emits `auth.login.failed` (`reason: 'after_interceptor_failed'`) instead of `auth.login.success`, and returns the localized generic login error (`{ ok: false, error }`) with the interceptor's failure status and without access tokens, refresh tokens, or authentication cookies. If revocation itself fails, the handler reports `auth.login_revoke_failed` through the shared telemetry bridge (defensively wrapped so telemetry faults never alter the denied response) and still returns no credentials.
+
+Only an `Error` instance of `MfaVerificationServiceError` with code `MFA_NO_METHODS_CONFIGURED` permits the ordinary no-MFA login. The explicit emergency bypass is evaluated before service resolution, retaining its existing warning and notification behavior during an MFA outage. This amendment supersedes the original error no-op wording.
+
+### Migration & Backward Compatibility
+
+The error constructor retains its existing arguments and gains an optional trailing code. Existing non-MFA login, successful MFA challenge, cookie names, JWT formats, routes, and response schemas remain supported. The vulnerable challenge-failure branch intentionally changes from token-bearing success to the existing interceptor failure response. API clients must treat a non-successful login response as unauthenticated; operators must restore the unavailable MFA service or store before retrying. No schema migration is needed. A failed revocation can leave an inert provisional session row; no credential from that attempt is delivered.
+
+### Regression evidence
+
+`security/api/__tests__/login-mfa.integration.test.ts` connects the real login handler, registered enterprise interceptor, interceptor runner, MFA verification service, provider registry, and JWT implementation. Mocked persistence and authentication boundaries inject method-read, challenge-write, resolution, timeout, and session-revocation failures. Assertions cover token/cookie denial, exact-session cleanup, both remember-me settings, genuine no-MFA success, MFA-pending success, invalid credentials, and the emergency bypass. This handler integration suite does not replace human QA with a live MFA-enabled deployment.

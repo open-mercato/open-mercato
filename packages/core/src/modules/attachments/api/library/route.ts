@@ -164,6 +164,7 @@ async function listAttachments(req: Request) {
   const allAssignments = items.flatMap((item) => item.assignments ?? [])
   const enrichments = await resolveAssignmentEnrichments(allAssignments, {
     queryEngine,
+    authorization: { auth, container },
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
   })

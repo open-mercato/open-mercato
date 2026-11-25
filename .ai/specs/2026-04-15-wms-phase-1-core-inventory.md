@@ -404,6 +404,7 @@ All validators live in `data/validators.ts`:
 - `inventoryAdjustSchema`: `reason` required, `delta` must be non-zero
 - `reservationCreateSchema`: `quantity` must be positive, must not exceed `quantity_available` in target buckets
 - `lotCreateSchema`: `expires_at >= best_before_at >= manufactured_at` when dates are provided
+- `wms.lots.update`: when any date is patched, checks the stored dates merged with the patched ones in the same order as create (`inventoryLotDateOrderingSchema`)
 - `movementCreateSchema`: enforce valid `type` and `reference_type` combinations
 - `cycleCountCreateSchema`: `countedQuantity` and `reason` required; used by `POST /api/wms/inventory/cycle-count` / `cycleCountReconcile`
 
@@ -678,6 +679,9 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-11-22
+- A lot update that sent only one or two dates compared them with each other but not with the lot's stored dates, so `PUT /api/wms/lots` with just `expiresAt` could save an expiry earlier than the stored manufactured or best-before date. `wms.lots.update` now checks the stored dates merged with the patched ones before writing and answers with the same 400 validation error as create. Updates that don't touch a date are not re-checked, and existing lots are not repaired. Coverage: `configuration.lotDateOrdering.test.ts`, `TC-WMS-036`.
 
 ### 2026-11-21
 - `409 release_blocked_by_wave` is only for a reservation that has a non-cancelled pick task. Allocate then release with no pick task still decrements `quantity_allocated` and restores availability. `InventoryReservation.order_cancelled_at` is the phase 3 cancellation stamp. The order-cancel row above matches that rule.

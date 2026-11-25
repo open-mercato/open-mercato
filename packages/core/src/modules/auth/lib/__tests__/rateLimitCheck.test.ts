@@ -97,6 +97,42 @@ describe('checkAuthRateLimit', () => {
     )
   })
 
+  it('scopes both limits to the identifier without a trusted client address', async () => {
+    const limited = NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+    mockGetCachedRateLimiterService.mockReturnValue(makeFakeService({ trustProxyDepth: 0 }))
+    mockGetClientIp.mockReturnValue(null)
+    mockCheckRateLimit.mockImplementation(async (_service, _config, key: string) =>
+      key === 'global:hash_first@example.com' ? limited : null,
+    )
+    const options = { req: makeRequest(), ipConfig, compoundConfig, isolateByIdentifierWithoutTrustedIp: true }
+    const first = await checkAuthRateLimit({ ...options, compoundIdentifier: 'first@example.com' })
+    const second = await checkAuthRateLimit({ ...options, compoundIdentifier: 'second@example.com' })
+
+    expect(first.error).toBe(limited)
+    expect(second.error).toBeNull()
+    expect(second.compoundKey).toBe('global:hash_second@example.com')
+    expect(mockGetClientIp).toHaveBeenCalledWith(options.req, 0)
+    expect(mockCheckRateLimit.mock.calls.map(([, config, key]) => [config, key])).toEqual([
+      [ipConfig, 'identifier:global:hash_first@example.com'],
+      [compoundConfig, 'global:hash_first@example.com'],
+      [ipConfig, 'identifier:global:hash_second@example.com'],
+      [compoundConfig, 'global:hash_second@example.com'],
+    ])
+  })
+
+  it('retains the endpoint fallback when an opted-in request has no identifier', async () => {
+    mockGetCachedRateLimiterService.mockReturnValue(makeFakeService({ trustProxyDepth: 0 }))
+    mockGetClientIp.mockReturnValue(null)
+    mockCheckRateLimit.mockResolvedValue(null)
+
+    await checkAuthRateLimit({
+      req: makeRequest(), ipConfig, compoundConfig, isolateByIdentifierWithoutTrustedIp: true,
+    })
+
+    expect(mockCheckRateLimit).toHaveBeenCalledTimes(1)
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(expect.anything(), ipConfig, 'global', expect.any(String))
+  })
+
   it('returns IP-only error when IP rate limit is exceeded', async () => {
     const errorResponse = NextResponse.json({ error: 'Too many requests' }, { status: 429 })
     mockGetCachedRateLimiterService.mockReturnValue(makeFakeService())
@@ -151,6 +187,7 @@ describe('checkAuthRateLimit', () => {
       ipConfig,
       compoundConfig,
       compoundIdentifier: 'test@acme.com',
+      isolateByIdentifierWithoutTrustedIp: true,
     })
 
     expect(result.error).toBeNull()

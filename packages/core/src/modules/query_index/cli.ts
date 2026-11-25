@@ -22,6 +22,8 @@ import {
   mergeUpsertIndexBatchResults,
   type AnyRow,
 } from './lib/batch'
+import { createSearchTokenGateQueryEngine } from './lib/search-entity-policy'
+import { resolveCiphertextGuard } from './lib/search-tokens'
 import { reindexEntity, isTenantlessReindexTarget, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import type { ReindexJobResult } from './lib/reindexer'
 
@@ -192,6 +194,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
 
   const encryption = resolveTenantEncryptionService(em as any)
   const dekKeyCache = new Map<string | null, string | null>()
+  const searchTokenGateQueryEngine = createSearchTokenGateQueryEngine(em)
 
   // Neither helper swallows failures: upsertIndexBatch treats a failed encrypt as a
   // failed row (writing the plaintext document instead would break encryption at rest)
@@ -214,14 +217,18 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     doc: Record<string, unknown>,
     scope: { organizationId: string | null; tenantId: string | null },
   ) => {
+    const tenantId = scope.tenantId ?? null
+    if (dekKeyCache.get(tenantId) === null) dekKeyCache.delete(tenantId)
     return await decryptIndexDocForSearch(
       targetEntity,
       doc,
-      { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+      { tenantId, organizationId: scope.organizationId ?? null },
       encryption,
       dekKeyCache,
     )
   }
+
+  const ciphertextGuard = () => resolveCiphertextGuard(encryption)
 
   const applyFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
     let chain = q
@@ -247,7 +254,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
       .executeTakeFirst() as AnyRow | undefined
     if (!row) return { processed: 0, matched: 0 }
     const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, 1)
-    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc })
+    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine, ciphertextGuard })
     bar.update(singleResult.written)
     bar.complete()
     assertIndexBatchWritesLanded(entityType, singleResult)
@@ -289,7 +296,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     const chunkResult = await upsertIndexBatch(db, entityType, chunk as AnyRow[], {
       orgId: orgOverride,
       tenantId: tenantOverride,
-    }, { encryptDoc, decryptDoc })
+    }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine, ciphertextGuard })
     mergeUpsertIndexBatchResults(writeTotals, chunkResult)
 
     processed += chunkResult.written
