@@ -52,7 +52,7 @@ export type UseFormRunnerArgs = {
   /**
    * Transport client backing the six runtime operations. Omitted ⇒ the default
    * authenticated client that calls `/api/forms/form-submissions` and the
-   * by-key active-schema endpoint (the shipped portal flow, unchanged).
+   * by-key active-schema endpoint.
    */
   client?: RuntimeClient
 }
@@ -137,6 +137,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
   const dirtyFieldsRef = useRef<Record<string, unknown>>({})
   const baseSnapshotRef = useRef<Record<string, unknown>>({})
   const flushingRef = useRef(false)
+  const resumeGeneration = useRef(0)
 
   const schema = schemaResponse?.schema ?? null
   const sections: RunnerSection[] = useMemo(() => {
@@ -210,14 +211,6 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     return client.loadActiveSchema()
   }, [client])
 
-  const loadSubmissionsBySubject = useCallback(async () => {
-    return client.loadResumeCandidates()
-  }, [client])
-
-  const loadSubmissionDetail = useCallback(async (submissionId: string): Promise<StartedState> => {
-    return client.loadSubmissionDetail(submissionId)
-  }, [client])
-
   const startNewSubmission = useCallback(async () => {
     setSaveState({ status: 'idle' })
     const started = await client.startSubmission()
@@ -227,16 +220,26 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
   }, [client, captureStarted])
 
   const resumeExistingSubmission = useCallback(async (submissionId: string) => {
+    if (!schemaResponse) return
+    const generation = resumeGeneration.current
     setSaveState({ status: 'idle' })
-    const view = await loadSubmissionDetail(submissionId)
-    captureStarted(view)
-    setStage('ready')
-    setCurrentSectionIndex(0)
-  }, [loadSubmissionDetail, captureStarted])
+    try {
+      const view = await client.loadSubmissionDetail(submissionId, schemaResponse.form.id)
+      if (generation !== resumeGeneration.current) return
+      captureStarted(view)
+      setStage('ready')
+      setCurrentSectionIndex(0)
+    } catch (error) {
+      if (generation !== resumeGeneration.current) return
+      setLoadError(isRunnerError(error) ? error : makeError('UNKNOWN', extractErrorMessage(error)))
+      setStage('error')
+    }
+  }, [client, schemaResponse, captureStarted])
 
   // ---------- Initial load ----------
   useEffect(() => {
     let cancelled = false
+    setStage('loading')
     async function load() {
       try {
         const schemaResp = await loadActiveSchema()
@@ -245,14 +248,14 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
         setLocaleState((prev) => (prev === 'en' ? schemaResp.form.defaultLocale : prev))
 
         if (initialSubmissionId) {
-          const view = await loadSubmissionDetail(initialSubmissionId)
+          const view = await client.loadSubmissionDetail(initialSubmissionId, schemaResp.form.id)
           if (cancelled) return
           captureStarted(view)
           setStage('ready')
           return
         }
 
-        const candidates = await loadSubmissionsBySubject()
+        const candidates = await client.loadResumeCandidates(schemaResp.form.id)
         if (cancelled) return
         setResumeCandidates(candidates)
         if (candidates.length > 0) {
@@ -291,13 +294,12 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     load()
     return () => {
       cancelled = true
+      resumeGeneration.current += 1
     }
   }, [
     client,
     initialSubmissionId,
     loadActiveSchema,
-    loadSubmissionDetail,
-    loadSubmissionsBySubject,
     captureStarted,
   ])
 
@@ -313,7 +315,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
   const handleConflict = useCallback(async () => {
     if (!submission) return
     try {
-      const view = await loadSubmissionDetail(submission.id)
+      const view = await client.loadSubmissionDetail(submission.id)
       const merged = mergeOnConflict({
         localDirty: { ...dirtyFieldsRef.current },
         baseSnapshot: { ...baseSnapshotRef.current },
@@ -336,7 +338,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
     } catch (error) {
       setSaveState({ status: 'error', message: extractErrorMessage(error) })
     }
-  }, [loadSubmissionDetail, submission, t])
+  }, [client, submission, t])
 
   // ---------- Autosave flush ----------
   const flushAutosave = useCallback(async () => {
