@@ -102,6 +102,7 @@
   "dashboards.analytics.widgets.topProducts.error": "Produktdaten konnten nicht geladen werden",
   "dashboards.analytics.widgets.topProducts.title": "Top-Produkte nach Umsatz",
   "dashboards.cli.repairRoleWidgets.applied": "Mandantenfremde Rollenzuweisungen entfernt ({removed}) und fehlende lokale Standardzuweisungen wiederhergestellt ({restored}).",
+  "dashboards.cli.repairRoleWidgets.invalidTenant": "Der Mandant existiert nicht oder wurde gelöscht.",
   "dashboards.cli.repairRoleWidgets.invalidOrganization": "Die Organisation gehört nicht zum ausgewählten Mandanten oder wurde gelöscht.",
   "dashboards.cli.repairRoleWidgets.preview": "Vorschau: Zu entfernende mandantenfremde Rollenzuweisungen ({removed}), wiederherzustellende lokale Standardzuweisungen ({restored}). Verwenden Sie --apply, um die Änderungen zu speichern.",
   "dashboards.cli.repairRoleWidgets.unavailableWidgets": "Dashboard-Widgets sind nicht verfügbar. Versuchen Sie es erneut, sobald die Widget-Registrierung geladen ist.",

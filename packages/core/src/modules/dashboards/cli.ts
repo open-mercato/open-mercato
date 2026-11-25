@@ -95,11 +95,12 @@ export async function seedDashboardDefaultsForTenant(
 
 const repairRoleWidgetsOptions = z.strictObject({
   tenant: z.uuid(),
-  organization: z.uuid(),
+  organization: z.uuid().optional(),
+  'tenant-wide': z.literal(true).optional(),
   apply: z.literal(true).optional(),
-})
+}).refine((options) => Boolean(options.organization) !== Boolean(options['tenant-wide']))
 
-const repairRoleWidgetsUsage = 'mercato dashboards repair-role-widgets --tenant <uuid> --organization <uuid> [--apply]'
+const repairRoleWidgetsUsage = 'mercato dashboards repair-role-widgets --tenant <uuid> (--organization <uuid> | --tenant-wide) [--apply]'
 
 const repairRoleWidgets: ModuleCli = {
   command: 'repair-role-widgets',
@@ -113,7 +114,7 @@ const repairRoleWidgets: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const result = await repairDashboardRoleWidgets(resolve<EntityManager>('em'), {
       tenantId: tenant,
-      organizationId: organization,
+      organizationId: organization ?? null,
       apply,
     }, t)
 

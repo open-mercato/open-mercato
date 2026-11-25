@@ -102,6 +102,7 @@
   "dashboards.analytics.widgets.topProducts.error": "Nie udało się załadować danych o produktach",
   "dashboards.analytics.widgets.topProducts.title": "Najlepsze produkty wg przychodu",
   "dashboards.cli.repairRoleWidgets.applied": "Usunięto przypisania do ról innych najemców ({removed}) i przywrócono brakujące lokalne ustawienia domyślne ({restored}).",
+  "dashboards.cli.repairRoleWidgets.invalidTenant": "Dzierżawa nie istnieje lub została usunięta.",
   "dashboards.cli.repairRoleWidgets.invalidOrganization": "Organizacja nie należy do wybranego najemcy lub została usunięta.",
   "dashboards.cli.repairRoleWidgets.preview": "Podgląd obejmuje przypisania do ról innych najemców do usunięcia ({removed}) i brakujące lokalne ustawienia domyślne do przywrócenia ({restored}). Dodaj --apply, aby zapisać zmiany.",
   "dashboards.cli.repairRoleWidgets.unavailableWidgets": "Widżety pulpitu są niedostępne. Spróbuj ponownie po załadowaniu rejestru widżetów.",

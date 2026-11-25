@@ -29,6 +29,8 @@ afterEach(() => {
 
 test.each([
   ['missing organization', ['--tenant', tenantId, '--apply']],
+  ['both scopes', ['--tenant', tenantId, '--organization', organizationId, '--tenant-wide']],
+  ['tenant-wide with a value', ['--tenant', tenantId, '--tenant-wide=false']],
   ['invalid organization', ['--tenant', tenantId, '--organization', 'all', '--apply']],
   ['invalid tenant', ['--tenant', 'all', '--organization', organizationId, '--apply']],
   ['apply with a value', ['--tenant', tenantId, '--organization', organizationId, '--apply=false']],
@@ -174,6 +176,109 @@ describePostgres('repair-role-widgets with disposable PostgreSQL', () => {
     await command.run([...args, '--apply'])
     expect(log).toHaveBeenLastCalledWith(expect.stringContaining('Removed 0 foreign role assignments and restored 0'))
     expect(await readAssignments()).toEqual(repaired)
+  })
+
+  test('previews and repairs only tenant-wide legacy assignments', async () => {
+    const employee = addRole(tenantId, 'employee')
+    const admin = addRole(tenantId, 'admin')
+    const foreignEmployee = addRole(otherTenantId, 'employee')
+    const foreignAdmin = addRole(otherTenantId, 'admin')
+    const invalid = [
+      addAssignment(foreignEmployee, tenantId, null, ['legacy.employee']),
+      addAssignment(foreignAdmin, tenantId, null, ['legacy.admin']),
+    ]
+    const preserved = [
+      addAssignment(admin, tenantId, null, []),
+      addAssignment(foreignEmployee, tenantId, organizationId, ['organization.legacy']),
+      addAssignment(foreignEmployee, tenantId, siblingOrganizationId, ['sibling.legacy']),
+      addAssignment(foreignEmployee, otherTenantId, null, ['other.custom']),
+    ]
+    await em.flush()
+    const before = await readAssignments()
+    const tenantWideArgs = ['--tenant', tenantId, '--tenant-wide']
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {})
+
+    await command.run(tenantWideArgs)
+    expect(log).toHaveBeenLastCalledWith(expect.stringContaining('would remove 2 foreign role assignments and restore 1'))
+    expect(await readAssignments()).toEqual(before)
+
+    await command.run([...tenantWideArgs, '--apply'])
+    const repaired = await readAssignments()
+    expect(log).toHaveBeenLastCalledWith(expect.stringContaining('Removed 2 foreign role assignments and restored 1'))
+    expect(repaired.filter(({ id }) => invalid.some((record) => record.id === id))).toEqual([])
+    expect(repaired.filter(({ id }) => preserved.some((record) => record.id === id)))
+      .toEqual(before.filter(({ id }) => preserved.some((record) => record.id === id)))
+    expect(repaired.find(({ roleId }) => roleId === employee.id)).toMatchObject({
+      tenantId,
+      organizationId: null,
+      widgetIdsJson: ['widget.default', 'widget.analytics'],
+    })
+
+    await command.run([...tenantWideArgs, '--apply'])
+    expect(log).toHaveBeenLastCalledWith(expect.stringContaining('Removed 0 foreign role assignments and restored 0'))
+    expect(await readAssignments()).toEqual(repaired)
+  })
+
+  test.each([organizationId, null])('restores a tombstoned exact assignment in scope %s without duplicate rows', async (scopeOrganizationId) => {
+    const employee = addRole(tenantId, 'employee')
+    const foreignEmployee = addRole(otherTenantId, 'employee')
+    const tombstone = addAssignment(employee, tenantId, scopeOrganizationId, ['deleted.custom'])
+    tombstone.deletedAt = new Date()
+    const invalid = addAssignment(foreignEmployee, tenantId, scopeOrganizationId, ['legacy.employee'])
+    await em.flush()
+    const before = await readAssignments()
+    const scopedArgs = scopeOrganizationId ? args : ['--tenant', tenantId, '--tenant-wide']
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {})
+
+    await command.run(scopedArgs)
+    expect(log).toHaveBeenLastCalledWith(expect.stringContaining('would remove 1 foreign role assignments and restore 1'))
+    expect(await readAssignments()).toEqual(before)
+
+    await command.run([...scopedArgs, '--apply'])
+    const repaired = await readAssignments()
+    expect(repaired).toHaveLength(1)
+    expect(repaired[0]).toMatchObject({
+      id: tombstone.id,
+      roleId: employee.id,
+      tenantId,
+      organizationId: scopeOrganizationId,
+      deletedAt: null,
+      widgetIdsJson: ['widget.default', 'widget.analytics'],
+      createdAt: tombstone.createdAt,
+    })
+    expect(repaired.some(({ id }) => id === invalid.id)).toBe(false)
+
+    await command.run([...scopedArgs, '--apply'])
+    expect(log).toHaveBeenLastCalledWith(expect.stringContaining('Removed 0 foreign role assignments and restored 0'))
+    expect(await readAssignments()).toEqual(repaired)
+  })
+
+  test('preserves a tombstone when an active empty tenant fallback already exists', async () => {
+    const employee = addRole(tenantId, 'employee')
+    const foreignEmployee = addRole(otherTenantId, 'employee')
+    const tombstone = addAssignment(employee, tenantId, organizationId, ['deleted.custom'])
+    tombstone.deletedAt = new Date()
+    const fallback = addAssignment(employee, tenantId, null, [])
+    const invalid = addAssignment(foreignEmployee, tenantId, organizationId, ['legacy.employee'])
+    await em.flush()
+    const before = await readAssignments()
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {})
+
+    await command.run([...args, '--apply'])
+    expect(log).toHaveBeenLastCalledWith(expect.stringContaining('Removed 1 foreign role assignments and restored 0'))
+    expect(await readAssignments()).toEqual(before.filter(({ id }) => id !== invalid.id))
+    expect((await readAssignments()).find(({ id }) => id === fallback.id)?.widgetIdsJson).toEqual([])
+  })
+
+  test('rejects missing and deleted tenants in tenant-wide mode before inspecting assignments', async () => {
+    const deletedTenant = em.create(Tenant, { id: randomUUID(), name: 'Deleted tenant', deletedAt: new Date() })
+    await em.flush()
+    for (const missingTenantId of [randomUUID(), deletedTenant.id]) {
+      await expect(command.run(['--tenant', missingTenantId, '--tenant-wide', '--apply']))
+        .rejects.toThrow('Tenant does not exist or has been deleted')
+    }
+    expect(mockLoadWidgets).not.toHaveBeenCalled()
+    expect(await readAssignments()).toEqual([])
   })
 
   test('leaves repairable rows intact if the widget registry is unavailable', async () => {

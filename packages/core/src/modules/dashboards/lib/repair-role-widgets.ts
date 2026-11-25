@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { DashboardRoleWidgets } from '../data/entities'
 import { dashboardDefaultRoleNames, selectAnalyticsWidgetIds, selectDefaultRoleWidgetIds } from './role-widgets'
@@ -7,14 +8,19 @@ import { loadAllWidgets } from './widgets'
 
 type RepairScope = {
   tenantId: string
-  organizationId: string
+  organizationId: string | null
   apply: boolean
 }
 
 export async function repairDashboardRoleWidgets(em: EntityManager, { tenantId, organizationId, apply }: RepairScope, t: TranslateFn) {
   return em.transactional(async (tx) => {
-    const organizationExists = await tx.count(Organization, { id: organizationId, tenant: tenantId, deletedAt: null })
-    if (!organizationExists) throw new Error(t('dashboards.cli.repairRoleWidgets.invalidOrganization'))
+    if (organizationId) {
+      const organizationExists = await tx.count(Organization, { id: organizationId, tenant: tenantId, deletedAt: null })
+      if (!organizationExists) throw new Error(t('dashboards.cli.repairRoleWidgets.invalidOrganization'))
+    } else {
+      const tenantExists = await tx.count(Tenant, { id: tenantId, deletedAt: null })
+      if (!tenantExists) throw new Error(t('dashboards.cli.repairRoleWidgets.invalidTenant'))
+    }
 
     const invalid = await tx.execute<Array<{ id: string; localRoleId: string | null; localRoleName: string | null }>>(
       `select assignment.id, local_role.id as "localRoleId", local_role.name as "localRoleName"
@@ -24,7 +30,7 @@ export async function repairDashboardRoleWidgets(em: EntityManager, { tenantId, 
        left join roles as local_role
          on local_role.tenant_id = assignment.tenant_id and local_role.name = foreign_role.name
          and local_role.deleted_at is null
-       where assignment.tenant_id = ? and assignment.organization_id = ? and assignment.deleted_at is null
+       where assignment.tenant_id = ? and assignment.organization_id is not distinct from ?::uuid and assignment.deleted_at is null
        order by assignment.id${apply ? ' for update of assignment' : ''}`,
       [tenantId, organizationId],
     )
@@ -41,10 +47,10 @@ export async function repairDashboardRoleWidgets(em: EntityManager, { tenantId, 
 
       const existing = await tx.count(DashboardRoleWidgets, {
         roleId,
+        deletedAt: null,
         $and: [
           { $or: [{ tenantId }, { tenantId: null }] },
           { $or: [{ organizationId }, { organizationId: null }] },
-          { $or: [{ tenantId, organizationId }, { deletedAt: null }] },
         ],
       })
       if (existing) continue
@@ -58,13 +64,28 @@ export async function repairDashboardRoleWidgets(em: EntityManager, { tenantId, 
       if (!widgetIdsJson.length) continue
 
       if (apply) {
-        tx.persist(tx.create(DashboardRoleWidgets, {
+        const tombstone = await findOneWithDecryption(tx, DashboardRoleWidgets, {
           roleId,
           tenantId,
           organizationId,
-          widgetIdsJson,
-          createdAt: new Date(),
-        }))
+          deletedAt: { $ne: null },
+        }, { orderBy: { id: 'asc' } }, { tenantId, organizationId })
+        if (tombstone) {
+          await tx.nativeUpdate(DashboardRoleWidgets, {
+            id: tombstone.id,
+            tenantId,
+            organizationId,
+            deletedAt: { $ne: null },
+          }, { widgetIdsJson, deletedAt: null, updatedAt: new Date() })
+        } else {
+          tx.persist(tx.create(DashboardRoleWidgets, {
+            roleId,
+            tenantId,
+            organizationId,
+            widgetIdsJson,
+            createdAt: new Date(),
+          }))
+        }
       }
       restored += 1
     }
