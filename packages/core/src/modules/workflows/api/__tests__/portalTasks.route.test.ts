@@ -269,6 +269,17 @@ describe('the list', () => {
 })
 
 describe('the detail route and its refusals', () => {
+  test('an invalid task id gets the same refusal as a missing task without a lookup', async () => {
+    const missing = await runDetail('11111111-2222-4333-8444-999999999999')
+    mockEm.findOne.mockClear()
+
+    const invalid = await runDetail('invalid-task-id')
+
+    expect(invalid.status).toBe(404)
+    expect(await invalid.text()).toBe(await missing.text())
+    expect(mockEm.findOne).not.toHaveBeenCalled()
+  })
+
   test('returns the task with `canComplete` for its assignee', async () => {
     taskRow = makeTask()
 
@@ -315,6 +326,18 @@ describe('the detail route and its refusals', () => {
 })
 
 describe('completion', () => {
+  test('an invalid task id gets the same refusal as a missing task without a lookup or mutation', async () => {
+    const missing = await runComplete({ formData: {} }, '11111111-2222-4333-8444-999999999999')
+    mockEm.findOne.mockClear()
+
+    const invalid = await runComplete({ formData: {} }, 'invalid-task-id')
+
+    expect(invalid.status).toBe(404)
+    expect(await invalid.text()).toBe(await missing.text())
+    expect(mockEm.findOne).not.toHaveBeenCalled()
+    expect(completeUserTask).not.toHaveBeenCalled()
+  })
+
   test('the assignee completes their own task', async () => {
     taskRow = makeTask()
 

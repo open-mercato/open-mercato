@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import type { z } from 'zod'
+import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import {
@@ -62,6 +62,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const resolved = await resolvePortalTaskPrincipal({ auth, em, isPortalAdmin: acl.isPortalAdmin })
     if (!resolved.ok) return NextResponse.json(resolved.body, { status: resolved.status })
+
+    if (!z.guid().safeParse(params.id).success) {
+      return NextResponse.json(PORTAL_TASK_REFUSAL.body, { status: PORTAL_TASK_REFUSAL.status })
+    }
 
     // Scoped at the lookup, so a foreign-tenant id resolves to nothing before the
     // predicate ever runs.

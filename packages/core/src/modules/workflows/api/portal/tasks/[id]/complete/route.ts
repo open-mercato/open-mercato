@@ -79,6 +79,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       )
     }
 
+    if (!z.guid().safeParse(params.id).success) {
+      return NextResponse.json(PORTAL_TASK_REFUSAL.body, { status: PORTAL_TASK_REFUSAL.status })
+    }
+
     const task = await em.findOne(UserTask, {
       id: params.id,
       tenantId: auth.tenantId,
