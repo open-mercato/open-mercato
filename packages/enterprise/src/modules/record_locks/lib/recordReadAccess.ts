@@ -25,6 +25,8 @@ type ReadPolicy = {
   tenantOnly?: boolean
 }
 
+const priceKindPolicy = { entity: 'CatalogPriceKind', feature: 'catalog.settings.manage', tenantOnly: true }
+
 const policies: ReadonlyMap<string, ReadPolicy> = new Map(Object.entries({
   'auth.user': { entity: 'User', feature: 'auth.users.list' },
   'auth.role': { entity: 'Role', feature: 'auth.roles.list', tenantOnly: true },
@@ -32,7 +34,9 @@ const policies: ReadonlyMap<string, ReadPolicy> = new Map(Object.entries({
   'business_rules.rule': { entity: 'BusinessRule', feature: 'business_rules.view' },
   'catalog.category': { entity: 'CatalogProductCategory', feature: 'catalog.categories.view' },
   'catalog.product_category': { entity: 'CatalogProductCategory', feature: 'catalog.categories.view' },
-  'catalog.price_kind': { entity: 'CatalogPriceKind', feature: 'catalog.settings.manage', tenantOnly: true },
+  'catalog.price.kind': priceKindPolicy,
+  'catalog.price_kind': priceKindPolicy,
+  'catalog.priceKind': priceKindPolicy,
   'catalog.product': { entity: 'CatalogProduct', feature: 'catalog.products.view' },
   'catalog.product_variant': { entity: 'CatalogProductVariant', feature: 'catalog.products.view' },
   'catalog.variant': { entity: 'CatalogProductVariant', feature: 'catalog.products.view' },

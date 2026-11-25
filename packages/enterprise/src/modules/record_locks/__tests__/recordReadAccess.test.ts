@@ -69,6 +69,23 @@ test('requires the target read grant before checking if a person exists', async 
   )
 })
 
+test.each(['catalog.price.kind', 'catalog.price_kind', 'catalog.priceKind'])(
+  'uses the catalog price-kind read grant for %s',
+  async (resourceKind) => {
+    const { em, readEm, rbac, findMetadata } = fixture(['record_locks.view', 'catalog.settings.manage'])
+    findMetadata.mockReturnValue({ class: 'CatalogPriceKind', properties: { deletedAt: {} } })
+
+    await expect(canReadRecordLockTarget(em, rbac, { ...target, resourceKind })).resolves.toBe(true)
+    expect(findOneWithDecryption).toHaveBeenLastCalledWith(
+      readEm,
+      'CatalogPriceKind',
+      { id: resourceId, tenantId, deletedAt: null },
+      { fields: ['id'] },
+      { tenantId, organizationId },
+    )
+  },
+)
+
 test('rejects an empty organization scope even with the read feature', async () => {
   const { em, rbac } = fixture(['*'])
   jest.mocked(resolveOrganizationScope).mockResolvedValue({
