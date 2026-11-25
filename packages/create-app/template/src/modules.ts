@@ -234,8 +234,11 @@ export const enabledModules: ModuleEntry[] = [
   // .ai/skills/om-refresh-standalone-harness/SKILL.md step 9. Enabling is
   // therefore a maintainer call that follows that skill.
   // { id: 'forms', from: '@open-mercato/core' },
-  { id: 'ratelimit_probe', from: '@app' },
 ]
+
+if (parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)) {
+  enabledModules.push({ id: 'ratelimit_probe', from: '@app' })
+}
 
 // Official modules activated via official-modules.json / official-modules.local.json
 // (managed by `yarn official-modules`; backed by the external/official-modules submodule).
