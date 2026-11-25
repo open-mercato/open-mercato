@@ -757,10 +757,10 @@ export class NativeAgentRunner {
 
     // Pass/warn: persist the audit rows (one per check). A pass verdict records
     // pass rows but otherwise does NOT change behavior; warn proceeds + flags.
-    let guardResults: GuardResults
+    let outputGuardResults: GuardResults
     let result: AgentResult
     try {
-      guardResults = await persistVerdict({ em: guardEm }, guardScope, {
+      outputGuardResults = await persistVerdict({ em: guardEm }, guardScope, {
         verdict,
         capability: agentId,
         phase: 'output',
@@ -794,7 +794,10 @@ export class NativeAgentRunner {
         confidence: deriveEnvelopeConfidence(result.proposal),
         workflowInstanceId: ctx.workflowInstanceId ?? null,
         stepId: ctx.stepId ?? null,
-        guardResults,
+        guardResults: [
+          ...outputGuardResults,
+          ...inputVerdict.checks.filter((check) => check.result === 'warn'),
+        ],
       })
     }
 

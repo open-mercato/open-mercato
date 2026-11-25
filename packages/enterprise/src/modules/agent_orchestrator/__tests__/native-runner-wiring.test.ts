@@ -86,7 +86,7 @@ jest.mock('../lib/trace/artifactStore', () => {
 
 import { z } from 'zod'
 import { ARTIFACT_REFS } from '../lib/trace/artifactStore'
-import { integrityRuleSchema, untrustedInputDeclSchema } from '../data/validators'
+import { agentProposalSchema, integrityRuleSchema, untrustedInputDeclSchema } from '../data/validators'
 import { resolveIntegritySet } from '../lib/guardrails/integrity/integritySets'
 import { AgentGuardrailBlockedError, AgentOutputInvalidError } from '../lib/runtime/errors'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
@@ -1418,6 +1418,78 @@ describe('tool_consulted wiring', () => {
       .flatMap((persisted) => persisted.verdict.checks)
       .find((check) => check.kind === 'tool_consulted')
     expect(withoutSubRuns?.result).toBe('warn')
+  })
+})
+
+describe('native proposal guard results', () => {
+  const entry: AgentRegistryEntry = {
+    id: 'native.proposal_guard_results_agent',
+    moduleId: 'agent_orchestrator',
+    resultKind: 'proposal',
+    schema: z.object({
+      kind: z.literal('proposal'),
+      proposal: agentProposalSchema,
+    }),
+    tools: [],
+    skills: [],
+    subAgents: [],
+    label: 'Proposal guard results test agent',
+    description: 'Proposal agent for guard result wiring tests.',
+    instructions: 'propose',
+    runtime: 'native',
+  }
+
+  it.each(['warn', 'pass'] as const)('preserves proposal checks when input screening returns %s', async (result) => {
+    if (!getAgentEntry(entry.id)) registerFileAgent(entry)
+    const inputPass = { kind: 'prompt_injection', result: 'pass', guardrailSetVersion: 'p1' }
+    const inputWarn = {
+      kind: 'prompt_injection',
+      result: 'warn',
+      guardrailSetVersion: 'test-input-set',
+      evidence: { rules: ['test-rule'], flaggedSpans: 1 },
+    }
+    const inputChecks = result === 'warn' ? [inputPass, inputWarn] : [inputPass]
+    const outputChecks = [
+      { kind: 'schema', result: 'pass', guardrailSetVersion: 'p1' },
+      { kind: 'tool_scope', result: 'pass', guardrailSetVersion: 'p1' },
+    ]
+    const inputVerdict = { result, checks: inputChecks }
+    const outputVerdict = { result: 'pass', checks: outputChecks }
+    checkInputMock.mockResolvedValue(inputVerdict)
+    checkOutputMock.mockResolvedValue(outputVerdict)
+    persistVerdictMock.mockResolvedValueOnce(inputChecks).mockResolvedValueOnce(outputChecks)
+    runAiAgentObjectMock.mockResolvedValue({
+      mode: 'generate',
+      object: {
+        kind: 'proposal',
+        proposal: {
+          options: [{ id: 'review-item', label: 'Review item', actions: [{ type: 'test_action', payload: {} }] }],
+        },
+      },
+      usage: { inputTokens: 1, outputTokens: 1 },
+    })
+
+    await makeService().run(entry.id, {}, runCtx)
+
+    expect(persistVerdictMock).toHaveBeenCalledTimes(2)
+    expect(persistVerdictMock.mock.calls[0][2]).toEqual({
+      verdict: inputVerdict,
+      capability: entry.id,
+      phase: 'input',
+      proposalId: null,
+    })
+    expect(persistVerdictMock.mock.calls[1][2]).toEqual({
+      verdict: outputVerdict,
+      capability: entry.id,
+      phase: 'output',
+      proposalId: null,
+    })
+    expect(persistVerdictMock.mock.invocationCallOrder[0]).toBeLessThan(runAiAgentObjectMock.mock.invocationCallOrder[0])
+    expect(createProposalMock).toHaveBeenCalledTimes(1)
+    expect(createProposalMock.mock.calls[0][2]).toHaveProperty(
+      'guardResults',
+      result === 'warn' ? [...outputChecks, inputWarn] : outputChecks,
+    )
   })
 })
 
