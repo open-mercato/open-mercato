@@ -18,7 +18,7 @@ No base-branch merge, release operations, test suppression, contract changes, or
 2.2 Dispatch one final independent review, address findings, and apply automerge only after green evidence.
 
 ## Risks
-No current CI defect was reproduced. Historical payment-menu focus failures are intermittent and pass on the latest baseline; no speculative application change is justified. Main Snapshot Release 45497186194 was still running at the audit checkpoint and is separate from PR CI. Runner: local; compose probes found no usable running app. The optional broad script test run encountered cockpit-specific long temporary-path IPC errors; the focused rerun with TMPDIR=/tmp passed.
+No current CI defect was reproduced. Historical payment-menu focus failures are intermittent and pass on the latest baseline; no speculative application change is justified. Main Snapshot Release 45497186194 was still running at the audit checkpoint and is separate from PR CI. Runner: local; compose probes found no usable running app. The optional broad script attempt finished with 1,371 passed, 23 failed and 7 skipped: this worktree has no local dependency install or compiled Documents output, Docker buildx is unavailable, the inherited ancestor Hono differs from the pinned lockfile version, and the long cockpit temporary path prevents tsx IPC startup. These local results are not a green gate; the clean remote CI result is recorded separately. The focused rerun with TMPDIR=/tmp passed.
 
 Engine: om-auto-create-pr (steps: 4, --loop: no)
 Branch: stabilize/main-2026-11-25 (operator override).
