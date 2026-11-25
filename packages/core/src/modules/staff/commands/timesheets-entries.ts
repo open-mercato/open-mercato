@@ -123,18 +123,20 @@ async function callerHasManageAll(ctx: {
   }
 }
 
+/**
+ * The caller's own staff member in the organization the entry lives in. A user
+ * who is staff in several organizations has one row per organization, so the
+ * lookup is bound to the entry's tenant and organization, not to the caller's
+ * home organization.
+ */
 async function resolveCallerStaffMemberId(
   em: EntityManager,
-  ctx: { auth?: { sub?: string | null; tenantId?: string | null; orgId?: string | null } | null },
+  ctx: { auth?: { sub?: string | null } | null },
+  scope: { tenantId: string; organizationId: string },
 ): Promise<string | null> {
   const userId = ctx.auth?.sub
   if (!userId) return null
-  const member = await getStaffMemberByUserId(
-    em,
-    userId,
-    ctx.auth?.tenantId ?? null,
-    ctx.auth?.orgId ?? null,
-  )
+  const member = await getStaffMemberByUserId(em, userId, scope.tenantId, scope.organizationId)
   return member?.id ?? null
 }
 
@@ -948,7 +950,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     // can't forge an entry under a colleague's identity.
     let effectiveStaffMemberId = parsed.staffMemberId
     if (!(await callerHasManageAll(ctx))) {
-      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
+      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
       if (!callerStaffMemberId) {
         const { translate } = await resolveTranslations()
         throw new CrudHttpError(403, {
@@ -1144,7 +1146,7 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     // request body's staffMemberId can't start a timer under a colleague's id.
     let effectiveStaffMemberId = parsed.staffMemberId
     if (!(await callerHasManageAll(ctx))) {
-      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
+      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
       if (!callerStaffMemberId) {
         const { translate } = await resolveTranslations()
         throw new CrudHttpError(403, {
@@ -1944,7 +1946,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     // can only update entries they own.
     const hasManageAll = await callerHasManageAll(ctx)
     if (!hasManageAll) {
-      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
+      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx, { tenantId: entry.tenantId, organizationId: entry.organizationId })
       if (!callerStaffMemberId || entry.staffMemberId !== callerStaffMemberId) {
         const { translate } = await resolveTranslations()
         throw new CrudHttpError(403, {
@@ -2229,7 +2231,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     // can only delete entries they own.
     const hasManageAll = await callerHasManageAll(ctx)
     if (!hasManageAll) {
-      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
+      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx, { tenantId: entry.tenantId, organizationId: entry.organizationId })
       if (!callerStaffMemberId || entry.staffMemberId !== callerStaffMemberId) {
         const { translate } = await resolveTranslations()
         throw new CrudHttpError(403, {

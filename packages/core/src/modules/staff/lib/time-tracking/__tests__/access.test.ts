@@ -189,6 +189,19 @@ describe('resolveProjectAccess', () => {
     const access = await resolveProjectAccess({ em, ...baseCtx, userId: null, userFeatures: [] })
     expect(access).toEqual({ canManageAll: false, projectIds: [], staffMemberId: null })
   })
+
+  it('never binds an API key subject to the staff member lookup (#10188)', async () => {
+    const em = createEm({ members: [staffMemberRow()], memberships: [membershipRow()] })
+    const findOne = jest.spyOn(em, 'findOne').mockRejectedValue(new Error('invalid input syntax for type uuid'))
+    const userId = 'api_key:00000000-0000-4000-8000-0000000000cc'
+
+    const manager = await resolveProjectAccess({ em, ...baseCtx, userId, canManageAll: true })
+    const viewer = await resolveProjectAccess({ em, ...baseCtx, userId, canManageAll: false })
+
+    expect(manager).toEqual({ canManageAll: true, projectIds: [], staffMemberId: null })
+    expect(viewer).toEqual({ canManageAll: false, projectIds: [], staffMemberId: null })
+    expect(findOne).not.toHaveBeenCalled()
+  })
 })
 
 describe('resolveProjectAccess assignment window', () => {

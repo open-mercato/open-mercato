@@ -76,13 +76,17 @@ export async function resolveProjectAccess(ctx: ProjectAccessContext): Promise<P
   }
 
   const scope = { tenantId, organizationId }
-  const staffMember = await findOneWithDecryption(
-    ctx.em,
-    StaffTeamMember,
-    { userId, tenantId, organizationId, deletedAt: null },
-    {},
-    scope,
-  )
+  // An API key's `api_key:<id>` subject is not a user and cannot own a staff
+  // member; binding it to the uuid `user_id` column fails the whole lookup (#10188).
+  const staffMember = userId.startsWith('api_key:')
+    ? null
+    : await findOneWithDecryption(
+      ctx.em,
+      StaffTeamMember,
+      { userId, tenantId, organizationId, deletedAt: null },
+      {},
+      scope,
+    )
   const staffMemberId = staffMember?.id ?? null
 
   if (canManageAll) return { canManageAll: true, projectIds: [], staffMemberId }
