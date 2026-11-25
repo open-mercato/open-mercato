@@ -37,7 +37,7 @@ type CategoryFormValues = {
   id?: string
   name: string
   slug?: string
-  description?: string
+  description?: string | null
   parentId?: string | null
   isActive?: boolean
   updatedAt?: string | null
@@ -60,9 +60,11 @@ async function submitCategoryUpdate(
   }
   const slug = typeof values.slug === 'string' && values.slug.trim().length ? values.slug.trim() : undefined
   const description =
-    typeof values.description === 'string' && values.description.trim().length
-      ? values.description.trim()
-      : undefined
+    typeof values.description === 'string'
+      ? values.description.trim() || null
+      : values.description === null
+        ? null
+        : undefined
   const parentId =
     typeof values.parentId === 'string' && values.parentId.trim().length
       ? values.parentId.trim()
