@@ -28,6 +28,12 @@ see no organization. Grant the intended organizations in the user's or role's ac
 **Action for integrators:** a client that treated an empty list or a `404` as "nothing visible"
 for such a principal must also handle `403`.
 
+## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
+
+An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
+
+Callers that send `callSettings` to such an agent must drop them, or the agent author must allow runtime overrides. The agent's own `modelSettings` still apply, an empty `callSettings` object is treated as absent, and agents without the flag (the default, permissive) are unaffected. No first-party agent sets the flag to `false`. No database migration or configuration change is required.
+
 ## Production fullapp LocalStack binds to loopback (#10342)
 
 The production fullapp `storage-s3` profile now publishes LocalStack on

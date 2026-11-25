@@ -3,7 +3,7 @@
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -1130,7 +1130,7 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
     applyDeleteImportedProductsEvent(payload)
   }, [applyDeleteImportedProductsEvent, applyFirstImportChildRunProgressEvent, applyFirstImportProgressEvent])
 
-  useAppEvent('om:bridge:reconnected', () => {
+  useAppEvent(BRIDGE_RECONNECTED_EVENT_ID, () => {
     void loadFirstImportStatus().catch(() => undefined)
   }, [loadFirstImportStatus])
 
