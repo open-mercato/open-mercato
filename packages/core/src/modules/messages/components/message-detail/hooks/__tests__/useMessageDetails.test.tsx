@@ -30,6 +30,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useAppEvent', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/injection/useAppEvent'),
   useAppEvent: (...args: unknown[]) => mockUseAppEvent(...args),
 }))
 

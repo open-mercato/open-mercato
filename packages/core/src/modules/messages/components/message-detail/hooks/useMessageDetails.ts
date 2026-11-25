@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import type { MessageDetail, MessageDetailDeletion } from '../types'
 import { useMessageDetailsQueries } from './useMessageDetailsQueries'
 import { useMessageDetailsActions } from './useMessageDetailsActions'
@@ -89,7 +89,7 @@ export function useMessageDetails(id: string, sharedDeletion?: MessageDetailDele
   )
 
   useAppEvent(
-    'om:bridge:reconnected',
+    BRIDGE_RECONNECTED_EVENT_ID,
     () => {
       void queryClient.invalidateQueries({ queryKey: ['messages', 'detail', id] })
     },
