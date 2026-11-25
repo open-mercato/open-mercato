@@ -2,7 +2,7 @@
 
 const mockGetAuth = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
-const mockFindById = jest.fn()
+const mockEmFindOne = jest.fn()
 const mockUpdatePassword = jest.fn()
 const mockRevokeAllUserSessions = jest.fn()
 const mockTransactional = jest.fn(async (cb: (trx: unknown) => Promise<unknown>) => cb({}))
@@ -11,7 +11,6 @@ const mockEmit = jest.fn(async () => undefined)
 const rbacService = { userHasAllFeatures: mockUserHasAllFeatures }
 
 const customerUserService = {
-  findById: mockFindById,
   updatePassword: mockUpdatePassword,
 }
 
@@ -20,8 +19,11 @@ const customerSessionService = {
 }
 
 const mockEm = {
+  findOne: (entity: unknown, where: Record<string, unknown>) => mockEmFindOne(entity, where),
   transactional: (cb: (trx: unknown) => Promise<unknown>) => mockTransactional(cb),
 }
+
+const mockResolveOrganizationScope = jest.fn()
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
@@ -45,6 +47,14 @@ jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
   emitCustomerAccountsEvent: (...args: unknown[]) => mockEmit(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn((args: unknown) => mockResolveOrganizationScope(args)),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
+}))
+
 import { POST } from '@open-mercato/core/modules/customer_accounts/api/admin/users/[id]/reset-password'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -66,7 +76,8 @@ describe('admin /api/customer_accounts/admin/users/[id]/reset-password — atomi
     jest.clearAllMocks()
     mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
     mockUserHasAllFeatures.mockResolvedValue(true)
-    mockFindById.mockResolvedValue({ id: userId, tenantId, organizationId: orgId, email: 'user@example.com' })
+    mockResolveOrganizationScope.mockResolvedValue({ selectedId: orgId, filterIds: [orgId], allowedIds: [orgId], tenantId })
+    mockEmFindOne.mockResolvedValue({ id: userId, tenantId, organizationId: orgId, email: 'user@example.com' })
     mockUpdatePassword.mockResolvedValue(undefined)
     mockRevokeAllUserSessions.mockResolvedValue(undefined)
     mockTransactional.mockImplementation(async (cb) => cb({}))
@@ -160,7 +171,7 @@ describe('admin /api/customer_accounts/admin/users/[id]/reset-password — atomi
   })
 
   it('does NOT run the transaction or emit when the target user cannot be found', async () => {
-    mockFindById.mockResolvedValue(null)
+    mockEmFindOne.mockResolvedValue(null)
 
     const res = await POST(
       makeRequest({ newPassword: 'new-strong-Passw0rd!' }),
@@ -172,18 +183,20 @@ describe('admin /api/customer_accounts/admin/users/[id]/reset-password — atomi
     expect(mockEmit).not.toHaveBeenCalled()
   })
 
-  it('returns 404 before changing a same-tenant foreign-org user password', async () => {
+  it('returns 404 before changing the password of a same-tenant user outside the caller organization scope', async () => {
     const foreignUser = {
       id: userId,
       tenantId,
       organizationId: foreignOrgId,
       email: 'foreign@example.com',
     }
-    mockFindById.mockImplementation(async (
-      _id: string,
-      _tenantId: string,
-      organizationId?: string,
-    ) => organizationId === orgId ? null : foreignUser)
+    mockEmFindOne.mockImplementation(async (
+      _entity: unknown,
+      where: Record<string, unknown>,
+    ) => {
+      const allowed = (where.organizationId as { $in?: string[] } | undefined)?.$in
+      return allowed?.includes(foreignOrgId) ? foreignUser : null
+    })
 
     const res = await POST(
       makeRequest({ newPassword: 'new-strong-Passw0rd!' }),
@@ -191,6 +204,40 @@ describe('admin /api/customer_accounts/admin/users/[id]/reset-password — atomi
     )
 
     expect(res.status).toBe(404)
+    expect(mockTransactional).not.toHaveBeenCalled()
+    expect(mockUpdatePassword).not.toHaveBeenCalled()
+    expect(mockRevokeAllUserSessions).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+
+    mockResolveOrganizationScope.mockResolvedValue({ selectedId: foreignOrgId, filterIds: [foreignOrgId], allowedIds: [foreignOrgId], tenantId })
+
+    const inScope = await POST(
+      makeRequest({ newPassword: 'new-strong-Passw0rd!' }),
+      { params: { id: userId } },
+    )
+
+    expect(inScope.status).toBe(200)
+    expect(mockUpdatePassword).toHaveBeenCalledWith(foreignUser, 'new-strong-Passw0rd!', expect.anything())
+  })
+
+  it('returns 403 before changing the password when the caller lacks customer_accounts.manage in the target user organization', async () => {
+    mockResolveOrganizationScope.mockResolvedValue({ selectedId: foreignOrgId, filterIds: [foreignOrgId], allowedIds: [foreignOrgId], tenantId })
+    mockEmFindOne.mockResolvedValue({ id: userId, tenantId, organizationId: foreignOrgId, email: 'foreign@example.com' })
+    mockUserHasAllFeatures.mockImplementation(
+      async (_sub: string, _features: string[], scope: { organizationId?: string | null }) => scope.organizationId === orgId,
+    )
+
+    const res = await POST(
+      makeRequest({ newPassword: 'new-strong-Passw0rd!' }),
+      { params: { id: userId } },
+    )
+
+    expect(res.status).toBe(403)
+    expect(mockUserHasAllFeatures).toHaveBeenLastCalledWith(
+      adminId,
+      ['customer_accounts.manage'],
+      { tenantId, organizationId: foreignOrgId },
+    )
     expect(mockTransactional).not.toHaveBeenCalled()
     expect(mockUpdatePassword).not.toHaveBeenCalled()
     expect(mockRevokeAllUserSessions).not.toHaveBeenCalled()
