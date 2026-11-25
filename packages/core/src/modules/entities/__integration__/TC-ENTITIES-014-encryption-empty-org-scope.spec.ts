@@ -20,7 +20,7 @@ import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integr
 export const integrationMeta = { dependsOnModules: ['auth', 'directory', 'entities'] }
 
 /**
- * TC-ENTITIES-013: an empty organization scope cannot reach the tenant encryption map API.
+ * TC-ENTITIES-014: an empty organization scope cannot reach the tenant encryption map API.
  *
  * Boundary test for the real API dispatcher -> organization scope resolver -> rbacService
  * chain (none of them mocked). `GET`/`POST /api/entities/encryption` require
@@ -151,7 +151,7 @@ async function createScopedUser(
   const email = `tc-entities-013-${input.label}-${stamp}@example.com`
   const password = `Aa1!${randomBytes(20).toString('hex')}`
 
-  const roleId = await createRoleFixture(request, adminToken, { name: `TC-ENTITIES-013 ${input.label} ${stamp}` })
+  const roleId = await createRoleFixture(request, adminToken, { name: `TC-ENTITIES-014 ${input.label} ${stamp}` })
   cleanup.roleIds.push(roleId)
   const userId = await createUserFixture(request, adminToken, { email, password, organizationId, roles: [roleId] })
   cleanup.userIds.push(userId)
@@ -216,7 +216,7 @@ async function runCleanup(request: APIRequestContext, cleanup: Cleanup): Promise
   for (const organizationId of cleanup.organizationIds) await deleteOrganizationInDb(organizationId).catch(() => undefined)
 }
 
-test.describe('TC-ENTITIES-013: an empty organization scope cannot reach the encryption map API', () => {
+test.describe('TC-ENTITIES-014: an empty organization scope cannot reach the encryption map API', () => {
   for (const keepHomeOrganization of [false, true]) {
     const variant = keepHomeOrganization ? 'with a home organization outside the scope' : 'without a home organization'
 
@@ -248,7 +248,7 @@ test.describe('TC-ENTITIES-013: an empty organization scope cannot reach the enc
         const baseline = await seedBaselineMap(request, adminToken, cleanup)
 
         const staleOrganizationId = await createOrganizationInDb({
-          name: `TC-ENTITIES-013 stale org ${randomUUID()}`,
+          name: `TC-ENTITIES-014 stale org ${randomUUID()}`,
           tenantId,
         })
         cleanup.organizationIds.push(staleOrganizationId)
