@@ -18,14 +18,16 @@ Keep Storybook export names and variant IDs stable. Preserve Tpay compatibility 
 
 ## Progress
 
+PR: #10659
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Scanner findings
 
-- [ ] 1.1 Generate Storybook variant declarations through the TypeScript AST
-- [ ] 1.2 Pass feedback translations as fixture data and generate webhook test secrets
-- [ ] 1.3 Document the Tpay checksum and signature requirements
+- [x] 1.1 Generate Storybook variant declarations through the TypeScript AST — e2b89212b6
+- [x] 1.2 Pass feedback translations as fixture data and generate webhook test secrets — e2b89212b6
+- [x] 1.3 Document the Tpay checksum and signature requirements — e2b89212b6
 
 ### Phase 2: Verification
 
-- [ ] 2.1 Run focused tests and review the scanner results
+- [x] 2.1 Run focused tests and review the scanner results — e2b89212b6
