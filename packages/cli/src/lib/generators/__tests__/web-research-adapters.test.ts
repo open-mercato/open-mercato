@@ -62,6 +62,26 @@ describe('generateWebResearchAdapters', () => {
     fs.rmSync(root, { recursive: true, force: true })
   })
 
+  it('does not require @open-mercato/web-research to be installed in the app', async () => {
+    await generateWebResearchAdapters({ resolver, quiet: true })
+    const content = fs.readFileSync(outFile, 'utf8')
+
+    expect(content).not.toContain("from '@open-mercato/web-research'")
+    expect(content).toContain('type AdapterRegistryEntry = {')
+  })
+
+  it('imports every discovered adapter with a literal specifier and no static import', async () => {
+    writeManifest(path.join(root, 'node_modules', '@acme', 'web-research-installed'), '@acme/web-research-installed', 'installed')
+    writeManifest(path.join(root, 'packages', 'web-research-workspace-only'), '@open-mercato/web-research-workspace-only', 'workspace-only')
+
+    await generateWebResearchAdapters({ resolver, quiet: true })
+    const content = fs.readFileSync(outFile, 'utf8')
+
+    expect(content).toContain("import('@acme/web-research-installed')")
+    expect(content).toContain("import('@open-mercato/web-research-workspace-only')")
+    expect(content).not.toMatch(/^import \* as /m)
+  })
+
   it('shares candidate manifests and shallow scan roots, including scope folders, with the watcher', async () => {
     const workspaceRoot = path.join(root, 'packages')
     const installedRoot = path.join(root, 'node_modules')

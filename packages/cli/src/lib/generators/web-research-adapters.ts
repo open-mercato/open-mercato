@@ -190,7 +190,12 @@ export async function generateWebResearchAdapters(
 // Source: packages declaring \`${MANIFEST_NAMESPACE}.${ADAPTER_MANIFEST_KEY}\` in package.json.
 // Regenerate with: yarn generate
 // Adapter packages that are not installed where this registry runs are skipped.
-import type { AdapterRegistryEntry } from '@open-mercato/web-research'
+// Structurally identical to \`AdapterRegistryEntry\` in @open-mercato/web-research, declared
+// inline so apps that do not install that package still typecheck.
+type AdapterRegistryEntry = {
+  readonly packageName: string
+  readonly module: unknown
+}
 
 ${renderEntries(adapters)}`
 
