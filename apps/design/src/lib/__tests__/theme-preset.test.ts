@@ -1,3 +1,4 @@
+import { createColorStudio } from '@open-mercato/core/modules/design_system/gallery/components/colorStudio'
 import { DEFAULT_PRESET, NAMED_PRESETS, decodePreset, encodePreset, namedPresetId, shufflePreset, themePresetSchema } from '../theme-preset'
 
 describe('theme presets', () => {
@@ -9,7 +10,7 @@ describe('theme presets', () => {
   })
 
   it('accepts named presets and rejects broken or oversized codes', () => {
-    expect(decodePreset('forest')).toEqual(NAMED_PRESETS.forest)
+    expect(decodePreset('sage')).toEqual(NAMED_PRESETS.sage)
     expect(decodePreset('not-a-preset')).toBeNull()
     expect(decodePreset('x'.repeat(500))).toBeNull()
     expect(decodePreset(null)).toBeNull()
@@ -28,7 +29,20 @@ describe('theme presets', () => {
   })
 
   it('recognises a named preset', () => {
-    expect(namedPresetId(NAMED_PRESETS.berry)).toBe('berry')
-    expect(namedPresetId({ ...NAMED_PRESETS.berry, density: 'compact' })).toBeNull()
+    expect(namedPresetId(NAMED_PRESETS.mauve)).toBe('mauve')
+    expect(namedPresetId({ ...NAMED_PRESETS.mauve, density: 'compact' })).toBeNull()
+  })
+
+  it('keeps every named preset readable in both modes', () => {
+    const failures: string[] = []
+    for (const [id, preset] of Object.entries(NAMED_PRESETS)) {
+      const studio = createColorStudio(preset.primary, preset.neutral, { light: preset.light, dark: preset.dark }, { harmony: preset.harmony })
+      for (const mode of ['light', 'dark'] as const) {
+        for (const pair of studio[mode].pairs) {
+          if (pair.ratio < pair.minimum) failures.push(`${id} ${mode} ${pair.id} ${pair.ratio.toFixed(2)}`)
+        }
+      }
+    }
+    expect(failures).toEqual([])
   })
 })

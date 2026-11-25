@@ -27,9 +27,9 @@ describe('theme code', () => {
   })
 
   it('notes compact density and renders React and JSON formats', () => {
-    const graphite = NAMED_PRESETS.graphite
-    expect(themeCss(studio, graphite)).toContain('data-density="compact"')
-    expect(themeCode('react', studio, graphite, 'abc')).toContain('<DesignScope density="compact" shape="sharp">')
+    const mono = NAMED_PRESETS.mono
+    expect(themeCss(studio, mono)).toContain('data-density="compact"')
+    expect(themeCode('react', studio, mono, 'abc')).toContain('<DesignScope density="compact" shape="sharp">')
     const json = JSON.parse(themeCode('json', studio, preset, 'abc'))
     expect(json.preset.primary).toBe(preset.primary)
     expect(json.themes.dark['--primary']).toBe(studio.dark.tokens['--primary'])

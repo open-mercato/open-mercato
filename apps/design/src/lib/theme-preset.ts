@@ -23,10 +23,14 @@ export type ThemePreset = z.infer<typeof themePresetSchema>
 
 export const NAMED_PRESETS: Record<string, ThemePreset> = {
   mercato: { v: 1, primary: '#F4700D', harmony: 'triadic', neutral: 'neutral', light: 600, dark: 400, shape: 'default', density: 'default' },
+  mono: { v: 1, primary: '#3F3F46', harmony: 'analogous', neutral: 'neutral', light: 900, dark: 200, shape: 'sharp', density: 'compact' },
+  clay: { v: 1, primary: '#B4532A', harmony: 'analogous', neutral: 'warm', light: 600, dark: 400, shape: 'round', density: 'default' },
+  indigo: { v: 1, primary: '#4F46E5', harmony: 'split', neutral: 'warm', light: 600, dark: 400, shape: 'default', density: 'default' },
+  sage: { v: 1, primary: '#5F7A61', harmony: 'analogous', neutral: 'warm', light: 700, dark: 300, shape: 'round', density: 'default' },
   ocean: { v: 1, primary: '#2563EB', harmony: 'analogous', neutral: 'cool', light: 600, dark: 400, shape: 'round', density: 'default' },
-  forest: { v: 1, primary: '#15803D', harmony: 'split', neutral: 'warm', light: 700, dark: 400, shape: 'default', density: 'default' },
-  graphite: { v: 1, primary: '#4B5563', harmony: 'analogous', neutral: 'neutral', light: 700, dark: 300, shape: 'sharp', density: 'compact' },
-  berry: { v: 1, primary: '#BE185D', harmony: 'triadic', neutral: 'warm', light: 600, dark: 400, shape: 'round', density: 'default' },
+  mauve: { v: 1, primary: '#7C5C9C', harmony: 'triadic', neutral: 'cool', light: 600, dark: 300, shape: 'round', density: 'default' },
+  ochre: { v: 1, primary: '#B7791F', harmony: 'split', neutral: 'warm', light: 700, dark: 400, shape: 'default', density: 'default' },
+  cyan: { v: 1, primary: '#0891B2', harmony: 'analogous', neutral: 'cool', light: 700, dark: 400, shape: 'sharp', density: 'compact' },
 }
 
 export const DEFAULT_PRESET: ThemePreset = NAMED_PRESETS.mercato

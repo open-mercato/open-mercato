@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Check, Code2, Contrast, Copy, ImagePlus, Link2, RotateCcw, Shuffle, X } from 'lucide-react'
+import { Check, Code2, Contrast, Copy, Dices, ImagePlus, Link2, RotateCcw, Shuffle, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createColorStudio, type Harmony, type NeutralTone, type Shade } from '@open-mercato/core/modules/design_system/gallery/components/colorStudio'
 import { readBrandLogo } from '@open-mercato/core/modules/design_system/gallery/components/styleAgentBranding'
@@ -13,7 +13,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { AppFrame, PreviewScreenContent, type PreviewScreen } from './PreviewScreens'
@@ -21,6 +21,7 @@ import { themeCode, themeTokens, type ThemeCodeFormat } from '@/lib/theme-code'
 import { DEFAULT_PRESET, NAMED_PRESETS, SHADES, decodePreset, encodePreset, namedPresetId, shufflePreset, type ThemePreset } from '@/lib/theme-preset'
 
 type PreviewMode = 'light' | 'dark' | 'compare'
+const SURPRISE = 'surprise'
 const SCREENS: PreviewScreen[] = ['list', 'record', 'dashboard', 'components']
 
 const HEX = /^#[0-9a-fA-F]{6}$/
@@ -142,13 +143,15 @@ export function ThemeCreator() {
         <SegmentedControl size="sm" value={screen} aria-label={t('design.create.screen')} onValueChange={(value) => { const next = SCREENS.find((candidate) => candidate === value); if (next) setScreen(next) }}>
           {SCREENS.map((id) => <SegmentedControlItem key={id} value={id}>{t(`design.create.screens.${id}`)}</SegmentedControlItem>)}
         </SegmentedControl>
-        <Select value={presetId} onValueChange={(value) => { if (NAMED_PRESETS[value]) update(NAMED_PRESETS[value]) }}>
-          <SelectTrigger size="sm" className="w-28" aria-label={t('design.create.preset')}><SelectValue /></SelectTrigger>
+        <Select value={presetId} onValueChange={(value) => { if (value === SURPRISE) update(shufflePreset()); else if (NAMED_PRESETS[value]) update(NAMED_PRESETS[value]) }}>
+          <SelectTrigger size="sm" className="w-36" aria-label={t('design.create.preset')}><SelectValue /></SelectTrigger>
           <SelectContent>
-            {Object.keys(NAMED_PRESETS).map((id) => (
-              <SelectItem key={id} value={id}>{t(`design.create.presets.${id}`)}</SelectItem>
+            {Object.entries(NAMED_PRESETS).map(([id, named]) => (
+              <SelectItem key={id} value={id} leading={<span aria-hidden className="size-3 rounded-full" style={{ backgroundColor: named.primary }} />}>{t(`design.create.presets.${id}`)}</SelectItem>
             ))}
-            {presetId === 'custom' ? <SelectItem value="custom" disabled>{t('design.create.presets.custom')}</SelectItem> : null}
+            {presetId === 'custom' ? <SelectItem value="custom" disabled leading={<span aria-hidden className="size-3 rounded-full" style={{ backgroundColor: preset.primary }} />}>{t('design.create.presets.custom')}</SelectItem> : null}
+            <SelectSeparator />
+            <SelectItem value={SURPRISE} leading={<Dices aria-hidden className="size-4" />}>{t('design.create.surprise')}</SelectItem>
           </SelectContent>
         </Select>
         <Popover>

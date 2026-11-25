@@ -197,10 +197,14 @@
   "design.create.settings": "Theme settings",
   "design.create.preset": "Preset",
   "design.create.presets.mercato": "Mercato",
+  "design.create.presets.mono": "Mono",
+  "design.create.presets.clay": "Clay",
+  "design.create.presets.indigo": "Indigo",
+  "design.create.presets.sage": "Sage",
   "design.create.presets.ocean": "Ocean",
-  "design.create.presets.forest": "Forest",
-  "design.create.presets.graphite": "Graphite",
-  "design.create.presets.berry": "Berry",
+  "design.create.presets.mauve": "Mauve",
+  "design.create.presets.ochre": "Ochre",
+  "design.create.presets.cyan": "Cyan night",
   "design.create.presets.custom": "Custom",
   "design.create.primary": "Primary colour",
   "design.create.primaryScale": "Primary scale",
@@ -326,5 +330,6 @@
   "design.create.app.details": "Details",
   "design.create.app.activity": "Activity",
   "design.create.app.email": "Email",
-  "design.create.app.phone": "Phone"
+  "design.create.app.phone": "Phone",
+  "design.create.surprise": "Surprise me"
 }
