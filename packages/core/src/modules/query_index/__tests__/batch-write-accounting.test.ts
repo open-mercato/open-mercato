@@ -301,7 +301,7 @@ describe('upsertIndexBatch write accounting (GSM-266)', () => {
     )
   })
 
-  it('forwards the ciphertext guard, read after every decrypt of the batch, to the token writer', async () => {
+  it('reads the ciphertext guard per row, straight after that row is decrypted', async () => {
     const fake = createFakeDb()
     const events: string[] = []
     const decryptDoc = jest.fn(async (_entityType: string, doc: Record<string, unknown>) => {
@@ -315,9 +315,42 @@ describe('upsertIndexBatch write accounting (GSM-266)', () => {
 
     await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE, { decryptDoc, ciphertextGuard })
 
-    expect(events).toEqual(['decrypt:1', 'decrypt:2', 'guard'])
+    expect(events).toEqual(['decrypt:1', 'guard', 'decrypt:2', 'guard'])
     const payloads = mockReplaceSearchTokens.mock.calls[0][1]
     expect(payloads.map((payload) => [payload.recordId, payload.guardCiphertext])).toEqual([['1', true], ['2', true]])
+  })
+
+  it('keeps the guard on for rows decrypted before Vault recovered mid-batch', async () => {
+    const fake = createFakeDb()
+    let vaultReachable = false
+    const decryptDoc = jest.fn(async (_entityType: string, doc: Record<string, unknown>) => {
+      if (doc.id === '2') vaultReachable = true
+      return doc
+    })
+
+    await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE, {
+      decryptDoc,
+      ciphertextGuard: () => !vaultReachable,
+    })
+
+    const payloads = mockReplaceSearchTokens.mock.calls[0][1]
+    expect(payloads.map((payload) => [payload.recordId, payload.guardCiphertext])).toEqual([['1', true], ['2', false]])
+  })
+
+  it('guards a row whose decrypt failed even while the KMS reports healthy', async () => {
+    const fake = createFakeDb()
+    const decryptDoc = jest.fn(async (_entityType: string, doc: Record<string, unknown>) => {
+      if (doc.id === '1') throw new Error('decrypt failed')
+      return doc
+    })
+
+    await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE, {
+      decryptDoc,
+      ciphertextGuard: () => false,
+    })
+
+    const payloads = mockReplaceSearchTokens.mock.calls[0][1]
+    expect(payloads.map((payload) => [payload.recordId, payload.guardCiphertext])).toEqual([['1', true], ['2', false]])
   })
 
   it('leaves the guard to the token writer when no ciphertextGuard is given', async () => {

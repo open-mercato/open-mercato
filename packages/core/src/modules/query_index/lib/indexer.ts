@@ -455,21 +455,19 @@ export async function reindexSearchTokensForRecord(
     return
   }
   const encryption = resolveTenantEncryptionService(em as any)
-  const tokenDoc = args.searchTokenDoc ?? (() => {
-    const dekKeyCache = new Map<string | null, string | null>()
-    return decryptIndexDocForSearch(
-      args.entityType,
-      args.doc,
-      { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
-      encryption,
-      dekKeyCache,
-    )
-  })()
+  const tokenDoc = args.searchTokenDoc ?? await decryptIndexDocForSearch(
+    args.entityType,
+    args.doc,
+    { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
+    encryption,
+    new Map<string | null, string | null>(),
+  )
+  const guardCiphertext = resolveCiphertextGuard(encryption)
   const gates = resolveSearchTokenIndexGates(args.entityType)
   if (gates.length) {
     const allowed = await passesSearchTokenIndexGates(args.entityType, gates, {
       recordId: String(args.recordId),
-      record: await tokenDoc,
+      record: tokenDoc,
       tenantId: args.tenantId ?? null,
       organizationId: args.organizationId ?? null,
       queryEngine: createSearchTokenGateQueryEngine(em),
@@ -491,7 +489,7 @@ export async function reindexSearchTokensForRecord(
   // rebuild and the token writer — that also makes the aggregate's blocklist filter and
   // the per-field one provably read the same snapshot, as the batch path already does.
   const searchConfig = resolveSearchConfig()
-  const searchDoc = rebuildAggregateSearchField(await tokenDoc, {
+  const searchDoc = rebuildAggregateSearchField(tokenDoc, {
     entityType: args.entityType,
     config: searchConfig,
   })
@@ -502,7 +500,7 @@ export async function reindexSearchTokensForRecord(
     tenantId: args.tenantId ?? null,
     doc: searchDoc,
     config: searchConfig,
-    guardCiphertext: resolveCiphertextGuard(encryption),
+    guardCiphertext,
   }, { trx: args.trx })
 }
 
