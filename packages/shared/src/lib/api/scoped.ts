@@ -1,7 +1,8 @@
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import type { z } from 'zod'
 
 export type ScopedContext = (CommandRuntimeContext | CrudCtx) & {
@@ -65,15 +66,23 @@ export function withScopedPayload<T extends Record<string, unknown>>(
   // converges on, so the check holds regardless of body size or dispatcher-level route flags.
   enforceActorTenant(tenantId, ctx, translate, options)
 
-  const resolvedOrg =
-    (source as { organizationId?: string })?.organizationId ??
-    ctx.selectedOrganizationId ??
-    ctx.auth?.orgId ??
-    null
+  const requestedOrg = (source as { organizationId?: unknown }).organizationId
+  if (requestedOrg != null && typeof requestedOrg !== 'string') {
+    throw new CrudHttpError(400, { error: translate('errors.invalid_input', 'Invalid input') })
+  }
+  const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  const resolvedOrg = requestedOrg ?? currentOrg
 
   if (requireOrganization && !resolvedOrg) {
     const msg = resolveMessage(options.messages, 'organizationRequired')
     throw new CrudHttpError(400, { error: translate(msg.key, msg.fallback) })
+  }
+
+  if (requestedOrg) {
+    if (ctx.request && !ctx.organizationScope && !currentOrg && !authIsSuperAdmin(ctx.auth)) {
+      throw forbidden()
+    }
+    ensureOrganizationScope(ctx, requestedOrg)
   }
 
   const scoped = {

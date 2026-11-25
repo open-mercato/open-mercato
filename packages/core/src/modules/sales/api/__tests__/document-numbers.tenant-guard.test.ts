@@ -23,6 +23,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
     resolve: (token: string) => {
       if (token === 'salesDocumentNumberGenerator') return { generate: mockGenerate }
       if (token === 'rbacService') return { userHasAllFeatures: jest.fn(async () => true) }
+      if (token === 'organizationHierarchyService') return { resolveAncestorIds: jest.fn(async () => []) }
       return null
     },
   })),
@@ -33,11 +34,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: jest.fn(async () => ({ filterIds: [ORG_ID] })),
-}))
-
-jest.mock('@open-mercato/core/modules/directory/utils/organizationScopeFilter', () => ({
-  resolveSingleOrganizationIdOrDeny: jest.fn(() => ORG_ID),
+  resolveOrganizationScopeForRequest: jest.fn(async () => ({
+    selectedId: ORG_ID,
+    tenantId: ACTOR_TENANT_ID,
+    allowedIds: [ORG_ID],
+    filterIds: [ORG_ID],
+  })),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({

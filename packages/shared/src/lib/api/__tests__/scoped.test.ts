@@ -1,7 +1,87 @@
 import { z } from 'zod'
-import { parseScopedCommandInput } from '../scoped'
+import { parseScopedCommandInput, withScopedPayload, type ScopedContext } from '../scoped'
 
 const translate = (_key: string, fallback?: string) => fallback ?? _key
+
+const tenantId = 'tenant-1'
+const selectedOrganizationId = 'org-1'
+const otherOrganizationId = 'org-2'
+
+function scopedContext(allowedIds: string[] | null): ScopedContext {
+  return {
+    auth: { sub: 'actor-1', tenantId, orgId: selectedOrganizationId },
+    container: {} as ScopedContext['container'],
+    organizationScope: { tenantId, selectedId: selectedOrganizationId, allowedIds, filterIds: [selectedOrganizationId] },
+    selectedOrganizationId,
+    organizationIds: [selectedOrganizationId],
+  }
+}
+
+describe('scoped payload organization authorization', () => {
+  const payload = { organizationId: otherOrganizationId }
+  const forbidden = expect.objectContaining({ status: 403 })
+
+  it('uses the authorized organization set for explicit targets', () => {
+    const ctx = scopedContext([selectedOrganizationId, otherOrganizationId])
+
+    expect(withScopedPayload(payload, ctx, translate)).toEqual({ tenantId, ...payload })
+    expect(withScopedPayload({}, ctx, translate)).toEqual({ tenantId, organizationId: selectedOrganizationId })
+  })
+
+  it('enforces the organization grant before parsing command input', () => {
+    const ctx = scopedContext([selectedOrganizationId])
+    const schema = z.object({ organizationId: z.string() })
+
+    expect(() => parseScopedCommandInput(schema, payload, ctx, translate)).toThrow(forbidden)
+  })
+
+  it('honors a resolved unrestricted grant and an explicit superadmin', () => {
+    expect(withScopedPayload(payload, scopedContext(null), translate)).toEqual({ tenantId, ...payload })
+    const superadmin = scopedContext([])
+    if (superadmin.auth) superadmin.auth.isSuperAdmin = true
+    expect(withScopedPayload(payload, superadmin, translate)).toEqual({ tenantId, ...payload })
+  })
+
+  it('rejects explicitly empty and tenantless resolved scopes', () => {
+    const ctx = scopedContext([])
+    expect(() => withScopedPayload({ organizationId: selectedOrganizationId }, ctx, translate)).toThrow(forbidden)
+
+    const tenantless = { ...ctx, organizationScope: { allowedIds: null, tenantId: null, selectedId: null, filterIds: null } }
+    expect(() => withScopedPayload(payload, tenantless, translate)).toThrow(forbidden)
+  })
+
+  it('allows omitted organization for tenant-only payloads and still checks a supplied target', () => {
+    const ctx = { ...scopedContext([]), auth: { sub: 'actor-1', tenantId, orgId: null }, selectedOrganizationId: null }
+    const options = { requireOrganization: false }
+
+    expect(withScopedPayload({}, ctx, translate, options)).toEqual({ tenantId })
+    expect(() => withScopedPayload(payload, ctx, translate, options)).toThrow(forbidden)
+  })
+
+  it('fails closed on an HTTP request missing all trusted organization context', () => {
+    const ctx = {
+      ...scopedContext(null),
+      auth: { sub: 'actor-1', tenantId, orgId: null },
+      selectedOrganizationId: null,
+      organizationScope: null,
+      organizationIds: null,
+      request: new Request('https://example.test'),
+    }
+
+    expect(() => withScopedPayload(payload, ctx, translate)).toThrow(forbidden)
+    expect(() => withScopedPayload({}, ctx, translate)).toThrow(expect.objectContaining({ status: 400 }))
+  })
+
+  it('preserves the legacy fallback for a trusted scope-null command context', () => {
+    const ctx = { ...scopedContext(null), organizationScope: null, systemActor: true }
+
+    expect(withScopedPayload({ organizationId: selectedOrganizationId }, ctx, translate)).toEqual({
+      tenantId,
+      organizationId: selectedOrganizationId,
+    })
+    expect(() => withScopedPayload(payload, ctx, translate)).toThrow(forbidden)
+  })
+})
 
 describe('parseScopedCommandInput', () => {
   it('preserves custom fields when parsing scoped payloads', () => {
@@ -83,7 +163,7 @@ describe('withScopedPayload', () => {
     const ctx = {
       auth: { tenantId: 'tenant-1', orgId: null },
       selectedOrganizationId: null,
-      organizationScope: { allowedIds: null },
+      organizationScope: { tenantId: 'tenant-1', allowedIds: null },
     }
     const result = withScopedPayload({ organizationId: 'org-1' }, ctx as any, translate)
     expect(result.organizationId).toBe('org-1')

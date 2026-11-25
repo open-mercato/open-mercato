@@ -121,3 +121,15 @@ needs no `honorsBodyTenantId` flag and no size-bound workaround at all. A
 route that reads a body `tenantId` by any other path — without going
 through those helpers and without calling `enforceTenantSelection`
 itself — is the one case this dispatcher-level flag exists for.
+
+### Organization targets in scoped payloads
+
+`withScopedPayload` and `parseScopedCommandInput` check an explicit
+`organizationId` against the caller's resolved organization scope. Use the
+request's trusted scope in custom routes. An organization-optional payload may
+omit the field. A supplied target still requires authorization.
+
+Handlers that allow organization overrides must verify that the target belongs
+to the effective tenant before accessing organization-owned data. Evaluate any
+operation-specific permissions in that same tenant and organization. Keep
+existing command-level guards in place for writes invoked outside HTTP.

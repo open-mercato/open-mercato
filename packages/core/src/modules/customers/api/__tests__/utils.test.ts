@@ -4,6 +4,7 @@ import {
   findMatchingEntityIdsWithQueryEngine,
 } from '../utils'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { ScopedContext } from '@open-mercato/shared/lib/api/scoped'
 
 const translate = (key: string, fallback?: string) => fallback ?? key
 
@@ -99,14 +100,22 @@ describe('customers api utils - withScopedPayload', () => {
     })
   })
 
-  it('prefers payload organizationId when provided', () => {
-    const ctx = {
-      auth: { tenantId: 'tenant-1', orgId: 'auth-org' },
+  it('prefers an authorized payload organizationId when provided', () => {
+    const ctx: ScopedContext = {
+      auth: { sub: 'actor-1', tenantId: 'tenant-1', orgId: 'auth-org' },
+      container: {} as ScopedContext['container'],
       selectedOrganizationId: 'selected-org',
+      organizationIds: ['selected-org'],
+      organizationScope: {
+        tenantId: 'tenant-1',
+        selectedId: 'selected-org',
+        allowedIds: ['selected-org', 'payload-org'],
+        filterIds: ['selected-org'],
+      },
     }
     const scoped = withScopedPayload(
       { organizationId: 'payload-org' },
-      ctx as any,
+      ctx,
       translate
     )
     expect(scoped.organizationId).toBe('payload-org')

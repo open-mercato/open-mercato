@@ -4,14 +4,16 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
+import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { documentNumberRequestSchema } from '../../data/validators'
+import { documentNumberRequestSchema, type DocumentNumberRequestInput } from '../../data/validators'
 import { withScopedPayload } from '../utils'
-import { SalesDocumentNumberGenerator } from '../../services/salesDocumentNumberGenerator'
+import type { SalesDocumentNumberGenerator } from '../../services/salesDocumentNumberGenerator'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -56,26 +58,22 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
 
 async function ensureKindPermission(
   ctx: CommandRuntimeContext,
-  kind: 'order' | 'quote' | 'invoice' | 'credit_memo',
+  { kind, organizationId, tenantId }: DocumentNumberRequestInput,
   translate: (key: string, fallback?: string) => string
 ) {
-  const rbac = ctx.container.resolve('rbacService') as RbacService | null
+  const rbac = ctx.container.resolve<RbacService | null>('rbacService')
   const auth = ctx.auth
-  if (!rbac || !auth?.sub) return
-  const kindFeatureMap: Record<string, string> = {
+  const kindFeatureMap: Record<DocumentNumberRequestInput['kind'], string> = {
     order: 'sales.orders.manage',
     quote: 'sales.quotes.manage',
     invoice: 'sales.invoices.manage',
     credit_memo: 'sales.credit_memos.manage',
   }
   const requiredFeatures = [
-    kindFeatureMap[kind] ?? 'sales.orders.manage',
+    kindFeatureMap[kind],
     'sales.documents.number.edit',
   ]
-  const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
-    tenantId: auth.tenantId ?? null,
-    organizationId: ctx.selectedOrganizationId ?? auth.orgId ?? null,
-  })
+  const ok = rbac && auth?.sub && await rbac.userHasAllFeatures(auth.sub, requiredFeatures, { tenantId, organizationId })
   if (!ok) {
     throw new CrudHttpError(403, {
       error: translate('sales.documents.errors.number_forbidden', 'You cannot generate document numbers.'),
@@ -86,10 +84,16 @@ async function ensureKindPermission(
 export async function POST(req: Request) {
   try {
     const { ctx, translate } = await resolveRequestContext(req)
-    const payload = await req.json().catch(() => ({}))
+    const payload = await readJsonSafe<Record<string, unknown>>(req, {})
     const scoped = withScopedPayload(payload, ctx, translate)
     const input = documentNumberRequestSchema.parse(scoped)
-    await ensureKindPermission(ctx, input.kind, translate)
+    const hierarchy = ctx.container.resolve<OrganizationHierarchyService>('organizationHierarchyService')
+    const organization = await hierarchy.resolveAncestorIds({
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
+    if (organization === null) throw forbidden()
+    await ensureKindPermission(ctx, input, translate)
 
     const generator = ctx.container.resolve('salesDocumentNumberGenerator') as SalesDocumentNumberGenerator
     const result = await generator.generate({
@@ -140,6 +144,7 @@ export const openApi: OpenApiRouteDoc = {
         },
         { status: 400, description: 'Invalid input or scope missing', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Target scope or permission denied', schema: z.object({ error: z.string() }) },
       ],
     },
   },

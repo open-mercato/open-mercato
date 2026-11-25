@@ -188,6 +188,7 @@ None. (Q3-a: no feature flag; ship fail-closed.)
 - **Behavioral breaking change** for the narrow precondition (restricted user, `auth.orgId = null`). This is the intended security fix. Documented in `RELEASE_NOTES.md` under a "Security" entry referencing #2239 and #2245.
 - Contract-surface review (`BACKWARD_COMPATIBILITY.md`): `ensureOrganizationScope` signature is unchanged (STABLE). Behavior tightens — this is an allowed security hardening, not an API break. The two new helpers are additive.
 - The follow-up empty-scope propagation keeps every public signature and response shape intact: `null`/`undefined` remains unrestricted, a genuinely absent resolved scope retains the home-organization fallback, and an explicit `[]` now consistently means deny-all.
+- The scoped API payload helpers apply the existing command policy to explicit organization targets (#10338). Public signatures and trusted command fallbacks stay supported. Custom HTTP routes should supply the resolved request scope. Routes that allow overrides must confirm tenant membership and evaluate action permissions in the target scope. No migration or operator configuration is required.
 - The cross-request organization-scope cache namespace changes from `org-scope:` to `org-scope:v2:` (including user and tenant tags). Existing positive-TTL entries may remain in the cache backend until normal expiry, but the application no longer reads them; no operator cache flush or data migration is required.
 
 ### Follow-up issues (out of scope for this change)
@@ -439,6 +440,9 @@ Built reusable fixture infrastructure:
 - [ ] `TC-CRM-072.spec.ts` validated in a coherent app+DB harness (`yarn test:integration:ephemeral`) — could not validate in-session (dev server DB ≠ fixtures DB)
 
 ## Changelog
+### 2026-11-25
+- Applied organization authorization to explicit scoped API payload targets. Sales document numbering verifies tenant membership and checks permissions in the target organization before allocation (#10338).
+
 ### 2026-11-23
 - Recorded an audit gap (#10432): the action-log list and export routes reached the fail-open state through the indirect `resolveFeatureCheckContext().organizationId` fallback, which the raw-pattern inventory did not match. Both routes now deny an explicitly empty scope with `resolveSingleOrganizationIdOrDeny`. Added the indirect-fallback addendum with the sweep result and the two follow-ups (`record_locks`, `backendChrome`).
 
