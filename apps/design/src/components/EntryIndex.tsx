@@ -56,6 +56,20 @@ function BlockSpecimen({ id }: { id: string }) {
           { id: 'received', kind: 'received', occurredAt: '2026-03-12T09:00:00Z', title: t('design.sample.received') },
         ]} />
       )
+    case 'kanban':
+      return (
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { id: 'packed', title: t('design.sample.packed'), card: t('design.sample.receipt') },
+            { id: 'in-transit', title: t('design.sample.inTransit'), card: t('design.sample.shipments') },
+          ].map((column) => (
+            <div key={column.id} className="flex flex-col gap-2 rounded-card bg-muted p-2">
+              <span className="px-1 text-xs text-muted-foreground">{column.title}</span>
+              <span className="rounded-card border border-border bg-card px-2 py-1.5 text-xs text-foreground">{column.card}</span>
+            </div>
+          ))}
+        </div>
+      )
     case 'wizard':
       return (
         <StepIndicator size="sm" orientation="vertical" steps={[

@@ -1,6 +1,5 @@
 @import "@fontsource-variable/inter";
 @import "../../../../packages/ui/.storybook/generated/theme.css";
-@import "./catalogue-palette.css";
 @import "../../../../packages/ui/src/theme/storefront.css";
 
 @source "../../../../packages/ui/src";
@@ -34,14 +33,6 @@ body {
   height: calc(100dvh - 3.5rem);
 }
 
-.om-catalog-nav {
-  --muted-foreground: #555555;
-}
-
-.dark .om-catalog-nav {
-  --muted-foreground: #b3b3b3;
-}
-
 .om-design-intro {
   container-type: inline-size;
 }
@@ -60,15 +51,8 @@ body {
 }
 
 .om-record-stage {
-  --preview-mat: #565656;
-  background: var(--preview-mat);
-  color: var(--primary-foreground);
-}
-
-.dark .om-record-stage {
-  --preview-mat: var(--background);
+  background: var(--muted);
   color: var(--foreground);
-  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .om-design-switch [data-state="checked"] {
