@@ -4,9 +4,7 @@ import { config as loadEnv } from 'dotenv'
 import { expect, test } from '@playwright/test'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { MikroORM } from '@mikro-orm/postgresql'
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
-import { AccessLog } from '@open-mercato/core/modules/audit_logs/data/entities'
-import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
+import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
 
 export const integrationMeta = { dependsOnModules: ['audit_logs', 'entities'] }
 
@@ -29,7 +27,17 @@ test('TC-AUD-8182: access-log writes see committed encryption policy changes and
   let orm: MikroORM | undefined
   let resetRuntimeState: (() => void) | undefined
   try {
-    await bootstrapFromAppRoot(process.env.OM_TEST_APP_ROOT?.trim() || 'apps/mercato')
+    const { AccessLog } = await importFromAppRuntime<typeof import('@open-mercato/core/modules/audit_logs/data/entities')>(
+      '@open-mercato/core/modules/audit_logs/data/entities',
+    )
+    const { EncryptionMap } = await importFromAppRuntime<typeof import('@open-mercato/core/modules/entities/data/entities')>(
+      '@open-mercato/core/modules/entities/data/entities',
+    )
+    const serviceModule = await importFromAppRuntime<typeof import('@open-mercato/core/modules/audit_logs/services/accessLogService')>(
+      '@open-mercato/core/modules/audit_logs/services/accessLogService',
+    )
+    serviceModule.resetAccessLogRuntimeStateForTests()
+    resetRuntimeState = serviceModule.resetAccessLogRuntimeStateForTests
     orm = await MikroORM.init({
       clientUrl: databaseUrl,
       entities: [AccessLog, EncryptionMap],
@@ -41,9 +49,6 @@ test('TC-AUD-8182: access-log writes see committed encryption policy changes and
     await orm.schema.create()
     const [{ currentSchema }] = await orm.em.getConnection().execute<Array<{ currentSchema: string }>>('select current_schema() as "currentSchema"')
     expect(currentSchema).toBe(schema)
-    const serviceModule = await import('@open-mercato/core/modules/audit_logs/services/accessLogService')
-    serviceModule.resetAccessLogRuntimeStateForTests()
-    resetRuntimeState = serviceModule.resetAccessLogRuntimeStateForTests
     const em = orm.em.fork()
     const originalFork = em.fork.bind(em)
     let policyReads = 0
