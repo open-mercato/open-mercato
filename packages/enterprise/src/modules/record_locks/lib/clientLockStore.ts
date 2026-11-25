@@ -64,6 +64,23 @@ export type RecordLockFormState = {
 const stateByFormId = new Map<string, RecordLockFormState>()
 const listenersByFormId = new Map<string, Set<() => void>>()
 
+export type RecordLockRetry = () => Promise<boolean | void> | boolean | void
+
+const lockedOperationRetries = new Map<string, RecordLockRetry>()
+
+export function rememberLockedOperation(formId: string, retry: RecordLockRetry | undefined): void {
+  if (retry) lockedOperationRetries.set(formId, retry)
+  else lockedOperationRetries.delete(formId)
+}
+
+export function forgetLockedOperation(formId: string): void {
+  lockedOperationRetries.delete(formId)
+}
+
+export function getLockedOperationRetry(formId: string): RecordLockRetry | undefined {
+  return lockedOperationRetries.get(formId)
+}
+
 function emit(formId: string) {
   const listeners = listenersByFormId.get(formId)
   if (!listeners?.size) return
@@ -93,6 +110,7 @@ export function setRecordLockFormState(formId: string, patch: Partial<RecordLock
 }
 
 export function clearRecordLockFormState(formId: string) {
+  forgetLockedOperation(formId)
   stateByFormId.delete(formId)
   emit(formId)
 }

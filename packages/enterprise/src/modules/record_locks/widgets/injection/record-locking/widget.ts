@@ -1,7 +1,6 @@
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import RecordLockingWidget, { resolveLockAfterValidate, validateBeforeSave } from './widget.client'
-import { forgetLockedOperation, rememberLockedOperation } from './conflictResolution'
-import { getRecordLockFormState, setRecordLockFormState, type RecordLockFormState } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
+import { forgetLockedOperation, getRecordLockFormState, rememberLockedOperation, setRecordLockFormState, type RecordLockFormState } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 function isUuid(value: string | null | undefined): value is string {

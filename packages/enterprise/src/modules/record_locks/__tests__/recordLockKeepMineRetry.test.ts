@@ -1,9 +1,10 @@
 import {
+  clearRecordLockFormState,
   forgetLockedOperation,
   getLockedOperationRetry,
   rememberLockedOperation,
-  retryAfterKeepMine,
-} from '../widgets/injection/record-locking/conflictResolution'
+} from '../lib/clientLockStore'
+import { retryAfterKeepMine } from '../widgets/injection/record-locking/conflictResolution'
 
 const FORM_ID = 'customer-deal:b0000000-0000-4000-8000-000000000001'
 
@@ -19,6 +20,12 @@ describe('locked operation registry', () => {
   it('drops the mutation retry once a form save sharing the id goes through the lock', () => {
     rememberLockedOperation(FORM_ID, jest.fn(async () => true))
     rememberLockedOperation(FORM_ID, undefined)
+    expect(getLockedOperationRetry(FORM_ID)).toBeUndefined()
+  })
+
+  it('discards the retry when the form session is cleared', () => {
+    rememberLockedOperation(FORM_ID, jest.fn(async () => true))
+    clearRecordLockFormState(FORM_ID)
     expect(getLockedOperationRetry(FORM_ID)).toBeUndefined()
   })
 

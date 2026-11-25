@@ -25,6 +25,7 @@ import {
 } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
 import {
   clearRecordLockFormState,
+  getLockedOperationRetry,
   getRecordLockFormState,
   setRecordLockFormState,
   subscribeRecordLockFormState,
@@ -33,7 +34,6 @@ import {
   type RecordLockUiView,
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 import {
-  getLockedOperationRetry,
   isUuid,
   resolveConflictId,
   retryAfterKeepMine,
