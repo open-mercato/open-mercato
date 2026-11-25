@@ -9,7 +9,7 @@ const tagVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border-border bg-background text-muted-foreground',
+        default: 'border-border bg-control text-muted-foreground',
         success: 'border-status-success-border bg-status-success-bg text-status-success-text',
         warning: 'border-status-warning-border bg-status-warning-bg text-status-warning-text',
         error:   'border-status-error-border bg-status-error-bg text-status-error-text',
@@ -79,9 +79,9 @@ export function Tag({
     <span
       className={cn(
         tagVariants({ variant, shape }),
-        appearance === 'stroke' && 'border-border bg-background text-muted-foreground',
+        appearance === 'stroke' && 'border-border bg-control text-muted-foreground',
         appearance === 'gray' && 'border-transparent bg-muted text-muted-foreground',
-        appearance && !disabled && 'transition-colors hover:border-transparent hover:bg-muted active:border-foreground active:bg-background active:text-foreground focus-within:border-foreground focus-within:text-foreground',
+        appearance && !disabled && 'transition-colors hover:border-transparent hover:bg-muted active:border-foreground active:bg-control active:text-foreground focus-within:border-foreground focus-within:text-foreground',
         disabled && (appearance ? 'border-border-disabled bg-bg-disabled text-text-disabled' : 'opacity-60'),
         className,
       )}

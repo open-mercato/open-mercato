@@ -261,11 +261,11 @@ const durationChipVariants = cva(
     variants: {
       state: {
         default:
-          'bg-background border border-border shadow-xs text-muted-foreground hover:bg-muted/40 cursor-pointer',
+          'bg-control border border-border shadow-xs text-muted-foreground hover:bg-muted/40 cursor-pointer',
         hover: 'bg-muted/40 border border-border text-muted-foreground cursor-pointer',
         active: 'bg-status-info-bg text-status-info-text cursor-pointer',
         disabled:
-          'bg-background border border-border text-muted-foreground/40 cursor-not-allowed shadow-xs',
+          'bg-control border border-border text-muted-foreground/40 cursor-not-allowed shadow-xs',
       },
     },
     defaultVariants: { state: 'default' },

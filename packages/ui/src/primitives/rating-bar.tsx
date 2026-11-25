@@ -31,7 +31,7 @@ export const RatingBar = React.forwardRef<HTMLDivElement, RatingBarProps>(
         orientation="horizontal"
         disabled={disabled}
         data-slot="rating-bar"
-        className={cn('h-9 w-80 max-w-full flex-row gap-0 rounded-none border border-border bg-background', className)}
+        className={cn('h-9 w-80 max-w-full flex-row gap-0 rounded-none border border-border bg-control', className)}
         {...props}
       >
         {Array.from({ length: 5 }, (_, index) => (

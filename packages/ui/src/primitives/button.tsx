@@ -15,17 +15,17 @@ const buttonVariants = cva(
            `destructive-solid`, reserved for the single point-of-no-return
            confirmation inside a dialog — never for the button that opens it. */
         destructive:
-          'border border-destructive bg-background text-destructive shadow-xs hover:bg-destructive/10 aria-invalid:ring-destructive dark:aria-invalid:ring-destructive',
+          'border border-destructive bg-control text-destructive shadow-xs hover:bg-destructive/10 aria-invalid:ring-destructive dark:aria-invalid:ring-destructive',
         'destructive-solid':
           'bg-status-error-solid text-status-error-solid-foreground shadow-xs hover:shadow-md aria-invalid:ring-destructive',
         'destructive-outline':
-          'border border-destructive bg-background text-destructive shadow-xs hover:bg-destructive/10',
+          'border border-destructive bg-control text-destructive shadow-xs hover:bg-destructive/10',
         'destructive-soft':
           'bg-destructive/10 text-destructive hover:bg-destructive/15',
         'destructive-ghost':
           'text-destructive hover:bg-destructive/10',
         outline:
-          'border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
+          'border bg-control shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:hover:bg-input/50',
         secondary: 'bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50',
         muted: 'text-muted-foreground hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50',

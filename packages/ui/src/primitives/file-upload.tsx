@@ -28,7 +28,7 @@ export function FileUploadArea({ className, accept = 'image/jpeg,image/png,appli
         aria-labelledby={`${id}-heading`}
         aria-describedby={`${id}-description`}
         aria-disabled={disabled || undefined}
-        className={cn('flex flex-col items-center gap-5 rounded-upload bg-background p-8 text-center outline-1 -outline-offset-1 outline-dashed outline-border transition-colors', disabled ? 'opacity-50' : 'hover:bg-muted', dragActive && !disabled && 'bg-muted')}
+        className={cn('flex flex-col items-center gap-5 rounded-upload bg-control p-8 text-center outline-1 -outline-offset-1 outline-dashed outline-border transition-colors', disabled ? 'opacity-50' : 'hover:bg-muted', dragActive && !disabled && 'bg-muted')}
         onDragEnter={event => {
           event.preventDefault()
           if (disabled || !Array.from(event.dataTransfer.types).includes('Files')) return

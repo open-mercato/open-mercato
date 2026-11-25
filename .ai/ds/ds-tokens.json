@@ -1060,6 +1060,14 @@
       "value": "40rem",
       "figma": null
     },
+    "control": {
+      "kind": "reference",
+      "light": "var(--card)",
+      "dark": "oklch(1 0 0 / 4.5%)",
+      "themeInvariant": false,
+      "themeAlias": "color-control",
+      "figma": null
+    },
     "destructive": {
       "kind": "color",
       "light": "oklch(0.577 0.245 27.325)",

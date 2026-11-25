@@ -21,6 +21,7 @@ Decision tree — ask "what color do I need?":
 | Is it a border? | Yes → | `border-border`, `border-input` |
 | Is it a focus ring? | Yes → | `ring-ring` |
 | Is it a card/popover surface? | Yes → | `bg-card`, `bg-popover` |
+| Is it a control surface (input, select, outline button, checkbox)? | Yes → | `bg-control` — never `bg-background`, which makes the control take the page colour |
 | Is it a chart/data visualization? | Yes → | `chart-blue`, `chart-emerald`, `chart-amber`, etc. |
 | Is it brand accent? | Yes → | `brand-violet` |
 

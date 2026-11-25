@@ -130,7 +130,7 @@ const cellVariants = cva(
     variants: {
       selected: {
         true: 'bg-muted text-foreground',
-        false: 'bg-background text-foreground hover:bg-muted/40',
+        false: 'bg-control text-foreground hover:bg-muted/40',
       },
     },
     defaultVariants: { selected: false },
@@ -146,7 +146,7 @@ const navButtonVariants = cva(
 
 export type PaginationAppearance = 'basic' | 'circle' | 'group'
 
-const sourceCellClass = 'border border-border bg-background text-muted-foreground hover:border-transparent hover:bg-muted disabled:bg-background disabled:text-text-disabled disabled:opacity-100 disabled:hover:bg-background disabled:hover:text-text-disabled'
+const sourceCellClass = 'border border-border bg-control text-muted-foreground hover:border-transparent hover:bg-muted disabled:bg-control disabled:text-text-disabled disabled:opacity-100 disabled:hover:bg-control disabled:hover:text-text-disabled'
 
 export type PaginationProps = React.HTMLAttributes<HTMLDivElement> & {
   appearance?: PaginationAppearance

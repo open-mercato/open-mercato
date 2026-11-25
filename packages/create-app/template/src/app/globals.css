@@ -122,6 +122,7 @@ TODO: Fix that latter to have reference by the package names
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-control: var(--control);
   --radius-alert: 0.75rem;
   --radius-content-card: 0.75rem;
   --radius-textarea: 0.75rem;
@@ -366,6 +367,7 @@ TODO: Fix that latter to have reference by the package names
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
+  --control: var(--card);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
@@ -581,6 +583,7 @@ TODO: Fix that latter to have reference by the package names
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
+  --control: oklch(1 0 0 / 4.5%);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);

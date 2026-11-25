@@ -52,7 +52,7 @@ const buttonGroupVariants = cva(
   //   * raise focus-visible above neighbours so the focus ring is not clipped
   //   * separator: border-r (horizontal) or border-b (vertical) on every
   //     child except the last one
-  'inline-flex w-fit border border-input bg-background shadow-xs overflow-hidden ' +
+  'inline-flex w-fit border border-input bg-control shadow-xs overflow-hidden ' +
     "[&>*]:rounded-none [&>*]:shadow-none [&>*]:border-0 " +
     "[&>*]:focus-visible:relative [&>*]:focus-visible:z-10 " +
     'disabled:opacity-50',

@@ -18,11 +18,11 @@ describe('Button destructive variants', () => {
   // halves of that contract — swapping them back is a visual regression that
   // no other test would catch.
 
-  it('destructive is quiet: destructive border and text on the page surface', () => {
+  it('destructive is quiet: destructive border and text on the control surface', () => {
     const classes = classesOf('destructive')
     expect(classes).toContain('border')
     expect(classes).toContain('border-destructive')
-    expect(classes).toContain('bg-background')
+    expect(classes).toContain('bg-control')
     expect(classes).toContain('text-destructive')
   })
 

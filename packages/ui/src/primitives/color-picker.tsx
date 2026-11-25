@@ -156,7 +156,7 @@ function hexToHueDegrees(hex: string): number {
 }
 
 const triggerVariants = cva(
-  'inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors ' +
+  'inline-flex items-center gap-2 rounded-md border border-input bg-control px-3 py-2 text-sm shadow-xs outline-none transition-colors ' +
     'focus-visible:shadow-focus ' +
     'disabled:cursor-not-allowed disabled:opacity-60',
   {
@@ -553,7 +553,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                 data-slot="color-picker-section-input"
                 className="flex w-full min-w-0 items-center gap-3 px-5 py-4"
               >
-                <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-background px-2 shadow-xs">
+                <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-control px-2 shadow-xs">
                   <span
                     aria-hidden="true"
                     data-slot="color-picker-current-dot"
@@ -608,7 +608,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                     data-slot="color-picker-eyedropper"
                     aria-label={t('ui.colorPicker.eyedropper.ariaLabel', 'Pick color from screen')}
                     className={cn(
-                      'inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground shadow-xs transition-colors',
+                      'inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-control text-muted-foreground shadow-xs transition-colors',
                       'hover:bg-muted/40 hover:text-foreground',
                       'focus-visible:shadow-focus focus-visible:outline-none',
                     )}
@@ -623,7 +623,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                     data-slot="color-picker-remove"
                     aria-label={removeAriaLabel}
                     className={cn(
-                      'inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground shadow-xs transition-colors',
+                      'inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-control text-muted-foreground shadow-xs transition-colors',
                       'hover:bg-status-error-bg hover:text-status-error-text hover:border-status-error-border',
                       'focus-visible:shadow-focus focus-visible:outline-none',
                     )}

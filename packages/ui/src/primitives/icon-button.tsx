@@ -32,10 +32,10 @@ const iconButtonVariants = cva(
         destructive:
           'bg-status-error-solid text-status-error-solid-foreground shadow-xs hover:shadow-md',
         outline:
-          'border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50',
+          'border bg-control shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:hover:bg-input/50',
         ghost: 'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50',
         white:
-          'bg-background text-muted-foreground shadow-xs hover:bg-accent hover:text-accent-foreground',
+          'bg-control text-muted-foreground shadow-xs hover:bg-accent hover:text-accent-foreground',
         modifiable:
           'bg-transparent text-current hover:bg-foreground/10',
       },
