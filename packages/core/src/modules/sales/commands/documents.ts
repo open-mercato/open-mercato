@@ -5696,41 +5696,52 @@ const deleteQuoteCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, "Quote id is required");
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    const quote = await findOneWithDecryption(em, SalesQuote, { id });
-    if (!quote)
+    const existingQuote = await findOneWithDecryption(em, SalesQuote, { id });
+    if (!existingQuote)
       throw notFound("Sales quote not found");
-    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
-    const [addresses, notes, tags, adjustments, lines] = await Promise.all([
-      findWithDecryption(
-        em,
-        SalesDocumentAddress,
-        {
-          documentId: quote.id,
-          documentKind: "quote",
-        },
-        undefined,
-        { tenantId: quote.tenantId, organizationId: quote.organizationId },
-      ),
-      findWithDecryption(
-        em,
-        SalesNote,
-        { contextType: "quote", contextId: quote.id },
-        undefined,
-        { tenantId: quote.tenantId, organizationId: quote.organizationId },
-      ),
-      em.find(SalesDocumentTagAssignment, {
-        documentId: quote.id,
-        documentKind: "quote",
-      }),
-      em.find(SalesQuoteAdjustment, { quote: quote.id }),
-      em.find(SalesQuoteLine, { quote: quote.id }),
-    ]);
+    ensureQuoteScope(ctx, existingQuote.organizationId, existingQuote.tenantId);
+    const scope = { tenantId: existingQuote.tenantId, organizationId: existingQuote.organizationId };
+    const deletedEntities: Array<[entities: DeletableEntity | DeletableEntity[], entityType: string]> = [];
     // Delete the quote and its cascade atomically so a mid-cascade failure
     // cannot leave a partially-deleted quote committed (#2336).
     await withAtomicFlush(
       em,
       [
         async () => {
+          const quote = await findOneWithDecryption(
+            em,
+            SalesQuote,
+            { id, ...scope },
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            scope,
+          );
+          if (!quote) {
+            const { translate } = await resolveTranslations();
+            throw notFound(translate("sales.documents.detail.notFound", "Document not found."));
+          }
+          await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
+          const [addresses, notes, tags, adjustments, lines] = await Promise.all([
+            findWithDecryption(
+              em,
+              SalesDocumentAddress,
+              { documentId: quote.id, documentKind: "quote" },
+              undefined,
+              scope,
+            ),
+            findWithDecryption(
+              em,
+              SalesNote,
+              { contextType: "quote", contextId: quote.id },
+              undefined,
+              scope,
+            ),
+            em.find(SalesDocumentTagAssignment, {
+              documentId: quote.id,
+              documentKind: "quote",
+            }),
+            em.find(SalesQuoteAdjustment, { quote: quote.id }),
+            em.find(SalesQuoteLine, { quote: quote.id }),
+          ]);
           await em.nativeDelete(SalesDocumentAddress, {
             documentId: quote.id,
             documentKind: "quote",
@@ -5746,31 +5757,22 @@ const deleteQuoteCommand: CommandHandler<
           await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id });
           await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
           em.remove(quote);
+          deletedEntities.push(
+            [quote, E.sales.sales_quote],
+            [lines, E.sales.sales_quote_line],
+            [adjustments, E.sales.sales_quote_adjustment],
+            [addresses, E.sales.sales_document_address],
+            [notes, E.sales.sales_note],
+            [tags, E.sales.sales_document_tag_assignment],
+          );
         },
       ],
       { transaction: true },
     );
     const dataEngine = ctx.container.resolve<DataEngine>("dataEngine");
-    await Promise.all([
-      queueDeletionSideEffects(dataEngine, quote, E.sales.sales_quote),
-      queueDeletionSideEffects(dataEngine, lines, E.sales.sales_quote_line),
-      queueDeletionSideEffects(
-        dataEngine,
-        adjustments,
-        E.sales.sales_quote_adjustment,
-      ),
-      queueDeletionSideEffects(
-        dataEngine,
-        addresses,
-        E.sales.sales_document_address,
-      ),
-      queueDeletionSideEffects(dataEngine, notes, E.sales.sales_note),
-      queueDeletionSideEffects(
-        dataEngine,
-        tags,
-        E.sales.sales_document_tag_assignment,
-      ),
-    ]);
+    await Promise.all(
+      deletedEntities.map(([entities, entityType]) => queueDeletionSideEffects(dataEngine, entities, entityType)),
+    );
     return { quoteId: id };
   },
   buildLog: async ({ snapshots }) => {

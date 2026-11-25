@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createSalesQuoteFixture } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
@@ -50,13 +51,9 @@ import {
  * document-contract case and the browser comment-edit / clean-save cases are all
  * active.
  *
- * KNOWN GAP — the quote DELETE command (`sales.quotes.delete`) does NOT yet run
- * `enforceSalesDocumentOptimisticLock`, unlike `sales.orders.delete`, so a stale
- * quote DELETE returns 200 and the browser delete-conflict bar cannot paint. The
- * delete sub-case is therefore asserted at the API level against the ENFORCED
- * quote write path (`putWithLock` → 409) plus a still-present check, per the
- * task's sanctioned conversion. Restore the browser confirm-then-delete proof
- * once the quote delete command enforces the lock.
+ * The API delete case verifies that a stale DELETE returns the same 409 payload
+ * and leaves the quote in place. The command rechecks the version after locking
+ * and refreshing the quote inside the transaction.
  * ───────────────────────────────────────────────────────────────────────────
  *
  * Runs as `admin`, which the sales module grants `sales.*` to in setup.ts
@@ -268,17 +265,7 @@ test.describe('TC-LOCK-OSS-024: sales quote header edit + delete conflict bar (S
     }
   })
 
-  test('stale quote write is refused (409 conflict contract) and the quote is not removed', async ({ request }) => {
-    // ACTIVE — API-level conversion of the browser delete sub-case (sanctioned by
-    // the task brief). The quote DELETE command (sales.quotes.delete) does NOT yet
-    // run enforceSalesDocumentOptimisticLock, unlike sales.orders.delete, so a
-    // stale browser DELETE returns 200 and never paints the conflict bar — the
-    // bespoke delete-conflict choreography is impractical against current product.
-    // To keep a genuine, un-weakened 409 conflict assertion we assert the ENFORCED
-    // quote write path (sales.quotes.update via putWithLock) yields the structured
-    // 409 body, then prove the record is still present (the stale write was
-    // refused, so nothing was removed). Restore the browser confirm-then-delete
-    // assertion once sales.quotes.delete enforces the lock like the order command.
+  test('stale quote DELETE returns 409 and a retry with the current version succeeds', async ({ request }) => {
     let token: string | null = null
     let quoteId: string | null = null
     try {
@@ -298,20 +285,20 @@ test.describe('TC-LOCK-OSS-024: sales quote header edit + delete conflict bar (S
       const t1 = await readUpdatedAt(request, token, QUOTES_API_BASE, quoteId)
       expect(t1, 'updated_at should advance after session A').not.toBe(t0)
 
-      // Stale write replaying t0 is refused with the documented 409 conflict body.
-      const sessionB = await putWithLock(
-        request,
-        token,
-        QUOTES_API_BASE,
-        { id: quoteId, comment: `QA Lock 024 del B ${Date.now()}` },
-        t0,
-      )
+      const deleteUrl = resolveApiUrl(`${QUOTES_API_BASE}?id=${encodeURIComponent(quoteId)}`)
+      const sessionB = await request.delete(deleteUrl, {
+        headers: { ...authHeaders(token), [OPTIMISTIC_LOCK_HEADER_NAME]: t0 },
+      })
       const body = await expectConflictBody(sessionB)
       expect(body.expectedUpdatedAt, 'conflict body echoes the stale token').toBe(t0)
-      expect(body.currentUpdatedAt).not.toBe(t0)
+      expect(body.currentUpdatedAt).toBe(t1)
 
-      // The refused stale write removed nothing: the quote is still present.
       expect(await quoteStillExists(request, token, quoteId)).toBe(true)
+
+      const retry = await request.delete(deleteUrl, {
+        headers: { ...authHeaders(token), [OPTIMISTIC_LOCK_HEADER_NAME]: t1 },
+      })
+      expect(retry.ok()).toBe(true)
     } finally {
       await deleteEntityIfExists(request, token, QUOTES_API_BASE, quoteId)
     }
