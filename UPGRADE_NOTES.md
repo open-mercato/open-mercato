@@ -1,5 +1,26 @@
 # Upgrade Notes
 
+## Scoped API organization authorization (#10338)
+
+Explicit organization targets in scoped API payloads now need a matching grant.
+Sales document numbering also requires the target to belong to the effective
+tenant and checks its permissions in that organization. Unauthorized targets
+are denied. Customer record routes continue to mask inaccessible records as 404.
+
+**Clients and module authors.** Omit the organization override to use the current
+authorized organization, or supply an organization the caller can act in. Pass
+trusted request scope to custom scoped-payload handlers and check permissions in
+the actual target before reading or writing organization-owned data.
+
+**Operators.** Review organization grants and sales document-number permissions
+used by API integrations. Grant access to each intended target only when the
+integration needs it. No database migration or credential rotation is required.
+
+Keeping the previous authorization behavior as a compatibility bridge would
+retain the unauthorized operation. The emergency exception is proposed and
+requires named human maintainer acknowledgement before merge. See the
+[specification](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md#migration--backward-compatibility).
+
 ## Production fullapp LocalStack binds to loopback (#10342)
 
 The production fullapp `storage-s3` profile now publishes LocalStack on

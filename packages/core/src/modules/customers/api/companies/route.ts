@@ -1,7 +1,7 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   CustomerCompanyProfile,
   CustomerDealCompanyLink,
@@ -411,7 +411,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate, {
+          organizationForbiddenError: () => notFound('Company not found'),
+        })
         const normalized = normalizeCompanyProfilePayload(scoped, translate)
         const { base, custom } = splitCustomFieldPayload(normalized)
         const parsed = withExactAmounts(companyUpdateSchema.parse(base), base, COMPANY_MONEY_FIELDS)

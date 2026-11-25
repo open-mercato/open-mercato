@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { notFound } from '../../crud/errors'
 import { parseScopedCommandInput, withScopedPayload, type ScopedContext } from '../scoped'
 
 const translate = (_key: string, fallback?: string) => fallback ?? _key
@@ -33,6 +34,17 @@ describe('scoped payload organization authorization', () => {
     const schema = z.object({ organizationId: z.string() })
 
     expect(() => parseScopedCommandInput(schema, payload, ctx, translate)).toThrow(forbidden)
+  })
+
+  it('preserves a record route’s not-found response for a denied organization only', () => {
+    const ctx = scopedContext([selectedOrganizationId])
+    const options = { organizationForbiddenError: () => notFound('Record not found') }
+
+    expect(() => withScopedPayload(payload, ctx, translate, options)).toThrow(expect.objectContaining({
+      status: 404,
+      body: { error: 'Record not found' },
+    }))
+    expect(() => withScopedPayload({ ...payload, tenantId: 'other-tenant' }, ctx, translate, options)).toThrow(forbidden)
   })
 
   it('honors a resolved unrestricted grant and an explicit superadmin', () => {

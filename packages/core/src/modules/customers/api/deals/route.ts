@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '../../data/entities'
 import { dealCreateSchema, dealUpdateSchema } from '../../data/validators'
 import { E } from '#generated/entities.ids.generated'
@@ -564,7 +564,9 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         return withExactAmounts(
-          parseScopedCommandInput(dealUpdateSchema, raw ?? {}, ctx, translate),
+          parseScopedCommandInput(dealUpdateSchema, raw ?? {}, ctx, translate, {
+            organizationForbiddenError: () => notFound('Deal not found'),
+          }),
           raw,
           DEAL_MONEY_FIELDS,
         )

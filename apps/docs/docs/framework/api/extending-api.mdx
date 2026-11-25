@@ -133,3 +133,7 @@ Handlers that allow organization overrides must verify that the target belongs
 to the effective tenant before accessing organization-owned data. Evaluate any
 operation-specific permissions in that same tenant and organization. Keep
 existing command-level guards in place for writes invoked outside HTTP.
+
+Record routes with an established not-found response for denied scope can set
+`organizationForbiddenError` to return that same error from the payload check.
+The option only applies to organization authorization failures.

@@ -719,3 +719,13 @@ The STABLE attachment library API response and the enrichment helper signature r
 ## #10331 #10332 (2026-11-23)
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
+
+## 2026-11-25 — Scoped API organization authorization (#10338)
+
+The STABLE scoped payload helpers and Sales document number endpoint now enforce
+organization grants on explicit targets. A bridge that retains the previous
+authorization behavior would retain the unauthorized operation. Clients should
+use an authorized organization, and operators should review integration grants.
+Named human maintainer acknowledgement remains pending. See the
+[upgrade notes](UPGRADE_NOTES.md#scoped-api-organization-authorization-10338) and
+[specification](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md#migration--backward-compatibility).

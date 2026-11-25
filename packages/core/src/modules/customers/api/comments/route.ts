@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerComment, CustomerDeal } from '../../data/entities'
 import { commentCreateSchema, commentUpdateSchema } from '../../data/validators'
@@ -97,7 +97,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return commentUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return commentUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate, {
+          organizationForbiddenError: () => notFound('Comment not found'),
+        }))
       },
       response: () => ({ ok: true }),
     },

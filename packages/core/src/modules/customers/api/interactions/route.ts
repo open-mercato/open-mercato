@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sql } from 'kysely'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
@@ -111,7 +111,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const parsed = parseScopedCommandInput(interactionUpdateSchema, raw ?? {}, ctx, translate)
+        const parsed = parseScopedCommandInput(interactionUpdateSchema, raw ?? {}, ctx, translate, {
+          organizationForbiddenError: () => notFound('Interaction not found'),
+        })
         // Bridge legacy `customer_activities` rows into `customer_interactions`
         // before the canonical update runs so historical activities (#1807)
         // remain editable through the new dialog. No-op when the canonical

@@ -188,8 +188,13 @@ None. (Q3-a: no feature flag; ship fail-closed.)
 - **Behavioral breaking change** for the narrow precondition (restricted user, `auth.orgId = null`). This is the intended security fix. Documented in `RELEASE_NOTES.md` under a "Security" entry referencing #2239 and #2245.
 - Contract-surface review (`BACKWARD_COMPATIBILITY.md`): `ensureOrganizationScope` signature is unchanged (STABLE). Behavior tightens — this is an allowed security hardening, not an API break. The two new helpers are additive.
 - The follow-up empty-scope propagation keeps every public signature and response shape intact: `null`/`undefined` remains unrestricted, a genuinely absent resolved scope retains the home-organization fallback, and an explicit `[]` now consistently means deny-all.
-- The scoped API payload helpers apply the existing command policy to explicit organization targets (#10338). Public signatures and trusted command fallbacks stay supported. Custom HTTP routes should supply the resolved request scope. Routes that allow overrides must confirm tenant membership and evaluate action permissions in the target scope. No migration or operator configuration is required.
 - The cross-request organization-scope cache namespace changes from `org-scope:` to `org-scope:v2:` (including user and tenant tags). Existing positive-TTL entries may remain in the cache backend until normal expiry, but the application no longer reads them; no operator cache flush or data migration is required.
+
+### Migration & Backward Compatibility
+
+The scoped payload helpers now authorize explicit organization targets (#10338). Sales numbering also validates the tenant and evaluates both permissions in the target scope. The emergency security exception is proposed for this STABLE behavior because a bridge would retain the unauthorized operation. Named human maintainer acknowledgement remains pending.
+
+Clients should omit the override for the current organization or supply an authorized target. Custom routes should supply trusted request scope and retain their downstream command guards. Record updates with a masked not-found contract can supply `organizationForbiddenError` to preserve that response. Operators should review organization and sales numbering grants used by integrations. See [client and operator migration instructions](../../../UPGRADE_NOTES.md#scoped-api-organization-authorization-10338).
 
 ### Follow-up issues (out of scope for this change)
 1. **Pattern C user-route scope population** — migrate `customers/api/people/[id]/companies[/[linkId]]/route.ts` and `sales/api/quotes/accept/route.ts` (and any other user-facing Pattern C command routes) to populate a real `organizationScope` from `resolveOrganizationScopeForRequest`, so they too benefit from the `allowedIds` check rather than relying solely on `selectedOrganizationId`.

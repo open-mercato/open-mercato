@@ -1,5 +1,5 @@
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
@@ -27,6 +27,7 @@ export type ScopedPayloadMessages = {
 export type ScopedPayloadOptions = {
   requireOrganization?: boolean
   messages?: ScopedPayloadMessages
+  organizationForbiddenError?: () => CrudHttpError
 }
 
 const DEFAULT_MESSAGES: Required<ScopedPayloadMessages> = {
@@ -80,9 +81,16 @@ export function withScopedPayload<T extends Record<string, unknown>>(
 
   if (requestedOrg) {
     if (ctx.request && !ctx.organizationScope && !currentOrg && !authIsSuperAdmin(ctx.auth)) {
-      throw forbidden()
+      throw options.organizationForbiddenError?.() ?? forbidden()
     }
-    ensureOrganizationScope(ctx, requestedOrg)
+    try {
+      ensureOrganizationScope(ctx, requestedOrg)
+    } catch (error) {
+      if (isCrudHttpError(error) && error.status === 403) {
+        throw options.organizationForbiddenError?.() ?? error
+      }
+      throw error
+    }
   }
 
   const scoped = {
