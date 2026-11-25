@@ -62,4 +62,48 @@ describe('Kanban contract', () => {
       kanbanPropsSchema.safeParse({ columns: [{ ...columns[0], hasMore: true }], ...handlers }).success,
     ).toBe(false)
   })
+
+  it('accepts remaining, per-column status and error message', () => {
+    const result = kanbanPropsSchema.safeParse({
+      columns: [
+        { ...columns[0], count: 40, remaining: 39, hasMore: true, status: 'ready' },
+        { id: 'won', title: 'Won', status: 'error', errorMessage: 'Could not load deals', cards: [] },
+        { id: 'lost', title: 'Lost', status: 'loading', cards: [] },
+      ],
+      ...handlers,
+      onLoadMoreColumn: async () => undefined,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it.each([
+    ['negative remaining', { remaining: -1 }],
+    ['fractional remaining', { remaining: 1.5 }],
+    ['unknown column status', { status: 'empty' }],
+    ['non-string error message', { errorMessage: 42 }],
+  ])('rejects a column with %s', (_label, patch) => {
+    expect(kanbanPropsSchema.safeParse({ columns: [{ ...columns[0], ...patch }], ...handlers }).success).toBe(false)
+  })
+
+  it('accepts reorderable and the render slots', () => {
+    const result = kanbanPropsSchema.safeParse({
+      columns,
+      ...handlers,
+      reorderable: true,
+      renderDragPreview: () => null,
+      columnFooter: () => null,
+      emptyColumn: () => null,
+      trailing: 'Add stage',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it.each([
+    ['reorderable', { reorderable: 'yes' }],
+    ['renderDragPreview', { renderDragPreview: 'preview' }],
+    ['columnFooter', { columnFooter: {} }],
+    ['emptyColumn', { emptyColumn: 1 }],
+  ])('rejects a non-matching %s', (_label, patch) => {
+    expect(kanbanPropsSchema.safeParse({ columns, ...handlers, ...patch }).success).toBe(false)
+  })
 })

@@ -28,6 +28,10 @@
       "types": "./src/blocks/entity-header/index.ts",
       "default": "./dist/blocks/entity-header/index.js"
     },
+    "./blocks/kanban": {
+      "types": "./src/blocks/kanban/index.ts",
+      "default": "./dist/blocks/kanban/index.js"
+    },
     "./blocks/key-value": {
       "types": "./src/blocks/key-value/index.ts",
       "default": "./dist/blocks/key-value/index.js"
