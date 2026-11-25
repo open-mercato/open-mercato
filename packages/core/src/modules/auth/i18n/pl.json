@@ -289,6 +289,8 @@
   "auth.acl.features.phone_calls.view": "Wyświetl połączenia telefoniczne",
   "auth.acl.features.planner.manage_availability": "Zarządzaj dostępnością",
   "auth.acl.features.planner.view": "Wyświetl harmonogramy",
+  "auth.acl.features.posting_rules.cost_centers.manage": "Zarządzaj MPK i regułami przeksięgowania 4→5",
+  "auth.acl.features.posting_rules.settings.manage": "Zarządzaj ustawieniami reguł księgowania (konto rozliczeniowe i konto kosztów nieprzypisanych)",
   "auth.acl.features.progress.cancel": "Anuluj zadania postępu",
   "auth.acl.features.progress.create": "Twórz zadania postępu",
   "auth.acl.features.progress.manage": "Zarządzaj wszystkimi zadaniami postępu",

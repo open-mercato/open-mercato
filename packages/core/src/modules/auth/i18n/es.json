@@ -289,6 +289,8 @@
   "auth.acl.features.phone_calls.view": "Ver llamadas telefónicas",
   "auth.acl.features.planner.manage_availability": "Administrar disponibilidad",
   "auth.acl.features.planner.view": "Ver horarios",
+  "auth.acl.features.posting_rules.cost_centers.manage": "Administrar centros de costes y reglas de contabilización 4→5",
+  "auth.acl.features.posting_rules.settings.manage": "Administrar la configuración de las reglas de contabilización (cuenta de compensación y cuenta de costes no asignados)",
   "auth.acl.features.progress.cancel": "Cancelar operaciones en segundo plano",
   "auth.acl.features.progress.create": "Crear operaciones en segundo plano",
   "auth.acl.features.progress.manage": "Administrar todas las operaciones en segundo plano",
