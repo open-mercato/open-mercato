@@ -251,12 +251,13 @@ Then(
   function () {
     assert.strictEqual(rejection, null, `expected the import to succeed, but it rejected with ${String(rejection)}`)
     assert.ok(importResult, 'expected a result from the import')
+    const byId = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0)
     const announced = (entity: string) =>
       recordedEntityChanges
         .filter((change) => change.action === 'created' && change.events?.entity === entity)
         .map((change) => change.identifiers.id)
-        .sort()
-    assert.deepStrictEqual(announced('ledger_account_type'), [...importResult!.createdAccountTypeIds].sort())
-    assert.deepStrictEqual(announced('ledger_account'), [...importResult!.createdAccountIds].sort())
+        .sort(byId)
+    assert.deepStrictEqual(announced('ledger_account_type'), [...importResult!.createdAccountTypeIds].sort(byId))
+    assert.deepStrictEqual(announced('ledger_account'), [...importResult!.createdAccountIds].sort(byId))
   },
 )
