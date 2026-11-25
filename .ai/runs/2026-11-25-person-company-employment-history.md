@@ -22,12 +22,14 @@ Record a dated departure on the existing person–company association and let CR
 
 ## Progress
 
+PR: #10682
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Store and transition employment status
 
-- [ ] 1.1 Add employment fields and preserve history through existing association paths
-- [ ] 1.2 Implement the versioned end command and mutation route with replay coverage
+- [x] 1.1 Add employment fields and preserve history through existing association paths — e5f701129f
+- [x] 1.2 Implement the versioned end command and mutation route with replay coverage — e5f701129f
 
 ### Phase 2: Surface former employees
 
