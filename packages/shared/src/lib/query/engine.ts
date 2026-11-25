@@ -452,6 +452,9 @@ export class BasicQueryEngine implements QueryEngine {
       )
     }
     const skipAutoScope = opts.omitAutomaticTenantOrgScope === true
+    if (!skipAutoScope && !await this.columnExists(table, 'tenant_id') && !await this.columnExists(table, 'organization_id')) {
+      throw new Error('[internal] QueryEngine: unscoped base table requires explicit scope opt-out')
+    }
 
     const normalizedFilters = normalizeFilters(opts.filters)
     const resolvedJoins = resolveJoins(

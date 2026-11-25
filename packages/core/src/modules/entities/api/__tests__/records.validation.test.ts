@@ -13,6 +13,7 @@ const mockDataEngine = {
 }
 
 const mockRbac = {
+  userHasAllFeatures: jest.fn(async () => true),
   resolveVisibleOrganizations: jest.fn(async () => ['org']),
   loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: [], organizations: null })),
 }
