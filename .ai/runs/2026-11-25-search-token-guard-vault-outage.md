@@ -85,5 +85,5 @@ returns `false`. Guard and decrypt therefore read one signal: decrypt skipped or
 
 ### Phase 2: Tests
 
-- [ ] 2.1 Guard helper and writer-path unit tests
-- [ ] 2.2 Batch option forwarding unit test
+- [x] 2.1 Guard helper and writer-path unit tests — c834b33f2b
+- [x] 2.2 Batch option forwarding unit test — 8e591515f1
