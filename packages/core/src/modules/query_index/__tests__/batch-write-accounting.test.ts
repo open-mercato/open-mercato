@@ -301,6 +301,34 @@ describe('upsertIndexBatch write accounting (GSM-266)', () => {
     )
   })
 
+  it('forwards the ciphertext guard, read after every decrypt of the batch, to the token writer', async () => {
+    const fake = createFakeDb()
+    const events: string[] = []
+    const decryptDoc = jest.fn(async (_entityType: string, doc: Record<string, unknown>) => {
+      events.push(`decrypt:${String(doc.id)}`)
+      return doc
+    })
+    const ciphertextGuard = jest.fn(() => {
+      events.push('guard')
+      return true
+    })
+
+    await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE, { decryptDoc, ciphertextGuard })
+
+    expect(events).toEqual(['decrypt:1', 'decrypt:2', 'guard'])
+    const payloads = mockReplaceSearchTokens.mock.calls[0][1]
+    expect(payloads.map((payload) => [payload.recordId, payload.guardCiphertext])).toEqual([['1', true], ['2', true]])
+  })
+
+  it('leaves the guard to the token writer when no ciphertextGuard is given', async () => {
+    const fake = createFakeDb()
+
+    await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1']), SCOPE)
+
+    const payloads = mockReplaceSearchTokens.mock.calls[0][1]
+    expect(payloads.every((payload) => !('guardCiphertext' in payload))).toBe(true)
+  })
+
   it('returns an empty result for an empty batch', async () => {
     const fake = createFakeDb()
 
