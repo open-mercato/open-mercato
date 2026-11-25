@@ -8,11 +8,13 @@ import {
   portalLogin,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 import {
+  buildMinimalFormSchema,
   createPublishedFormFixture,
   deleteFormIfExists,
   forkDraftFixture,
   portalCall,
   publishVersionFixture,
+  updateDraftFixture,
   waitForAutosaveWindow,
 } from '@open-mercato/core/helpers/integration/formsFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -63,7 +65,12 @@ test('TC-FORMS-PORTAL-003: portal resume offers saved progress for the opened fo
     expect(saved.status()).toBe(200)
 
     const latestVersion = await forkDraftFixture(request, adminToken, progressForm.formId)
-    await publishVersionFixture(request, adminToken, progressForm.formId, latestVersion, 'Publish the next version')
+    const nextSchema = buildMinimalFormSchema()
+    const properties = nextSchema.properties as Record<string, Record<string, unknown>>
+    properties.notes['x-om-label'] = { en: 'Additional notes' }
+    await updateDraftFixture(request, adminToken, progressForm.formId, latestVersion, { schema: nextSchema })
+    const publishedVersion = await publishVersionFixture(request, adminToken, progressForm.formId, latestVersion, 'Publish the next version')
+    expect(publishedVersion.versionNumber).toBe(2)
 
     await page.context().addCookies([
       { name: 'customer_auth_token', value: session.authToken, url: baseURL!, sameSite: 'Lax' },
