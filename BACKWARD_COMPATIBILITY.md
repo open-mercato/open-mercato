@@ -720,6 +720,10 @@ The STABLE attachment library API response and the enrichment helper signature r
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
 
+## 2026-11-24 — Trace ingest
+
+STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
 ## #10338 (2026-11-25)
 
 STABLE API and Sales org overrides: bridge retains bypass. Named human waiver due. [Migration](UPGRADE_NOTES.md#scoped-api-organization-authorization-10338).

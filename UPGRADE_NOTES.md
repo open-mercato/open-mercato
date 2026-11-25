@@ -1,5 +1,17 @@
 # Upgrade Notes
 
+## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
+
+When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.
+
+Clients that treated this 500 as a server fault can retry on `structured_output_invalid`. The request contract and response fields are unchanged. No database migration or configuration change is required.
+
+## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
+
+An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
+
+Callers that send `callSettings` to such an agent must drop them, or the agent author must allow runtime overrides. The agent's own `modelSettings` still apply, an empty `callSettings` object is treated as absent, and agents without the flag (the default, permissive) are unaffected. No first-party agent sets the flag to `false`. No database migration or configuration change is required.
+
 ## Scoped API organization authorization (#10338)
 
 Explicit organization targets in scoped API payloads now need a matching grant.
@@ -29,6 +41,14 @@ containers on the Compose network can still connect to `localstack:4566`.
 Operators who intentionally use remote tooling must set `INFRA_BIND_HOST`
 to the specific host interface they want to expose, then recreate LocalStack
 with the updated Compose file.
+
+## Agent trace ingest signing and workflow references
+
+Each trace-ingest adapter now needs a signing key provisioned for its tenant and organization. Provision separate scoped keys server-side with `traceIngestSecret(tenantId, organizationId)` and distribute only the derived key to each adapter. The Standard Webhooks header names, signed body format, and five-minute timestamp tolerance still apply. Adapters using the server-side signing helper pass `organizationId` as its second argument.
+
+Operators should pause trace delivery during the server and adapter cutover, replace the old signing keys, and retry queued deliveries with fresh timestamps and signatures. Previously issued tenant-wide signatures return HTTP 401. The webhook no longer establishes workflow attribution. Use the external run ID of the workflow-created agent invocation or send a standalone trace under its own run ID. Review previously ingested workflow links that lack a server-recorded invocation before relying on their process rollups. There is no schema migration.
+
+[Implementation spec](.ai/specs/enterprise/agent-orchestrator/2026-11-24-trace-ingest-scope.md)
 
 ## CRUD factory security and query correctness bundle
 
