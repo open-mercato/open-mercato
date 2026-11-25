@@ -796,7 +796,9 @@ export class NativeAgentRunner {
         stepId: ctx.stepId ?? null,
         guardResults: [
           ...outputGuardResults,
-          ...inputVerdict.checks.filter((check) => check.result === 'warn'),
+          ...inputVerdict.checks
+            .filter((check) => check.result === 'warn')
+            .map(({ kind, result, guardrailSetVersion }) => ({ kind, result, guardrailSetVersion })),
         ],
       })
     }

@@ -1442,11 +1442,14 @@ describe('native proposal guard results', () => {
   it.each(['warn', 'pass'] as const)('preserves proposal checks when input screening returns %s', async (result) => {
     if (!getAgentEntry(entry.id)) registerFileAgent(entry)
     const inputPass = { kind: 'prompt_injection', result: 'pass', guardrailSetVersion: 'p1' }
-    const inputWarn = {
+    const inputWarningSummary = {
       kind: 'prompt_injection',
       result: 'warn',
       guardrailSetVersion: 'test-input-set',
-      evidence: { rules: ['test-rule'], flaggedSpans: 1 },
+    }
+    const inputWarn = {
+      ...inputWarningSummary,
+      evidence: { rules: ['test-rule'], flaggedSpans: 1, pointers: ['document:fixture@page:1'] },
     }
     const inputChecks = result === 'warn' ? [inputPass, inputWarn] : [inputPass]
     const outputChecks = [
@@ -1488,7 +1491,7 @@ describe('native proposal guard results', () => {
     expect(createProposalMock).toHaveBeenCalledTimes(1)
     expect(createProposalMock.mock.calls[0][2]).toHaveProperty(
       'guardResults',
-      result === 'warn' ? [...outputChecks, inputWarn] : outputChecks,
+      result === 'warn' ? [...outputChecks, inputWarningSummary] : outputChecks,
     )
   })
 })
