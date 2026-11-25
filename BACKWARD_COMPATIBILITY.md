@@ -720,6 +720,10 @@ The STABLE attachment library API response and the enrichment helper signature r
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
 
+## 2026-11-24 — Trace ingest
+
+STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
 ## Record-lock settings (2026-11-21, #3889)
 
 STABLE service: `saveSettings` requires a trusted tenant ID to prevent writes across tenants. Emergency exception pending named approval. [Migration](UPGRADE_NOTES.md#record-lock-settings-are-scoped-per-tenant-3889) and [spec](.ai/specs/enterprise/implemented/SPEC-ENT-003-2026-01-23-record-locking-module.md#migration--backward-compatibility).

@@ -427,7 +427,7 @@ export async function postSignedTrace(request: APIRequestContext, token: string,
   const raw = JSON.stringify(body)
   const messageId = `msg_${randomUUID()}`
   const timestamp = String(Math.floor(Date.now() / 1000))
-  const signature = signTraceIngest(scope.tenantId, messageId, timestamp, raw)
+  const signature = signTraceIngest(scope.tenantId, scope.organizationId, messageId, timestamp, raw)
   const baseUrl = process.env.BASE_URL?.trim() || ''
   return request.fetch(baseUrl ? `${baseUrl}${OTEL_TRACE_INGEST_PATH}` : OTEL_TRACE_INGEST_PATH, {
     method: 'POST',
