@@ -7,6 +7,7 @@ import type { OtelExportJobPayload } from '../../queue'
 import type { OtelExportSettings } from '../../../data/validators'
 import {
   isExportEnabledFor,
+  isOtelExportDeploymentEndpointUsable,
   readOtelExportSettings,
   resolveContentExportMode,
   resolveOtelExportDeployment,
@@ -154,6 +155,10 @@ export type EnqueueOtelExportForRunEventDeps = {
   env?: EnvLike
 }
 
+function canEnqueueOtelExport(settings: OtelExportSettings, deployment: OtelExportDeploymentConfig): boolean {
+  return settings.enabled && (settings.destination === 'integration' || isOtelExportDeploymentEndpointUsable(deployment))
+}
+
 async function readRunEventGate(
   payload: unknown,
   container: OtelExportContainer,
@@ -165,7 +170,7 @@ async function readRunEventGate(
     const event = readRunEventPayload(payload)
     if (!event) return null
     const { settings } = await readOtelExportSettings(container, event.tenantId)
-    if (!settings.enabled) return null
+    if (!canEnqueueOtelExport(settings, deployment)) return null
     if (event.agentId && settings.agentAllowlist && !settings.agentAllowlist.includes(event.agentId)) return null
     return { runId: event.runId, tenantId: event.tenantId, delayMs: deployment.delayMs }
   } catch (error) {
@@ -198,7 +203,7 @@ async function enqueueBestEffort(
 
 /**
  * Subscriber gate for `run.completed` / `run.ingested`: deployment switch
- * (env only) → tenant settings (+ agent allowlist when the event names the
+ * (env only) → tenant settings and destination (+ agent allowlist when the event names the
  * agent) → enqueue `{ runId, attempt: 0 }` delayed by the deployment delay.
  * The run source is only on the row, so the worker re-checks the full gate.
  * Best-effort: a failed enqueue is reported, never rethrown, so the event's
@@ -260,7 +265,7 @@ export async function enqueueOtelExportForFinishedProcess(
     const scope = readFinishedProcessScope(payload)
     if (!scope) return false
     const { settings } = await readOtelExportSettings(container, scope.tenantId)
-    if (!settings.enabled) return false
+    if (!canEnqueueOtelExport(settings, deployment)) return false
     const runId = await deps.findLatestTopLevelRunId({
       ...scope,
       sources: deployment.sources,
