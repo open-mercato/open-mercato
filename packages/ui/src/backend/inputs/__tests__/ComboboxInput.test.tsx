@@ -491,17 +491,31 @@ describe('ComboboxInput — eager label resolution', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('shows a saved currency when its options arrive after autofocus without changing the stored value', async () => {
-    const onChange = jest.fn()
-    const loadSuggestions = jest.fn(async () => [{ value: 'USD', label: 'USD' }])
-    const { container } = render(
-      <ComboboxInput value="USD" onChange={onChange} autoFocus allowCustomValues={false} loadSuggestions={loadSuggestions} />,
-    )
+  it('loads a saved currency once on autofocus and searches when the user opens suggestions', async () => {
+    jest.useFakeTimers()
+    try {
+      const onChange = jest.fn()
+      const loadSuggestions = jest.fn(async () => [{ value: 'USD', label: 'USD' }])
+      const { container } = render(
+        <ComboboxInput value="USD" onChange={onChange} autoFocus allowCustomValues={false} loadSuggestions={loadSuggestions} />,
+      )
+      const input = getInput(container)
 
-    await waitFor(() => expect(getInput(container).value).toBe('USD'))
-    expect(document.activeElement).toBe(getInput(container))
-    expect(loadSuggestions).toHaveBeenCalledTimes(1)
-    expect(onChange).not.toHaveBeenCalled()
+      await act(async () => { await jest.advanceTimersByTimeAsync(250) })
+      expect(input.value).toBe('USD')
+      expect(document.activeElement).toBe(input)
+      expect(loadSuggestions).toHaveBeenCalledTimes(1)
+      expect(loadSuggestions).toHaveBeenCalledWith()
+
+      fireEvent.keyDown(input, { key: 'ArrowDown' })
+      await act(async () => { await jest.advanceTimersByTimeAsync(250) })
+      expect(input).toHaveAttribute('aria-expanded', 'true')
+      expect(loadSuggestions).toHaveBeenCalledTimes(2)
+      expect(loadSuggestions).toHaveBeenLastCalledWith('USD')
+      expect(onChange).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('reverts an invalid query to the saved self-labeled currency on blur', async () => {

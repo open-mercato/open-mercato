@@ -1,3 +1,5 @@
+import { EntityMetadata, MetadataStorage } from '@mikro-orm/core'
+import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import { RecordLockService } from '../lib/recordLockService'
 import type { RecordLockSettings } from '../lib/config'
 import { emitRecordLocksEvent } from '../events'
@@ -21,7 +23,7 @@ const DEFAULT_SETTINGS: RecordLockSettings = {
 function createService(
   settings: RecordLockSettings = DEFAULT_SETTINGS,
   actionLogService?: { findById: (id: string) => Promise<unknown> } | null,
-  options?: { canOverrideIncoming?: boolean },
+  options?: { canOverrideIncoming?: boolean; auditTrailAvailable?: boolean },
 ) {
   const execute = jest.fn().mockResolvedValue([])
   const connection = { execute }
@@ -34,6 +36,7 @@ function createService(
     flush: jest.fn(),
     transactional: jest.fn(),
     getConnection: jest.fn(() => connection),
+    getMetadata: jest.fn(() => ({ find: () => options?.auditTrailAvailable ?? true })),
   } as any
   em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
 
@@ -1329,5 +1332,52 @@ describe('RecordLockService.resolveConflictById', () => {
       'accept_incoming',
       '40000000-0000-4000-8000-000000000001',
     )
+  })
+})
+
+describe('RecordLockService without the audit_logs module (#9205)', () => {
+  type AuditTrailProbe = {
+    findLatestActionLog: (input: Record<string, unknown>) => Promise<unknown>
+    findLatestActionLogByActor: (input: Record<string, unknown>, actorUserId: string) => Promise<unknown>
+    findActionLogById: (logId: string | null, scope: Record<string, unknown>) => Promise<unknown>
+  }
+  const scope = {
+    tenantId: '60000000-0000-4000-8000-000000000001',
+    organizationId: '70000000-0000-4000-8000-000000000001',
+    resourceKind: 'customers.person',
+    resourceId: '20000000-0000-4000-8000-000000000001',
+  }
+
+  test('makes no ActionLog query when ActionLog has no ORM metadata', async () => {
+    const actionLogService = { findById: jest.fn() }
+    const { service, em } = createService(DEFAULT_SETTINGS, actionLogService, { auditTrailAvailable: false })
+    const probe = service as unknown as AuditTrailProbe
+
+    await expect(probe.findLatestActionLog(scope)).resolves.toBeNull()
+    await expect(probe.findLatestActionLogByActor(scope, 'user-1')).resolves.toBeNull()
+    await expect(probe.findActionLogById('log-1', scope)).resolves.toBeNull()
+
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(em.find).not.toHaveBeenCalled()
+    expect(actionLogService.findById).not.toHaveBeenCalled()
+  })
+
+  test('queries ActionLog when the ORM registered a distinct constructor of the same name', async () => {
+    const { service, em } = createService(DEFAULT_SETTINGS)
+    const RegisteredActionLog = class ActionLog {}
+    const metadata = new MetadataStorage()
+    const registered = metadata.set(RegisteredActionLog, new EntityMetadata({
+      class: RegisteredActionLog,
+      className: RegisteredActionLog.name,
+    }))
+    em.getMetadata.mockReturnValue(metadata)
+    em.findOne.mockResolvedValue(null)
+    const probe = service as unknown as AuditTrailProbe
+
+    expect(metadata.has(ActionLog)).toBe(false)
+    expect(metadata.find(ActionLog)).toBe(registered)
+    await probe.findLatestActionLog(scope)
+
+    expect(em.findOne).toHaveBeenCalledWith(ActionLog, expect.any(Object), expect.any(Object))
   })
 })
