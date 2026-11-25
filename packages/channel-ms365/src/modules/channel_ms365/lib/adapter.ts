@@ -689,7 +689,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
 
     if (hardFailed) {
       const pinned: Ms365ChannelState = { ...state, lastSyncedAt: now }
-      return { messages, nextCursor: encodeCursor(pinned), hasMore: true }
+      return { messages, nextCursor: encodeCursor(pinned), hasMore: false }
     }
 
     const seenMax = maxReceivedDateTime(candidates)

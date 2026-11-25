@@ -239,7 +239,7 @@ INCREMENTAL / CONTINUE
      if @odata.deltaLink → state := { deltaLink, nextLink: undefined,
                                       receivedWatermark: max(prev, pending, seen) }
   on transient $value failure (hardFailed):
-     state unchanged (same link re-read next tick), hasMore: true
+     state pinned (same link re-read on the next scheduled poll), hasMore: false
 ```
 
 Invariants (carried over from the Gmail L3 rule in the reliability spec):

@@ -580,7 +580,7 @@ describe('Ms365ChannelAdapter.fetchHistory', () => {
     expect(loggerWarn).toHaveBeenCalled()
   })
 
-  it('skips messages that vanished (404) and pins the cursor on a transient fetch failure', async () => {
+  it('skips messages that vanished (404) and defers the pinned page to the next scheduled poll on a transient fetch failure', async () => {
     setGraphMailClient({
       ...emptyGraph(),
       continueDelta: async () => ({
@@ -604,7 +604,7 @@ describe('Ms365ChannelAdapter.fetchHistory', () => {
     }
     const page = await fetchHistory(incoming)
     expect(page.messages.map((m) => m.externalMessageId)).toEqual(['ok-1@example.com'])
-    expect(page.hasMore).toBe(true)
+    expect(page.hasMore).toBe(false)
     const state = decodeCursor(page.nextCursor)
     expect(state.deltaLink).toContain('$deltatoken=current')
     expect(state.receivedWatermark).toBe('2026-09-04T10:00:00.000Z')
