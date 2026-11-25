@@ -247,6 +247,10 @@ describe('plaintext custom-field boundaries (#7894)', () => {
       recordsIndexed: 0,
       errors: [{ entityId, error: expect.stringContaining('Vector store unavailable') }],
     })
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ code: 'search.reindex_write_failed' }),
+    )
     expect(harness.vectorDocuments.size).toBe(1)
 
     expect(await reindex()).toMatchObject({ success: true, recordsIndexed: 1, errors: [] })

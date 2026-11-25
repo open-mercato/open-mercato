@@ -766,6 +766,7 @@ export class SearchIndexer {
                 error: error instanceof Error ? error.message : String(error),
               })
             }
+            reportSearchError('SearchIndexer', error, 'search.reindex_write_failed', { entityId: params.entityId })
             searchDebugWarn('SearchIndexer', 'Failed to bulk index records', {
               entityId: params.entityId,
               recordCount: records.length,
@@ -1250,6 +1251,7 @@ export class SearchIndexer {
                     error: error instanceof Error ? error.message : String(error),
                   })
                 }
+                reportSearchError('SearchIndexer', error, 'search.reindex_write_failed', { entityId, strategy: 'vector' })
                 searchDebugWarn('SearchIndexer', 'Failed to index record to vector', {
                   entityId,
                   recordId,
