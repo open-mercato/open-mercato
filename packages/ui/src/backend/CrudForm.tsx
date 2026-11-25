@@ -2956,7 +2956,7 @@ function CrudFormImpl<
   const pendingDirtyBaselineCommitRef = React.useRef<{
     guardSnapshot?: string
     valuesSnapshot: string
-    values: Record<string, unknown>
+    baselineValues: Record<string, unknown>
   } | null>(null)
   const userEditedFieldIdsRef = React.useRef<Set<string>>(new Set())
   const everEditedFieldIdsRef = React.useRef<Set<string>>(new Set())
@@ -2976,8 +2976,8 @@ function CrudFormImpl<
     ) return
     const committedValues = values as Record<string, unknown>
     if (createDirtySnapshot(committedValues) !== pendingBaseline.valuesSnapshot) return
-    dirtyBaselineSnapshotRef.current = pendingBaseline.valuesSnapshot
-    dirtyBaselineValuesRef.current = { ...pendingBaseline.values }
+    dirtyBaselineSnapshotRef.current = createDirtySnapshot(pendingBaseline.baselineValues)
+    dirtyBaselineValuesRef.current = { ...pendingBaseline.baselineValues }
   }, [values])
   React.useLayoutEffect(() => {
     if (!initialValues) return
@@ -3041,7 +3041,7 @@ function CrudFormImpl<
       pendingDirtyBaselineCommitRef.current = {
         guardSnapshot: snapshot,
         valuesSnapshot: createDirtySnapshot(mergedValues as Record<string, unknown>),
-        values: { ...(mergedValues as Record<string, unknown>) },
+        baselineValues: { ...mergedValues },
       }
     } else {
       pendingDirtyBaselineCommitRef.current = null
@@ -3067,7 +3067,7 @@ function CrudFormImpl<
         pendingDirtyBaselineCommitRef.current = {
           guardSnapshot: snapshot,
           valuesSnapshot: createDirtySnapshot(transformedValues as Record<string, unknown>),
-          values: { ...(transformedValues as Record<string, unknown>) },
+          baselineValues: { ...transformedValues },
         }
         setValues((current) => {
           if (createDirtySnapshot(current as Record<string, unknown>) !== transformSourceSnapshot) return current
@@ -3123,7 +3123,7 @@ function CrudFormImpl<
     // render cannot make the navigation guard observe values the user never saw.
     pendingDirtyBaselineCommitRef.current = {
       valuesSnapshot: createDirtySnapshot(mergedValues as Record<string, unknown>),
-      values: { ...(mergedValues as Record<string, unknown>) },
+      baselineValues: { ...(dirtyBaselineValuesRef.current ?? currentValues), ...initialized },
     }
     setValues(mergedValues)
   }, [isLoading, initialValuesHasId, cfDefinitions, customEntity])

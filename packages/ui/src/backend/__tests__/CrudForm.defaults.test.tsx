@@ -212,6 +212,44 @@ describe('CrudForm custom field default application', () => {
     expect(await screen.findByRole('textbox', { name: 'Severity' })).toHaveValue(severity ?? '')
   })
 
+  it('preserves the unsaved warning when custom fields initialize during an edit', async () => {
+    const definitions = [{ key: 'severity', kind: 'text', label: 'Severity', formEditable: true }]
+    setupMockDefinitions(definitions)
+    const { promise, resolve } = Promise.withResolvers<{
+      fields: CrudField[]
+      definitions: typeof definitions
+      metadata: { items: typeof definitions }
+    }>()
+    fetchCustomFieldFormStructureMock.mockReturnValueOnce(promise)
+    const preventsLeaving = () => {
+      const event = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    renderWithProviders(
+      <CrudForm
+        title="Create"
+        entityId="test:entity"
+        fields={fields}
+        initialValues={{ name: 'Original', 'cf:severity': 'high' }}
+        onSubmit={jest.fn()}
+      />,
+      { dict },
+    )
+
+    const name = screen.getByRole('textbox', { name: 'Name' })
+    fireEvent.change(name, { target: { value: 'Edited' } })
+    expect(preventsLeaving()).toBe(true)
+
+    await act(async () => resolve({ fields: [], definitions, metadata: { items: definitions } }))
+    expect(await screen.findByRole('textbox', { name: 'Severity' })).toHaveValue('high')
+    expect(name).toHaveValue('Edited')
+    expect(preventsLeaving()).toBe(true)
+
+    fireEvent.change(name, { target: { value: 'Original' } })
+    expect(preventsLeaving()).toBe(false)
+  })
+
   it('does not apply defaults while isLoading is true (async edit page)', async () => {
     setupMockDefinitions([
       { key: 'status', kind: 'text', label: 'Status', defaultValue: 'active', formEditable: true },
