@@ -23,6 +23,7 @@ import {
   type AnyRow,
 } from './lib/batch'
 import { createSearchTokenGateQueryEngine } from './lib/search-entity-policy'
+import { resolveCiphertextGuard } from './lib/search-tokens'
 import { reindexEntity, isTenantlessReindexTarget, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import type { ReindexJobResult } from './lib/reindexer'
 
@@ -225,6 +226,8 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     )
   }
 
+  const ciphertextGuard = () => resolveCiphertextGuard(encryption)
+
   const applyFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
     let chain = q
     if (!global) {
@@ -249,7 +252,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
       .executeTakeFirst() as AnyRow | undefined
     if (!row) return { processed: 0, matched: 0 }
     const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, 1)
-    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine })
+    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine, ciphertextGuard })
     bar.update(singleResult.written)
     bar.complete()
     assertIndexBatchWritesLanded(entityType, singleResult)
@@ -291,7 +294,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     const chunkResult = await upsertIndexBatch(db, entityType, chunk as AnyRow[], {
       orgId: orgOverride,
       tenantId: tenantOverride,
-    }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine })
+    }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine, ciphertextGuard })
     mergeUpsertIndexBatchResults(writeTotals, chunkResult)
 
     processed += chunkResult.written
