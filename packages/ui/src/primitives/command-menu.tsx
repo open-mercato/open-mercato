@@ -283,7 +283,7 @@ const CommandMenuList = React.forwardRef<
     ref={ref}
     data-slot="command-menu-list"
     className={cn(
-      'max-h-96 overflow-y-auto overflow-x-hidden p-2',
+      'max-h-96 overflow-y-auto overflow-x-hidden p-1',
       className,
     )}
     {...props}
@@ -347,7 +347,7 @@ const CommandMenuGroup = React.forwardRef<
         className={cn(
           'overflow-hidden text-foreground',
           '[&_[cmdk-group-heading]]:flex [&_[cmdk-group-heading]]:items-center',
-          '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5',
+          '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1',
           '[&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground',
           className,
         )}
@@ -399,12 +399,12 @@ const CommandMenuItem = React.forwardRef<
       ref={ref}
       data-slot="command-menu-item"
       className={cn(
-        'group relative flex w-full cursor-pointer select-none items-center gap-3 rounded-md px-2 py-2 text-sm text-foreground outline-none',
+        'group relative flex min-h-8 w-full cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1 text-sm text-foreground outline-none',
         'data-[selected=true]:bg-muted/40',
         'data-[disabled=true]:pointer-events-none data-[disabled=true]:text-text-disabled',
         'data-[disabled=true]:[&_[data-slot=command-menu-item-description]]:text-text-disabled',
         size && 'data-[selected=true]:bg-muted',
-        size === 40 && 'h-10 rounded-lg px-3 py-2.5',
+        size === 40 && 'h-10 gap-3 rounded-lg px-3 py-0',
         size === 64 && 'h-16 rounded-lg p-3',
         className,
       )}

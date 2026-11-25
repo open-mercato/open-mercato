@@ -163,7 +163,7 @@ export const Notification = React.forwardRef<HTMLDivElement, NotificationProps>(
         ) : null}
         {actions ? (
           <div
-            className={cn('flex flex-wrap items-center gap-2', (title || description) && 'mt-2.5')}
+            className={cn('flex flex-wrap items-center gap-2', (title || description) && 'mt-3')}
             data-slot="notification-actions"
           >
             {actions}

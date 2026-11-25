@@ -114,7 +114,7 @@ const SheetHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('flex flex-col gap-1.5 border-b px-4 py-3 pr-12 text-left', className)}
+      className={cn('flex flex-col gap-2 border-b px-4 py-3 pr-12 text-left', className)}
       {...props}
     />
   ),

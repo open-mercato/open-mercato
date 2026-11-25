@@ -113,7 +113,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
         defaultValue={isControlled ? undefined : defaultValue}
         maxLength={maxLength}
         onChange={handleChange}
-        className={cn(baseTextareaClass, appearance === 'source' && 'min-h-28 rounded-textarea pl-3 pr-2.5 py-2.5 leading-5', appearance === 'source' && showCount && 'pb-8', autoResize && 'resize-none overflow-hidden', className)}
+        className={cn(baseTextareaClass, appearance === 'source' && 'min-h-28 rounded-textarea pl-3 pr-3 py-3 leading-5', appearance === 'source' && showCount && 'pb-8', autoResize && 'resize-none overflow-hidden', className)}
         data-slot="textarea"
         data-appearance={appearance}
         {...props}
@@ -133,7 +133,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
         <div className={cn('flex justify-end', appearance === 'source' && 'pointer-events-none absolute bottom-2.5 right-6')}>
           <span
             className={cn(
-              'text-overline uppercase',
+              'text-xs tabular-nums',
               isDisabled
                 ? 'text-text-disabled'
                 : isError

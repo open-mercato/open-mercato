@@ -13,7 +13,7 @@ export type ContentLabelProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'titl
 }
 
 export function ContentLabel({ label, description, sublabel, leading, titleBadge, badge, trailing, size = 40, className, ...props }: ContentLabelProps) {
-  return <div data-slot="content-label" data-size={size} className={cn('flex min-w-0 items-center gap-3.5', size === 40 ? 'min-h-10' : 'min-h-12', className)} {...props}>
+  return <div data-slot="content-label" data-size={size} className={cn('flex min-w-0 items-center gap-4', size === 40 ? 'min-h-10' : 'min-h-12', className)} {...props}>
     {leading ? <span data-slot="content-label-leading" className="inline-flex shrink-0 items-center justify-center">{leading}</span> : null}
     <div className="flex min-w-0 flex-1 flex-col gap-1">
       <div className="flex flex-wrap items-center gap-1">

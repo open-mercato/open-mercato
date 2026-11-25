@@ -32,7 +32,7 @@ export type BorderBeamItem = {
   outset?: BorderBeamLength
 }
 
-export type BorderBeamProps = React.HTMLAttributes<HTMLDivElement> & {
+export type BorderBeamProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'color'> & {
   asChild?: boolean
   color?: BorderBeamColor
   size?: BorderBeamLength

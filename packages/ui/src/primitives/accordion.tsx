@@ -11,13 +11,13 @@ export type AccordionTriggerIcon = 'plus-minus' | 'chevron' | 'none'
 export type AccordionIconPosition = 'end' | 'start'
 
 const accordionItemVariants = cva(
-  // `--accordion-indent` defaults to the container padding (14px). The
+  // `--accordion-indent` defaults to the container padding (16px). The
   // `has-[…trigger-left-icon]` Tailwind v4 variant promotes it to 44px
   // (icon 20 + gap 10 + container padding 14) whenever an `AccordionTrigger`
   // declares a `leftIcon`, so `AccordionContent` aligns with the title text
   // — matches Figma 210:4064 (Active state) without React state or hydration
   // flash.
-  'overflow-hidden rounded-[10px] transition-colors [--accordion-indent:14px] has-[[data-slot=accordion-trigger-left-icon]]:[--accordion-indent:44px]',
+  'overflow-hidden rounded-lg transition-colors [--accordion-indent:16px] has-[[data-slot=accordion-trigger-left-icon]]:[--accordion-indent:44px]',
   {
     variants: {
       variant: {
@@ -151,7 +151,7 @@ const AccordionTrigger = React.forwardRef<
           ref={ref}
           data-slot="accordion-trigger"
           className={cn(
-            'group/accordion-trigger flex w-full items-start gap-2.5 p-3.5 text-left text-sm font-medium leading-5 tracking-tight text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
+            'group/accordion-trigger flex w-full items-start gap-3 p-4 text-left text-sm font-medium leading-5 tracking-tight text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
             className,
           )}
           {...props}
@@ -208,7 +208,7 @@ const AccordionContent = React.forwardRef<
     )}
     {...props}
   >
-    <div className="pb-3.5 pt-0 pl-[var(--accordion-indent)] pr-[var(--accordion-indent)]">
+    <div className="pb-4 pt-0 pl-(--accordion-indent) pr-(--accordion-indent)">
       {children}
     </div>
   </AccordionPrimitive.Content>

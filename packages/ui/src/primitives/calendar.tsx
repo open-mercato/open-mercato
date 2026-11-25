@@ -28,7 +28,7 @@ export function CalendarMonthSelector({
 }: CalendarMonthSelectorProps) {
   const t = useT()
   return (
-    <div data-slot="calendar-month-selector" className={cn('flex h-9 items-center gap-1.5 rounded-md bg-muted p-1.5', className)} {...props}>
+    <div data-slot="calendar-month-selector" className={cn('flex h-9 items-center gap-2 rounded-md bg-muted p-2', className)} {...props}>
       {onPreviousMonth
         ? <CompactButton appearance="white" size={24} className="shadow-xs" onClick={onPreviousMonth} disabled={disabledPrevious} aria-label={t('ui.calendar.previousMonth', 'Previous month')}><ChevronLeft className="size-5" aria-hidden="true" /></CompactButton>
         : <span className="size-6 shrink-0" aria-hidden="true" />}

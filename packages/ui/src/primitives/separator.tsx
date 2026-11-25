@@ -23,8 +23,8 @@ import { cn } from '@open-mercato/shared/lib/utils'
  * ## Variants per Figma `Content Divider [1.1]`
  *
  *   plain          — `<Separator />`
- *   labeled        — `<Separator label="OR" />`
- *   labeled start  — `<Separator label="OR" labelAlign="start" />`
+ *   labeled        — `<Separator label="or" />`
+ *   labeled start  — `<Separator label="or" labelAlign="start" />`
  *   section header — `<Separator section>AMOUNT & ACCOUNT</Separator>`
  *   dashed         — `<Separator variant="dashed" />`
  *
@@ -50,8 +50,8 @@ export type SeparatorProps = {
   /** Alignment of the label between the two rule halves.
    * @default 'center' */
   labelAlign?: 'center' | 'start' | 'end'
-  /** Section-header style — full-width bg-muted strip + uppercase
-   * label (Figma variant 5: "AMOUNT & ACCOUNT" content header). When
+  /** Section-header style — full-width bg-muted strip + sentence-case
+   * label (Figma variant 5: "Amount & account" content header). When
    * `section` is true the `label` prop is rendered inside the strip;
    * or pass content via `children`. Mutually exclusive with
    * `label`/`labelAlign` (those use the inline-rule style). */
@@ -98,7 +98,7 @@ export function Separator({
         data-variant="section"
         aria-orientation="horizontal"
         className={cn(
-          'w-full bg-muted px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground',
+          'w-full bg-muted px-3 py-2 text-xs text-muted-foreground',
           className,
         )}
       >
@@ -141,7 +141,7 @@ export function Separator({
         />
         <span
           data-slot="separator-label"
-          className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+          className="shrink-0 text-xs text-muted-foreground"
         >
           {label}
         </span>

@@ -68,7 +68,7 @@ export function Notice({
     <div className={cn('rounded-md border p-4', styles.container, className)}>
       <div className="flex items-start gap-3">
         <span
-          className={cn('inline-block mt-0.5 h-4 w-4 rounded-full border-2 shrink-0', styles.icon)}
+          className={cn('inline-block mt-1 h-4 w-4 rounded-full border-2 shrink-0', styles.icon)}
           aria-hidden
         />
         <div className="space-y-1">

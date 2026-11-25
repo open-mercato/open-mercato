@@ -52,7 +52,7 @@ export function BreadcrumbList({ className, children, ...props }: BreadcrumbList
     <ol
       data-slot="breadcrumb-list"
       className={cn(
-        'flex items-center gap-1.5 text-sm font-medium leading-5 tracking-tight min-w-0',
+        'flex items-center gap-2 text-sm font-medium leading-5 tracking-tight min-w-0',
         className,
       )}
       {...props}
@@ -68,7 +68,7 @@ export function BreadcrumbItem({ className, ...props }: BreadcrumbItemProps) {
   return (
     <li
       data-slot="breadcrumb-item"
-      className={cn('inline-flex items-center gap-1.5 min-w-0', className)}
+      className={cn('inline-flex items-center gap-2 min-w-0', className)}
       {...props}
     />
   )
@@ -89,7 +89,7 @@ export function BreadcrumbLink({
     <Comp
       data-slot="breadcrumb-link"
       className={cn(
-        "inline-flex items-center gap-1.5 max-w-[40vw] md:max-w-[28vw] truncate text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:text-foreground rounded-sm focus-visible:shadow-focus [&_svg:not([class*='size-'])]:size-5 [&_svg]:shrink-0",
+        "inline-flex items-center gap-2 max-w-[40vw] md:max-w-[28vw] truncate text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:text-foreground rounded-sm focus-visible:shadow-focus [&_svg:not([class*='size-'])]:size-5 [&_svg]:shrink-0",
         className,
       )}
       {...props}
@@ -122,7 +122,7 @@ export function BreadcrumbStatic({ className, ...props }: BreadcrumbStaticProps)
     <span
       data-slot="breadcrumb-static"
       className={cn(
-        "inline-flex items-center gap-1.5 max-w-[40vw] md:max-w-[28vw] truncate text-muted-foreground select-none [&_svg:not([class*='size-'])]:size-5 [&_svg]:shrink-0",
+        "inline-flex items-center gap-2 max-w-[40vw] md:max-w-[28vw] truncate text-muted-foreground select-none [&_svg:not([class*='size-'])]:size-5 [&_svg]:shrink-0",
         className,
       )}
       {...props}

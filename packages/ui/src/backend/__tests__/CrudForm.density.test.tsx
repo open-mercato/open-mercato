@@ -11,7 +11,7 @@
  *   1. omitting it changes NOTHING (the default renders the same class strings
  *      that were inline before the prop existed), and
  *   2. `compact` changes SPACING only — the same fields, labels, helper text and
- *      controls, one step down the DS scale.
+ *      controls, through the compact density scope of the spacing tokens.
  */
 
 jest.mock('next/navigation', () => ({
@@ -74,23 +74,22 @@ describe('CrudForm density', () => {
     expect(explicit).toBe(omitted)
   })
 
-  it('steps the form rhythm down one DS step when compact', () => {
-    const form = renderForm().querySelector('form')
-    const compactForm = renderForm('compact').querySelector('form')
+  it('puts compact forms in the compact density scope so the spacing tokens tighten', () => {
+    const root = renderForm().querySelector('[data-density]')
+    const compactRoot = renderForm('compact').querySelector('[data-density]')
 
-    expect(form?.className).toContain('space-y-4')
-    expect(compactForm?.className).toContain('space-y-3')
-    expect(compactForm?.className).not.toContain('space-y-4')
+    expect(root).toHaveAttribute('data-density', 'default')
+    expect(compactRoot).toHaveAttribute('data-density', 'compact')
+    expect(renderForm('compact').querySelector('form')?.className).toContain('space-y-field-stack')
   })
 
-  it('tightens the group card padding when compact', () => {
-    const defaultCard = renderForm().querySelector('.rounded-lg.border')
-    const compactCard = renderForm('compact').querySelector('.rounded-lg.border')
-
-    expect(defaultCard?.className).toContain('px-4')
-    expect(defaultCard?.className).toContain('py-3')
-    expect(compactCard?.className).toContain('px-3')
-    expect(compactCard?.className).toContain('py-2')
+  it('spaces labels, fields and groups with the spacing role tokens', () => {
+    const container = renderForm()
+    expect(container.querySelector('[data-crud-field-id="name"]')?.className).toContain('space-y-field-label')
+    const card = container.querySelector('.rounded-lg.border')
+    expect(card?.className).toContain('px-panel')
+    expect(card?.className).toContain('py-3')
+    expect(renderForm('compact').querySelector('.rounded-lg.border')?.className).toContain('py-2')
   })
 
   it('never reaches for an arbitrary Tailwind value', () => {

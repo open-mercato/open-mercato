@@ -52,7 +52,7 @@ export function FileUploadArea({ className, accept = 'image/jpeg,image/png,appli
         }}
       >
         <CloudUpload aria-hidden="true" className="size-6 text-muted-foreground" />
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <p id={`${id}-heading`} className="text-sm font-medium leading-5 text-foreground">{heading ?? t('ui.fileUpload.choose', 'Choose a file or drag & drop it here.')}</p>
           <p id={`${id}-description`} className="text-xs leading-4 text-muted-foreground">{description ?? t('ui.fileUpload.description', 'JPEG, PNG, PDF, and MP4 formats, up to 50 MB.')}</p>
         </div>

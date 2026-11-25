@@ -45,13 +45,13 @@ export const CheckboxField = React.forwardRef<
       id={id}
       size={size}
       disabled={disabled}
-      className={cn(hasMultiLine && "mt-0.5", className)}
+      className={cn(hasMultiLine && "mt-1", className)}
       {...checkboxProps}
     />
   )
 
   const content = (
-    <div className={cn("flex flex-1 min-w-0 flex-col gap-2.5", contentClassName)}>
+    <div className={cn("flex flex-1 min-w-0 flex-col gap-3", contentClassName)}>
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-1">
           <label

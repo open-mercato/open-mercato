@@ -217,7 +217,7 @@ export function DatePicker({
     return matchers
   }, [minDate, maxDate])
 
-  const heightClass = size === 'sm' ? 'h-8 px-2.5 text-xs' : 'h-9 px-3 text-sm'
+  const heightClass = size === 'sm' ? 'h-8 px-3 text-xs' : 'h-9 px-3 text-sm'
   const selectedDate = useDraft ? draft : value
 
   return (

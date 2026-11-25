@@ -71,7 +71,7 @@ const DialogOverlay = React.forwardRef<
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
 const dialogContentVariants = cva(
-  'fixed inset-x-0 bottom-0 flex max-h-[90vh] w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-t-xl border-t bg-card p-6 shadow-lg sm:inset-auto sm:left-1/2 sm:top-1/2 sm:min-h-0 sm:h-auto sm:w-full sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border focus-visible:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out',
+  'fixed inset-x-0 bottom-0 flex max-h-[90vh] w-full translate-x-0 translate-y-0 flex-col gap-4 overflow-y-auto rounded-t-xl border-t bg-card p-dialog shadow-lg sm:inset-auto sm:left-1/2 sm:top-1/2 sm:min-h-0 sm:h-auto sm:w-full sm:max-h-[90vh] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border focus-visible:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out',
   {
     variants: {
       size: {
@@ -223,7 +223,7 @@ const DialogHeader = ({
     className={cn(
       alignment === 'vertical'
         ? 'flex flex-col items-center gap-4 text-center'
-        : leading ? 'flex items-start gap-3 text-left' : 'flex flex-col space-y-1.5 text-center sm:text-left',
+        : leading ? 'flex items-start gap-3 text-left' : 'flex flex-col space-y-2 text-center sm:text-left',
       className,
     )}
     {...props}
@@ -302,7 +302,7 @@ const DialogFooter = ({
           // restructure that splits scrolling body from sticky
           // header/footer.
           bordered ? 'border-t border-input pt-4' : '',
-          'flex flex-row gap-2 [&>*]:flex-1',
+          'mt-2 flex flex-row gap-2 [&>*]:flex-1',
           className,
         )}
         {...props}
@@ -329,7 +329,7 @@ const DialogFooter = ({
           // restructure that splits scrolling body from sticky
           // header/footer.
           bordered ? 'border-t border-input pt-4' : '',
-          'flex flex-col gap-3 sm:flex-row sm:items-center',
+          'mt-2 flex flex-col gap-3 sm:flex-row sm:items-center',
           className,
         )}
         {...props}
@@ -361,8 +361,8 @@ const DialogFooter = ({
       // inset inside the DialogContent's `p-6` padding. We escape
       // the parent's horizontal padding with `-mx-6` and re-apply
       // `px-6` so the button row keeps its inset position.
-      bordered ? '-mx-6 border-t border-input px-6 pt-4' : '',
-        'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
+      bordered ? '-mx-dialog border-t border-input px-dialog pt-4' : '',
+        'mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end',
         className,
       )}
       {...props}

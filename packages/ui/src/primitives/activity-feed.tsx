@@ -117,7 +117,7 @@ const ActivityFeedItem = React.forwardRef<HTMLLIElement, ActivityFeedItemProps>(
       {avatar ? (
         <span
           data-slot="activity-feed-item-avatar"
-          className="mt-0.5 inline-flex shrink-0 items-center justify-center"
+          className="mt-1 inline-flex shrink-0 items-center justify-center"
         >
           {avatar}
         </span>
@@ -177,7 +177,7 @@ const ActivityFeedFileChip = React.forwardRef<HTMLDivElement, ActivityFeedFileCh
       ref={ref}
       data-slot="activity-feed-file-chip"
       className={cn(
-        'inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground shadow-xs',
+        'inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs',
         className,
       )}
       {...props}
@@ -302,7 +302,7 @@ const ActivityFeedStatusChip = React.forwardRef<HTMLSpanElement, ActivityFeedSta
         data-slot="activity-feed-status-chip"
         data-status={status}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1 text-sm font-medium text-foreground shadow-xs',
+          'inline-flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1 text-sm font-medium text-foreground shadow-xs',
           className,
         )}
         {...props}

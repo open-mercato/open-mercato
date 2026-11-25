@@ -67,27 +67,27 @@ export function FormField({
     <div
       className={cn(
         isHorizontal
-          ? 'flex items-center justify-between gap-4'
-          : 'flex flex-col gap-1',
+          ? 'flex flex-wrap items-center justify-between gap-x-4 gap-y-field-hint'
+          : 'flex flex-col',
         className,
       )}
       data-slot="form-field"
     >
       {label && (sourceLabel || labelSublabel || labelInformation || labelAction) ? (
-        <FieldLabel htmlFor={fieldId} required={required} sublabel={labelSublabel} information={labelInformation} action={labelAction} disabled={disabled} className={cn(isHorizontal && 'min-w-0 shrink-0')}>
+        <FieldLabel htmlFor={fieldId} required={required} sublabel={labelSublabel} information={labelInformation} action={labelAction} disabled={disabled} className={cn(isHorizontal ? 'min-w-0 shrink-0' : 'mb-field-label')}>
           {label}
         </FieldLabel>
       ) : label ? (
         <Label
           htmlFor={fieldId}
           className={cn(
-            isHorizontal && 'min-w-0 shrink-0',
+            isHorizontal ? 'min-w-0 shrink-0' : 'mb-field-label',
             disabled && 'cursor-not-allowed',
           )}
         >
           {label}
           {required && (
-            <span className="text-status-error-icon ml-0.5" aria-hidden="true">*</span>
+            <span className="text-status-error-icon ml-1" aria-hidden="true">*</span>
           )}
         </Label>
       ) : null}
@@ -100,14 +100,14 @@ export function FormField({
         <p
           id={errorId}
           role="alert"
-          className="text-xs text-status-error-text"
+          className={cn('text-xs text-status-error-text', isHorizontal ? 'basis-full' : 'mt-field-hint')}
         >
           {error}
         </p>
       ) : description ? (
         <p
           id={descriptionId}
-          className={cn('text-xs', disabled ? 'text-text-disabled' : 'text-muted-foreground')}
+          className={cn('text-xs', isHorizontal ? 'basis-full' : 'mt-field-hint', disabled ? 'text-text-disabled' : 'text-muted-foreground')}
         >
           {description}
         </p>

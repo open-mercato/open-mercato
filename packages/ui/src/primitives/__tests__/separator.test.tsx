@@ -110,15 +110,15 @@ describe('Separator', () => {
   })
 
   describe('section variant', () => {
-    it('renders a full-width bg-muted strip with uppercase label', () => {
+    it('renders a full-width bg-muted strip with a sentence-case label', () => {
       const { container } = render(
-        <Separator section label="AMOUNT & ACCOUNT" />,
+        <Separator section label="Amount & account" />,
       )
       const sep = container.querySelector('[data-slot="separator"]') as HTMLElement
       expect(sep.getAttribute('data-variant')).toBe('section')
       expect(sep.className).toContain('bg-muted')
-      expect(sep.className).toContain('uppercase')
-      expect(sep.textContent).toBe('AMOUNT & ACCOUNT')
+      expect(sep.className).not.toContain('uppercase')
+      expect(sep.textContent).toBe('Amount & account')
     })
 
     it('section variant accepts children when label is omitted', () => {

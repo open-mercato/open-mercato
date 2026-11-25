@@ -72,7 +72,7 @@ const buttonGroupVariants = cva(
         // Figma `Small (36)` → cornerRadius 8 → DS `rounded-md` (8px).
         default: 'rounded-md',
         24: 'rounded-sm border-0 shadow-none ring-1 ring-inset ring-input [&>*]:h-6 [&>*]:shrink-0 [&>*]:px-3 [&>*]:text-xs [&>*]:leading-4 [&>*]:gap-1 [&>[data-slot=icon-button]]:w-6 [&>[data-slot=icon-button]]:px-0 [&>button_svg:not([class*=size-])]:size-4 [&>*]:focus-visible:ring-2 [&>*]:focus-visible:ring-inset [&>*]:focus-visible:ring-foreground',
-        32: 'rounded-md border-0 shadow-none ring-1 ring-inset ring-input [&>*]:h-8 [&>*]:shrink-0 [&>*]:px-3.5 [&>*]:text-sm [&>*]:leading-5 [&>*]:gap-1.5 [&>[data-slot=icon-button]]:w-8 [&>[data-slot=icon-button]]:px-0 [&>button_svg:not([class*=size-])]:size-5 [&>*]:focus-visible:ring-2 [&>*]:focus-visible:ring-inset [&>*]:focus-visible:ring-foreground',
+        32: 'rounded-md border-0 shadow-none ring-1 ring-inset ring-input [&>*]:h-8 [&>*]:shrink-0 [&>*]:px-4 [&>*]:text-sm [&>*]:leading-5 [&>*]:gap-2 [&>[data-slot=icon-button]]:w-8 [&>[data-slot=icon-button]]:px-0 [&>button_svg:not([class*=size-])]:size-5 [&>*]:focus-visible:ring-2 [&>*]:focus-visible:ring-inset [&>*]:focus-visible:ring-foreground',
         36: 'rounded-md border-0 shadow-none ring-1 ring-inset ring-input [&>*]:h-9 [&>*]:shrink-0 [&>*]:px-4 [&>*]:text-sm [&>*]:leading-5 [&>*]:gap-2 [&>[data-slot=icon-button]]:w-9 [&>[data-slot=icon-button]]:px-0 [&>button_svg:not([class*=size-])]:size-5 [&>*]:focus-visible:ring-2 [&>*]:focus-visible:ring-inset [&>*]:focus-visible:ring-foreground',
       },
     },

@@ -156,7 +156,7 @@ function hexToHueDegrees(hex: string): number {
 }
 
 const triggerVariants = cva(
-  'inline-flex items-center gap-2 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm shadow-xs outline-none transition-colors ' +
+  'inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none transition-colors ' +
     'focus-visible:shadow-focus ' +
     'disabled:cursor-not-allowed disabled:opacity-60',
   {
@@ -476,7 +476,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
             {/* Section 1 — Choose color */}
             <div
               data-slot="color-picker-section-choose"
-              className="space-y-2.5 px-5 pt-4 pb-5"
+              className="space-y-3 px-5 pt-4 pb-5"
             >
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">{chooseLabel}</span>
@@ -551,7 +551,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
             {allowCustom ? (
               <div
                 data-slot="color-picker-section-input"
-                className="flex w-full min-w-0 items-center gap-2.5 px-5 py-4"
+                className="flex w-full min-w-0 items-center gap-3 px-5 py-4"
               >
                 <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-background px-2 shadow-xs">
                   <span
@@ -704,7 +704,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                   onClick={() => handleAddSwatch(normalizedValue)}
                   data-slot="color-picker-add"
                   className={cn(
-                    'flex w-full items-center gap-1.5 rounded-b-xl px-4 py-3.5 text-left text-sm text-muted-foreground outline-none transition-colors',
+                    'flex w-full items-center gap-2 rounded-b-xl px-4 py-4 text-left text-sm text-muted-foreground outline-none transition-colors',
                     'hover:bg-muted/40 hover:text-foreground',
                     'focus-visible:shadow-focus focus-visible:outline-none',
                   )}

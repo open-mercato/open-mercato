@@ -11,11 +11,11 @@ const selectTriggerVariants = cva(
   {
     variants: {
       size: {
-        32: 'h-8 pl-2 pr-1.5 text-sm [&_svg:not([class*=size-])]:size-5',
-        36: 'h-9 pl-2.5 pr-2 text-sm [&_svg:not([class*=size-])]:size-5',
-        40: 'h-10 rounded-lg pl-3 pr-2.5 text-sm [&_svg:not([class*=size-])]:size-5',
+        32: 'h-8 px-2 text-sm [&_svg:not([class*=size-])]:size-5',
+        36: 'h-9 px-3 text-sm [&_svg:not([class*=size-])]:size-5',
+        40: 'h-10 rounded-lg px-3 text-sm [&_svg:not([class*=size-])]:size-5',
         xs: 'h-7 px-2 text-xs',
-        sm: 'h-8 px-2.5 text-xs',
+        sm: 'h-8 px-2 text-xs',
         default: 'h-9 px-3 text-sm',
         lg: 'h-10 px-3 text-sm',
       },
@@ -135,8 +135,8 @@ const SelectContent = React.forwardRef<
       <SelectScrollUpButton />
       <SelectPrimitive.Viewport
         className={cn(
-          'p-2 max-h-[var(--radix-select-content-available-height)] overflow-y-auto',
-          position === 'popper' && 'w-full min-w-[var(--radix-select-trigger-width)]'
+          'p-1 max-h-(--radix-select-content-available-height) overflow-y-auto',
+          position === 'popper' && 'w-full min-w-(--radix-select-trigger-width)'
         )}
       >
         {children}
@@ -154,7 +154,7 @@ const SelectLabel = React.forwardRef<
   <SelectPrimitive.Label
     ref={ref}
     className={cn(
-      'px-2 pt-2 pb-1 text-overline font-semibold uppercase tracking-wider text-muted-foreground/80',
+      'px-2 pt-2 pb-1 text-xs text-muted-foreground',
       'select-none',
       className
     )}
@@ -174,7 +174,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-default select-none items-center gap-2 rounded-md p-2 text-sm outline-none transition-colors',
+      'relative flex min-h-8 w-full cursor-default select-none items-center gap-2 rounded-md px-2 py-1 text-sm outline-none transition-colors',
       'focus:bg-muted focus:text-foreground',
       'data-[state=checked]:bg-muted/70 data-[state=checked]:text-foreground',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',

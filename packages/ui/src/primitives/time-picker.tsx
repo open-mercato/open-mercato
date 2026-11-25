@@ -158,7 +158,7 @@ const statusColorMap: Record<
 }
 
 const slotVariants = cva(
-  'flex h-9 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors text-left',
+  'flex h-9 w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors text-left',
   {
     variants: {
       state: {
@@ -256,7 +256,7 @@ export const TimePickerSlot = React.forwardRef<HTMLButtonElement, TimePickerSlot
 TimePickerSlot.displayName = 'TimePickerSlot'
 
 const durationChipVariants = cva(
-  'inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors whitespace-nowrap',
+  'inline-flex h-7 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition-colors whitespace-nowrap',
   {
     variants: {
       state: {
@@ -316,7 +316,7 @@ export const TimePickerDurationChip = React.forwardRef<HTMLButtonElement, TimePi
 TimePickerDurationChip.displayName = 'TimePickerDurationChip'
 
 const statusChipBaseVariants = cva(
-  'inline-flex h-7 items-center justify-center gap-1 rounded-md pl-1.5 pr-2.5 text-sm font-medium transition-colors whitespace-nowrap border',
+  'inline-flex h-7 items-center justify-center gap-1 rounded-md pl-2 pr-3 text-sm font-medium transition-colors whitespace-nowrap border',
   {
     variants: {
       state: {
@@ -468,7 +468,7 @@ export function HorizontalScrollRow({
         <div
           ref={scrollRef}
           className={cn(
-            'scrollbar-hide flex items-center gap-2 overflow-x-auto py-3.5',
+            'scrollbar-hide flex items-center gap-2 overflow-x-auto py-4',
             contentClassName,
           )}
           role="group"
@@ -742,7 +742,7 @@ function TimePickerCard({
     >
       {showHeader ? (
         <div
-          className="flex items-center gap-2 border-b border-border px-4 py-3.5"
+          className="flex items-center gap-2 border-b border-border px-4 py-4"
           data-slot="time-picker-header"
         >
           <span className="flex shrink-0 items-center text-muted-foreground" aria-hidden="true">
@@ -792,7 +792,7 @@ function TimePickerCard({
 
       {statusOptions && statusOptions.length > 0 ? (
         <div
-          className="flex flex-col gap-2 border-b border-border px-4 py-3.5"
+          className="flex flex-col gap-2 border-b border-border px-4 py-4"
           data-slot="time-picker-status-row"
         >
           <p className="text-sm font-medium text-muted-foreground">{statusLabel}</p>
@@ -816,7 +816,7 @@ function TimePickerCard({
 
       {pinnedTopActions && pinnedTopActions.length > 0 ? (
         <div
-          className="flex flex-col gap-0.5 border-b border-border p-2"
+          className="flex flex-col gap-1 border-b border-border p-2"
           data-slot="time-picker-pinned-top"
         >
           {pinnedTopActions.map((action) => (
@@ -825,7 +825,7 @@ function TimePickerCard({
               type="button"
               onClick={action.onClick}
               disabled={disabled}
-              className="flex h-9 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 cursor-pointer disabled:pointer-events-none disabled:opacity-60"
+              className="flex h-9 w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 cursor-pointer disabled:pointer-events-none disabled:opacity-60"
               data-slot="time-picker-pinned-action"
             >
               {action.icon ? (
@@ -843,7 +843,7 @@ function TimePickerCard({
       ) : null}
 
       <div
-        className="relative flex flex-col gap-0.5 overflow-y-auto p-2"
+        className="relative flex flex-col gap-1 overflow-y-auto p-2"
         style={{ maxHeight }}
         ref={slotListRef}
         onKeyDown={handleSlotKeyDown}

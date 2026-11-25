@@ -54,17 +54,16 @@ const trackVariants = cva(
   // bg-background item stays visible in the light theme; in dark mode
   // the token already darkens further so the contrast holds.
   //
-  // Height math (box-border on every element):
-  //   default → track h-8 (32px) − 2px border − 2px padding (p-px ×2) = 28px → matches item h-7
-  //   sm      → track h-7 (28px) − 2px border − 2px padding (p-px ×2) = 24px → matches item h-6
-  // Using `p-0.5` (2px each side = 4px total) instead breaks both sizes by
-  // 2px so the selected pill clips top and bottom against the track border.
-  'inline-flex w-fit gap-0 rounded-lg border border-input bg-muted p-px transition-colors',
+  // Height math: the outline is an inset ring, so it takes no space.
+  //   default → track h-9 (36px) − 4px padding ×2 = 28px → matches item h-7
+  //   sm      → track h-8 (32px) − 4px padding ×2 = 24px → matches item h-6
+  // Track heights match the 36 / 32 px control scale of the spacing standard.
+  'inline-flex w-fit gap-0 rounded-lg bg-muted p-1 ring-1 ring-inset ring-input transition-colors',
   {
     variants: {
       size: {
-        sm: 'h-7',
-        default: 'h-8',
+        sm: 'h-8',
+        default: 'h-9',
       },
       disabled: {
         true: 'cursor-not-allowed opacity-60',
@@ -93,7 +92,7 @@ const itemVariants = cva(
   {
     variants: {
       size: {
-        sm: 'h-6 px-2.5 text-xs',
+        sm: 'h-6 px-2 text-xs',
         default: 'h-7 px-3 text-sm',
       },
     },

@@ -46,12 +46,12 @@ const alertVariants = cva(
         stroke: '',
       },
       size: {
-        // Figma X-Small: px-[8px] py-[6px], radius-8, Paragraph/X Small (12/16)
-        xs: 'min-h-8 items-center rounded-md px-2 py-1.5 text-xs leading-4 tracking-tight',
-        // Figma Small: px-[10px] py-[8px], radius-8, Paragraph/Small (14/20)
-        sm: 'min-h-9 items-center rounded-md px-2.5 py-2 text-sm leading-5 tracking-tight',
-        // Figma Large: px/pt 14px, pb 16px, radius-12, Paragraph/Small (14/20)
-        default: 'items-start gap-3 rounded-alert px-3.5 pt-3.5 pb-4 text-sm leading-5 tracking-tight',
+        // Spacing standard: 8 x 4 inside a 32 px minimum height
+        xs: 'min-h-8 items-center rounded-md px-2 py-1 text-xs leading-4 tracking-tight',
+        // Spacing standard: 12 x 8
+        sm: 'min-h-9 items-center rounded-md px-3 py-2 text-sm leading-5 tracking-tight',
+        // Spacing standard: 16 on every side, 12 between icon and text
+        default: 'items-start gap-3 rounded-alert p-4 text-sm leading-5 tracking-tight',
       },
     },
     compoundVariants: [
@@ -90,7 +90,7 @@ const alertVariants = cva(
 // (visually ≈ #5c5c5c gray). White at full opacity for filled so it
 // stays legible over the saturated bg.
 const alertDismissVariants = cva(
-  'shrink-0 rounded-md p-0.5 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+  'shrink-0 rounded-md p-1 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
   {
     variants: {
       style: {
@@ -116,9 +116,9 @@ const alertIconBadgeVariants = cva(
         feature: 'bg-status-neutral-icon',
       },
       size: {
-        xs: 'size-4 [&>svg]:size-2.5',
+        xs: 'size-4 [&>svg]:size-3',
         sm: 'size-5 [&>svg]:size-3',
-        default: 'size-6 [&>svg]:size-3.5',
+        default: 'size-6 [&>svg]:size-4',
       },
     },
     defaultVariants: { status: 'information', size: 'sm' },
@@ -227,7 +227,7 @@ const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
         {...props}
       >
         {iconSlot}
-        <div className="min-w-0 flex-1">{children}{footer ? <div data-slot="alert-footer" className="mt-2.5 flex flex-wrap items-center gap-2">{footer}</div> : null}</div>
+        <div className="min-w-0 flex-1">{children}{footer ? <div data-slot="alert-footer" className="mt-3 flex flex-wrap items-center gap-2">{footer}</div> : null}</div>
         {action ? <div className="shrink-0">{action}</div> : null}
         {dismissible ? (
           <button

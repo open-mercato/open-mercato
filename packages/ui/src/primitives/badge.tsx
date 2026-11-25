@@ -57,11 +57,11 @@ const badgeVariants = cva(
         brand: 'border-brand-violet/30 bg-brand-violet/10 text-brand-violet',
       },
       size: {
-        sm: 'px-2 py-0.5 text-[10px]',
-        default: 'px-2.5 py-0.5 text-xs',
-        lg: 'px-3 py-1 text-sm',
-        16: 'h-4 gap-0.5 px-2 py-0 text-overline leading-3 font-medium uppercase tracking-badge-small',
-        20: 'h-5 gap-0.5 px-2 py-0 text-xs leading-4 font-medium tracking-normal',
+        sm: 'h-5 px-2 text-overline',
+        default: 'h-6 px-2 text-xs',
+        lg: 'h-7 px-3 text-sm',
+        16: 'h-4 gap-1 px-2 py-0 text-overline leading-3 font-medium tracking-normal',
+        20: 'h-5 gap-1 px-2 py-0 text-xs leading-4 font-medium tracking-normal',
       },
     },
     defaultVariants: {
@@ -241,8 +241,8 @@ export const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
           sourceSize && leadingIcon != null && 'pl-1',
           sourceSize && trailingIcon != null && 'pr-1',
           sourceSize && dot && 'gap-0',
-          sourceSize && dot && (resolvedSize === 20 ? 'pl-0.5' : 'pl-0'),
-          numeric && 'justify-center px-0.5 tabular-nums',
+          sourceSize && dot && (resolvedSize === 20 ? 'pl-1' : 'pl-0'),
+          numeric && 'justify-center px-1 tabular-nums',
           numeric && (resolvedSize === 16 ? 'min-w-4' : resolvedSize === 20 ? 'min-w-5' : 'min-w-6'),
           resolvedAppearance && 'shadow-none',
           resolvedAppearance && BADGE_APPEARANCES[resolvedTone][resolvedAppearance],
@@ -269,7 +269,7 @@ export const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
             aria-label={removeAriaLabel}
             onClick={onRemove}
             className={cn(
-              '-mr-0.5 ml-0.5 inline-flex shrink-0 items-center justify-center rounded-full p-0 text-inherit outline-none transition-opacity hover:bg-transparent hover:text-inherit focus-visible:shadow-focus',
+              '-mr-1 ml-1 inline-flex shrink-0 items-center justify-center rounded-full p-0 text-inherit outline-none transition-opacity hover:bg-transparent hover:text-inherit focus-visible:shadow-focus',
               'opacity-70 hover:opacity-100 focus-visible:opacity-100',
               resolvedSize === 'lg' ? 'size-4' : 'size-3.5',
             )}

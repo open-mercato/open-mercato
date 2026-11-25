@@ -5,7 +5,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from './button'
 
 const tagVariants = cva(
-  'inline-flex items-center gap-1.5 border text-xs font-medium',
+  'inline-flex h-6 items-center gap-1 border text-xs font-medium',
   {
     variants: {
       variant: {
@@ -19,8 +19,8 @@ const tagVariants = cva(
         pink:    'border-status-pink-border bg-status-pink-bg text-status-pink-text',
       },
       shape: {
-        pill: 'rounded-full px-2.5 py-0.5',
-        square: 'rounded-md px-2 py-1',
+        pill: 'rounded-full px-2',
+        square: 'rounded-md px-2',
       },
     },
     defaultVariants: { variant: 'default', shape: 'pill' },

@@ -31,7 +31,7 @@ const socialButtonVariants = cva(baseClasses, {
   variants: {
     iconOnly: {
       true: 'w-10 px-0',
-      false: 'pl-2.5 pr-4',
+      false: 'pl-3 pr-4',
     },
   },
   defaultVariants: {

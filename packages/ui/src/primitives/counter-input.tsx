@@ -14,8 +14,8 @@ const counterWrapperVariants = cva(
     variants: {
       size: {
         sm: 'h-8 gap-1 p-1 rounded-md',
-        default: 'h-9 gap-1.5 p-1.5 rounded-md',
-        lg: 'h-10 gap-2 p-2 rounded-[10px]',
+        default: 'h-9 gap-1 px-1 items-center rounded-md',
+        lg: 'h-10 gap-2 p-2 rounded-lg',
       },
     },
     defaultVariants: { size: 'default' },

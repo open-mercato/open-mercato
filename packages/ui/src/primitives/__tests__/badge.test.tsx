@@ -101,9 +101,9 @@ describe('Badge (Phase B.8)', () => {
 
   it('applies size variants (sm / default / lg)', () => {
     const cases: Array<{ size: 'sm' | 'default' | 'lg'; cls: string }> = [
-      { size: 'sm', cls: 'text-[10px]' },
-      { size: 'default', cls: 'text-xs' },
-      { size: 'lg', cls: 'text-sm' },
+      { size: 'sm', cls: 'h-5' },
+      { size: 'default', cls: 'h-6' },
+      { size: 'lg', cls: 'h-7' },
     ]
     for (const { size, cls } of cases) {
       const { container, unmount } = render(<Badge size={size}>x</Badge>)

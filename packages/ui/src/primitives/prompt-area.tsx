@@ -31,9 +31,9 @@ export function PromptArea({ value, onValueChange, onSubmit, inputLabel, submitL
   const submit = () => {
     if (!disabled && value.trim()) onSubmit(value.trim())
   }
-  return <form data-slot="prompt-area" data-compact={compact} className={cn('flex w-full flex-col bg-muted px-px pb-px pt-2.5', compact ? 'gap-2.25 rounded-ai-prompt-mobile' : 'gap-2.5 rounded-ai-prompt', className)} onSubmit={event => { event.preventDefault(); submit() }} {...props}>
+  return <form data-slot="prompt-area" data-compact={compact} className={cn('flex w-full flex-col bg-muted px-px pb-px pt-3', compact ? 'gap-2.25 rounded-ai-prompt-mobile' : 'gap-3 rounded-ai-prompt', className)} onSubmit={event => { event.preventDefault(); submit() }} {...props}>
     {information ? <div data-slot="prompt-area-information" className="flex min-h-4 items-center gap-1 px-3 text-xs leading-4 text-muted-foreground">{information}</div> : null}
-    <fieldset disabled={disabled} data-slot="prompt-area-editor" className={cn('flex min-w-0 flex-col border-0 bg-background shadow-sm ring-1 ring-inset ring-border transition-shadow hover:shadow-md focus-within:shadow-focus', compact ? 'gap-2.5 rounded-ai-prompt-mobile-inner p-2.5' : 'rounded-ai-prompt-inner px-3 pb-3 pt-3.5', !compact && (attachments ? 'gap-3.5' : 'gap-7.75'))}>
+    <fieldset disabled={disabled} data-slot="prompt-area-editor" className={cn('flex min-w-0 flex-col border-0 bg-background shadow-sm ring-1 ring-inset ring-border transition-shadow hover:shadow-md focus-within:shadow-focus', compact ? 'gap-3 rounded-ai-prompt-mobile-inner p-3' : 'rounded-ai-prompt-inner px-3 pb-3 pt-4', !compact && (attachments ? 'gap-4' : 'gap-7.75'))}>
       {attachments ? <div data-slot="prompt-area-attachments" className="flex flex-wrap items-center gap-3">{attachments}</div> : null}
       <Textarea ref={inputRef} aria-label={inputLabel} value={value} onChange={event => onValueChange(event.target.value)} placeholder={placeholder} disabled={disabled} rows={1} className={cn('min-h-0 resize-none overflow-hidden rounded-none border-0 bg-transparent p-0 px-1 shadow-none hover:bg-transparent focus-visible:shadow-none', compact ? 'text-sm leading-5' : 'text-ai-body leading-6')}
         onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit() } }} />
