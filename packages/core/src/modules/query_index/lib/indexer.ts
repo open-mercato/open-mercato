@@ -16,7 +16,7 @@ import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
-import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
+import { replaceSearchTokensForRecord, deleteSearchTokensForRecord, resolveCiphertextGuard } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
 import {
@@ -454,22 +454,20 @@ export async function reindexSearchTokensForRecord(
     }, { trx: args.trx })
     return
   }
-  const tokenDoc = args.searchTokenDoc ?? (() => {
-    const encryption = resolveTenantEncryptionService(em as any)
-    const dekKeyCache = new Map<string | null, string | null>()
-    return decryptIndexDocForSearch(
-      args.entityType,
-      args.doc,
-      { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
-      encryption,
-      dekKeyCache,
-    )
-  })()
+  const encryption = resolveTenantEncryptionService(em as any)
+  const tokenDoc = args.searchTokenDoc ?? await decryptIndexDocForSearch(
+    args.entityType,
+    args.doc,
+    { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
+    encryption,
+    new Map<string | null, string | null>(),
+  )
+  const guardCiphertext = resolveCiphertextGuard(encryption)
   const gates = resolveSearchTokenIndexGates(args.entityType)
   if (gates.length) {
     const allowed = await passesSearchTokenIndexGates(args.entityType, gates, {
       recordId: String(args.recordId),
-      record: await tokenDoc,
+      record: tokenDoc,
       tenantId: args.tenantId ?? null,
       organizationId: args.organizationId ?? null,
       queryEngine: createSearchTokenGateQueryEngine(em),
@@ -491,7 +489,7 @@ export async function reindexSearchTokensForRecord(
   // rebuild and the token writer — that also makes the aggregate's blocklist filter and
   // the per-field one provably read the same snapshot, as the batch path already does.
   const searchConfig = resolveSearchConfig()
-  const searchDoc = rebuildAggregateSearchField(await tokenDoc, {
+  const searchDoc = rebuildAggregateSearchField(tokenDoc, {
     entityType: args.entityType,
     config: searchConfig,
   })
@@ -502,6 +500,7 @@ export async function reindexSearchTokensForRecord(
     tenantId: args.tenantId ?? null,
     doc: searchDoc,
     config: searchConfig,
+    guardCiphertext,
   }, { trx: args.trx })
 }
 
