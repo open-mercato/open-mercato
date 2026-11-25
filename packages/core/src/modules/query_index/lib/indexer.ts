@@ -16,7 +16,7 @@ import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
-import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
+import { replaceSearchTokensForRecord, deleteSearchTokensForRecord, resolveCiphertextGuard } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
 import {
@@ -454,8 +454,8 @@ export async function reindexSearchTokensForRecord(
     }, { trx: args.trx })
     return
   }
+  const encryption = resolveTenantEncryptionService(em as any)
   const tokenDoc = args.searchTokenDoc ?? (() => {
-    const encryption = resolveTenantEncryptionService(em as any)
     const dekKeyCache = new Map<string | null, string | null>()
     return decryptIndexDocForSearch(
       args.entityType,
@@ -502,6 +502,7 @@ export async function reindexSearchTokensForRecord(
     tenantId: args.tenantId ?? null,
     doc: searchDoc,
     config: searchConfig,
+    guardCiphertext: resolveCiphertextGuard(encryption),
   }, { trx: args.trx })
 }
 
