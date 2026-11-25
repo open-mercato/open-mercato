@@ -510,6 +510,9 @@ export class HybridQueryEngine implements QueryEngine {
         return await applyAfterExtensions(fallbackResult)
       }
 
+      if (!await this.columnExists(baseTable, 'tenant_id') && !await this.columnExists(baseTable, 'organization_id')) {
+        throw new Error('[internal] QueryEngine: unscoped base table requires explicit scope opt-out')
+      }
       const normalizedFilters = normalizeFilters(opts.filters)
       const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:') || filter.field.startsWith('l10n:'))
       // `applySort` orders `cf:` sorts off the left-joined index doc, so a

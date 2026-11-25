@@ -1,3 +1,8 @@
+import { relationOptionAccessKey, type RelationOptionAccess } from '@open-mercato/shared/lib/query/relationOptionAccess'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { scanAuthorizedAttachments } from './lib/access-query'
+import { Attachment, AttachmentPartition } from './data/entities'
 import { createAttachmentAccessContext } from './lib/access-runner'
 import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -18,9 +23,33 @@ import {
 } from './lib/documentStructure/service'
 import { enqueueDocumentStructureExtraction } from './lib/documentStructure/queue'
 
+const attachmentRelationAccess: RelationOptionAccess = async ({ auth, container, tenantId, organizationId }) => {
+  const em = container.resolve<EntityManager>('em')
+  const scope = { tenantId, organizationId }
+  const partitions = await findWithDecryption(em, AttachmentPartition, {}, undefined, scope)
+  const deadline = Date.now() + 15_000
+  return {
+    authorizeIds: async (ids) => {
+      const { records } = await scanAuthorizedAttachments({
+        auth: { ...auth, tenantId, orgId: organizationId },
+        context: createAttachmentAccessContext(container),
+        partitions,
+        deadline,
+        loadBatch: (offset) => offset === 0
+          ? findWithDecryption(em, Attachment, { ...scope, id: { $in: ids } }, {
+              fields: ['id', 'entityId', 'recordId', 'partitionCode', 'tenantId', 'organizationId', 'fileName', 'mimeType', 'storageMetadata'],
+            }, scope)
+          : Promise.resolve([]),
+      })
+      return records.map((record) => record.id)
+    },
+  }
+}
+
 export function register(container: AppContainer) {
   const accessContext = () => createAttachmentAccessContext(container)
   container.register({
+    [relationOptionAccessKey('attachments:attachment')]: asValue(attachmentRelationAccess),
     attachmentQuotaRecoveryScheduler: asValue(scheduleAttachmentQuotaRecovery),
     [DOCUMENT_STRUCTURE_ENGINES_DI_KEY]: asFunction(() => createDocumentStructureEngineRegistry()).singleton(),
     [ATTACHMENT_DOCUMENT_STRUCTURE_SERVICE_DI_KEY]: asFunction(({ em }: { em: ConstructorParameters<typeof StorageDriverFactory>[0] }) =>
