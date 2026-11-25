@@ -188,6 +188,7 @@ test('TC-SALES-9594: scoped actors see localized payment metadata and preserve a
       const deleteItem = page.getByRole('menuitem', { name: labels.delete, exact: true })
       await expect(editItem).toBeVisible()
       await expect(deleteItem).toBeVisible()
+      await expect(editItem).toBeFocused()
       await page.keyboard.press('Escape')
       await expect(editItem).toBeHidden()
       await expect(deleteItem).toBeHidden()
