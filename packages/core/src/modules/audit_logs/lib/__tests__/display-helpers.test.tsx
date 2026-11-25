@@ -84,6 +84,31 @@ describe('ChangedFieldsTable', () => {
     expect(screen.queryByText('Before')).not.toBeInTheDocument()
   })
 
+  it('can render three values for a nested record-lock change', () => {
+    render(
+      <ChangedFieldsTable
+        changeRows={[{
+          field: 'snapshot.profile.firstName',
+          label: 'Profile / First Name',
+          base: 'Original Name',
+          from: 'Incoming Name',
+          to: 'My Name',
+        }]}
+        noneLabel="None"
+        t={t}
+        baseLabel="Before"
+        beforeLabel="Incoming"
+        afterLabel="Your value"
+      />,
+    )
+
+    expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'Field', 'Before', 'Incoming', 'Your value',
+    ])
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('Profile / First NameBeforeOriginal NameIncomingIncoming NameYour valueMy Name')
+    expect(screen.queryByText('snapshot.profile.firstName')).not.toBeInTheDocument()
+  })
+
   it('falls back to noneLabel for empty values', () => {
     render(<ChangedFieldsTable changeRows={changeRows} noneLabel="None" t={t} />)
     // apiKeyHash and cf_billing_address both have an empty `from`.

@@ -123,10 +123,11 @@ test.describe('TC-LOCK-CRM-person: record locks on the CRM v2 person screen', ()
         notifyOnConflict: true,
       });
 
+      const baseName = `QA TC-LOCK-CRM-person Opt ${Date.now()}`;
       personId = await createPersonFixture(request, adminToken, {
         firstName: 'QA',
         lastName: `Optimistic ${Date.now()}`,
-        displayName: `QA TC-LOCK-CRM-person Opt ${Date.now()}`,
+        displayName: baseName,
       });
 
       const acquire = await acquireRecordLock(
@@ -146,17 +147,27 @@ test.describe('TC-LOCK-CRM-person: record locks on the CRM v2 person screen', ()
       const incomingUpdate = await updatePerson(request, adminToken, personId, incomingName);
       expect(incomingUpdate.status).toBe(200);
 
+      const mineName = `QA TC-LOCK-CRM-person Mine ${Date.now()}`;
       const staleUpdate = await updatePerson(
         request,
         superadminToken,
         personId,
-        `QA TC-LOCK-CRM-person Mine ${Date.now()}`,
+        mineName,
         { token: ownerLockToken, baseLogId, resolution: 'normal' },
         superadminScopeHeaders,
       );
       expect(staleUpdate.status).toBe(409);
       expect(staleUpdate.body?.code).toBe('record_lock_conflict');
-      const conflictId = (staleUpdate.body?.conflict as { id?: string } | undefined)?.id ?? null;
+      const conflict = staleUpdate.body?.conflict as { id?: string; changes?: unknown[] } | undefined;
+      expect(conflict?.changes).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          field: 'entity.displayName',
+          baseValue: baseName,
+          incomingValue: incomingName,
+          mineValue: mineName,
+        }),
+      ]));
+      const conflictId = conflict?.id ?? null;
       expect(conflictId).toBeTruthy();
 
       const resolution = await releaseRecordLock(

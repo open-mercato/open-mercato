@@ -68,16 +68,21 @@ export function formatDate(value: string) {
 }
 
 export type ChangedFieldsTableProps = {
-  changeRows: ChangeRow[]
+  changeRows: Array<ChangeRow & { label?: string; base?: unknown }>
   noneLabel: string
   t: TranslateFn
+  baseLabel?: string
   beforeLabel?: string
   afterLabel?: string
 }
 
-export function ChangedFieldsTable({ changeRows, noneLabel, t, beforeLabel, afterLabel }: ChangedFieldsTableProps) {
-  const beforeHeading = beforeLabel ?? t('audit_logs.actions.details.before')
-  const afterHeading = afterLabel ?? t('audit_logs.actions.details.after')
+export function ChangedFieldsTable({ changeRows, noneLabel, t, baseLabel, beforeLabel, afterLabel }: ChangedFieldsTableProps) {
+  const columns: Array<{ key: 'base' | 'from' | 'to'; label: string }> = []
+  if (baseLabel) columns.push({ key: 'base', label: baseLabel })
+  columns.push(
+    { key: 'from', label: beforeLabel ?? t('audit_logs.actions.details.before') },
+    { key: 'to', label: afterLabel ?? t('audit_logs.actions.details.after') },
+  )
   return (
     <section>
       <h3 className="text-sm font-semibold">
@@ -92,32 +97,27 @@ export function ChangedFieldsTable({ changeRows, noneLabel, t, beforeLabel, afte
                   <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
                     {t('audit_logs.actions.details.field')}
                   </th>
-                  <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                    {beforeHeading}
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
-                    {afterHeading}
-                  </th>
+                  {columns.map(({ key, label }) => (
+                    <th key={key} scope="col" className="px-4 py-2 text-left font-medium text-muted-foreground">
+                      {label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="block divide-y @lg/changes:table-row-group">
                 {changeRows.map((row) => (
                   <tr key={row.field} className="block px-4 py-3 align-top @lg/changes:table-row @lg/changes:p-0">
                     <td className="block font-medium @lg/changes:table-cell @lg/changes:px-4 @lg/changes:py-2 @lg/changes:align-top">
-                      {humanizeField(normalizeChangeField(row.field))}
+                      {row.label ?? humanizeField(normalizeChangeField(row.field))}
                     </td>
-                    <td className="mt-2 block @lg/changes:mt-0 @lg/changes:table-cell @lg/changes:px-4 @lg/changes:py-2">
-                      <span className="mb-0.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground @lg/changes:hidden">
-                        {beforeHeading}
-                      </span>
-                      {renderValue(row.from, noneLabel)}
-                    </td>
-                    <td className="mt-2 block @lg/changes:mt-0 @lg/changes:table-cell @lg/changes:px-4 @lg/changes:py-2">
-                      <span className="mb-0.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground @lg/changes:hidden">
-                        {afterHeading}
-                      </span>
-                      {renderValue(row.to, noneLabel)}
-                    </td>
+                    {columns.map(({ key, label }) => (
+                      <td key={key} className="mt-2 block @lg/changes:mt-0 @lg/changes:table-cell @lg/changes:px-4 @lg/changes:py-2">
+                        <span className="mb-0.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground @lg/changes:hidden">
+                          {label}
+                        </span>
+                        {renderValue(row[key], noneLabel)}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>

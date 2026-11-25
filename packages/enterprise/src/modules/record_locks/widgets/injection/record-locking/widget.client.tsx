@@ -21,7 +21,9 @@ import {
 } from '@open-mercato/enterprise/modules/record_locks/notifications.handlers'
 import {
   ChangedFieldsTable,
-  type ChangeRow,
+  humanizeField,
+  normalizeChangeField,
+  type ChangedFieldsTableProps,
 } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
 import {
   clearRecordLockFormState,
@@ -1371,9 +1373,11 @@ export default function RecordLockingWidget({
   }, [])
 
   const noneLabel = t('audit_logs.common.none')
-  const conflictChangeRows = React.useMemo<ChangeRow[]>(
+  const conflictChangeRows = React.useMemo<ChangedFieldsTableProps['changeRows']>(
     () => (state?.conflict?.changes ?? []).map((change) => ({
       field: change.field,
+      label: humanizeField(normalizeChangeField(change.field).replaceAll('.', ' / ')),
+      base: change.displayValue,
       from: change.incomingValue,
       to: change.mineValue,
     })),
@@ -1423,8 +1427,9 @@ export default function RecordLockingWidget({
             changeRows={conflictChangeRows}
             noneLabel={noneLabel}
             t={t}
+            baseLabel={t('audit_logs.actions.details.before')}
             beforeLabel={t('record_locks.conflict.incoming_label', 'Incoming')}
-            afterLabel={t('record_locks.conflict.current_label', 'Current')}
+            afterLabel={t('record_locks.conflict.mine_value', 'Your value')}
           />
           ) : null}
           {(state?.conflict?.changes?.length ?? 0) === 0 ? (

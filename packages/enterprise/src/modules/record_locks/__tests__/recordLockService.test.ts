@@ -205,6 +205,122 @@ describe('RecordLockService.validateMutation', () => {
     expect(serviceAny.createConflict).toHaveBeenCalledTimes(1)
   })
 
+  test.each([
+    {
+      changesJson: null,
+      resourceKind: 'customers.company',
+      baseSnapshot: { profile: null },
+      incomingSnapshot: { profile: { legalName: 'Incoming Ltd' } },
+      mutationPayload: { legalName: 'My Company Ltd' },
+      changes: [{ field: 'profile.legalName', baseValue: null, incomingValue: 'Incoming Ltd', mineValue: 'My Company Ltd' }],
+    },
+    {
+      changesJson: null,
+      resourceKind: 'customers.person',
+      baseSnapshot: null,
+      incomingSnapshot: {
+        profile: { firstName: 'Incoming', alias: 'Public' },
+        contacts: { alias: 'Private' },
+      },
+      mutationPayload: { firstName: 'My Name', alias: 'Ambiguous' },
+      changes: [{ field: 'profile.firstName', baseValue: null, incomingValue: 'Incoming', mineValue: 'My Name' }],
+    },
+    {
+      changesJson: null,
+      resourceKind: 'customers.deal',
+      baseSnapshot: { deal: { expectedCloseAt: new Date('2026-11-05T00:00:00Z') } },
+      incomingSnapshot: { deal: { expectedCloseAt: new Date('2026-11-09T00:00:00Z') } },
+      mutationPayload: { expectedCloseAt: '2026-11-12' },
+      changes: [{
+        field: 'deal.expectedCloseAt',
+        baseValue: new Date('2026-11-05T00:00:00Z'),
+        incomingValue: new Date('2026-11-09T00:00:00Z'),
+        mineValue: '2026-11-12',
+      }],
+    },
+    {
+      changesJson: null,
+      resourceKind: 'customers.company',
+      baseSnapshot: null,
+      incomingSnapshot: { profile: { legalName: 'Incoming Ltd' } },
+      mutationPayload: { profile: null },
+      changes: [{ field: 'profile', baseValue: null, incomingValue: { legalName: 'Incoming Ltd' }, mineValue: null }],
+    },
+    {
+      changesJson: null,
+      resourceKind: 'customers.company',
+      baseSnapshot: { profile: { legalName: 'Original Ltd' } },
+      incomingSnapshot: { profile: null },
+      mutationPayload: { profile: null },
+      changes: [{ field: 'profile.legalName', baseValue: 'Original Ltd', incomingValue: null, mineValue: null }],
+    },
+    {
+      changesJson: null,
+      resourceKind: 'customers.person',
+      baseSnapshot: { entity: { name: 'Original entity' }, profile: { name: 'Original profile' } },
+      incomingSnapshot: { entity: { name: 'Incoming entity' }, profile: { name: 'Incoming profile' } },
+      mutationPayload: { name: 'Ambiguous' },
+      changes: [
+        { field: 'entity.name', baseValue: 'Original entity', incomingValue: 'Incoming entity', mineValue: 'Original entity' },
+        { field: 'profile.name', baseValue: 'Original profile', incomingValue: 'Incoming profile', mineValue: 'Original profile' },
+      ],
+    },
+    {
+      changesJson: { title: { from: 'Intermediate title', to: 'Incoming title' } },
+      resourceKind: 'catalog.product',
+      baseSnapshot: { title: 'Original title' },
+      incomingSnapshot: { title: 'Incoming title', sku: 'New SKU' },
+      mutationPayload: { title: 'My title' },
+      changes: [{ field: 'title', baseValue: 'Original title', incomingValue: 'Incoming title', mineValue: 'My title' }],
+    },
+  ])('builds accurate field-level conflicts for scoped $resourceKind writes', async ({
+    resourceKind, baseSnapshot, incomingSnapshot, mutationPayload, changesJson, changes,
+  }) => {
+    const lock = buildLock({ resourceKind })
+    const scope = {
+      tenantId: lock.tenantId,
+      organizationId: lock.organizationId,
+      userId: lock.lockedByUserId,
+      resourceKind,
+      resourceId: lock.resourceId,
+    }
+    const incomingId = '80000000-0000-4000-8000-000000000001'
+    const actionLogService = {
+      findById: jest.fn(async (id: string) => ({
+        ...scope,
+        id,
+        deletedAt: null,
+        changesJson: id === incomingId ? changesJson : null,
+        snapshotBefore: id === incomingId ? baseSnapshot : null,
+        snapshotAfter: id === incomingId ? incomingSnapshot : baseSnapshot,
+      })),
+    }
+    const { service, em } = createService({ ...DEFAULT_SETTINGS, enabledResources: [resourceKind] }, actionLogService)
+    em.find.mockResolvedValue([lock])
+    em.findOne.mockImplementation(async (entity: unknown) => entity === ActionLog
+      ? { id: incomingId, actorUserId: '90000000-0000-4000-8000-000000000001' }
+      : null)
+    em.create.mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({
+      ...data, id: 'a0000000-0000-4000-8000-000000000001',
+    }))
+
+    const result = await service.validateMutation({
+      ...scope,
+      method: 'PUT',
+      headers: { token: lock.token, baseLogId: lock.baseActionLogId },
+      mutationPayload,
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 409,
+      code: 'record_lock_conflict',
+      conflict: {
+        changes: changes.map((change) => ({ ...change, displayValue: change.baseValue })),
+      },
+    })
+  })
+
   test('returns 409 conflict when optimistic base log is stale from another session of same user', async () => {
     const actionLogService = {
       findById: jest.fn(async (id: string) => {

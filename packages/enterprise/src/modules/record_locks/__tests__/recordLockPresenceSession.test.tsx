@@ -1,7 +1,8 @@
 /** @jest-environment jsdom */
 import * as React from 'react'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection/mutationEvents'
 import RecordLockingWidget from '../widgets/injection/record-locking/widget.client'
 import {
   clearRecordLockFormState,
@@ -18,10 +19,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 jest.mock('next/navigation', () => ({ useSearchParams: () => null }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback: string) => fallback,
-}))
-jest.mock('@open-mercato/core/modules/audit_logs/lib/display-helpers', () => ({
-  ChangedFieldsTable: () => null,
+  useT: () => (key: string, fallback?: string) => key === 'audit_logs.actions.details.before' ? 'Before' : fallback ?? key,
 }))
 
 const mockedApiCall = apiCall as jest.MockedFunction<typeof apiCall>
@@ -77,6 +75,35 @@ describe('record-lock presence session freshness', () => {
   afterEach(() => {
     cleanup()
     clearRecordLockFormState(context.formId)
+  })
+
+  test('shows the base, incoming, and submitted values with a readable field label', async () => {
+    await mountOwnedRecord()
+    const conflict = {
+      id: 'a0000000-0000-4000-8000-000000000001',
+      resourceKind: context.resourceKind,
+      resourceId: context.resourceId,
+      changes: [{
+        field: 'snapshot.profile.firstName',
+        displayValue: 'Original Name',
+        incomingValue: 'Incoming Name',
+        mineValue: 'My Name',
+      }],
+    }
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(BACKEND_MUTATION_ERROR_EVENT, {
+        detail: { contextId: context.formId, error: { code: 'record_lock_conflict', conflict } },
+      }))
+    })
+
+    const dialog = within(screen.getByRole('dialog', { name: 'Conflict detected' }))
+    expect(dialog.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
+      'audit_logs.actions.details.field', 'Before', 'Incoming', 'Your value',
+    ])
+    expect(dialog.getByText('Snapshot / Profile / First Name')).toBeTruthy()
+    expect(dialog.getByText('Original Name')).toBeTruthy()
+    expect(dialog.getByText('Incoming Name')).toBeTruthy()
+    expect(dialog.getByText('My Name')).toBeTruthy()
   })
 
   test.each([200, 423])('ignores a delayed presence response with status %s after the session rotates', async (status) => {

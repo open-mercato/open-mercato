@@ -319,7 +319,7 @@ function normalizeActionLogPayload(log: ActionLog | null): ActionLog | null {
   return log
 }
 
-function readPathValue(source: unknown, path: string): unknown | typeof MISSING_CONFLICT_VALUE {
+function readPathValue(source: unknown, path: string, allowClearedParent = false): unknown | typeof MISSING_CONFLICT_VALUE {
   if (!path.trim().length || !isRecordValue(source)) return MISSING_CONFLICT_VALUE
   if (Object.prototype.hasOwnProperty.call(source, path)) return source[path]
 
@@ -328,7 +328,7 @@ function readPathValue(source: unknown, path: string): unknown | typeof MISSING_
 
   let current: unknown = source
   for (const segment of segments) {
-    if (!isRecordValue(current)) return MISSING_CONFLICT_VALUE
+    if (!isRecordValue(current)) return allowClearedParent && current === null ? null : MISSING_CONFLICT_VALUE
     if (!Object.prototype.hasOwnProperty.call(current, segment)) return MISSING_CONFLICT_VALUE
     current = current[segment]
   }
@@ -2014,28 +2014,33 @@ export class RecordLockService {
   ): void {
     if (valuesEqual(before, after)) return
 
-    const beforeRecord = isRecordValue(before) ? before : null
-    const afterRecord = isRecordValue(after) ? after : null
-
-    if (!beforeRecord || !afterRecord) {
+    const beforeRecord = isRecordValue(before) && !(before instanceof Date) ? before : null
+    const afterRecord = isRecordValue(after) && !(after instanceof Date) ? after : null
+    if (
+      (!beforeRecord && !afterRecord)
+      || (!beforeRecord && before != null)
+      || (!afterRecord && after != null)
+      || (beforeRecord && seen.has(beforeRecord))
+      || (afterRecord && seen.has(afterRecord))
+    ) {
       if (pathPrefix) output.add(pathPrefix)
       return
     }
 
-    if (seen.has(beforeRecord) || seen.has(afterRecord)) {
-      if (pathPrefix) output.add(pathPrefix)
-      return
-    }
+    if (beforeRecord) seen.add(beforeRecord)
+    if (afterRecord) seen.add(afterRecord)
 
-    seen.add(beforeRecord)
-    seen.add(afterRecord)
-
-    const keys = new Set([...Object.keys(beforeRecord), ...Object.keys(afterRecord)])
+    const keys = new Set([...Object.keys(beforeRecord ?? {}), ...Object.keys(afterRecord ?? {})])
     for (const key of keys) {
       if (SKIPPED_CONFLICT_FIELDS.has(key)) continue
       const nextPath = pathPrefix ? `${pathPrefix}.${key}` : key
-      this.collectSnapshotDiffPaths(beforeRecord[key], afterRecord[key], nextPath, output, seen)
+      const beforeValue = beforeRecord && Object.hasOwn(beforeRecord, key) ? beforeRecord[key] : undefined
+      const afterValue = afterRecord && Object.hasOwn(afterRecord, key) ? afterRecord[key] : undefined
+      this.collectSnapshotDiffPaths(beforeValue, afterValue, nextPath, output, seen)
     }
+
+    if (beforeRecord) seen.delete(beforeRecord)
+    if (afterRecord) seen.delete(afterRecord)
   }
 
   private async buildConflictChanges(
@@ -2066,9 +2071,12 @@ export class RecordLockService {
         if (shouldSkipConflictField(fieldPath)) continue
 
         const changeRecord = isRecordValue(rawChange) ? rawChange : null
-        const fromValue = changeRecord && Object.prototype.hasOwnProperty.call(changeRecord, 'from')
-          ? changeRecord.from
-          : readPathValueLoose(fallbackBaseSnapshot, fieldPath)
+        const recordedBaseValue = readPathValue(baseSnapshot, fieldPath)
+        const fromValue = recordedBaseValue !== MISSING_CONFLICT_VALUE
+          ? recordedBaseValue
+          : changeRecord && Object.hasOwn(changeRecord, 'from')
+            ? changeRecord.from
+            : readPathValueLoose(fallbackBaseSnapshot, fieldPath)
         const toValue = changeRecord && Object.prototype.hasOwnProperty.call(changeRecord, 'to')
           ? changeRecord.to
           : readPathValueLoose(incomingAfterSnapshot, fieldPath)
@@ -2092,23 +2100,51 @@ export class RecordLockService {
 
       for (const fieldPath of diffPaths) {
         if (shouldSkipConflictField(fieldPath)) continue
-        const fromValue = readPathValueLoose(fallbackBaseSnapshot, fieldPath)
-        const toValue = readPathValueLoose(incomingAfterSnapshot, fieldPath)
-        changeMap.set(fieldPath, {
-          baseValue: fromValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(fromValue),
-          incomingValue: toValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(toValue),
-        })
+        const fromValue = readPathValue(fallbackBaseSnapshot, fieldPath)
+        const toValue = readPathValue(incomingAfterSnapshot, fieldPath)
+        const baseValue = fromValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(fromValue)
+        const incomingValue = toValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(toValue)
+        if (valuesEqual(baseValue, incomingValue)) continue
+        changeMap.set(fieldPath, { baseValue, incomingValue })
       }
     }
 
-    if (!changeMap.size && mutationPayload && incomingAfterSnapshot) {
+    const submittedValues = new Map<string, unknown>()
+    if (mutationPayload) {
+      const fieldPaths = new Set(changeMap.keys())
+      this.collectSnapshotDiffPaths(null, incomingAfterSnapshot, null, fieldPaths, new Set<unknown>())
       for (const fieldPath of Object.keys(mutationPayload)) {
+        if (!isRecordValue(mutationPayload[fieldPath])
+          && readPathValue(incomingAfterSnapshot, fieldPath) !== MISSING_CONFLICT_VALUE) {
+          fieldPaths.add(fieldPath)
+        }
+      }
+
+      const matchedFields = new Map<string, string | null>()
+      for (const fieldPath of fieldPaths) {
+        const payloadPath = buildPathVariants(fieldPath).find((variant) =>
+          readPathValue(mutationPayload, variant, changeMap.has(fieldPath)) !== MISSING_CONFLICT_VALUE,
+        )
+        if (!payloadPath) continue
+        if (payloadPath === fieldPath || !matchedFields.has(payloadPath)) {
+          matchedFields.set(payloadPath, fieldPath)
+        } else if (matchedFields.get(payloadPath) !== payloadPath) {
+          matchedFields.set(payloadPath, null)
+        }
+      }
+
+      for (const [payloadPath, fieldPath] of matchedFields) {
+        if (!fieldPath) continue
+        submittedValues.set(fieldPath, readPathValue(mutationPayload, payloadPath, changeMap.has(fieldPath)))
+      }
+    }
+
+    if (!changeMap.size && incomingAfterSnapshot) {
+      for (const [fieldPath, mineValue] of submittedValues) {
         if (shouldSkipConflictField(fieldPath)) continue
-        const mineValue = readPathValueLoose(mutationPayload, fieldPath)
-        const incomingValue = readPathValueLoose(incomingAfterSnapshot, fieldPath)
-        if (mineValue === MISSING_CONFLICT_VALUE || incomingValue === MISSING_CONFLICT_VALUE) continue
-        if (valuesEqual(mineValue, incomingValue)) continue
-        const baseValue = readPathValueLoose(fallbackBaseSnapshot, fieldPath)
+        const incomingValue = readPathValue(incomingAfterSnapshot, fieldPath)
+        if (incomingValue === MISSING_CONFLICT_VALUE || valuesEqual(mineValue, incomingValue)) continue
+        const baseValue = readPathValue(fallbackBaseSnapshot, fieldPath)
         changeMap.set(fieldPath, {
           baseValue: baseValue === MISSING_CONFLICT_VALUE ? null : normalizeConflictValue(baseValue),
           incomingValue: normalizeConflictValue(incomingValue),
@@ -2119,14 +2155,10 @@ export class RecordLockService {
     if (!changeMap.size) return []
 
     const allFields = Array.from(changeMap.keys())
-    const preferredFields = mutationPayload
-      ? allFields.filter((fieldPath) => {
-          const mineValue = readPathValueLoose(mutationPayload, fieldPath)
-          if (mineValue === MISSING_CONFLICT_VALUE) return false
-          const incomingValue = changeMap.get(fieldPath)?.incomingValue
-          return !valuesEqual(mineValue, incomingValue)
-        })
-      : []
+    const preferredFields = allFields.filter((fieldPath) =>
+      submittedValues.has(fieldPath)
+      && !valuesEqual(submittedValues.get(fieldPath), changeMap.get(fieldPath)?.incomingValue),
+    )
     const selectedFields = (preferredFields.length ? preferredFields : allFields)
       .filter((fieldPath) => !shouldSkipConflictField(fieldPath))
       .sort((left, right) => left.localeCompare(right))
@@ -2134,10 +2166,7 @@ export class RecordLockService {
 
     return selectedFields.map((fieldPath) => {
       const entry = changeMap.get(fieldPath) ?? { baseValue: null, incomingValue: null }
-      const mineValueRaw = mutationPayload ? readPathValueLoose(mutationPayload, fieldPath) : MISSING_CONFLICT_VALUE
-      const mineValue = mineValueRaw === MISSING_CONFLICT_VALUE
-        ? entry.baseValue
-        : normalizeConflictValue(mineValueRaw)
+      const mineValue = submittedValues.has(fieldPath) ? submittedValues.get(fieldPath) : entry.baseValue
 
       return {
         field: fieldPath,
