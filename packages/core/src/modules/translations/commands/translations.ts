@@ -8,6 +8,7 @@ import { type Generated, type Kysely, sql } from 'kysely'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { isDeepStrictEqual } from 'node:util'
 import { emitTranslationsEvent } from '../events'
+import { invalidateTranslationOverlayCache } from '@open-mercato/shared/lib/crud/cache'
 
 type TranslationSnapshot = {
   id: string | null
@@ -94,6 +95,15 @@ function sameTranslations(
   return isDeepStrictEqual(current ?? null, expected ?? null)
 }
 
+async function dropTranslatedListCache(
+  ctx: CommandRuntimeContext,
+  entityType: string | null | undefined,
+  tenantId: string | null | undefined,
+): Promise<void> {
+  if (!entityType) return
+  await invalidateTranslationOverlayCache(ctx.container, entityType, tenantId ?? null).catch(() => undefined)
+}
+
 const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; before: TranslationSnapshot | null; snapshot: TranslationSnapshot | null }> = {
   id: 'translations.translation.save',
 
@@ -160,6 +170,7 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; before:
       organizationId: input.organizationId,
       tenantId: input.tenantId,
     }, { persistent: true }).catch(() => undefined)
+    await dropTranslatedListCache(ctx, input.entityType, input.tenantId)
 
     return { rowId: snapshot?.id ?? '', before, snapshot }
   },
@@ -193,35 +204,39 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string; before:
     if (!after) return throwTranslationUndoConflict()
     const db = resolveDb(ctx)
 
-    await db.transaction().execute(async (trx) => {
-      const current = await trx
-        .selectFrom('entity_translations')
-        .selectAll()
-        .where('entity_type', '=', after.entityType)
-        .where('entity_id', '=', after.entityId)
-        .where(sql<boolean>`tenant_id is not distinct from ${after.tenantId}`)
-        .where(sql<boolean>`organization_id is not distinct from ${after.organizationId}`)
-        .forUpdate()
-        .executeTakeFirst()
+    try {
+      await db.transaction().execute(async (trx) => {
+        const current = await trx
+          .selectFrom('entity_translations')
+          .selectAll()
+          .where('entity_type', '=', after.entityType)
+          .where('entity_id', '=', after.entityId)
+          .where(sql<boolean>`tenant_id is not distinct from ${after.tenantId}`)
+          .where(sql<boolean>`organization_id is not distinct from ${after.organizationId}`)
+          .forUpdate()
+          .executeTakeFirst()
 
-      if (!current || current.id !== after.id || !sameTranslations(current.translations, after.translations)) {
-        return throwTranslationUndoConflict()
-      }
+        if (!current || current.id !== after.id || !sameTranslations(current.translations, after.translations)) {
+          return throwTranslationUndoConflict()
+        }
 
-      if (!before || !before.translations) {
-        await trx.deleteFrom('entity_translations').where('id', '=', current.id).execute()
-        return
-      }
+        if (!before || !before.translations) {
+          await trx.deleteFrom('entity_translations').where('id', '=', current.id).execute()
+          return
+        }
 
-      await trx
-        .updateTable('entity_translations')
-        .set({
-          translations: sql`${JSON.stringify(before.translations)}::jsonb`,
-          updated_at: sql`now()`,
-        })
-        .where('id', '=', current.id)
-        .execute()
-    })
+        await trx
+          .updateTable('entity_translations')
+          .set({
+            translations: sql`${JSON.stringify(before.translations)}::jsonb`,
+            updated_at: sql`now()`,
+          })
+          .where('id', '=', current.id)
+          .execute()
+      })
+    } finally {
+      await dropTranslatedListCache(ctx, after.entityType, after.tenantId)
+    }
   },
 }
 
@@ -250,6 +265,7 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean; 
       organizationId: input.organizationId,
       tenantId: input.tenantId,
     }, { persistent: true }).catch(() => undefined)
+    await dropTranslatedListCache(ctx, input.entityType, input.tenantId)
 
     return { deleted: Boolean(deleted), before: deleted ? toTranslationSnapshot(deleted) : null }
   },
@@ -275,6 +291,15 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean; 
     const payload = extractUndoPayload<TranslationUndoPayload>(logEntry)
     const before = payload?.before
     if (!before || !before.translations) return
+    try {
+      await restoreDeletedTranslation(before, ctx)
+    } finally {
+      await dropTranslatedListCache(ctx, before.entityType, before.tenantId)
+    }
+  },
+}
+
+async function restoreDeletedTranslation(before: TranslationSnapshot, ctx: CommandRuntimeContext): Promise<void> {
     const db = resolveDb(ctx)
 
     const existing = await db
@@ -311,7 +336,6 @@ const deleteTranslationCommand: CommandHandler<DeleteInput, { deleted: boolean; 
       }
       throw err
     }
-  },
 }
 
 registerCommand(saveTranslationCommand)
