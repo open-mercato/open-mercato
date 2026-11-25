@@ -1,3 +1,4 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import * as shared from '../shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
@@ -470,6 +471,33 @@ describe('customers commands shared utilities', () => {
       }
 
       await expect(syncEntityTags(em as any, entity, ['tag-2'])).rejects.toThrow(CrudHttpError)
+    })
+
+    it('restores only tags that still exist in the customer scope', async () => {
+      const entity = { id: 'entity-1', tenantId: 't1', organizationId: 'o1' } as CustomerEntity
+      const em = {
+        find: jest.fn(async (model: unknown) => model === CustomerTag ? [{ id: 'tag-kept' }] : []),
+        create: jest.fn((_model: unknown, values: object) => values),
+        persist: jest.fn(),
+        getReference: jest.fn((_model: unknown, id: string) => ({ id })),
+      }
+
+      await syncEntityTags(em as unknown as EntityManager, entity, ['tag-deleted', 'TAG-KEPT'], {
+        ignoreMissing: true,
+      })
+
+      expect(em.find).toHaveBeenCalledWith(CustomerTag, {
+        id: { $in: ['tag-deleted', 'tag-kept'] },
+        organizationId: 'o1',
+        tenantId: 't1',
+      })
+      expect(em.persist).toHaveBeenCalledTimes(1)
+      expect(em.persist).toHaveBeenCalledWith({
+        tenantId: 't1',
+        organizationId: 'o1',
+        tag: { id: 'tag-kept' },
+        entity,
+      })
     })
 
     it('skips work when tags argument is undefined', async () => {

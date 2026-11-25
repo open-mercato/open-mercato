@@ -329,6 +329,7 @@
   "ai_assistant.errors.pendingRecordNotPreviewed": "Ten rekord nie był częścią zatwierdzonego podglądu, więc nie został zmieniony.",
   "ai_assistant.errors.pendingRecordStale": "Rekord zmienił się od czasu podglądu.",
   "ai_assistant.errors.pendingSingleRecordStale": "Rekord zmienił się od czasu podglądu; zaproponuj zmianę ponownie.",
+  "ai_assistant.errors.structuredOutputInvalid": "Model nie zwrócił odpowiedzi zgodnej ze schematem wyjściowym agenta.",
   "ai_assistant.errors.toolFeaturesDenied": "Brakuje Ci jednego z uprawnień wymaganych przez narzędzie: {features}",
   "ai_assistant.launcher.composerPlaceholder": "Zapytaj o cokolwiek…",
   "ai_assistant.launcher.dialogDescription": "Wybierz asystenta. Nawiguj klawiszami ↑/↓, Enter uruchamia, Esc zamyka.",

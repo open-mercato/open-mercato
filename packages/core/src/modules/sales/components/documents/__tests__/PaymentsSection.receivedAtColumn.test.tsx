@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { SalesDocumentPaymentsSection } from '../PaymentsSection'
@@ -68,18 +68,21 @@ const STORED_RECEIVED_AT = '2026-07-01T00:00:00.000Z'
 const DIALOG_SEEDS_DAY = '1 lip 2026'
 const LOCAL_READING_WOULD_SAY = '30 cze 2026'
 
-function renderSection() {
+function renderSection(onTotalsChange?: () => void) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0, retry: false } } })
-  return render(
+  const dict = {}
+  const section = (refreshTotals?: () => void) => (
     <QueryClientProvider client={queryClient}>
-      <I18nProvider locale="pl" dict={{}}>
-        <SalesDocumentPaymentsSection orderId="order-1" currencyCode="EUR" />
+      <I18nProvider locale="pl" dict={dict}>
+        <SalesDocumentPaymentsSection orderId="order-1" currencyCode="EUR" onTotalsChange={refreshTotals} />
       </I18nProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   )
+  const { rerender } = render(section(onTotalsChange))
+  return (refreshTotals: () => void) => rerender(section(refreshTotals))
 }
 
-describe('sales payments table — the Received column', () => {
+describe('sales payments table', () => {
   beforeEach(() => {
     ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserverMock }).ResizeObserver =
       ResizeObserverMock
@@ -99,6 +102,20 @@ describe('sales payments table — the Received column', () => {
         ],
       },
     })
+  })
+
+  it('keeps payment actions open when the parent refreshes its callbacks', async () => {
+    const refreshSection = renderSection(jest.fn())
+    const trigger = await screen.findByRole('button', { name: 'Open actions' })
+    fireEvent.click(trigger)
+    const edit = await screen.findByRole('menuitem', { name: 'Edit payment' })
+    expect(edit).toHaveFocus()
+
+    refreshSection(jest.fn())
+
+    expect(screen.getByRole('menuitem', { name: 'Edit payment' })).toBe(edit)
+    expect(edit).toHaveFocus()
+    expect(screen.getByRole('menuitem', { name: 'Delete payment' })).toBeVisible()
   })
 
   // Reading the stored instant's LOCAL day names 30 June anywhere west of UTC, while the Edit

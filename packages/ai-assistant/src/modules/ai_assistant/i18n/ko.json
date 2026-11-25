@@ -329,6 +329,7 @@
   "ai_assistant.errors.pendingRecordNotPreviewed": "이 레코드는 승인된 미리보기에 포함되지 않아 변경되지 않았습니다.",
   "ai_assistant.errors.pendingRecordStale": "미리보기 이후 레코드 버전이 변경되었습니다.",
   "ai_assistant.errors.pendingSingleRecordStale": "미리보기 이후 레코드 버전이 변경되었습니다. 변경을 다시 제안하세요.",
+  "ai_assistant.errors.structuredOutputInvalid": "모델이 에이전트의 출력 스키마와 일치하는 답변을 반환하지 않았습니다.",
   "ai_assistant.errors.toolFeaturesDenied": "도구에 필요한 권한 중 하나가 없습니다: {features}",
   "ai_assistant.launcher.composerPlaceholder": "무엇이든 물어보세요…",
   "ai_assistant.launcher.dialogDescription": "어시스턴트를 선택하세요. 탐색하려면 ↑/↓를 사용하고, 실행하려면 Enter를, 닫으려면 Esc를 사용하세요.",
