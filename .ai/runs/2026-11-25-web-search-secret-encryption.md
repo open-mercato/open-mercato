@@ -52,4 +52,4 @@ Present since `ab4fc81f82` (2026-09-15), shipped in v0.8.0, v0.9.0 and v0.10.0.
 ### Phase 2: Spec and validation
 
 - [x] 2.1 Record the fix in the web-search spec changelog — 9494a0fff9
-- [ ] 2.2 Run the full validation gate
+- [x] 2.2 Run the full validation gate — 9494a0fff9 (gate run on this tip, all 8 commands green)
