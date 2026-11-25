@@ -365,7 +365,7 @@ When the runtime invokes a tool handler it injects the matching `AiToolDefinitio
 
 Precedence for every setting is **`callSettings` > `modelSettings` > provider default**. HTTP callers pass `callSettings` in the `POST /api/ai_assistant/ai/run-object` body; unknown keys are rejected with `400`.
 
-When the model's answer does not match the agent's `output` schema, or a tool loop ends without a final answer, `run-object` returns `502` with `code: "structured_output_invalid"`. The response never includes the model's answer text, and the run record is still written with status `failed`. A retry can succeed. If a model misses the schema often, tighten the prompt or pick a stronger model.
+When the model's answer does not match the agent's `output` schema, or a tool loop ends without a final answer, `run-object` returns `502` with `code: "structured_output_invalid"`. The response, the warning log and the telemetry report never include the model's answer text. When run recording is enabled, the run record is still written with status `failed`. A retry can succeed. If a model misses the schema often, tighten the prompt or pick a stronger model.
 
 Agent Orchestrator agents accept the same HTTP contract (strict keys, capped values, no `providerOptions`) on their own run doors:
 
