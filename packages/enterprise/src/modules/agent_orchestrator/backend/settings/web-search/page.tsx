@@ -661,7 +661,7 @@ export default function WebSearchSettingsPage() {
       />
 
       <PageBody>
-        <Card>
+        <Card inert={savingSection !== null}>
           <CardHeader>
             <CardTitle>{t('agent_orchestrator.settings.webSearch.adapters', 'Adapters')}</CardTitle>
             <CardDescription>
@@ -723,7 +723,7 @@ export default function WebSearchSettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card inert={savingSection !== null}>
           <CardHeader>
             <CardTitle>{t('agent_orchestrator.settings.webSearch.tuning', 'Tuning')}</CardTitle>
             <CardDescription>
