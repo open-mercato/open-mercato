@@ -24,6 +24,12 @@ Engine: om-auto-create-pr (steps: 4, --loop: no)
 Branch: stabilize/main-2026-11-25 (operator override).
 Delegation: one read-only CI investigation and one final review; tightly coupled fixes stay in the parent worktree.
 
+## Finalization gate
+
+The [final independent review](https://github.com/open-mercato/open-mercato/pull/10579#pullrequestreview-6049807154) assessed `833e984101e5d3fb67d53a3b277f0e0ba7a08d64` as approve with no severity findings. GitHub rejected the App's self-approval; the submitted review is COMMENTED and grants no formal approval. The main ruleset still requires an approving review from another actor before merge. No merge is performed by this task.
+
+This final progress update changes only the audit record. After pushing it, the parent will verify all workflows and reported checks for that exact final head, including all 15 integration shards and merged coverage. Only then will it apply the operator-requested `automerge` label and post the completion evidence on the PR. Checklist completion records finished investigation and review work; it does not certify a pending final-head run or claim the label has already been written. PR `Status` remains in-progress until that gate passes. No further repository changes are planned.
+
 ## Evidence
 
 - Main baseline: `881743bf13d4409668e3e9f2ec5b4b0a14408f7d`.
@@ -47,4 +53,4 @@ PR: #10579
 
 ### Phase 2: Validate and review
 - [x] 2.1 Run the configured validation gate and the PR full suite; resolve failures until green. — b5f36b5b39 (evidence above; no code defect requiring repair)
-- [ ] 2.2 Dispatch one final independent review, address findings, and apply automerge only after green evidence.
+- [x] 2.2 Dispatch one final independent review, address findings, and apply automerge only after green evidence. — 833e984101 (independent approve assessment; no findings; automerge write remains gated on final-head CI below)
