@@ -387,6 +387,7 @@
   "customer_accounts.widgets.invite.error.emailRequired": "Adres e-mail jest wymagany",
   "customer_accounts.widgets.invite.error.failed": "Nie udało się wysłać zaproszenia",
   "customer_accounts.widgets.invite.error.roleRequired": "Musisz wybrać co najmniej jedną rolę",
+  "customer_accounts.widgets.invite.error.rolesLoad": "Nie udało się wczytać ról dostępnych dla zaproszenia.",
   "customer_accounts.widgets.invite.noRoles": "Brak dostępnych ról",
   "customer_accounts.widgets.invite.resend": "Wyślij zaproszenie ponownie",
   "customer_accounts.widgets.invite.roles": "Role",

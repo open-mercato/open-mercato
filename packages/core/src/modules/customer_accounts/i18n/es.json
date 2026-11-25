@@ -387,6 +387,7 @@
   "customer_accounts.widgets.invite.error.emailRequired": "El correo electrónico es obligatorio",
   "customer_accounts.widgets.invite.error.failed": "No se pudo enviar la invitación",
   "customer_accounts.widgets.invite.error.roleRequired": "Debe seleccionar al menos un rol",
+  "customer_accounts.widgets.invite.error.rolesLoad": "No se pudieron cargar los roles de la invitación.",
   "customer_accounts.widgets.invite.noRoles": "No hay roles disponibles",
   "customer_accounts.widgets.invite.resend": "Reenviar invitación",
   "customer_accounts.widgets.invite.roles": "Roles",

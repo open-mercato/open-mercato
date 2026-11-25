@@ -387,6 +387,7 @@
   "customer_accounts.widgets.invite.error.emailRequired": "이메일은 필수입니다",
   "customer_accounts.widgets.invite.error.failed": "초대 전송에 실패했습니다",
   "customer_accounts.widgets.invite.error.roleRequired": "역할을 하나 이상 선택해야 합니다",
+  "customer_accounts.widgets.invite.error.rolesLoad": "초대에 사용할 역할을 불러오지 못했습니다.",
   "customer_accounts.widgets.invite.noRoles": "사용 가능한 역할이 없습니다",
   "customer_accounts.widgets.invite.resend": "초대 다시 보내기",
   "customer_accounts.widgets.invite.roles": "역할",

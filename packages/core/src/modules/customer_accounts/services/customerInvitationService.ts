@@ -298,6 +298,7 @@ export class CustomerInvitationService {
                 id: { $in: roleIds },
                 tenantId: invitation.tenantId,
                 organizationId: invitation.organizationId,
+                customerAssignable: true,
                 deletedAt: null,
               },
               undefined,

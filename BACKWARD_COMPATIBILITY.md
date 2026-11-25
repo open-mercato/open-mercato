@@ -719,3 +719,7 @@ The STABLE attachment library API response and the enrichment helper signature r
 ## #10331 #10332 (2026-11-23)
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
+
+## #2252 (2026-11-12)
+
+STABLE: restricted invites denied; role arrays ≤100. Bridge retains escalation/DoS. @pkarw waived steps 1–3. [Migration](UPGRADE_NOTES.md#invitation-role-authorization-2252).

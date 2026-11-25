@@ -11,6 +11,8 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail/LoadingMessage'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -42,6 +44,7 @@ interface AccountStatusProps {
 interface RoleOption {
   id: string
   name: string
+  customerAssignable: boolean
 }
 
 interface PersonData {
@@ -81,7 +84,8 @@ function InviteForm({
   const [displayName, setDisplayName] = React.useState('')
   const [selectedRoleIds, setSelectedRoleIds] = React.useState<string[]>([])
   const [availableRoles, setAvailableRoles] = React.useState<RoleOption[]>([])
-  const [isLoadingRoles, setIsLoadingRoles] = React.useState(true)
+  const [rolesStatus, setRolesStatus] = React.useState<'loading' | 'ready' | 'error'>('loading')
+  const [roleLoadAttempt, setRoleLoadAttempt] = React.useState(0)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
 
   const { runMutation } = useGuardedMutation<{ entityType: string }>({
@@ -111,19 +115,25 @@ function InviteForm({
           '/api/customer_accounts/admin/roles?pageSize=100',
         )
         if (cancelled) return
-        if (call.ok && call.result) {
-          const items = Array.isArray(call.result.items) ? call.result.items : []
-          setAvailableRoles(items.map((role) => ({ id: role.id, name: role.name })))
+        if (!call.ok || !Array.isArray(call.result?.items)) {
+          setRolesStatus('error')
+          return
         }
-      } catch {
-        /* ignore */
-      } finally {
-        if (!cancelled) setIsLoadingRoles(false)
+
+        setAvailableRoles(call.result.items.filter((role) => role.customerAssignable === true))
+        setRolesStatus('ready')
+      } catch (error) {
+        if (cancelled) return
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'customer_accounts',
+          code: 'customer_accounts.invite_roles_load_failed',
+        })
+        setRolesStatus('error')
       }
     }
-    loadRoles()
+    void loadRoles()
     return () => { cancelled = true }
-  }, [])
+  }, [roleLoadAttempt])
 
   function toggleRole(roleId: string) {
     setSelectedRoleIds((prev) =>
@@ -132,7 +142,7 @@ function InviteForm({
   }
 
   async function handleSubmit() {
-    if (readsBlocked) return
+    if (readsBlocked || rolesStatus !== 'ready') return
     const trimmedEmail = email.trim()
     if (!trimmedEmail) {
       flash(t('customer_accounts.widgets.invite.error.emailRequired', 'Email is required'), 'error')
@@ -181,18 +191,12 @@ function InviteForm({
     }
   }
 
-  const isLoading = isLoadingPerson || isLoadingRoles
-
-  if (isLoading) {
-    return (
-      <div className="text-sm text-muted-foreground py-2">
-        {t('common.loading', 'Loading...')}
-      </div>
-    )
+  if (isLoadingPerson) {
+    return <LoadingMessage label={t('common.loading', 'Loading...')} />
   }
 
   return (
-    <div className="space-y-3 mt-2">
+    <div className="min-w-0 space-y-3 mt-2">
       <div>
         <label htmlFor="invite-email" className="block text-xs font-medium text-muted-foreground mb-1">
           {t('common.email', 'Email')}
@@ -225,12 +229,34 @@ function InviteForm({
         <div className="text-xs font-medium text-muted-foreground mb-1.5">
           {t('customer_accounts.widgets.invite.roles', 'Roles')}
         </div>
-        {availableRoles.length === 0 ? (
+        {rolesStatus === 'loading' ? (
+          <LoadingMessage label={t('common.loading', 'Loading...')} />
+        ) : null}
+        {rolesStatus === 'error' ? (
+          <ErrorMessage
+            label={t('customer_accounts.widgets.invite.error.rolesLoad', 'Failed to load invitation roles.')}
+            action={(
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={readsBlocked}
+                onClick={() => {
+                  setRolesStatus('loading')
+                  setRoleLoadAttempt((attempt) => attempt + 1)
+                }}
+              >
+                {t('customer_accounts.widgets.retryLoading', 'Retry')}
+              </Button>
+            )}
+          />
+        ) : null}
+        {rolesStatus === 'ready' && (availableRoles.length === 0 ? (
           <div className="text-xs text-muted-foreground">
             {t('customer_accounts.widgets.invite.noRoles', 'No roles available')}
           </div>
         ) : (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex min-w-0 flex-wrap gap-1.5">
             {availableRoles.map((role) => (
               <Button
                 key={role.id}
@@ -239,13 +265,13 @@ function InviteForm({
                 size="sm"
                 onClick={() => toggleRole(role.id)}
                 disabled={isSubmitting || readsBlocked}
-                className="text-xs h-7"
+                className="min-h-7 h-auto min-w-0 max-w-full whitespace-normal break-all text-xs"
               >
                 {role.name}
               </Button>
             ))}
           </div>
-        )}
+        ))}
       </div>
 
       <div className="flex justify-end gap-2 pt-1">
@@ -253,7 +279,7 @@ function InviteForm({
           type="button"
           size="sm"
           onClick={handleSubmit}
-          disabled={isSubmitting || readsBlocked || !email.trim() || selectedRoleIds.length === 0}
+          disabled={isSubmitting || readsBlocked || rolesStatus !== 'ready' || !email.trim() || selectedRoleIds.length === 0}
         >
           {isSubmitting
             ? t('common.loading', 'Loading...')
@@ -414,7 +440,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
 
   if (!data) {
     return (
-      <div className="max-w-xl rounded-lg border bg-card p-4">
+      <div className="min-w-0 max-w-xl rounded-lg border bg-card p-4">
         {ConfirmDialogElement}
         <div className="text-sm font-medium mb-1">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
         {readFailed ? readError : isLoading || isResolvingInvitation ? (
@@ -479,7 +505,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   }
 
   return (
-    <div className="max-w-xl rounded-lg border bg-card p-4">
+    <div className="min-w-0 max-w-xl rounded-lg border bg-card p-4">
       {ConfirmDialogElement}
       {readError}
       <div className="text-sm font-medium mb-2">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -18,12 +19,11 @@ import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/c
 import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
 import { hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { CustomerUserInvitation } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CustomerRole, CustomerUserInvitation } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CancelInvitationResult } from '../../commands/invitations'
 
 const logger = createLogger('customer_accounts').child({ component: 'admin-users-invite' })
@@ -155,6 +155,26 @@ export async function POST(req: Request) {
   const parsed = inviteUserSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 400 })
+  }
+
+  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+  const requestedRoleIds = [...new Set(parsed.data.roleIds)]
+  const roles = await findWithDecryption(
+    em,
+    CustomerRole,
+    {
+      id: { $in: requestedRoleIds },
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+      customerAssignable: true,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
+  if (roles.length !== requestedRoleIds.length) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ ok: false, error: translate('customer_accounts.admin.roleDetail.error.notFound') }, { status: 400 })
   }
 
   // Reject a customerEntityId the caller does not own. customerEntityId is the

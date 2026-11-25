@@ -4,6 +4,8 @@ import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createCustomerUserFixture,
+  createCustomerRoleFixture,
+  deleteCustomerRoleFixture,
   deleteCustomerUserFixture,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
@@ -101,6 +103,7 @@ test.describe('TC-CACC-INVITE-REUSE-001: a soft-deleted portal user does not blo
     const password = `Password${stamp}!`
 
     let adminToken: string | null = null
+    let roleId: string | null = null
     let deletedUserId: string | null = null
     let acceptedUserId: string | null = null
     const invitationIds: string[] = []
@@ -109,13 +112,7 @@ test.describe('TC-CACC-INVITE-REUSE-001: a soft-deleted portal user does not blo
     try {
       adminToken = await getAuthToken(request, 'admin')
 
-      const rolesRes = await apiRequest(request, 'GET', '/api/customer_accounts/admin/roles?pageSize=10', {
-        token: adminToken,
-      })
-      expect(rolesRes.ok(), 'roles list should succeed').toBeTruthy()
-      const rolesBody = (await rolesRes.json()) as { items: Array<{ id: string }> }
-      expect(rolesBody.items.length, 'tenant should have at least one customer role').toBeGreaterThan(0)
-      const roleId = rolesBody.items[0].id
+      roleId = (await createCustomerRoleFixture(request, adminToken, { customerAssignable: true })).id
 
       // 1. An active portal user owns the address, then is deleted. The delete is
       //    soft, so its row keeps occupying (tenant_id, email_hash) — the precondition
@@ -196,6 +193,7 @@ test.describe('TC-CACC-INVITE-REUSE-001: a soft-deleted portal user does not blo
       await deleteCustomerUserFixture(request, adminToken, acceptedUserId)
       await deleteCustomerUserFixture(request, adminToken, deletedUserId)
       await deleteInvitationRows(invitationIds)
+      await deleteCustomerRoleFixture(request, adminToken, roleId)
     }
   })
 })

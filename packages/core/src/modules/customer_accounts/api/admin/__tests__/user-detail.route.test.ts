@@ -109,6 +109,16 @@ describe('admin customer-user detail routes — target organization scope', () =
     })
   })
 
+  it('rejects oversized role input before looking up or mutating a user', async () => {
+    const response = await PUT(buildRequest({ roleIds: Array(101).fill(roleId) }), { params: { id: userId } })
+
+    expect(response.status).toBe(400)
+    expect(mockEmFindOne).not.toHaveBeenCalled()
+    expect(mockEmFind).not.toHaveBeenCalled()
+    expect(mockEmPersist).not.toHaveBeenCalled()
+    expect(mockEmFlush).not.toHaveBeenCalled()
+  })
+
   it('returns 404 for a same-tenant foreign-org GET target', async () => {
     const res = await GET(buildMethodRequest('GET'), { params: { id: userId } })
 

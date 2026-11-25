@@ -89,6 +89,25 @@ Staff sign-in now fails closed with the localized generic login error (`{ ok: fa
 
 Operators should restore MFA service registration or challenge-store availability before retrying sign-in. The explicit emergency-bypass setting retains its existing behavior and administrator warning. Failures are logged and reported via telemetry (`security.mfa_service_unavailable`, `security.mfa_challenge_creation_failed`, `auth.login_interceptor_failed`, and `auth.login_revoke_failed` if provisional-session cleanup fails). No database migration or credential-format change is required.
 
+## Invitation role authorization (#2252)
+
+Staff invitations now reject missing, deleted, restricted (`customerAssignable:
+false`), or out-of-scope roles with `400`. Clients must submit eligible roles.
+Acceptance of older invitations grants only roles that remain live, in scope,
+and customer-assignable; an invitation can complete without its restricted role.
+Operators should review pending privileged invitations and use the existing
+staff manage-user role assignment after acceptance when a privileged grant is
+intended. Existing user-role assignments are unchanged. No database migration,
+startup or environment change is required. The old invitation behavior itself
+allowed escalation. Maintainer @pkarw [acknowledged the emergency security
+compatibility waiver of steps 1–3](https://github.com/open-mercato/open-mercato/pull/8660#issuecomment-6828930986) on 2026-11-12.
+Role-ID arrays in staff/portal invitations, portal role assignment, and staff
+user create/update requests now accept at most 100 entries, including duplicates.
+Larger arrays return `400` before role/user queries or writes. Send the complete
+intended role set within this limit; assignment/update replaces the set, so do
+not split a replacement across requests. This resource bound is included in the
+same acknowledged security compatibility exception.
+
 ## Fulltext reindex preserves record organization ownership (#8397)
 
 Tenant-wide fulltext reindexing now keeps each source row's `organization_id`

@@ -387,6 +387,7 @@
   "customer_accounts.widgets.invite.error.emailRequired": "E-Mail-Adresse ist erforderlich",
   "customer_accounts.widgets.invite.error.failed": "Einladung konnte nicht gesendet werden",
   "customer_accounts.widgets.invite.error.roleRequired": "Mindestens eine Rolle muss ausgewählt werden",
+  "customer_accounts.widgets.invite.error.rolesLoad": "Die Rollen für die Einladung konnten nicht geladen werden.",
   "customer_accounts.widgets.invite.noRoles": "Keine Rollen verfügbar",
   "customer_accounts.widgets.invite.resend": "Einladung erneut senden",
   "customer_accounts.widgets.invite.roles": "Rollen",
