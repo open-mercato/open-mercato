@@ -93,6 +93,7 @@ export function AssignPutawayTaskDialog({
 
   const registerOptionLabels = React.useCallback((options: Array<{ value: string; label: string }>) => {
     setOptionLabels((prev) => {
+      if (options.every((option) => prev[option.value] === option.label)) return prev
       const next = { ...prev }
       for (const option of options) {
         next[option.value] = option.label
@@ -100,6 +101,19 @@ export function AssignPutawayTaskDialog({
       return next
     })
   }, [])
+
+  const loadSuggestions = React.useCallback(
+    async (query?: string) => {
+      const result = await loadAssigneeOptions(query, assigneeFallback)
+      setCanListUsers(result.canListUsers)
+      registerOptionLabels(result.options)
+      return result.options.map((option) => ({
+        value: option.value,
+        label: option.label,
+      }))
+    },
+    [assigneeFallback, registerOptionLabels],
+  )
 
   React.useEffect(() => {
     if (!open || !task) return
@@ -268,15 +282,7 @@ export function AssignPutawayTaskDialog({
                 <ComboboxInput
                   value={assignedTo}
                   onChange={(next) => setAssignedTo(next.trim())}
-                  loadSuggestions={async (query) => {
-                    const result = await loadAssigneeOptions(query, assigneeFallback)
-                    setCanListUsers(result.canListUsers)
-                    registerOptionLabels(result.options)
-                    return result.options.map((option) => ({
-                      value: option.value,
-                      label: option.label,
-                    }))
-                  }}
+                  loadSuggestions={loadSuggestions}
                   resolveLabel={(value) => {
                     const known = resolveOptionLabel(value)
                     if (known && known !== value) return known

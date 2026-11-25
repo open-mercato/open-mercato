@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { AssignPutawayTaskDialog } from '../AssignPutawayTaskDialog'
@@ -35,8 +35,14 @@ jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
   raiseCrudError: jest.fn(),
 }))
 
+type ComboboxProps = { loadSuggestions?: (query: string) => Promise<unknown> }
+const mockComboboxProps: ComboboxProps[] = []
+
 jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
-  ComboboxInput: () => null,
+  ComboboxInput: (props: ComboboxProps) => {
+    mockComboboxProps.push(props)
+    return null
+  },
 }))
 
 jest.mock('../inventoryMutationLoaders', () => ({
@@ -59,6 +65,7 @@ const access = {
 describe('AssignPutawayTaskDialog', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockComboboxProps.length = 0
     mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) =>
       operation(),
     )
@@ -111,5 +118,44 @@ describe('AssignPutawayTaskDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Assign' }))
     await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(2))
     expect(mockApiCall.mock.calls[1][1].headers[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(freshUpdatedAt)
+  })
+
+  it('keeps loadSuggestions stable after loading suggestions so the combobox does not reload in a loop', async () => {
+    const { loadAssigneeOptions } = jest.requireMock('../inventoryMutationLoaders') as {
+      loadAssigneeOptions: jest.Mock
+    }
+    loadAssigneeOptions.mockResolvedValue({
+      canListUsers: true,
+      options: [{ value: 'user-e', label: 'Eve' }],
+    })
+
+    render(
+      <AssignPutawayTaskDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        task={{ id: TASK_ID, assignedTo: USER_ID, updatedAt: UPDATED_AT }}
+        onSuccess={jest.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(mockComboboxProps.length).toBeGreaterThan(0))
+    await waitFor(() => expect(loadAssigneeOptions).toHaveBeenCalledTimes(1))
+    const initialLoader = mockComboboxProps[mockComboboxProps.length - 1].loadSuggestions
+
+    await act(async () => {
+      await initialLoader?.('E')
+    })
+    await act(async () => {
+      await mockComboboxProps[mockComboboxProps.length - 1].loadSuggestions?.('E')
+    })
+
+    const renderCountAfterLoads = mockComboboxProps.length
+    await act(async () => {
+      await mockComboboxProps[mockComboboxProps.length - 1].loadSuggestions?.('E')
+    })
+
+    expect(mockComboboxProps[mockComboboxProps.length - 1].loadSuggestions).toBe(initialLoader)
+    expect(mockComboboxProps.length).toBe(renderCountAfterLoads)
   })
 })
