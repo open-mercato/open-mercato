@@ -135,8 +135,13 @@ fake embedding provider and captured vector driver writes. These tests
 cover direct, by-ID, and bulk entry points. Bulk indexing shares source preparation
 with single-record indexing. Configured source errors, null, and empty text skip
 vector embedding rather than activating raw-field fallback; other strategies still
-run. Provider-boundary tests exercise these cases through single, by-ID, queued
-batch, and bulk paths, plus scoped live encryption additions and lookup failures.
+run. An explicit null also removes any prior document for that record when the
+vector strategy processes the write (#5930), matching the legacy vector service.
+Use `shouldIndex` to exclude a record from all strategies. Synchronous reindexing
+reports a failed retirement in its existing result. General reindexing continues
+with later pages, and direct vector reindexing continues with later records.
+Provider-boundary tests exercise these cases through single, by-ID, queued batch,
+and bulk paths, plus scoped live encryption additions and lookup failures.
 Real-service regressions cover the encryption toggle both on and off, with an
 unhealthy fake KMS, active scoped declarations, and captured provider/write boundaries.
 Read-time presenter fallback also applies `fieldPolicy` after formatter failures.
@@ -344,6 +349,15 @@ writer inputs without external services.
 
 ## Changelog
 
+<<<<<<< HEAD
+=======
+- 2026-11-25 — Retired stale vector documents on explicit null from `buildSource`, preserving fulltext fields and token indexing (#5930).
+
+- 2026-11-21 — Preserved source-row organization ownership through direct and queued batch reindexing (#8397), including callback context, global rows and omitted-column compatibility. Historical null-owner documents require a tenant-wide fulltext rebuild; no public shape or configuration changes.
+
+- **2026-11-19** — #5870: share vector-result decryption with the search strategy, preserving query filters and plaintext behavior while parsing encrypted links/payload and failing closed on decryption errors.
+
+>>>>>>> 62ca6cfffa (fix(search): retire stale vectors when the source returns null (#10713))
 - 2026-11-05 — Extended effective entity strategy enforcement to queued and synchronous reindex writes, module defaults, and disabled entities (#8773).
 
 - 2026-11-05 — Enforced registered entity strategy restrictions on direct and mixed bulk writes (#5930 part c); preserved cleanup, unpinned writers, fulltext content, and null-source semantics.

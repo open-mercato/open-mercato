@@ -11,6 +11,9 @@ import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 import { searchDebugWarn } from '../lib/debug'
 import { plaintextSearchFields } from '../lib/plaintext-fields'
 
+/** @internal Marks an explicit vector opt-out returned by a configured source. */
+export const VECTOR_SOURCE_EXCLUDED = Symbol('vectorSourceExcluded')
+
 /**
  * Embedding service interface - minimal subset needed by VectorSearchStrategy.
  */
@@ -137,6 +140,11 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   async index(record: IndexableRecord): Promise<void> {
+    if (VECTOR_SOURCE_EXCLUDED in record) {
+      await this.delete(record.entityId as EntityId, record.recordId, record.tenantId)
+      return
+    }
+
     await this.ensureReady()
     // Use text from buildSource if available, otherwise fall back to generic extraction
     const textContent = record.text !== undefined
