@@ -38,6 +38,14 @@ Operators who intentionally use remote tooling must set `INFRA_BIND_HOST`
 to the specific host interface they want to expose, then recreate LocalStack
 with the updated Compose file.
 
+## Agent trace ingest signing and workflow references
+
+Each trace-ingest adapter now needs a signing key provisioned for its tenant and organization. Provision separate scoped keys server-side with `traceIngestSecret(tenantId, organizationId)` and distribute only the derived key to each adapter. The Standard Webhooks header names, signed body format, and five-minute timestamp tolerance still apply. Adapters using the server-side signing helper pass `organizationId` as its second argument.
+
+Operators should pause trace delivery during the server and adapter cutover, replace the old signing keys, and retry queued deliveries with fresh timestamps and signatures. Previously issued tenant-wide signatures return HTTP 401. The webhook no longer establishes workflow attribution. Use the external run ID of the workflow-created agent invocation or send a standalone trace under its own run ID. Review previously ingested workflow links that lack a server-recorded invocation before relying on their process rollups. There is no schema migration.
+
+[Implementation spec](.ai/specs/enterprise/agent-orchestrator/2026-11-24-trace-ingest-scope.md)
+
 ## CRUD factory security and query correctness bundle
 
 These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
