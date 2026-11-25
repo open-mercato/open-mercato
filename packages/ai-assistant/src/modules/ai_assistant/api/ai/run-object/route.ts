@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { NoObjectGeneratedError, NoOutputGeneratedError, type UIMessage } from 'ai'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -383,9 +384,10 @@ export async function POST(req: NextRequest): Promise<Response> {
         'ai_assistant.run_object_output_invalid',
         { agentId, errorName },
       )
+      const { t } = await resolveTranslations()
       return jsonError(
         502,
-        'The model did not return an answer that matches the agent output schema.',
+        t('ai_assistant.errors.structuredOutputInvalid'),
         'structured_output_invalid',
       )
     }

@@ -25,6 +25,12 @@ jest.mock('../../../../lib/agent-runtime', () => ({
   runAiAgentObject: (...args: unknown[]) => runAiAgentObjectMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (key: string) => jest.requireActual<Record<string, string>>('../../../../i18n/en.json')[key],
+  }),
+}))
+
 const reportAiAssistantErrorMock = jest.fn()
 
 jest.mock('../../../../lib/report-ai-assistant-error', () => ({
