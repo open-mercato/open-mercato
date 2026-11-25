@@ -43,6 +43,8 @@ Present since `ab4fc81f82` (2026-09-15), shipped in v0.8.0, v0.9.0 and v0.10.0.
 
 ## Progress
 
+PR: #10639
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Fix and regression tests
@@ -53,3 +55,4 @@ Present since `ab4fc81f82` (2026-09-15), shipped in v0.8.0, v0.9.0 and v0.10.0.
 
 - [x] 2.1 Record the fix in the web-search spec changelog — 9494a0fff9
 - [x] 2.2 Run the full validation gate — 9494a0fff9 (gate run on this tip, all 8 commands green)
+- [x] Post-review fix: applied `backport release/v0.10.x` and `backport release/v0.9.x` (label-only, no code change)
