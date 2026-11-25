@@ -270,11 +270,7 @@ export async function GET(req: Request) {
     list.items,
   )
 
-  const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: redactedItems.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
-    tenantIds: redactedItems.map((entry) => entry.tenantId).filter((value): value is string => !!value),
-    organizationIds: redactedItems.map((entry) => entry.organizationId).filter((value): value is string => !!value),
-  }, { translate })
+  const displayMaps = await loadAuditLogDisplayMaps(em, redactedItems, { translate })
 
   const items = redactedItems.map((entry) => ({
     id: entry.id,
@@ -282,7 +278,7 @@ export async function GET(req: Request) {
     actionLabel: entry.actionLabel,
     executionState: entry.executionState,
     actorUserId: entry.actorUserId,
-    actorUserName: entry.actorUserId ? displayMaps.users[entry.actorUserId] ?? null : null,
+    actorUserName: entry.actorUserId ? displayMaps.actors[entry.id] ?? null : null,
     tenantId: entry.tenantId,
     tenantName: entry.tenantId ? displayMaps.tenants[entry.tenantId] ?? null : null,
     organizationId: entry.organizationId,

@@ -94,7 +94,7 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     })
     const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
     ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({
-      users: { 'user-1': 'Alice' },
+      actors: { 'action-1': 'Alice' },
       tenants: { 'tenant-1': 'Tenant' },
       organizations: { 'org-1': 'Org' },
     })

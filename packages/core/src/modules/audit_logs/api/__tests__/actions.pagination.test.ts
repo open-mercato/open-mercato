@@ -96,7 +96,7 @@ describe('action log list pagination window', () => {
       scope: { allowedIds: null },
     })
     const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
   })
 

@@ -43,7 +43,7 @@ describe('GET /api/audit_logs/audit-logs/access', () => {
     })
     const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
     ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({
-      users: { 'user-1': 'Alice' },
+      actors: { 'log-1': 'Alice' },
       tenants: { 'tenant-1': 'Tenant' },
       organizations: { 'org-1': 'Org' },
     })
@@ -227,7 +227,7 @@ describe('GET /api/audit_logs/audit-logs/access actor scope and organization sco
       scope: { allowedIds: options.allowedIds },
     })
     const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(options.canViewTenant)
     mockAccess.list.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 })
   }

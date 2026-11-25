@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
-import { loadAuditLogDisplayMaps } from '@open-mercato/core/modules/audit_logs/api/audit-logs/display'
+import { loadAuditLogActorNames } from '@open-mercato/core/modules/audit_logs/api/audit-logs/display'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -121,18 +121,26 @@ export async function GET(req: Request) {
     ])
     const logs = actionLogList.items as ActionLog[]
 
-    const allUserIds = [
-      ...logs.map((l) => l.actorUserId).filter((v): v is string => !!v),
-      ...notes.map((n) => n.authorUserId).filter((v): v is string => !!v),
-    ]
+    const noteActors = notes.map((note) => ({
+      id: `note:${note.id}`,
+      actorUserId: note.authorUserId ?? null,
+      tenantId: note.tenantId,
+      organizationId: note.organizationId,
+      contextJson: null,
+    }))
+    const actors = await loadAuditLogActorNames(em, [...logs, ...noteActors], { translate })
+    const noteAuthors = Object.fromEntries(noteActors.flatMap(({ id, actorUserId }) => {
+      const label = actors[id]
+      return actorUserId && label ? [[actorUserId, label]] : []
+    }))
 
-    const displayMaps = await loadAuditLogDisplayMaps(em, {
-      userIds: allUserIds,
-      tenantIds: [],
-      organizationIds: [],
-    }, { translate })
-
-    let items = buildHistoryEntries({ actionLogs: logs, notes, kind: query.kind, displayUsers: displayMaps.users })
+    let items = buildHistoryEntries({
+      actionLogs: logs,
+      notes,
+      kind: query.kind,
+      displayUsers: noteAuthors,
+      displayActionActors: actors,
+    })
     const typesFilter = parseDocumentHistoryTypes(query.types)
     if (typesFilter.size > 0) {
       items = items.filter((entry) => typesFilter.has(entry.kind as DocumentHistoryEntryKind))

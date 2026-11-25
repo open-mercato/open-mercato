@@ -215,11 +215,7 @@ export async function GET(req: Request) {
   )
 
   const { translate } = await resolveTranslations()
-  const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: entries.map((entry) => entry.actorUserId).filter((value): value is string => Boolean(value)),
-    tenantIds: entries.map((entry) => entry.tenantId).filter((value): value is string => Boolean(value)),
-    organizationIds: entries.map((entry) => entry.organizationId).filter((value): value is string => Boolean(value)),
-  }, { translate })
+  const displayMaps = await loadAuditLogDisplayMaps(em, entries, { translate })
 
   const rows = entries.flatMap((entry) => {
     const actionType = deriveActionLogActionType(entry)
@@ -229,7 +225,7 @@ export async function GET(req: Request) {
     const baseRow = {
       when: entry.createdAt?.toISOString?.() ?? '',
       user: entry.actorUserId
-        ? displayMaps.users[entry.actorUserId] ?? translate('audit_logs.actor.unknown_user', 'Unknown user')
+        ? displayMaps.actors[entry.id] ?? translate('audit_logs.actor.unknown_user', 'Unknown user')
         : 'System',
       action: actionLabel,
       source: deriveActionLogSource(entry.contextJson, entry.actorUserId).toUpperCase(),
