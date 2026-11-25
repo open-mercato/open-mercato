@@ -27,6 +27,7 @@ type RouteProbe = {
 }
 
 const RESOURCE_KIND = 'customers.company'
+const ALL_ORGANIZATIONS = '__all__'
 const SETTINGS_PROBE: RouteProbe = { name: 'settings (GET)', method: 'GET', path: '/api/record_locks/settings' }
 
 function buildRouteProbes(resourceId: string): RouteProbe[] {
@@ -44,15 +45,25 @@ function buildRouteProbes(resourceId: string): RouteProbe[] {
 
 type ProbeResult = { status: number; body: string }
 
-async function probe(request: APIRequestContext, token: string, route: RouteProbe): Promise<ProbeResult> {
+function selectedOrgHeaders(selectedOrgId: string | null): Record<string, string> | undefined {
+  return selectedOrgId ? { Cookie: `om_selected_org=${selectedOrgId}` } : undefined
+}
+
+async function probe(
+  request: APIRequestContext,
+  token: string,
+  route: RouteProbe,
+  selectedOrgId: string | null = null,
+): Promise<ProbeResult> {
   const response = await apiRequest(request, route.method, route.path, {
     token,
+    headers: selectedOrgHeaders(selectedOrgId),
     ...(route.data === undefined ? {} : { data: route.data }),
   })
   return { status: response.status(), body: await response.text() }
 }
 
-type AcquiredLock = { resourceId: string; token: string }
+type AcquiredLock = { resourceId: string; token: string; selectedOrgId: string | null }
 
 /**
  * TC-LOCK-SCOPE-empty-org: record_locks routes fail closed on an explicitly
@@ -69,7 +80,11 @@ type AcquiredLock = { resourceId: string; token: string }
  *
  * The deny-all scope is built through public APIs only: the role stores
  * `organizations: []`, and soft-deleting the temporary home organization
- * removes the resolver's account-organization fallback before login.
+ * removes the resolver's account-organization fallback before login. The
+ * empty scope is probed both without a selection and with the "All
+ * organizations" selection, which must not widen it. The unrestricted control
+ * selects "All organizations" explicitly, which is the principal that
+ * legitimately keeps `organizationId: null`.
  *
  * Self-contained: creates its own role, user, temporary home organization and
  * allowed organization; releases acquired locks and deletes the user, role and
@@ -128,15 +143,18 @@ test.describe('TC-LOCK-SCOPE-empty-org: empty organization scope is denied', () 
       expect(removeHome.status(), 'Temporary home organization should be soft-deleted').toBe(200)
 
       actorToken = await getAuthToken(request, actorEmail, password)
-      for (const route of buildRouteProbes(randomUUID())) {
-        const result = await probe(request, actorToken, route)
-        expect(result.status, `${route.name} must deny an explicitly empty organization scope`).toBe(403)
-        expect(result.body, `${route.name} must not leak an action-log id`).not.toContain('latestActionLogId')
+      for (const selectedOrgId of [null, ALL_ORGANIZATIONS]) {
+        for (const route of buildRouteProbes(randomUUID())) {
+          const result = await probe(request, actorToken, route, selectedOrgId)
+          const label = `${route.name} (selection: ${selectedOrgId ?? 'none'})`
+          expect(result.status, `${label} must deny an explicitly empty organization scope`).toBe(403)
+          expect(result.body, `${label} must not leak an action-log id`).not.toContain('latestActionLogId')
+        }
       }
 
-      const controls: Array<{ label: string; organizations: string[] | null }> = [
-        { label: 'a single-organization', organizations: [allowedOrganizationId] },
-        { label: 'an unrestricted "All organizations"', organizations: null },
+      const controls: Array<{ label: string; organizations: string[] | null; selectedOrgId: string | null }> = [
+        { label: 'a single-organization', organizations: [allowedOrganizationId], selectedOrgId: null },
+        { label: 'an unrestricted "All organizations"', organizations: null, selectedOrgId: ALL_ORGANIZATIONS },
       ]
       for (const control of controls) {
         await setRoleAclFeatures(request, superadminToken, {
@@ -145,20 +163,35 @@ test.describe('TC-LOCK-SCOPE-empty-org: empty organization scope is denied', () 
           organizations: control.organizations,
         })
 
-        const settings = await probe(request, actorToken, SETTINGS_PROBE)
-        expect(settings.status, `${control.label} caller keeps settings access`).toBe(200)
+        const settings = await probe(request, actorToken, SETTINGS_PROBE, control.selectedOrgId)
+        expect(settings.status, `${control.label} caller keeps settings access: ${settings.body}`).toBe(200)
 
         const resourceId = randomUUID()
-        const acquire = await acquireRecordLock(request, actorToken, RESOURCE_KIND, resourceId)
+        const acquire = await acquireRecordLock(
+          request,
+          actorToken,
+          RESOURCE_KIND,
+          resourceId,
+          selectedOrgHeaders(control.selectedOrgId),
+        )
         expect(acquire.status, `${control.label} caller is not denied by the scope guard`).not.toBe(403)
         expect(acquire.status, `${control.label} acquire must not error`).toBeLessThan(500)
         const lockToken = (acquire.body?.lock as { token?: string | null } | null | undefined)?.token ?? null
-        if (lockToken) acquiredLocks.push({ resourceId, token: lockToken })
+        if (lockToken) acquiredLocks.push({ resourceId, token: lockToken, selectedOrgId: control.selectedOrgId })
       }
     } finally {
       if (actorToken) {
         for (const lock of acquiredLocks) {
-          await releaseRecordLock(request, actorToken, RESOURCE_KIND, lock.resourceId, lock.token).catch(() => undefined)
+          await releaseRecordLock(
+            request,
+            actorToken,
+            RESOURCE_KIND,
+            lock.resourceId,
+            lock.token,
+            'cancelled',
+            undefined,
+            selectedOrgHeaders(lock.selectedOrgId),
+          ).catch(() => undefined)
         }
       }
       await deleteUserIfExists(request, superadminToken, actorUserId)
