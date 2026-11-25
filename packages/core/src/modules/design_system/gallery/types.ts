@@ -6,6 +6,7 @@ export type GalleryVariant = {
   title: string                 // human label; component/variant names are not translated
   render: () => React.ReactNode // live preview, real primitives only
   code: string                  // the snippet the copy button yields
+  description?: string          // one or two sentences under the example title (English, translated via variantDescriptions)
 }
 
 export type GalleryUsage = {
@@ -13,8 +14,17 @@ export type GalleryUsage = {
   dont?: string[]               // anti-patterns for this component
 }
 
+export type GalleryFaq = {
+  question: string
+  answer: string
+}
+
 export type GalleryEntry = {
   usage?: GalleryUsage
+  since?: string                // first Open Mercato version that ships the component
+  accessibility?: string[]      // keyboard, screen reader and motion notes (English, translated)
+  faq?: GalleryFaq[]            // concrete pitfalls and their fixes (English, translated)
+  tokens?: string[]             // CSS custom properties the component reads, e.g. '--accent-indigo'
   keywords?: string[]          // extra search aliases (e.g. 'radiobutton' for Radio)
   id: string                    // 'button' — unique across the whole gallery
   title: string                 // 'Button'

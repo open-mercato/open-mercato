@@ -27,6 +27,7 @@ import { SidebarExample, SidebarFeatureExample, SidebarIdentityExample, SidebarI
 import { shellExampleCode } from '../demos/shell-code.generated'
 import { AiPromptExample, AiIconButtonExamples, AiNavigationExamples, AiSearchExamples, AiAuthExamples, AiSettingsExamples, AiNewChatExample, AiSidebarExample, AiMobileNavigationExample } from '../demos/ai-product'
 import { aiProductExampleCode } from '../demos/ai-product-code.generated'
+import { AnchorBasicExample, AnchorNestedExample } from '../demos/layout-primitives'
 import type { GalleryEntry } from '../types'
 
 // Component titles and variant names are proper nouns from the codebase and
@@ -935,6 +936,77 @@ const aiMobileNavigationEntry: GalleryEntry = {
   ],
 }
 
+const ANCHOR_IMPORT = "import { Anchor } from '@open-mercato/ui/primitives/anchor'"
+
+const anchorEntry: GalleryEntry = {
+  id: 'anchor',
+  title: 'Anchor',
+  importPath: '@open-mercato/ui/primitives/anchor',
+  descriptionKey: 'design_system.entries.anchor.description',
+  keywords: ['table of contents', 'toc', 'on this page', 'scrollspy', 'jump links'],
+  since: '0.11.0',
+  usage: {
+    do: [
+      'Use it on long detail, settings and documentation pages with four or more sections',
+      'Set offset to the height of sticky headers so sections are not hidden after a jump',
+      'Pass getContainer when the page scrolls inside a panel instead of the window',
+    ],
+    dont: [
+      'Do not use it for navigation between pages; use the sidebar or Tabs',
+      'Do not show it on narrow screens where it would push the content down; hide it below the breakpoint that has room for it',
+    ],
+  },
+  accessibility: [
+    'Renders a nav landmark named On this page; pass label when a page has more than one',
+    'The link of the section in view carries aria-current="location"',
+    'Jumps are instant when the user prefers reduced motion',
+  ],
+  faq: [
+    {
+      question: 'Why is the wrong section highlighted?',
+      answer: 'The highlight changes when a section passes offset pixels from the top of the scroll container. Match offset to the sticky header height.',
+    },
+    {
+      question: 'Why do the links do nothing?',
+      answer: 'Each href must point to an element id on the same page, for example #history, and the element must be rendered.',
+    },
+  ],
+  tokens: ['--border', '--primary', '--foreground', '--muted-foreground'],
+  variants: [
+    {
+      id: 'basic',
+      title: 'Basic',
+      description: 'A list of sections inside a scrolling panel; the section in view is highlighted.',
+      render: () => <AnchorBasicExample />,
+      code: `${ANCHOR_IMPORT}
+
+<Anchor
+  offset={72}
+  items={[
+    { href: '#overview', title: 'Overview' },
+    { href: '#lines', title: 'Lines' },
+    { href: '#payments', title: 'Payments' },
+  ]}
+/>`,
+    },
+    {
+      id: 'nested',
+      title: 'Nested links',
+      description: 'children add a second level for subsections.',
+      render: () => <AnchorNestedExample />,
+      code: `${ANCHOR_IMPORT}
+
+<Anchor
+  getContainer={() => panelRef.current ?? window}
+  items={[
+    { href: '#overview', title: 'Overview' },
+    { href: '#payments', title: 'Payments', children: [{ href: '#refunds', title: 'Refunds' }] },
+  ]}
+/>`,
+    },
+  ],
+}
+
 export const entries: GalleryEntry[] = [
   promptAreaEntry,
   aiControlsEntry,
@@ -946,6 +1018,7 @@ export const entries: GalleryEntry[] = [
   paginationEntry,
   segmentedControlEntry,
   accordionEntry,
+  anchorEntry,
 ]
 
 function TabsNavigationUnderlineSample() {

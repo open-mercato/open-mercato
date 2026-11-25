@@ -53,6 +53,7 @@ import githubLogo from '../assets/github-logo.png'
 import avatarPhoto from '../assets/avatar-photo.png'
 import avatarMemoji from '../assets/avatar-memoji.png'
 import avatarIllustration from '../assets/avatar-illustration.png'
+import { BorderBeamBasicExample, BorderBeamCustomContainerExample, BorderBeamDurationExample, BorderBeamGradientsExample, BorderBeamHoverExample, BorderBeamLineWidthExample, BorderBeamMultipleExample, BorderBeamSizeExample } from '../demos/layout-primitives'
 import type { GalleryEntry } from '../types'
 function BadgeEntrySemanticPreview() {
   const t = useT()
@@ -2245,6 +2246,153 @@ const chart_legend_dotEntry: GalleryEntry = {
     },
   ],
 }
+const BEAM_IMPORT = "import { BorderBeam } from '@open-mercato/ui/primitives/border-beam'"
+
+const borderBeamEntry: GalleryEntry = {
+  id: 'border-beam',
+  title: 'BorderBeam',
+  importPath: '@open-mercato/ui/primitives/border-beam',
+  descriptionKey: 'design_system.entries.border-beam.description',
+  keywords: ['beam', 'glow', 'highlight', 'animated border', 'ai'],
+  since: '0.11.0',
+  usage: {
+    do: [
+      'Use it to emphasize one container without business meaning: an AI module, a sign-in panel or a recommended card',
+      'Give the container its own rounded class; the beam follows that radius',
+      'Use trigger="hover" when several highlighted cards sit next to each other',
+    ],
+    dont: [
+      'Do not use it as a focus ring, validation border or status signal',
+      'Do not put more than one always-on beam on a screen',
+    ],
+  },
+  accessibility: [
+    'The beam layer is aria-hidden and ignores pointer events, so it never changes what screen readers or pointers reach',
+    'With prefers-reduced-motion: reduce the beam is hidden and no animation runs',
+    'Content must stay readable without the beam; never convey state through it',
+  ],
+  faq: [
+    {
+      question: 'Why does the beam not follow the corners?',
+      answer: 'The beam reads the radius of the element it is drawn in. Put the rounded class on BorderBeam itself, or use asChild so the beam is drawn inside the rounded child.',
+    },
+    {
+      question: 'Why is the beam cut off?',
+      answer: 'A parent with overflow-hidden clips a beam that sits outside the box. Keep outset at 0 inside clipped containers, or move overflow-hidden to an inner element.',
+    },
+    {
+      question: 'How do I keep the beam on brand?',
+      answer: 'Pass token colors such as var(--accent-indigo) or the chart tokens. Hex values in components bypass themes and dark mode.',
+    },
+  ],
+  tokens: ['--accent-indigo', '--border', '--card'],
+  variants: [
+    {
+      id: 'basic',
+      title: 'Basic',
+      description: 'A single beam on a rounded container with the default indigo color.',
+      render: () => <BorderBeamBasicExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam className="rounded-card border border-border bg-card">
+  <div className="space-y-2 p-6">…</div>
+</BorderBeam>`,
+    },
+    {
+      id: 'hover',
+      title: 'Show on hover',
+      description: 'The beam appears while the pointer is over the container or focus is inside it.',
+      render: () => <BorderBeamHoverExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam trigger="hover" className="rounded-card border border-border bg-card">
+  …
+</BorderBeam>`,
+    },
+    {
+      id: 'multiple',
+      title: 'Multiple beams',
+      description: 'count spreads beams evenly; items sets color, length and width per beam.',
+      render: () => <BorderBeamMultipleExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam count={2} className="rounded-card border border-border bg-card">…</BorderBeam>
+
+<BorderBeam
+  items={[{ color: 'var(--chart-blue)' }, { color: 'var(--chart-pink)', size: 60, lineWidth: 2 }]}
+  className="rounded-card border border-border bg-card"
+>
+  …
+</BorderBeam>`,
+    },
+    {
+      id: 'custom-container',
+      title: 'Custom container',
+      description: 'asChild draws the beam inside an existing component such as Card, without an extra wrapper.',
+      render: () => <BorderBeamCustomContainerExample />,
+      code: `${BEAM_IMPORT}
+import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
+
+<BorderBeam asChild>
+  <Card>…</Card>
+</BorderBeam>
+
+<BorderBeam size={40} duration={4} className="rounded-full border border-border bg-card">
+  <span className="px-4 py-2 text-sm">…</span>
+</BorderBeam>`,
+    },
+    {
+      id: 'gradients',
+      title: 'Gradients',
+      description: 'Color stops take a percent from 0 to 100; the tail always fades to transparent.',
+      render: () => <BorderBeamGradientsExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam
+  lineWidth={2}
+  color={[
+    { color: 'var(--chart-blue)', percent: 0 },
+    { color: 'var(--chart-cyan)', percent: 50 },
+    { color: 'var(--chart-emerald)', percent: 100 },
+  ]}
+  className="rounded-card border border-border bg-card"
+>
+  …
+</BorderBeam>`,
+    },
+    {
+      id: 'duration',
+      title: 'Duration',
+      description: 'Seconds for one loop around the border.',
+      render: () => <BorderBeamDurationExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam duration={3} className="h-24 rounded-card border border-border bg-card" />
+<BorderBeam duration={12} className="h-24 rounded-card border border-border bg-card" />`,
+    },
+    {
+      id: 'size',
+      title: 'Size',
+      description: 'Length of the visible beam; numbers are pixels.',
+      render: () => <BorderBeamSizeExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam size={50} className="h-24 rounded-card border border-border bg-card" />
+<BorderBeam size={180} className="h-24 rounded-card border border-border bg-card" />`,
+    },
+    {
+      id: 'line-width',
+      title: 'Line width',
+      description: 'Thickness of the beam; numbers are pixels.',
+      render: () => <BorderBeamLineWidthExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam lineWidth={2} className="h-24 rounded-card border border-border bg-card" />
+<BorderBeam lineWidth={4} className="h-24 rounded-card border border-border bg-card" />`,
+    },
+  ],
+}
+
 export const entries: GalleryEntry[] = [
   content_labelEntry,
   content_cardEntry,
@@ -2262,4 +2410,5 @@ export const entries: GalleryEntry[] = [
   separatorEntry,
   scrollAreaEntry,
   activityFeedEntry,
+  borderBeamEntry,
 ]

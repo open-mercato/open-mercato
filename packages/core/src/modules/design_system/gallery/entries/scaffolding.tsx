@@ -10,6 +10,7 @@ import { SectionNav, SectionPage, type SectionNavGroup } from '@open-mercato/ui/
 import { ActionsDropdown, FormFooter, FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { PageHeaderExample } from '../demos/shell'
 import { shellExampleCode } from '../demos/shell-code.generated'
+import { SplitterBasicExample, SplitterNestedExample, SplitterVerticalExample } from '../demos/layout-primitives'
 import type { GalleryEntry } from '../types'
 
 // Component titles and variant names are proper nouns from the codebase and
@@ -1453,6 +1454,87 @@ const cryptocurrencyEntry: GalleryEntry = {
     },
   ],
 }
+const SPLITTER_IMPORT = "import { Splitter, SplitterPanel } from '@open-mercato/ui/primitives/splitter'"
+
+const splitterEntry: GalleryEntry = {
+  id: 'splitter',
+  title: 'Splitter',
+  importPath: '@open-mercato/ui/primitives/splitter',
+  descriptionKey: 'design_system.entries.splitter.description',
+  keywords: ['resizable', 'panes', 'panels', 'split view', 'divider'],
+  since: '0.11.0',
+  usage: {
+    do: [
+      'Use it for a list with a preview, an editor with output, or any layout where people choose how much room each part gets',
+      'Set minSize on every panel so content never collapses to an unusable width',
+      'Store the sizes from onResizeEnd when the layout should survive a reload',
+    ],
+    dont: [
+      'Do not use it for fixed page layouts; use Page and section components instead',
+      'Do not nest more than two levels; split the screen into pages instead',
+    ],
+  },
+  accessibility: [
+    'Each handle is a focusable separator with aria-valuenow, aria-valuemin, aria-valuemax and aria-controls',
+    'Arrow keys move the handle by keyboardStep percent; Home and End jump to the limits',
+    'Pass handleLabel when a screen has more than one splitter so each handle has a distinct name',
+  ],
+  faq: [
+    {
+      question: 'Why does the splitter have no height?',
+      answer: 'Panels fill the splitter, and the splitter takes its height from its parent. Give it a height class, or make it a flex child of a container with a height.',
+    },
+    {
+      question: 'How do I keep the sizes after a reload?',
+      answer: 'Save the array from onResizeEnd and pass the values back as defaultSize on each panel.',
+    },
+  ],
+  tokens: ['--border', '--primary', '--card'],
+  variants: [
+    {
+      id: 'basic',
+      title: 'Basic',
+      description: 'Two panels side by side; the list cannot shrink below 20 percent.',
+      render: () => <SplitterBasicExample />,
+      code: `${SPLITTER_IMPORT}
+
+<Splitter className="h-64 rounded-card border border-border bg-card">
+  <SplitterPanel defaultSize={35} minSize={20}>List</SplitterPanel>
+  <SplitterPanel minSize={30}>Preview</SplitterPanel>
+</Splitter>`,
+    },
+    {
+      id: 'vertical',
+      title: 'Vertical',
+      description: 'Panels stacked on top of each other, resized with the up and down arrow keys.',
+      render: () => <SplitterVerticalExample />,
+      code: `${SPLITTER_IMPORT}
+
+<Splitter orientation="vertical" className="h-72 rounded-card border border-border bg-card">
+  <SplitterPanel defaultSize={60} minSize={25}>Editor</SplitterPanel>
+  <SplitterPanel minSize={20}>Output</SplitterPanel>
+</Splitter>`,
+    },
+    {
+      id: 'nested',
+      title: 'Nested',
+      description: 'A vertical splitter inside the second panel of a horizontal one.',
+      render: () => <SplitterNestedExample />,
+      code: `${SPLITTER_IMPORT}
+
+<Splitter className="h-80 rounded-card border border-border bg-card">
+  <SplitterPanel defaultSize={25} minSize={15} maxSize={40}>List</SplitterPanel>
+  <SplitterPanel>
+    <Splitter orientation="vertical" className="h-full">
+      <SplitterPanel defaultSize={65}>Preview</SplitterPanel>
+      <SplitterPanel>Output</SplitterPanel>
+    </Splitter>
+  </SplitterPanel>
+</Splitter>`,
+    },
+  ],
+}
+
 export const entries: GalleryEntry[] = [
   cryptocurrencyEntry,
   pageEntry,
@@ -1461,4 +1543,5 @@ export const entries: GalleryEntry[] = [
   formHeaderEntry,
   formFooterEntry,
   actionsDropdownEntry,
+  splitterEntry,
 ]
