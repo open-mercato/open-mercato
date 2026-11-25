@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { parseOptimisticLockEnv } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { isResourceLockEnabled, parseOptimisticLockEnv } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import {
   OPTIMISTIC_LOCK_CONFLICT_CODE,
@@ -49,12 +49,10 @@ const optimisticLockGuard: MutationGuard = {
   priority: 100,
   async validate(input) {
     const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
-    if (config.mode === 'off') return { ok: true }
+    if (!isResourceLockEnabled(config, input.resourceKind)) return { ok: true }
     // A privileged record-lock "Keep mine" override deliberately overwrites the
     // concurrent write; the floor must not block it on the now-stale timestamp.
     if (isAuthorizedRecordLockOverride(input.requestHeaders)) return { ok: true }
-    const enabled = config.mode === 'all' || config.entities.has(input.resourceKind.toLowerCase())
-    if (!enabled) return { ok: true }
     const readers = getAllOptimisticLockReaders()
     const reader = readers[input.resourceKind]
     if (!reader) return { ok: true }

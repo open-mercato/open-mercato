@@ -311,25 +311,29 @@ describe('entities/encryption API', () => {
     expect(mockEncSvc.invalidateMap).not.toHaveBeenCalled()
   })
 
-  it('persists when the expected version matches the current map version', async () => {
-    const current = CURRENT_VERSION
-    const existing = makeMap({ updatedAt: current })
-    mockMapRepo.find.mockResolvedValue([existing])
-    const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: null }] }
-    const res = await POST(new Request('http://x/api/entities/encryption', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      headers: {
-        'content-type': 'application/json',
-        [OPTIMISTIC_LOCK_HEADER_NAME]: current.toISOString(),
-      },
-    }))
-    expect(res.status).toBe(200)
-    expect(mockUpsertCanonicalEncryptionMap).toHaveBeenCalledWith(mockEm, expect.objectContaining({
-      fields: payload.fields,
-      expectedUpdatedAt: current,
-    }))
-  })
+  it.each(['all', 'entities.encryption_map', 'entities.encryption.map'])(
+    'writes conditionally when the map version matches with OM_OPTIMISTIC_LOCK=%s',
+    async (envValue) => {
+      process.env.OM_OPTIMISTIC_LOCK = envValue
+      const current = CURRENT_VERSION
+      const existing = makeMap({ updatedAt: current })
+      mockMapRepo.find.mockResolvedValue([existing])
+      const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: null }] }
+      const res = await POST(new Request('http://x/api/entities/encryption', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: {
+          'content-type': 'application/json',
+          [OPTIMISTIC_LOCK_HEADER_NAME]: current.toISOString(),
+        },
+      }))
+      expect(res.status).toBe(200)
+      expect(mockUpsertCanonicalEncryptionMap).toHaveBeenCalledWith(mockEm, expect.objectContaining({
+        fields: payload.fields,
+        expectedUpdatedAt: current,
+      }))
+    },
+  )
 
   it('writes unconditionally when the client sends no expected version', async () => {
     mockMapRepo.find.mockResolvedValue([makeMap({ updatedAt: CURRENT_VERSION })])

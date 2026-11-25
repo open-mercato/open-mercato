@@ -37,6 +37,7 @@ import {
   type OptimisticLockConflictBody,
 } from './optimistic-lock-headers'
 import {
+  isResourceLockEnabled,
   normalizeIsoToken,
   parseOptimisticLockEnv,
   type OptimisticLockConfig,
@@ -57,12 +58,6 @@ function toIsoOrNull(value: string | Date | null | undefined): string | null {
 
 function resolveConfig(envValue: string | null | undefined): OptimisticLockConfig {
   return parseOptimisticLockEnv(envValue !== undefined ? envValue : process.env[OPTIMISTIC_LOCK_ENV_VAR])
-}
-
-function isResourceLockEnabled(config: OptimisticLockConfig, resourceKind: string): boolean {
-  if (config.mode === 'off') return false
-  if (config.mode === 'all') return true
-  return config.entities.has(resourceKind.toLowerCase())
 }
 
 /**

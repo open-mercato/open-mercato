@@ -10,7 +10,7 @@ import {
   enforceCommandOptimisticLock,
   readOptimisticLockExpected,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import { normalizeIsoToken, parseOptimisticLockEnv } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { isResourceLockEnabled, normalizeIsoToken, parseOptimisticLockEnv } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -39,8 +39,7 @@ function shouldEnforceVersionOnWrite(req: Request): boolean {
   const expected = readOptimisticLockExpected(req)
   if (!expected || normalizeIsoToken(expected) == null) return false
   const config = parseOptimisticLockEnv(process.env[OPTIMISTIC_LOCK_ENV_VAR])
-  if (config.mode === 'off') return false
-  return config.mode === 'all' || config.entities.has(ENCRYPTION_MAP_RESOURCE_KIND)
+  return isResourceLockEnabled(config, ENCRYPTION_MAP_RESOURCE_KIND)
 }
 
 function toIsoOrNull(value: Date | string | null | undefined): string | null {

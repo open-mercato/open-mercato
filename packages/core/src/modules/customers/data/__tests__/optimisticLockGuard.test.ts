@@ -84,6 +84,17 @@ describe('customers.optimistic-lock guard — record-lock keep-mine deferral (#3
     expect(result.body?.code).toBe(OPTIMISTIC_LOCK_CONFLICT_CODE)
   })
 
+  it('enforces the registered route kind when the allow-list uses an underscore', async () => {
+    const resourceKind = 'sales.credit.memo'
+    process.env.OM_OPTIMISTIC_LOCK = 'sales.credit_memo'
+    registerOptimisticLockReaders({ [resourceKind]: async () => CURRENT_UPDATED_AT })
+    const result = await optimisticLockGuard.validate({
+      ...buildInput({ [OPTIMISTIC_LOCK_HEADER_NAME]: STALE_UPDATED_AT }),
+      resourceKind,
+    })
+    expect(result).toMatchObject({ ok: false, status: 409 })
+  })
+
   it('defers (passes) when the request carries an authorized accept_mine override', async () => {
     const result = await optimisticLockGuard.validate(
       buildInput({
