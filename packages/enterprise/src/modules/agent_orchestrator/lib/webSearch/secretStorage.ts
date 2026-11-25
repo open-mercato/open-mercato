@@ -31,7 +31,7 @@ import {
   resolveAdapterModules,
   type AdapterRegistryEntry,
 } from '@open-mercato/web-research'
-import { decryptWithAesGcm, encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { decryptWithAesGcm, encryptWithAesGcm, isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
 
 /** The subset of `TenantDataEncryptionService` this needs. */
 type EncryptionServiceLike = {
@@ -49,6 +49,7 @@ export type EncryptAdapterSecretsResult = {
   adapterOptions: Record<string, unknown>
   /** False when no DEK was available — the caller MUST surface this. */
   encrypted: boolean
+  unreadableStoredSecret?: true
 }
 
 function resolveEncryptionService(container: AwilixContainer): EncryptionServiceLike | null {
@@ -100,9 +101,9 @@ export async function encryptAdapterSecrets(
   tenantId: string | null,
   adapterOptions: Record<string, unknown>,
   fieldsByAdapter: AdapterSecretFields,
+  storedAdapterOptions: Record<string, unknown> = {},
 ): Promise<EncryptAdapterSecretsResult> {
   const dek = await resolveDek(container, tenantId, { createIfMissing: true })
-  if (!dek) return { adapterOptions, encrypted: false }
 
   const next: Record<string, unknown> = { ...adapterOptions }
   for (const [adapterId, rawOptions] of Object.entries(adapterOptions)) {
@@ -111,15 +112,22 @@ export async function encryptAdapterSecrets(
     if (names.length === 0) continue
 
     const options = { ...(rawOptions as Record<string, unknown>) }
+    const stored = storedAdapterOptions[adapterId]
+    const storedOptions = typeof stored === 'object' && stored !== null
+      ? stored as Record<string, unknown>
+      : {}
     for (const name of names) {
       const value = options[name]
       if (typeof value !== 'string' || value.length === 0) continue
-      if (decryptWithAesGcm(value, dek) !== null) continue
-      options[name] = encryptWithAesGcm(value, dek).value
+      if (dek && decryptWithAesGcm(value, dek) !== null) continue
+      if (storedOptions[name] === value && isEncryptedPayloadShape(value)) {
+        return { adapterOptions, encrypted: false, unreadableStoredSecret: true }
+      }
+      if (dek) options[name] = encryptWithAesGcm(value, dek).value
     }
     next[adapterId] = options
   }
-  return { adapterOptions: next, encrypted: true }
+  return dek ? { adapterOptions: next, encrypted: true } : { adapterOptions, encrypted: false }
 }
 
 /**

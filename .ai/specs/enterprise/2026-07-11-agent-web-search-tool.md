@@ -455,7 +455,10 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
   tenant data encryption: `lib/webSearch/secretStorage.ts` resolved the unregistered DI name
   `tenantDataEncryptionService` instead of `tenantEncryptionService`. Save now provisions a missing
   tenant DEK; legacy plaintext keys are read as-is and re-sealed on the next settings save. Regression
-  tests run against the real `TenantDataEncryptionService`.
+  tests run against the real `TenantDataEncryptionService`. The settings API preserves a
+  retained encrypted key only after authenticating it with the tenant's current DEK.
+  If the key cannot be opened, the save fails before writing the row. Replacing the
+  credential remains possible, and settings readback continues to mask the secret.
 - 2026-11-01 — Corrected #7234 independently: suppress unattributed synthesized answers
   under domain policies at the agent and preview boundaries, with explicit diagnostics
   and handler-level regressions. Finding and prior proof of concept: @AHKSammich (#7323).
