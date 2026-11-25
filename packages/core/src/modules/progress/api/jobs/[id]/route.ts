@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { AwilixContainer } from 'awilix'
@@ -19,6 +20,8 @@ const routeMetadata = {
 }
 
 export const metadata = routeMetadata
+
+const jobIdSchema = z.guid()
 
 async function canMutateProgressJob(
   container: AwilixContainer,
@@ -45,7 +48,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const container = await createRequestContainer()
   const scope = await resolveProgressRequestScope(container, auth, req)
-  if (!hasReadableProgressScope(scope)) {
+  if (!hasReadableProgressScope(scope) || !jobIdSchema.safeParse(params.id).success) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
   const progressService = container.resolve('progressService') as ProgressService
@@ -112,7 +115,9 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     organizationIds: scope.filterIds,
     userId: auth.sub,
   }
-  const existing = await progressService.getJob(params.id, progressContext)
+  const existing = jobIdSchema.safeParse(params.id).success
+    ? await progressService.getJob(params.id, progressContext)
+    : null
   if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
