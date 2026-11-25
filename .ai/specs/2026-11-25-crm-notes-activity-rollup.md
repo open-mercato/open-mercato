@@ -68,7 +68,7 @@ The system SHALL show canonical activities matching the profile's authorized rel
 ##### Scenario: Browse a related deal activity
 
 - WHEN a user opens the activity history for a linked profile and chooses an activity type
-- THEN the list and count both include matching authorized deal activities, with inherited rows shown for reading
+- THEN the list and count both include matching authorized deal activities, with inherited rows shown for reading. Type badges count the full authorized profile history regardless of the selected date range, search term, or type filters
 
 Frozen by: `packages/core/src/modules/customers/__integration__/TC-CRM-4332-related-history.spec.ts`
 
@@ -76,9 +76,9 @@ Frozen by: `packages/core/src/modules/customers/__integration__/TC-CRM-4332-rela
 
 - Keep the work in `customers`. Resolve a live target `CustomerEntity` of kind person or company from the request tenant and allowed organizations. Use the target's organization for every relationship and row match. Missing or inaccessible targets return an empty result through the existing envelope.
 - A person matches deals on `customer_deal_people`. A company matches `customer_deal_companies` and deals through a person on a currently active `customer_person_company_links` relationship. Include live, same-tenant, same-organization deals, people and company memberships only. Deal matches require `customers.deals.view` and the company membership path additionally requires `customers.people.view`, evaluated in the target organization.
-- A related activity may match an explicit typed person or company link for the target. Require a scoped live source entity and permission to view that source's record kind. Treat activities carrying a deal ID as deal history and require permission to view the scoped deal for any inherited match. Ignore non-CRM linked entity types and require both ID and type to match.
-- Apply these alternatives as a union predicate before pagination, counting, encrypted candidate processing and decryption. Keep the existing email visibility predicate mandatory for every match. A relationship is never a conversation share or a grant to read an underlying record. Use existing wildcard-aware authorization and the standard request-scope helpers.
-- Keep comments on `makeCrudRoute` and apply the related predicate through its list filtering mechanisms. Disable the CRUD list cache for related comment requests so membership and permissions are evaluated live. Preserve cache behavior for exact reads. Share the interaction matching predicate between the canonical list and its counts route. Preserve native row keys, pagination, and count envelopes.
+- A related activity may match an explicit typed person or company link for the target. Require a scoped live source entity and permission to view that source's record kind. For related reads, every comment or activity carrying a deal ID requires a live deal in the target scope and `customers.deals.view` in the target organization, including rows whose stored entity or typed link matches the profile. An authorized direct anchor or typed link can qualify after unlinking the deal from the profile. Ignore non-CRM linked entity types and require both ID and type to match.
+- Require the scoped deal check for every candidate with a deal ID. Apply the relationship alternatives as a union predicate before pagination, counting, encrypted candidate processing and decryption. Keep the existing email visibility predicate mandatory for every match. A relationship is never a conversation share or a grant to read an underlying record. Use existing wildcard-aware authorization and the standard request-scope helpers.
+- Keep comments on `makeCrudRoute` and apply the related predicate through its list filtering mechanisms. Disable the CRUD list cache for related comment requests so membership and permissions are evaluated live. Preserve cache behavior for exact reads. Share the interaction matching predicate between the canonical list and its counts route. Preserve native row keys, pagination, and count envelopes. Add an optional `isInherited` boolean to note and activity items in related mode. It is true when the item has a deal ID or its stored entity differs from the receiving profile.
 - Use fixed, indexed relation lookups with bound SQL parameters and no per-row network requests. Use live record predicates for link and source checks. Measure the related query against contacts with many deals and verify related pagination across pages. Use a containment predicate over JSON links if it can use an index. Add a scoped index and snapshot migration if measurements show an unacceptable scan. The baseline proposal adds no mandatory migration or backfill.
 - Reuse the request's authenticated actor, resolved organization scope and DI container for the target check and permission lookup. Batch relationship matching in each list/count query. The related route should add a fixed number of setup reads independent of the page size.
 
@@ -94,13 +94,13 @@ The read mode uses `customer_comments.entity_id` and `deal_id`, `customer_intera
 | `/api/customers/interactions` | `scope=related` with UUID `entityId` | Select direct interactions, qualifying deal interactions, and scoped typed links. Preserve cursor/sort/filter behavior. |
 | `/api/customers/interactions/counts` | `scope=related` with UUID `entityId` | Count the same eligible canonical rows, subject to the route's status filter. |
 
-Requests without `scope=related` retain their current behavior. Rollup requires an explicit target. An explicitly supplied additional `dealId`, status, type, or date constraint is applied as an AND. Validate with the existing Zod and OpenAPI schemas. Preserve existing route-level authentication and required read feature. Use the established validation and server-error responses.
+Requests without `scope=related` retain their current behavior. Rollup requires an explicit target. Apply additional filters already supported by each list route as AND constraints. Preserve the existing counts status filter. Activity History badges omit that filter and count the authorized full history by type, independently of the list date, search and type controls. Validate with the existing Zod and OpenAPI schemas. Preserve existing route-level authentication and required read feature. Use the established validation and server-error responses.
 
 ## UI/UX
 
 Add a permission-gated Notes tab to each v2 profile using the existing NotesSection and customer notes adapter. Use related reads for both the first page and load more. A user with notes management can use the existing guarded composer on the current profile. Hide mutation controls on inherited notes while showing the source deal label using the existing comment summary. Keep the original record and its optimistic-lock version as the only mutation target.
 
-Extend the two v2 canonical Activity History views and their type counts with the same related scope. Keep filters, cursor loading, and the existing loading, empty and failure states. An inherited activity has no edit or delete controls on the receiving profile. Legacy activity views, planners, calendar, recency and unrelated counters retain their current queries.
+Extend the two v2 canonical Activity History views and their type counts with the same related scope. Keep filters, cursor loading, and the existing loading, empty and failure states. Use the related-mode `isInherited` flag to suppress every inherited row mutation in both panels, including note appearance edits and the activity card’s Mark Done action. Preserve controls for direct rows according to the viewer’s existing permissions. Legacy activity views, planners, calendar, recency and unrelated counters retain their current queries.
 
 Existing client pages and detail panels own tab state and authenticated HTTP calls. API handlers own relationship and authorization logic. Reuse shared components, lazy tab fetching, translated copy, and semantic tokens. Verify keyboard tab navigation, long text, narrow viewport, and a missing activity-read feature. No new provider or client-side relationship fetch is needed.
 
@@ -125,7 +125,7 @@ This is an additive opt-in GET parameter. Existing API callers, history records,
 
 ## Integration Test Coverage
 
-Use self-contained fixtures for a company, two people, a deal, direct and inherited comments, and canonical activities. Validate both related list APIs and interaction counts, with duplicate paths, exact reads, filtered/paginated reads, unlink or soft delete, and permissions. Include a limited role and an organization outside its scope. Exercise private email through the existing visibility test fixtures. Cover Notes and Activity History on both v2 routes, including inherited read-only rows and a normal directly anchored note. Delete test fixtures in teardown.
+Use self-contained fixtures for a company, two people, a deal, direct and inherited comments, and canonical activities. Validate both related list APIs and interaction counts, with duplicate paths, exact reads, filtered/paginated reads, unlink or soft delete, and permissions. Include a limited role and an organization outside its scope. Exercise private email through the existing visibility test fixtures. Cover Notes and Activity History on both v2 routes, including planned inherited activities without Mark Done, edit, or delete controls and direct rows with their usual controls. Test dual-anchored rows whose profile matches but whose deal is deleted or denied in both lists and interaction counts. Verify that the type badges remain stable when date, search and selected types narrow the list. Delete test fixtures in teardown.
 
 ## Implementation Plan
 
@@ -149,3 +149,4 @@ The proposal uses customer module ownership, scoped read queries, existing autho
 
 - 2026-11-25 — Proposed scoped CRM related-record reads and profile panels for #4332.
 - 2026-11-25 — Independent scope review found Notes and Activity History can ship independently. Recorded the delivery decision for maintainer review.
+- 2026-11-25 — Clarified deal authorization, profile-wide type counts, and inherited-row mutation controls.
