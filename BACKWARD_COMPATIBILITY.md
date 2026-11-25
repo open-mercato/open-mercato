@@ -720,6 +720,6 @@ The STABLE attachment library API response and the enrichment helper signature r
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
 
-## 2026-11-24 — Agent trace ingest signing and workflow references
+## 2026-11-24 — Trace ingest
 
-The STABLE trace-ingest endpoint authenticates the tenant and organization as a pair, and its server-side signing helpers require both identifiers. A bridge accepting tenant-wide signatures would keep unsigned organization selection available. Stored run attribution comes from the workflow invocation, so adapters must use the existing run ID for linked traces. See the [cutover instructions](UPGRADE_NOTES.md#agent-trace-ingest-signing-and-workflow-references) and [implementation spec](.ai/specs/enterprise/agent-orchestrator/2026-11-24-trace-ingest-scope.md). The emergency security exception requires named maintainer acknowledgment.
+STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
