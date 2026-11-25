@@ -7,7 +7,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Message, MessageExternalParticipant } from '../../messages/data/entities'
 import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 import { renderMarkdownEmailBody } from '../../messages/lib/markdownEmailBody'
-import { isSchedulingAvailable } from '../../messages/lib/scheduledSend'
+import { isSchedulingAvailableFor } from '../../messages/lib/scheduledSend'
 import { getMessageAttachments } from '../../messages/lib/attachments'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../../messages/lib/constants'
 import {
@@ -172,7 +172,7 @@ export async function sendAsUser(
   if (copiesError) return copiesError
   const sendSeparately = input.sendSeparately === true && input.to.length > 1
   const scheduledAt = input.scheduledAt ?? null
-  if (scheduledAt && !isSchedulingAvailable(container)) {
+  if (scheduledAt && !isSchedulingAvailableFor(container, actor.organizationId)) {
     const { t } = await resolveTranslations()
     const error = t('messages.errors.schedulingUnavailable', 'Scheduled sending is not available.')
     return { ok: false, status: 422, error, fieldErrors: { scheduledAt: error }, code: 'scheduling_unavailable' }

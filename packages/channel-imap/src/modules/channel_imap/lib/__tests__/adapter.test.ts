@@ -4,6 +4,7 @@ import {
 } from '../imap-client'
 import {
   setSmtpClient,
+  toTransientRejections,
   type SmtpClient,
 } from '../smtp-client'
 import { getImapChannelAdapter } from '../adapter'
@@ -143,6 +144,38 @@ describe('ImapChannelAdapter.sendMessage', () => {
     expect(result.externalMessageId).toBe('<out@example.com>')
     expect(result.error).toBe('SMTP_SEND_PARTIALLY_REJECTED: relay rejected 1 of 2 recipients')
     expect(result.metadata).toEqual({ response: '250 OK', accepted: ['bob@example.com'], rejected: ['ghost@example.com'] })
+  })
+
+  it('carries the temporarily refused recipients so the hub can retry them', async () => {
+    setSmtpClient({
+      verify: async () => undefined,
+      send: async () => ({
+        messageId: '<out@example.com>',
+        raw: Buffer.alloc(0),
+        response: '250 OK',
+        accepted: ['bob@example.com'],
+        rejected: ['busy@example.com'],
+        rejectedTransient: ['busy@example.com'],
+      }),
+    })
+    setImapClient({ connectAndValidate: async () => ({ capabilities: [] }), selectInbox: async () => ({}), fetchUidRange: async () => [], appendSent: async () => undefined })
+    const result = await getImapChannelAdapter().sendMessage({
+      content: { text: 'hi', bodyFormat: 'text' },
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      metadata: { to: ['bob@example.com', 'busy@example.com'] },
+    })
+    expect(result.metadata).toMatchObject({ rejected: ['busy@example.com'], rejectedTransient: ['busy@example.com'] })
+  })
+
+  it('reads temporary (4xx) refusals from nodemailer rejectedErrors', () => {
+    expect(toTransientRejections([
+      { recipient: 'busy@example.com', responseCode: 450 },
+      { recipient: 'ghost@example.com', responseCode: 550 },
+      { recipient: 'odd@example.com' },
+    ])).toEqual(['busy@example.com'])
+    expect(toTransientRejections([{ recipient: 'ghost@example.com', responseCode: 550 }])).toBeUndefined()
+    expect(toTransientRejections(undefined)).toBeUndefined()
   })
 
   it('swallows IMAP append failures without failing the send', async () => {

@@ -5,6 +5,7 @@ import {
   MESSAGES_SCHEDULED_RELEASE_QUEUE_NAME,
   SCHEDULED_RELEASE_LEASE_MINUTES,
   isSchedulingAvailable,
+  isSchedulingAvailableFor,
 } from '../scheduledSend'
 import { getScheduleMaxDays } from '../scheduleLimits'
 
@@ -65,6 +66,13 @@ describe('scheduled release schedule registration', () => {
       sourceType: 'module',
       sourceModule: 'messages',
     }))
+  })
+
+  it('offers scheduling only to a caller with an organization, whose release tick exists', () => {
+    const withScheduler = { hasRegistration: (name: string) => name === 'schedulerService' }
+    expect(isSchedulingAvailableFor(withScheduler, organizationId)).toBe(true)
+    expect(isSchedulingAvailableFor(withScheduler, null)).toBe(false)
+    expect(isSchedulingAvailableFor({}, organizationId)).toBe(false)
   })
 
   it('is a no-op without the scheduler', async () => {

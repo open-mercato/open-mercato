@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { type Kysely, sql } from 'kysely'
+import { expressionBuilder, type Kysely, sql } from 'kysely'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import {
@@ -65,6 +65,44 @@ type MessageCommandExecuteResultWithThreadId = MessageCommandExecuteResult & {
 const NO_MATCH_ID = '00000000-0000-0000-0000-000000000000'
 const MESSAGE_LIST_CACHE_TTL_MS = 30_000
 const MESSAGE_LIST_RESOURCE = 'messages.message'
+
+type ExternalEmailFilterDatabase = {
+  m: { id: string; external_email_hash: string | null; sender_user_id: string }
+  message_external_participants: {
+    message_id: string
+    tenant_id: string
+    organization_id: string | null
+    email_hash: string
+    role: string
+  }
+}
+
+/**
+ * Messages addressed to an external email: the primary address, or any participant
+ * with the same hash. A blind copy matches only for the author, so the filter cannot
+ * reveal who was copied.
+ */
+function buildExternalEmailFilter(
+  scope: { tenantId: string; organizationId: string | null; userId: string },
+  hashCandidates: string[],
+) {
+  const eb = expressionBuilder<ExternalEmailFilterDatabase, 'm'>()
+  return eb.or([
+    eb('m.external_email_hash', 'in', hashCandidates),
+    eb.exists(
+      eb.selectFrom('message_external_participants as mep')
+        .select(sql<number>`1`.as('one'))
+        .whereRef('mep.message_id', '=', 'm.id')
+        .where('mep.tenant_id', '=', scope.tenantId)
+        .where('mep.organization_id', scope.organizationId ? '=' : 'is', scope.organizationId ?? null)
+        .where('mep.email_hash', 'in', hashCandidates)
+        .where((participant) => participant.or([
+          participant('mep.role', '<>', 'bcc'),
+          participant('m.sender_user_id', '=', scope.userId),
+        ])),
+    ),
+  ])
+}
 
 function getDb(em: EntityManager): Kysely<any> {
   return em.getKysely<any>()
@@ -264,20 +302,7 @@ export async function GET(req: Request) {
     if (input.sourceEntityType) q = q.where('m.source_entity_type', '=', input.sourceEntityType)
     if (input.sourceEntityId) q = q.where('m.source_entity_id', '=', input.sourceEntityId)
     if (input.externalEmail) {
-      const hashCandidates = lookupHashCandidates(input.externalEmail)
-      q = q.where((eb: any) => eb.or([
-        eb('m.external_email_hash', 'in', hashCandidates),
-        eb.exists(
-          eb.selectFrom('message_external_participants as mep')
-            .select(sql<number>`1`.as('one'))
-            .whereRef('mep.message_id', '=', 'm.id')
-            .where('mep.tenant_id', '=', scope.tenantId)
-            .where('mep.organization_id', scope.organizationId ? '=' : 'is', scope.organizationId ?? null)
-            .where('mep.email_hash', 'in', hashCandidates)
-            // A blind copy matches only for the author, so the filter cannot reveal who was copied.
-            .where(sql<boolean>`(${sql.ref('mep.role')} <> ${'bcc'} or ${sql.ref('m.sender_user_id')} = ${scope.userId})`),
-        ),
-      ]))
+      q = q.where(buildExternalEmailFilter(scope, lookupHashCandidates(input.externalEmail)))
     }
     if (input.senderId) q = q.where('m.sender_user_id', '=', input.senderId)
 
@@ -576,7 +601,7 @@ export async function POST(req: Request) {
   const sendsDraftThroughMailbox = requiresSenderDelegation(input) && hasSenderAttachments(input)
   if (input.scheduledAt || sendsDraftThroughMailbox) {
     if (input.scheduledAt) {
-      const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container)
+      const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container, scope.organizationId)
       if (scheduleRefusal) return scheduleRefusal
     }
     if (input.senderChannelId) {

@@ -640,8 +640,18 @@ const deliverOutboundMessageCommand: CommandHandler<
       }
 
       const providerConversationId = stringOrUndefined(sendResult.conversationId)
-      // A partially accepted send (status `failed`) reaches this point as a send.
-      link.deliveryStatus = sendResult.status === 'queued' ? 'queued' : 'sent'
+      const rejectionSettlement = planRejectedParticipants(participantOutcome.rejected, {
+        error: sendResult.error ?? 'Rejected by the mail server',
+        transientAddresses: addressSet(resultMetadata?.rejectedTransient),
+        messageSentAt: message.sentAt ?? null,
+        retryAt: sendResult.retryAt,
+      })
+      // A partially accepted send (status `failed`) reaches this point as a send. While a
+      // temporarily refused recipient awaits its retry the link stays pending, so the
+      // retry tick can deliver to that recipient alone through this link.
+      link.deliveryStatus = rejectionSettlement.retry?.length
+        ? 'pending'
+        : sendResult.status === 'queued' ? 'queued' : 'sent'
       link.externalMessageId = externalMessageRowId
       // The actual per-link to/cc stay on the link as a snapshot for the CRM
       // enricher (`toAddresses`/`ccAddresses`); bcc is never written back.
@@ -682,14 +692,10 @@ const deliverOutboundMessageCommand: CommandHandler<
       await em.flush()
 
       if (participants.length > 0) {
-        const rejectionError = sendResult.error ?? 'Rejected by the mail server'
         await settleExternalParticipants(
           em,
           participantScope,
-          {
-            sent: participantOutcome.sent.map((participant) => participant.id),
-            failed: participantOutcome.rejected.map((participant) => ({ id: participant.id, error: rejectionError })),
-          },
+          { sent: participantOutcome.sent.map((participant) => participant.id), ...rejectionSettlement },
           { claimedUntil },
         )
         await recordExternalDeliverySummary(em, participantScope, { sentAt: new Date() })
@@ -910,6 +916,32 @@ export function planParticipantFailure(
   const plan = planTransientRetry({ messageSentAt: failure.messageSentAt, retryAt: failure.retryAt, delayMs: failure.delayMs, now })
   if ('expired' in plan) return failAll(DELIVERY_WINDOW_EXCEEDED_ERROR)
   return { retry: participantIds.map((id) => ({ id, error: failure.error, nextAttemptAt: plan.nextAttemptAt })) }
+}
+
+/**
+ * Outcome of the recipients a partially accepted send did not reach. A recipient the
+ * relay refused temporarily (SMTP 4xx, reported in `metadata.rejectedTransient`) is
+ * retried inside the delivery window; every other rejection is final.
+ */
+export function planRejectedParticipants(
+  rejected: Array<{ id: string; email: string }>,
+  context: { error: string; transientAddresses: Set<string>; messageSentAt: Date | null; retryAt?: Date },
+  now: Date = new Date(),
+): Pick<ExternalParticipantSettlement, 'failed' | 'retry'> {
+  const isTransient = (participant: { email: string }) => context.transientAddresses.has(participant.email.trim().toLowerCase())
+  const permanent = rejected.filter((participant) => !isTransient(participant))
+  const transient = rejected.filter(isTransient)
+  const transientPlan = transient.length > 0
+    ? planParticipantFailure(
+      transient.map((participant) => participant.id),
+      { error: context.error, transient: true, requiresReauth: false, forcedRefresh: false, messageSentAt: context.messageSentAt, retryAt: context.retryAt },
+      now,
+    )
+    : {}
+  return {
+    failed: [...permanent.map((participant) => ({ id: participant.id, error: context.error })), ...(transientPlan.failed ?? [])],
+    ...(transientPlan.retry?.length ? { retry: transientPlan.retry } : {}),
+  }
 }
 
 registerCommand(deliverOutboundMessageCommand)

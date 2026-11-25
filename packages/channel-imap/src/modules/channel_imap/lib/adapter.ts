@@ -155,7 +155,7 @@ class ImapChannelAdapter implements ChannelAdapter {
         conversationId: input.conversationId,
         status: 'failed',
         error: `SMTP_SEND_PARTIALLY_REJECTED: relay rejected ${rejected.length} of ${accepted.length + rejected.length} recipients`,
-        metadata: { response: result.response, accepted, rejected },
+        metadata: { response: result.response, accepted, rejected, ...(result.rejectedTransient ? { rejectedTransient: result.rejectedTransient } : {}) },
       }
     }
 

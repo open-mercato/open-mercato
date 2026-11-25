@@ -387,6 +387,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     }
 
     const scheduledAt = input.scheduledAt ?? null
+    if (scheduledAt) assertSchedulingScope(input.organizationId)
     // A scheduled message stays a draft until the release worker sends it, so every draft-hiding read path hides it too.
     const storesAsDraft = input.isDraft || scheduledAt !== null
     const externalAddressing = planComposeExternalParticipants({ ...input, isDraft: storesAsDraft })
@@ -662,6 +663,13 @@ async function sendDraftThroughMailbox(
 }
 
 const DRAFT_NOT_EDITABLE_ERROR = 'Only draft messages can be edited'
+const SCHEDULING_UNAVAILABLE_ERROR = 'messages.errors.schedulingUnavailable'
+
+/** The release tick runs per organization, so an organization-less message could never be released. */
+function assertSchedulingScope(organizationId: string | null | undefined): void {
+  if (organizationId) return
+  throw new CrudHttpError(422, { error: SCHEDULING_UNAVAILABLE_ERROR, fieldErrors: { scheduledAt: SCHEDULING_UNAVAILABLE_ERROR } })
+}
 
 function isEditableDraft(message: Pick<Message, 'isDraft' | 'status'>): boolean {
   return message.isDraft && (message.status === 'draft' || message.status === 'scheduled')
@@ -688,6 +696,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
 
     const isSending = input.isDraft === false
     const isScheduling = input.scheduledAt instanceof Date
+    if (isScheduling) assertSchedulingScope(message.organizationId)
     const isUnscheduling = input.scheduledAt === null && message.status === 'scheduled'
     const senderChannelId = input.senderChannelId ?? message.senderChannelId ?? null
     const statusBeforeSend = { status: message.status, scheduledAt: message.scheduledAt ?? null }
@@ -748,15 +757,16 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     const finalExternalEmail = draftAddressing ? draftAddressing.externalEmail : message.externalEmail
     if (isSending && !isScheduling && (finalVisibility === 'public' || finalSendViaEmail) && finalExternalEmail) {
       // Every external addressee of the draft (all "to", cc and bcc participants) counts against the budget; scheduling is charged at release.
+      const stored = await findWithDecryption(
+        em,
+        MessageExternalParticipant,
+        { messageId: message.id, tenantId: input.tenantId, organizationId: input.organizationId },
+        undefined,
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
       const participants = draftAddressing
-        ? draftAddressing.participants
-        : await findWithDecryption(
-          em,
-          MessageExternalParticipant,
-          { messageId: message.id, tenantId: input.tenantId, organizationId: input.organizationId },
-          undefined,
-          { tenantId: input.tenantId, organizationId: input.organizationId },
-        )
+        ? [...draftAddressing.participants, ...stored.filter((participant) => participant.role !== 'to')]
+        : stored
       const participantEmails = (participants ?? []).map((participant) => participant.email).filter(Boolean)
       await assertExternalEmailBudget(
         ctx.container,
@@ -800,7 +810,8 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     }, async () => {
       const participantScope = { messageId: message.id, tenantId: input.tenantId, organizationId: input.organizationId }
       if (draftAddressing) {
-        await em.nativeDelete(MessageExternalParticipant, participantScope)
+        // The draft editor addresses only "to"; copies set by a mailbox or CRM send are kept.
+        await em.nativeDelete(MessageExternalParticipant, { ...participantScope, role: 'to' })
         persistExternalParticipants(em, message.id, draftAddressing.participants, input)
         await em.flush()
       }

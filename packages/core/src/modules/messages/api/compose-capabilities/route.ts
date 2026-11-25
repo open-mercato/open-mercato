@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { resolveMessageContext } from '../../lib/routeHelpers'
 import { getScheduleMaxDays } from '../../lib/scheduleLimits'
-import { isSchedulingAvailable } from '../../lib/scheduledSend'
+import { isSchedulingAvailableFor } from '../../lib/scheduledSend'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['messages.compose'] },
@@ -14,9 +14,9 @@ const composeCapabilitiesResponseSchema = z.object({
 })
 
 export async function GET(req: Request) {
-  const { ctx } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req)
   return Response.json({
-    schedulingAvailable: isSchedulingAvailable(ctx.container),
+    schedulingAvailable: isSchedulingAvailableFor(ctx.container, scope.organizationId),
     scheduleMaxDays: getScheduleMaxDays(),
   })
 }

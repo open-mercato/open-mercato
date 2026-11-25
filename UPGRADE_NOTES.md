@@ -295,6 +295,17 @@ stopped is claimed again after 10 minutes; its hand-off is idempotent. Code that
 `MessageStatus` should treat `releasing` like `scheduled`. A draft edit locks the message row, so an
 edit and a release never both win.
 
+Scheduling needs an organization: the release tick runs per organization, so a tenant-wide caller
+without one gets `schedulingAvailable: false` from `GET /api/messages/compose-capabilities`, and
+compose, draft edit and `sendAsUser` answer 422 `messages.errors.schedulingUnavailable`. A draft edit
+that sends only "to" addresses (the standard editor) keeps the message's cc and bcc participants.
+
+**Mailbox partial rejections:** the IMAP and SMTP channel adapters add `metadata.rejectedTransient`,
+the rejected recipients the relay refused with a temporary 4xx code. Outbound delivery retries those
+recipients inside the delivery window (`OM_EMAIL_DELIVERY_MAX_HOURS`) and keeps the link `pending`
+until they settle; permanently rejected recipients fail as before. Custom adapters that do not set
+the field keep the previous behaviour.
+
 ## Messages: scheduled send and saved drafts through a connected mailbox
 
 A message with `senderChannelId` can now be scheduled (the mailbox is checked when scheduling and

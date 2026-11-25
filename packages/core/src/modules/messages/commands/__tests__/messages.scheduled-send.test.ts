@@ -218,6 +218,21 @@ describe('messages scheduled send commands', () => {
       expect(assertExternalEmailBudgetMock).not.toHaveBeenCalled()
     })
 
+    it('refuses to schedule for an organization-less caller, which has no release tick', async () => {
+      const em = createEm()
+      const { ctx } = createCtx(em)
+      await expect(command('messages.messages.compose').execute({
+        recipients: [{ userId: recipientUserId, type: 'to' }],
+        subject: 'Later',
+        body: 'Body',
+        scheduledAt: inMinutes(60).toISOString(),
+        tenantId,
+        organizationId: null,
+        userId: senderUserId,
+      }, ctx)).rejects.toMatchObject({ status: 422, body: { fieldErrors: { scheduledAt: 'messages.errors.schedulingUnavailable' } } })
+      expect(em.transactional).not.toHaveBeenCalled()
+    })
+
     it('rejects a schedule in the past at command validation', async () => {
       const em = createEm()
       const { ctx } = createCtx(em)
@@ -296,6 +311,32 @@ describe('messages scheduled send commands', () => {
       expect(assertExternalEmailBudgetMock).toHaveBeenCalledTimes(1)
     })
 
+    it('keeps copies when the editor re-sends only "to" with a subject edit, and charges them on Send now', async () => {
+      const message = draftMessage({ visibility: 'public', externalEmail: 'lead@example.com', status: 'scheduled', scheduledAt: inMinutes(30) })
+      const { em, ctx } = setup(message)
+      findWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => entity === MessageExternalParticipant
+        ? [{ email: 'lead@example.com', role: 'to' }, { email: 'copy@example.com', role: 'cc' }, { email: 'blind@example.com', role: 'bcc' }]
+        : [{ recipientUserId, recipientType: 'to', deletedAt: null }])
+
+      await command('messages.messages.update_draft').execute({
+        messageId,
+        subject: 'Edited',
+        externalEmails: ['lead@example.com'],
+        scheduledAt: null,
+        isDraft: false,
+        ...scope,
+        userId: senderUserId,
+      }, ctx)
+
+      expect(em.nativeDelete).toHaveBeenCalledWith(MessageExternalParticipant, { messageId, ...scope, role: 'to' })
+      expect(em.nativeDelete).not.toHaveBeenCalledWith(MessageExternalParticipant, { messageId, ...scope })
+      expect(assertExternalEmailBudgetMock).toHaveBeenCalledWith(
+        ctx.container,
+        { tenantId, userId: senderUserId },
+        expect.arrayContaining(['lead@example.com', 'copy@example.com', 'blind@example.com']),
+      )
+    })
+
     it('turns a scheduled message back into a plain draft on scheduledAt: null', async () => {
       const message = draftMessage({ status: 'scheduled', scheduledAt: inMinutes(30) })
       const { ctx } = setup(message)
@@ -321,6 +362,15 @@ describe('messages scheduled send commands', () => {
       )
       expect(eventIds()).toEqual(['messages.message.sent'])
       expect(eventBus.emitEvent).toHaveBeenCalledWith('query_index.upsert_one', expect.objectContaining({ recordId: messageId }), expect.anything())
+    })
+
+    it('refuses to schedule an organization-less draft', async () => {
+      const message = draftMessage({ organizationId: null })
+      const { em, ctx } = setup(message)
+
+      await expect(command('messages.messages.update_draft').execute({ messageId, scheduledAt: inMinutes(30), tenantId, organizationId: null, userId: senderUserId }, ctx))
+        .rejects.toMatchObject({ status: 422 })
+      expect(em.flush).not.toHaveBeenCalled()
     })
 
     it('refuses to edit a message the release worker already holds', async () => {

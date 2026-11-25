@@ -27,7 +27,9 @@ jest.mock('../../../../lib/send-as-user', () => ({
   sendAsUser: (...args: unknown[]) => sendAsUserMock(...args),
 }))
 
-import { POST } from '../route'
+import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi/generator'
+import type { Module, ModuleApiRouteFile } from '@open-mercato/shared/modules/registry'
+import { POST, openApi } from '../route'
 
 function post(body: Record<string, unknown>) {
   return POST(new Request('http://localhost/api/communication_channels/send-as-user', {
@@ -123,5 +125,35 @@ describe('POST /communication_channels/send-as-user — existing message', () =>
     const response = await postExisting({ messageId: '55555555-5555-4555-8555-555555555555' })
 
     expect(response.status).toBe(409)
+  })
+})
+
+describe('POST /api/communication_channels/send-as-user — published request contract', () => {
+  function requestBodyBranches(): Array<Record<string, unknown>> {
+    const routePath = '/communication_channels/send-as-user'
+    const api: ModuleApiRouteFile = {
+      path: routePath,
+      metadata: { POST: { requireAuth: true } },
+      handlers: { POST: async () => new Response(null) },
+      docs: openApi,
+    }
+    const doc = buildOpenApiDocument([{ id: 'communication_channels', apis: [api] } as Module])
+    const schemas = ((doc.components ?? {}) as { schemas?: Record<string, Record<string, unknown>> }).schemas ?? {}
+    const resolve = (schema: Record<string, unknown>) => (typeof schema.$ref === 'string' ? schemas[schema.$ref.split('/').pop() as string] : schema)
+    const operation = doc.paths[routePath].post as { requestBody: { content: Record<string, { schema: Record<string, unknown> }> } }
+    const body = resolve(operation.requestBody.content['application/json'].schema)
+    const branches = (body.anyOf ?? body.oneOf) as Array<Record<string, unknown>> | undefined
+    return (branches ?? [body]).map(resolve)
+  }
+
+  it('documents both the compose request and the existing-message request', () => {
+    const branches = requestBodyBranches()
+    const required = branches.map((branch) => (branch.required as string[] | undefined) ?? [])
+
+    expect(branches).toHaveLength(2)
+    expect(required).toEqual(expect.arrayContaining([
+      expect.arrayContaining(['userChannelId', 'messageId']),
+      expect.arrayContaining(['userChannelId', 'to']),
+    ]))
   })
 })

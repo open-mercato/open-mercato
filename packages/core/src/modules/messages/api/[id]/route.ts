@@ -444,7 +444,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   if (input.scheduledAt) {
-    const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container)
+    const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container, message.organizationId)
     if (scheduleRefusal) return scheduleRefusal
   }
 

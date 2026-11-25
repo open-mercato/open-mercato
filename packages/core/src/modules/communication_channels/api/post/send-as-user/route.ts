@@ -64,6 +64,9 @@ const existingMessageBodySchema = z.object({
   channelMetadata: z.record(z.string(), z.unknown()).optional(),
 })
 
+/** Both request shapes the handler accepts, published as one OpenAPI request body. */
+export const requestBodySchema = z.union([existingMessageBodySchema, bodySchema])
+
 /**
  * Programmatic send-as-user facade (HTTP entry point).
  *
@@ -154,7 +157,9 @@ export const openApi = {
     POST: {
       summary: 'Send a message through the current user\'s own channel',
       tags: ['CommunicationChannels'],
-      requestBody: { required: true, contentType: 'application/json', schema: bodySchema },
+      description:
+        'Composes and sends a new message, or (with `messageId`) delivers an existing sent message of the caller through the channel.',
+      requestBody: { required: true, contentType: 'application/json', schema: requestBodySchema },
       responses: [
         { status: 202, description: 'Message persisted; outbound delivery enqueued' },
         { status: 400, description: 'sendSeparately combined with cc/bcc for more than one recipient' },

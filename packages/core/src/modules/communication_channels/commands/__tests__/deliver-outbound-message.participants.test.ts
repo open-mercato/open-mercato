@@ -29,7 +29,7 @@ jest.mock('../../lib/thread-token', () => ({
   buildReferencesId: jest.fn((token: string) => `<om-${token}>`),
 }))
 
-import deliverOutboundMessageCommand, { planParticipantFailure, splitParticipantsByDeliveryResult } from '../deliver-outbound-message'
+import deliverOutboundMessageCommand, { planParticipantFailure, planRejectedParticipants, splitParticipantsByDeliveryResult } from '../deliver-outbound-message'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageExternalParticipant } from '../../../messages/data/entities'
 import { MessageChannelLink } from '../../data/entities'
@@ -152,7 +152,69 @@ describe('splitParticipantsByDeliveryResult', () => {
   })
 })
 
+describe('planRejectedParticipants', () => {
+  const now = new Date('2026-11-25T10:00:00Z')
+  const rejected = [
+    { id: 'p-b', email: 'b@example.com' },
+    { id: 'p-c', email: 'C@Example.com' },
+  ]
+
+  it('retries a temporarily refused recipient and fails a permanently refused one', () => {
+    const retryAt = new Date('2026-11-25T10:05:00Z')
+    const plan = planRejectedParticipants(
+      rejected,
+      { error: 'relay rejected', transientAddresses: new Set(['c@example.com']), messageSentAt: now, retryAt },
+      now,
+    )
+    expect(plan.failed).toEqual([{ id: 'p-b', error: 'relay rejected' }])
+    expect(plan.retry).toEqual([{ id: 'p-c', error: 'relay rejected', nextAttemptAt: retryAt }])
+  })
+
+  it('fails a temporarily refused recipient once the delivery window is over', () => {
+    const plan = planRejectedParticipants(
+      rejected,
+      { error: 'relay rejected', transientAddresses: new Set(['b@example.com', 'c@example.com']), messageSentAt: new Date('2026-11-20T10:00:00Z') },
+      now,
+    )
+    expect(plan.retry).toBeUndefined()
+    expect(plan.failed?.map((entry) => entry.id)).toEqual(['p-b', 'p-c'])
+  })
+})
+
 describe('deliverOutboundMessageCommand — participants', () => {
+  it('keeps the link pending while a temporarily refused recipient awaits its retry', async () => {
+    const link: Record<string, unknown> = {
+      id: 'link-1',
+      deliveryStatus: 'pending',
+      channelPayload: null,
+      channelMetadata: { subject: 'Hi' },
+    }
+    const { ctx, em } = makeCtx({
+      status: 'failed',
+      externalMessageId: 'smtp-1',
+      error: 'SMTP_SEND_PARTIALLY_REJECTED: relay rejected 1 of 4 recipients',
+      metadata: {
+        accepted: ['a@example.com', 'c@example.com', 'd@example.com'],
+        rejected: ['b@example.com'],
+        rejectedTransient: ['b@example.com'],
+      },
+    })
+    primeFinds(link, participants)
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } },
+      ctx,
+    )
+
+    expect(result).toMatchObject({ status: 'delivered', channelLinkId: 'link-1' })
+    expect(link.deliveryStatus).toBe('pending')
+    const updates = participantUpdates(em)
+    expect(updates[0][2]).toMatchObject({ deliveryStatus: 'sent' })
+    const retry = updates.find(([, where]) => (where as { id?: unknown }).id === 'p-b')
+    expect(retry?.[2]).toMatchObject({ nextAttemptAt: expect.any(Date) })
+    expect(retry?.[2]).not.toMatchObject({ deliveryStatus: 'failed' })
+  })
+
   it('addresses a joint link from all participants and records a partial rejection per participant', async () => {
     const link: Record<string, unknown> = {
       id: 'link-1',

@@ -16,6 +16,15 @@ export function isSchedulingAvailable(container: unknown): boolean {
   return typeof cradle?.hasRegistration === 'function' && cradle.hasRegistration('schedulerService')
 }
 
+/**
+ * Scheduling for a caller: needs the scheduler and an organization, because the
+ * release tick runs per organization; an organization-less (tenant-wide) caller
+ * would leave its messages scheduled forever.
+ */
+export function isSchedulingAvailableFor(container: unknown, organizationId: string | null | undefined): boolean {
+  return Boolean(organizationId) && isSchedulingAvailable(container)
+}
+
 type SchedulerServiceLike = {
   register: (registration: Record<string, unknown>) => Promise<void>
 }

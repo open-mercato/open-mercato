@@ -257,7 +257,7 @@ describe('messages.messages.update_draft command send transition', () => {
     expect(emitMessagesEventMock).not.toHaveBeenCalled()
   })
 
-  it('replaces the draft participant set when the addressees change', async () => {
+  it('replaces the draft "to" participants and keeps copies when the addressees change', async () => {
     const { command, draft, emFork, ctx } = createHarness({ visibility: 'public' })
 
     await command.execute(
@@ -267,7 +267,8 @@ describe('messages.messages.update_draft command send transition', () => {
 
     expect(draft.externalEmail).toBe('a@example.com')
     expect(draft.emailSendSeparately).toBe(true)
-    expect(emFork.nativeDelete).toHaveBeenCalledWith(MessageExternalParticipant, { messageId, tenantId, organizationId })
+    expect(emFork.nativeDelete).toHaveBeenCalledWith(MessageExternalParticipant, { messageId, tenantId, organizationId, role: 'to' })
+    expect(emFork.nativeDelete).not.toHaveBeenCalledWith(MessageExternalParticipant, { messageId, tenantId, organizationId })
     const created = emFork.create.mock.calls
       .filter(([entity]) => entity === MessageExternalParticipant)
       .map(([, data]) => data)

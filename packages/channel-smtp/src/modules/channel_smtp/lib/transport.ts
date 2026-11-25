@@ -47,6 +47,8 @@ export interface SmtpSendInfo {
    */
   accepted?: string[]
   rejected?: string[]
+  /** The rejected recipients the relay refused only temporarily (SMTP 4xx); worth retrying. */
+  rejectedTransient?: string[]
 }
 
 /**
@@ -108,6 +110,17 @@ function toAddressStrings(value: unknown): string[] | undefined {
   })
 }
 
+/** Recipients the relay refused with a temporary (4xx) code; nodemailer lists them in `rejectedErrors`. */
+export function toTransientRejections(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const addresses = value
+    .filter((entry): entry is { recipient?: unknown; responseCode?: unknown } => Boolean(entry) && typeof entry === 'object')
+    .filter((entry) => typeof entry.responseCode === 'number' && entry.responseCode >= 400 && entry.responseCode < 500)
+    .map((entry) => entry.recipient)
+    .filter((recipient): recipient is string => typeof recipient === 'string')
+  return addresses.length ? addresses : undefined
+}
+
 class NodemailerTransport implements SmtpTransport {
   async send(connection: SmtpConnection, message: SmtpMessage): Promise<SmtpSendInfo> {
     const transporter = await createTransporter(connection)
@@ -120,11 +133,14 @@ class NodemailerTransport implements SmtpTransport {
         ...(message.html ? { html: message.html } : {}),
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
         ...(message.attachments?.length ? { attachments: message.attachments } : {}),
-      })) as SmtpSendInfo
+      })) as SmtpSendInfo & { rejectedErrors?: unknown }
+      const { rejectedErrors, ...sent } = info
+      const rejectedTransient = toTransientRejections(rejectedErrors)
       return {
-        ...info,
+        ...sent,
         ...(toAddressStrings(info.accepted) ? { accepted: toAddressStrings(info.accepted) } : {}),
         ...(toAddressStrings(info.rejected) ? { rejected: toAddressStrings(info.rejected) } : {}),
+        ...(rejectedTransient ? { rejectedTransient } : {}),
       }
     } finally {
       // Close on every path: a failed send (bad password, unreachable relay —

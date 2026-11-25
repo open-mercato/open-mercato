@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { z } from 'zod'
-import { isSchedulingAvailable } from './scheduledSend'
+import { isSchedulingAvailableFor } from './scheduledSend'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -257,9 +257,9 @@ export function buildValidationFieldErrors(error: z.ZodError): Record<string, st
   return fieldErrors
 }
 
-/** Scheduling needs the scheduler module, which runs the release tick. */
-export async function refuseUnsupportedSchedule(container: unknown): Promise<Response | null> {
-  if (isSchedulingAvailable(container)) return null
+/** Scheduling needs the scheduler module and an organization, whose release tick sends the message. */
+export async function refuseUnsupportedSchedule(container: unknown, organizationId: string | null | undefined): Promise<Response | null> {
+  if (isSchedulingAvailableFor(container, organizationId)) return null
   const { translate } = await resolveTranslations()
   const error = translate('messages.errors.schedulingUnavailable', 'Scheduled sending is not available.')
   return Response.json({ error, fieldErrors: { scheduledAt: error } }, { status: 422 })
