@@ -52,5 +52,5 @@ Found while reviewing #10504. It was already there before that PR.
 
 ### Phase 2: Docs
 
-- [ ] 2.1 Document the 502 structured_output_invalid response in agents.mdx
+- [x] 2.1 Document the 502 structured_output_invalid response in agents.mdx — 0b3b5421f9
 - [ ] 2.2 Run the validation gate
