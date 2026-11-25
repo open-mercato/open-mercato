@@ -328,6 +328,7 @@
   "ai_assistant.errors.pendingRecordNotPreviewed": "This record was not part of the approved preview, so it was not changed.",
   "ai_assistant.errors.pendingRecordStale": "Record version changed since preview.",
   "ai_assistant.errors.pendingSingleRecordStale": "Record version changed since preview; re-propose the mutation.",
+  "ai_assistant.errors.structuredOutputInvalid": "The model did not return an answer that matches the agent output schema.",
   "ai_assistant.errors.toolFeaturesDenied": "Caller lacks one of the tool's required features: {features}",
   "ai_assistant.launcher.composerPlaceholder": "Ask anything…",
   "ai_assistant.launcher.dialogDescription": "Pick an assistant. Use ↑/↓ to navigate, Enter to launch, Esc to close.",

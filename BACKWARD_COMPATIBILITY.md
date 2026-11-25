@@ -720,6 +720,10 @@ The STABLE attachment library API response and the enrichment helper signature r
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
 
+## 2026-11-24 — Trace ingest
+
+STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
 ## System dictionaries (#10341, 2026-11-25)
 
 STABLE PATCH and DELETE. A bridge can orphan module lookups. [Migration](UPGRADE_NOTES.md#system-dictionary-preservation-10341). Named waiver pending.
