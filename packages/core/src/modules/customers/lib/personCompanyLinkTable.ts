@@ -40,22 +40,22 @@ export async function withActiveCustomerPersonCompanyLinkFilter<T extends Record
   _em: EntityManager,
   where: T,
   _source: string,
-): Promise<T & { deletedAt?: null }> {
-  return { ...where, deletedAt: null }
+): Promise<T & { deletedAt?: null; employmentStatus: 'active' }> {
+  return { ...where, deletedAt: null, employmentStatus: 'active' }
 }
 
 /**
- * Drop soft-deleted link rows from a result set as a defense-in-depth fallback.
+ * Drop soft-deleted and ended link rows from a result set as a defense-in-depth fallback.
  * MikroORM has historically dropped `deletedAt: null` from the WHERE clause for
  * nullable date columns under certain configurations, so callers SHOULD apply this
  * after `findWithDecryption(...)` until the upstream query filter is verified to
  * fully cover all callers.
  */
-export function filterActivePersonCompanyLinks<T extends { deletedAt?: Date | string | null | undefined }>(
+export function filterActivePersonCompanyLinks<T extends { deletedAt?: Date | string | null; employmentStatus?: string }>(
   links: T[] | null | undefined,
 ): T[] {
   if (!Array.isArray(links)) return []
-  return links.filter((entry) => entry?.deletedAt == null)
+  return links.filter((entry) => entry?.deletedAt == null && entry?.employmentStatus !== 'ended')
 }
 
 export type CustomerLinkTenantScope = {

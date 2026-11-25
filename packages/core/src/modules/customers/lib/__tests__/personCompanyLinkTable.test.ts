@@ -1,4 +1,5 @@
 import {
+  filterActivePersonCompanyLinks,
   withActiveCustomerPersonCompanyLinkFilter,
   withCustomerPersonCompanyLinkScope,
   withScopedCustomerDealLinkWhere,
@@ -40,7 +41,15 @@ describe('customer link-table tenant/org scoping (#2736)', () => {
     it('composes with the active-link filter to a fully scoped WHERE', async () => {
       const scoped = withCustomerPersonCompanyLinkScope({ company: 'company-1' }, { tenantId, organizationId })
       const where = await withActiveCustomerPersonCompanyLinkFilter({} as never, scoped, 'test')
-      expect(where).toEqual({ company: 'company-1', tenantId, organizationId, deletedAt: null })
+      expect(where).toEqual({ company: 'company-1', tenantId, organizationId, deletedAt: null, employmentStatus: 'active' })
+    })
+
+    it('omits ended rows even when a query includes them', () => {
+      const activeLink = { id: 'active-link', employmentStatus: 'active', deletedAt: null }
+      const endedLink = { id: 'ended-link', employmentStatus: 'ended', deletedAt: null }
+      const deletedLink = { id: 'deleted-link', employmentStatus: 'active', deletedAt: new Date() }
+
+      expect(filterActivePersonCompanyLinks([activeLink, endedLink, deletedLink])).toEqual([activeLink])
     })
   })
 

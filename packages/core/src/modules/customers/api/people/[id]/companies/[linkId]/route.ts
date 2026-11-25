@@ -43,9 +43,14 @@ async function resolveLinkId(
   organizationId: string | null,
 ): Promise<string | null> {
   const decryptionScope = { tenantId, organizationId }
-  const directFilter: FilterQuery<CustomerPersonCompanyLink> = organizationId
-    ? { id: rawLinkId, tenantId, organizationId, deletedAt: null }
-    : { id: rawLinkId, tenantId, deletedAt: null }
+  const activeFilter = {
+    person: personEntityId,
+    tenantId,
+    ...(organizationId ? { organizationId } : {}),
+    deletedAt: null,
+    employmentStatus: 'active' as const,
+  }
+  const directFilter: FilterQuery<CustomerPersonCompanyLink> = { ...activeFilter, id: rawLinkId }
   const direct = await findOneWithDecryption(
     em,
     CustomerPersonCompanyLink,
@@ -55,15 +60,7 @@ async function resolveLinkId(
   )
   if (direct) return direct.id
 
-  const companyFilter: FilterQuery<CustomerPersonCompanyLink> = organizationId
-    ? {
-        person: personEntityId,
-        company: rawLinkId,
-        tenantId,
-        organizationId,
-        deletedAt: null,
-      }
-    : { person: personEntityId, company: rawLinkId, tenantId, deletedAt: null }
+  const companyFilter: FilterQuery<CustomerPersonCompanyLink> = { ...activeFilter, company: rawLinkId }
   const viaCompany = await findOneWithDecryption(
     em,
     CustomerPersonCompanyLink,

@@ -40,6 +40,21 @@ export async function findDeletedPersonCompanyLink(
   return link ?? null
 }
 
+export async function findEndedPersonCompanyLink(
+  em: EntityManager,
+  person: CustomerEntity,
+  company: CustomerEntity,
+): Promise<CustomerPersonCompanyLink | null> {
+  const scope = { organizationId: person.organizationId, tenantId: person.tenantId }
+  return await findOneWithDecryption(
+    em,
+    CustomerPersonCompanyLink,
+    { person, company, ...scope, deletedAt: null, employmentStatus: 'ended' },
+    {},
+    scope,
+  ) ?? null
+}
+
 async function requireCompany(
   em: EntityManager,
   companyId: string,
@@ -60,6 +75,8 @@ export type CompanyPersonUnionEntry = {
   entity: CustomerEntity
   profile: CustomerPersonProfile | null
   linkedAt: string | null
+  linkId?: string | null
+  updatedAt?: string | null
 }
 
 /**
@@ -74,6 +91,7 @@ export async function loadCompanyPeopleUnion(
   company: CustomerEntity,
   scope: { tenantId?: string | null; organizationId?: string | null },
 ): Promise<CompanyPersonUnionEntry[]> {
+  const companyScope = { tenantId: company.tenantId, organizationId: company.organizationId }
   const decryptionScope = {
     tenantId: scope.tenantId ?? company.tenantId ?? null,
     organizationId: scope.organizationId ?? company.organizationId ?? null,
@@ -82,7 +100,7 @@ export async function loadCompanyPeopleUnion(
 
   const companyLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
     em,
-    { company: company.id, organizationId: company.organizationId, tenantId: company.tenantId },
+    { company: company.id, ...companyScope },
     'customers.companies.loadCompanyPeopleUnion',
   )
   const companyLinks = filterActivePersonCompanyLinks(
@@ -103,6 +121,8 @@ export async function loadCompanyPeopleUnion(
       entity,
       profile: personProfile,
       linkedAt: link.createdAt instanceof Date ? link.createdAt.toISOString() : null,
+      linkId: link.id,
+      updatedAt: link.updatedAt instanceof Date ? link.updatedAt.toISOString() : null,
     })
   })
 
@@ -113,7 +133,10 @@ export async function loadCompanyPeopleUnion(
       company: company.id,
       tenantId: company.tenantId,
       organizationId: company.organizationId,
-      entity: { deletedAt: null },
+      entity: {
+        deletedAt: null,
+        personCompanyLinks: { $none: { company: company.id, ...companyScope, deletedAt: null, employmentStatus: 'ended' } },
+      },
     },
     { populate: ['entity'] },
     decryptionScope,
@@ -126,6 +149,8 @@ export async function loadCompanyPeopleUnion(
         entity,
         profile: entry ?? null,
         linkedAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
+        linkId: null,
+        updatedAt: entry.updatedAt instanceof Date ? entry.updatedAt.toISOString() : null,
       })
     }
   })
@@ -159,7 +184,7 @@ export async function countCompanyPeopleUnion(
   )
   const companyLinks = filterActivePersonCompanyLinks(
     await em.find(CustomerPersonCompanyLink, companyLinkWhere as any, {
-      fields: ['person', 'deletedAt'],
+      fields: ['person', 'deletedAt', 'employmentStatus'],
     } as any),
   )
   companyLinks.forEach((link) => {
@@ -173,7 +198,19 @@ export async function countCompanyPeopleUnion(
       company: company.id,
       tenantId: company.tenantId,
       organizationId: company.organizationId,
-      entity: { kind: 'person', deletedAt: null },
+      entity: {
+        kind: 'person',
+        deletedAt: null,
+        personCompanyLinks: {
+          $none: {
+            company: company.id,
+            organizationId: company.organizationId,
+            tenantId: company.tenantId,
+            deletedAt: null,
+            employmentStatus: 'ended',
+          },
+        },
+      },
     } as any,
     { fields: ['entity'] } as any,
   )
@@ -189,21 +226,19 @@ export async function countCompanyPeopleUnion(
 export async function loadPersonCompanyLinks(
   em: EntityManager,
   person: CustomerEntity,
+  options?: { includeEnded?: boolean; refresh?: boolean },
 ): Promise<CustomerPersonCompanyLink[]> {
-  const where = await withActiveCustomerPersonCompanyLinkFilter(
+  const scope = { organizationId: person.organizationId, tenantId: person.tenantId }
+  const baseFilter = { person, ...scope, deletedAt: null }
+  const where = options?.includeEnded ? baseFilter : { ...baseFilter, employmentStatus: 'active' as const }
+  const links = await findWithDecryption(
     em,
-    { person, organizationId: person.organizationId, tenantId: person.tenantId },
-    'customers.personCompanies.loadPersonCompanyLinks',
+    CustomerPersonCompanyLink,
+    where,
+    { populate: ['company'], orderBy: { isPrimary: 'desc', createdAt: 'asc' }, refresh: options?.refresh },
+    scope,
   )
-  return filterActivePersonCompanyLinks(
-    await findWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      where,
-      { populate: ['company'], orderBy: { isPrimary: 'desc', createdAt: 'asc' } },
-      { tenantId: person.tenantId, organizationId: person.organizationId },
-    ),
-  )
+  return options?.includeEnded ? links.filter((link) => link.deletedAt == null) : filterActivePersonCompanyLinks(links)
 }
 
 export function summarizePersonCompanies(
@@ -239,11 +274,19 @@ export function summarizePersonCompanies(
   ]
 }
 
-async function clearPrimaryFlags(em: EntityManager, person: CustomerEntity): Promise<void> {
+async function clearPrimaryFlags(em: EntityManager, person: CustomerEntity, exceptLinkId?: string): Promise<void> {
   await em.nativeUpdate(
     CustomerPersonCompanyLink,
-    { person, organizationId: person.organizationId, tenantId: person.tenantId, isPrimary: true },
-    { isPrimary: false },
+    {
+      person,
+      organizationId: person.organizationId,
+      tenantId: person.tenantId,
+      isPrimary: true,
+      deletedAt: null,
+      employmentStatus: 'active',
+      ...(exceptLinkId ? { id: { $ne: exceptLinkId } } : {}),
+    },
+    { isPrimary: false, updatedAt: new Date() },
   )
 }
 
@@ -270,7 +313,7 @@ export async function promoteFallbackPrimaryLink(
     return
   }
 
-  await clearPrimaryFlags(em, person)
+  await clearPrimaryFlags(em, person, nextPrimary.id)
   nextPrimary.isPrimary = true
   const nextCompany = resolveLinkedCompany(nextPrimary)
   if (nextCompany) {
@@ -300,22 +343,21 @@ export async function syncLegacyPrimaryCompanyLink(
     existingLinks.find((link) => (typeof link.company === 'string' ? link.company : link.company.id) === company.id) ?? null
 
   if (currentLink) {
-    if (!currentLink.isPrimary) {
-      await clearPrimaryFlags(em, person)
-      currentLink.isPrimary = true
-    } else if (existingLinks.some((link) => link.id !== currentLink.id && link.isPrimary)) {
-      await clearPrimaryFlags(em, person)
+    if (!currentLink.isPrimary || existingLinks.some((link) => link.id !== currentLink.id && link.isPrimary)) {
+      await clearPrimaryFlags(em, person, currentLink.id)
       currentLink.isPrimary = true
     }
   } else {
+    const endedLink = await findEndedPersonCompanyLink(em, person, company)
     await clearPrimaryFlags(em, person)
-    const link = em.create(CustomerPersonCompanyLink, {
+    const link = endedLink ?? em.create(CustomerPersonCompanyLink, {
       organizationId: person.organizationId,
       tenantId: person.tenantId,
       person,
       company,
-      isPrimary: true,
     })
+    link.employmentStatus = 'active'
+    link.isPrimary = true
     em.persist(link)
   }
 
@@ -348,17 +390,19 @@ export async function addPersonCompanyLink(
     await clearPrimaryFlags(em, person)
   }
 
-  const deletedLink = await findDeletedPersonCompanyLink(em, person, company)
-  const link = deletedLink ?? em.create(CustomerPersonCompanyLink, {
+  const endedLink = await findEndedPersonCompanyLink(em, person, company)
+  const historicalLink = endedLink ?? await findDeletedPersonCompanyLink(em, person, company)
+  const link = historicalLink ?? em.create(CustomerPersonCompanyLink, {
     organizationId: person.organizationId,
     tenantId: person.tenantId,
     person,
     company,
     isPrimary: makePrimary,
   })
-  if (deletedLink) {
-    deletedLink.deletedAt = null
-    deletedLink.isPrimary = makePrimary
+  if (historicalLink) {
+    historicalLink.deletedAt = null
+    historicalLink.employmentStatus = 'active'
+    historicalLink.isPrimary = makePrimary
   }
   em.persist(link)
 

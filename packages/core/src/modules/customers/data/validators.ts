@@ -880,6 +880,18 @@ export const personCompanyLinkUpdateSchema = scopedSchema.extend({
   isPrimary: z.boolean(),
 })
 
+export const personCompanyEmploymentEndSchema = z.object({
+  endedOn: z.iso.date().refine((date) => date <= new Date().toISOString().slice(0, 10)),
+})
+
+export const personCompanyEmploymentEndCommandSchema = scopedSchema.extend({
+  ...personCompanyEmploymentEndSchema.shape,
+  personEntityId: uuid(),
+  companyEntityId: uuid(),
+})
+
+export type PersonCompanyEmploymentEndInput = z.infer<typeof personCompanyEmploymentEndCommandSchema>
+
 // Two shapes are accepted, because a person can belong to a company in two ways:
 // through a `customer_person_company_links` row (`linkId`), or through a legacy
 // profile-only assignment where `customer_person_profiles.company_id` is set and no

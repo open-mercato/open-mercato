@@ -8,6 +8,7 @@ const mockEmitCrudSideEffects = jest.fn(async () => undefined)
 const mockEmitCrudUndoSideEffects = jest.fn(async () => undefined)
 const mockEmitQueryIndexDeleteEvents = jest.fn(async (..._args: unknown[]) => undefined)
 const mockEmitQueryIndexUpsertEvents = jest.fn(async (..._args: unknown[]) => undefined)
+const mockLoadPersonCompanyLinks = jest.fn(async (): Promise<unknown[]> => [])
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: [unknown, unknown, unknown]) => mockFindWithDecryption(...args),
@@ -31,7 +32,7 @@ jest.mock('../../lib/customFieldRouting', () => ({
 }))
 
 jest.mock('../../lib/personCompanies', () => ({
-  loadPersonCompanyLinks: async () => [],
+  loadPersonCompanyLinks: () => mockLoadPersonCompanyLinks(),
   summarizePersonCompanies: () => [],
   syncLegacyPrimaryCompanyLink: async () => undefined,
 }))
@@ -53,6 +54,7 @@ import {
   CustomerInteraction,
   CustomerLabel,
   CustomerLabelAssignment,
+  CustomerPersonCompanyLink,
   CustomerPersonProfile,
 } from '../../data/entities'
 
@@ -131,6 +133,8 @@ function makeFixture() {
     interactions: [] as CustomerInteraction[],
     labels: [] as CustomerLabel[],
     labelAssignments: [] as CustomerLabelAssignment[],
+    companies: [] as CustomerEntity[],
+    companyLinks: [] as CustomerPersonCompanyLink[],
     entity: entity as CustomerEntity | null,
     profile: profile as CustomerPersonProfile | null,
   }
@@ -139,6 +143,7 @@ function makeFixture() {
     shares: [...state.shares],
     interactions: [...state.interactions],
     labelAssignments: [...state.labelAssignments],
+    companyLinks: [...state.companyLinks],
   })
   let transactionSnapshot = snapshotState()
   const em = {
@@ -150,6 +155,7 @@ function makeFixture() {
       if (entityClass === CustomerEmailConversationShare) state.shares = state.shares.filter((share) => !matchesShare(share, where))
       if (entityClass === CustomerInteraction) state.interactions = []
       if (entityClass === CustomerLabelAssignment) state.labelAssignments = []
+      if (entityClass === CustomerPersonCompanyLink) state.companyLinks = []
       return 0
     }),
     nativeUpdate: jest.fn(async (entityClass: unknown, where: Record<string, unknown>, values: Record<string, unknown>) => {
@@ -178,6 +184,7 @@ function makeFixture() {
       }
       if (entityClass === CustomerInteraction) return Object.assign(new CustomerInteraction(), values)
       if (entityClass === CustomerLabelAssignment) return Object.assign(new CustomerLabelAssignment(), values)
+      if (entityClass === CustomerPersonCompanyLink) return Object.assign(new CustomerPersonCompanyLink(), values)
       return values
     }),
     persist: jest.fn((record: unknown) => {
@@ -186,6 +193,7 @@ function makeFixture() {
       if (record instanceof CustomerPersonProfile) state.profile = record
       if (record instanceof CustomerInteraction) state.interactions.push(record)
       if (record instanceof CustomerLabelAssignment) state.labelAssignments.push(record)
+      if (record instanceof CustomerPersonCompanyLink) state.companyLinks.push(record)
     }),
     flush: jest.fn(async () => undefined),
     begin: jest.fn(async () => { transactionSnapshot = snapshotState() }),
@@ -194,11 +202,13 @@ function makeFixture() {
     getReference: jest.fn((_entityClass: unknown, id: string) => ({ id })),
   }
   em.fork.mockReturnValue(em)
+  mockLoadPersonCompanyLinks.mockImplementation(async () => state.companyLinks)
   mockFindOneWithDecryption.mockImplementation(async (_manager, entityClass) => em.findOne(entityClass))
   mockFindWithDecryption.mockImplementation(async (_manager, entityClass, where) => {
     if (entityClass === CustomerEmailConversationShare) return state.shares.filter((share) => matchesShare(share, asRecord(where)))
     if (entityClass === CustomerLabelAssignment) return state.labelAssignments
     if (entityClass === CustomerLabel) return state.labels
+    if (entityClass === CustomerEntity && asRecord(where).kind === 'company') return state.companies
     return em.find(entityClass, asRecord(where))
   })
   const dataEngine = {
@@ -289,7 +299,7 @@ describe('Person delete and undo preserve conversation shares', () => {
     fixture.state.shares = fixture.shares.filter((share) => status === 'active' ? !share.deletedAt : Boolean(share.deletedAt))
     const neighbor = Object.assign(new CustomerEmailConversationShare(), fixture.shares[0], { id: 'neighbor-share', personEntity: { id: 'neighbor-person' } })
     fixture.state.shares.push(neighbor)
-    await expect(getHandler('customers.people.delete').execute({ body: { id: PERSON_ID } }, fixture.ctx)).resolves.toEqual({ entityId: PERSON_ID, labelAssignments: [] })
+    await expect(getHandler('customers.people.delete').execute({ body: { id: PERSON_ID } }, fixture.ctx)).resolves.toMatchObject({ entityId: PERSON_ID, labelAssignments: [] })
     expect(fixture.state.entity).toBeNull()
     expect(fixture.state.shares).toEqual([neighbor])
     expect(fixture.em.nativeDelete).toHaveBeenCalledWith(CustomerEmailConversationShare, { personEntity: fixture.entity, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID })
@@ -333,6 +343,35 @@ describe('Person delete and undo preserve conversation shares', () => {
     await expect(handler.undo?.({ input, ctx: fixture.ctx, logEntry: { commandPayload: { undo: { before } } } })).resolves.toBeUndefined()
     expect(fixture.state.shares).toEqual([])
     expect(fixture.em.commit).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores an association ended after the initial person-delete snapshot', async () => {
+    const fixture = makeFixture()
+    const company = Object.assign(new CustomerEntity(), {
+      id: 'company-former', kind: 'company', tenantId: TENANT_ID, organizationId: ORGANIZATION_ID,
+    })
+    fixture.state.companies.push(company)
+    const link = Object.assign(new CustomerPersonCompanyLink(), {
+      id: 'employment-link', tenantId: TENANT_ID, organizationId: ORGANIZATION_ID,
+      company, person: fixture.entity, createdAt: CREATED_AT,
+    })
+    fixture.state.companyLinks.push(link)
+    const handler = getHandler('customers.people.delete')
+    const input = { body: { id: PERSON_ID } }
+    const snapshots = await handler.prepare?.(input, fixture.ctx)
+    link.employmentStatus = 'ended'
+    link.employmentEndedOn = '2026-09-29'
+
+    const result = await handler.execute(input, fixture.ctx)
+    expect(fixture.state.companyLinks).toEqual([])
+    const log = await handler.buildLog?.({ input, result, ctx: fixture.ctx, snapshots: snapshots ?? {} })
+    if (!log) throw new Error('[internal] Missing employment history delete log')
+    await handler.undo?.({ input, ctx: fixture.ctx, logEntry: { commandPayload: JSON.parse(JSON.stringify(log.payload)) } })
+
+    expect(fixture.state.companyLinks).toEqual([expect.objectContaining({
+      id: link.id, company, employmentStatus: 'ended', employmentEndedOn: '2026-09-29',
+      isPrimary: false, createdAt: CREATED_AT,
+    })])
   })
 
   it('preserves private email state, another owner\'s label and share history across delete, undo, redo and undo', async () => {

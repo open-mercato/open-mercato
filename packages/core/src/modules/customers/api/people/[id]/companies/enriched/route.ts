@@ -190,7 +190,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       em,
       {
         person,
-        tenantId: auth.tenantId,
+        ...entityScope,
       },
       'customers.people.companiesEnriched.GET',
     )

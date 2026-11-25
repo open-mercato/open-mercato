@@ -1,10 +1,12 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   countCompanyPeopleUnion,
   loadCompanyPeopleUnion,
   removePersonCompanyLink,
+  syncLegacyPrimaryCompanyLink,
   updatePersonCompanyLink,
 } from '../personCompanies'
-import { CustomerPersonCompanyLink, CustomerPersonProfile } from '../../data/entities'
+import { CustomerEntity, CustomerPersonCompanyLink, CustomerPersonProfile } from '../../data/entities'
 
 describe('personCompanies primary-company invariants', () => {
   const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -70,8 +72,35 @@ describe('personCompanies primary-company invariants', () => {
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       expect.any(Function),
       expect.objectContaining({ organizationId, tenantId, isPrimary: true }),
-      { isPrimary: false },
+      { isPrimary: false, updatedAt: expect.any(Date) },
     )
+  })
+
+  it('reactivates the same dated link when an ended company is selected as primary', async () => {
+    const person = Object.assign(new CustomerEntity(), { id: 'person-1', tenantId, organizationId })
+    const company = Object.assign(new CustomerEntity(), { id: 'company-1', tenantId, organizationId })
+    const profile = new CustomerPersonProfile()
+    const endedLink = Object.assign(new CustomerPersonCompanyLink(), {
+      id: 'link-1',
+      person,
+      company,
+      employmentStatus: 'ended',
+      employmentEndedOn: '2026-11-15',
+    })
+    const em = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn((entity: unknown) => Promise.resolve(entity === CustomerEntity ? company : endedLink)),
+      nativeUpdate: jest.fn().mockResolvedValue(0),
+      create: jest.fn(),
+      persist: jest.fn(),
+    }
+
+    await syncLegacyPrimaryCompanyLink(em as unknown as EntityManager, person, profile, company.id)
+
+    expect(endedLink).toMatchObject({ employmentStatus: 'active', employmentEndedOn: '2026-11-15', isPrimary: true })
+    expect(em.persist).toHaveBeenCalledWith(endedLink)
+    expect(em.create).not.toHaveBeenCalled()
+    expect(profile.company).toBe(company)
   })
 })
 
@@ -171,7 +200,7 @@ describe('countCompanyPeopleUnion', () => {
       deletedAt: null,
       person: { kind: 'person', deletedAt: null },
     })
-    expect(linkCall?.options).toEqual({ fields: ['person', 'deletedAt'] })
+    expect(linkCall?.options).toEqual({ fields: ['person', 'deletedAt', 'employmentStatus'] })
 
     const profileCall = calls.find((call) => call.entity === CustomerPersonProfile)
     expect(profileCall?.where).toMatchObject({
@@ -183,11 +212,12 @@ describe('countCompanyPeopleUnion', () => {
     expect(profileCall?.options).toEqual({ fields: ['entity'] })
   })
 
-  it('drops soft-deleted link rows that slipped past the query filter', async () => {
+  it('drops soft-deleted and ended link rows that slipped past the query filter', async () => {
     const { em } = createEm(
       [
         { person: { id: 'person-active' }, deletedAt: null },
         { person: { id: 'person-detached' }, deletedAt: new Date('2026-03-01') },
+        { person: { id: 'person-ended' }, deletedAt: null, employmentStatus: 'ended' },
       ],
       [],
     )
