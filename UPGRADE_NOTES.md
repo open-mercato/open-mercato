@@ -17,6 +17,15 @@ See [Staff identity boundaries](.ai/specs/2026-11-24-staff-identity-boundaries.m
 - Grouped analytics returns at most 100 groups when a request omits a limit. Its grouped total reflects the returned buckets. Supply a lower limit or narrow the underlying data as needed. Analytics interceptors can narrow filters for the requested entity.
 - The PostgreSQL vector runtime leaves the shared index intact on dimension changes. Operators should provision and validate a replacement index, then switch settings and reindex in a controlled migration.
 
+## Production fullapp LocalStack binds to loopback (#10342)
+
+The production fullapp `storage-s3` profile now publishes LocalStack on
+`127.0.0.1` by default. `LOCALSTACK_PORT` still controls the host port, and
+containers on the Compose network can still connect to `localstack:4566`.
+Operators who intentionally use remote tooling must set `INFRA_BIND_HOST`
+to the specific host interface they want to expose, then recreate LocalStack
+with the updated Compose file.
+
 ## CRUD factory security and query correctness bundle
 
 These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
