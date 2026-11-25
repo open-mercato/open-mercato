@@ -47,6 +47,7 @@ function createCtx(em: unknown, mapping: MappingRow | null = { tenantId: TENANT_
   const domainMappingService = { findById: jest.fn(async () => mapping) }
   const ctx = {
     container: {
+      hasRegistration: (name: string) => name === 'em' || name === 'domainMappingService',
       resolve: (name: string) => {
         if (name === 'em') return em
         if (name === 'domainMappingService') return domainMappingService

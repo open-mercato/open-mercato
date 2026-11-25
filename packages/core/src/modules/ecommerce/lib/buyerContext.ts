@@ -28,7 +28,9 @@ import type { BuyerContext, StoreContext } from './types'
  * `composeStoreContext` because it includes the effective locale.
  */
 
-export type BuyerContextContainer = CacheContainer
+export type BuyerContextContainer = CacheContainer & {
+  hasRegistration?: (name: string) => boolean
+}
 
 export const ASSORTMENT_EMPTY_THROTTLE_MS = 3_600_000
 
@@ -62,6 +64,14 @@ function tryResolve<T>(container: BuyerContextContainer, name: string): T | null
   } catch {
     return null
   }
+}
+
+function resolveCustomerGroupsService(container: BuyerContextContainer): CustomerGroupsService | null {
+  const serviceName = 'customerGroupsService'
+  if (container.hasRegistration?.(serviceName) === false) return null
+  const service = container.resolve(serviceName) as CustomerGroupsService | null | undefined
+  if (service == null) throw new Error(`[internal] ecommerce buyer context requires the DI service ${serviceName}`)
+  return service
 }
 
 function requireService<T>(container: BuyerContextContainer, name: string): T {
@@ -220,7 +230,8 @@ export async function resolveAnonymousAssortmentScope(
   input: { tenantId: string; channelAssortmentScope: AssortmentScope | null; requireAuthentication: boolean },
 ): Promise<EffectiveAssortmentScope> {
   if (input.requireAuthentication) return []
-  const service = requireService<CustomerGroupsService>(container, 'customerGroupsService')
+  const service = resolveCustomerGroupsService(container)
+  if (!service) return intersectScopes(input.channelAssortmentScope, null)
   return resolveEffectiveAssortment(service, input.tenantId, input.channelAssortmentScope, ANONYMOUS_IDENTITY)
 }
 
@@ -288,7 +299,16 @@ async function resolveBuyerGroupLayer(
       assortmentScope: [],
     }
   }
-  const service = requireService<CustomerGroupsService>(container, 'customerGroupsService')
+  const service = resolveCustomerGroupsService(container)
+  if (!service) {
+    return {
+      customerGroupIds: [],
+      priceKindId: store.channel.priceKindId ?? null,
+      allowPurchaseOnAccount: false,
+      approvalRequiredAbove: null,
+      assortmentScope: intersectScopes(store.channel.assortmentScope, null),
+    }
+  }
   const groups = await service.resolveGroups({
     customerId: identity.customerId,
     customerIds: identity.customerIds,

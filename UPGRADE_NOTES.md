@@ -126,6 +126,18 @@ The attachment library automatically fills in assignment labels and links only w
 
 Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
 
+## `ecommerce` treats `customer_groups` and `customer_accounts` as optional peers (#9196)
+
+`ecommerce` now declares `requires: ['catalog', 'sales']`. With `customer_groups` disabled,
+storefront buyer context falls back to channel-only pricing and assortment (no group terms,
+no purchase on account, no approval threshold). With `customer_accounts` disabled, hostname
+routing returns 404, and slug-based storefront requests require `OM_ECOMMERCE_DEV_STORE_SLUG=true`.
+A store domain binding that sets `domainMappingId` still returns a 400 validation error in this
+configuration. Behavior is unchanged when both optional modules are enabled. Previously,
+`yarn generate` required both modules in the enabled module list. Keep them enabled in
+`src/modules.ts` if your app uses their features. See
+[module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
+
 ## Fullapp development agent authentication (#9116)
 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.

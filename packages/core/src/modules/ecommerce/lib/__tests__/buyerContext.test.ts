@@ -13,7 +13,12 @@ import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/
 import { CatalogPriceKind } from '@open-mercato/core/modules/catalog/data/entities'
 import { ecommerceStoreSettingsSchema, type EcommercePriceDisplayMode } from '../../data/validators'
 import { emitEcommerceEvent } from '../../events'
-import { composeStoreContext, resolveBuyerContext, type BuyerContextContainer } from '../buyerContext'
+import {
+  composeStoreContext,
+  resolveAnonymousAssortmentScope,
+  resolveBuyerContext,
+  type BuyerContextContainer,
+} from '../buyerContext'
 import { BUYER_CONTEXT_TTL_MS } from '../cacheKeys'
 import { StorefrontResolutionError, type ResolvedStore } from '../storeContext'
 
@@ -63,6 +68,8 @@ type HarnessOptions = {
   groupsByCustomer?: Record<string, GroupFixture>
   defaultGroup?: GroupFixture
   overlayCustomerIds?: string[]
+  withoutCustomerGroups?: boolean
+  customerGroupsResolutionError?: Error
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -153,10 +160,16 @@ function createHarness(options: HarnessOptions = {}) {
     },
   } as unknown as CacheStrategy
 
-  const services: Record<string, unknown> = { em, cache, customerGroupsService }
+  const services: Record<string, unknown> = options.withoutCustomerGroups
+    ? { em, cache }
+    : { em, cache, customerGroupsService }
   const container: BuyerContextContainer = {
+    hasRegistration: (name: string) => Object.hasOwn(services, name),
     resolve: (name: string) => {
       if (!(name in services)) throw new Error(`[internal] unregistered ${name}`)
+      if (name === 'customerGroupsService' && options.customerGroupsResolutionError) {
+        throw options.customerGroupsResolutionError
+      }
       return services[name]
     },
   }
@@ -589,6 +602,117 @@ describe('resolveBuyerContext', () => {
       expect(harness.customerGroupsService.resolveTerms).toHaveBeenCalledTimes(1)
       expect(harness.customerGroupsService.resolveAssortmentScope).toHaveBeenCalledTimes(1)
     })
+  })
+
+  it.each([false, true])('propagates registered group service resolution errors (authenticated: %s)', async (authenticated) => {
+    const error = new Error('group service initialization failed')
+    const harness = createHarness({
+      customerGroupsResolutionError: error,
+      users: [user('cu-1', 'person-1', null)],
+    })
+    if (authenticated) mockedAuth.mockResolvedValue(sessionFor('cu-1'))
+
+    await expect(resolveBuyerContext(harness.container, resolvedStore(), request())).rejects.toBe(error)
+  })
+
+  describe('without the customer_groups module', () => {
+    it('serves an anonymous buyer the channel price kind and assortment without group terms', async () => {
+      const harness = createHarness({ withoutCustomerGroups: true, priceKinds: { 'kind-retail': 'excluding-tax' } })
+
+      const buyer = await resolveBuyerContext(harness.container, resolvedStore(), request())
+
+      expect(buyer).toMatchObject({
+        customerGroupIds: [],
+        isAuthenticated: false,
+        priceKindId: 'kind-retail',
+        taxMode: 'net',
+        allowPurchaseOnAccount: false,
+        approvalRequiredAbove: null,
+        assortmentScope: null,
+      })
+    })
+
+    it('narrows the buyer to the channel assortment scope alone', async () => {
+      const harness = createHarness({ withoutCustomerGroups: true })
+
+      const buyer = await resolveBuyerContext(
+        harness.container,
+        resolvedStore({ channelScope: { categoryIds: ['cat-1'] } }),
+        null,
+      )
+
+      expect(buyer.assortmentScope).toEqual([{ categoryIds: ['cat-1'] }])
+      expect(buyer.customerGroupIds).toEqual([])
+    })
+
+    it('serves an authenticated buyer the channel terms', async () => {
+      const harness = createHarness({ withoutCustomerGroups: true, users: [user('cu-1', 'person-1', null)] })
+      mockedAuth.mockResolvedValue(sessionFor('cu-1'))
+
+      const buyer = await resolveBuyerContext(harness.container, resolvedStore(), request())
+
+      expect(buyer).toMatchObject({
+        isAuthenticated: true,
+        customerId: 'person-1',
+        customerGroupIds: [],
+        priceKindId: 'kind-retail',
+        allowPurchaseOnAccount: false,
+        approvalRequiredAbove: null,
+        assortmentScope: null,
+      })
+    })
+  })
+})
+
+describe('resolveAnonymousAssortmentScope', () => {
+  it('propagates a registered group service resolution error', async () => {
+    const error = new Error('group service initialization failed')
+    const harness = createHarness({ customerGroupsResolutionError: error })
+
+    await expect(
+      resolveAnonymousAssortmentScope(harness.container, {
+        tenantId: TENANT_ID,
+        channelAssortmentScope: { categoryIds: ['cat-1'] },
+        requireAuthentication: false,
+      }),
+    ).rejects.toBe(error)
+  })
+
+  it('returns the channel scope when the customer_groups module is absent', async () => {
+    const harness = createHarness({ withoutCustomerGroups: true })
+
+    await expect(
+      resolveAnonymousAssortmentScope(harness.container, {
+        tenantId: TENANT_ID,
+        channelAssortmentScope: { categoryIds: ['cat-1'] },
+        requireAuthentication: false,
+      }),
+    ).resolves.toEqual([{ categoryIds: ['cat-1'] }])
+  })
+
+  it('returns an unrestricted scope for an unrestricted channel when the customer_groups module is absent', async () => {
+    const harness = createHarness({ withoutCustomerGroups: true })
+
+    await expect(
+      resolveAnonymousAssortmentScope(harness.container, {
+        tenantId: TENANT_ID,
+        channelAssortmentScope: null,
+        requireAuthentication: false,
+      }),
+    ).resolves.toBeNull()
+  })
+
+  it('consults the default customer group when customer_groups is present', async () => {
+    const harness = createHarness({ defaultGroup: { groupIds: ['group-default'], scope: [] } })
+
+    const scope = await resolveAnonymousAssortmentScope(harness.container, {
+      tenantId: TENANT_ID,
+      channelAssortmentScope: { categoryIds: ['cat-1'] },
+      requireAuthentication: false,
+    })
+
+    expect(scope).toEqual([])
+    expect(harness.customerGroupsService.resolveAssortmentScope).toHaveBeenCalledTimes(1)
   })
 })
 
