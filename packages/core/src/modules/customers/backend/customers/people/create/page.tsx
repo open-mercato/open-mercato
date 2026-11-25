@@ -17,6 +17,9 @@ import {
   createPersonFormSchema,
   type PersonFormValues,
 } from '../../../../components/formConfig'
+import { resolveReturnTo } from '../../../../lib/returnTo'
+
+const LIST_HREF = '/backend/customers/people'
 
 export default function CreatePersonPage() {
   const t = useT()
@@ -27,7 +30,8 @@ export default function CreatePersonPage() {
   const formSchema = React.useMemo(() => createPersonFormSchema(), [])
   const fields = React.useMemo(() => createPersonFormFields(t), [t])
   const groups = React.useMemo(() => createPersonFormGroups(t), [t])
-  const returnTo = searchParams.get('returnTo')
+  const requestedReturnTo = searchParams.get('returnTo')
+  const returnTo = requestedReturnTo === null ? null : resolveReturnTo(requestedReturnTo) ?? LIST_HREF
   const companyParam = searchParams.get('companyId')
   const companyEntityId = React.useMemo(() => {
     if (!companyParam) return undefined
@@ -48,13 +52,13 @@ export default function CreatePersonPage() {
         <CrudForm<PersonFormValues>
           title={t('customers.people.create.title')}
           titleHeadingLevel={1}
-          backHref={returnTo ?? '/backend/customers/people'}
+          backHref={returnTo ?? LIST_HREF}
           fields={fields}
           groups={groups}
           initialValues={initialValues}
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           submitLabel={t('customers.people.form.submit')}
-          cancelHref={returnTo ?? '/backend/customers/people'}
+          cancelHref={returnTo ?? LIST_HREF}
           schema={formSchema}
           onSubmit={async (values) => {
             const addresses = Array.isArray(values.addresses) ? values.addresses : []
@@ -127,9 +131,17 @@ export default function CreatePersonPage() {
             }
 
             flash(t('customers.people.form.success'), 'success')
+<<<<<<< HEAD
             if (returnTo) router.push(returnTo)
             else if (newId) router.push(`/backend/customers/people-v2/${newId}`)
             else router.push('/backend/customers/people')
+=======
+            return newId ? { resourceId: newId } : undefined
+          }}
+          successRedirect={(_values, result) => {
+            const newId = result?.resourceId
+            return returnTo ?? (newId ? `/backend/customers/people-v2/${newId}` : LIST_HREF)
+>>>>>>> 497643e13b (fix(customers): validate return paths on create pages (#9120) (#10583))
           }}
         />
       </PageBody>
