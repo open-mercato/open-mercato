@@ -4,6 +4,8 @@ import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRich
 import { channelTypeRequiresExternalEmail } from '../lib/channel-sender-identity'
 import { getScheduleMaxDays } from '../lib/scheduleLimits'
 
+export const messageRouteIdSchema = z.guid()
+
 function collectDuplicateRecipientIds(
   recipients: Array<{ userId: string }>,
 ): string[] {

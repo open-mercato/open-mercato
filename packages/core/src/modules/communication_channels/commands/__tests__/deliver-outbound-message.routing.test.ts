@@ -34,6 +34,8 @@ import worker, { type OutboundDeliveryPayload } from '../../workers/outbound-del
 import type { QueuedJob } from '@open-mercato/queue'
 import { getCommunicationChannelsQueue } from '../../lib/queue'
 import { convertOutboundForDiscord } from '../../../../../../channel-discord/src/modules/channel_discord/lib/convert-outbound'
+import { convertOutboundForGmail } from '../../../../../../channel-gmail/src/modules/channel_gmail/lib/convert-outbound'
+import { convertOutboundForEmail } from '../../../../../../channel-imap/src/modules/channel_imap/lib/convert-outbound'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message } from '../../../messages/data/entities'
@@ -96,6 +98,8 @@ function makeFixture(options: {
   withLink?: boolean
   withSelectedMapping?: boolean
   originalProviderKey?: string
+  originalThreadRef?: string
+  selectedThreadRef?: string
 } = {}) {
   const organizationId = options.organizationId === undefined ? ORGANIZATION_ID : options.organizationId
   const scope = { tenantId: TENANT_ID, organizationId }
@@ -133,7 +137,7 @@ function makeFixture(options: {
     messageThreadId: message.threadId,
     channelId: originalChannel.id,
     externalConversationId: 'original-conversation',
-    externalThreadRef: 'original-provider-thread',
+    externalThreadRef: options.originalThreadRef ?? 'original-provider-thread',
     providerKey: originalChannel.providerKey,
     ...scope,
   })
@@ -142,7 +146,7 @@ function makeFixture(options: {
     messageThreadId: message.threadId,
     channelId: selectedChannel.id,
     externalConversationId: 'selected-conversation',
-    externalThreadRef: 'selected-provider-thread',
+    externalThreadRef: options.selectedThreadRef ?? 'selected-provider-thread',
     providerKey: selectedChannel.providerKey,
     ...scope,
   })
@@ -485,6 +489,124 @@ describe('native routing across bridge, worker, command and provider conversion 
       expect(adapter.sendMessage).toHaveBeenCalledTimes(1)
     },
   )
+
+  it.each([
+    { scenario: 'a new reply', withLink: false },
+    { scenario: 'a failed reply retry', withLink: true },
+  ])('sends $scenario to a person-card email through the original Gmail thread', async ({ withLink }) => {
+    const gmailThreadId = '18cabc123'
+    const conversationRef = `gmail-thread:${gmailThreadId}`
+    const recipient = 'client@example.com'
+    const parentMessageId = 'person-card-message@example.com'
+    const earlierMessageId = 'earlier-message@example.com'
+    const subject = 'Re: Your order'
+    const fixture = makeFixture({ withLink, originalThreadRef: conversationRef, deliveryStatus: 'failed' })
+    const { parent, parentLink } = withParent(fixture, 'original', 'send_as_user')
+    Object.assign(parent, { externalEmail: recipient, subject: 'Your order' })
+    parentLink.channelMetadata = {
+      to: [recipient],
+      cc: ['copy@example.com'],
+      bcc: ['hidden@example.com'],
+      subject: parent.subject,
+      messageId: parentMessageId,
+      references: [earlierMessageId],
+    }
+    Object.assign(fixture.message, { externalEmail: recipient, subject, body: 'Thanks for your order' })
+    Object.assign(fixture.link, {
+      externalConversationId: fixture.originalMapping.externalConversationId,
+      providerKey: 'gmail',
+      channelMetadata: { lastError: 'Gmail outbound conversion requires a recipient' },
+    })
+    fixture.originalAdapter.convertOutbound.mockImplementation((input) => (
+      convertOutboundForGmail({ ...input, fromAddress: 'owner@example.com' })
+    ))
+    fixture.originalAdapter.sendMessage.mockResolvedValue({
+      status: 'sent',
+      externalMessageId: 'gmail-reply-id',
+      conversationId: conversationRef,
+    })
+
+    const { jobs, outcomes } = await bridgeAndDeliver(fixture)
+
+    const channelLinkId = withLink ? fixture.link.id : 'created-link'
+    expect(jobs).toHaveLength(1)
+    expect(outcomes).toEqual([expect.objectContaining({ status: 'delivered', providerKey: 'gmail', channelLinkId })])
+    expect(fixture.originalAdapter.sendMessage).toHaveBeenCalledTimes(1)
+    const [sent] = fixture.originalAdapter.sendMessage.mock.calls[0] ?? []
+    expect(sent).toMatchObject({
+      conversationId: conversationRef,
+      credentials: { mailbox: fixture.originalChannel.userId },
+      metadata: { threadId: gmailThreadId, to: [recipient], subject },
+    })
+    const rawMessage = String(sent?.metadata?.rawMessage)
+    expect(rawMessage).toContain(`To: ${recipient}\r\n`)
+    expect(rawMessage).toContain(`Subject: ${subject}\r\n`)
+    expect(rawMessage).toContain(`In-Reply-To: <${parentMessageId}>\r\n`)
+    expect(rawMessage).toContain(`References: <${earlierMessageId}> <${parentMessageId}>`)
+    expect(rawMessage).not.toMatch(/^(Cc|Bcc):/im)
+    expect(fixture.selectedAdapter.sendMessage).not.toHaveBeenCalled()
+    expect(mockEmit).toHaveBeenCalledWith('communication_channels.message.sent', expect.objectContaining({
+      messageId: MESSAGE_ID,
+      channelLinkId,
+      channelId: fixture.originalChannel.id,
+      conversationId: fixture.originalMapping.externalConversationId,
+      direction: 'outbound',
+      ...fixture.scope,
+    }), { persistent: true })
+  })
+
+  it.each([false, true])('delivers an SMTP reply whose parent retains its outbound reference (link=%s)', async (withLink) => {
+    const conversationRef = 'outbound:smtp-parent-thread'
+    const recipient = 'client@example.com'
+    const fixture = makeFixture({ withLink, selectedThreadRef: conversationRef, deliveryStatus: 'failed' })
+    const { parentLink } = withParent(fixture, 'selected', 'send_as_user')
+    Object.assign(fixture.message, { externalEmail: recipient, subject: 'Re: SMTP order' })
+    parentLink.channelMetadata = {
+      messageId: 'smtp-parent@example.com',
+      providerConversationId: conversationRef,
+    }
+    if (withLink) fixture.link.channelMetadata = {}
+    fixture.selectedAdapter.convertOutbound.mockImplementation(convertOutboundForEmail)
+
+    const { jobs, outcomes } = await bridgeAndDeliver(fixture)
+
+    expect(jobs).toHaveLength(1)
+    expect(outcomes).toEqual([expect.objectContaining({ status: 'delivered', providerKey: 'imap' })])
+    expect(fixture.selectedAdapter.sendMessage).toHaveBeenCalledTimes(1)
+    expect(fixture.selectedAdapter.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: conversationRef,
+      credentials: { mailbox: fixture.selectedChannel.userId },
+      metadata: expect.objectContaining({
+        to: [recipient],
+        subject: fixture.message.subject,
+        inReplyTo: 'smtp-parent@example.com',
+        references: expect.arrayContaining(['smtp-parent@example.com']),
+      }),
+    }))
+    expect(fixture.originalAdapter.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it.each(['parent delivery', 'thread adoption'])('retries a Gmail reply while waiting for %s', async (waitingFor) => {
+    const fixture = makeFixture({ withLink: false, originalThreadRef: 'outbound:parent-thread' })
+    const { parentLink } = withParent(fixture, 'original', 'send_as_user')
+    fixture.message.externalEmail = 'client@example.com'
+    if (waitingFor === 'parent delivery') {
+      parentLink.deliveryStatus = 'pending'
+      parentLink.externalMessageId = null
+    } else {
+      parentLink.channelMetadata = {
+        messageId: 'parent@example.com',
+        providerConversationId: 'gmail-thread:18cabc123',
+      }
+    }
+
+    const { jobs, outcomes } = await bridgeAndDeliver(fixture)
+
+    expect(outcomes).toEqual([expect.objectContaining({ status: 'failed', transient: true })])
+    expect(jobs.map(({ attempt }) => attempt)).toEqual([1, 2])
+    expect(fixture.originalAdapter.convertOutbound).not.toHaveBeenCalled()
+    expect(fixture.originalAdapter.sendMessage).not.toHaveBeenCalled()
+  })
 
 
   it.each(['queued', 'sent', 'delivered', 'read'])('preserves %s idempotency after all mappings disappear', async (deliveryStatus) => {

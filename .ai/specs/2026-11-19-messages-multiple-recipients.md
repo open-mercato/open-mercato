@@ -264,7 +264,7 @@ Read at call time with positive-int validation and built-in fallback (pattern: `
 
 ### Phase 3 — Compose multi "To" + send separately (system path)
 1. Compose schema (`externalEmails`, `sendSeparately`, limits, 400 rules); `messages-email` `external_participants` job; worker claim/write-back; legacy job kept.
-2. UI: `TagsInput` "To", switch, detail "Recipients" section. Integration: TC-MSG-EMAIL-006 (joint send, one captured email with N "To"), TC-MSG-EMAIL-004 (separately: N captured emails, each one "To"), TC-API-MSG-034 (validation: >50, both `externalEmail` + `externalEmails`).
+2. UI: `TagsInput` "To", switch, detail "Recipients" section. Integration: TC-MSG-EMAIL-006 (joint send, one captured email with N "To"), TC-MSG-EMAIL-007 (separately: N captured emails, each one "To"), TC-API-MSG-034 (validation: >50, both `externalEmail` + `externalEmails`).
 
 ### Phase 4 — Mailbox path
 1. `message_channel_links.external_participant_id`, partial unique indexes; `sendAsUser` creates N links in separate mode; `deliver-outbound-message` builds `to/cc/bcc` from participants, writes per-participant results, idempotency per link; `outbound-bridge` and other `findOne`-by-message callers handle multiple links.
@@ -288,7 +288,7 @@ Read at call time with positive-int validation and built-in fallback (pattern: `
 
 ### Testing Strategy
 - Unit: `sendEmail` fan-out/flag/result merge; claim SQL; status transitions; 400 rules; backfill mapping.
-- Integration (self-contained fixtures, cleanup in `finally`, email capture via `OM_TEST_MODE`, channel via test-seed adapter): TC-API-MSG-026, TC-API-MSG-027, TC-API-MSG-033…035, TC-MSG-EMAIL-004, TC-MSG-EMAIL-006, TC-CHANNEL-EMAIL-HUB-010/011.
+- Integration (self-contained fixtures, cleanup in `finally`, email capture via `OM_TEST_MODE`, channel via test-seed adapter): TC-API-MSG-026, TC-API-MSG-027, TC-API-MSG-033…035, TC-MSG-EMAIL-006, TC-MSG-EMAIL-007, TC-CHANNEL-EMAIL-HUB-010/011.
 
 ## Risks & Impact Review
 

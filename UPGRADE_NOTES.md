@@ -1,6 +1,145 @@
 # Upgrade Notes
 
-<<<<<<< HEAD
+## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
+
+When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.
+
+Clients that treated this 500 as a server fault can retry on `structured_output_invalid`. The request contract and response fields are unchanged. No database migration or configuration change is required.
+
+## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
+
+An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
+
+Callers that send `callSettings` to such an agent must drop them, or the agent author must allow runtime overrides. The agent's own `modelSettings` still apply, an empty `callSettings` object is treated as absent, and agents without the flag (the default, permissive) are unaffected. No first-party agent sets the flag to `false`. No database migration or configuration change is required.
+
+## Production fullapp LocalStack binds to loopback (#10342)
+
+The production fullapp `storage-s3` profile now publishes LocalStack on
+`127.0.0.1` by default. `LOCALSTACK_PORT` still controls the host port, and
+containers on the Compose network can still connect to `localstack:4566`.
+Operators who intentionally use remote tooling must set `INFRA_BIND_HOST`
+to the specific host interface they want to expose, then recreate LocalStack
+with the updated Compose file.
+
+## Agent trace ingest signing and workflow references
+
+Each trace-ingest adapter now needs a signing key provisioned for its tenant and organization. Provision separate scoped keys server-side with `traceIngestSecret(tenantId, organizationId)` and distribute only the derived key to each adapter. The Standard Webhooks header names, signed body format, and five-minute timestamp tolerance still apply. Adapters using the server-side signing helper pass `organizationId` as its second argument.
+
+Operators should pause trace delivery during the server and adapter cutover, replace the old signing keys, and retry queued deliveries with fresh timestamps and signatures. Previously issued tenant-wide signatures return HTTP 401. The webhook no longer establishes workflow attribution. Use the external run ID of the workflow-created agent invocation or send a standalone trace under its own run ID. Review previously ingested workflow links that lack a server-recorded invocation before relying on their process rollups. There is no schema migration.
+
+[Implementation spec](.ai/specs/enterprise/agent-orchestrator/2026-11-24-trace-ingest-scope.md)
+
+## CRUD factory security and query correctness bundle
+
+These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
+
+- **Full exports keep row scope (#9015).** `?format=…&exportScope=full` now always runs the route's `buildFilters` (with an empty query, or with the before-interceptor's rewritten query when one rewrote it). Rows a caller cannot see in the list (own records only, project membership, deny-all) are no longer exported. **Action:** none; a route whose `buildFilters` needs query params to be correct should handle an empty query.
+- **Advanced filters cannot override route scope (#9016, #9896).** Client `filter[conditions]` are AND-combined with `buildFilters` output (`$and`) instead of spread over it.
+- **List cache partitions (#7579, #7529).** With `ENABLE_CRUD_API_CACHE=true`, the list cache key now includes the resolved translation-overlay locale (or a `none` sentinel), a before-interceptor query rewrite, and an optional route-owned scope. Translation writes and undos drop cached localized lists of the entity. New additive `list.cacheScope(query, ctx)` option on `makeCrudRoute`: return a string to partition the cache, `null` to bypass it for the request, `undefined` for the default key. Staff time-projects uses it to partition by the caller's resolved project access. Existing cache entries simply miss once after the upgrade.
+- **Customers write commands load targets in scope (#7598).** Update/delete commands for people, companies, deals, addresses, comments, tags, pipelines, interactions and todo links look up the target inside the caller's tenant and allowed organizations. An out-of-scope id now answers 404 instead of 403.
+- **WMS commands check features in-command (#7673).** Every WMS write command requires the same feature its HTTP route requires, so notification actions, workflows and AI tools dispatching through the command bus cannot bypass it. `wms.inventory.adjust` accepts `wms.adjust_inventory` or `wms.import`; `wms.putaway-tasks.complete` also requires `wms.adjust_inventory`, as its routes do. Actor-less server dispatches (`auth: null`) are unaffected. **Action:** custom roles that dispatch WMS commands outside the HTTP routes need the matching feature. Catalog product and variant writes with a recognized WMS profile intent require `wms.manage_inventory` before either record changes (#10486). Without the feature, the API returns 403. Catalog-only clients should omit the WMS profile intent header.
+- **Sortable columns (#9548).** List routes whose `sortFieldMap` lacked keys the backend tables send (WMS, deals, staff, resources, planner, catalog products, company/person pickers) map them now, so those columns sort on the server again under the sort-map boundary (#3827).
+- **Security exceptions.** See the [sort-map specification](.ai/specs/2026-11-07-crud-sort-map-boundary.md), [deleted-row access](#explicit-deleted-row-list-access-9154), and [relation labels and global query scope](#issue-9106) for the affected clients and migration steps.
+- **Empty `in` / `not in` (#7637).** Join-column, custom-field and index-doc filters with an empty list compile to never-match / match-all instead of invalid SQL.
+- **Search on plaintext columns (#5803).** With `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` off (default), a search-token match on a column the encryption map reports as plaintext must also contain each search word (case- and accent-folded), so `?search=2026-08` no longer returns `2026-01`. Encrypted columns are unchanged. The folding uses Postgres `normalize()`, which requires a UTF8 database (PostgreSQL 13+).
+
+<a id="issue-9106"></a>
+
+## Relation options and explicit global query scope (#9106)
+
+Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized callers can read scoped custom labels and declared module labels. Every first-party system entity declared in a `ce.ts` maps to its own module's view feature; third-party declared system targets without a mapped read feature require a superadmin.
+
+For stored relation fields, edit the field configuration and remove the `labelField` query parameter from the existing `optionsUrl` to use the target’s default label. Keep the other query parameters. If the field needs a specific label, use a label declared by the owning module or the custom entity definition.
+
+Module authors querying a table with neither `tenant_id` nor `organization_id` must explicitly use the existing trusted `omitAutomaticTenantOrgScope: true` option and enforce their own visibility filters. Never bind that option to a request parameter. Operators should review metadata-only roles that relied on excessive access and audit unintended secret or cross-tenant reads. No persisted data, migrations, startup options or configuration formats change. The security exception needs named human-maintainer acknowledgment before merge; automation does not supply it. [Specification](.ai/specs/2026-11-16-relation-options-query-scope.md).
+
+## Explicit deleted-row list access (#9154)
+
+`GET /api/entities/records` no longer honors `withDeleted=true`, including full
+exports. CRUD list routes honor the query only when their definition explicitly sets
+`list.allowWithDeleted: true`; declaring the query in a schema alone is insufficient.
+The generic records API previously published this parameter, so clients relying on
+its deleted-row results lose that behavior. This security exception is proposed and
+still requires a named human maintainer approval; it is not approved by automation.
+
+**Clients:** stop relying on the generic endpoint or an undeclared CRUD list to
+recover deleted data. Use a deliberately authorized recovery route whose owner has
+enabled `list.allowWithDeleted`; ordinary list/export requests continue to hide
+retracted notes and deleted contacts. **Operators/module owners:** audit recovery
+routes before rollout and add that opt-in only with the intended permission checks.
+No schema migration, environment change or data deletion is needed. Old list cache
+entries are bypassed by the new policy-specific keys and may expire normally.
+
+### QueryEngine rejects empty OR and unsupported filter operators (#7831)
+
+`BasicQueryEngine` and `HybridQueryEngine` now throw `TypeError` for `{ $or: [] }`
+(including nested occurrences) and unsupported field operators in object or array
+filters. These predicates previously could be discarded, returning every otherwise
+visible row. Objects mixing supported and unsupported operators are rejected too.
+
+Module authors: omit an optional OR condition when no restriction is intended;
+use `{ id: { $in: [] } }` to match nothing. Replace unsupported operators with
+supported `FilterOp` values. Absent filters, `{}`, `[]`, and `{ $and: [] }` retain
+their existing unconstrained meaning. Operators: audit custom modules and saved
+filter presets before upgrading. No database migration or configuration change
+is required. See the [filter specification](.ai/specs/implemented/2026-04-03-advanced-datatable-ux.md#migration--backward-compatibility).
+
+### Advanced-filter all-of and staff role filters (PR #7996)
+
+The built-in advanced-filter compilers now emit supported `$overlap` predicates
+for `has_all_of`. Staff role filtering uses the same operator. Native SQL arrays,
+JSONB string arrays, and custom-field value rows preserve their storage-specific
+membership semantics. No schema migration or configuration change is required.
+
+The approved additive `FilterOp` member `not_ilike` also accepts the existing
+field-level `{ $not: { $ilike: pattern } }` compiler output. Plaintext patterns
+retain PostgreSQL ILIKE wildcard/escaping semantics. Encrypted fields use scoped
+hashed-token exclusion, including the tokenizer's minimum-length/prefix behavior
+and order-independent multiword matching; arbitrary encrypted substring matching
+is not promised. Known encrypted base fields reject unindexable terms or disabled
+search. Custom-field/document plaintext remains literal, while encrypted values
+without usable scoped evidence are excluded. Missing values and empty arrays do
+not satisfy negation. Other negative forms remain unsupported and throw TypeError.
+Downstream exhaustive switches over `FilterOp` must account for `not_ilike`; no
+existing union member or signature is removed. There is no new HTTP 400 mapping.
+
+## MFA challenge creation failures deny sign-in (#10456)
+
+Staff sign-in now fails closed with the localized generic login error (`{ ok: false, error }`) when the enabled enterprise MFA service cannot read methods, resolve a registered provider, or create a challenge. Clients must treat that non-successful response as unauthenticated and retry after the service recovers; it contains no access token, refresh token, or authentication cookie, emits `auth.login.failed` instead of `auth.login.success`, and leaves no orphaned challenge rows. Successful MFA and accounts verified to have no active MFA methods retain their existing flows.
+
+Operators should restore MFA service registration or challenge-store availability before retrying sign-in. The explicit emergency-bypass setting retains its existing behavior and administrator warning. Failures are logged and reported via telemetry (`security.mfa_service_unavailable`, `security.mfa_challenge_creation_failed`, `auth.login_interceptor_failed`, and `auth.login_revoke_failed` if provisional-session cleanup fails). No database migration or credential-format change is required.
+
+## Fulltext reindex preserves record organization ownership (#8397)
+
+Tenant-wide fulltext reindexing now keeps each source row's `organization_id`
+in the indexed document and search build context. An explicit `null` stays
+global; a projection that omits the column keeps the existing request-scope
+fallback. Direct reindexes and queued batch reloads use the same rule.
+
+Operators with documents written by an older tenant-wide reindex should run a
+tenant-wide fulltext rebuild through Settings > Search or `POST /api/search/reindex`
+with All organizations selected. An organization-scoped rebuild cannot identify
+the original owners of historical documents incorrectly stored with a null
+organization. The general `search reindex` CLI does not rebuild fulltext.
+No startup command, environment variable, database migration, provider default,
+or public API shape changes.
+
+## Extension header parsing and analytics SQL identifier hardening (#10331, #10332)
+
+Two security-hardening narrowings landed on shared request-header parsing and dashboard analytics SQL construction:
+
+- **UMES extension headers (#10331):** `parseExtensionHeaders` now stores parsed modules and keys in null-prototype objects (`Object.create(null)`) and ignores headers whose module or key segment is empty or one of `__proto__`, `prototype`, or `constructor` (case-insensitive).
+  - **Module / client migration:** Legitimate `x-om-ext-<module_id>-<key>` headers (including `record_locks`, `business_rules`, and optimistic-lock headers) work unchanged. If an interceptor called `Object.prototype` methods directly on `context.extensionHeaders` or `context.extensionHeaders[moduleId]` (for example `extensionHeaders.hasOwnProperty(...)`), switch to `Object.prototype.hasOwnProperty.call(...)` or direct key access, and rename any custom module or key segment named `constructor` or `prototype`.
+- **Dashboard analytics SQL identifiers (#10332):** `DefaultAnalyticsRegistry`, `aggregations.ts`, and `WidgetDataService` now validate every SQL identifier (`tableName`, optional `schema`, mapped `dbColumn`, and `labelResolvers` `table`/`idColumn`/`labelColumn`) against `^[a-zA-Z_][a-zA-Z0-9_]*$` and ignore inherited prototype properties on `entityConfig`, `fieldMappings`, and `labelResolvers`.
+  - **Module / operator migration:** All first-party `analytics.ts` configurations already conform, including schema-qualified tables and JSONB dot-path grouping. Custom or third-party `analytics.ts` modules that placed SQL expressions, spaces, quotes, or punctuation in `tableName`, `schema`, `dbColumn`, or `labelResolvers` must replace them with plain SQL identifiers (or expose a dedicated column/view). No database migration or runtime configuration change is required.
+  - **Analytics entity permissions:** Declare `requiredFeatures` as an own array of feature IDs on each entity config. Use an explicit empty array for entities that require only the dashboard route's baseline permission. An entity without a valid declaration is unavailable to analytics queries.
+
+## Attachment assignment label authorization (#10336)
+
+The attachment library automatically fills in assignment labels and links only when the caller can read the referenced entity in the selected tenant and organization. Existing assignment IDs and saved labels and links stay available under the attachment's existing access policy. Supported built-in targets use their owning module's read grants. Custom records require the custom-record view grant and any entity-specific grant. When a target cannot be safely resolved, clients can display the stored label or ID.
+
+Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
+
 ## Fullapp development agent authentication (#9116)
 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.
@@ -27,6 +166,29 @@ on every request:
   multi-instance deployments, or lower the TTL, to converge sooner.
 
 No configuration, database, route, event or DI-key change is required.
+
+## Kernel modules keep working when optional modules are disabled (#10129)
+
+Several modules used to fail when an optional peer was removed from `src/modules.ts`. They now
+degrade instead. With every module enabled, behavior is unchanged. No migration or new
+configuration is required. What changes when a peer is disabled:
+
+- **scheduler** — module-authored schedules whose `source_module` is no longer enabled are skipped
+  (`scheduler.job.skipped` is emitted and `nextRunAt` still advances) instead of failing on every
+  tick. `mercato scheduler list` marks them. Re-enabling the module resumes them.
+- **record_locks** (enterprise) — works without `configs` (built-in default settings apply) and
+  without `audit_logs`. The OSS `updated_at` optimistic-lock floor is always enforced. Without
+  `audit_logs`, the extra conflict detection based on action-log history is not available.
+- **workflows** — bulk replay runs without `progress` (`progressJobId: null`). A `CALL_API` step
+  fails with a translated error without `api_keys`. Without `business_rules`, guard-rule seeds are
+  skipped and a workflow with a *required* start pre-condition refuses to start with
+  `RULE_ENGINE_UNAVAILABLE`. `workflows` still declares `requires: ['business_rules']` (#9217).
+- **messages** — works without `attachments` (attachment counts are 0, and the attachments route
+  answers 404) and without `notifications` (email delivery still runs).
+- **configs** — upgrade actions declare the module they need. Actions for disabled modules are not
+  offered and are rejected with `UPGRADE_ACTION_NOT_AVAILABLE`.
+- **Translate actions** on dictionary entries and custom-field definitions appear only when the
+  `translations` module is enabled and the user holds `translations.manage`.
 
 ## Optional process DI root (#8989)
 
@@ -644,8 +806,6 @@ and font permissions, route/DB contracts and the attachment sandbox are unchange
 
 [Implementation specification](.ai/specs/2026-10-29-production-content-security-policy.md).
 
-=======
->>>>>>> eeaeb90edb (docs(release): 0.10.0 upgrade companion skill and UPGRADE_NOTES window (#10422))
 Open Mercato `0.5.0` is our biggest release so far. It bundles more than 250 fixes and
 improvements that landed after the Hackathon in Sopot, alongside several important
 dependency and tooling upgrades. That combination is exactly why this document now exists:
@@ -4474,13 +4634,45 @@ invitation — with no failure at boot to warn you. Add the dependency and the e
 ```
 
 ```ts
-// src/modules.ts — alongside the other channel_* entries
+// src/modules.ts — the hub and its dependencies first, then the provider entries
+{ id: 'progress', from: '@open-mercato/core' },
+{ id: 'integrations', from: '@open-mercato/core' },
+{ id: 'communication_channels', from: '@open-mercato/core' },
 { id: 'channel_resend', from: '@open-mercato/channel-resend' },
 { id: 'channel_ses', from: '@open-mercato/channel-ses' },
 ```
 
 Enable the package matching `SYSTEM_EMAIL_PROVIDER` (default `resend`); the other is optional.
 The monorepo app (`apps/mercato`) and newly scaffolded apps already carry both.
+
+**The provider module alone is not enough — `communication_channels` MUST be enabled too
+(#6278).** The provider package's `di.ts` only registers its channel adapter and its system-email
+config resolver; the outbound email transport itself (`registerEmailTransport()`) is registered
+by `communication_channels/di.ts` and nowhere else. An app that adds `channel_resend` /
+`channel_ses` but not `communication_channels` typechecks, passes tests that mock `sendEmail`,
+and then throws `EMAIL_TRANSPORT_NOT_CONFIGURED: enable an outbound email provider module` on the
+first real send. `communication_channels` in turn needs `integrations` (the provider credentials)
+and `progress` (its import-history worker, see "`communication_channels` now requires `progress`"
+below). From 0.9.0 the provider modules declare `requires: ['communication_channels',
+'integrations']`, so `yarn generate` fails fast instead (see "`yarn generate` now enforces a
+module's declared `requires` dependencies" in the 0.8.0 → 0.9.0 section).
+
+**`yarn generate` also expects `@open-mercato/web-research` to be installed.** The generated
+`.mercato/generated/web-research-adapters.generated.ts` always contains
+`import type { AdapterRegistryEntry } from '@open-mercato/web-research'`, even when no installed
+package declares a web-research adapter and the registry is empty. An app that does not depend on
+`@open-mercato/web-research` (directly or through `@open-mercato/enterprise`) fails its typecheck
+with `TS2307: Cannot find module '@open-mercato/web-research'`. Add it to `package.json` at the
+same version as your other `@open-mercato/*` packages:
+
+```jsonc
+"@open-mercato/web-research": "0.8.0",
+```
+
+From the release that ships #10129 the generator declares the `AdapterRegistryEntry` type inline,
+so the generated registry no longer imports `@open-mercato/web-research`. After upgrading the CLI
+and re-running `yarn generate`, the dependency above is only needed if the app actually uses
+web research.
 
 Only the **selected** provider's env preset seeds anything. Enabling both packages is therefore
 safe: with `SYSTEM_EMAIL_PROVIDER` unset or `resend`, the SES preset stores no credentials, creates
@@ -6598,7 +6790,6 @@ When opening a PR that bumps a dependency across a major boundary, add an entry 
 the same PR. The `auto-upgrade-...` skill for the window picks up entries from this file;
 keep the headings stable (exactly `#### \`<package>\` \`^<from>\` → \`^<to>\``) so the
 skill can parse them.
-<<<<<<< HEAD
 
 ### Access-log overload admission
 
@@ -6681,5 +6872,3 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
-=======
->>>>>>> eeaeb90edb (docs(release): 0.10.0 upgrade companion skill and UPGRADE_NOTES window (#10422))

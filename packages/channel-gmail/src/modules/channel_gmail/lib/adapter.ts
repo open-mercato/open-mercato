@@ -52,6 +52,7 @@ import {
 } from './oauth'
 import {
   convertOutboundForGmail,
+  prepareOutboundForGmail,
   type GmailEmailNativeMetadata,
 } from './convert-outbound'
 import { GMAIL_THREAD_REF_PREFIX, normalizeInboundGmailMessage } from './normalize-inbound'
@@ -165,34 +166,35 @@ class GmailChannelAdapter implements ChannelAdapter {
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const userCredentials = parseUserCredentialsOrThrow(input.credentials)
-    let native: ChannelNativeContent
+    const api = getGmailApiClient()
+    const auth = { accessToken: userCredentials.accessToken }
+    let fromAddress = userCredentials.email
     try {
-      native = await convertOutboundForGmail({
+      if (!fromAddress) {
+        const profile = await api.getProfile(auth)
+        const mailboxAddress = gmailUserCredentialsSchema.shape.email.safeParse(profile.emailAddress)
+        if (!mailboxAddress.success || !mailboxAddress.data) {
+          throw new Error('[internal] Gmail profile did not return a valid mailbox address')
+        }
+        fromAddress = mailboxAddress.data
+      }
+
+      const native = await convertOutboundForGmail({
         body: input.content.html ?? input.content.text ?? '',
         bodyFormat: input.content.bodyFormat ?? (input.content.html ? 'html' : 'text'),
         attachments: input.content.attachments,
         channelMetadata: input.metadata,
-        fromAddress: userCredentials.email ?? 'me',
+        fromAddress,
       })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Outbound conversion failed'
-      return { externalMessageId: '', status: 'failed', error: message }
-    }
-
-    const nativeMeta = native.metadata as unknown as GmailEmailNativeMetadata
-    const rawBase64Url = encodeBase64Url(nativeMeta.rawMessage)
-
-    try {
-      const api = getGmailApiClient()
-      const auth = { accessToken: userCredentials.accessToken }
+      const metadata = native.metadata as unknown as GmailEmailNativeMetadata
       const response = await api.sendRawMessage(auth, {
-        rawBase64Url,
-        rawMessage: nativeMeta.rawMessage,
-        threadId: nativeMeta.threadId,
+        rawBase64Url: encodeBase64Url(metadata.rawMessage),
+        rawMessage: metadata.rawMessage,
+        threadId: metadata.threadId,
       })
       const sentMessageId = await readSentMessageId(api, auth, response.id)
       return {
-        externalMessageId: nativeMeta.messageId ?? response.id,
+        externalMessageId: metadata.messageId ?? response.id,
         conversationId: response.threadId ? `${GMAIL_THREAD_REF_PREFIX}${response.threadId}` : undefined,
         status: 'sent',
         metadata: {
@@ -208,6 +210,12 @@ class GmailChannelAdapter implements ChannelAdapter {
         // communication_channels error-classification.isReauthError), not a
         // user/log message — do NOT prefix or translate it.
         return { externalMessageId: '', status: 'failed', error: 'requires_reauth' }
+      }
+      if (!fromAddress && error instanceof GmailApiError) {
+        if (error.status >= 500 && error.status < 600) {
+          throw Object.assign(error, { transient: true })
+        }
+        throw error
       }
       const message = error instanceof Error ? error.message : 'Gmail send failed'
       if (error instanceof GmailApiError) {
@@ -238,7 +246,7 @@ class GmailChannelAdapter implements ChannelAdapter {
   }
 
   async convertOutbound(input: ConvertOutboundInput): Promise<ChannelNativeContent> {
-    return convertOutboundForGmail({ ...input, fromAddress: 'me' })
+    return prepareOutboundForGmail(input)
   }
 
   async normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage> {

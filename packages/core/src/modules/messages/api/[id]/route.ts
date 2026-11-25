@@ -82,7 +82,7 @@ async function resolveGrantedFeatures(
 }
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const em = ctx.container.resolve('em') as EntityManager
   const url = new URL(req.url)
   const skipMarkReadParam = url.searchParams.get('skipMarkRead')
@@ -400,7 +400,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const body = await req.json().catch(() => ({}))
@@ -569,7 +569,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
 
