@@ -675,9 +675,7 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
-`POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
-
-**Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
+`POST /api/auth/logout` returns 303, including cookieless requests, correcting the 2026-10-13 entry. Clients expecting 307 should accept 303 and follow `Location: /login` with GET. The redirect helper still defaults to 307. Existing revocation, cookies, route, and auth events apply. No schema migration. [#7383](https://github.com/open-mercato/open-mercato/issues/7383) · [Spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) · [Upgrade](UPGRADE_NOTES.md).
 
 ## #7809 2026-11-06
 
@@ -714,7 +712,7 @@ STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/to
 
 ## 2026-11-22 — Attachment assignment label authorization (#10336)
 
-The STABLE attachment library API response and the enrichment helper signature retain their shapes. Referenced records contribute optional labels and links only for an authorized read in the selected tenant and organization. Retaining an unrestricted fallback would keep the unauthorized read available. Server callers can supply verified request authorization and clients can fall back to existing assignment metadata. See the [upgrade notes](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [implementation spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
+STABLE attachment responses and enrichment signatures keep their shapes. Optional labels and links require an authorized read in the selected tenant and organization. A fallback retains unauthorized reads. Server callers pass verified request authorization. Clients can use assignment metadata. [Upgrade](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) · [Spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
 
 ## #10331 #10332 (2026-11-23)
 
@@ -723,3 +721,7 @@ STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
 ## 2026-11-24 — Trace ingest
 
 STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-25 — MCP Code Mode
+
+STABLE MCP exposure requires explicit direct mode for Code Mode execution. An implicit bridge permits unapproved writes. [Migration](UPGRADE_NOTES.md). Named waiver pending.

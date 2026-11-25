@@ -164,6 +164,19 @@ describe('MCP HTTP server — tools/call audit', () => {
     }
   })
 
+  it('rejects Code Mode execution in implicit direct mode before dispatch', async () => {
+    registerTool({
+      name: 'execute',
+      isMutation: true,
+      mcp: { approvalMode: 'refuse', explicitDirectOnly: true },
+    })
+    const baseUrl = await startHandler()
+    const result = await callTool(baseUrl, 'execute', {})
+
+    expect(result.result?.isError).toBe(true)
+    expect(mockExecuteTool).not.toHaveBeenCalled()
+  })
+
   it('writes one ok row with the header correlation id and echoes it in _meta', async () => {
     mockExecuteTool.mockResolvedValue({ success: true, result: { items: [] } })
     const baseUrl = await startHandler()

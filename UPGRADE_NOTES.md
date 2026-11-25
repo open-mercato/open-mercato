@@ -6763,3 +6763,8 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+
+## MCP Code Mode execution requires explicit direct mode
+
+MCP hides Code Mode `execute` when the mutation mode is unset, including reads through that tool. Code Mode discovery and typed tools retain their existing exposure rules. Clients can use typed tools for writes, including the approval workflow when configured. Operators who intentionally permit direct Code Mode execution can set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. For Compose sidecars, set the variable in the MCP service's container environment with a service override. Hosts supplying an exposure configuration programmatically must set `explicitDirectMode: true` together with `mutationMode: 'direct'`.

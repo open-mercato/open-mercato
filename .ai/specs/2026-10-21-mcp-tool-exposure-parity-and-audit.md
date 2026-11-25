@@ -298,11 +298,11 @@ Every `tools/call` handled by any MCP server, and every `POST /api/ai_assistant/
 | `approval` mode reuses `ai_pending_actions` with a `channel` column instead of a new table | One state machine, one executor, one cleanup worker and one diff renderer for chat and MCP writes; the re-check branches on `channel` |
 | Execute an approved raw-tool write as the **approver**, re-checking the requester too | The `action_logs` actor is the accountable human; the requester re-check stops a revoked API key's queued writes from running |
 | Raw-tool rows use a reserved `agent_id` instead of a nullable column | Keeps `AiPendingAction.agentId: string` and every existing reader unchanged |
-| The mode is an operator choice (`OM_MCP_MUTATION_MODE`), with no automatic default flip | Product decision 2026-10-22. Deployments pick `direct` or `approval` explicitly; unset keeps today's behaviour, so no existing client breaks on upgrade |
+| The mode is an operator choice (`OM_MCP_MUTATION_MODE`), with no automatic default flip | Product decision 2026-10-22. Unset mode retains direct execution for typed tools. Code Mode execution requires an explicit `direct` setting |
 | Every approver in the tenant/org is notified in the backoffice | Product decision 2026-10-22. A queued write must reach someone who can act on it, even when the requester is an API key nobody watches |
 | `defineAgentTool` + one OSS-declared dispatcher port (`aiAgentRunDispatcher`) implemented by AO | ai-assistant (upstream) never imports or names AO (downstream), per `packages/core/AGENTS.md` → Cross-Module Coupling; AO stays optional. One port serves MCP, tools-api, chat tools, `run-object` and chat, so there is a single place where an ai-assistant door hands a run to another engine |
 | Audit via `access_logs`, not a new table | Brief requires `audit_logs` services; access logs already carry actor, scope, resource and encrypted context and have a UI (`audit_logs.access.list`) |
-| Unset `mutationMode` means `direct` | Code Mode `execute` and the OpenCode command palette rely on direct writes; changing the unset behaviour would break clients without a bridge (`BACKWARD_COMPATIBILITY.md` → Deprecation Protocol) |
+| Unset `mutationMode` means `direct` for typed tools | Code Mode `execute` requires the operator to enable direct mode explicitly. Discovery remains available. |
 
 ### Alternatives Considered
 
@@ -525,6 +525,10 @@ One stacked `ai_assistant` migration (approval-mode columns, Phase 3). `audit_lo
 
 Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.mdx` (replace "MCP serves tools, not agents" with "MCP serves tools; an agent can be published as one tool"), `agents.mdx` (`mcpTool`), `packages/ai-assistant/AGENTS.md` (MCP HTTP server rules: list filtering, exposure, audit), `UPGRADE_NOTES.md`.
 
+### Code Mode exposure
+
+MCP Code Mode execution requires an explicit direct setting. Discovery and typed tools keep their existing policies. Existing Code Mode users can migrate to typed tools or configure direct mode deliberately. An implicit compatibility bridge would retain unapproved writes. See [upgrade guidance](../../UPGRADE_NOTES.md#mcp-code-mode-execution-requires-explicit-direct-mode). Maintainer acknowledgment is pending.
+
 ## Implementation Plan
 
 ### Phase 1: Exposure config and filtered list
@@ -654,7 +658,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 - **Severity**: High
 - **Affected area**: MCP prod/dev servers, `/tools/execute`
 - **Mitigation**: `approval` and `deny` modes available immediately; startup WARN; audit row with `isMutation: true`; `UPGRADE_NOTES.md` and `mcp.mdx` recommend `approval` for production; API-key roles remain the hard gate.
-- **Residual risk**: Deployments that leave the flag unset keep direct writes. That is an explicit operator choice (Q1), and they were already in this state.
+- **Residual risk**: Deployments that leave the flag unset keep direct typed-tool writes. Those tools were already in this state.
 
 #### Approval queue misuse or staleness
 - **Scenario**: An approver rubber-stamps a queued write whose target changed, or a leaked API key floods the queue with pending writes.

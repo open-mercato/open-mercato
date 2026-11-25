@@ -391,7 +391,7 @@ A tool is exposed when all of these hold:
 3. it does not match the denylist (the denylist wins over the allowlist);
 4. it is not a mutation tool while the mode is `deny` (in `deny` mode mutation tools are hidden from `tools/list`);
 5. it is not an agent-wrapping tool while agent tools are disabled;
-6. it is not the Code Mode `execute` tool while the mode is `approval` (see below).
+6. Code Mode `execute` requires an explicit `direct` mutation mode.
 
 A `tools/call` for a tool that is not exposed is rejected as `NOT_FOUND` on every server, even when the client already knows the tool name.
 
@@ -460,7 +460,7 @@ AUDIT_LOGS_CORE_RESOURCE_KINDS_EXTRA=ai_assistant.mcp_tool_call
 
 | Mode | Behaviour |
 |------|-----------|
-| `direct` (default) | The tool handler runs immediately, as before. |
+| `direct` (default) | Typed tool handlers run immediately. Code Mode execution requires an explicit direct setting. |
 | `deny` | Mutation tools are hidden from `tools/list`. A call returns `MUTATION_REQUIRES_APPROVAL`. |
 | `approval` | The call is validated (exposure, the tool's `requiredFeatures`, input schema) and stored as a pending action; the handler does **not** run. A human approves or rejects it later. |
 
@@ -477,6 +477,8 @@ In `approval` mode:
 - Pending rows expire after `OM_MCP_PENDING_ACTION_TTL_SECONDS` (default `86400`, 24 hours). Chat-created rows keep `AI_PENDING_ACTION_TTL_SECONDS`.
 - The Code Mode `execute` tool is **not available** in `approval` mode. Its code runs arbitrary `api.request()` calls with the caller's credentials, which an approved execution does not have, so it cannot be queued meaningfully. It is hidden from `tools/list`, and a call on MCP or `/tools/execute` returns `MUTATION_REQUIRES_APPROVAL` with the message that `execute` is not available in approval mode. Tool authors mark such tools with `mcp: { approvalMode: 'refuse' }`. Use typed module tools (which queue normally) for writes, or `search` plus a read-only flow.
 - Agent tools on MCP keep their agent's own `mutationPolicy` in `approval` mode, but every write is queued, including the non-destructive writes of a `destructive-confirm-required` agent (the tool result lists the `pendingActionIds`). In `direct` and `deny` modes agent tools are downgraded to read-only.
+
+Code Mode discovery and typed tools remain available when the mutation mode is unset. On deployments that intentionally allow direct Code Mode execution, set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. For Compose sidecars, set the variable on the MCP service container through a service override.
 
 ### Approving pending actions
 
