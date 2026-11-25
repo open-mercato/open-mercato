@@ -12,6 +12,7 @@ import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { StepIndicator } from '@open-mercato/ui/primitives/step-indicator'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import type { EntryGroup } from '@/lib/groups'
+import { EntryThumbnail } from './EntryThumbnail'
 import { PageHeader } from './PageHeader'
 
 export type EntryCardData = {
@@ -20,6 +21,7 @@ export type EntryCardData = {
   href: string
   description?: string
   importPath: string
+  family: string
   exampleCount: number
 }
 
@@ -116,28 +118,29 @@ export function EntryIndex({ group, cards }: { group: EntryGroup; cards: EntryCa
         <ul className={group === 'blocks' ? 'grid gap-5 md:grid-cols-2' : 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3'}>
           {matches.map((card) => (
             <li key={card.id} className="min-w-0">
-              <Link
-                href={card.href}
-                className="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-input bg-card transition-colors hover:border-foreground focus-visible:outline-none focus-visible:shadow-focus"
-              >
+              <div className="group relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-input bg-card transition-colors hover:border-foreground has-[a:focus-visible]:shadow-focus">
                 {group === 'blocks' ? (
                   <div data-design-specimen="" aria-hidden="true" inert className="grid min-h-48 place-items-center border-b border-border bg-muted font-sans text-foreground px-5 py-6">
                     <div className="w-full max-w-sm rounded-card border border-border bg-card p-4 text-foreground shadow-xs">
                       <BlockSpecimen id={card.id} />
                     </div>
                   </div>
-                ) : null}
+                ) : (
+                  <EntryThumbnail familyId={card.family} entryId={card.id} />
+                )}
                 <div className="flex flex-1 flex-col gap-2 p-5">
                   <div className="flex items-start justify-between gap-3">
-                    <h2 className="text-lg font-semibold tracking-tight text-foreground">{card.title}</h2>
+                    <h2 className="text-lg font-normal tracking-tight text-foreground">
+                      <Link href={card.href} className="after:absolute after:inset-0 focus-visible:outline-none">{card.title}</Link>
+                    </h2>
                     <ArrowUpRight aria-hidden className="size-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
                   </div>
-                  {card.description ? <p className="text-sm leading-relaxed text-muted-foreground">{card.description}</p> : null}
-                  <p className="mt-auto pt-3 text-xs tabular-nums text-muted-foreground">
+                  <p className="text-xs tabular-nums text-muted-foreground">
                     {card.exampleCount === 1 ? t('design.index.exampleCountOne') : t('design.index.exampleCount', { count: card.exampleCount })}
                   </p>
+                  {card.description ? <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">{card.description}</p> : null}
                 </div>
-              </Link>
+              </div>
             </li>
           ))}
         </ul>

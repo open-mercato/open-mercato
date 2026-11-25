@@ -29,6 +29,7 @@ export default async function GroupIndexPage({ params }: { params: Promise<Param
     href: entryHref(group, entry.id),
     description: entryDescription(entry.descriptionKey),
     importPath: entry.importPath,
+    family: entry.family,
     exampleCount: entry.variants.length,
   }))
   return <EntryIndex group={group} cards={cards} />
