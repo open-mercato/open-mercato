@@ -73,6 +73,7 @@ test.describe('TC-LOCK-CRM-person: record locks on the CRM v2 person screen', ()
         personId = await createPersonFixture(request, adminToken, {
           firstName: 'QA',
           lastName: `Record lock ${strategy}`,
+          displayName: `QA Record lock ${strategy}`,
         });
 
         const denied = await acquireRecordLock(request, restrictedToken, 'customers.person', personId);
