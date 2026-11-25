@@ -7,7 +7,8 @@ import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import type { SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -22,6 +23,7 @@ type Row = {
   sourceAccountId: string
   targetAccountId: string
   defaultCostCenterId: string | null
+  updatedAt: string | null
 }
 
 const FALLBACK_LABEL = '—'
@@ -77,7 +79,10 @@ export default function DefaultAccountPostingRulesListPage() {
     })
     if (!confirmed) return
     try {
-      const call = await apiCall(`/api/posting_rules/default-account-posting-rules?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => apiCall(`/api/posting_rules/default-account-posting-rules?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' }),
+      )
       if (!call.ok) {
         await raiseCrudError(call.response, t('posting_rules.default_account_posting_rules.list.error.delete', 'Failed to delete default account posting rule'))
       }
