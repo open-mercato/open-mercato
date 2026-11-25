@@ -65,9 +65,10 @@ test('TC-SALES-9594: scoped actors see localized payment metadata and preserve a
 
   function deleteOnExit(path: string, token = bootstrap, data?: Record<string, unknown>, selectedOrgId?: string) {
     registerCleanup(async (cleanupRequest) => {
-      const response = selectedOrgId
-        ? await apiRequestWithSelectedOrg(cleanupRequest, 'DELETE', path, { token, data, selectedOrgId })
-        : await apiRequest(cleanupRequest, 'DELETE', path, { token, data, retryTransport: false })
+      const response = await apiRequest(cleanupRequest, 'DELETE', path, {
+        token, data, timeout: 1_000, retryTransport: false,
+        headers: selectedOrgId ? { Cookie: `om_selected_org=${selectedOrgId}` } : undefined,
+      })
       expect(response.ok(), `Cleanup DELETE ${path}: ${response.status()}`).toBe(true)
     })
   }
