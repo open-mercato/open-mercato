@@ -4,15 +4,19 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
-import { CustomerEntity } from '../../../../data/entities'
+import { CustomerEntity, CustomerPersonCompanyLink } from '../../../../data/entities'
 import { loadCompanyPeopleUnion } from '../../../../lib/personCompanies'
+import { resolveAuthActorId } from '../../../../lib/interactionRequestContext'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customers')
 
@@ -25,6 +29,7 @@ const querySchema = z.object({
   pageSize: z.coerce.number().min(1).max(100).default(20),
   search: z.string().optional(),
   sort: z.enum(['name-asc', 'name-desc', 'recent']).default('name-asc'),
+  employmentStatus: z.enum(['active', 'ended']).default('active'),
 })
 
 type CompanyPersonItem = {
@@ -41,6 +46,62 @@ type CompanyPersonItem = {
   temperature: string | null
   source: string | null
   linkedAt: string | null
+  linkId?: string | null
+  updatedAt?: string | null
+  employmentEndedOn?: string
+}
+
+async function loadFormerEmployees(em: EntityManager, company: CustomerEntity): Promise<CompanyPersonItem[]> {
+  const scope = { tenantId: company.tenantId, organizationId: company.organizationId }
+  const links = await findWithDecryption(
+    em, CustomerPersonCompanyLink,
+    { ...scope, company, deletedAt: null, employmentStatus: 'ended', person: { ...scope, kind: 'person', deletedAt: null } },
+    { populate: ['person'] }, scope,
+  )
+  return links.flatMap((link) => {
+    const person = typeof link.person === 'string' ? null : link.person
+    if (!person || person.deletedAt || person.kind !== 'person' || person.tenantId !== scope.tenantId
+      || person.organizationId !== scope.organizationId || !link.employmentEndedOn || link.deletedAt
+      || link.employmentStatus !== 'ended') return []
+    return [{
+      id: person.id,
+      displayName: person.displayName || person.id,
+      primaryEmail: null,
+      primaryPhone: null,
+      status: null,
+      lifecycleStage: null,
+      jobTitle: null,
+      department: null,
+      createdAt: person.createdAt.toISOString(),
+      organizationId: person.organizationId,
+      temperature: null,
+      source: null,
+      linkedAt: link.createdAt.toISOString(),
+      employmentEndedOn: link.employmentEndedOn,
+    }]
+  })
+}
+
+async function loadActivePeople(em: EntityManager, company: CustomerEntity): Promise<CompanyPersonItem[]> {
+  const scope = { tenantId: company.tenantId, organizationId: company.organizationId }
+  const union = await loadCompanyPeopleUnion(em, company, scope)
+  return union.map(({ entity: person, profile, linkedAt, linkId, updatedAt }) => ({
+    id: person.id,
+    displayName: person.displayName ?? person.primaryEmail ?? person.id,
+    primaryEmail: person.primaryEmail ?? null,
+    primaryPhone: person.primaryPhone ?? null,
+    status: person.status ?? null,
+    lifecycleStage: person.lifecycleStage ?? null,
+    jobTitle: profile?.jobTitle ?? null,
+    department: profile?.department ?? null,
+    createdAt: person.createdAt.toISOString(),
+    organizationId: person.organizationId,
+    temperature: person.temperature ?? null,
+    source: person.source ?? null,
+    linkedAt,
+    linkId,
+    updatedAt,
+  }))
 }
 
 function matchesSearch(item: CompanyPersonItem, query: string): boolean {
@@ -63,8 +124,8 @@ function matchesSearch(item: CompanyPersonItem, query: string): boolean {
 function sortItems(items: CompanyPersonItem[], sort: 'name-asc' | 'name-desc' | 'recent'): CompanyPersonItem[] {
   if (sort === 'recent') {
     return [...items].sort((left, right) => {
-      const leftTimestamp = left.linkedAt ? new Date(left.linkedAt).getTime() : new Date(left.createdAt).getTime()
-      const rightTimestamp = right.linkedAt ? new Date(right.linkedAt).getTime() : new Date(right.createdAt).getTime()
+      const leftTimestamp = Date.parse(left.employmentEndedOn ?? left.linkedAt ?? left.createdAt)
+      const rightTimestamp = Date.parse(right.employmentEndedOn ?? right.linkedAt ?? right.createdAt)
       if (leftTimestamp === rightTimestamp) return left.displayName.localeCompare(right.displayName)
       return rightTimestamp - leftTimestamp
     })
@@ -87,11 +148,13 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     const auth = await getAuthFromRequest(req)
     if (!auth?.tenantId) throw new CrudHttpError(401, { error: 'Unauthorized' })
 
+    const searchParams = new URL(req.url).searchParams
     const query = querySchema.parse({
-      page: new URL(req.url).searchParams.get('page') ?? undefined,
-      pageSize: new URL(req.url).searchParams.get('pageSize') ?? undefined,
-      search: new URL(req.url).searchParams.get('search') ?? undefined,
-      sort: new URL(req.url).searchParams.get('sort') ?? undefined,
+      page: searchParams.get('page') ?? undefined,
+      pageSize: searchParams.get('pageSize') ?? undefined,
+      search: searchParams.get('search') ?? undefined,
+      sort: searchParams.get('sort') ?? undefined,
+      employmentStatus: searchParams.get('employmentStatus') ?? undefined,
     })
 
     const container = await createRequestContainer()
@@ -121,23 +184,16 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     }
 
     const entityScope = { tenantId: auth.tenantId, organizationId: company.organizationId }
-    const union = await loadCompanyPeopleUnion(em, company, entityScope)
-
-    const items = union.map(({ entity: person, profile, linkedAt }) => ({
-      id: person.id,
-      displayName: person.displayName ?? person.primaryEmail ?? person.id,
-      primaryEmail: person.primaryEmail ?? null,
-      primaryPhone: person.primaryPhone ?? null,
-      status: person.status ?? null,
-      lifecycleStage: person.lifecycleStage ?? null,
-      jobTitle: profile?.jobTitle ?? null,
-      department: profile?.department ?? null,
-      createdAt: person.createdAt.toISOString(),
-      organizationId: person.organizationId,
-      temperature: person.temperature ?? null,
-      source: person.source ?? null,
-      linkedAt,
-    } satisfies CompanyPersonItem))
+    if (query.employmentStatus === 'ended') {
+      const rbac = container.resolve<RbacService>('rbacService')
+      const grantedFeatures = await rbac.getGrantedFeatures(resolveAuthActorId(auth), entityScope)
+      if (!authorizeFeatures(['customers.people.view'], { grantedFeatures })) {
+        throw new CrudHttpError(403, { error: translate('api.errors.forbidden', 'Forbidden') })
+      }
+    }
+    const items = query.employmentStatus === 'ended'
+      ? await loadFormerEmployees(em, company)
+      : await loadActivePeople(em, company)
 
     const filtered = query.search?.trim().length ? items.filter((item) => matchesSearch(item, query.search ?? '')) : items
     const sorted = sortItems(filtered, query.sort)
@@ -161,6 +217,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       return NextResponse.json({ error: translate('customers.errors.validationFailed', 'Validation failed'), details: error.issues }, { status: 400 })
     }
     logger.error('customers.companies.people.GET', { err: error })
+    reportTelemetryError(error, { module: 'customers', code: 'customers.company_people_load_failed' })
     return NextResponse.json({ error: translate('customers.errors.company_people_load_failed', 'Failed to load linked people') }, { status: 500 })
   }
 }
@@ -179,13 +236,16 @@ const companyPeopleItemSchema = z.object({
   temperature: z.string().nullable(),
   source: z.string().nullable(),
   linkedAt: z.string().nullable(),
+  linkId: z.string().uuid().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  employmentEndedOn: z.iso.date().optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Customers',
   methods: {
     GET: {
-      summary: 'List linked people for a company',
+      summary: 'List current or former people linked to a company',
       query: querySchema,
       responses: [
         {

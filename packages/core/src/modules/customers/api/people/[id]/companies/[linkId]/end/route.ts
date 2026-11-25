@@ -55,7 +55,9 @@ function reportEndEmploymentError(error: unknown, code: string, guardId?: string
   logger.error('End employment request failed', { err: error, code, guardId })
   try {
     reportTelemetryError(error, { module: 'customers', code, attributes: { guardId } })
-  } catch {}
+  } catch {
+    logger.warn('Could not send end-employment error to telemetry', { code, guardId })
+  }
 }
 
 export const metadata = {

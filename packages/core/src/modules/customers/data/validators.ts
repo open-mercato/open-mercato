@@ -881,7 +881,7 @@ export const personCompanyLinkUpdateSchema = scopedSchema.extend({
 })
 
 export const personCompanyEmploymentEndSchema = z.object({
-  endedOn: z.iso.date().refine((date) => date <= new Date().toISOString().slice(0, 10)),
+  endedOn: z.iso.date().refine((date) => date >= '0001-01-01' && date <= new Date().toISOString().slice(0, 10)),
 })
 
 export const personCompanyEmploymentEndCommandSchema = scopedSchema.extend({

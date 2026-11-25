@@ -12,6 +12,9 @@ const organizationId = '22222222-2222-4222-8222-222222222222'
 const companyId = '33333333-3333-4333-8333-333333333333'
 const linkedPersonId = '44444444-4444-4444-8444-444444444444'
 const profileOnlyPersonId = '55555555-5555-4555-8555-555555555555'
+const linkId = '66666666-6666-4666-8666-666666666666'
+const updatedAt = new Date('2026-03-03T00:00:00Z')
+const getGrantedFeatures = jest.fn()
 
 const em = {
   fork: jest.fn(),
@@ -22,6 +25,7 @@ const em = {
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
+    if (name === 'rbacService') return { getGrantedFeatures }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -74,6 +78,7 @@ function makePerson(id: string, displayName: string) {
     lifecycleStage: null,
     temperature: null,
     source: null,
+    tenantId,
     organizationId,
     createdAt: new Date('2026-01-01T00:00:00Z'),
   }
@@ -84,6 +89,7 @@ describe('GET /api/customers/companies/{id}/people', () => {
     jest.clearAllMocks()
     em.fork.mockReturnValue(em)
     em.findOne.mockResolvedValue({ id: companyId, kind: 'company', tenantId, organizationId, deletedAt: null })
+    getGrantedFeatures.mockResolvedValue(['customers.people.view'])
   })
 
   it('lists people linked through a link row and through a profile-only assignment alike (#5114)', async () => {
@@ -93,14 +99,16 @@ describe('GET /api/customers/companies/{id}/people', () => {
       if (EntityClass === CustomerPersonCompanyLink) {
         return [
           {
+            id: linkId,
             person: { ...linkedPerson, personProfile: { jobTitle: 'CTO', department: 'Engineering' } },
             createdAt: new Date('2026-02-01T00:00:00Z'),
+            updatedAt,
             deletedAt: null,
           },
         ]
       }
       if (EntityClass === CustomerPersonProfile) {
-        return [{ entity: profileOnlyPerson, jobTitle: 'Buyer', department: null, createdAt: new Date('2026-03-01T00:00:00Z') }]
+        return [{ entity: profileOnlyPerson, jobTitle: 'Buyer', department: null, createdAt: new Date('2026-03-01T00:00:00Z'), updatedAt }]
       }
       return []
     })
@@ -119,6 +127,8 @@ describe('GET /api/customers/companies/{id}/people', () => {
     const profileOnlyItem = body.items.find((item: { id: string }) => item.id === profileOnlyPersonId)
     expect(profileOnlyItem.jobTitle).toBe('Buyer')
     expect(profileOnlyItem.linkedAt).toBe('2026-03-01T00:00:00.000Z')
+    expect(profileOnlyItem).toMatchObject({ linkId: null, updatedAt: updatedAt.toISOString() })
+    expect(body.items.find((item: { id: string }) => item.id === linkedPersonId)).toMatchObject({ linkId, updatedAt: updatedAt.toISOString() })
   })
 
   it('lists a person present in both sources once', async () => {
@@ -141,5 +151,43 @@ describe('GET /api/customers/companies/{id}/people', () => {
     const body = await response.json()
     expect(body.total).toBe(1)
     expect(body.items[0].linkedAt).toBe('2026-02-01T00:00:00.000Z')
+  })
+
+  it('pages verified former employees by departure date and omits current contact details', async () => {
+    const link = (person: ReturnType<typeof makePerson>, employmentEndedOn: string) => ({
+      person, employmentEndedOn, employmentStatus: 'ended', deletedAt: null, createdAt: updatedAt,
+    })
+    em.find.mockResolvedValue([
+      link(makePerson(linkedPersonId, 'Alex'), '2024-09-03'),
+      link({ ...makePerson(profileOnlyPersonId, 'Blair'), primaryEmail: 'private@example.org' }, '2024-11-04'),
+      link({ ...makePerson('foreign', 'Foreign'), organizationId: 'foreign' }, '2024-11-05'),
+    ])
+
+    const response = await listCompanyPeople(
+      new Request(`http://localhost/api/customers/companies/${companyId}/people?employmentStatus=ended&sort=recent&pageSize=1`),
+      { params: { id: companyId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      total: 2,
+      totalPages: 2,
+      items: [{ id: profileOnlyPersonId, displayName: 'Blair', employmentEndedOn: '2024-11-04', primaryEmail: null }],
+    })
+    expect(em.find).toHaveBeenCalledWith(CustomerPersonCompanyLink, expect.objectContaining({
+      tenantId, organizationId, deletedAt: null, employmentStatus: 'ended',
+      person: { tenantId, organizationId, deletedAt: null, kind: 'person' },
+    }), { populate: ['person'] })
+  })
+
+  it('requires People view permission before reading former employees', async () => {
+    getGrantedFeatures.mockResolvedValue(['customers.companies.view'])
+    const response = await listCompanyPeople(
+      new Request(`http://localhost/api/customers/companies/${companyId}/people?employmentStatus=ended`),
+      { params: { id: companyId } },
+    )
+
+    expect(response.status).toBe(403)
+    expect(em.find).not.toHaveBeenCalled()
   })
 })

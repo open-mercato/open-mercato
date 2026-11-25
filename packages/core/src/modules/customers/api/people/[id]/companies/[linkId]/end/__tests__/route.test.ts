@@ -149,7 +149,7 @@ it('passes the scoped version to the command and applies only the guarded depart
   })
 })
 
-it.each(['9999-12-31', '2021-02-29', '2020-02-29T00:00:00Z'])('rejects an invalid date %s before running guards', async (date) => {
+it.each(['0000-01-01', '9999-12-31', '2021-02-29', '2020-02-29T00:00:00Z'])('rejects an invalid date %s before running guards', async (date) => {
   const response = await POST(makeRequest({ endedOn: date }), { params })
 
   expect(response.status).toBe(400)

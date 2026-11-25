@@ -1,10 +1,10 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
-import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, emitCrudUndoSideEffects, snapshotsEqual } from '@open-mercato/shared/lib/commands/helpers'
 import { conflict, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
@@ -70,6 +70,7 @@ type PersonCompanyLinkUndoPayload = {
   before?: PersonCompanyLinkSnapshot | null
   after?: PersonCompanyLinkSnapshot | null
   createBefore?: PersonCompanyLinkCreateBefore
+  reactivationVersion?: string
   promotionBefore?: PersonCompanyLinkPromotionBefore
 }
 
@@ -96,6 +97,7 @@ type PersonCompanyLinkCreateResult = {
   undeleted: boolean
   changed: boolean
   createBefore: PersonCompanyLinkCreateBefore
+  reactivationVersion?: string
 }
 
 /**
@@ -282,10 +284,14 @@ async function requirePersonProfile(
   return profile
 }
 
-async function clearPrimaryFlagsForPerson(em: EntityManager, person: CustomerEntity): Promise<void> {
+async function clearPrimaryFlagsForPerson(em: EntityManager, person: CustomerEntity, keepLinkId?: string): Promise<void> {
   await em.nativeUpdate(
     CustomerPersonCompanyLink,
-    { person, organizationId: person.organizationId, tenantId: person.tenantId, isPrimary: true, employmentStatus: 'active' },
+    {
+      person, organizationId: person.organizationId, tenantId: person.tenantId,
+      isPrimary: true, deletedAt: null, employmentStatus: 'active',
+      ...(keepLinkId ? { id: { $ne: keepLinkId } } : {}),
+    },
     { isPrimary: false, updatedAt: new Date() },
   )
 }
@@ -294,40 +300,47 @@ async function restoreCreatePersonCompanyLink(
   ctx: CommandRuntimeContext,
   after: PersonCompanyLinkSnapshot,
   before: PersonCompanyLinkCreateBefore,
+  reactivationVersion?: string,
 ): Promise<void> {
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const scope = { tenantId: after.tenantId, organizationId: after.organizationId }
-  const link = await findOneWithDecryption(
-    em,
-    CustomerPersonCompanyLink,
-    { id: after.id, ...scope },
-    undefined,
-    scope,
-  )
-  if (!link) return
-  if (link.employmentStatus === 'ended') throw conflict('customers.errors.person_company_employment_changed')
-  const person = await requirePersonEntity(em, after.personEntityId, after.tenantId, after.organizationId)
-  const profile = await requirePersonProfile(em, person)
-  const profileCompanyId = typeof profile.company === 'string' ? profile.company : profile.company?.id ?? null
-  const restorePrimaryAssignment = after.isPrimary && link.isPrimary && profileCompanyId === after.companyEntityId
-  const company = restorePrimaryAssignment && before.profileCompanyId
-    ? await requireCompanyEntity(em, before.profileCompanyId, after.tenantId, after.organizationId)
-    : null
-  const primaryLinkIds = before.primaryLinkIds.filter((id) => id !== link.id)
+  const restored: { link?: CustomerPersonCompanyLink } = {}
 
   await withAtomicFlush(em, [
     async () => {
+      if (!await lockPersonForCompanyLinkUpdate(em, after.personEntityId, scope)) return
+      const person = await requirePersonEntity(em, after.personEntityId, after.tenantId, after.organizationId)
+      const link = await findOneWithDecryption(em, CustomerPersonCompanyLink, {
+        id: after.id, ...scope, person, company: after.companyEntityId,
+      }, undefined, scope)
+      if (!link) return
+      if (link.employmentStatus === 'ended' || (reactivationVersion && link.updatedAt.toISOString() !== reactivationVersion)) {
+        throw conflict('customers.errors.person_company_employment_changed')
+      }
+      const profile = await requirePersonProfile(em, person)
+      const restorePrimaryAssignment = after.isPrimary && link.isPrimary && getProfileCompanyId(profile) === after.companyEntityId
+      const company = restorePrimaryAssignment && before.profileCompanyId
+        ? await requireCompanyEntity(em, before.profileCompanyId, scope.tenantId, scope.organizationId)
+        : null
+      const primaryLinkIds = before.primaryLinkIds.filter((id) => id !== link.id)
+      const activeScope = { person, ...scope, deletedAt: null, employmentStatus: 'active' as const }
       if (restorePrimaryAssignment) {
+        const previousLinks = primaryLinkIds.length ? await findWithDecryption(
+          em, CustomerPersonCompanyLink, { ...activeScope, id: { $in: primaryLinkIds } }, {}, scope,
+        ) : []
+        if (previousLinks.length !== primaryLinkIds.length || (company && await findEndedPersonCompanyLink(em, person, company))) {
+          throw conflict('customers.errors.person_company_employment_changed')
+        }
         await em.nativeUpdate(
           CustomerPersonCompanyLink,
-          { person, ...scope, id: { $ne: link.id }, deletedAt: null, isPrimary: true },
-          { isPrimary: false },
+          { ...activeScope, id: { $ne: link.id }, isPrimary: true },
+          { isPrimary: false, updatedAt: new Date() },
         )
         if (primaryLinkIds.length) {
           await em.nativeUpdate(
             CustomerPersonCompanyLink,
-            { person, ...scope, id: { $in: primaryLinkIds }, deletedAt: null },
-            { isPrimary: true },
+            { ...activeScope, id: { $in: primaryLinkIds }, isPrimary: false },
+            { isPrimary: true, updatedAt: new Date() },
           )
         }
         profile.company = company
@@ -340,9 +353,12 @@ async function restoreCreatePersonCompanyLink(
       link.deletedAt = before.link
         ? before.link.deletedAt ? new Date(before.link.deletedAt) : null
         : new Date()
+      restored.link = link
     },
   ], { transaction: true })
 
+  const { link } = restored
+  if (!link) return
   const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
   await emitCrudUndoSideEffects({
     dataEngine,
@@ -414,7 +430,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
           return
         }
         if (makePrimary) {
-          await clearPrimaryFlagsForPerson(em, person)
+          await clearPrimaryFlagsForPerson(em, person, activeLink?.id)
         }
         link = reusableLink ?? em.create(CustomerPersonCompanyLink, { ...scope, person, company })
         undeleted = Boolean(link.deletedAt)
@@ -438,7 +454,10 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       indexer: { entityType: 'customers:customer_person_company_link' },
     })
 
-    return { linkId: link.id, created: !createBefore.link, undeleted, changed, createBefore }
+    return {
+      linkId: link.id, created: !createBefore.link, undeleted, changed, createBefore,
+      ...(createBefore.link?.employmentStatus === 'ended' ? { reactivationVersion: link.updatedAt.toISOString() } : {}),
+    }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -469,6 +488,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
           after: after ?? null,
           ...(before ? { createBefore: before } : {}),
           ...(result.undeleted ? { before: null } : {}),
+          ...(result.reactivationVersion ? { reactivationVersion: result.reactivationVersion } : {}),
         } satisfies PersonCompanyLinkUndoPayload,
       },
     }
@@ -479,26 +499,27 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
     if (!after) return
 
     if (payload.createBefore) {
-      await restoreCreatePersonCompanyLink(ctx, after, payload.createBefore)
+      await restoreCreatePersonCompanyLink(ctx, after, payload.createBefore, payload.reactivationVersion)
       return
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await findOneWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      { id: after.id },
-      undefined,
-      { tenantId: after.tenantId, organizationId: after.organizationId },
-    )
-    if (!link) return
-
+    const scope = { tenantId: after.tenantId, organizationId: after.organizationId }
+    const restored: { link?: CustomerPersonCompanyLink } = {}
     let person: CustomerEntity | null = null
     let profile: CustomerPersonProfile | null = null
     let remainingLinks: CustomerPersonCompanyLink[] = []
 
     await withAtomicFlush(em, [
       async () => {
+        if (!await lockPersonForCompanyLinkUpdate(em, after.personEntityId, scope)) return
+        const link = await findOneWithDecryption(
+          em, CustomerPersonCompanyLink,
+          { id: after.id, person: after.personEntityId, company: after.companyEntityId, ...scope }, undefined, scope,
+        )
+        if (!link) return
+        if (link.employmentStatus === 'ended') throw conflict('customers.errors.person_company_employment_changed')
+        restored.link = link
         person = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -510,7 +531,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
         profile = await findOneWithDecryption(
           em,
           CustomerPersonProfile,
-          { entity: person },
+          { entity: person, ...scope },
           { populate: ['company'] },
           { tenantId: person.tenantId, organizationId: person.organizationId },
         )
@@ -518,6 +539,8 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
         remainingLinks = (await loadPersonCompanyLinks(em, person)).filter((entry) => entry.id !== link.id)
       },
       async () => {
+        const { link } = restored
+        if (!link) return
         link.isPrimary = false
         link.deletedAt = new Date()
         if (!person || !profile) return
@@ -529,6 +552,8 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       },
     ], { transaction: true })
 
+    const { link } = restored
+    if (!link) return
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudUndoSideEffects({
       dataEngine,
@@ -546,56 +571,46 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for person-company link create' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const person = await requirePersonEntity(em, after.personEntityId, after.tenantId, after.organizationId)
-    const company = await requireCompanyEntity(em, after.companyEntityId, after.tenantId, after.organizationId)
-    const profile = await requirePersonProfile(em, person)
-
-    let link = await findOneWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      { id: after.id, tenantId: after.tenantId, organizationId: after.organizationId },
-      undefined,
-      { tenantId: after.tenantId, organizationId: after.organizationId },
-    )
+    const scope = { tenantId: after.tenantId, organizationId: after.organizationId }
     const previous = extractUndoPayload<PersonCompanyLinkUndoPayload>(logEntry)?.createBefore?.link
-    if (link?.employmentStatus === 'ended'
-      && (previous?.employmentStatus !== 'ended' || previous.employmentEndedOn !== link.employmentEndedOn)) {
-      throw conflict('customers.errors.person_company_employment_changed')
-    }
-    const existingLinks = await loadPersonCompanyLinks(em, person)
-    const createBefore: PersonCompanyLinkCreateBefore = {
-      link: link ? snapshotPersonCompanyLink(link) : null,
-      primaryLinkIds: existingLinks.filter((entry) => entry.isPrimary).map((entry) => entry.id),
-      profileCompanyId: typeof profile.company === 'string' ? profile.company : profile.company?.id ?? null,
-    }
+    const undoneAt = logEntry.updatedAt === undefined ? undefined : new Date(logEntry.updatedAt).getTime()
+    let link!: CustomerPersonCompanyLink
+    let createBefore!: PersonCompanyLinkCreateBefore
 
     await withAtomicFlush(em, [
       async () => {
-        if (after.isPrimary) {
-          await clearPrimaryFlagsForPerson(em, person)
+        if (!await lockPersonForCompanyLinkUpdate(em, after.personEntityId, scope)) throw notFound('Person not found')
+        const person = await requirePersonEntity(em, after.personEntityId, scope.tenantId, scope.organizationId)
+        const company = await requireCompanyEntity(em, after.companyEntityId, scope.tenantId, scope.organizationId)
+        const profile = await requirePersonProfile(em, person)
+        const current = await findOneWithDecryption(
+          em, CustomerPersonCompanyLink, { ...scope, id: after.id, person, company }, undefined, scope,
+        )
+        if (previous?.employmentStatus === 'ended') {
+          if (current?.employmentStatus !== 'ended' || current.deletedAt || current.employmentEndedOn !== previous.employmentEndedOn
+            || hasChangedSinceUndo(current.updatedAt, undoneAt)) {
+            throw conflict('customers.errors.person_company_employment_changed')
+          }
+        } else if (current?.employmentStatus === 'ended') {
+          throw conflict('customers.errors.person_company_employment_changed')
         }
-        if (!link) {
-          link = em.create(CustomerPersonCompanyLink, {
-            id: after.id,
-            organizationId: after.organizationId,
-            tenantId: after.tenantId,
-            person,
-            company,
-            isPrimary: after.isPrimary,
-            employmentEndedOn: after.employmentEndedOn ?? null,
-          })
-          em.persist(link)
-        } else {
-          link.deletedAt = null
-          link.employmentStatus = 'active'
-          link.isPrimary = after.isPrimary
-          em.persist(link)
+        const existingLinks = await loadPersonCompanyLinks(em, person)
+        createBefore = {
+          link: current ? snapshotPersonCompanyLink(current) : null,
+          primaryLinkIds: existingLinks.filter((entry) => entry.isPrimary).map((entry) => entry.id),
+          profileCompanyId: getProfileCompanyId(profile),
         }
-      },
-      () => {
         if (after.isPrimary) {
+          await clearPrimaryFlagsForPerson(em, person, current?.id)
           profile.company = company
         }
+        link = current ?? em.create(CustomerPersonCompanyLink, {
+          ...scope, id: after.id, person, company, employmentEndedOn: after.employmentEndedOn ?? null,
+        })
+        link.deletedAt = null
+        link.employmentStatus = 'active'
+        link.isPrimary = after.isPrimary
+        em.persist(link)
       },
     ], { transaction: true })
 
@@ -603,14 +618,17 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
     await emitCrudSideEffects({
       dataEngine,
       action: 'created',
-      entity: link!,
-      identifiers: getLinkIdentifiers(link!),
+      entity: link,
+      identifiers: getLinkIdentifiers(link),
       syncOrigin: ctx.syncOrigin,
       events: personCompanyLinkCrudEvents,
       indexer: { entityType: 'customers:customer_person_company_link' },
     })
 
-    return { linkId: link!.id, created: true, undeleted: false, changed: true, createBefore }
+    return {
+      linkId: link.id, created: true, undeleted: false, changed: true, createBefore,
+      ...(previous?.employmentStatus === 'ended' ? { reactivationVersion: link.updatedAt.toISOString() } : {}),
+    }
   },
 }
 
@@ -693,7 +711,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
               )?.id ?? null,
             }
           }
-          await clearPrimaryFlagsForPerson(em, person)
+          await clearPrimaryFlagsForPerson(em, person, currentLink.id)
           currentLink.isPrimary = true
           profile.company = linkedCompany
         } else {
@@ -808,7 +826,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
         const { link } = state
         if (!person || !profile || !link) return
         if (promotionBefore) {
-          const profileCompanyId = typeof profile.company === 'string' ? profile.company : profile.company?.id ?? null
+          const profileCompanyId = getProfileCompanyId(profile)
           if (link.deletedAt || !link.isPrimary || profileCompanyId !== before.companyEntityId) return
 
           const { primaryLinkIds, profileCompanyId: previousCompanyId, profileCompanyLinkId } = promotionBefore
@@ -823,19 +841,27 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
                 scope,
               )
             : null
+          const endedPrimary = primaryLinkIds.length ? await findOneWithDecryption(
+            em, CustomerPersonCompanyLink,
+            { ...scope, person, id: { $in: primaryLinkIds }, deletedAt: null, employmentStatus: 'ended' },
+            undefined, scope,
+          ) : null
+          if (endedPrimary || (previousCompany && await findEndedPersonCompanyLink(em, person, previousCompany))) {
+            throw conflict('customers.errors.person_company_employment_changed')
+          }
 
           if (primaryLinkIds.length) {
             await em.nativeUpdate(
               CustomerPersonCompanyLink,
-              { person, ...scope, id: { $in: primaryLinkIds }, deletedAt: null },
-              { isPrimary: true },
+              { person, ...scope, id: { $in: primaryLinkIds }, deletedAt: null, employmentStatus: 'active', isPrimary: false },
+              { isPrimary: true, updatedAt: new Date() },
             )
           }
           link.isPrimary = false
           profile.company = previousCompany
           state.restoredPromotion = true
         } else if (before.isPrimary) {
-          await clearPrimaryFlagsForPerson(em, person)
+          await clearPrimaryFlagsForPerson(em, person, link.id)
           link.isPrimary = true
           if (company) profile.company = company
         } else {
@@ -941,12 +967,14 @@ async function restoreProfileOnlyCompany(
   before: PersonCompanyProfileAssignmentSnapshot,
 ): Promise<void> {
   const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
   let person: CustomerEntity | null = null
   let profile: CustomerPersonProfile | null = null
   let company: CustomerEntity | null = null
 
   await withAtomicFlush(em, [
     async () => {
+      if (!await lockPersonForCompanyLinkUpdate(em, before.personEntityId, scope)) return
       person = await findOneWithDecryption(
         em,
         CustomerEntity,
@@ -958,7 +986,7 @@ async function restoreProfileOnlyCompany(
       profile = await findOneWithDecryption(
         em,
         CustomerPersonProfile,
-        { entity: person },
+        { entity: person, ...scope },
         { populate: ['company'] },
         { tenantId: before.tenantId, organizationId: before.organizationId },
       )
@@ -970,6 +998,9 @@ async function restoreProfileOnlyCompany(
         undefined,
         { tenantId: before.tenantId, organizationId: before.organizationId },
       )
+      if (company && await findEndedPersonCompanyLink(em, person, company)) {
+        throw conflict('customers.errors.person_company_employment_changed')
+      }
     },
     () => {
       if (profile && company) profile.company = company
@@ -1099,21 +1130,22 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
     }
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await findOneWithDecryption(
-      em,
-      CustomerPersonCompanyLink,
-      { id: before.id },
-      undefined,
-      { tenantId: before.tenantId, organizationId: before.organizationId },
-    )
-    if (!link) return
-
+    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    const restored: { link?: CustomerPersonCompanyLink } = {}
     let person: CustomerEntity | null = null
     let profile: CustomerPersonProfile | null = null
     let company: CustomerEntity | null = null
 
     await withAtomicFlush(em, [
       async () => {
+        if (!await lockPersonForCompanyLinkUpdate(em, before.personEntityId, scope)) return
+        const link = await findOneWithDecryption(
+          em, CustomerPersonCompanyLink,
+          { id: before.id, person: before.personEntityId, company: before.companyEntityId, ...scope }, undefined, scope,
+        )
+        if (!link) return
+        if (link.employmentStatus === 'ended') throw conflict('customers.errors.person_company_employment_changed')
+        restored.link = link
         person = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -1125,7 +1157,7 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
         profile = await findOneWithDecryption(
           em,
           CustomerPersonProfile,
-          { entity: person },
+          { entity: person, ...scope },
           { populate: ['company'] },
           { tenantId: person.tenantId, organizationId: person.organizationId },
         )
@@ -1139,16 +1171,17 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
         )
       },
       async () => {
+        const { link } = restored
+        if (!link) return
+        if (person && before.isPrimary) await clearPrimaryFlagsForPerson(em, person, link.id)
         link.deletedAt = null
         link.isPrimary = before.isPrimary
-        if (person && before.isPrimary) {
-          await clearPrimaryFlagsForPerson(em, person)
-          link.isPrimary = true
-          if (profile && company) profile.company = company
-        }
+        if (before.isPrimary && profile && company) profile.company = company
       },
     ], { transaction: true })
 
+    const { link } = restored
+    if (!link) return
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudUndoSideEffects({
       dataEngine,
@@ -1176,10 +1209,15 @@ function getProfileCompanyId(profile: CustomerPersonProfile): string | null {
   return typeof profile.company === 'string' ? profile.company : profile.company?.id ?? null
 }
 
+function hasChangedSinceUndo(version: Date, undoneAt?: number): boolean {
+  return undoneAt !== undefined && version.getTime() > undoneAt
+}
+
 async function endEmployment(
   input: PersonCompanyEmploymentEndInput,
   ctx: CommandRuntimeContext,
-  replayLinkId?: string,
+  replay?: EmploymentEndSnapshot,
+  undoneAt?: number,
 ): Promise<{ linkId: string; snapshot: EmploymentEndSnapshot }> {
   const parsed = personCompanyEmploymentEndCommandSchema.parse(input)
   const scope = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
@@ -1209,6 +1247,13 @@ async function endEmployment(
       const current = await findOneWithDecryption(
         em, CustomerPersonCompanyLink, { ...where, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE }, scope,
       )
+      before = current ? snapshotPersonCompanyLink(current) : null
+      if (replay && (!snapshotsEqual(before, replay.before)
+        || (current && hasChangedSinceUndo(current.updatedAt, undoneAt))
+        || (replay.primaryAssignment && (profileCompanyId !== replay.primaryAssignment.companyId
+          || hasChangedSinceUndo(profile.updatedAt, undoneAt))))) {
+        throw conflict('customers.errors.person_company_employment_changed')
+      }
       if (!current && profileCompanyId !== company.id) {
         enforceRecordGoneIsConflict({ resourceKind: employmentResourceKind, resourceId: company.id, request: ctx.request })
         throw notFound('customers.errors.person_company_link_not_found')
@@ -1223,15 +1268,22 @@ async function endEmployment(
         throw notFound('customers.errors.person_company_link_not_found')
       }
 
-      before = current ? snapshotPersonCompanyLink(current) : null
       reconcilePrimary = Boolean(current?.isPrimary) || profileCompanyId === company.id
       if (reconcilePrimary) {
         fallbackLinks = (await loadPersonCompanyLinks(em, person)).filter((candidate) => candidate.id !== current?.id)
         fallbackWasPrimary = fallbackLinks[0]?.isPrimary ?? false
+        if (replay && ((fallbackLinks[0]?.id ?? null) !== (replay.promoted?.id ?? null)
+          || (replay.promoted && (fallbackWasPrimary !== replay.promoted.wasPrimary
+            || hasChangedSinceUndo(fallbackLinks[0].updatedAt, undoneAt))))) {
+          throw conflict('customers.errors.person_company_employment_changed')
+        }
       }
-      const replayLink = !current && replayLinkId
-        ? await findOneWithDecryption(em, CustomerPersonCompanyLink, { ...where, id: replayLinkId, deletedAt: { $ne: null } }, undefined, scope)
+      const replayLink = !current && replay
+        ? await findOneWithDecryption(em, CustomerPersonCompanyLink, { ...where, id: replay.after.id, deletedAt: { $ne: null } }, undefined, scope)
         : null
+      if (replay && !current && (!replayLink || hasChangedSinceUndo(replayLink.updatedAt, undoneAt))) {
+        throw conflict('customers.errors.person_company_employment_changed')
+      }
       link = current ?? replayLink ?? em.create(CustomerPersonCompanyLink, { ...where })
       link.deletedAt = null
       link.isPrimary = false
@@ -1345,7 +1397,9 @@ const endEmploymentCommand: CommandHandler<
   },
   async redo({ input, ctx, logEntry }) {
     const snapshot = extractUndoPayload<EmploymentEndSnapshot>(logEntry)
-    return endEmployment(input, ctx, snapshot?.before === null ? snapshot.after.id : undefined)
+    if (!snapshot) throw conflict('customers.errors.person_company_employment_changed')
+    const undoneAt = logEntry.updatedAt === undefined ? undefined : new Date(logEntry.updatedAt).getTime()
+    return endEmployment(input, ctx, snapshot, undoneAt)
   },
 }
 

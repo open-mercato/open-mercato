@@ -144,7 +144,9 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
     const [, ctor, rawWhere] = args as [unknown, unknown, Record<string, unknown>]
     if (ctor === CustomerPersonCompanyLink) {
       const found = links.find((link) => {
-        if (rawWhere.id && link.id !== rawWhere.id) return false
+        if (typeof rawWhere.id === 'string' && link.id !== rawWhere.id) return false
+        const idFilter = rawWhere.id as { $in?: string[] } | undefined
+        if (idFilter?.$in && !idFilter.$in.includes(link.id)) return false
         const companyId = typeof link.company === 'string' ? link.company : link.company.id
         const company = rawWhere.company as CustomerEntity | string | undefined
         if (company && companyId !== (typeof company === 'string' ? company : company.id)) return false
@@ -177,7 +179,9 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
     if (ctor !== CustomerPersonCompanyLink) return []
     const active = links.filter((link) => {
       const row = linkRows.get(link.id)
+      const idFilter = where.id as { $in?: string[] } | undefined
       return row?.deletedAt == null && (!where.employmentStatus || where.employmentStatus === (row?.employmentStatus ?? 'active'))
+        && (!idFilter?.$in || idFilter.$in.includes(link.id))
     })
     active.sort((left, right) => Number(linkRows.get(right.id)?.isPrimary) - Number(linkRows.get(left.id)?.isPrimary))
     active.forEach(rebaseline)
@@ -896,6 +900,13 @@ describe('customers.personCompanyLinks.endEmployment', () => {
     return { ctx, logEntry: log as unknown as CommandUndoLogEntry }
   }
 
+  async function createAndLog(ctx: CommandRuntimeContext, createInput: typeof input & { isPrimary?: boolean }) {
+    const result = await create.execute(createInput, ctx)
+    const after = await create.captureAfter!(createInput, result, ctx)
+    const log = await create.buildLog!({ input: createInput, ctx, result, snapshots: { after } })
+    return log as unknown as CommandUndoLogEntry
+  }
+
   it('keeps the link, promotes an active fallback, and restores both on undo', async () => {
     const fixtures = makeFixtures([
       { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
@@ -954,5 +965,73 @@ describe('customers.personCompanyLinks.endEmployment', () => {
 
     await expect(end.execute(input, ctx)).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
     expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ deletedAt: null, isPrimary: true })
+  })
+
+  it('rejects undo of an older reactivation after a later departure and rejoin', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { ctx } = await endAndLog(fixtures)
+    const logEntry = await createAndLog(ctx, input)
+    const nextDeparture = { ...input, endedOn: '2025-04-01' }
+    await end.execute(nextDeparture, ctx)
+    await create.execute(input, ctx)
+
+    await expect(create.undo!({ input, ctx, logEntry })).rejects.toMatchObject({ status: 409 })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ employmentStatus: 'active', employmentEndedOn: nextDeparture.endedOn })
+  })
+
+  it('does not restore a prior primary association that ended after reactivation', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+      { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null, employmentStatus: 'ended', employmentEndedOn: '2024-01-15' },
+    ], COMPANY_A_ID)
+    const ctx = makeCtx(fixtures.em)
+    const reactivate = { ...input, companyEntityId: COMPANY_B_ID, isPrimary: true }
+    const logEntry = await createAndLog(ctx, reactivate)
+    await end.execute(input, ctx)
+
+    await expect(create.undo!({ input: reactivate, ctx, logEntry })).rejects.toMatchObject({ status: 409 })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ employmentStatus: 'ended', isPrimary: false })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+  })
+
+  it('rejects old redo after the association gained a newer departure date', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { ctx, logEntry } = await endAndLog(fixtures)
+    await end.undo!({ input, ctx, logEntry })
+    const nextDeparture = { ...input, endedOn: '2025-04-01' }
+    await end.execute(nextDeparture, ctx)
+    await create.execute(input, ctx)
+
+    await expect(end.redo!({ input, ctx, logEntry })).rejects.toMatchObject({ status: 409 })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ employmentStatus: 'active', employmentEndedOn: nextDeparture.endedOn })
+  })
+
+  it('rejects an old redo even when a later employment cycle used the same date', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null, employmentEndedOn: input.endedOn },
+    ], COMPANY_A_ID)
+    const { ctx, logEntry } = await endAndLog(fixtures)
+    await end.undo!({ input, ctx, logEntry })
+    const undoneLog = { ...logEntry, updatedAt: fixtures.links[0].updatedAt }
+    await end.execute(input, ctx)
+    await create.execute(input, ctx)
+
+    await expect(end.redo!({ input, ctx, logEntry: undoneLog })).rejects.toMatchObject({ status: 409 })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ employmentStatus: 'active', employmentEndedOn: input.endedOn })
+  })
+
+  it('preserves the departure when undoing a link from a legacy create log', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { ctx } = await endAndLog(fixtures)
+    const oldLog = { payload: { undo: { after: makeLinkSnapshot(LINK_A_ID, COMPANY_A_ID, true) } } } as CommandUndoLogEntry
+
+    await expect(create.undo!({ input, ctx, logEntry: oldLog })).rejects.toMatchObject({ status: 409 })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ deletedAt: null, employmentStatus: 'ended' })
   })
 })
