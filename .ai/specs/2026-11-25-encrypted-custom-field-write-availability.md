@@ -6,7 +6,7 @@ Require a usable tenant data encryption key before committing a value configured
 
 ## Behavior
 
-The EAV custom-field writer resolves or provisions a tenant key before sealing a non-null encrypted value. A missing key or a failed key lookup returns HTTP 503 with code `ENCRYPTION_UNAVAILABLE` through the shared CRUD error handler. A custom-field replacement transaction rolls back when sealing cannot proceed. Clearing a value, reading existing values, tenantless values, and deployments with encryption explicitly disabled retain their respective behavior.
+The EAV custom-field writer resolves or provisions a tenant key before sealing a non-null encrypted value. A missing key or a failed key lookup returns HTTP 503 with code `ENCRYPTION_UNAVAILABLE` through the shared CRUD error handler. A custom-field replacement transaction rolls back when sealing cannot proceed. In the customer people, company, and deal create and update commands, the base record and all custom fields commit or roll back together. Custom-field change notifications run after commit. Clearing a value, reading existing values, tenantless values, and deployments with encryption explicitly disabled retain their respective behavior.
 
 ## Migration & Backward Compatibility
 
@@ -14,4 +14,8 @@ Clients retry an encrypted-field write after tenant key access recovers. Operato
 
 ## Verification
 
-Cover unavailable keys, key-service failures, custom-field rollback, explicit disablement, and a successful write after key recovery.
+Cover unavailable keys, key-service failures, scalar clearing from empty and all-null arrays, custom-field rollback, and explicit disablement. With PostgreSQL, exercise the people CRUD POST and PUT routes during a simulated key-service failure and verify rollback across the base record, profile, and both custom-field scopes. Restore the key and verify each retry succeeds without creating duplicate records.
+
+## Changelog
+
+- 2026-11-25 — Make customer create and update atomic across custom-field scopes and let empty scalar arrays clear during a key outage.

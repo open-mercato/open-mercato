@@ -141,6 +141,23 @@ describe('setRecordCustomFields', () => {
       expect(emMock.commit).not.toHaveBeenCalled()
     })
 
+    it.each([{ values: [] }, { values: [null, null] }])(
+      'clears an encrypted scalar during a key outage with $values',
+      async ({ values }) => {
+        const { rows, em, emMock } = createValueStore(true)
+        rows.push({ ...scope, id: 'existing', fieldKey: 'protected', valueText: 'existing value' })
+        const getDek = jest.fn(async () => { throw new Error('[internal] test key provider failure') })
+        const encryptionService = { isEnabled: () => true, getDek } as unknown as TenantDataEncryptionService
+
+        await setRecordCustomFields(em, { ...scope, encryptionService, values: { protected: values } })
+
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.valueText).toBeNull()
+        expect(getDek).not.toHaveBeenCalled()
+        expect(emMock.commit).toHaveBeenCalledTimes(1)
+      },
+    )
+
     it('keeps empty fields absent and all other values intact when an unrelated edit echoes nulls', async () => {
       const { rows, em, emMock } = createValueStore()
       await setRecordCustomFields(em, { ...scope, values: { priority: 3, blocked: false, description: 'Keep me' } })
