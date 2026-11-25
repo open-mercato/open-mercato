@@ -641,6 +641,21 @@ function normalizeDirtySnapshotValue(value: unknown): unknown {
   return Object.keys(normalized).length ? normalized : undefined
 }
 
+function readMissingCustomFieldDefaults(
+  definitions: readonly CustomFieldDefDto[],
+  values: Record<string, unknown>,
+  bareIds: boolean,
+  editedFieldIds: ReadonlySet<string>,
+): Record<string, unknown> {
+  const defaults: Record<string, unknown> = {}
+  for (const { key, defaultValue } of definitions) {
+    const fieldId = bareIds ? key : `cf_${key}`
+    if (defaultValue == null || values[fieldId] !== undefined || editedFieldIds.has(fieldId)) continue
+    defaults[fieldId] = defaultValue
+  }
+  return defaults
+}
+
 function createDirtySnapshot(source: Record<string, unknown>): string {
   return JSON.stringify(normalizeDirtySnapshotValue(source) ?? {})
 }
@@ -3097,26 +3112,10 @@ function CrudFormImpl<
     if (cfDefaultsAppliedRef.current) return
     cfDefaultsAppliedRef.current = true
 
-    const defaults: Record<string, unknown> = {}
-    const prefix = customEntity ? '' : 'cf_'
-    for (const def of cfDefinitions) {
-      if (def.defaultValue === undefined || def.defaultValue === null) continue
-      const fieldId = `${prefix}${def.key}`
-      defaults[fieldId] = def.defaultValue
-    }
-
-    if (Object.keys(defaults).length === 0) return
-
     const currentValues = valuesRef.current
-    const mergedValues = { ...currentValues } as CrudFormValues<TValues>
-    let applied = false
-    for (const [fieldId, defaultVal] of Object.entries(defaults)) {
-      // Skip if a value already exists (from initialValues or user input)
-      if (mergedValues[fieldId] !== undefined) continue
-      ;(mergedValues as Record<string, unknown>)[fieldId] = defaultVal
-      applied = true
-    }
-    if (!applied) return
+    const defaults = readMissingCustomFieldDefaults(cfDefinitions, currentValues, customEntity, everEditedFieldIdsRef.current)
+    if (Object.keys(defaults).length === 0) return
+    const mergedValues = { ...currentValues, ...defaults } as CrudFormValues<TValues>
 
     // Update the dirty baseline only after the defaults commit so an interrupted
     // render cannot make the navigation guard observe values the user never saw.
@@ -3236,28 +3235,37 @@ function CrudFormImpl<
     }
 
     // Custom fields validation via definitions (rules)
+    let submitDefinitions = cfDefinitions
+    let legacySubmitValues: Record<string, unknown> | undefined
     if (resolvedEntityIds.length) {
       try {
-        const defs = acceptedSectionPolicy || cfDefinitions.length
+        const needsCreateDefaults = !acceptedSectionPolicy && !initialValuesHasId && !cfDefaultsAppliedRef.current
+        submitDefinitions = acceptedSectionPolicy || cfDefinitions.length
           ? cfDefinitions
           : await import('./utils/customFieldDefs').then((mod) => mod.fetchCustomFieldDefs(resolvedEntityIds))
         const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
+        const currentValues = valuesRef.current
+        const defaults = needsCreateDefaults
+          ? readMissingCustomFieldDefaults(submitDefinitions, currentValues, customEntity, everEditedFieldIdsRef.current)
+          : undefined
+        const validationValues = defaults ? { ...currentValues, ...defaults } : currentValues
+        if (!sectionValues) legacySubmitValues = validationValues
         // Build values keyed by def.key for validation
         const cfValues: Record<string, unknown> = {}
         if (sectionValues) {
-          for (const { key } of defs) cfValues[key] = readCrudFormSectionCustomFieldValue(sectionValues, key, customEntity)
+          for (const { key } of submitDefinitions) cfValues[key] = readCrudFormSectionCustomFieldValue(sectionValues, key, customEntity)
         } else if (customEntity) {
-          for (const def of defs) {
-            if (Object.prototype.hasOwnProperty.call(values, def.key)) {
-              cfValues[def.key] = values[def.key]
+          for (const { key } of submitDefinitions) {
+            if (Object.hasOwn(validationValues, key)) {
+              cfValues[key] = validationValues[key]
             }
           }
         } else {
-          for (const [k, v] of Object.entries(values)) {
-            if (k.startsWith('cf_')) cfValues[k.replace(/^cf_/, '')] = v
+          for (const [key, value] of Object.entries(validationValues)) {
+            if (key.startsWith('cf_')) cfValues[key.slice(3)] = value
           }
         }
-        const defsForValidation = mapDefsForValidation(defs)
+        const defsForValidation = mapDefsForValidation(submitDefinitions)
         const result = validateValuesAgainstDefs(cfValues, defsForValidation)
         if (!result.ok) {
           if (customEntity) {
@@ -3285,10 +3293,10 @@ function CrudFormImpl<
       }
     }
 
-    const widgetValues = sectionValues ?? projectWidgetValues(valuesRef.current as Record<string, unknown>)
+    const widgetValues = sectionValues ?? projectWidgetValues(legacySubmitValues ?? valuesRef.current)
     const coreValues = projectNativeValues(widgetValues)
     if (customEntity) {
-      const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
+      const allowedKeys = new Set(submitDefinitions.map((definition) => definition.key).filter(Boolean))
       for (const key of Object.keys(coreValues)) {
         if (!allowedKeys.has(key)) delete coreValues[key]
       }
@@ -3324,7 +3332,7 @@ function CrudFormImpl<
           submitValues = result.data as TValues
           const projectedCoreValues = projectNativeValues(result.data as Record<string, unknown>)
           if (customEntity) {
-            const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
+            const allowedKeys = new Set(submitDefinitions.map((definition) => definition.key).filter(Boolean))
             for (const key of Object.keys(projectedCoreValues)) {
               if (!allowedKeys.has(key)) delete projectedCoreValues[key]
             }

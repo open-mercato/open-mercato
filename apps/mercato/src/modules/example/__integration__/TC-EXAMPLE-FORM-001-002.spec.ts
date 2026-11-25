@@ -4,6 +4,7 @@ import { errors, expect, test, type Request } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { getCustomFieldValue } from '@open-mercato/core/helpers/integration/crudFormPersistence'
 import { CONFLICT_BANNER_TESTID, CONFLICT_DIALOG_TESTID, expectConflictBanner } from '@open-mercato/core/helpers/integration/optimisticLockUi'
 import { buildCrudFormSectionPolicyHeaders } from '@open-mercato/shared/lib/crud/form-sections/policy-headers'
 import { readyResolveCrudFormSectionsResponseSchema } from '@open-mercato/shared/lib/crud/form-sections/protocol'
@@ -93,23 +94,30 @@ test('TC-EXAMPLE-FORM-012 keeps ordinary create and edit on the legacy Todo endp
   const token = await getAuthToken(request, 'admin')
   await login(page, 'admin')
   const policyCalls: string[] = []
+  const definitionRequest = Promise.withResolvers<void>()
+  const releaseDefinitions = Promise.withResolvers<void>()
   let id: string | null = null
   page.on('request', (request) => {
     if (new URL(request.url()).pathname === '/api/extensions/crud-form-sections/resolve') policyCalls.push(request.url())
   })
   try {
+    await page.route((url) => url.pathname === '/api/entities/definitions' && url.searchParams.get('entityId') === 'example:todo', async (route) => {
+      definitionRequest.resolve()
+      await releaseDefinitions.promise
+      await route.continue()
+    })
     await page.goto('/backend/todos/create')
+    await definitionRequest.promise
     const title = field(page, 'title').locator('input').first()
     await expect(title).toBeVisible()
-    await expect(field(page, 'cf_priority').locator('input').first()).toBeVisible()
+    await expect(field(page, 'cf_priority')).toHaveCount(0)
     await expect(page.locator('[data-crud-field-id="cf_season"], [data-crud-field-id="brand"], [data-crud-field-id="erpSupplierRef"]')).toHaveCount(0)
     await title.fill(`Legacy ${randomUUID()}`)
-    const severity = field(page, 'cf_severity').getByRole('combobox').first()
-    await expect(severity).toHaveText('Medium')
     await captureShowcase(page, 'c12-ordinary-create')
     const submit = () => title.locator('xpath=ancestor::form[1]').locator('button[type="submit"]').first().click()
     const pendingCreate = page.waitForResponse((res) => new URL(res.url()).pathname === todoApi && res.request().method() === 'POST')
     await submit()
+    releaseDefinitions.resolve()
     const created = await pendingCreate
     expect(created.status()).toBe(201)
     id = (await created.json() as { id: string }).id
@@ -123,9 +131,13 @@ test('TC-EXAMPLE-FORM-012 keeps ordinary create and edit on the legacy Todo endp
     await submit()
     expect((await pendingUpdate).status()).toBe(200)
     const read = await apiRequest(request, 'GET', `${todoApi}?id=${id}&pageSize=1&sectionDetail=showcase`, { token })
-    expect((await read.json()).items[0]).toMatchObject({ id, title: changed })
+    const todo = (await read.json()).items[0]
+    expect(todo).toMatchObject({ id, title: changed })
+    expect(Number(getCustomFieldValue(todo, 'priority'))).toBe(3)
+    expect(getCustomFieldValue(todo, 'severity')).toBe('medium')
     expect(policyCalls).toEqual([])
   } finally {
+    releaseDefinitions.resolve()
     if (id) await deleteEntityIfExists(request, token, todoApi, id)
   }
 })

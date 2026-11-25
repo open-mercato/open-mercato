@@ -67,6 +67,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 - A secondary write path must apply the same validation as the main form.
 - Migrations: test on a database with existing data, and check derived fields and existing tenants.
 - Custom fields: test list and detail, and typed values after import.
+- Submit a new record while custom-field definitions are loading. The first save should use the configured defaults for untouched fields.
 
 ## Lists and tables
 
