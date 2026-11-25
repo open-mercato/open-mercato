@@ -70,3 +70,18 @@ for (const relPath of ['starters/docker/compose.fullapp.dev.yml', 'docker-compos
     )
   })
 }
+
+for (const relPath of [
+  ...COMPOSE_FILES,
+  'docker-compose.fullapp.dev.yml',
+  'packages/create-app/template/docker-compose.fullapp.dev.yml',
+  'starters/docker/compose.fullapp.yml',
+  'starters/docker/compose.fullapp.dev.yml',
+]) {
+  test(`${relPath} forwards explicit mutation mode to the MCP service with a blank default`, () => {
+    const content = fs.readFileSync(path.resolve(ROOT, relPath), 'utf8')
+    const mcpService = content.match(/^  mcp:\n(?:[^\n]*\n)*?(?=^  [a-z][a-z0-9_-]*:|^volumes:|^networks:)/m)?.[0]
+    assert.ok(mcpService, `${relPath} must define the MCP service`)
+    assert.match(mcpService, /^      OM_MCP_MUTATION_MODE: \$\{OM_MCP_MUTATION_MODE:-\}$/m)
+  })
+}

@@ -240,6 +240,7 @@ services:
       - app_node_modules:/app/node_modules
       - mcp_shared:/run/mcp-shared
     environment:
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       NODE_ENV: ${NODE_ENV:-development}
       NODE_OPTIONS: ${MCP_NODE_OPTIONS:---max-old-space-size=2048}
       DEPLOY_ENV: ${DEPLOY_ENV:-local}

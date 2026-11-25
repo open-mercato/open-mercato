@@ -166,12 +166,12 @@ The same switch is available programmatically as the optional `McpServerOptions.
 
 ## What's available & how to use it
 
-After a correct setup with an `admin`-scoped API key, the MCP server exposes **70 tools** total, organized into three groups. The key thing to internalize: MCP serves **tools**, and any documented API route is reachable through the Code Mode meta-tools — you do not get one MCP tool per route, and an agent only appears over MCP when it is published as [one tool](#agent-tools).
+MCP exposes context, Code Mode discovery, and typed module tools subject to the caller's permissions and deployment settings. Code Mode execution, including reads through `execute`, requires an [explicit direct mutation mode](#mutation-modes). Agents are exposed when a module publishes them as [tools](#agent-tools).
 
 | Group | Tools | Required feature | What it does |
 |-------|-------|------------------|--------------|
 | **Built-in context** | `context_whoami` | none | Returns the current auth context — `tenantId`, `organizationId`, `userId`, `isSuperAdmin`, and the granted features. Use it to confirm your scope. |
-| **Code Mode meta-tools** | `search`, `execute` | `ai_assistant.view` | Discover and call the full API surface from JavaScript (see below). |
+| **Code Mode meta-tools** | `search`, `execute` | `ai_assistant.view` | Discover the documented API surface. Explicit direct mode also allows calls through `execute`. |
 | **Module tool packs** | 67 typed tools | per-tool `requiredFeatures` | Typed `defineAiTool` tools such as `customers.list_people`, `customers.list_companies`, `customers.list_deals`, `catalog.list_products`, `catalog.list_offers`, `catalog.search_products`, `search.hybrid_search`, `search.get_record_context`, `attachments.list_record_attachments`, `attachments.read_attachment`, `meta.list_agents`, `meta.describe_agent`, and more. |
 
 Each module tool declares its own `requiredFeatures`, so a tool appears only if the caller's ACL covers it and the [exposure config](#exposure-config) lets it through. In dev the tool list is filtered by the key's features at startup; in production `tools/list` is filtered per request and every call is checked again. Wildcard grants (`module.*`, `*`) match concrete required features. The counts above are for an unrestricted exposure config.
@@ -180,7 +180,7 @@ Each module tool declares its own `requiredFeatures`, so a tool appears only if 
 
 The boot log line `Registered N API route manifests for API-backed tools` refers to an **internal** registry that API-backed tools (like `customers.list_companies`) use to call documented routes in-process. Those ~500+ routes are **not** exposed as hundreds of individual MCP tools.
 
-To reach **any** endpoint from MCP, use the two Code Mode meta-tools — `search` to discover, `execute` to call:
+Use the typed tools exposed by your deployment. With explicit direct mode enabled, Code Mode can also discover documented endpoints with `search` and invoke them with `execute`:
 
 1. **`search`** — the AI writes a JavaScript arrow function that queries the OpenAPI `spec` (paths + entity schemas) to discover endpoints and shapes:
 
@@ -478,7 +478,7 @@ In `approval` mode:
 - The Code Mode `execute` tool is **not available** in `approval` mode. Its code runs arbitrary `api.request()` calls with the caller's credentials, which an approved execution does not have, so it cannot be queued meaningfully. It is hidden from `tools/list`, and a call on MCP or `/tools/execute` returns `MUTATION_REQUIRES_APPROVAL` with the message that `execute` is not available in approval mode. Tool authors mark such tools with `mcp: { approvalMode: 'refuse' }`. Use typed module tools (which queue normally) for writes, or `search` plus a read-only flow.
 - Agent tools on MCP keep their agent's own `mutationPolicy` in `approval` mode, but every write is queued, including the non-destructive writes of a `destructive-confirm-required` agent (the tool result lists the `pendingActionIds`). In `direct` and `deny` modes agent tools are downgraded to read-only.
 
-Code Mode discovery and typed tools remain available when the mutation mode is unset. On deployments that intentionally allow direct Code Mode execution, set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. For Compose sidecars, set the variable on the MCP service container through a service override.
+Code Mode discovery and typed tools remain available when the mutation mode is unset. On deployments that intentionally allow direct Code Mode execution, set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. The full-app Compose manifests forward the variable from the project environment to the MCP sidecar.
 
 ### Approving pending actions
 

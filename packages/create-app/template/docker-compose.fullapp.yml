@@ -332,6 +332,7 @@ services:
     volumes:
       - mcp_shared:/run/mcp-shared
     environment:
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       <<: *tenant-encryption-environment
       NODE_ENV: ${NODE_ENV:-production}
       NODE_OPTIONS: ${MCP_NODE_OPTIONS:---max-old-space-size=2048}

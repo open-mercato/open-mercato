@@ -118,6 +118,7 @@ services:
     ports:
       - "${INFRA_BIND_HOST:-127.0.0.1}:${MCP_PORT:-3001}:3001"
     environment:
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       NODE_ENV: development
       NODE_OPTIONS: ${MCP_NODE_OPTIONS:---max-old-space-size=2048}
       DEPLOY_ENV: ${DEPLOY_ENV:-local}
