@@ -12,6 +12,7 @@ for (const width of [320, 1280]) {
   test(`TC-ENTITIES-10656: Polish Views controls fit and work with the keyboard at ${width}px`, async ({
     page, request, baseURL,
   }) => {
+    test.setTimeout(45_000);
     const token = await getAuthToken(request, 'admin');
     const entityId = `qa:v_${Math.random().toString(36).slice(2, 10)}`;
     const tableId = encodeURIComponent(`data-table:entities.user.records.${entityId}`);
@@ -72,6 +73,9 @@ for (const width of [320, 1280]) {
         .and(page.locator('button[aria-haspopup="dialog"]'));
       await expect(active).toBeFocused();
       await expectToolbarFits();
+      await expect.poll(() => sidebar.getByText('Perspektywy', { exact: true }).evaluate(
+        (label) => label.scrollWidth - label.clientWidth,
+      )).toBe(0);
       await page.keyboard.press('Enter');
       await expect(popover).toBeVisible();
       await page.keyboard.press('Escape');

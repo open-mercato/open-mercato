@@ -1239,7 +1239,6 @@ function ViewSwitcherDropdown({
   const [open, setOpen] = React.useState(false)
   const allViews = [...perspectives, ...rolePerspectives]
   const activeName = allViews.find((v) => v.id === activePerspectiveId)?.name.trim() || ''
-  const sidebarLabel = t('ui.dataTable.perspectives.button', 'Views')
   const activeLabel = activeName || t('ui.dataTable.perspectives.allViews', 'All views')
   return (
     <div className="inline-flex h-9 min-w-0 max-w-full items-center rounded-md border border-input text-sm">
@@ -1249,11 +1248,10 @@ function ViewSwitcherDropdown({
         variant="ghost"
         size="sm"
         onClick={onOpenSidebar}
-        className="h-full min-w-0 shrink rounded-none rounded-l-md px-2 font-medium has-[>svg]:px-2 sm:px-3 sm:has-[>svg]:px-2.5"
-        title={sidebarLabel}
+        className="h-full rounded-none rounded-l-md px-2 font-medium has-[>svg]:px-2 sm:px-3 sm:has-[>svg]:px-2.5"
       >
         <SlidersHorizontal className="size-4 sm:mr-1.5" />
-        <span className="min-w-0 truncate">{sidebarLabel}</span>
+        <span>{t('ui.dataTable.perspectives.button', 'Views')}</span>
       </Button>
       <div className="h-5 w-px shrink-0 bg-border" />
       <Popover open={open} onOpenChange={setOpen}>
