@@ -109,13 +109,13 @@ Each contract below becomes a TypeScript type plus a zod schema (`propsSchema`) 
 
 ### Kanban
 
-- **Input:** `columns: { id: string; title: string; count?: number; summary?: React.ReactNode; hasMore?: boolean; cards: { id: string }[] }[]`.
+- **Input:** `columns: { id: string; title: string; count?: number; remaining?: number; summary?: React.ReactNode; hasMore?: boolean; status?: 'loading' | 'error' | 'ready'; errorMessage?: string; cards: { id: string }[] }[]`. `count` is the server total, not the number of loaded cards; `remaining` labels "Show more (N)". `reorderable?: boolean` (default false): without it the card lands at the top and `toIndex` is 0.
 - **Events:** `onMove(cardId, toColumnId, toIndex) => Promise<void>`, `canMove?(cardId, toColumnId) => true | { reason: string }`, `onLoadMoreColumn(columnId) => Promise<void>`, `onCardOpen(cardId)`.
-- **Slots:** `renderCard(card)` (required), `columnHeader(column)`.
-- **State:** the block owns the optimistic position of a card while `onMove` is pending and reverts on rejection; column data is the caller's.
-- **Accessibility:** keyboard move (pick up, move between columns, drop, cancel) as a full alternative to drag; announced via live region.
-- **Never:** decides transition rules; it asks `canMove` and shows the returned reason.
-- **Sources to reconcile before design:** CRM deals pipeline and Staff time tracking board (column paging, drag alternative). Figma design (cards, columns, focus, narrow screen) is approved before implementation.
+- **Slots:** `renderCard(card, { pending, dragging })` (required), `renderDragPreview?(card, { count })`, `columnHeader(column)`, `columnFooter(column)` (add-card affordance), `emptyColumn(column)`, `trailing` (e.g. an "add stage" column).
+- **State:** the block owns the optimistic position of a card while `onMove` is pending and reverts on rejection; column data is the caller's. A column with `status` shows its own loading or error state without replacing the board.
+- **Accessibility:** a built-in "Move to" menu on every card is the keyboard alternative to drag (Enter and Space stay free for `onCardOpen`); pick up, move, drop, cancel and `canMove` rejections are announced via a live region with translated messages.
+- **Never:** decides transition rules; it asks `canMove` and shows the returned reason. Never shows `onMove` error text: the caller handles conflicts (409) and retries.
+- **Reconciled sources:** CRM deals pipeline and Staff time tracking board. Both move cards between columns only, show a server count and a sum, page columns, add cards per column and end with an "add column" column. Deferred, single-board needs: multi-select with group drag and column resize (CRM). Not added: collapse, WIP limits, swimlanes. The DS Figma file has no kanban design; the approved mapping composes the board from existing primitives.
 
 ### Wizard
 
@@ -243,6 +243,8 @@ Nothing is removed or renamed. Existing components keep their APIs. `GalleryEntr
 4. **Kanban:** reconcile CRM and Staff boards first, then Figma, then extract?
 
 ## Changelog
+
+- 2026-11-24: Phase 3: Kanban contract extended after reconciling the CRM pipeline and Staff board; block implemented on existing primitives.
 
 - 2026-11-24: Showcase redesign with a reversible record action in two example modules, responsive block specimens, searchable indexes and examples before guidance. Public block JSON and matching source files are generated from the gallery. Explicit package entry points expose the five implemented families. The copy CLI and Kanban implementation are pending.
 
