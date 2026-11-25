@@ -11,7 +11,7 @@ import type {
 import type { FullTextSearchStrategy } from '../strategies/fulltext.strategy'
 import { VECTOR_SOURCE_EXCLUDED } from '../strategies/vector.strategy'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
-import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { SortDir, type QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from '../queue/fulltext-indexing'
 import type { VectorIndexJobPayload, VectorBatchRecord } from '../queue/vector-indexing'
@@ -950,6 +950,7 @@ export class SearchIndexer {
           const queryResult = await this.queryEngine.query(params.entityId, {
             tenantId: params.tenantId,
             organizationId: params.organizationId ?? undefined,
+            sort: [{ field: 'id', dir: SortDir.Asc }],
             page: { page, pageSize },
             skipAutoReindex: true,
           })

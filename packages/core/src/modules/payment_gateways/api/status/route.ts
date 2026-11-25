@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -143,6 +144,21 @@ export async function POST(req: Request) {
   }
 }
 
+const transactionStatusResponseSchema = z.object({
+  transactionId: z.string().uuid(),
+  paymentId: z.string().uuid(),
+  providerKey: z.string(),
+  sessionId: z.string().nullable().optional(),
+  status: z.string(),
+  gatewayStatus: z.string().nullable().optional(),
+  amount: z.number(),
+  amountExact: z.string().nullable(),
+  currencyCode: z.string(),
+  redirectUrl: z.string().nullable().optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+})
+
 export const openApi = {
   tags: [paymentGatewaysTag],
   summary: 'Payment transaction status',
@@ -151,7 +167,7 @@ export const openApi = {
       summary: 'Get stored transaction status',
       tags: [paymentGatewaysTag],
       responses: [
-        { status: 200, description: 'Stored transaction status' },
+        { status: 200, description: 'Stored transaction status', schema: transactionStatusResponseSchema.extend({ amountReceived: z.null() }) },
         { status: 400, description: 'Missing or malformed transactionId' },
         { status: 404, description: 'Transaction not found' },
       ],
@@ -160,7 +176,7 @@ export const openApi = {
       summary: 'Refresh transaction status from the provider',
       tags: [paymentGatewaysTag],
       responses: [
-        { status: 200, description: 'Refreshed transaction status' },
+        { status: 200, description: 'Refreshed transaction status', schema: transactionStatusResponseSchema.extend({ amountReceived: z.number(), amountReceivedExact: z.string().nullable() }) },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Transaction not found' },
         { status: 422, description: 'Missing or malformed payload' },
