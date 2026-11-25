@@ -30,7 +30,8 @@ and insert hashes nothing matches. No warning is logged, so nobody knows to rein
 - `query_index/lib/indexer.ts` — `reindexSearchTokensForRecord` passes the guard derived from the
   service it decrypted with, read after the decrypt so it reflects that call's Vault probe.
 - `query_index/lib/batch.ts` — optional `ciphertextGuard` callback on `IndexBatchOptions`, evaluated
-  after the batch's decrypts and forwarded to the token writer.
+  per row straight after that row's decrypt (forced on when the decrypt threw) and forwarded to the
+  token writer.
 - `query_index/lib/reindexer.ts`, `query_index/cli.ts` — pass `ciphertextGuard` from the service
   they already hand to `decryptDoc`.
 - Unit tests for the helper, both writer paths and the batch option.
@@ -87,3 +88,7 @@ returns `false`. Guard and decrypt therefore read one signal: decrypt skipped or
 
 - [x] 2.1 Guard helper and writer-path unit tests — c834b33f2b
 - [x] 2.2 Batch option forwarding unit test — 8e591515f1
+
+### Phase 3: Review fixes
+
+- [x] 3.1 Read the guard per row right after its decrypt — 0b2dcaadd1
