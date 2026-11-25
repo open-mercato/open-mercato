@@ -19,6 +19,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Save, Plus, X } from 'lucide-react'
 import { parseSelectedOrganizationCookie, parseSelectedTenantCookie } from '@open-mercato/core/modules/directory/utils/scopeCookies'
+import { readRequestOrganizationScope } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { defaultLocale, locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
@@ -61,7 +62,11 @@ type TranslationLocales = {
 
 function readTranslationRequestScopeKey(): string {
   const cookies = typeof document === 'undefined' ? null : document.cookie
-  return JSON.stringify([parseSelectedTenantCookie(cookies), parseSelectedOrganizationCookie(cookies)])
+  return JSON.stringify([
+    parseSelectedTenantCookie(cookies),
+    parseSelectedOrganizationCookie(cookies),
+    readRequestOrganizationScope() !== null,
+  ])
 }
 
 function useTranslationLocales() {

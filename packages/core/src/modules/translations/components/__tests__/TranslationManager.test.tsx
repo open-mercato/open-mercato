@@ -190,13 +190,16 @@ describe('TranslationManager guarded mutations (#3316)', () => {
     }
   })
 
-  it('blocks a tenant-only scope change before save preflight and retry', async () => {
-    document.cookie = 'om_selected_tenant=original-tenant; path=/'
+  it.each([
+    ['tenant-only switch', 'om_selected_tenant', '=original-tenant', '=other-tenant'],
+    ['blank organization selection', 'om_selected_org', '=; Max-Age=0', '='],
+  ])('blocks a %s before save preflight and retry', async (_scenario, cookie, initial, changed) => {
+    document.cookie = `${cookie}${initial}; path=/`
     try {
       failTranslationSaveWith(400, { error: 'Initial save rejected' })
       renderEmbeddedProductEditor()
       const input = await screen.findByRole('textbox')
-      fireEvent.change(input, { target: { value: 'Original tenant draft' } })
+      fireEvent.change(input, { target: { value: 'Original draft' } })
       fireEvent.click(screen.getByTestId('translations-save'))
       await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Initial save rejected', 'error'))
       const { context } = runMutationMock.mock.calls[0][0] as {
@@ -205,7 +208,7 @@ describe('TranslationManager guarded mutations (#3316)', () => {
       runMutationMock.mockClear()
       flashMock.mockClear()
 
-      document.cookie = 'om_selected_tenant=other-tenant; path=/'
+      document.cookie = `${cookie}${changed}; path=/`
       expect(await context.retryLastMutation()).toBe(false)
       expect(retryLastMutationMock).not.toHaveBeenCalled()
       expect(flashMock).toHaveBeenCalledWith(
@@ -221,7 +224,7 @@ describe('TranslationManager guarded mutations (#3316)', () => {
       ))
       expect(runMutationMock).not.toHaveBeenCalled()
     } finally {
-      document.cookie = 'om_selected_tenant=; Max-Age=0; path=/'
+      document.cookie = `${cookie}=; Max-Age=0; path=/`
     }
   })
 

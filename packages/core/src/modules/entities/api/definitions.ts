@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock, readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomEntity, CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { upsertCustomFieldDefSchema, fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
@@ -663,10 +665,29 @@ export async function DELETE(req: Request) {
   })
   if (guard.blockedResponse) return guard.blockedResponse
 
+  const versionScope = { entityId, tenantId: scope.tenantId, organizationId: scope.organizationId }
+  const requestedAt = Date.now()
+  const expectedVersion = readOptimisticLockExpected(req)
+  const currentVersion = expectedVersion ? await resolveEntityDefinitionsVersion(em, versionScope) : null
+  try {
+    enforceCommandOptimisticLock({
+      resourceKind: FIELD_DEFINITION_RESOURCE_KIND,
+      resourceId: entityId,
+      current: currentVersion,
+      expected: expectedVersion,
+    })
+  } catch (error) {
+    if (isCrudHttpError(error) && error.status === 409) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
+    throw error
+  }
+
+  const deletedAt = new Date(currentVersion ? Math.max(requestedAt, Date.parse(currentVersion) + 1) : requestedAt)
   if (!def) {
-    def = createScopedDefinitionTombstone(em, inherited, scope)
+    def = createScopedDefinitionTombstone(em, inherited, scope, deletedAt)
   } else {
-    markDefinitionTombstoned(def)
+    markDefinitionTombstoned(def, deletedAt)
   }
   em.persist(def)
   await em.flush()
@@ -676,14 +697,9 @@ export async function DELETE(req: Request) {
     organizationId: scope.organizationId,
     entityIds: [entityId],
   })
-  // Changing field definitions may impact forms but not sidebar items; no nav cache touch
-  // Return the post-delete aggregate version so the edit form keeps its optimistic-lock
-  // token in sync after removing a field out-of-band (issue #3152).
-  const version = await resolveEntityDefinitionsVersion(em, {
-    entityId,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
+  // A guarded caller still holds the checked draft. Return only the version
+  // produced by this delete so another writer's version cannot bless that draft.
+  const version = currentVersion ? deletedAt.toISOString() : await resolveEntityDefinitionsVersion(em, versionScope)
   return NextResponse.json({ ok: true, version })
 }
 
@@ -840,7 +856,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     DELETE: {
       summary: 'Soft delete custom field definition',
-      description: 'Marks the specified definition inactive and tombstones it for the current scope.',
+      description: 'Marks the specified definition inactive and tombstones it for the current scope. An optional optimistic-lock header checks the aggregate definition version.',
       requestBody: {
         contentType: 'application/json',
         schema: deleteDefinitionRequestSchema,
@@ -865,6 +881,16 @@ export const openApi: OpenApiRouteDoc = {
           status: 404,
           description: 'Definition not found',
           schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 409,
+          description: 'The field definitions changed after the client loaded them',
+          schema: z.object({
+            error: z.string(),
+            code: z.literal('optimistic_lock_conflict'),
+            currentUpdatedAt: z.string(),
+            expectedUpdatedAt: z.string(),
+          }),
         },
       ],
     },

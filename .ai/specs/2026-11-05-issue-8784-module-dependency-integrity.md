@@ -689,10 +689,6 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 - Added unit coverage for idempotent seeding and for `sales` no longer seeding the key, plus `TC-CRM-8801`, which marks a deal lost with a reason and declares no `sales` dependency.
 - Review follow-up: the `customers.seed-deal-loss-reasons` upgrade action (0.10.0) seeds existing tenants; reseeding keeps tenant-set colors and icons on default entries and only fills missing ones; the backfill reports `revivedDictionary` (optional on the exported type, so the published five-field shape still compiles — first added as required, corrected after review); the deprecated `sales` exports carry since/removal versions. Seeding restores a soft-deleted loss-reason dictionary on purpose, because the deal-lost dialog cannot confirm without it. Migration & BC table updated (categories 2, 3 and 4).
 
-### 2026-11-15 — E3 / #8803
-- Moved dictionary-entry and field-definition translation controls into translations-owned widgets at the two documented additive hosts. Preserved the legacy shared-editor callback and translation record identities.
-- Added absent-module browser regression specs and enabled-module save coverage, plus focused host/component tests. Runtime browser validation remains dependent on a runnable test environment.
-
 ### 2026-11-21 — E3 bundled QA repairs (#10129)
 - Carried the four focused #9569 UI repairs into the kernel bundle: non-submit field-editor controls, serialized translation saves through version refresh, visible/retryable non-404 load failures and localized built-in property captions. Existing mutation guards, translation-row optimistic headers and legacy editor callbacks remain.
 - Included enclosing-form, duplicate mouse/keyboard save, failed-load/retry and Polish-caption regressions. When All Organizations is selected, dictionary translation asks the user to choose one organization in the existing switcher before opening the editor. The scoped flow uses the existing translation authorization and storage rules.

@@ -189,12 +189,16 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
       if (!def) return
       if (def.key) {
         try {
-          const call = await apiCall<{ version?: string | null }>('/api/entities/definitions', {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ entityId, key: def.key }),
-          })
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(definitionsVersion),
+            () => apiCall<{ version?: string | null }>('/api/entities/definitions', {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ entityId, key: def.key }),
+            }),
+          )
           if (!call.ok) {
+            if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
             await raiseCrudError(call.response, t('entities.customFields.errors.deleteFailed', 'Failed to delete field'))
           }
           setDefinitionsVersion(call.result?.version ?? null)
@@ -206,7 +210,7 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
       }
       setDefs((arr) => arr.filter((_, idx) => idx !== index))
       setIsDirty(true)
-    }, [defs, entityId, t])
+    }, [definitionsVersion, defs, entityId, t])
 
     const handleRestoreField = React.useCallback(async (key: string) => {
       try {

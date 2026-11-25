@@ -154,6 +154,11 @@ test('TC-TRANS-019: injected dictionary action saves entry translations', async 
     expect(body?.translations?.de?.label).toBe('Übersetzter Wörterbucheintrag')
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
+    await translate.click()
+    await dialog.getByRole('tab', { name: 'DE', exact: true }).click()
+    await expect(translationInput).toHaveValue('Übersetzter Wörterbucheintrag')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
   } finally {
     await deleteUserIfExists(request, token, userId)
     await deleteRoleIfExists(request, token, roleId)

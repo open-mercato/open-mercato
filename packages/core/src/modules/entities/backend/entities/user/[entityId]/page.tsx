@@ -285,12 +285,16 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     if (!def) return
     if (def.key) {
       try {
-        const call = await apiCall<DefinitionsBatchResponse>('/api/entities/definitions', {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ entityId, key: def.key }),
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(defsVersion),
+          () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions', {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ entityId, key: def.key }),
+          }),
+        )
         if (!call.ok) {
+          if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
           await raiseCrudError(call.response, t('entities.customFields.errors.deleteFailed', 'Failed to delete field.'))
         }
         // Keep the optimistic-lock token in sync after an out-of-band delete so a
