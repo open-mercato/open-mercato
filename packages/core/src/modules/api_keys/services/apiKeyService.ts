@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ApiKey } from '../data/entities'
-import { createKmsService, resolveEncryptionMode } from '@open-mercato/shared/lib/encryption/kms'
+import { createKmsService, resolveEncryptionMode, type KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { encryptWithAesGcm, decryptWithAesGcm, looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
 import { getSharedApiKeyAuthCache } from '@open-mercato/shared/lib/auth/apiKeyAuthCache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -36,11 +36,12 @@ const BCRYPT_COST = 10
  */
 async function encryptSessionSecret(
   secret: string,
-  tenantId: string | null
+  tenantId: string | null,
+  kmsService?: KmsService,
 ): Promise<string | null> {
   if (!tenantId) return null
 
-  const kms = createKmsService()
+  const kms = kmsService ?? createKmsService()
   const mode = resolveEncryptionMode(kms)
   if (mode === 'disabled') return secret
   if (mode === 'unavailable') {
@@ -71,11 +72,12 @@ async function encryptSessionSecret(
  */
 async function decryptSessionSecret(
   stored: string,
-  tenantId: string | null
+  tenantId: string | null,
+  kmsService?: KmsService,
 ): Promise<string | null> {
   if (!tenantId || !stored) return null
 
-  const kms = createKmsService()
+  const kms = kmsService ?? createKmsService()
   const mode = resolveEncryptionMode(kms)
   if (mode === 'disabled') {
     // Written in the clear by the branch above -- unless it predates the toggle being flipped, in
@@ -245,9 +247,15 @@ export function hashSessionToken(sessionToken: string): string {
  * The key inherits the user's roles and expires after ttlMinutes (default 30).
  * The API key secret is encrypted and stored so it can be recovered for API calls.
  */
+export type SessionSecretOptions = {
+  /** The process KMS (DI `kmsService`); without it each call builds its own, losing its DEK cache. */
+  kms?: KmsService
+}
+
 export async function createSessionApiKey(
   em: EntityManager,
-  input: CreateSessionApiKeyInput
+  input: CreateSessionApiKeyInput,
+  options: SessionSecretOptions = {},
 ): Promise<{ keyId: string; secret: string; sessionToken: string }> {
   const { secret, prefix } = generateApiKeySecret()
   const ttl = input.ttlMinutes ?? 30
@@ -255,7 +263,7 @@ export async function createSessionApiKey(
   const keyHash = await hashApiKey(secret)
 
   // Encrypt the secret for later retrieval (used by MCP server for API calls)
-  const encryptedSecret = await encryptSessionSecret(secret, input.tenantId ?? null)
+  const encryptedSecret = await encryptSessionSecret(secret, input.tenantId ?? null, options.kms)
 
   // Hash before storage (#2254) — the row (and its `name` column, previously embedding the raw
   // token for operator visibility) must never carry the live bearer credential in the clear.
@@ -397,7 +405,8 @@ export async function findApiKeyByOpencodeSessionId(
  */
 export async function findSessionApiKeyWithSecret(
   em: EntityManager,
-  sessionToken: string
+  sessionToken: string,
+  options: SessionSecretOptions = {},
 ): Promise<{ key: ApiKey; secret: string } | null> {
   const record = await findApiKeyBySessionToken(em, sessionToken)
   if (!record) return null
@@ -409,7 +418,7 @@ export async function findSessionApiKeyWithSecret(
   }
 
   // Decrypt the secret
-  const secret = await decryptSessionSecret(record.sessionSecretEncrypted, record.tenantId ?? null)
+  const secret = await decryptSessionSecret(record.sessionSecretEncrypted, record.tenantId ?? null, options.kms)
   if (!secret) {
     logger.warn('Failed to decrypt session secret', { apiKeyId: record.id })
     return null

@@ -29,7 +29,7 @@ import {
   type McpExposureCaller,
   type McpExposureConfig,
 } from './mcp-exposure'
-import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
+import { redactSecretForLog, apiKeySessionId } from './log-redaction'
 import { runWithMcpToolExecutionObserver } from './mcp-tool-execution-observer'
 import {
   CORRELATION_ID_HEADER,
@@ -47,6 +47,7 @@ import type { AiToolDefinition, McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
+import type { KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
 
@@ -125,6 +126,14 @@ function buildExposureHealth(exposureConfig: McpExposureConfig) {
   }
 }
 
+function resolveProcessKmsService(container: AwilixContainer): KmsService | undefined {
+  try {
+    return container.resolve<KmsService>('kmsService')
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Resolve user context from session token.
  * Returns null if session token is invalid or expired.
@@ -140,7 +149,9 @@ async function resolveSessionContext(
     const rbacService = baseContext.container.resolve<RbacService>('rbacService')
 
     // Look up ephemeral key by session token with decrypted secret
-    const sessionResult = await findSessionApiKeyWithSecret(em, sessionToken)
+    const sessionResult = await findSessionApiKeyWithSecret(em, sessionToken, {
+      kms: resolveProcessKmsService(baseContext.container),
+    })
     if (!sessionResult) {
       if (debug) {
         logger.debug('Session token not found, expired, or secret unavailable', { sessionToken: redactSecretForLog(sessionToken) })
@@ -552,7 +563,7 @@ async function createMcpServerForRequest(
             if (!effectiveContext.sessionId && effectiveContext.apiKeySecret) {
               effectiveContext = {
                 ...effectiveContext,
-                sessionId: deriveApiKeySessionId(effectiveContext.apiKeySecret),
+                sessionId: apiKeySessionId(apiKeyRecord.id),
               }
             }
           }

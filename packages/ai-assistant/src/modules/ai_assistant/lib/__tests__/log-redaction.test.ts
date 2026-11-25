@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { redactSecretForLog, deriveApiKeySessionId } from '../log-redaction'
+import { redactSecretForLog, deriveApiKeySessionId, apiKeySessionId } from '../log-redaction'
 
 const SESSION_ID_DIGEST_HEX = 16
 
@@ -61,5 +61,18 @@ describe('deriveApiKeySessionId', () => {
 
   it('maps distinct secrets to distinct ids', () => {
     expect(deriveApiKeySessionId('secret-one')).not.toBe(deriveApiKeySessionId('secret-two'))
+  })
+})
+
+describe('apiKeySessionId', () => {
+  it('is namespaced by the API key record id and never shares the session-token namespace', () => {
+    const keyId = '0b8f3d0e-7a51-4c8e-9c1f-2f4a6b8d0e13'
+    expect(apiKeySessionId(keyId)).toBe(`apikey_${keyId}`)
+    expect(apiKeySessionId(keyId).startsWith('sess_')).toBe(false)
+  })
+
+  it('maps distinct keys to distinct ids and one key to one id', () => {
+    expect(apiKeySessionId('key-one')).toBe(apiKeySessionId('key-one'))
+    expect(apiKeySessionId('key-one')).not.toBe(apiKeySessionId('key-two'))
   })
 })

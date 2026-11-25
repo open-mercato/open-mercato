@@ -140,6 +140,28 @@ export class NoopKmsService implements KmsService {
   async createTenantDek(): Promise<TenantDek | null> { return null }
 }
 
+const DERIVED_KEY_ITERATIONS = 310_000
+const DERIVED_KEY_LENGTH = 32
+
+const derivedTenantKeys = new Map<string, Promise<string>>()
+
+function deriveTenantKey(root: Buffer, tenantId: string): Promise<string> {
+  const memoKey = `${root.toString('hex')}:${tenantId}`
+  const memoized = derivedTenantKeys.get(memoKey)
+  if (memoized) return memoized
+  const derivation = new Promise<string>((resolve, reject) => {
+    crypto.pbkdf2(root, tenantId, DERIVED_KEY_ITERATIONS, DERIVED_KEY_LENGTH, 'sha512', (err, derived) => {
+      if (err) reject(err)
+      else resolve(derived.toString('base64'))
+    })
+  })
+  derivedTenantKeys.set(memoKey, derivation)
+  derivation.catch(() => {
+    if (derivedTenantKeys.get(memoKey) === derivation) derivedTenantKeys.delete(memoKey)
+  })
+  return derivation
+}
+
 class DerivedKmsService implements KmsService {
   private root: Buffer
   constructor(secret: string) {
@@ -151,16 +173,9 @@ class DerivedKmsService implements KmsService {
     return true
   }
 
-  private deriveKey(tenantId: string): string {
-    const iterations = 310_000
-    const keyLength = 32
-    const derived = crypto.pbkdf2Sync(this.root, tenantId, iterations, keyLength, 'sha512')
-    return derived.toString('base64')
-  }
-
   async getTenantDek(tenantId: string): Promise<TenantDek | null> {
     if (!tenantId) return null
-    return { tenantId, key: this.deriveKey(tenantId), fetchedAt: Date.now() }
+    return { tenantId, key: await deriveTenantKey(this.root, tenantId), fetchedAt: Date.now() }
   }
 
   async createTenantDek(tenantId: string): Promise<TenantDek | null> {

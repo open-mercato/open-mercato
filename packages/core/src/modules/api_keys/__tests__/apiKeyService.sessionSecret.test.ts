@@ -165,3 +165,28 @@ describe('session secret storage', () => {
     expect(result?.secret).toBe(plaintext)
   })
 })
+
+describe('session secret with the process KMS', () => {
+  it('seals and recovers through the KMS it is handed, without building one per call', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    const dek = generateDek()
+    const getTenantDek = jest.fn(async (tenantId: string) => ({ tenantId, key: dek, fetchedAt: Date.now() }))
+    const kms = { isHealthy: () => true, getTenantDek, createTenantDek: getTenantDek }
+    const { em, created } = buildEm()
+
+    await createSessionApiKey(em as never, {
+      sessionToken: 'sess_alice',
+      userId: 'user-alice',
+      userRoles: ['admin'],
+      tenantId: TENANT,
+      organizationId: 'org-1',
+    }, { kms })
+    const result = await findSessionApiKeyWithSecret(em as never, 'sess_alice', { kms })
+
+    expect(mockCreateKmsService).not.toHaveBeenCalled()
+    expect(getTenantDek).toHaveBeenCalledTimes(2)
+    expect(looksLikeEncryptedPayload(created[0].sessionSecretEncrypted)).toBe(true)
+    expect(result?.secret).toEqual(expect.any(String))
+    expect(result?.secret).not.toEqual(created[0].sessionSecretEncrypted)
+  })
+})

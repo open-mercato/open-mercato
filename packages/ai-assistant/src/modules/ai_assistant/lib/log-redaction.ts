@@ -24,10 +24,22 @@ const SESSION_ID_PBKDF2_ITERATIONS = 210000
 const SESSION_ID_PBKDF2_KEYLEN = 8
 
 /**
+ * Session-memory id for tool calls authenticated by an API key: all calls made with one key share
+ * a memory cache. Keyed by the key's record id, so no secret is hashed on the tool-call path; the
+ * `apikey_` namespace cannot collide with a session token (`sess_…`), the other session-id source.
+ */
+export function apiKeySessionId(apiKeyId: string): string {
+  return `apikey_${apiKeyId}`
+}
+
+/**
  * Derive a stable, non-reversible session-memory id from an API key secret.
  * The same secret always maps to the same id within a process (so tool calls on
  * one MCP connection share a memory cache), but no secret material is exposed:
  * the id is derived with PBKDF2 (slow KDF) using a per-process random salt.
+ *
+ * @deprecated Blocks the event loop for a PBKDF2 run on every call. Use {@link apiKeySessionId}
+ * with the API key's record id instead.
  */
 export function deriveApiKeySessionId(apiKeySecret: string): string {
   const digest = pbkdf2Sync(
