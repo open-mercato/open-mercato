@@ -123,7 +123,7 @@ type PersistentEventBus = {
   emitEvent: (
     event: string,
     payload: unknown,
-    options?: { persistent?: boolean; deliverInline?: boolean },
+    options?: { persistent?: boolean; deliverInline?: boolean; tenantId?: string },
   ) => Promise<void>
 }
 
@@ -168,7 +168,7 @@ async function enqueueQueryIndexRebuild(args: {
           tenantId: args.tenantId,
           force: true,
         },
-        { persistent: true, deliverInline: false },
+        { persistent: true, deliverInline: false, tenantId: args.tenantId },
       )
     } catch (error) {
       logger.error('Failed to enqueue query index rebuild', {
