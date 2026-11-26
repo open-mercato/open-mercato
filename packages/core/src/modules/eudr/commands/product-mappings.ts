@@ -450,15 +450,19 @@ const updateProductMappingCommand: CommandHandler<ScopedProductMappingUpdateInpu
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     return entityManager.transactional(async (entityManager) => {
       let record = await lockForUndo(entityManager, EudrProductMapping, before)
+      if (record && !isUnchangedSince(await buildProductMappingSnapshot(entityManager, record), after)) {
+        await throwUndoConflict()
+      }
+      if (!record || record.productId !== before.productId || record.commodity !== before.commodity) {
+        await assertUniqueProductMapping(entityManager, { ...before, excludeId: before.id })
+      }
       if (!record) {
         record = entityManager.create(EudrProductMapping, productMappingSeedFromSnapshot(before))
         entityManager.persist(record)
-        await entityManager.flush()
       } else {
-        if (!isUnchangedSince(await buildProductMappingSnapshot(entityManager, record), after)) await throwUndoConflict()
         restoreProductMapping(record, before)
-        await entityManager.flush()
       }
+      await entityManager.flush()
 
       const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
       const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)

@@ -297,6 +297,11 @@ const STATEMENT_UPDATE_FIELDS = [
 ] as const
 
 type StatementUpdateField = (typeof STATEMENT_UPDATE_FIELDS)[number]
+type StatementFieldPatch = Omit<StatementUpdateInput, 'id' | 'commodity' | 'quantityKg' | 'supplementaryQuantity'> & {
+  commodity?: string
+  quantityKg?: number | string | null
+  supplementaryQuantity?: number | string | null
+}
 
 function isStatementStatus(value: string): value is EudrStatementStatus {
   return STATEMENT_STATUS_SET.has(value)
@@ -318,7 +323,7 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
 
 // PG numeric columns read back scale-padded ('100.000'); compare numerically so
 // an unchanged echo from a whole-document save is not treated as an amendment.
-function numericValuesEqual(left: string | null | undefined, right: string | null | undefined): boolean {
+function numericValuesEqual(left: number | string | null | undefined, right: string | null | undefined): boolean {
   const leftNumber = left === null || left === undefined || left === '' ? null : Number(left)
   const rightNumber = right === null || right === undefined || right === '' ? null : Number(right)
   if (leftNumber === null || rightNumber === null) return leftNumber === rightNumber
@@ -334,7 +339,7 @@ function referencedStatementsEqual(
 
 function statementFieldChanged(
   record: EudrDueDiligenceStatement,
-  parsed: StatementUpdateInput,
+  parsed: StatementFieldPatch,
   field: StatementUpdateField,
 ): boolean {
   switch (field) {
@@ -355,11 +360,11 @@ function statementFieldChanged(
     case 'referencedStatements':
       return parsed.referencedStatements !== undefined && !referencedStatementsEqual(parsed.referencedStatements, record.referencedStatements)
     case 'quantityKg':
-      return parsed.quantityKg !== undefined && !numericValuesEqual(toNumericString(parsed.quantityKg), record.quantityKg ?? null)
+      return parsed.quantityKg !== undefined && !numericValuesEqual(parsed.quantityKg, record.quantityKg)
     case 'supplementaryUnit':
       return parsed.supplementaryUnit !== undefined && (parsed.supplementaryUnit ?? null) !== (record.supplementaryUnit ?? null)
     case 'supplementaryQuantity':
-      return parsed.supplementaryQuantity !== undefined && !numericValuesEqual(toNumericString(parsed.supplementaryQuantity), record.supplementaryQuantity ?? null)
+      return parsed.supplementaryQuantity !== undefined && !numericValuesEqual(parsed.supplementaryQuantity, record.supplementaryQuantity)
     case 'orderId':
       return parsed.orderId !== undefined && (parsed.orderId ?? null) !== (record.orderId ?? null)
     case 'referenceIssuedAt':
@@ -388,8 +393,13 @@ function buildPatchedStatementView(record: EudrDueDiligenceStatement, parsed: St
   }
 }
 
-function hasChangedAmendGuardedField(record: EudrDueDiligenceStatement, parsed: StatementUpdateInput): boolean {
-  return EUDR_AMEND_GUARDED_FIELDS.some((field) => statementFieldChanged(record, parsed, field))
+function isGuardedAmendmentOutsideWindow(
+  record: EudrDueDiligenceStatement,
+  patch: Pick<StatementFieldPatch, (typeof EUDR_AMEND_GUARDED_FIELDS)[number]>,
+): boolean {
+  return record.status === 'available'
+    && !isAmendWindowOpen(record.referenceIssuedAt)
+    && EUDR_AMEND_GUARDED_FIELDS.some((field) => statementFieldChanged(record, patch, field))
 }
 
 function hasConcernAnswers(criteria: Record<string, { answer: string; note?: string | null }>): boolean {
@@ -604,11 +614,7 @@ async function validateStatementUpdate(
   // Guarded fields freeze once the amend window elapses, regardless of any
   // status transition requested in the same call (available→archived must not
   // smuggle in a quantity/commodity change).
-  if (
-    record.status === 'available'
-    && !isAmendWindowOpen(record.referenceIssuedAt ?? null)
-    && hasChangedAmendGuardedField(record, parsed)
-  ) {
+  if (isGuardedAmendmentOutsideWindow(record, parsed)) {
     throw new CrudHttpError(400, { error: 'eudr.errors.amendWindowElapsed' })
   }
 
@@ -873,6 +879,9 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
           if (blocker) await throwStatementUndoRefusal(blocker.key, blocker.fallback)
         }
         if (!isUnchangedSince(await buildStatementSnapshot(entityManager, record), after)) await throwUndoConflict()
+        if (isGuardedAmendmentOutsideWindow(record, before)) {
+          await throwStatementUndoRefusal('eudr.errors.amendWindowElapsed', 'The amendment window has elapsed.')
+        }
         restoreStatement(record, before)
         await entityManager.flush()
       }

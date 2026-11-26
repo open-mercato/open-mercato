@@ -12,6 +12,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { computeSubmissionCompleteness } from '../../lib/completeness'
+import { EudrMitigationAction, EudrProductMapping } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -462,5 +463,98 @@ describe('eudr due diligence statement update undo with a later status change', 
     })
     expect(record.status).toBe('archived')
     expectNothingWritten(harness)
+  })
+})
+
+describe('eudr update undo validation', () => {
+  it.each([
+    { hoursSinceIssue: 73, previousQuantity: '100.000', allowed: false },
+    { hoursSinceIssue: 1, previousQuantity: '100.000', allowed: true },
+    { hoursSinceIssue: 73, previousQuantity: '200', allowed: true },
+  ])('validates statement amendments ($hoursSinceIssue hours, prior quantity $previousQuantity)', async ({
+    hoursSinceIssue, previousQuantity, allowed,
+  }) => {
+    const fixture = fixtureNamed('due diligence statement')
+    const after = buildSnapshot(fixture, {
+      status: 'available',
+      referenceIssuedAt: new Date(Date.now() - hoursSinceIssue * 60 * 60 * 1000).toISOString(),
+      quantityKg: '200.000',
+      notes: 'After edit',
+    })
+    const before = { ...after, quantityKg: previousQuantity, notes: 'Before edit' }
+    const record = toRecord(fixture, after)
+    const harness = buildHarness(record)
+
+    const error = await runUndo(fixture.updateCommand, harness, { before, after })
+
+    if (allowed) {
+      expect(error).toBeNull()
+      expect(record).toMatchObject({ status: 'available', quantityKg: previousQuantity, notes: 'Before edit' })
+      expect(harness.em.flush).toHaveBeenCalledTimes(1)
+    } else {
+      expect(error).toMatchObject({ status: 409, body: { code: 'eudr.errors.amendWindowElapsed' } })
+      expect(record).toEqual(toRecord(fixture, after))
+      expectNothingWritten(harness)
+    }
+  })
+
+  it.each([0, 1])('checks for completed mitigation before restoring a negligible conclusion (%i completed)', async (count) => {
+    const fixture = fixtureNamed('risk assessment')
+    const after = buildSnapshot(fixture, {
+      criteria: { deforestation: { answer: 'concern' } },
+      conclusion: 'non_negligible',
+    })
+    const before = { ...after, conclusion: 'negligible' }
+    const record = toRecord(fixture, after)
+    const harness = buildHarness(record)
+    harness.em.count.mockResolvedValue(count)
+
+    const error = await runUndo(fixture.updateCommand, harness, { before, after })
+
+    expect(harness.em.count).toHaveBeenCalledWith(EudrMitigationAction, {
+      riskAssessmentId: RECORD_ID,
+      organizationId: ORGANIZATION_ID,
+      tenantId: TENANT_ID,
+      status: 'completed',
+      deletedAt: null,
+    })
+    if (count > 0) {
+      expect(error).toBeNull()
+      expect(record.conclusion).toBe('negligible')
+      expect(harness.em.flush).toHaveBeenCalledTimes(1)
+    } else {
+      expect(error).toMatchObject({ status: 400, body: { error: 'eudr.errors.mitigationRequired' } })
+      expect(record).toEqual(toRecord(fixture, after))
+      expectNothingWritten(harness)
+    }
+  })
+
+  it.each([true, false])('checks whether the prior mapping key is already in use (duplicate: %s)', async (duplicate) => {
+    const fixture = fixtureNamed('product mapping')
+    const after = buildSnapshot(fixture, { commodity: 'cocoa', hsCode: null })
+    const before = { ...after, commodity: 'coffee' }
+    const record = toRecord(fixture, after)
+    const harness = buildHarness(record)
+    harness.em.findOne.mockResolvedValue(duplicate ? { id: randomUUID() } : null)
+
+    const error = await runUndo(fixture.updateCommand, harness, { before, after })
+
+    expect(harness.em.findOne).toHaveBeenCalledWith(EudrProductMapping, {
+      organizationId: ORGANIZATION_ID,
+      tenantId: TENANT_ID,
+      productId: before.productId,
+      commodity: 'coffee',
+      deletedAt: null,
+      id: { $ne: RECORD_ID },
+    })
+    if (duplicate) {
+      expect(error).toMatchObject({ status: 400, body: { error: 'eudr.errors.duplicateMapping' } })
+      expect(record).toEqual(toRecord(fixture, after))
+      expectNothingWritten(harness)
+    } else {
+      expect(error).toBeNull()
+      expect(record.commodity).toBe('coffee')
+      expect(harness.em.flush).toHaveBeenCalledTimes(1)
+    }
   })
 })
