@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { parse } from 'yaml'
 import {
   ALWAYS_BLOCKING_LABELS,
   blockingLabels,
@@ -160,4 +161,63 @@ test('run ignores events that are not pull request label changes', async () => {
   const { github, calls } = fakeGithub(['merge-queue', 'blocked'])
   await run({ github, context: { repo: { owner: 'o', repo: 'r' }, payload: { action: 'opened' } }, core })
   assert.deepEqual(calls, [])
+})
+
+type WorkflowStep = { name?: string; uses?: string; run?: string; with?: Record<string, unknown> }
+type Workflow = {
+  on: Record<string, { types?: string[] }>
+  permissions: Record<string, string>
+  jobs: Record<string, { if?: string; permissions?: unknown; steps: WorkflowStep[] }>
+}
+
+function readGuardWorkflow(): Workflow {
+  return parse(readFileSync(new URL('../../.github/workflows/merge-queue-guard.yml', import.meta.url), 'utf8')) as Workflow
+}
+
+test('the workflow listens only to pull_request_target label changes', () => {
+  const workflow = readGuardWorkflow()
+  assert.deepEqual(Object.keys(workflow.on), ['pull_request_target'])
+  assert.deepEqual(workflow.on.pull_request_target.types, ['labeled', 'unlabeled'])
+})
+
+test('GITHUB_TOKEN stays read-only and the app token is scoped to issues and pull requests', () => {
+  const workflow = readGuardWorkflow()
+  assert.deepEqual(workflow.permissions, { contents: 'read' })
+  for (const job of Object.values(workflow.jobs)) assert.equal(job.permissions, undefined)
+  const tokenStep = workflow.jobs.guard.steps.find((step) => step.uses?.startsWith('actions/create-github-app-token@'))
+  assert.ok(tokenStep, 'the job mints the release app token')
+  assert.equal(tokenStep.with?.['permission-issues'], 'write')
+  assert.equal(tokenStep.with?.['permission-pull-requests'], 'write')
+  const scopes = Object.keys(tokenStep.with ?? {}).filter((key) => key.startsWith('permission-'))
+  assert.deepEqual(scopes.sort(), ['permission-issues', 'permission-pull-requests'])
+})
+
+test('the job is skipped in forks, which have no app secrets', () => {
+  assert.match(readGuardWorkflow().jobs.guard.if ?? '', /^\$\{\{ !github\.event\.repository\.fork &&/)
+})
+
+test('no pull request code is checked out or executed', () => {
+  const steps = readGuardWorkflow().jobs.guard.steps
+  assert.equal(steps.some((step) => step.run !== undefined), false, 'no shell steps')
+  const checkouts = steps.filter((step) => step.uses?.startsWith('actions/checkout@'))
+  assert.equal(checkouts.length, 1)
+  assert.deepEqual(checkouts[0].with, {
+    ref: '${{ github.event.repository.default_branch }}',
+    'sparse-checkout': 'scripts/ci/merge-queue-guard.mts',
+    'sparse-checkout-cone-mode': false,
+    'persist-credentials': false,
+    'fetch-depth': 1,
+  })
+})
+
+test('the script never interpolates event data and token-holding actions are pinned by SHA', () => {
+  const steps = readGuardWorkflow().jobs.guard.steps
+  for (const step of steps) {
+    if (step.uses?.startsWith('actions/checkout@')) continue
+    assert.match(step.uses ?? '', /@[0-9a-f]{40}$/, `${step.name} must be pinned by SHA`)
+  }
+  const scriptStep = steps.find((step) => step.uses?.startsWith('actions/github-script@'))
+  assert.ok(scriptStep)
+  assert.equal(String(scriptStep.with?.script).includes('${{'), false)
+  assert.equal(scriptStep.with?.['github-token'], '${{ steps.app-token.outputs.token }}')
 })
