@@ -443,6 +443,27 @@ fence, deploys a profile or retires old keys.
 
 ## Execution and verification
 
+### Check all-tenant rotation on the default seed
+
+On a disposable app with test encryption enabled, run `yarn mercato init`
+with its default options to include demo users and example content. Once the
+app is initialized, configure the distinct target root and the offline fence
+above. Omit `--tenant` and `--org` to preview the complete scope:
+
+```sh
+yarn mercato entities rotate-encryption-key --dry-run
+```
+
+The default seed can include coverage the protected verifier currently refuses.
+In a freshly initialized classic seed, the sales order and quote maps reference
+`catalog_snapshot` on their parent entities, while the column belongs to the
+line entities. The vector search map covers driver-managed data. Customer
+sessions inherit tenant and organization scope from the customer account.
+Each mapping needs verified coverage before running the mutation. An
+all-tenant run with unresolved coverage stops before rewriting application
+rows. Use the supported synthetic fixture below to rehearse interruption and
+recovery.
+
 ### Run the disposable QA fixture
 
 From an Open Mercato source checkout containing the rotation changes, run the
@@ -509,6 +530,45 @@ Protected resume requires the same PostgreSQL postmaster lifetime. A PostgreSQL 
 
 Maintenance preserves JSON numeric tokens exactly, including numbers beyond JavaScript precision, while lookup hashes retain the framework's existing serializer contract. JSON inputs are limited to 1 MiB, nesting depth 64 and 10,000 structural nodes; unsupported documents refuse before rotation mutation.
 
+
+### Rehearse interruption after a committed batch
+
+Use a disposable database with enough encrypted records to span several
+rotation batches. Start a protected rotation with the intended test keys and
+scope. Record the coordinator ID from the terminal. A run ID is announced before
+backup and baseline preparation. The owner-only trusted run record
+`<run-id>.json` confirms that preparation has reached a resumable state.
+
+1. In the configured rotation trust directory, wait for the run status to show
+   `rotating` and `<run-id>-journal.tail` to show `sequence` of at least 2.
+   This indicates that a batch was committed, read back, and checkpointed.
+2. Press Ctrl+C while the rotation is still in progress. Check for a nonzero
+   exit and inspect the trusted run record. A handled interruption can record
+   `interrupted`. An abrupt exit can leave the last status `rotating` and
+   `rotation.lock` on disk. After confirming that the recorded process has
+   exited, resume on the same host once the lock is more than 60 seconds old.
+   The CLI reclaims that lock during explicit resume. A partially rotated
+   database can contain values sealed under both roots. Keep the database
+   fenced and application writers stopped while they coexist.
+3. Keep the same running PostgreSQL instance, keys and provider versions, scope,
+   archive, and trusted directory. Resume with the ID from the interrupted run.
+   For a single tenant in an app checkout:
+
+   ```sh
+   OM_ROTATION_RESUME_ID="$run_id" \
+     yarn mercato entities rotate-encryption-key --tenant "$tenant_id"
+   ```
+
+   For an all-tenant run, repeat its original command with the same resume ID.
+   The resumed command verifies the original backup, continues from durable
+   checkpoints, and compares the full declared scope with the original baseline.
+   Require a `passed` report with matching row, field and byte counts before
+   reviewing the cutover.
+
+If PostgreSQL restarted or the original trusted state or keys are unavailable,
+preserve the partial database and recovery evidence. Rehearse recovery of the
+original backup into an empty, separate target using the retained previous keys.
+[Isolated backup recovery](../deployment/enterprise-backup-recovery#isolated-recovery)
 
 ## Rehearse and release the maintenance fence
 
