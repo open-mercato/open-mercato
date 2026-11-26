@@ -39,8 +39,8 @@
 
 ### Phase 1: Route fix
 
-- [ ] 1.1 Add the helper and use it in the three routes
-- [ ] 1.2 Unit tests
+- [x] 1.1 Add the helper and use it in the three routes — 391e872f38
+- [x] 1.2 Unit tests — ce69aa9457
 
 ### Phase 2: Coverage and notes
 
