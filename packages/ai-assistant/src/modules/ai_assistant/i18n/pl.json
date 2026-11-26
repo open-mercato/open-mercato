@@ -309,11 +309,7 @@
   "ai_assistant.dock.left": "Dokuj po lewej",
   "ai_assistant.dock.minimize": "Minimalizuj",
   "ai_assistant.dock.right": "Dokuj po prawej",
-<<<<<<< HEAD
-=======
-  "ai_assistant.errors.directMutationDenied": "Narzędzia modyfikujące dane nie mogą być uruchamiane bezpośrednio. Użyj czatu agenta lub żądania run-object z zasadami zatwierdzania zmian.",
   "ai_assistant.errors.mcpSessionTokenRequired": "Uwierzytelnienie nie powiodło się: to wywołanie narzędzia wymaga tokenu sesji (_sessionToken).",
->>>>>>> 8f1aa3b7de (fix(ai-assistant): require per-user session token for MCP HTTP tool calls (#5173) (#9314))
   "ai_assistant.errors.moderationBlocked": "Twoja wiadomość została zablokowana przez filtr bezpieczeństwa treści. Przeformułuj ją i spróbuj ponownie.",
   "ai_assistant.errors.moderationUnavailable": "Sprawdzanie bezpieczeństwa treści jest chwilowo niedostępne. Spróbuj ponownie za chwilę.",
   "ai_assistant.launcher.composerPlaceholder": "Zapytaj o cokolwiek…",

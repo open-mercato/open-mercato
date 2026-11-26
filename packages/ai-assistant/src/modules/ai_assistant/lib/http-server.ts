@@ -11,58 +11,16 @@ import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
 import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
-<<<<<<< HEAD
-import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
-import type { McpServerConfig, McpToolContext } from './types'
-=======
-import {
-  advertisedOutputZodSchema,
-  buildToolSuccessResponse,
-  filterRunnableAgentTools,
-  resolveAgentToolAuditIds,
-  resolveAgentToolPendingActionIds,
-  type AgentToolAuditIds,
-} from './mcp-agent-tool-results'
-import {
-  assertValidMcpExposureConfig,
-  filterToolsForCaller,
-  isToolExposed,
-  buildDirectMutationModeWarning,
-  describeMcpExposureConfig,
-  resolveMcpExposureConfig,
-  type McpExposureCaller,
-  type McpExposureConfig,
-} from './mcp-exposure'
 import { redactSecretForLog } from './log-redaction'
-import { runWithMcpToolExecutionObserver } from './mcp-tool-execution-observer'
-import {
-  CORRELATION_ID_HEADER,
-  attachCorrelationMeta,
-  isMutationTool,
-  mapToolResultToAuditOutcome,
-  recordMcpToolCall,
-  resolveAuditActorUserId,
-  resolveCorrelationId,
-  type McpAuditOutcome,
-  type McpAuditPrincipal,
-} from './mcp-audit'
-import { createMcpSdkRefusalAudit, type McpSdkRefusalAudit } from './mcp-sdk-refusal-audit'
-import type { AiToolDefinition, McpServerConfig, McpToolContext } from './types'
->>>>>>> 8f1aa3b7de (fix(ai-assistant): require per-user session token for MCP HTTP tool calls (#5173) (#9314))
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { McpServerConfig, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
-<<<<<<< HEAD
-=======
-import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
->>>>>>> 8f1aa3b7de (fix(ai-assistant): require per-user session token for MCP HTTP tool calls (#5173) (#9314))
 
 const logger = createLogger('ai_assistant').child({ component: 'mcp-http' })
-
-const MCP_SESSION_TOKEN_REQUIRED_ERROR_KEY = 'ai_assistant.errors.mcpSessionTokenRequired'
 
 /**
  * Options for the HTTP MCP server.
@@ -71,79 +29,8 @@ export type McpHttpServerOptions = {
   config: McpServerConfig
   container: AwilixContainer
   port: number
-<<<<<<< HEAD
-=======
-  exposureConfig?: McpExposureConfig
-  cliArgs?: Record<string, unknown>
-  /**
-   * Bind address. Defaults to loopback (`127.0.0.1`) — the only intended client is OpenCode
-   * running in Docker, which reaches host loopback via `host.docker.internal` on Docker Desktop.
-   * On native Linux `host-gateway` is the bridge IP, so `yarn dev` passes a wider host there
-   * (see `resolveDevMcpHost` in `scripts/dev-mcp.mjs`). Omitting a host to `net.Server.listen` binds every interface
-   * (`0.0.0.0`/`::`), which exposes the server (and its shared API key) off-host; pass this
-   * explicitly to opt into that, paired with a firewall and a strong, rotated key.
-   */
   host?: string
-  /**
-   * Programmatic shutdown trigger, for callers (tests) that need to tear the
-   * server down deterministically without sending a process-wide SIGINT/SIGTERM
-   * — a real signal would also reach unrelated fixtures sharing the process.
-   */
   signal?: AbortSignal
-}
-
-export type McpHttpRequestHandlerOptions = {
-  config: McpServerConfig
-  container: AwilixContainer
-  exposureConfig: McpExposureConfig
-  port?: number
-}
-
-export type McpHttpRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>
-
-const SESSION_TOKEN_HEADER = 'x-om-session-token'
-
-type ResolvedSessionContext = {
-  context: McpToolContext
-  sessionKeyId: string
-}
-
-type McpToolCallResponse = {
-  content: Array<{ type: 'text'; text: string }>
-  structuredContent?: Record<string, unknown>
-  isError?: boolean
-}
-
-function buildToolErrorResponse(payload: Record<string, unknown>): McpToolCallResponse {
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify(payload),
-      },
-    ],
-    isError: true,
-  }
-}
-
-function listRegistryTools(): AiToolDefinition[] {
-  return Array.from(getToolRegistry().getTools().values()) as AiToolDefinition[]
-}
-
-function listExposedTools(exposureConfig: McpExposureConfig): AiToolDefinition[] {
-  return listRegistryTools().filter((tool) => isToolExposed(tool, exposureConfig))
-}
-
-function buildExposureHealth(exposureConfig: McpExposureConfig) {
-  const exposedTools = listExposedTools(exposureConfig)
-  return {
-    allowlist: exposureConfig.allow !== null,
-    denylistCount: exposureConfig.deny.length,
-    mutationMode: exposureConfig.mutationMode,
-    toolCount: exposedTools.length,
-    agentToolCount: exposedTools.filter((tool) => Boolean(tool.agentRef)).length,
-  }
->>>>>>> 8f1aa3b7de (fix(ai-assistant): require per-user session token for MCP HTTP tool calls (#5173) (#9314))
 }
 
 /**
@@ -224,59 +111,6 @@ async function resolveSessionContext(
 }
 
 /**
- * Resolve user context from the server-level API key (header-based auth fallback).
- * Used when no session token is provided — loads the API key's ACL for RBAC.
- */
-async function resolveApiKeyContext(
-  apiKeyRecord: ApiKey,
-  baseContext: McpToolContext,
-  debug?: boolean
-): Promise<McpToolContext | null> {
-  try {
-    const rbacService = baseContext.container.resolve<RbacService>('rbacService')
-    const userId = apiKeyRecord.sessionUserId ?? apiKeyRecord.createdBy
-    if (!userId) {
-      if (debug) {
-        logger.debug('API key has no associated user')
-      }
-      return null
-    }
-
-    if (apiKeyRecord.sessionUserId && !await isDelegatedKeyEligible(apiKeyRecord, userId, baseContext)) return null
-
-    const acl = await rbacService.loadAcl(`api_key:${apiKeyRecord.id}`, {
-      tenantId: apiKeyRecord.tenantId ?? null,
-      organizationId: apiKeyRecord.organizationId ?? null,
-    })
-
-    if (debug) {
-      logger.debug('API key context resolved', {
-        userId,
-        tenantId: apiKeyRecord.tenantId,
-        organizationId: apiKeyRecord.organizationId,
-        features: acl.features.length,
-        isSuperAdmin: acl.isSuperAdmin,
-      })
-    }
-
-    return {
-      tenantId: apiKeyRecord.tenantId ?? null,
-      organizationId: apiKeyRecord.organizationId ?? null,
-      userId,
-      container: baseContext.container,
-      userFeatures: acl.features,
-      isSuperAdmin: acl.isSuperAdmin,
-      apiKeySecret: baseContext.apiKeySecret,
-    }
-  } catch (error) {
-    if (debug) {
-      logger.debug('Error resolving API key context', { err: error })
-    }
-    return null
-  }
-}
-
-/**
  * Create a stateless MCP server instance for a single request.
  * Tools are registered without pre-filtering - permission checks happen at execution time
  * based on the session token provided in each tool call.
@@ -284,7 +118,7 @@ async function resolveApiKeyContext(
 export function createMcpServerForRequest(
   config: McpServerConfig,
   toolContext: McpToolContext,
-  apiKeyRecord: ApiKey
+  _apiKeyRecord: ApiKey
 ): McpServer {
   const server = new McpServer(
     { name: config.name, version: config.version },
@@ -317,7 +151,7 @@ export function createMcpServerForRequest(
         const properties = (jsonSchema.properties ?? {}) as Record<string, unknown>
         properties._sessionToken = {
           type: 'string',
-          description: 'Session authorization token. REQUIRED for all tool calls — omitting it fails the call closed.',
+          description: 'Session authorization token. Required for every tool call.',
         }
         jsonSchema.properties = properties
 
@@ -364,79 +198,42 @@ export function createMcpServerForRequest(
             argKeys: Object.keys(toolArgs ?? {}).join(','),
           })
 
-          // Resolve user context from session token
-          let effectiveContext = toolContext
-          if (sessionToken) {
-            const sessionContext = await resolveSessionContext(sessionToken, toolContext, config.debug)
-            if (sessionContext) {
-              // Session context includes the decrypted API key secret + session ID for memory layer
-              effectiveContext = { ...sessionContext, sessionId: sessionToken }
-            } else {
-              // Session token expired - return user-friendly error for AI to relay
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      error: 'Your chat session has expired. Please close and reopen the chat window to continue.',
-                      code: 'SESSION_EXPIRED',
-                    }),
-                  },
-                ],
-                isError: true,
-              }
-            }
-          } else {
-<<<<<<< HEAD
-            // No session token — fall back to header API key auth
-            const apiKeyContext = await resolveApiKeyContext(apiKeyRecord, toolContext, config.debug)
-            if (apiKeyContext) {
-              effectiveContext = apiKeyContext
-            } else if (apiKeyRecord.sessionUserId || (!effectiveContext.userId && effectiveContext.userFeatures.length === 0)) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      error: 'Authentication failed: provide a session token (_sessionToken) or a valid API key with assigned roles',
-                      code: 'UNAUTHORIZED',
-                    }),
-                  },
-                ],
-                isError: true,
-              }
-            }
-
-            // Derive a fallback sessionId from the API key so all tool calls
-            // within the same MCP connection share a session memory cache
-            if (!effectiveContext.sessionId && effectiveContext.apiKeySecret) {
-              effectiveContext = {
-                ...effectiveContext,
-                sessionId: deriveApiKeySessionId(effectiveContext.apiKeySecret),
-              }
-            }
-=======
-            // No session token — fail closed rather than silently authorizing this call
-            // with the transport key's ACL. The HTTP transport is the chat-facing surface;
-            // it has no header-only operator mode. Operator/automation access that must
-            // bypass per-user session tokens uses the structurally separate stdio transport
-            // (`mcp:serve`, authenticated via `OPEN_MERCATO_API_KEY` or `--user <id>`; the
-            // dev/test-only `--allow-unauthenticated-superadmin` flag is not a production
-            // substitute), which a chat turn can never reach (#5173).
+          if (!sessionToken) {
             const { translate } = await resolveTranslations()
-            return complete(
-              buildToolErrorResponse({
-                error: translate(
-                  MCP_SESSION_TOKEN_REQUIRED_ERROR_KEY,
-                  'Authentication failed: a session token (_sessionToken) is required for this tool call.'
-                ),
-                code: 'UNAUTHORIZED',
-              }),
-              'denied',
-              'UNAUTHORIZED'
-            )
->>>>>>> 8f1aa3b7de (fix(ai-assistant): require per-user session token for MCP HTTP tool calls (#5173) (#9314))
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: translate(
+                      'ai_assistant.errors.mcpSessionTokenRequired',
+                      'Authentication failed: a session token (_sessionToken) is required for this tool call.'
+                    ),
+                    code: 'UNAUTHORIZED',
+                  }),
+                },
+              ],
+              isError: true,
+            }
           }
+
+          const sessionContext = await resolveSessionContext(sessionToken, toolContext, config.debug)
+          if (!sessionContext) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: 'Your chat session has expired. Please close and reopen the chat window to continue.',
+                    code: 'SESSION_EXPIRED',
+                  }),
+                },
+              ],
+              isError: true,
+            }
+          }
+
+          const effectiveContext = { ...sessionContext, sessionId: sessionToken }
 
           // Check if user has required permissions for this tool
           if (tool.requiredFeatures?.length) {
@@ -742,24 +539,16 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
   logger.info('Tools registered', { toolCount })
   logger.info('Mode: stateless (new server per request)')
   logger.info('Server auth: API key validated against database (x-api-key header)')
-<<<<<<< HEAD
-  logger.info('User auth: session token (_sessionToken) preferred, falls back to API key roles')
-=======
-  logger.info('User auth: session token (_sessionToken) required for every tool call — no header-only fallback')
-  if (!isLoopbackHost(host)) {
-    logger.warn('Binding beyond loopback — ensure a firewall and a strong, rotated MCP_SERVER_API_KEY', { host })
-  }
->>>>>>> 8f1aa3b7de (fix(ai-assistant): require per-user session token for MCP HTTP tool calls (#5173) (#9314))
+  logger.info('User auth: session token (_sessionToken) required for each tool call')
+
+  if (options.signal?.aborted) return
 
   // Return a Promise that keeps the process alive until shutdown
   return new Promise<void>((resolve) => {
-    httpServer.listen(port, () => {
-      logger.info('Server listening', { port })
-    })
-
-    const shutdown = async () => {
+    const shutdown = () => {
       process.off('SIGINT', shutdown)
       process.off('SIGTERM', shutdown)
+      options.signal?.removeEventListener('abort', shutdown)
       logger.info('Shutting down')
       httpServer.close(() => {
         logger.info('Server closed')
@@ -769,10 +558,10 @@ export async function runMcpHttpServer(options: McpHttpServerOptions): Promise<v
 
     process.on('SIGINT', shutdown)
     process.on('SIGTERM', shutdown)
+    options.signal?.addEventListener('abort', shutdown, { once: true })
 
-    if (options.signal) {
-      if (options.signal.aborted) void shutdown()
-      else options.signal.addEventListener('abort', () => void shutdown(), { once: true })
-    }
+    const onListening = () => logger.info('Server listening', { port })
+    if (options.host) httpServer.listen(port, options.host, onListening)
+    else httpServer.listen(port, onListening)
   })
 }

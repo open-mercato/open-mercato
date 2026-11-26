@@ -202,6 +202,7 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
       resolve: (name: string) => {
         if (name === 'em') return {}
         if (name === 'rbacService') return { loadAcl }
+        if (name === 'authService') return { isUserSessionEligible: async () => true }
         throw new Error(`test container has no dependency "${name}"`)
       },
     } as unknown as AwilixContainer
@@ -251,11 +252,7 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
     const payload = JSON.parse((result.content as Array<{ text: string }>)[0]!.text)
     expect(payload.code).toBe('UNAUTHORIZED')
     expect(restrictedToolRuns).toBe(0)
-    // The transport key's ACL is consulted only to decide which tools are listed
-    // (even a superadmin-resolved transport key, the worst case, lists every
-    // tool) — it is never consulted again to authorize execution. Holding the
-    // key alone, with no `_sessionToken`, still fails closed.
-    expect(loadAcl).toHaveBeenCalledWith('api_key:infra-key-1', { tenantId: null, organizationId: null })
+    expect(loadAcl).not.toHaveBeenCalled()
   })
 
   it('treats an empty-string _sessionToken as missing, not present', async () => {

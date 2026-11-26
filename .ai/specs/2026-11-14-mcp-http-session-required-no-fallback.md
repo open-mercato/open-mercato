@@ -16,6 +16,8 @@ Operators who need genuine header-only / unattended access do not need a new mec
 ## Architecture
 No new surface. `createMcpServerForRequest` drops its now-unused third parameter (`apiKeyRecord: ApiKey`) along with the deleted branch and the `resolveApiKeyContext` helper it alone called; `runMcpHttpServer`'s call site is updated to match. The server-level `x-api-key` check in `runMcpHttpServer` is unchanged — it still gates connecting to the HTTP endpoint at all — only the per-tool-call fallback it used to feed is removed. Stdio `mcp:serve` / dev-only `mcp:dev` are untouched.
 
+The v0.9 backport keeps the HTTP server helper's third argument for source compatibility. It uses the release server and its session eligibility check, with no dependency on the audit interfaces introduced later.
+
 ## Migration & Backward Compatibility
 `McpServerConfig.allowApiKeyFallback` and `mcp:serve-http --allow-api-key-fallback` are removed. Neither shipped in a released version — both were introduced and removed again inside PR #9314 before merge — so this is not a break of a previously shipped contract, but it is still a deliberate, disclosed behavior change from `main`'s pre-#5173 behavior: a deployment that calls `mcp:serve-http` with only an `x-api-key` header and no `_sessionToken` now always gets `UNAUTHORIZED`, with no opt-in to restore the old header-only authorization.
 
