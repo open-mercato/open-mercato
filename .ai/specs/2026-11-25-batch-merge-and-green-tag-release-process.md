@@ -4,7 +4,7 @@
 **Status:** Approved shape, ready for development (phased)
 **Scope:** OSS repository process: CI workflows, PR labels, review/QA skills, GitHub rulesets, release-line tooling
 **Flow diagram:** [Open Mercato merge, stabilize, release and backport flow](https://drop-3c71c226-a58.patzick.workers.dev/) (sections are linkable, e.g. [`#labels`](https://drop-3c71c226-a58.patzick.workers.dev/#labels), [`#implementation-plan`](https://drop-3c71c226-a58.patzick.workers.dev/#implementation-plan))
-**Related:** [Phased Integration CI](2026-06-05-phased-integration-ci.md) (draft), [CI/CD Performance](implemented/2026-04-10-ci-cd-performance.md), PR #10434 and PR #10457 (open drafts); QA lanes and batch QA: [open-mercato/skills#210](https://github.com/open-mercato/skills/pull/210) and PR #10712 (draft, `.ai/docs/pr-workflow.md` → QA meta labels, Daily batch QA)
+**Related:** [Phased Integration CI](2026-06-05-phased-integration-ci.md) (draft), [CI/CD Performance](implemented/2026-04-10-ci-cd-performance.md), PR #10434 and PR #10457 (closed as superseded by this spec); QA lanes and batch QA: [open-mercato/skills#210](https://github.com/open-mercato/skills/pull/210) and PR #10712 (draft, `.ai/docs/pr-workflow.md` → QA meta labels, Daily batch QA)
 
 ---
 
@@ -114,7 +114,7 @@ Phases 0–6 below, plus optional follow-ups. The order is deliberate:
 
 ### Phase 1: Spec and decisions
 
-**Goal.** Agree on this spec, resolve the open decisions that block Phases 2–4, and settle PRs #10434 and #10457.
+**Goal.** Agree on this spec, resolve the open decisions that block Phases 2–4, and carry over what is reusable from the superseded PRs #10434 and #10457.
 **Why now.** Phase 0 data informs the decisions (QA capacity, batch cadence). Phase 2 needs the scope file format and label names fixed.
 **Owner.** Maintainers, QA.
 **Size.** 1–2 days.
@@ -124,11 +124,11 @@ Phases 0–6 below, plus optional follow-ups. The order is deliberate:
 **Steps.**
 1. **Review and approve this spec** (PR with this file and the `.ai/specs/README.md` row).
 2. **Decide the open decisions** marked "blocks Phase 2–4" below; record answers in the Changelog section.
-3. **PR #10457** (fast gate for batch candidates): extract its fast-gate job definition into Phase 4 step 1; close the PR with a link to this spec.
-4. **PR #10434** (fast CI for daily batch branches + separate batch branch): close; the separate batch branch is replaced by "`main` is the integration branch, the daily batch is cut from it". Carry over any reusable docs into Phase 0's runbook.
+3. **PR #10457** (fast gate for batch candidates) is closed as superseded by this spec. Its fast-gate job definition is the starting point for Phase 4 step 1.
+4. **PR #10434** (fast CI for daily batch branches + separate batch branch) is closed as superseded: the separate batch branch is replaced by cutting the daily batch from `main`. Carry over any reusable docs into the stabilizer runbook.
 5. **Stabilizer runbook.** Add a short section to `CONTRIBUTING.md` → Stabilization CI describing Phase 0 steps 2–8.
 
-**Exit criteria.** Spec merged. Decisions recorded. #10434 and #10457 closed or repurposed.
+**Exit criteria.** Spec merged. Decisions recorded.
 **Rollback.** None needed (docs only).
 
 ---
@@ -189,7 +189,7 @@ Phases 0–6 below, plus optional follow-ups. The order is deliberate:
 **Entry criteria.** Phase 3 exit criteria met. Stabilizer rotation stable for 2+ weeks.
 
 **Steps.**
-1. **Fast gate job.** Using the job from #10457: typecheck of changed packages, lint, related unit tests, enterprise guard, CLA. Touches: `ci.yml`.
+1. **Fast gate job.** Starting from the job in the closed PR #10457: typecheck of changed packages, lint, related unit tests, enterprise guard, CLA. Touches: `ci.yml`.
 2. **Flip the default.** In `.github/ci-scope.json` set the unlabelled default to `fast`; integration jobs are skipped unless the resolver says `targeted` or `full`. Required check names keep reporting. Touches: `ci-scope.json`, `ci.yml`.
 3. **Require `ci-triage`, and make it the merge-ready check.** `ci-triage` also fails while the PR carries a blocking label (same rule as the `merge-queue` guard: `qa-failed`, `changes-requested`, `blocked`, `do-not-merge`, `needs-human-qa` without `qa-approved`), and it re-evaluates on `labeled`/`unlabeled`. Admin adds `ci-triage` to the `main` ruleset. Then "all required checks green + one approval" is the full, GitHub-enforced merge rule, and `merge-queue` is routing only. Touches: GitHub ruleset `main`.
 4. **Auto-fix on red `main`.** When the push run on `main` fails an integration test, trigger the fixer (e.g. `om-auto-fix-pr --ci-only` against a new `stabilize/` branch) and notify the stabilizer. Touches: new workflow `.github/workflows/main-red-autofix.yml` or a scheduled agent.
@@ -297,7 +297,7 @@ Blocks Phase 2–4:
 - Triage miss threshold for leaving shadow mode.
 - Labels that imply `ci-targeted` (proposed: `risk-high`, `security`, `backport …`).
 
-QA (from skills #210 and PR #10712), to confirm:
+QA, reconstructed from skills #210 and PR #10712; QA (Alina) still has to confirm them:
 - The name `qa-batch-check`.
 - `qa-in-progress` + assignee as the "testing, do not refresh" signal on the batch PR.
 - Merge order: skills #210 before PR #10712 (the current loader rejects `whenUnsure: "batch"`).
@@ -305,7 +305,6 @@ QA (from skills #210 and PR #10712), to confirm:
 - Release-line QA: backports copy only `needs-qa`/`skip-qa` and rely on the release QA pass.
 
 Other:
-- **PR #10434 and #10457.** Proposed: close #10434 (its separate batch branch is replaced by cutting from `main`); repurpose the fast-gate job of #10457 in Phase 4 step 1, then close it.
 - **Merge back: squash or merge commit.** The `main` ruleset allows squash only. Proposed: keep squash; `green/<date>` tags keep tested commits reachable and release cuts use the tag. Alternative: admin enables merge commits on `main` for batch PRs only by convention.
 - Who answers external PRs and how fast; whether certified partners skip acceptance.
 - Stabilizer rotation and the daily cut time (judgement call at first).
