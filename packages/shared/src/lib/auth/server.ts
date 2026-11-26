@@ -221,7 +221,10 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
           tenantId: cachedAuth.tenantId,
           organizationId: cachedAuth.orgId,
           deletedAt: null,
-        }, { fields: ['expiresAt'], disableIdentityMap: true })
+        }, { fields: ['expiresAt'], disableIdentityMap: true }, {
+          tenantId: cachedAuth.tenantId,
+          organizationId: cachedAuth.orgId,
+        })
         : null
       if (!liveKey || (liveKey.expiresAt && liveKey.expiresAt.getTime() <= Date.now())) {
         cache.setMiss(secret)
