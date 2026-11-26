@@ -1,4 +1,4 @@
-import { LockMode } from '@mikro-orm/core'
+import { LockMode, raw } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -637,17 +637,17 @@ export const mergeDealsCommand: CommandHandler<DealMergeRequest, MergeResult> = 
           deal: source.id,
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
-        }, { deal: survivor.id })
+        }, { deal: survivor.id, updatedAt: raw('now()') })
         await em.nativeUpdate(CustomerComment, {
           deal: source.id,
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
-        }, { deal: survivor.id })
+        }, { deal: survivor.id, updatedAt: raw('now()') })
         await em.nativeUpdate(CustomerInteraction, {
           dealId: source.id,
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
-        }, { dealId: survivor.id })
+        }, { dealId: survivor.id, updatedAt: raw('now()') })
         const relinked = await rewriteInteractionLinkedEntities(em, source, survivor, scope)
         moved = { ...moved, interactions: mergeMovedRecords(moved.interactions, relinked) }
       },

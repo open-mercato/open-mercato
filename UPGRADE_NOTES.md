@@ -1,5 +1,13 @@
 # Upgrade Notes
 
+## Deal merge side-effect buffering and company undo (#10680)
+
+`DefaultDataEngine` buffered pending side effects by action, record id and scope only, so a second mark for a different entity with the same id (a legacy activity and its bridged canonical interaction share a primary key) silently replaced the first entity's CRUD event and query-index upsert. Marks that declare a different entity identity (explicit `indexer.entityType`, or `events` module/entity) are now buffered and emitted separately; marks with the same or partially declared identity merge exactly as before, and flush order stays chronological. No type, signature, import path or event ID changes. Regression-tested in `engine.side-effect-identity.test.ts`.
+
+`customers.companies.update` undo no longer deletes and rebuilds the company's Deal links from the logged snapshot. The update command never changes Deal links, so undo leaves them as they are; it no longer reverts link changes made by other commands after the edit, such as a Deal merge. Undo of every field the update changes is unchanged.
+
+No action required. No API route, response shape, event ID, ACL feature, DI name or database schema changes. See the [Deal merge spec](.ai/specs/2026-11-24-deal-merge.md).
+
 ## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
 
 When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.

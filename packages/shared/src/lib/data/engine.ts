@@ -90,6 +90,20 @@ type QueuedCrudSideEffect = {
   actorUserId?: string | null
   events?: CrudEventsConfig<unknown>
   indexer?: CrudIndexerConfig<unknown>
+  explicitIndexerEntityType?: string
+}
+
+type SideEffectEntityIdentity = {
+  indexerEntityType?: string
+  eventsEntity?: string
+}
+
+function describeEventsEntity(events: CrudEventsConfig<unknown> | undefined): string | undefined {
+  return events ? `${events.module}.${events.entity}` : undefined
+}
+
+function identitiesConflict(left: string | undefined, right: string | undefined): boolean {
+  return left !== undefined && right !== undefined && left !== right
 }
 
 /**
@@ -884,7 +898,10 @@ export class DefaultDataEngine implements DataEngine {
     // query-index obligation — the route hands its `indexer:` down as the default so the
     // handler's own entity and identifiers (the accurate ones) drive the projection write.
     const indexer = opts.indexer ?? this.resolveDefaultIndexer(entity)
-    const key = this.buildSideEffectKey(opts.action, identifiers)
+    const key = this.resolveSideEffectKey(this.buildSideEffectKey(opts.action, identifiers), {
+      indexerEntityType: opts.indexer?.entityType,
+      eventsEntity: describeEventsEntity(opts.events as CrudEventsConfig<unknown> | undefined),
+    })
     const existing = this.pendingSideEffects.get(key)
     if (existing) {
       existing.entity = entity
@@ -899,8 +916,10 @@ export class DefaultDataEngine implements DataEngine {
       // Explicit always wins, on the merge branch too: a second `events:`-only mark on the same
       // key must not let the route default overwrite the `indexer:` an earlier mark installed,
       // which would silently drop that handler's own `buildUpsertPayload`.
-      if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
-      else if (!existing.indexer && indexer) existing.indexer = indexer
+      if (opts.indexer) {
+        existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
+        existing.explicitIndexerEntityType = opts.indexer.entityType
+      } else if (!existing.indexer && indexer) existing.indexer = indexer
       this.pendingSideEffects.set(key, existing)
       return
     }
@@ -917,6 +936,7 @@ export class DefaultDataEngine implements DataEngine {
     }
     if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
     if (indexer) entry.indexer = indexer
+    if (opts.indexer) entry.explicitIndexerEntityType = opts.indexer.entityType
     this.pendingSideEffects.set(key, entry)
   }
 
@@ -945,6 +965,26 @@ export class DefaultDataEngine implements DataEngine {
         }
         // best-effort; continue with remaining side effects
       }
+    }
+  }
+
+  /**
+   * Records of different entity types may share a primary key (the legacy activity bridge creates
+   * the canonical interaction with the activity's id). A mark whose explicit `indexer.entityType`
+   * or `events` module/entity differs from the entry already queued under the same
+   * (action, id, scope) key gets its own slot, so neither record's event nor projection replaces
+   * the other's. Marks that agree on identity, or leave it undeclared, merge exactly as before.
+   */
+  private resolveSideEffectKey(baseKey: string, identity: SideEffectEntityIdentity): string {
+    let key = baseKey
+    for (let slot = 1; ; slot += 1) {
+      const existing = this.pendingSideEffects.get(key)
+      if (!existing) return key
+      const conflicting =
+        identitiesConflict(existing.explicitIndexerEntityType, identity.indexerEntityType)
+        || identitiesConflict(describeEventsEntity(existing.events), identity.eventsEntity)
+      if (!conflicting) return key
+      key = `${baseKey}|${slot}`
     }
   }
 

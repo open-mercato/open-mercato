@@ -1022,35 +1022,6 @@ const updateCompanyCommand = {
     await syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true })
     await em.flush()
 
-    await em.nativeDelete(CustomerDealCompanyLink, { company: entity })
-    if (before.deals?.length) {
-      const dealIds = before.deals.map((link) => link.dealId)
-      const deals = await findWithDecryption(
-        em,
-        CustomerDeal,
-        {
-          id: { $in: dealIds },
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
-        },
-        undefined,
-        { tenantId: entity.tenantId, organizationId: entity.organizationId },
-      )
-      const dealMap = new Map(deals.map((deal) => [deal.id, deal]))
-      for (const link of before.deals) {
-        const deal = dealMap.get(link.dealId.toLowerCase())
-        if (!deal) continue
-        const restoredLink = em.create(CustomerDealCompanyLink, {
-          id: link.id,
-          deal,
-          company: entity,
-          createdAt: link.createdAt,
-        })
-        em.persist(restoredLink)
-      }
-      await em.flush()
-    }
-
     if (before.members?.length) {
       const memberIds = before.members.map((member) => member.profileId)
       const profiles = await findWithDecryption(

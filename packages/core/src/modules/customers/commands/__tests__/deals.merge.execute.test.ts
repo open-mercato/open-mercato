@@ -60,6 +60,7 @@ jest.mock('../../lib/interactionUsers', () => ({
   findInteractionUserInScope: (...args: unknown[]) => findInteractionUserInScope(...args),
 }))
 
+import { RawQueryFragment } from '@mikro-orm/core'
 import type { CommandExecutionContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
@@ -581,6 +582,20 @@ describe('customers.deals.merge execute', () => {
     expect(harness.nativeUpdates).toHaveLength(3)
     for (const { where } of harness.nativeUpdates) {
       expect(where).toEqual(expect.objectContaining({ tenantId, organizationId }))
+    }
+  })
+
+  it('advances the edit version of every directly moved record with the database clock', async () => {
+    const harness = createHarness()
+    await mergeDealsCommand.execute(buildInput(), harness.ctx)
+
+    expect(harness.nativeUpdates).toHaveLength(3)
+    const [activityMove, commentMove, interactionMove] = harness.nativeUpdates
+    expect(activityMove.data).toEqual(expect.objectContaining({ deal: survivorId }))
+    expect(commentMove.data).toEqual(expect.objectContaining({ deal: survivorId }))
+    expect(interactionMove.data).toEqual(expect.objectContaining({ dealId: survivorId }))
+    for (const { data } of harness.nativeUpdates) {
+      expect(RawQueryFragment.getKnownFragment(data.updatedAt)?.sql).toBe('now()')
     }
   })
 
