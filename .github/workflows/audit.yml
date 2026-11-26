@@ -57,49 +57,36 @@ jobs:
       contents: read
       issues: write
     strategy:
-      # Kept as a matrix so another long-lived branch can be reported
-      # independently of main without restructuring the job.
       fail-fast: false
       matrix:
         branch:
           - main
+          - release/v0.10.x
+          - release/v0.9.x
     steps:
-      - name: Checkout ${{ matrix.branch }}
+      - name: Check out audit tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            /scripts/audit-ci.mjs
+            /scripts/audit-ci-allowlist.json
+          sparse-checkout-cone-mode: false
+
+      - name: Check out lockfile for ${{ matrix.branch }}
         uses: actions/checkout@v7
         with:
           ref: ${{ matrix.branch }}
+          path: audited-branch
+          persist-credentials: false
+          sparse-checkout: /yarn.lock
+          sparse-checkout-cone-mode: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24.19.0
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Restore Yarn package cache
-        # Restore-only, deliberately — `actions/cache` (which also *saves*) is a
-        # cache-poisoning sink here and CodeQL flags it as such
-        # (`actions/cache-poisoning/direct-cache`, high severity).
-        #
-        # This workflow is triggered by `schedule`/`workflow_dispatch`, so it always
-        # runs in the *default branch's* privileged context and writes to the default
-        # branch's cache scope — but the matrix above checks out its own refs.
-        # A save step would therefore let content from a non-default ref land under a
-        # `yarn-<os>-<lockfile hash>` key that any other workflow, on any branch,
-        # happily restores.
-        #
-        # Restoring is safe and keeps the speed-up: `ci.yml` populates these keys from
-        # the branch being built, and a miss only costs this daily job a cold install.
-        # Guarded by scripts/__tests__/workflow-cache-poisoning.test.mjs.
-        uses: actions/cache/restore@v6
-        with:
-          path: .yarn/cache
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-          restore-keys: yarn-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: yarn install --immutable
 
       - name: Audit dependencies for known CVEs
         id: audit
@@ -109,7 +96,7 @@ jobs:
         # empty report.
         run: |
           set -o pipefail
-          node scripts/audit-ci.mjs --severity high 2>&1 | tee audit.log
+          node scripts/audit-ci.mjs --severity high --report-severity=low audited-branch/yarn.lock 2>&1 | tee audit.log
 
       - name: Publish job summary
         if: always()
@@ -118,13 +105,9 @@ jobs:
           {
             echo "### \`node scripts/audit-ci.mjs --severity high\` — \`${{ matrix.branch }}\`"
             echo
-            if [ "${{ steps.audit.outcome }}" = "success" ]; then
-              echo "No advisories at severity \`high\` or above."
-            else
-              echo '```text'
-              cat audit.log 2>/dev/null || echo "(no audit output captured — the step failed before producing a report)"
-              echo '```'
-            fi
+            echo '```text'
+            cat audit.log 2>/dev/null || echo "(no audit output captured — the step failed before producing a report)"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Open or refresh tracking issue

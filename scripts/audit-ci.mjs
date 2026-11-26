@@ -51,6 +51,11 @@ export function parseArgs(argv) {
   if (!SEVERITY_ORDER.includes(threshold)) {
     throw new Error(`unknown --severity "${threshold}" (expected one of ${SEVERITY_ORDER.join(', ')})`)
   }
+  const reportArg = argv.find((arg) => arg.startsWith('--report-severity='))
+  const reportThreshold = reportArg ? reportArg.slice('--report-severity='.length) : threshold
+  if (!SEVERITY_ORDER.includes(reportThreshold) || SEVERITY_ORDER.indexOf(reportThreshold) > SEVERITY_ORDER.indexOf(threshold)) {
+    throw new Error(`--report-severity must be at or below ${threshold}`)
+  }
   const inlineBaseline = (argv.find((arg) => arg.startsWith('--baseline=')) || '').slice('--baseline='.length)
   const baselineIndex = argv.indexOf('--baseline')
   const separateBaseline = baselineIndex >= 0 ? argv[baselineIndex + 1] : undefined
@@ -61,6 +66,7 @@ export function parseArgs(argv) {
   const lockArg = argv.find((arg, index) => arg.endsWith('yarn.lock') && !arg.startsWith('--') && (baselineIndex < 0 || index !== baselineIndex + 1))
   return {
     threshold,
+    reportThreshold,
     lockPath: path.resolve(lockArg || 'yarn.lock'),
     baselinePath: baseline ? path.resolve(baseline) : null,
   }
@@ -226,8 +232,8 @@ export async function main(argv = process.argv.slice(2), { fetchImpl, allowlistP
     return 2
   }
 
-  const { lockPath, threshold, baselinePath } = options
-  const audit = await auditLockfile(lockPath, threshold, fetchImpl)
+  const { lockPath, threshold, reportThreshold, baselinePath } = options
+  const audit = await auditLockfile(lockPath, reportThreshold, fetchImpl)
   if (!audit) return 2
 
   let allowlist
@@ -238,7 +244,10 @@ export async function main(argv = process.argv.slice(2), { fetchImpl, allowlistP
     console.error(`audit-ci: could not read allowlist: ${error.message}`)
     return 2
   }
-  const { blocking: unallowlisted, suppressed } = partitionAllowlisted(audit.flagged, allowlist)
+  const { blocking: eligible, suppressed } = partitionAllowlisted(audit.flagged, allowlist)
+  const thresholdIndex = SEVERITY_ORDER.indexOf(threshold)
+  const unallowlisted = eligible.filter((advisory) => SEVERITY_ORDER.indexOf(advisory.severity) >= thresholdIndex)
+  const informational = eligible.filter((advisory) => SEVERITY_ORDER.indexOf(advisory.severity) < thresholdIndex)
 
   let blocking = unallowlisted
   let preexisting = []
@@ -258,6 +267,12 @@ export async function main(argv = process.argv.slice(2), { fetchImpl, allowlistP
   if (preexisting.length > 0) {
     console.log(`audit-ci: ${preexisting.length} advisory(ies) already present in the baseline (not introduced by this change; tracked by .github/workflows/audit.yml):`)
     for (const advisory of preexisting) {
+      console.log(`  [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.title} (${advisory.url})`)
+    }
+  }
+  if (informational.length > 0) {
+    console.log(`audit-ci: ${informational.length} advisory(ies) below the ${threshold} failure threshold:`)
+    for (const advisory of informational) {
       console.log(`  [${advisory.severity}] ${advisory.name} ${advisory.range} — ${advisory.title} (${advisory.url})`)
     }
   }

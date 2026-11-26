@@ -54,6 +54,9 @@ test('accepts both severity argument forms and rejects unknown values', () => {
   assert.equal(parseArgs(['--severity=critical']).threshold, 'critical')
   assert.equal(parseArgs(['--severity', 'moderate']).threshold, 'moderate')
   assert.throws(() => parseArgs(['--severity=urgent']), /unknown --severity/)
+  assert.equal(parseArgs(['--severity=moderate']).reportThreshold, 'moderate')
+  assert.equal(parseArgs(['--report-severity=low']).reportThreshold, 'low')
+  assert.throws(() => parseArgs(['--report-severity=critical']), /must be at or below high/)
 })
 
 test('decodes gzip advisory responses and fails closed on malformed shapes', () => {
@@ -203,7 +206,7 @@ function advisoryFetch(vulnerable) {
     for (const [pkg, versions] of Object.entries(requested)) {
       const advisory = vulnerable[pkg]
       if (advisory && versions.some((version) => advisory.versions.includes(version))) {
-        body[pkg] = [{ severity: 'high', title: `${pkg} issue`, vulnerable_versions: advisory.range, url: advisory.url }]
+        body[pkg] = [{ severity: advisory.severity ?? 'high', title: `${pkg} issue`, vulnerable_versions: advisory.range, url: advisory.url }]
       }
     }
     return { ok: true, arrayBuffer: async () => Buffer.from(JSON.stringify(body)) }
@@ -275,12 +278,42 @@ test('main fails closed when the baseline advisories cannot be retrieved', async
   }
 })
 
+test('reports below-threshold advisories without weakening the high-severity gate', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-ci-report-'))
+  try {
+    const allowlistPath = path.join(directory, 'allowlist.json')
+    fs.writeFileSync(allowlistPath, JSON.stringify({ advisories: {} }))
+    const advisory = { versions: ['1.0.0'], range: '<2.0.0', url: 'https://example.test/advisory' }
+    const reportOnlyLock = writeLock(directory, 'report', { 'low-package': '1.0.0' })
+    const blockingLock = writeLock(directory, 'blocking', { 'low-package': '1.0.0', 'high-package': '1.0.0' })
+    const fetchImpl = advisoryFetch({ 'low-package': { ...advisory, severity: 'low' }, 'high-package': advisory })
+    const reportOnly = await runMain([reportOnlyLock, '--report-severity=low'], fetchImpl, allowlistPath)
+    assert.equal(reportOnly.exitCode, 0)
+    assert.match(reportOnly.output, /1 advisory\(ies\) below the high failure threshold/)
+    assert.match(reportOnly.output, /\[low\] low-package/)
+    const blocking = await runMain([blockingLock, '--report-severity=low'], fetchImpl, allowlistPath)
+    assert.equal(blocking.exitCode, 1)
+    assert.match(blocking.output, /1 advisory\(ies\) at or above high:\n {2}\[high\] high-package/)
+    const defaultGate = await runMain([reportOnlyLock], fetchImpl, allowlistPath)
+    assert.doesNotMatch(defaultGate.output, /low-package/)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test('the change-triggered audit job passes a baseline lockfile to the gate', () => {
   const repoRoot = path.resolve(import.meta.dirname, '..', '..')
   const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'ci.yml'), 'utf8')
   assert.match(workflow, /node scripts\/audit-ci\.mjs --severity high \$\{\{ steps\.audit-baseline\.outputs\.args \}\}/)
   const scheduled = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'audit.yml'), 'utf8')
   assert.doesNotMatch(scheduled, /node scripts\/audit-ci\.mjs[^\n]*--baseline/)
+})
+
+test('the scheduled audit scans both maintenance branches and retains the high threshold', () => {
+  const repoRoot = path.resolve(import.meta.dirname, '..', '..')
+  const scheduled = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'audit.yml'), 'utf8')
+  assert.match(scheduled, /branch:\n\s+- main\n\s+- release\/v0\.10\.x\n\s+- release\/v0\.9\.x/)
+  assert.match(scheduled, /node scripts\/audit-ci\.mjs --severity high --report-severity=low audited-branch\/yarn\.lock/)
 })
 
 test('the change-triggered audit job has a hard workflow timeout', () => {

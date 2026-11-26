@@ -88,13 +88,14 @@ test('privileged-context workflows never write an Actions cache from a non-defau
   )
 })
 
-test('the scheduled dependency audit restores its Yarn cache without saving one', () => {
+test('the scheduled dependency audit treats release lockfiles as data', () => {
   const auditWorkflow = fs.readFileSync(path.join(WORKFLOWS_DIR, 'audit.yml'), 'utf8')
 
-  assert.match(auditWorkflow, /uses: actions\/cache\/restore@/, 'The audit should still restore package downloads')
+  assert.match(auditWorkflow, /ref: \$\{\{ github\.workflow_sha \}\}/)
+  assert.match(auditWorkflow, /path: audited-branch\n\s+persist-credentials: false\n\s+sparse-checkout: \/yarn\.lock/)
   assert.doesNotMatch(
     auditWorkflow,
-    /uses: actions\/cache@/,
-    'The audit checks out its matrix branches from the default branch context, so it must never save a cache',
+    /uses: actions\/cache(?:\/restore)?@|yarn install/,
+    'The audit uses committed lockfiles and does not run or cache release dependencies',
   )
 })
