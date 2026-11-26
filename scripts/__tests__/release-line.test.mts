@@ -176,8 +176,15 @@ const batchPr = (overrides: Partial<CommitPullRequest> = {}): CommitPullRequest 
   ...overrides,
 })
 
-test('a green tag must head a stabilize/ batch PR merged into main', () => {
+test('a green tag must be in the history of a stabilize/ batch PR merged into main', () => {
   assert.deepEqual(batchPullRequest([batchPr()], TAGGED, 'main'), { ok: true, number: 50, branch: 'stabilize/main-2026-11-20' })
+
+  const movedHead = batchPr({ head: { ref: 'stabilize/main-2026-11-20', sha: 'b'.repeat(40) } })
+  assert.deepEqual(
+    batchPullRequest([movedHead], TAGGED, 'main', (headSha) => headSha === 'b'.repeat(40)),
+    { ok: true, number: 50, branch: 'stabilize/main-2026-11-20' },
+    'main merged into the batch after tagging still counts: the tag is in the batch history',
+  )
 
   const open = batchPullRequest([batchPr({ state: 'open', merged_at: null })], TAGGED, 'main')
   assert.ok(!open.ok)
@@ -191,11 +198,11 @@ test('a green tag must head a stabilize/ batch PR merged into main', () => {
     [],
     [batchPr({ head: { ref: 'feat/x', sha: TAGGED } })],
     [batchPr({ base: { ref: 'release/v0.9.x' } })],
-    [batchPr({ head: { ref: 'stabilize/main-2026-11-20', sha: 'b'.repeat(40) } })],
+    [movedHead],
   ]) {
     const verdict = batchPullRequest(pulls, TAGGED, 'main')
     assert.ok(!verdict.ok)
-    assert.match(verdict.error, /is not the head commit of a stabilize\/ PR merged into main/)
+    assert.match(verdict.error, /is not in the history of a stabilize\/ PR merged into main/)
   }
 })
 
@@ -436,9 +443,9 @@ function greenTagRepo() {
   return { ...fixture, tagged, head: fixture.git('rev-parse', 'HEAD') }
 }
 
-type CutApiOptions = { tagged: string; head: string; existing?: string | null; existingParent?: string; existingChangelog?: string; pulls?: unknown[] }
+type CutApiOptions = { tagged: string; head: string; existing?: string | null; existingParent?: string; existingChangelog?: string; pulls?: unknown[]; compare?: string }
 
-function cutApi({ tagged, head, existing = null, existingParent, existingChangelog, pulls }: CutApiOptions) {
+function cutApi({ tagged, head, existing = null, existingParent, existingChangelog, pulls, compare = 'diverged' }: CutApiOptions) {
   const lineCommit = 'c'.repeat(40)
   const bumpCommit = 'd'.repeat(40)
   return (request: ApiRequest): [number, unknown?] => {
@@ -446,6 +453,7 @@ function cutApi({ tagged, head, existing = null, existingParent, existingChangel
     if (method === 'GET' && url.endsWith(`/commits/${tagged}/pulls?per_page=100`)) {
       return [200, pulls ?? [{ number: 50, state: 'closed', merged_at: '2026-11-20T10:00:00Z', head: { ref: 'stabilize/main-2026-11-20', sha: tagged }, base: { ref: 'main' } }]]
     }
+    if (method === 'GET' && url.includes('/compare/')) return [200, { status: compare }]
     if (method === 'GET' && url.endsWith('/git/ref/heads/release/v0.9.x')) return existing ? [200, { object: { sha: existing } }] : [404, { message: 'Not Found' }]
     if (method === 'GET' && existing && url.endsWith(`/git/commits/${existing}`)) return [200, { sha: existing, tree: { sha: 't' }, parents: [{ sha: existingParent }] }]
     if (method === 'GET' && url.includes('/contents/CHANGELOG.md')) return [200, { sha: 'x', content: Buffer.from(existingChangelog ?? '').toString('base64') }]
@@ -524,7 +532,7 @@ test('cut --at refuses a green tag on an unmerged or closed batch PR', async () 
   for (const [pulls, error] of [
     [[{ ...batch, state: 'open', merged_at: null }], /#50 \(stabilize\/main-2026-11-20\), which is still open/],
     [[{ ...batch, state: 'closed', merged_at: null }], /closed without merging into main/],
-    [[], /is not the head commit of a stabilize\/ PR merged into main/],
+    [[], /is not in the history of a stabilize\/ PR merged into main/],
   ] as const) {
     const api = await fakeApi(cutApi({ tagged, head, pulls: [...pulls] }))
     try {
@@ -539,6 +547,28 @@ test('cut --at refuses a green tag on an unmerged or closed batch PR', async () 
   assert.equal(readVersion(root, 'package.json'), '0.9.0', 'nothing is stamped before the refusal')
 })
 
+test('cut --at accepts a green tag below the head of a merged batch, and refuses one off its history', async () => {
+  const { root, tagged, head } = greenTagRepo()
+  const movedHead = 'b'.repeat(40)
+  const pulls = [{ number: 50, state: 'closed', merged_at: '2026-11-20T10:00:00Z', head: { ref: 'stabilize/main-2026-11-20', sha: movedHead }, base: { ref: 'main' } }]
+  for (const [compare, accepted] of [['ahead', true], ['diverged', false]] as const) {
+    const api = await fakeApi(cutApi({ tagged, head, pulls, compare }))
+    try {
+      const result = await runLine(root, ['cut', '--dry-run', '--branch', 'main', '--at', 'green/2026-11-20'], apiEnv(api.url))
+      assert.ok(api.requests.some((request) => request.url.includes(`/compare/${tagged}...${movedHead}`)), 'ancestry is checked against the batch head')
+      if (accepted) {
+        assert.equal(result.status, 0, result.stderr)
+        assert.equal(result.outputs.sha, tagged, 'the line starts at the tag, not the batch head')
+      } else {
+        assert.notEqual(result.status, 0)
+        assert.match(result.stderr, /is not in the history of a stabilize\/ PR merged into main/)
+      }
+    } finally {
+      await api.close()
+    }
+  }
+})
+
 test('cut --at --dry-run validates the green tag and names the line', async () => {
   const { root, tagged, head } = greenTagRepo()
   const api = await fakeApi(cutApi({ tagged, head }))
@@ -547,7 +577,7 @@ test('cut --at --dry-run validates the green tag and names the line', async () =
     assert.equal(result.status, 0, result.stderr)
     assert.equal(result.outputs.releaseBranch, 'release/v0.9.x')
     assert.equal(result.outputs.sha, tagged)
-    assert.match(result.stdout, /heads #50 \(stabilize\/main-2026-11-20\), merged into main/)
+    assert.match(result.stdout, /is on #50 \(stabilize\/main-2026-11-20\), merged into main/)
     assert.ok(api.requests.every((request) => request.method === 'GET'), 'a dry run only reads')
   } finally {
     await api.close()

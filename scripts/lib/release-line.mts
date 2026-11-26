@@ -202,21 +202,28 @@ export type CommitPullRequest = {
 
 export type BatchVerdict = { ok: true; number: number; branch: string } | { ok: false; error: string }
 
-// A line is cut only at a green tag on the head commit of a `stabilize/` batch PR that was merged
-// into the trunk. The batch is squash-merged, so the tagged commit is never an ancestor of the
-// trunk: the merged PR is the only proof the tested commit is what the trunk received.
-export function batchPullRequest(pulls: readonly CommitPullRequest[], sha: string, trunk: string): BatchVerdict {
+// A line is cut only at a green tag in the history of a `stabilize/` batch PR that was merged into
+// the trunk: normally its head, or an earlier commit when the trunk was merged into the batch after
+// tagging to resolve a conflict. The batch is squash-merged, so the tagged commit is never an
+// ancestor of the trunk: the merged PR is the only proof the tested commit is what the trunk
+// received. `inHistoryOf(headSha)` says whether the tagged commit is an ancestor of (or is) a head.
+export function batchPullRequest(
+  pulls: readonly CommitPullRequest[],
+  sha: string,
+  trunk: string,
+  inHistoryOf: (headSha: string) => boolean = (headSha) => headSha === sha,
+): BatchVerdict {
   const batches = pulls.filter(
-    (pr) => pr.head.sha === sha && pr.head.ref.startsWith('stabilize/') && pr.base.ref === trunk,
+    (pr) => pr.head.ref.startsWith('stabilize/') && pr.base.ref === trunk && (pr.head.sha === sha || inHistoryOf(pr.head.sha)),
   )
   const merged = batches.find((pr) => Boolean(pr.merged_at))
   if (merged) return { ok: true, number: merged.number, branch: merged.head.ref }
   const open = batches.find((pr) => pr.state === 'open')
-  if (open) return { ok: false, error: `it heads #${open.number} (${open.head.ref}), which is still open — merge the batch into ${trunk} first` }
+  if (open) return { ok: false, error: `it is on #${open.number} (${open.head.ref}), which is still open — merge the batch into ${trunk} first` }
   if (batches.length > 0) {
-    return { ok: false, error: `it heads #${batches[0].number} (${batches[0].head.ref}), which was closed without merging into ${trunk}` }
+    return { ok: false, error: `it is on #${batches[0].number} (${batches[0].head.ref}), which was closed without merging into ${trunk}` }
   }
-  return { ok: false, error: `${sha.slice(0, 12)} is not the head commit of a stabilize/ PR merged into ${trunk}` }
+  return { ok: false, error: `${sha.slice(0, 12)} is not in the history of a stabilize/ PR merged into ${trunk}` }
 }
 
 const SUBJECT_PR = /\(#(\d+)\)\s*$/

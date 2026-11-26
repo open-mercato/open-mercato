@@ -112,10 +112,17 @@ export function createGithubClient({
       const commit = await ok<GitObject>('GET', `${base}/git/commits/${sha}`)
       return (commit.parents ?? []).map((parent) => parent.sha)
     },
-    // Every PR whose head is the commit, merged or not — including a squash-merged one whose head
+    // Every PR carrying the commit, merged or not — including a squash-merged one whose commits
     // never reached the default branch.
     async pullRequestsForCommit(sha: string): Promise<CommitPullRequest[]> {
       return ok<CommitPullRequest[]>('GET', `${base}/commits/${sha}/pulls?per_page=100`)
+    },
+    async isAncestor(ancestor: string, head: string): Promise<boolean> {
+      if (ancestor === head) return true
+      const { status, data } = await call<{ status?: string }>('GET', `${base}/compare/${ancestor}...${head}?per_page=1`)
+      if (status === 404) return false
+      if (status !== 200 || !data) throw new Error(`[internal] GET compare ${ancestor}...${head} → ${status}`)
+      return data.status === 'ahead' || data.status === 'identical'
     },
     async hasRelease(tag: string): Promise<boolean> {
       return (await findRelease(tag)) !== null

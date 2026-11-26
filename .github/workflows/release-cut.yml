@@ -6,7 +6,7 @@ name: Release cut
 # main to X.(Y+1).0. It publishes nothing — ship the line with the Release workflow, run from the
 # new branch. Re-running is safe: an existing branch is left alone and the PR is reused.
 #
-# With `green_tag` the line starts at that `green/YYYY-MM-DD` tag instead: the tag must be the head
+# With `green_tag` the line starts at that `green/YYYY-MM-DD` tag instead: the tag must be in the history
 # of a `stabilize/` batch PR merged into main, and only the `# Unreleased` entries for PRs the tag
 # contains go to the line; the rest stay on main for the next minor. Empty cuts at main's tip.
 
@@ -19,7 +19,7 @@ on:
         default: false
         type: boolean
       green_tag:
-        description: 'Cut at this green/YYYY-MM-DD tag (head of a stabilize/ batch merged into main); empty cuts at main''s tip'
+        description: 'Cut at this green/YYYY-MM-DD tag (on a stabilize/ batch merged into main); empty cuts at main''s tip'
         required: false
         default: ''
         type: string

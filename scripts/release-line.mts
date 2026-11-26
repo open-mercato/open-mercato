@@ -162,18 +162,24 @@ async function openBookkeepingPr(
   return pr.html_url
 }
 
-// `--at` takes only a green tag on the head of a `stabilize/` batch merged into main. The PR check
-// needs the API; a dry run without GH_TOKEN skips it and says so.
+// `--at` takes only a green tag in the history of a `stabilize/` batch merged into main (its head,
+// or an earlier commit if main was merged into the batch after tagging). The PR check needs the
+// API; a dry run without GH_TOKEN skips it and says so.
 async function greenTagCommit(tag: string, gh: GithubClient | null): Promise<string> {
   if (!isGreenTag(tag)) fail(`--at takes a green/YYYY-MM-DD tag, not "${tag}"`)
   const sha = tryGit('rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`) ?? fail(`tag ${tag} does not exist`)
   if (!gh) {
-    log(`dry run without GH_TOKEN — not checking that ${tag} heads a stabilize/ PR merged into ${TRUNK}`)
+    log(`dry run without GH_TOKEN — not checking that ${tag} is on a stabilize/ PR merged into ${TRUNK}`)
     return sha
   }
-  const verdict = batchPullRequest(await gh.pullRequestsForCommit(sha), sha, TRUNK)
+  const pulls = await gh.pullRequestsForCommit(sha)
+  const containing = new Set<string>()
+  for (const pr of pulls) {
+    if (pr.head.ref.startsWith('stabilize/') && pr.base.ref === TRUNK && (await gh.isAncestor(sha, pr.head.sha))) containing.add(pr.head.sha)
+  }
+  const verdict = batchPullRequest(pulls, sha, TRUNK, (headSha) => containing.has(headSha))
   if (!verdict.ok) fail(`${tag} cannot start a release line: ${verdict.error}`)
-  log(`${tag} (${sha.slice(0, 12)}) heads #${verdict.number} (${verdict.branch}), merged into ${TRUNK}`)
+  log(`${tag} (${sha.slice(0, 12)}) is on #${verdict.number} (${verdict.branch}), merged into ${TRUNK}`)
   return sha
 }
 
