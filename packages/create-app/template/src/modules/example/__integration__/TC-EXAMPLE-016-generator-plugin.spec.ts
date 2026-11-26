@@ -1,8 +1,11 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
-import * as ts from 'typescript-js'
+import type { ObjectLiteralExpression } from 'typescript'
+
+type TypeScriptCompiler = typeof import('typescript')
 
 const configuredAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
 const appRoot = configuredAppRoot ? path.resolve(configuredAppRoot) : null
@@ -24,7 +27,7 @@ function expectCommandPassed(result: ReturnType<typeof runYarn>, label: string):
   expect(result.status, `${label}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0)
 }
 
-function readStringProperty(objectLiteral: ts.ObjectLiteralExpression, propertyName: string): string | null {
+function readStringProperty(ts: TypeScriptCompiler, objectLiteral: ObjectLiteralExpression, propertyName: string): string | null {
   for (const property of objectLiteral.properties) {
     if (!ts.isPropertyAssignment(property)) continue
     const name = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
@@ -36,7 +39,7 @@ function readStringProperty(objectLiteral: ts.ObjectLiteralExpression, propertyN
   return null
 }
 
-function removeModuleActivation(source: string, moduleId: string, moduleSource: string): string {
+function removeModuleActivation(ts: TypeScriptCompiler, source: string, moduleId: string, moduleSource: string): string {
   const sourceFile = ts.createSourceFile('modules.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
 
   for (const statement of sourceFile.statements) {
@@ -46,8 +49,8 @@ function removeModuleActivation(source: string, moduleId: string, moduleSource: 
       if (!declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) continue
       for (const element of declaration.initializer.elements) {
         if (!ts.isObjectLiteralExpression(element)) continue
-        if (readStringProperty(element, 'id') !== moduleId) continue
-        if (readStringProperty(element, 'from') !== moduleSource) continue
+        if (readStringProperty(ts, element, 'id') !== moduleId) continue
+        if (readStringProperty(ts, element, 'from') !== moduleSource) continue
         const separator = source.slice(element.end).match(/^[ \t]*,/)
         const end = element.end + (separator?.[0].length ?? 0)
         return source.slice(0, element.getStart(sourceFile)) + source.slice(end)
@@ -74,7 +77,9 @@ test.describe('TC-EXAMPLE-016: generator plugin', () => {
     const originalModules = fs.readFileSync(modulesPath, 'utf8')
     const originalGenerators = fs.readFileSync(generatorsPath, 'utf8')
 
-    const disabledModules = removeModuleActivation(originalModules, 'example', '@app')
+    const requireFromApp = createRequire(path.join(appRoot, 'package.json'))
+    const ts = requireFromApp('typescript') as TypeScriptCompiler
+    const disabledModules = removeModuleActivation(ts, originalModules, 'example', '@app')
     expect(originalGenerators).toContain("import type { GeneratorPlugin }")
     expect(originalGenerators).not.toMatch(/^import\s+(?!type\b)/m)
     expect(fs.existsSync(generatedPath)).toBe(true)
