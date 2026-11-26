@@ -23,7 +23,7 @@ and operator rights are required; module flags alone do not grant a license. Set
 A derived source uses `TENANT_DATA_ENCRYPTION_OLD_KEY`. A derived target uses the
 configured `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` or `TENANT_DATA_ENCRYPTION_KEY`.
 Vault sources and targets use independently configured read credentials and exact
-per-tenant versions. The [rotation operator guide](../../../../../../../apps/docs/docs/user-guide/key-rotation-protection.mdx#provider-and-key-custody)
+per-tenant versions. The [rotation operator guide](../../../../../../../apps/docs/docs/user-guide/key-rotation-protection.mdx#explicit-source-and-target-providers)
 covers custody for all four provider combinations. Source and target concrete DEKs
 must differ. Retain every original key in approved external custody.
 
