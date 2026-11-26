@@ -366,11 +366,13 @@ const ROOT_INSTRUCTION_SOURCES = [
 ] as const
 
 test('both standalone roots route infrastructure provider registration to the shared convention', () => {
-  const route = 'Infrastructure providers (cache, queue, KMS) live in `src/providers/`.'
   for (const { label, read } of ROOT_INSTRUCTION_SOURCES) {
     const instructions = read()
-    assert.ok(instructions.includes(route), `${label} must identify the infrastructure provider directory`)
-    assert.match(instructions, /\]\(\.ai\/guides\/infrastructure-providers\.md\)/, `${label} must link the provider guide`)
+    assert.match(
+      instructions,
+      /`src\/providers\/` for \[cache, queue, and KMS\]\(\.ai\/guides\/infrastructure-providers\.md\)/,
+      `${label} must identify the infrastructure provider directory and link the provider guide`,
+    )
   }
 
   const guide = readAgentic('guides/infrastructure-providers.md')

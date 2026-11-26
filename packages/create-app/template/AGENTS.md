@@ -1,13 +1,10 @@
 # Standalone Open Mercato App — Agent Rules
 
-Route first; skip unmatched context.
-
 ## Always
 
 - Route all axes; missing context: `yarn mercato agentic:init --update-harness`.
 - Lessons: scan `.ai/lessons.md` tags; open/update one matching record + row.
-- App code: `src/modules/<id>/`.
-- Infrastructure providers (cache, queue, KMS) live in `src/providers/`. See the [provider guide](.ai/guides/infrastructure-providers.md).
+- Use `src/modules/<id>/` for business modules and `src/providers/` for [cache, queue, and KMS](.ai/guides/infrastructure-providers.md).
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands/`makeCrudRoute`/`CrudForm`/`DataTable`, DI/events/UMES; effects stay post-commit.
 - Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
