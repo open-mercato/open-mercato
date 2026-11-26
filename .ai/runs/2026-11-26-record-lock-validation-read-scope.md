@@ -20,10 +20,12 @@ Source doc: .ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md
 
 ## Progress
 
+PR: #10797
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Authorization
 
-- [ ] 1.1 Enforce target read access before validation.
-- [ ] 1.2 Add endpoint regression coverage.
+- [x] 1.1 Enforce target read access before validation. — 40f9a3e337
+- [x] 1.2 Add endpoint regression coverage. — 40f9a3e337
 - [ ] 1.3 Validate and review the change.
