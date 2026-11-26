@@ -246,6 +246,7 @@ export function useFormRunner(args: UseFormRunnerArgs): UseFormRunnerResult {
       setCurrentSectionIndex(0)
     } catch (error) {
       if (generation !== submissionGeneration.current) return
+      reportTelemetryError(error, { module: 'forms', code: 'forms.runner_resume_failed' })
       setLoadError(isRunnerError(error) ? error : makeError('UNKNOWN', extractErrorMessage(error)))
       setStage('error')
     }

@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 
 import { act, renderHook, waitFor } from '@testing-library/react'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { useFormRunner } from '../ui/public/state/useFormRunner'
 import type { RuntimeClient, RuntimeStartedState } from '../ui/public/state/runtime-client'
 import type { RunnerActiveFormResponse } from '../ui/public/types'
@@ -8,6 +9,7 @@ import type { RunnerActiveFormResponse } from '../ui/public/types'
 jest.mock('@open-mercato/ui/portal/hooks/usePortalAppEvent', () => ({ usePortalAppEvent: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => (key: string) => key }))
 jest.mock('../ui/public/state/useAutosave', () => ({ useAutosave: jest.fn(), mergeOnConflict: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({ reportTelemetryError: jest.fn() }))
 
 function deferred<Value>() {
   let resolve!: (value: Value) => void
@@ -56,6 +58,42 @@ function client(formId: string): jest.Mocked<RuntimeClient> {
 const scope = { formKey: 'intake', subjectType: 'customer', subjectId: 'subject' }
 
 describe('form runner draft transitions', () => {
+  it('reports a current resume failure while showing the runner error', async () => {
+    jest.mocked(reportTelemetryError).mockClear()
+    const runtime = client('form')
+    const error = new Error('resume unavailable')
+    runtime.loadSubmissionDetail.mockRejectedValueOnce(error)
+    const { result } = renderHook(() => useFormRunner({ ...scope, client: runtime }))
+    await waitFor(() => expect(result.current.stage).toBe('resume_gate'))
+
+    await act(() => result.current.resumeExistingSubmission('candidate'))
+
+    expect(result.current.stage).toBe('error')
+    expect(result.current.loadError?.message).toBe(error.message)
+    expect(reportTelemetryError).toHaveBeenCalledWith(error, {
+      module: 'forms', code: 'forms.runner_resume_failed',
+    })
+  })
+
+  it('does not report a superseded resume failure after starting another draft', async () => {
+    jest.mocked(reportTelemetryError).mockClear()
+    const runtime = client('form')
+    const pendingResume = deferred<RuntimeStartedState>()
+    runtime.loadSubmissionDetail.mockReturnValueOnce(pendingResume.promise)
+    const { result } = renderHook(() => useFormRunner({ ...scope, client: runtime }))
+    await waitFor(() => expect(result.current.stage).toBe('resume_gate'))
+    let resume!: Promise<void>
+    act(() => { resume = result.current.resumeExistingSubmission('candidate') })
+    await act(() => result.current.startNewSubmission())
+
+    await act(async () => { pendingResume.reject(new Error('superseded')); await resume })
+
+    expect(result.current.stage).toBe('ready')
+    expect(result.current.submission?.id).toBe('new')
+    expect(result.current.loadError).toBeNull()
+    expect(reportTelemetryError).not.toHaveBeenCalled()
+  })
+
   it('reloads a changed subject even when the supplied runtime client is stable', async () => {
     const runtime = client('form')
     const pendingStart = deferred<RuntimeStartedState>()
