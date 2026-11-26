@@ -2740,7 +2740,11 @@ export class HybridQueryEngine implements QueryEngine {
 
     void Promise.resolve().then(async () => {
       try {
-        await bus.emitEvent('query_index.reindex', payload, { persistent: true })
+        await bus.emitEvent('query_index.reindex', payload, {
+          persistent: true,
+          tenantId: payload.tenantId,
+          organizationId: payload.organizationId,
+        })
         if (this.isDebugVerbosity()) this.debug('query:auto-reindex:scheduled', context)
       } catch (err) {
         logger.warn('Failed to schedule auto reindex', { ...context, err })

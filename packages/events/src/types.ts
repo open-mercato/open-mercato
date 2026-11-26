@@ -29,6 +29,12 @@ export type SubscriberContext = {
   tenantId?: string | null
   /** Trusted organization scope attached by the event emitter */
   organizationId?: string | null
+  /** Present when the emitter supplies tenant scope. An omitted organization can represent a tenant-wide job. */
+  eventScope?: Readonly<{
+    tenantId: string | null
+    organizationId?: string | null
+    allowAllTenants?: boolean
+  }>
 }
 
 /** Event handler function signature */
@@ -98,6 +104,8 @@ export type EmitOptions = {
   skipPersistentSubscribersInline?: boolean
   /** Trusted tenant scope for subscribers that must not rely on payload scope */
   tenantId?: string | null
+  /** Explicitly authorizes an all-tenant maintenance event when tenantId is null. */
+  allowAllTenants?: boolean
   /** Trusted organization scope for subscribers that must not rely on payload scope */
   organizationId?: string | null
   /**

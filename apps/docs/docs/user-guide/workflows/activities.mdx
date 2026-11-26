@@ -148,7 +148,7 @@ Access response data in subsequent steps: `{{activities.create-order.output.id}}
 
 ### EMIT_EVENT
 
-Publish domain events to trigger other workflows or update application state.
+Publish events that a module has opted into workflow emission. Use an authorized command for state changes.
 
 **Configuration:**
 
@@ -158,7 +158,7 @@ Publish domain events to trigger other workflows or update application state.
   "activityName": "Emit Order Placed Event",
   "activityType": "EMIT_EVENT",
   "config": {
-    "eventName": "order.placed",
+    "eventName": "order.created",
     "payload": {
       "orderId": "{{context.orderId}}",
       "customerId": "{{context.customerId}}",
@@ -170,12 +170,12 @@ Publish domain events to trigger other workflows or update application state.
 ```
 
 **Parameters:**
-- `eventName`: Event name (required, convention: `module.entity.action`)
+- `eventName`: Exact event ID from a module declaration with `workflowEmittable: true` (required)
 - `payload`: Event data (any JSON object)
 
-The engine adds a `_workflow` block (instance id, workflow id, tenant, organization) to every
-payload it publishes. A configuration without `eventName` fails the activity with
-`EMIT_EVENT requires "eventName" field`.
+The engine sets `tenantId` and `organizationId` from the running instance, removes any
+authored `organizationIds`, and adds the instance and workflow IDs in `_workflow`.
+The activity fails if the event is missing or unavailable for workflow emission.
 
 ### UPDATE_ENTITY
 
