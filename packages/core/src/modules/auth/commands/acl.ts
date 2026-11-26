@@ -31,6 +31,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { Role, RoleAcl, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { assertActorCanGrantAcl } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
   lockRoleWriterAuthorizationState,
@@ -320,6 +321,19 @@ function createAclUpdateCommand<TInput extends AclCommandInput>(
       await withAtomicFlush(em, [async () => {
         await config.lockParent(em, input)
         const existing = await config.loadAcl(em, input)
+        if (existing && ctx.auth && ctx.systemActor !== true) {
+          const rbacService = ctx.container.resolve<RbacService>('rbacService')
+          await assertActorCanGrantAcl({
+            em,
+            rbacService,
+            actorUserId: ctx.auth.sub,
+            tenantId: input.tenantId,
+            organizationId: resolveOrganizationId(ctx, input.tenantId),
+            features: existing.featuresJson,
+            isSuperAdmin: existing.isSuperAdmin,
+            organizations: existing.organizationsJson ?? null,
+          })
+        }
         persistedBox.current = await config.persist({ em, input, existing })
       }], { transaction: true, label: `${config.id}.locked` })
       // Cache invalidation runs only after the write commits, never inside the

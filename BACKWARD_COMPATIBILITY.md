@@ -747,3 +747,12 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 ## 2026-11-25 — MCP Code Mode
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## Current staff and ACL grants (2026-11-26, #10598 and #10687)
+
+Staff identity changes and ACL replacements reject writes outside the actor's
+grant ceiling on the existing target. The previous authorization behavior would
+keep the unauthorized write reachable throughout a bridge release. Path,
+request and authorized success contracts remain stable. See the
+[upgrade notes](UPGRADE_NOTES.md#staff-and-acl-changes-respect-current-target-privileges)
+and the [staff authorization spec](.ai/specs/2026-11-26-auth-current-grant-ceilings.md#migration--backward-compatibility).

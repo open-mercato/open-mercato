@@ -112,6 +112,7 @@ describe('auth ACL audit commands', () => {
       failInvalidate?: boolean
       failTagPurge?: boolean
       failTargetLookup?: boolean
+      actorFeatures?: string[]
       role?: TargetRow | null
       user?: TargetRow | null
     } = {},
@@ -174,6 +175,11 @@ describe('auth ACL audit commands', () => {
     } as unknown as EntityManager
 
     const rbacService = {
+      loadAclWithEntityManager: async () => ({
+        isSuperAdmin: options.actorFeatures === undefined,
+        features: options.actorFeatures ?? [],
+        organizations: null,
+      }),
       invalidateTenantCache: async (id: string) => {
         if (options.failInvalidate) throw new Error('cache adapter unavailable')
         invalidatedTenants.push(id)
@@ -267,6 +273,17 @@ describe('auth ACL audit commands', () => {
   }
 
   describe('auth.role-acl.update', () => {
+    it('protects the current ACL when its privileges exceed the actor ceiling', async () => {
+      const existing = { isSuperAdmin: false, featuresJson: ['sales.orders.view'], organizationsJson: null }
+      const harness = makeHarness(existing, { actorFeatures: ['auth.acl.manage'] })
+
+      await expect(roleHandler().execute({ ...roleInput, features: [] }, harness.ctx)).rejects.toMatchObject({ status: 403 })
+
+      expect(harness.rows).toEqual([existing])
+      expect(existing.featuresJson).toEqual(['sales.orders.view'])
+      expect(harness.calls.commit).toBe(0)
+    })
+
     it('creates the role ACL row when none exists', async () => {
       const harness = makeHarness(null)
       const result = await roleHandler().execute(roleInput, harness.ctx)

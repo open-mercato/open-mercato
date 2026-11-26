@@ -61,6 +61,7 @@ import {
   assertActorCanAccessUserTarget,
   assertActorCanGrantAcl,
   assertActorCanGrantRoleTokens,
+  assertActorCanGrantRoles,
   assertActorCanModifySuperAdminUserTarget,
   resolveUserDestinationRoles,
   throwUserDestinationOrganizationNotFound,
@@ -807,6 +808,15 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
             ...protectedRoleIds,
           ],
         })
+        if (
+          parsed.email !== undefined
+          || parsed.password !== undefined
+          || parsed.isConfirmed !== undefined
+          || Array.isArray(parsed.roles)
+          || destinationChanged
+        ) {
+          await assertCommandActorCanManageCurrentUser(ctx, em, updateWhere as FilterQuery<User>)
+        }
         await enforceProtectedRoleFloor(
           em,
           userTenantId,
@@ -1153,6 +1163,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           userIds: [id],
           roleIds: protectedRoleIds,
         })
+        await assertCommandActorCanManageCurrentUser(ctx, em, deleteWhere as FilterQuery<User>)
         await enforceProtectedRoleFloor(
           em,
           userTenantId,
@@ -1798,6 +1809,49 @@ function captureUserSnapshots(
       acls,
       ...(custom && Object.keys(custom).length ? { custom } : {}),
     },
+  }
+}
+
+async function assertCommandActorCanManageCurrentUser(
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  where: FilterQuery<User>,
+): Promise<void> {
+  if (!ctx.auth || ctx.systemActor === true) return
+  const target = await findOneWithDecryption(
+    em, User, where, { refresh: true }, { tenantId: null, organizationId: null },
+  )
+  if (!target) {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(404, { error: translate('auth.users.errors.notFound', 'User not found') })
+  }
+  if (ctx.auth.sub === String(target.id)) return
+
+  const tenantId = target.tenantId ? String(target.tenantId) : null
+  const organizationId = target.organizationId ? String(target.organizationId) : null
+  const rbacService = ctx.container.resolve<RbacService>('rbacService')
+  const grantContext = {
+    em,
+    rbacService,
+    actorUserId: ctx.auth.sub,
+    tenantId,
+    organizationId,
+  }
+  const roles = await resolveUserDestinationRoles({
+    em,
+    targetUserId: String(target.id),
+    destinationTenantId: tenantId,
+    roleTokens: undefined,
+  })
+  await assertActorCanGrantRoles({ ...grantContext, roles })
+  for (const acl of await loadUserAclSnapshots(em, String(target.id))) {
+    await assertActorCanGrantAcl({
+      ...grantContext,
+      tenantId: acl.tenantId,
+      features: acl.features,
+      isSuperAdmin: acl.isSuperAdmin,
+      organizations: acl.organizations,
+    })
   }
 }
 
