@@ -24,9 +24,11 @@ An error can be rendered after the submit handler rejects. Pair each attempt wit
 
 ## Progress
 
+PR: #10841
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Order creation feedback
 
-- [ ] 1.1 Connect empty order rejection to the existing alert and cover focus and retry in component tests.
-- [ ] 1.2 Cover both Create buttons in the sales browser suite and archive the requirement.
+- [x] 1.1 Connect empty order rejection to the existing alert and cover focus and retry in component tests. — 07a459550e8dbaa4c25b081a0578014650761b9b
+- [x] 1.2 Cover both Create buttons in the sales browser suite and archive the requirement. — d862143d22126438003ae81e651a282f6c4d184f
