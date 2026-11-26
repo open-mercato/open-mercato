@@ -6858,3 +6858,18 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 With tenant encryption enabled, Security now encrypts MFA method secrets and provider metadata, including legacy TOTP seeds. Apply the additive `secret_hash` migration before deploying the new writes; regenerate module registries. In-flight plaintext pending setups remain compatible and new setups use the lookup hash. The MFA methods list returns public provider metadata without the private legacy TOTP seed. Do not roll back to code that cannot decrypt these fields.
 
 The SQL migration registers existing enabled scopes; it cannot encrypt historical seeds. During the established encryption maintenance window, preview `mercato entities rotate-encryption-key --tenant <tenant UUID> --dry-run`, then run without `--dry-run` and without an old key for every affected tenant, following the existing maintenance safety gates. Restart replicas and verify no plaintext remains. Disabled encryption/maps remain unchanged. This does not erase old backups or log snapshots; suspected exposure requires re-enrollment. See [the rollout spec](.ai/specs/enterprise/2026-11-07-mfa-secret-encryption.md).
+
+## Workflow event emission requires module opt-in (#9134)
+
+Review stored `EMIT_EVENT` activities before rollout. For a custom business signal,
+declare its exact event ID with `workflowEmittable: true` after checking that its
+subscribers accept tenant-authored data. Route privileged state changes through the
+owning module's authorized operation. The instance supplies tenant and organization
+scope on every workflow emission.
+
+Upgrade application and event worker processes together. Gateway status and index
+jobs created before this change may lack trusted scope and will fail closed. Reconcile
+incomplete payment statuses from the gateway provider and resubmit necessary index
+work through the index API or CLI. Custom server-side event producers for these jobs
+must pass trusted scope in emit options. An all-tenant reindex requires
+`tenantId: null` and `allowAllTenants: true` in those options.
