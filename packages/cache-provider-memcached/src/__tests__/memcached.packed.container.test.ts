@@ -9,13 +9,13 @@ import os from 'node:os'
 import path from 'node:path'
 import type { StartedTestContainer } from 'testcontainers'
 import { randomNamespace } from '@open-mercato/cache/testing/conformance'
+import { CACHE_HOST_WORKSPACES, CACHE_REGISTRY_PATH, packCacheWorkspaces } from '../../../cache/fixtures/packed-workspaces'
 import { CONTAINER_TESTS_ENABLED, describeWithMemcached, runNode, startMemcached, type MemcachedEndpoint } from './support/harness'
 
 jest.setTimeout(300_000)
 
 const PACKAGE_DIR = path.resolve(__dirname, '../..')
 const REPO_DIR = path.resolve(PACKAGE_DIR, '../..')
-const CACHE_DIR = path.join(REPO_DIR, 'packages', 'cache')
 const SMOKE_SCRIPT = path.join(PACKAGE_DIR, 'test-support', 'packed-smoke.mjs')
 const BUNDLE_BUILDER = path.join(PACKAGE_DIR, 'test-support', 'build-bundle.mjs')
 const TSC = path.join(REPO_DIR, 'node_modules', 'typescript', 'bin', 'tsc')
@@ -27,23 +27,13 @@ let appDir = ''
 let hostBundle = ''
 let installMode: 'npm' | 'tar' = 'npm'
 
-function pack(directory: string, destination: string): string {
-  const output = execFileSync('npm', ['pack', '--pack-destination', destination, '--ignore-scripts', '--json'], {
-    cwd: directory,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 120_000,
-  }).toString()
-  const [result] = JSON.parse(output) as Array<{ filename: string }>
-  return path.join(destination, result.filename)
-}
-
 function extractInto(tarball: string, target: string): void {
   rmSync(target, { recursive: true, force: true })
   mkdirSync(target, { recursive: true })
   execFileSync('tar', ['-xzf', tarball, '-C', target, '--strip-components=1'], { stdio: 'pipe' })
 }
 
-function install(cacheTarball: string, providerTarball: string): 'npm' | 'tar' {
+function install(tarballs: Record<string, string>): 'npm' | 'tar' {
   try {
     execFileSync('npm', ['install', '--no-audit', '--no-fund', '--ignore-scripts', '--legacy-peer-deps', '--no-package-lock'], {
       cwd: appDir,
@@ -52,8 +42,9 @@ function install(cacheTarball: string, providerTarball: string): 'npm' | 'tar' {
     })
     return 'npm'
   } catch {
-    extractInto(cacheTarball, path.join(appDir, 'node_modules', '@open-mercato', 'cache'))
-    extractInto(providerTarball, path.join(appDir, 'node_modules', '@open-mercato', 'cache-provider-memcached'))
+    for (const [name, tarball] of Object.entries(tarballs)) {
+      extractInto(tarball, path.join(appDir, 'node_modules', '@open-mercato', name))
+    }
     for (const dependency of ['zod', '@types/node']) {
       const target = path.join(appDir, 'node_modules', dependency)
       mkdirSync(path.dirname(target), { recursive: true })
@@ -69,14 +60,10 @@ if (CONTAINER_TESTS_ENABLED) {
     container = started.container
     endpoint = started.endpoint
 
-    execFileSync(process.execPath, ['build.mjs'], { cwd: CACHE_DIR, stdio: 'pipe', timeout: 180_000 })
-    execFileSync(process.execPath, ['build.mjs'], { cwd: PACKAGE_DIR, stdio: 'pipe', timeout: 180_000 })
-
     workDir = mkdtempSync(path.join(os.tmpdir(), 'om-memcached-packed-'))
     const packDir = path.join(workDir, 'pack')
     mkdirSync(packDir, { recursive: true })
-    const cacheTarball = pack(CACHE_DIR, packDir)
-    const providerTarball = pack(PACKAGE_DIR, packDir)
+    const tarballs = packCacheWorkspaces(packDir, [...CACHE_HOST_WORKSPACES, 'cache-provider-memcached'])
 
     appDir = path.join(workDir, 'app')
     mkdirSync(appDir, { recursive: true })
@@ -85,13 +72,10 @@ if (CONTAINER_TESTS_ENABLED) {
       private: true,
       version: '0.0.0',
       type: 'module',
-      dependencies: {
-        '@open-mercato/cache': `file:${cacheTarball}`,
-        '@open-mercato/cache-provider-memcached': `file:${providerTarball}`,
-      },
+      dependencies: Object.fromEntries(Object.entries(tarballs).map(([name, tarball]) => [`@open-mercato/${name}`, `file:${tarball}`])),
       devDependencies: { '@types/node': '^22.0.0' },
     }, null, 2))
-    installMode = install(cacheTarball, providerTarball)
+    installMode = install(tarballs)
 
     hostBundle = path.join(workDir, 'host-bundle.mjs')
     await runNode([BUNDLE_BUILDER, hostBundle, '--host-only'])
@@ -108,7 +92,7 @@ describeWithMemcached('packed @open-mercato/cache-provider-memcached', () => {
     expect(['npm', 'tar']).toContain(installMode)
     console.info(`[packed] install mode: ${installMode}`)
     const scoped = readdirSync(path.join(appDir, 'node_modules', '@open-mercato')).sort()
-    expect(scoped).toEqual(['cache', 'cache-provider-memcached'])
+    expect(scoped).toEqual([...CACHE_HOST_WORKSPACES, 'cache-provider-memcached'].sort())
     expect(readdirSync(path.join(appDir, 'node_modules')).filter((name) => /memcache|ioredis|redis/i.test(name))).toEqual([])
     const installed = path.join(appDir, 'node_modules', '@open-mercato', 'cache-provider-memcached')
     const files = readdirSync(installed).sort()
@@ -122,16 +106,17 @@ describeWithMemcached('packed @open-mercato/cache-provider-memcached', () => {
   })
 
   it('type-checks a consumer registration against the installed package', () => {
-    writeFileSync(path.join(appDir, 'consumer.ts'), [
+    mkdirSync(path.join(appDir, path.dirname(CACHE_REGISTRY_PATH)), { recursive: true })
+    writeFileSync(path.join(appDir, CACHE_REGISTRY_PATH), [
       "import { defineCacheProviderRegistration } from '@open-mercato/cache/provider'",
-      "import { provider, memcachedSettingsSchema, type MemcachedProviderConfig, type MemcachedProviderSettingsInput } from '@open-mercato/cache-provider-memcached'",
+      "import type { MemcachedProviderConfig, MemcachedProviderSettingsInput } from '@open-mercato/cache-provider-memcached'",
       "import { createMemcachedClient, createTcpTransport, type MemcachedClient } from '@open-mercato/cache-provider-memcached/protocol'",
       "const settings: MemcachedProviderSettingsInput = { host: 'cache.internal', bucketCount: 32 }",
-      'export const registration = defineCacheProviderRegistration<MemcachedProviderConfig>({',
+      'export const cacheProviders = [defineCacheProviderRegistration<MemcachedProviderConfig>({',
       "  id: 'open-mercato/memcached',",
-      '  load: async () => provider,',
-      '  settings: () => memcachedSettingsSchema.parse(settings),',
-      '})',
+      "  load: () => import('@open-mercato/cache-provider-memcached').then(({ provider }) => provider),",
+      '  settings: () => settings,',
+      '})]',
       "export const client: MemcachedClient = createMemcachedClient({ transport: createTcpTransport({ host: 'h', port: 11211 }) })",
       '',
     ].join('\n'))
@@ -146,7 +131,7 @@ describeWithMemcached('packed @open-mercato/cache-provider-memcached', () => {
         types: ['node'],
         allowImportingTsExtensions: false,
       },
-      files: ['consumer.ts'],
+      files: [CACHE_REGISTRY_PATH],
     }))
     let output = ''
     try {

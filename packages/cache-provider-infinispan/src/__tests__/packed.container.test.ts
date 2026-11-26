@@ -2,13 +2,12 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { CACHE_HOST_WORKSPACES, CACHE_REGISTRY_PATH, packCacheWorkspaces } from '../../../cache/fixtures/packed-workspaces'
 import { ADMIN_PASSWORD, ADMIN_USER, startInfinispanCluster, type InfinispanCluster } from './support/cluster'
 import { skipUnlessContainers } from './support/env'
 
 const SUITE = 'packed @open-mercato/cache-provider-infinispan installed into a fresh app'
 const PACKAGE_DIR = path.resolve(__dirname, '../..')
-const CACHE_PACKAGE_DIR = path.resolve(PACKAGE_DIR, '../cache')
-const SHARED_PACKAGE_DIR = path.resolve(PACKAGE_DIR, '../shared')
 const REPO_ROOT = path.resolve(PACKAGE_DIR, '../..')
 const CACHE_NAME = 'om-cache-packed'
 
@@ -44,7 +43,7 @@ process.exit(0)
 `
 
 const TYPES_SCRIPT = `
-import { provider, infinispanSettingsSchema, type InfinispanSettingsInput } from '@open-mercato/cache-provider-infinispan'
+import type { InfinispanSettingsInput } from '@open-mercato/cache-provider-infinispan'
 import { defineCacheProviderRegistration } from '@open-mercato/cache/provider'
 
 const settings: InfinispanSettingsInput = {
@@ -53,11 +52,11 @@ const settings: InfinispanSettingsInput = {
   auth: { username: 'svc', password: 'secret', mechanism: 'SCRAM-SHA-256' },
   tls: { enabled: true, caFiles: ['/etc/ssl/ispn-ca.pem'] },
 }
-export const registration = defineCacheProviderRegistration({
-  id: provider.id,
-  load: async () => provider,
-  settings: () => infinispanSettingsSchema.parse(settings),
-})
+export const cacheProviders = [defineCacheProviderRegistration({
+  id: 'open-mercato/infinispan',
+  load: () => import('@open-mercato/cache-provider-infinispan').then(({ provider }) => provider),
+  settings: () => settings,
+})]
 `
 
 if (!skipUnlessContainers(SUITE)) {
@@ -73,15 +72,7 @@ if (!skipUnlessContainers(SUITE)) {
     workDir = mkdtempSync(path.join(os.tmpdir(), 'om-ispn-packed-'))
     const packDir = path.join(workDir, 'pack')
     mkdirSync(packDir)
-    for (const directory of [SHARED_PACKAGE_DIR, CACHE_PACKAGE_DIR, PACKAGE_DIR]) {
-      run('yarn', ['build'], directory)
-      run('yarn', ['pack', '--out', path.join(packDir, '%s-%v.tgz')], directory)
-    }
-    const tarballs = readdirSync(packDir)
-    const sharedTarball = tarballs.find((name) => name.startsWith('@open-mercato-shared-'))
-    const cacheTarball = tarballs.find((name) => name.startsWith('@open-mercato-cache-0'))
-    const providerTarball = tarballs.find((name) => name.startsWith('@open-mercato-cache-provider-infinispan'))
-    if (!sharedTarball || !cacheTarball || !providerTarball) throw new Error(`[internal] missing tarballs: ${tarballs.join(', ')}`)
+    const tarballs = packCacheWorkspaces(packDir, ['shared', ...CACHE_HOST_WORKSPACES, 'cache-provider-infinispan'])
 
     appDir = path.join(workDir, 'app')
     mkdirSync(appDir)
@@ -90,15 +81,12 @@ if (!skipUnlessContainers(SUITE)) {
       private: true,
       version: '0.0.0',
       type: 'module',
-      dependencies: {
-        '@open-mercato/shared': `file:${path.join(packDir, sharedTarball)}`,
-        '@open-mercato/cache': `file:${path.join(packDir, cacheTarball)}`,
-        '@open-mercato/cache-provider-infinispan': `file:${path.join(packDir, providerTarball)}`,
-      },
+      dependencies: Object.fromEntries(Object.entries(tarballs).map(([name, tarball]) => [`@open-mercato/${name}`, `file:${tarball}`])),
     }, null, 2))
     run('npm', ['install', '--no-audit', '--no-fund', '--ignore-scripts', '--no-package-lock', '--legacy-peer-deps'], appDir)
     writeFileSync(path.join(appDir, 'smoke.mjs'), SMOKE_SCRIPT)
-    writeFileSync(path.join(appDir, 'types-check.ts'), TYPES_SCRIPT)
+    mkdirSync(path.join(appDir, path.dirname(CACHE_REGISTRY_PATH)), { recursive: true })
+    writeFileSync(path.join(appDir, CACHE_REGISTRY_PATH), TYPES_SCRIPT)
     writeFileSync(path.join(appDir, 'tsconfig.json'), JSON.stringify({
       compilerOptions: {
         target: 'ES2022',
@@ -111,7 +99,7 @@ if (!skipUnlessContainers(SUITE)) {
         types: ['node'],
         typeRoots: [path.join(REPO_ROOT, 'node_modules', '@types')],
       },
-      files: ['types-check.ts'],
+      files: [CACHE_REGISTRY_PATH],
     }, null, 2))
 
     cluster = await startInfinispanCluster({ nodes: 1, tls: null, workDir })
@@ -126,8 +114,7 @@ if (!skipUnlessContainers(SUITE)) {
   describe(SUITE, () => {
     it('installs from tarballs without sibling adapters or workspace links', () => {
       const scope = path.join(appDir, 'node_modules', '@open-mercato')
-      expect(readdirSync(scope).sort()).toEqual(['cache', 'cache-provider-infinispan', 'shared'])
-      expect(readdirSync(scope).filter((name) => name.startsWith('cache-provider-'))).toEqual(['cache-provider-infinispan'])
+      expect(readdirSync(scope).sort()).toEqual([...CACHE_HOST_WORKSPACES, 'cache-provider-infinispan', 'shared'].sort())
       const installed = path.join(scope, 'cache-provider-infinispan')
       expect(readdirSync(installed).sort()).toEqual(['README.md', 'dist', 'package.json', 'src'])
       expect(existsSync(path.join(installed, 'src', '__tests__'))).toBe(false)

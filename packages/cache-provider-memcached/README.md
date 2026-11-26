@@ -132,7 +132,7 @@ Manual runs on a developer machine, not CI. No CI job runs the container suites 
 | Engine: oversize writes (`item_too_large`, stale copy of the key dropped, other entries intact), server-side oversize rejection keeps the connection, bucket capacity eviction | `memcached:1.6.45-alpine` | 1 server, `-m 64 -I 128k -o slab_chunk_max=64` | none | 3/3 pass |
 | Engine: coherent whole-bucket eviction (6000 × 2 KiB entries, 1024 buckets; server `evictions > 0`; every listed key readable and vice versa; tag invalidation afterwards) | `memcached:1.6.45-alpine` | 1 server, `-m 8 -I 128k -o slab_chunk_max=64` | none | 1/1 pass |
 | Engine: server restart (whole-namespace miss, reconnect, recovery on next writes) | `memcached:1.6.45-alpine` | 1 server, `-m 32`, fixed host port, `docker restart` | none | 1/1 pass |
-| Packed install: `npm pack` of this package and of `@open-mercato/cache` into a fresh app (npm install, no sibling adapters), consumer type-check, registration → `resolveCacheProvider` → cache workflow | `memcached:1.6.45-alpine` | 1 server, `-m 32` | none | 3/3 pass |
+| Packed install of this package and the cache host with its default providers into a fresh app, consumer type-check, registration → `resolveCacheProvider` → cache workflow | `memcached:1.6.45-alpine` | 1 server, `-m 32` | none | 3/3 pass |
 | Unit (no Docker): settings schema, redaction, key layout and routing, protocol parser and batching, oversize overwrite drops the previous copy | — | — | — | 22/22 pass |
 
 Full run: **66/66 tests passed** (22 unit + 44 container), `OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --runInBand`. The container suite took about 15 s. Last rerun 2026-11-24 after the oversize change.

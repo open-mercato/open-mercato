@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { PACKAGES_DIR, REPO_ROOT } from './host'
+import { CACHE_HOST_WORKSPACES, CACHE_REGISTRY_PATH, packCacheWorkspaces } from '../../cache/fixtures/packed-workspaces'
+import { REPO_ROOT } from './host'
 
 export type PackedInstall = {
   workDir: string
@@ -25,7 +26,7 @@ function exec(command: string, args: string[], cwd: string, timeout = 240_000, e
 
 /**
  * Build and pack (`yarn pack`, which resolves `workspace:*` exactly like the
- * publish script) @open-mercato/cache, the RESP protocol library and one
+ * publish script) the cache host workspaces, the RESP protocol library and one
  * provider, then install only those tarballs (plus their registry dependencies)
  * into a fresh app outside the workspace.
  */
@@ -35,12 +36,7 @@ export function createPackedInstall(providerDirName: string): PackedInstall {
   const appDir = path.join(workDir, 'app')
   mkdirSync(packDir, { recursive: true })
   mkdirSync(appDir, { recursive: true })
-  const packageDirs = ['cache', 'cache-redis-protocol', providerDirName].map((name) => path.join(PACKAGES_DIR, name))
-  for (const packageDir of packageDirs) {
-    exec(process.execPath, ['build.mjs'], packageDir)
-    exec('yarn', ['pack', '--out', path.join(packDir, `${path.basename(packageDir)}.tgz`)], packageDir, 120_000)
-  }
-  const tarballs = readdirSync(packDir).filter((name) => name.endsWith('.tgz')).map((name) => path.join(packDir, name))
+  const tarballs = Object.values(packCacheWorkspaces(packDir, [...CACHE_HOST_WORKSPACES, 'cache-redis-protocol', providerDirName]))
   writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: 'om-cache-packed-app', private: true, version: '0.0.0', type: 'module' }))
   exec('npm', ['install', ...tarballs, '@types/node@^22', '--no-audit', '--no-fund', '--ignore-scripts', '--no-package-lock', '--loglevel=error'], appDir, 300_000)
   const scopeDir = path.join(appDir, 'node_modules', '@open-mercato')
@@ -57,9 +53,8 @@ export function createPackedInstall(providerDirName: string): PackedInstall {
       return exec(process.execPath, [file], appDir, 120_000, env)
     },
     typecheck(source) {
-      const registryPath = 'src/providers/cache.ts'
-      mkdirSync(path.join(appDir, path.dirname(registryPath)), { recursive: true })
-      writeFileSync(path.join(appDir, registryPath), source)
+      mkdirSync(path.join(appDir, path.dirname(CACHE_REGISTRY_PATH)), { recursive: true })
+      writeFileSync(path.join(appDir, CACHE_REGISTRY_PATH), source)
       writeFileSync(path.join(appDir, 'tsconfig.json'), JSON.stringify({
         compilerOptions: {
           target: 'ES2022',
@@ -70,7 +65,7 @@ export function createPackedInstall(providerDirName: string): PackedInstall {
           skipLibCheck: true,
           types: ['node'],
         },
-        include: [registryPath],
+        include: [CACHE_REGISTRY_PATH],
       }))
       return exec(process.execPath, [tsc, '-p', 'tsconfig.json'], appDir, 180_000)
     },
