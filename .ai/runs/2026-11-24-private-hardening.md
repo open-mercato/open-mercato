@@ -24,6 +24,11 @@ The four independent implementation groups run in parallel and converge for veri
 - 2.1 Verify the supported maintenance backport locally.
 - 2.2 Run the validation gate and review the integrated change.
 
+### Phase 3: QA follow-up
+
+- 3.1 Integrate the latest main branch and verify both sets of authorization changes.
+- 3.2 Add accessible labels, autocomplete, and password instructions to the Enterprise Security form.
+
 ## Risks
 
 Confirm normal authentication, operator setup, and storefront behavior alongside the negative cases. Changes to operator defaults and narrowly changed API behavior need migration notes.
@@ -45,3 +50,8 @@ PR: #10543
 
 - [x] 2.1 Verify the supported maintenance backport locally. — f8fa79d3a6 (PR #10455, 106 focused tests passed on the release line.)
 - [x] 2.2 Run the validation gate and review the integrated change. — ff8c15fea8 (Configured local gate passed on the integrated implementation. Credential and cart merge API checks passed. Browser QA remains open after the documented integration readiness redirect loop.)
+
+### Phase 3: QA follow-up
+
+- [x] 3.1 Integrate the latest main branch and verify both sets of authorization changes. — bcc4d33e4b (Merge 6a34aa410d. All 179 focused Jest tests passed.)
+- [x] 3.2 Add accessible labels, autocomplete, and password instructions to the Enterprise Security form. — 57f476674c (Enterprise Chromium assertions included in TC-SEC-016.)
