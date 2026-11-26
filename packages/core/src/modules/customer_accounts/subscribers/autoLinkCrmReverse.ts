@@ -72,11 +72,13 @@ export default async function handle(
       emailHash: { $in: emailHashes },
       ...ownScope,
       deletedAt: null,
+      emailVerifiedAt: { $ne: null },
+      isActive: true,
       personEntityId: null,
     }
     const customerUser = await findOneWithDecryption(em, CustomerUser, userWhere, undefined, ownScope)
 
-    if (customerUser) {
+    if (customerUser?.emailVerifiedAt && customerUser.isActive) {
       const updates: Partial<CustomerUser> = { personEntityId: entity.id, updatedAt: new Date() }
       if (!customerUser.customerEntityId) {
         const companyEntityId = await resolveOwnedCompanyForPerson(em, entity.id, ownScope)
