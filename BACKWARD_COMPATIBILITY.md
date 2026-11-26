@@ -726,6 +726,7 @@ STABLE API: legacy signatures leave organization unverified. Rotate scoped keys 
 
 ## 2026-11-26 — Customer detail header avatars (#6490)
 
-The component replacement handles `section:customers.companies.detailHeader.avatar` and `section:customers.people.detailHeader.avatar` are **FROZEN**. Each host passes `data`, the current record's `CompanyOverview` or `PersonOverview`, and `displayName`, the string shown in the header. Future releases may add optional props. Removing or narrowing either prop requires the deprecation protocol.
+Both component handles and their props are **FROZEN**.
 
-The props types `CompanyDetailHeaderAvatarProps` and `PersonDetailHeaderAvatarProps` are exported from `@open-mercato/core/modules/customers/components/detail/DetailHeaderAvatar`.
+- `section:customers.companies.detailHeader.avatar` — `{ data: CompanyOverview, displayName: string }`
+- `section:customers.people.detailHeader.avatar` — `{ data: PersonOverview, displayName: string }`
