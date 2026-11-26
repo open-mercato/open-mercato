@@ -22,8 +22,10 @@ The presenter is shared across backup CLI commands. Verify color, cursor suspens
 
 ## Progress
 
+PR: #10771
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Terminal spacing
 
-- [ ] 1.1 Remove presenter padding and verify the layout with regression tests.
+- [x] 1.1 Remove presenter padding and verify the layout with regression tests. — 94c2330f21
