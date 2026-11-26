@@ -50,5 +50,5 @@ Phase 1 evidence: Yarn4.17.1 up -R postcss-selector-parser refreshed only two lo
 
 ### Phase 3: Cover the adapter follow-up
 
-- [ ] 3.1 Update the adapter resolution and cover the five source alerts
+- [x] 3.1 Update the adapter resolution and cover the five source alerts — 588bf7f0af
 - [ ] 3.2 Verify the installed paths, ordered gate, and independent review
