@@ -43,6 +43,12 @@ describe('buildLlmsTxt', () => {
     expect(output).toContain('- [Timeline](https://design.example.com/blocks/timeline/): `@open-mercato/ui/blocks/timeline`')
   })
 
+  it('adds the contract file and the copy command to blocks only', () => {
+    const output = buildLlmsTxt(entries, copy)
+    expect(output).toContain('contract [timeline.json](/r/timeline.json), copy with `yarn mercato ui add timeline --module <moduleId>`')
+    expect(output).not.toContain('mercato ui add button')
+  })
+
   it('uses relative links without a site url', () => {
     expect(buildLlmsTxt(entries, copy)).toContain('- [Timeline](/blocks/timeline/)')
   })

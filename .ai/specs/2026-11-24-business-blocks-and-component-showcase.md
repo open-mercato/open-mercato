@@ -165,6 +165,9 @@ The schemas enforce these constraints in addition to the fields listed above:
 - **Default:** import from `@open-mercato/ui/blocks/<name>`; fixes arrive with package updates.
 - **Copy:** `mercato ui add <block> --module <module>` copies the block source into `src/modules/<module>/components/blocks/` when the author needs a different structure, section order or action set. Never into `apps/mercato/src`.
 - **Traceability:** `blocks.lock.json` in the module records block name, version and source hash. First release: diff against the registry version and safe re-install. Three-way update later.
+- **Source of the copy:** the installed `@open-mercato/ui` package (`src/blocks/<block>/`), so the command needs no network and the copied version always matches the package the app runs. Tests and gallery fixtures are left out; imports of `../contracts/*` are rewritten to `@open-mercato/ui/blocks/contracts`. A block that reaches outside its folder any other way fails the copy.
+- **Commands:** `mercato ui list [--json]`, `mercato ui add <block> --module <module> [--force] [--json]`, `mercato ui diff [<block>] --module <module> [--exit-code] [--json]`. `add` refuses to overwrite a copy whose files differ from the lock, or files the lock does not track, unless `--force` is passed; an untouched copy is updated in place and files dropped upstream are removed. `diff` prints a unified diff of the local copy against the installed registry version and says whether the registry source changed since the copy.
+- **Lock format (`version: 1`):** `{ "version": 1, "blocks": { "<block>": { "package", "packageVersion", "hash", "target", "files": { "<path>": "<sha256>" } } } }`. Hashes cover the files as written, so a local edit is detected without the package.
 - Interaction hooks stay imported, so behaviour fixes reach copies too; changes to copied JSX (including accessibility) need the diff.
 
 ## Registry
@@ -172,7 +175,7 @@ The schemas enforce these constraints in addition to the fields listed above:
 - **Source:** the design-system gallery. New family `blocks`. Optional, additive `GalleryEntry` fields (contract owned by the gallery spec, which gets a changelog entry): `distribution?: 'package' | 'copy'`, `files?: string[]`, `propsSchema?: ZodTypeAny`, `scenarios?: string[]`, `requires?: string[]`. `GalleryEntry` keeps `importPath` and executable `render()`; preview, public import and copyable file are separate fields.
 - **Generator:** extend `packages/create-app/scripts/generate-design-system-inventory.mjs` (already checks published package contents, public imports and preset availability) with installable sources and contracts, plus a publish export validated against the npm package contents. Storybook keeps using the same gallery reader.
 - **Inventory fields** for every component, existing ones included: data inputs, required providers, optional host services, extension points; status as public export / working example in a module / not found; separately Figma mapping, visual confirmation, installability (see `.ai/lessons/design-system-coverage-needs-a-source-inventory.md`). Phase 1 ships a hand-written seed list; the generator takes over in phase 4.
-- **JSON export:** data, slot names, event names, scenario names, links to examples; no functions. It describes installable code and is distinct from any runtime format an agent might use to generate UI on the fly.
+- **JSON export:** data, slot names (`slots`), event names (`events`), scenario names, links to examples, and `install` (copy command, target folder, source hash, copied files with their hashes and `/r/files/<block>/<path>.txt` URLs); no functions. It describes installable code and is distinct from any runtime format an agent might use to generate UI on the fly.
 
 ## Themes
 
@@ -247,6 +250,7 @@ Nothing is removed or renamed. Existing components keep their APIs. `GalleryEntr
 
 ## Changelog
 
+- 2026-11-26: Phase 4 (CLI and export): `mercato ui list / add / diff` with `blocks.lock.json`; the registry JSON gained `install`, `slots` and `events`; block pages and `llms.txt` show the copy command. Still open in phase 4: moving the seed portability inventory into the inventory generator and validating the export against the published npm package contents.
 - 2026-11-25: Added the `Result` and `DesignScope` primitives (DesignScope backs the home page panel; the light token block also answers to `.light` so a light scope works inside a dark page); the showcase home page follows the Ant Design layout with a live token panel, a new and updated strip and a grain texture.
 - 2026-11-25: Spacing roles (`--om-space-*` tokens with Tailwind keys, compact density scope, `page-grid`) applied to FormField, CrudForm, Card, Dialog and the blocks; Timeline rebuilt in the Attio style with `groupBy: 'period'`, per-item `changes` and `target`.
 - 2026-11-25: KeyValue moved from a card per pair to list rows with `layout` and `bordered`, plus an optional label icon; labels across the DS and primitives switched from uppercase to sentence case.

@@ -19,7 +19,10 @@ export function buildLlmsTxt(entries: readonly ManifestEntry[], copy: LlmsTxtCop
     if (groupEntries.length === 0) continue
     lines.push(`## ${copy.groupLabels[group]}`, '')
     for (const entry of groupEntries) {
-      lines.push(`- [${entry.title}](${base}${entryHref(group, entry.id)}): \`${entry.importPath}\``)
+      const blockDetails = group === 'blocks'
+        ? `, contract [${entry.id}.json](${base}/r/${entry.id}.json), copy with \`yarn mercato ui add ${entry.id} --module <moduleId>\``
+        : ''
+      lines.push(`- [${entry.title}](${base}${entryHref(group, entry.id)}): \`${entry.importPath}\`${blockDetails}`)
     }
     lines.push('')
   }

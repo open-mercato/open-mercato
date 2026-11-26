@@ -116,6 +116,14 @@ yarn build:packages   # Rebuild with generated files
 
 Each module has an optional `cli.ts` with a default export for module-specific CLI commands. These are auto-discovered and registered in `modules.cli.generated.ts`.
 
+## UI Block Copies (`mercato ui`)
+
+`mercato ui list | add <block> --module <id> | diff [<block>] --module <id>` copies a block from the installed `@open-mercato/ui` (`src/blocks/<block>/`) into `src/modules/<id>/components/blocks/<block>/` and tracks it in the module's `blocks.lock.json`. Code: `src/lib/ui-blocks-source.ts` (file list, import rewrite, hashes; also used by the `apps/design` registry export, so both always agree), `src/lib/ui-blocks.ts` (add, lock, diff), `src/lib/ui-blocks-command.ts` (argument parsing and output).
+
+- MUST keep `ui-blocks-source.ts` free of resolver and app imports: the showcase build bundles it.
+- MUST NOT write outside an existing `src/modules/<id>/` folder, and MUST NOT overwrite local edits without `--force`.
+- The lock format carries `version`; change it additively and bump the version for anything else (`BACKWARD_COMPATIBILITY.md`).
+
 ## Generator Plugins (`generators.ts`)
 
 Modules can declare additional aggregated output files by exporting `generatorPlugins: GeneratorPlugin[]` from a `generators.ts` file at the module root. The CLI discovers these at generation time via dynamic import and drives the extra output files without any hardcoded knowledge in the CLI package.

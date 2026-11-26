@@ -21,6 +21,18 @@ function ImportLine({ importPath }: { importPath: string }) {
   )
 }
 
+function CopyCommandLine({ blockId }: { blockId: string }) {
+  const t = useT()
+  return (
+    <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-muted-foreground">
+      <span>{t('design.entry.copyIntoModuleLabel')}</span>
+      <code className="min-w-0 break-all rounded-md bg-muted px-2 py-0.5 font-mono text-xs text-foreground">
+        {`yarn mercato ui add ${blockId} --module <moduleId>`}
+      </code>
+    </p>
+  )
+}
+
 function WhenToUse({ usage }: { usage: EntryViewData['usage'] }) {
   const t = useT()
   if (usage.do.length === 0 && usage.dont.length === 0) return null
@@ -187,6 +199,7 @@ function EntryMeta({ data }: { data: EntryViewData }) {
   return (
     <div className="flex flex-col gap-3">
       <ImportLine importPath={data.importPath} />
+      {data.group === 'blocks' ? <CopyCommandLine blockId={data.id} /> : null}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         {data.since ? <span className="text-sm text-muted-foreground">{t('design.entry.since', { version: data.since })}</span> : null}
         <a href={issuesUrl(data.title)} target="_blank" rel="noreferrer" className={linkClass}>

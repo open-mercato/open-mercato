@@ -1013,12 +1013,13 @@ export function resolveEnvBootstrapOptions(parts: string[]): { createIfMissing: 
   const first = parts[0]
   const opaqueEnvCommand = first === 'deploy' || first === 'telemetry'
   const readOnlyModuleCommand = first === 'module' && (parts[1] === 'search' || parts[1] === 'info')
+  const uiBlocksCommand = first === 'ui'
   const jsonOutput = parts.includes('--json')
   const quietGeneration = first === 'generate' && (parts.includes('--quiet') || parts.includes('-q'))
   const helpRequested = isHelpRequest(parts)
   return {
-    createIfMissing: !helpRequested && !opaqueEnvCommand && !readOnlyModuleCommand,
-    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || jsonOutput || quietGeneration,
+    createIfMissing: !helpRequested && !opaqueEnvCommand && !readOnlyModuleCommand && !uiBlocksCommand,
+    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || uiBlocksCommand || jsonOutput || quietGeneration,
   }
 }
 
@@ -1531,6 +1532,25 @@ export async function run(argv = process.argv) {
     console.log('  instrumentation.ts, next.config.ts, and the API dispatcher).')
     console.log('  Idempotent and safe to re-run. Use --dry-run to preview changes.')
     return second && second !== 'help' && second !== '--help' && second !== '-h' ? 1 : 0
+  }
+
+  if (first === 'ui') {
+    try {
+      const { createResolver } = await import('./lib/resolver')
+      const { resolveInstalledPackageRoot } = await import('./lib/module-package')
+      const { runUiCommand } = await import('./lib/ui-blocks-command')
+      const { UI_PACKAGE_NAME } = await import('./lib/ui-blocks-source')
+      const resolver = createResolver()
+      return runUiCommand(
+        parts.slice(1),
+        { appDir: resolver.getAppDir(), uiPackageRoot: resolveInstalledPackageRoot(resolver, UI_PACKAGE_NAME) },
+        { log: (message) => console.log(message), error: (message) => console.error(message) },
+      )
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`UI command failed: ${message}`)
+      return 1
+    }
   }
 
   if (first === 'module') {

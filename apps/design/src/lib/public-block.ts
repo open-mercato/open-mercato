@@ -9,6 +9,14 @@ export function projectBlockContract(schema: z.ZodType) {
 
 export type PublicBlock = Pick<ManifestEntry, 'id' | 'title' | 'importPath'> & {
   docs: string
+  install: {
+    command: string
+    target: string
+    hash: string
+    files: Array<{ path: string; hash: string; url: string }>
+  }
+  slots: string[]
+  events: string[]
   sources: { component: string; contract: string; gallery: string }
   propsSchema: ReturnType<typeof projectBlockContract>['propsSchema']
   scenarios: ManifestVariant[]

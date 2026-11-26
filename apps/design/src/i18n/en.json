@@ -133,6 +133,7 @@
   "design.entry.copied": "Code copied to clipboard",
   "design.entry.copy": "Copy code",
   "design.entry.copyFailed": "Could not copy the code",
+  "design.entry.copyIntoModuleLabel": "Copy into a module",
   "design.entry.do": "Do",
   "design.entry.dont": "Avoid",
   "design.entry.editPage": "Edit this page",

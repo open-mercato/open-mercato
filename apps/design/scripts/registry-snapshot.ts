@@ -8,11 +8,17 @@ import { groupForFamily } from '../src/lib/groups'
 import { buildLlmsTxt } from '../src/lib/llms'
 import type { ManifestEntry, RegistryManifest } from '../src/lib/manifest-types'
 import designEnglish from '../src/i18n/en.json'
+import { BLOCK_TARGET_DIR, readBlockSource } from '../../../packages/cli/src/lib/ui-blocks-source'
 
 const appRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(appRoot, '../..')
 const GALLERY_ENTRIES_DIR = 'packages/core/src/modules/design_system/gallery/entries'
 const SOURCE_EXTENSIONS = ['.tsx', '.ts', '/index.tsx', '/index.ts']
+const UI_PACKAGE_ROOT = path.join(repoRoot, 'packages', 'ui')
+
+function copyFileUrl(blockId: string, filePath: string): string {
+  return `/r/files/${blockId}/${filePath}.txt`
+}
 
 function sourceFileForImport(importPath: string): string | undefined {
   if (/^(apps|packages)\//.test(importPath)) {
@@ -34,6 +40,7 @@ export async function run(): Promise<void> {
   const entries: ManifestEntry[] = []
   const blocks: PublicBlock[] = []
   const publicSourcePaths = new Set<string>()
+  const copyFiles = new Map<string, string>()
   for (const family of galleryFamilies) {
     const loaded = await family.load()
     for (const entry of loaded.entries) {
@@ -52,11 +59,21 @@ export async function run(): Promise<void> {
         if (family.id === 'blocks') {
           if (!sourceFile) throw new Error(`[internal] Cannot locate block implementation: ${entry.id}`)
           for (const relativePath of [sourceFile, file, galleryFile]) publicSourcePaths.add(relativePath)
+          const copySource = readBlockSource(UI_PACKAGE_ROOT, entry.id)
+          for (const file of copySource.files) copyFiles.set(copyFileUrl(entry.id, file.path), file.content)
           blocks.push({
             id: entry.id,
             title: entry.title,
             importPath: entry.importPath,
             docs: entryHref('blocks', entry.id),
+            install: {
+              command: `yarn mercato ui add ${entry.id} --module <moduleId>`,
+              target: `src/modules/<moduleId>/${BLOCK_TARGET_DIR}/${entry.id}`,
+              hash: copySource.hash,
+              files: copySource.files.map((file) => ({ path: file.path, hash: file.hash, url: copyFileUrl(entry.id, file.path) })),
+            },
+            slots: rows.filter((row) => row.kind === 'slot').map((row) => row.name),
+            events: rows.filter((row) => row.kind === 'event').map((row) => row.name),
             propsSchema,
             scenarios: variants,
             sources: {
@@ -123,9 +140,15 @@ export async function run(): Promise<void> {
     fs.mkdirSync(path.dirname(target), { recursive: true })
     fs.copyFileSync(path.join(repoRoot, file), target)
   }
+  fs.rmSync(path.join(registryDir, 'files'), { recursive: true, force: true })
+  for (const [url, content] of copyFiles) {
+    const target = path.join(appRoot, 'public', url)
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, content)
+  }
   const version = { version: 1, packageName: uiPackage.name, packageVersion: uiPackage.version }
-  const index = blocks.map(({ id, title, importPath, docs }) => ({
-    id, title, importPath, docs, url: `/r/${id}.json`,
+  const index = blocks.map(({ id, title, importPath, docs, install }) => ({
+    id, title, importPath, docs, url: `/r/${id}.json`, install: { command: install.command, hash: install.hash },
   }))
   const activeFiles = new Set(['index.json', ...blocks.map(({ id }) => `${id}.json`)])
   for (const file of fs.readdirSync(registryDir)) {
