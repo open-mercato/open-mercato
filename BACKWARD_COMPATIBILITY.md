@@ -734,12 +734,16 @@ STABLE API: encrypted tenant custom-field writes return HTTP 503 when the data k
 
 ## 2026-11-25 — Empty organization scope (#10503)
 
-STABLE feature-gated APIs return `403` before lookup for explicitly empty organization scope. Checking permissions without scope reopens access. Grant scope and handle `403`. [Migration](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md) · [Review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527). Named waiver pending.
+STABLE feature-gated APIs return `403` before lookup for explicitly empty organization scope. Checking permissions without scope reopens access. Grant scope and handle `403`. [Migration](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). Named waiver pending.
 
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
 
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
 
+## Workflow events (2026-11-20, #9134)
+
+STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
+
 ## 2026-11-26 — Organization and partition ownership
 
-STABLE API §7: organization lists enforce grants. ADDITIVE-ONLY schema §8: partition code uniqueness follows ownership. Prior behavior preserves disclosure. [Migration](UPGRADE_NOTES.md#organization-and-attachment-partition-ownership). Named waiver pending.
+STABLE API §7: grant-scoped organization lists. ADDITIVE-ONLY §8: owner-unique partition codes. Legacy behavior preserves disclosure. [Migration](UPGRADE_NOTES.md#organization-and-attachment-partition-ownership). Named waiver pending.
