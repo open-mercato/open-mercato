@@ -20,6 +20,7 @@ import {
   sanitizeSchedulerTargetPayload,
   validateSchedulerTargetPayload,
 } from '../lib/safeQueueTargets'
+import { describeDisabledSourceModule, isScheduleSourceModuleDisabled } from '../lib/sourceModuleAvailability'
 import { syncScheduleNextRunAt, type ScheduleTimingSnapshot } from '../lib/nextRunSync.js'
 
 const logger = createLogger('scheduler').child({ component: 'worker' })
@@ -178,6 +179,17 @@ async function executeSchedule(
     scheduleType: schedule.scheduleType,
     scheduleValue: schedule.scheduleValue,
     timezone: schedule.timezone,
+  }
+
+  if (isScheduleSourceModuleDisabled(schedule)) {
+    logger.info('Schedule skipped: source module is not enabled', { scheduleId, sourceModule: schedule.sourceModule })
+    await emitSchedulerEvent('scheduler.job.skipped', {
+      id: schedule.id,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      reason: describeDisabledSourceModule(schedule),
+    })
+    return
   }
 
   // Emit started event

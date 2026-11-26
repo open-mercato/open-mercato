@@ -1,6 +1,8 @@
 import { TOTP } from 'otpauth'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { UserMfaMethod } from '../../data/entities'
 import { emitSecurityEvent } from '../../events'
 import { PUT } from '../../api/mfa/provider/[providername]/route'
 import { MfaService } from '../../services/MfaService'
@@ -42,6 +44,7 @@ type PendingMethod = {
   type: string
   label: string | null
   secret: string | null
+  secretHash: string | null
   providerMetadata: Record<string, unknown> | null
   isActive: boolean
   deletedAt: Date | null
@@ -53,6 +56,7 @@ function buildHarness() {
   const registry = new MfaProviderRegistry()
   registry.register(provider)
   const methods: PendingMethod[] = []
+  const users = ['user-1', 'user-2'].map((id) => ({ id, tenantId: 'tenant-1', organizationId: null, deletedAt: null }))
   const em = {
     execute: jest.fn(async () => []),
     flush: jest.fn(async () => undefined),
@@ -67,12 +71,23 @@ function buildHarness() {
       return {}
     },
   }
-  jest.mocked(findOneWithDecryption).mockImplementation(async (_em, _entity, where) => {
-    const criteria = where as Partial<PendingMethod>
+  jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity, where) => {
+    if (entity === User) {
+      const criteria = where as Partial<User>
+      return users.find((user) => user.id === criteria.id && user.deletedAt === criteria.deletedAt) ?? null
+    }
+    if (entity !== UserMfaMethod) return null
+    const criteria = where as Partial<PendingMethod> & {
+      $or?: Array<{ secretHash: { $in: string[] } } | { secretHash: null; secret: string }>
+    }
     return methods.find((method) =>
       method.userId === criteria.userId
       && method.isActive === criteria.isActive
-      && (criteria.secret === undefined || method.secret === criteria.secret)
+      && (criteria.tenantId === undefined || method.tenantId === criteria.tenantId)
+      && (criteria.organizationId === undefined || method.organizationId === criteria.organizationId)
+      && (criteria.$or === undefined || criteria.$or.some((condition) => condition.secretHash === null
+        ? method.secretHash === null && method.secret === condition.secret
+        : method.secretHash !== null && condition.secretHash.$in.includes(method.secretHash)))
       && (criteria.type === undefined || method.type === criteria.type),
     ) ?? null
   })
@@ -87,6 +102,7 @@ function buildHarness() {
       type: 'totp',
       label: null,
       secret: setup.setupId,
+      secretHash: null,
       providerMetadata: null,
       isActive: false,
       deletedAt: null,

@@ -1,13 +1,11 @@
-import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { CustomerSessionService } from '../../../../services/customerSessionService'
+import { emitCustomerEmailVerified, verifyCustomerEmail } from '../../../../lib/verifyCustomerEmail'
 
 export const metadata = {}
 
@@ -26,40 +24,19 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const user = await findOneWithDecryption(
-    em,
-    CustomerUser,
-    {
-      id: params.id,
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      deletedAt: null,
-    } as any,
-    undefined,
-    { tenantId: auth.tenantId, organizationId: auth.orgId },
-  )
-  if (!user) {
+  if (!auth.tenantId || !auth.orgId) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
-
-  if (user.emailVerifiedAt) {
+  const scope = { userId: params.id, tenantId: auth.tenantId, organizationId: auth.orgId }
+  const sessions = container.resolve<CustomerSessionService>('customerSessionService')
+  const result = await em.transactional((tx) => verifyCustomerEmail(tx, scope, sessions))
+  if (!result) {
+    return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
+  }
+  if (!result.newlyVerified) {
     return NextResponse.json({ ok: true, alreadyVerified: true })
   }
-
-  await em.nativeUpdate(CustomerUser, {
-    id: user.id,
-    tenantId: user.tenantId,
-    organizationId: user.organizationId,
-  }, { emailVerifiedAt: new Date() })
-
-  void emitCustomerAccountsEvent('customer_accounts.email.verified', {
-    id: user.id,
-    recipientUserId: user.id,
-    email: user.email,
-    tenantId: user.tenantId,
-    organizationId: user.organizationId,
-    verifiedBy: auth.sub,
-  }, organizationEventScope(user)).catch(() => undefined)
+  emitCustomerEmailVerified(result.user, auth.sub)
 
   return NextResponse.json({ ok: true })
 }

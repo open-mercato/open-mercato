@@ -147,7 +147,7 @@ beforeEach(() => {
   })
   mockCreateSession.mockResolvedValue({ rawToken: 'raw-token', jwt: 'jwt', session })
   mockResolve.mockImplementation((name: string) => {
-    if (name === 'em') return em
+    if (name === 'em') return { ...em, transactional: (operation: (tx: EntityManager) => unknown) => operation(em) }
     if (name === 'customerUserService') return {
       findByEmail: async () => user,
       findById: async () => user,

@@ -6,6 +6,8 @@ const mockFindById = jest.fn()
 const mockCreatePasswordReset = jest.fn()
 const mockEmFindOne = jest.fn()
 const mockEmNativeUpdate = jest.fn()
+const mockRevoke = jest.fn()
+const mockTx = { findOne: mockEmFindOne, nativeUpdate: mockEmNativeUpdate }
 const mockEmit = jest.fn(async () => undefined)
 
 const mockContainer = {
@@ -13,7 +15,8 @@ const mockContainer = {
     if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
     if (token === 'customerUserService') return { findById: mockFindById }
     if (token === 'customerTokenService') return { createPasswordReset: mockCreatePasswordReset }
-    if (token === 'em') return { findOne: mockEmFindOne, nativeUpdate: mockEmNativeUpdate }
+    if (token === 'customerSessionService') return { revokeAllUserSessions: mockRevoke }
+    if (token === 'em') return { ...mockTx, transactional: (operation: (tx: typeof mockTx) => unknown) => operation(mockTx) }
     return null
   }),
 }
@@ -88,5 +91,23 @@ describe('admin customer-user actions — target organization scope', () => {
     expect(res.status).toBe(404)
     expect(mockEmNativeUpdate).not.toHaveBeenCalled()
     expect(mockEmit).not.toHaveBeenCalled()
+  })
+
+  it('clears the pending password and revokes sessions when staff verifies a local account', async () => {
+    mockEmFindOne.mockResolvedValueOnce({
+      ...foreignUser, organizationId: orgId, isActive: true, createdAt: new Date(),
+    })
+    const req = new Request(`http://localhost/api/customer_accounts/admin/users/${userId}/verify-email`, { method: 'POST' })
+
+    expect((await verifyEmail(req, { params: { id: userId } })).status).toBe(200)
+    expect(mockEmNativeUpdate).toHaveBeenCalledWith(expect.anything(), {
+      id: userId, tenantId, organizationId: orgId,
+    }, { emailVerifiedAt: expect.any(Date), passwordHash: null })
+    expect(mockRevoke).toHaveBeenCalledWith(userId, mockTx)
+    expect(mockEmit).toHaveBeenCalledWith(
+      'customer_accounts.email.verified',
+      expect.objectContaining({ userId, verifiedBy: adminId }),
+      { tenantId, organizationId: orgId },
+    )
   })
 })

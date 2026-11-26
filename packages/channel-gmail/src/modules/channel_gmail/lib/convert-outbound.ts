@@ -14,22 +14,6 @@ import {
 import { resolveOutboundAttachmentBytes } from '@open-mercato/core/modules/communication_channels/lib/outbound-attachments'
 import { GMAIL_THREAD_REF_PREFIX } from './normalize-inbound'
 
-/**
- * Convert a hub-canonical outbound payload to a Gmail-ready native content shape.
- *
- * Unlike IMAP/SMTP (which hands the message to nodemailer), the Gmail adapter
- * builds the RFC2822 message itself and sends via `gmail.users.messages.send`.
- * The converter pre-builds the raw message so `sendMessage` is a pure
- * "base64url-encode + POST" call, with no SMTP transport involved. Attachments
- * are stitched in from their bytes (`content` or a `data:` URL); a remote URL
- * is refused rather than fetched.
- *
- * Output metadata fields:
- *   - rawMessage: Buffer  — the assembled RFC2822 message
- *   - threadId: string?   — Gmail thread id (resolved by deriveGmailThreadId)
- *   - subject / to / cc / bcc / inReplyTo / references — diagnostic copies
- */
-
 export interface GmailEmailNativeMetadata {
   subject?: string
   to: string[]
@@ -53,8 +37,7 @@ export interface ConvertOutboundForGmailInput extends ConvertOutboundInput {
  * Resolve the Gmail native `threadId` so replies attach to the original Gmail
  * conversation. Order of precedence:
  *   1. `gmailThreadId` — explicit, set by inbound normalization metadata.
- *   2. `threadId` — survives the hub's convert→send double-conversion, where
- *      `sendMessage` re-converts the already-converted metadata.
+ *   2. `threadId` — passed from outbound preparation to `sendMessage`.
  *   3. `thread_id` — the hub's generic conversation ref; for an existing Gmail
  *      thread it is `gmail-thread:<rawId>` (see `normalize-inbound`). A new
  *      outbound thread uses an `outbound:<uuid>` ref with no Gmail thread yet,
@@ -71,10 +54,8 @@ function deriveGmailThreadId(meta: Record<string, unknown>): string | undefined 
   return undefined
 }
 
-export async function convertOutboundForGmail(
-  input: ConvertOutboundForGmailInput,
-): Promise<ChannelNativeContent> {
-  const meta = (input.channelMetadata ?? {}) as Record<string, unknown>
+export function prepareOutboundForGmail(input: ConvertOutboundInput, fromAddress = '') {
+  const meta = input.channelMetadata ?? {}
   const subject = stringOrUndefined(meta.subject)
   const to = toAddressList(meta.to)
   if (to.length === 0) {
@@ -84,12 +65,29 @@ export async function convertOutboundForGmail(
   const bcc = toAddressList(meta.bcc)
   const inReplyTo = stringOrUndefined(meta.inReplyTo)
   const references = referencesFromMeta(meta.references)
-  const messageId = stringOrUndefined(meta.messageId) ?? generateMessageId(input.fromAddress, 'gmail.com')
+  const messageId = stringOrUndefined(meta.messageId) ?? generateMessageId(fromAddress, 'gmail.com')
   const threadId = deriveGmailThreadId(meta)
 
   const html = input.bodyFormat === 'html' ? input.body : undefined
   const text = input.bodyFormat === 'html' ? htmlToText(input.body) : input.body
 
+  const raw = { subject, to, cc, bcc, inReplyTo, references, messageId, threadId }
+  return {
+    content: { text, html, bodyFormat: input.bodyFormat, attachments: input.attachments, raw },
+    metadata: {
+      ...raw,
+      cc: cc.length ? cc : undefined,
+      bcc: bcc.length ? bcc : undefined,
+    },
+  }
+}
+
+export async function convertOutboundForGmail(
+  input: ConvertOutboundForGmailInput,
+): Promise<ChannelNativeContent> {
+  const { content, metadata } = prepareOutboundForGmail(input, input.fromAddress)
+  const { subject, to, cc, bcc, inReplyTo, references, messageId } = content.raw
+  const { text, html } = content
   const rawMessage = await composeEmailMessage({
     from: input.fromName ? `"${escapeQuotes(input.fromName)}" <${input.fromAddress}>` : input.fromAddress,
     to,
@@ -109,37 +107,13 @@ export async function convertOutboundForGmail(
     })),
   })
 
-  const metadata: GmailEmailNativeMetadata = {
-    subject,
-    to,
-    cc: cc.length ? cc : undefined,
-    bcc: bcc.length ? bcc : undefined,
-    inReplyTo,
-    references,
-    messageId,
-    threadId,
-    fromAddress: input.fromAddress,
-    fromName: input.fromName,
-    rawMessage,
-  }
-
   return {
-    content: {
-      text,
-      html,
-      bodyFormat: input.bodyFormat,
-      attachments: input.attachments,
-      raw: {
-        subject,
-        to,
-        cc,
-        bcc,
-        inReplyTo,
-        references,
-        messageId,
-        threadId,
-      },
-    },
-    metadata: metadata as unknown as Record<string, unknown>,
+    content,
+    metadata: {
+      ...metadata,
+      fromAddress: input.fromAddress,
+      fromName: input.fromName,
+      rawMessage,
+    } satisfies GmailEmailNativeMetadata,
   }
 }

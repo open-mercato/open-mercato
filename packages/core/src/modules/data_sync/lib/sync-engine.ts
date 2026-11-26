@@ -19,7 +19,8 @@ import {
   type TelemetrySpanAttributes,
 } from '@open-mercato/shared/lib/telemetry/runtime'
 import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
-import type { SyncRun } from '../data/entities'
+import { SyncRun } from '../data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
 
@@ -287,24 +288,39 @@ export function createSyncEngine(deps: EngineDeps) {
     }
   }
 
+  async function isPersistedRunCancelled(runId: string, scope: SyncScope): Promise<boolean> {
+    const persistedRun = await findOneWithDecryption(
+      deps.em.fork(),
+      SyncRun,
+      { id: runId, organizationId: scope.organizationId, tenantId: scope.tenantId, deletedAt: null },
+      undefined,
+      scope,
+    )
+    return persistedRun?.status === 'cancelled'
+  }
+
   // Rides the heartbeat timer, which is the only thing that runs while the adapter is still
   // producing a batch — the engine's own cancellation check sits in the batch handler and is
   // reached only after a yield. Since that timer now spans the consumer body too, a cancel is
   // also observed during the per-batch bookkeeping rather than waiting out the next read.
   // Swallows its own errors because it runs on a timer, where an unhandled rejection is fatal,
   // and stops polling once it has aborted.
-  function makeCancellationTick(progressJobId: string | null | undefined, scope: SyncScope, controller: AbortController): () => void {
-    if (!progressService || !progressJobId) return () => {}
+  function makeCancellationTick(run: SyncRun, scope: SyncScope, controller: AbortController): () => void {
+    const progressJobId = run.progressJobId
+    const checkCancelled = progressService && progressJobId
+      ? () => progressService.isCancellationRequested(progressJobId, scope.tenantId, scope.organizationId)
+      : () => isPersistedRunCancelled(run.id, scope)
     let inFlight = false
     return () => {
       if (inFlight || controller.signal.aborted) return
       inFlight = true
-      progressService.isCancellationRequested(progressJobId, scope.tenantId, scope.organizationId)
+      checkCancelled()
         .then((cancelled) => {
           if (cancelled) controller.abort()
         })
         .catch((error) => {
           logger.warn('Cancellation poll failed', {
+            runId: run.id,
             progressJobId,
             error: error instanceof Error ? error.message : String(error),
           })
@@ -744,7 +760,7 @@ export function createSyncEngine(deps: EngineDeps) {
       // Declared outside the try because both the catch and the completion path below read it.
       const cancellation = new AbortController()
       const heartbeat = makeHeartbeatTick(run.progressJobId, scope)
-      const pollCancellation = makeCancellationTick(run.progressJobId, scope, cancellation)
+      const pollCancellation = makeCancellationTick(run, scope, cancellation)
 
       try {
         const streamResult = await forEachBatch(
@@ -977,7 +993,7 @@ export function createSyncEngine(deps: EngineDeps) {
       // Declared outside the try because both the catch and the completion path below read it.
       const cancellation = new AbortController()
       const heartbeat = makeHeartbeatTick(run.progressJobId, scope)
-      const pollCancellation = makeCancellationTick(run.progressJobId, scope, cancellation)
+      const pollCancellation = makeCancellationTick(run, scope, cancellation)
 
       try {
         const streamResult = await forEachBatch(

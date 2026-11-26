@@ -4,6 +4,7 @@ import { createQueue } from '@open-mercato/queue'
 import { ScheduledJob } from '../../data/entities'
 import { registerSchedulerSafeCommands } from '../../lib/scheduler-safe-commands'
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import { readBullmqNextRun } from '../../lib/bullmqNextRun'
 import executeScheduleWorker from '../execute-schedule.worker'
 
 // Queue-target dispatch verifies module provenance against the live registry
@@ -22,9 +23,11 @@ registerModules([
   },
 ] as never)
 
-// These suites cover the run itself; the nextRunAt sync that follows it is
-// async-strategy only and has its own suite.
 delete process.env.QUEUE_STRATEGY
+
+jest.mock('../../lib/bullmqNextRun', () => ({
+  readBullmqNextRun: jest.fn(),
+}))
 
 const mockCommandExecute = jest.fn()
 
@@ -73,7 +76,9 @@ function buildCommandSchedule(overrides: Partial<ScheduledJob> = {}): ScheduledJ
 }
 
 function buildWorkerContext(schedule: ScheduledJob) {
+  const execute = jest.fn(async () => ({ affectedRows: 1 }))
   const em = {
+    getConnection: () => ({ execute }),
     findOne: jest.fn(async () => schedule),
     flush: jest.fn(async () => undefined),
   }
@@ -93,6 +98,7 @@ function buildWorkerContext(schedule: ScheduledJob) {
     },
     em,
     rbacService,
+    execute,
   }
 }
 
@@ -289,9 +295,9 @@ describe('executeScheduleWorker queue target payload contract', () => {
     })
   }
 
-  function runWorker(schedule: ScheduledJob, jobId = 'worker-job-1', attemptNumber = 1) {
-    const { context } = buildWorkerContext(schedule)
-    return executeScheduleWorker(
+  async function runWorker(schedule: ScheduledJob, jobId = 'worker-job-1', attemptNumber = 1) {
+    const { context, execute } = buildWorkerContext(schedule)
+    await executeScheduleWorker(
       {
         id: 'queued-job-1',
         queue: 'scheduler-execution',
@@ -306,12 +312,44 @@ describe('executeScheduleWorker queue target payload contract', () => {
       },
       { ...context, jobId, attemptNumber },
     )
+    return execute
   }
 
   beforeEach(() => {
     enqueue.mockClear()
     close.mockClear()
     ;(createQueue as jest.Mock).mockReturnValue({ enqueue, close })
+  })
+
+  it('advances the next run without dispatching a schedule whose source module is disabled (#8381)', async () => {
+    const environment = jest.replaceProperty(process, 'env', { ...process.env, QUEUE_STRATEGY: 'async' })
+    try {
+      emitSchedulerEvent.mockClear()
+      const schedule = buildQueueSchedule({ sourceModule: 'push_notifications' })
+      const nextRunAt = new Date(Date.now() + 60_000)
+      jest.mocked(readBullmqNextRun).mockResolvedValue({ nextRunAt, pattern: schedule.scheduleValue, timezone: 'UTC' })
+
+      const execute = await runWorker(schedule)
+
+      expect(readBullmqNextRun).toHaveBeenCalledWith(scheduleId)
+      expect(execute).toHaveBeenCalledWith(
+        expect.stringContaining('set next_run_at = ?'),
+        [nextRunAt, scheduleId, 'tenant-a', 'org-a', 'cron', schedule.scheduleValue, 'UTC', nextRunAt, nextRunAt],
+        'run',
+      )
+    } finally {
+      environment.restore()
+      jest.mocked(readBullmqNextRun).mockReset()
+    }
+
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(emitSchedulerEvent).toHaveBeenCalledTimes(1)
+    expect(emitSchedulerEvent).toHaveBeenCalledWith('scheduler.job.skipped', {
+      id: scheduleId,
+      tenantId: 'tenant-a',
+      organizationId: 'org-a',
+      reason: 'Source module is not enabled: push_notifications',
+    })
   })
 
   it('delivers the flat targetPayload contract with scheduler-owned fields applied last (#5213)', async () => {

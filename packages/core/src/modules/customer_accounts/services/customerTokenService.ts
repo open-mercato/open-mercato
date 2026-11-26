@@ -7,30 +7,30 @@ import {
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
+import { EMAIL_VERIFICATION_TTL_MS } from '../lib/pendingSignup'
 
 function getKysely(em: EntityManager): Kysely<any> {
   return (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
 }
 
-const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000 // 15 minutes
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000 // 60 minutes
 
 export class CustomerTokenService {
   constructor(private em: EntityManager) {}
 
-  async createEmailVerification(userId: string, tenantId: string): Promise<string> {
+  async createEmailVerification(userId: string, tenantId: string, createdAt = new Date(), em = this.em): Promise<string> {
     const rawToken = generateSecureToken()
     const tokenHashed = hashToken(rawToken)
-    const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS)
-    const record = this.em.create(CustomerUserEmailVerification, {
+    const expiresAt = new Date(createdAt.getTime() + EMAIL_VERIFICATION_TTL_MS)
+    const record = em.create(CustomerUserEmailVerification, {
       user: userId as any,
       token: tokenHashed,
       purpose: 'email_verification',
       expiresAt,
-      createdAt: new Date(),
+      createdAt,
     } as any)
-    await this.em.persist(record).flush()
+    await em.persist(record).flush()
     return rawToken
   }
 
@@ -63,9 +63,14 @@ export class CustomerTokenService {
     return rawToken
   }
 
-  async verifyEmailToken(token: string, purpose: string, tenantId?: string): Promise<{ userId: string; tenantId: string; organizationId?: string | null } | null> {
+  async verifyEmailToken(
+    token: string,
+    purpose: string,
+    tenantId?: string,
+    em = this.em,
+  ): Promise<{ userId: string; tenantId: string; organizationId?: string } | null> {
     const tokenHashed = hashToken(token)
-    const record = await this.em.findOne(CustomerUserEmailVerification, {
+    const record = await em.findOne(CustomerUserEmailVerification, {
       token: tokenHashed,
       purpose,
     }, { populate: ['user'] })
@@ -75,9 +80,9 @@ export class CustomerTokenService {
 
     const user = record.user as CustomerUser
     if (tenantId && user?.tenantId !== tenantId) return null
-    if (purpose === 'magic_link' && !(await isCustomerTenantActive(this.em, user?.tenantId))) return null
+    if (purpose === 'magic_link' && !(await isCustomerTenantActive(em, user?.tenantId))) return null
 
-    const db = getKysely(this.em)
+    const db = getKysely(em)
     const updateResult = await db
       .updateTable('customer_user_email_verifications' as any)
       .set({ used_at: new Date() } as any)
@@ -97,9 +102,9 @@ export class CustomerTokenService {
     }
   }
 
-  async verifyPasswordResetToken(token: string, tenantId?: string): Promise<{ userId: string; tenantId: string } | null> {
+  async verifyPasswordResetToken(token: string, tenantId?: string, em = this.em): Promise<{ userId: string; tenantId: string } | null> {
     const tokenHashed = hashToken(token)
-    const record = await this.em.findOne(CustomerUserPasswordReset, {
+    const record = await em.findOne(CustomerUserPasswordReset, {
       token: tokenHashed,
     }, { populate: ['user'] })
     if (!record) return null
@@ -109,7 +114,7 @@ export class CustomerTokenService {
     const user = record.user as CustomerUser
     if (tenantId && user?.tenantId !== tenantId) return null
 
-    const db = getKysely(this.em)
+    const db = getKysely(em)
     const updateResult = await db
       .updateTable('customer_user_password_resets' as any)
       .set({ used_at: new Date() } as any)
