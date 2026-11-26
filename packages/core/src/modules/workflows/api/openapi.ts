@@ -296,7 +296,11 @@ export const userTaskCompleteResponseSchema = z.object({
  * exposed on one surface and not the other.
  */
 export const portalTaskErrorSchema = z
-  .object({ ok: z.literal(false), error: z.string() })
+  .object({
+    ok: z.literal(false),
+    error: z.string(),
+    invalidFields: z.array(z.string()).optional().describe('Submitted formData keys the task does not accept'),
+  })
   .describe('Portal error response')
 
 export const portalTaskListQuerySchema = z.object({

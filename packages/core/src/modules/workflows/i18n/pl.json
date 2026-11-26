@@ -2218,6 +2218,7 @@
   "workflows.visualEditor.problems.taskBindingUnknownEntityType": "Zadanie \"{stepId}\" dotyczy \"{entityType}\", co nie jest znanym typem rekordu; zadanie byłoby ukryte nawet przed osobą do niego przypisaną",
   "workflows.visualEditor.problems.taskDecisionDuplicateId": "Zadanie \"{stepId}\" ma więcej niż jedną decyzję o identyfikatorze \"{decisionId}\"; zapisana może być tylko jedna",
   "workflows.visualEditor.problems.taskDecisionUnknownRoute": "Decyzja \"{decisionId}\" w zadaniu \"{stepId}\" wskazuje trasę \"{transitionId}\", która nie wychodzi już z tego kroku",
+  "workflows.visualEditor.problems.taskFieldReservedName": "Zadanie \"{stepId}\" deklaruje pole \"{field}\", nazwę zarezerwowaną przez silnik; zakończenie zadania je odrzuca, więc tego pola nigdy nie da się przesłać",
   "workflows.visualEditor.problems.taskPortalWithoutBinding": "Zadanie \"{stepId}\" jest zaadresowane do klienta, ale nie dotyczy żadnego rekordu; zadanie portalowe widzi tylko klient, którego rekord jest z nim powiązany, więc nikt nie zobaczy go w portalu",
   "workflows.visualEditor.problems.taskWithoutOwner": "Zadanie \"{stepId}\" nie wskazuje ani osoby przypisanej, ani kolejki ról, więc nikt nie może go ukończyć i przepływ zatrzyma się w tym miejscu",
   "workflows.visualEditor.problems.title": "Problemy",

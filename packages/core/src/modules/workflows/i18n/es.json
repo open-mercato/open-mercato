@@ -2218,6 +2218,7 @@
   "workflows.visualEditor.problems.taskBindingUnknownEntityType": "La tarea \"{stepId}\" trata sobre \"{entityType}\", que no es un tipo de registro conocido; la tarea quedaría oculta para su propia persona asignada",
   "workflows.visualEditor.problems.taskDecisionDuplicateId": "La tarea \"{stepId}\" tiene más de una decisión con el id \"{decisionId}\"; solo una podrá registrarse",
   "workflows.visualEditor.problems.taskDecisionUnknownRoute": "La decisión \"{decisionId}\" de la tarea \"{stepId}\" apunta a la ruta \"{transitionId}\", que ya no sale de este paso",
+  "workflows.visualEditor.problems.taskFieldReservedName": "La tarea \"{stepId}\" declara el campo \"{field}\", un nombre reservado por el motor; la finalización lo rechaza, por lo que el campo nunca se puede enviar",
   "workflows.visualEditor.problems.taskPortalWithoutBinding": "La tarea \"{stepId}\" está dirigida a un cliente pero no trata sobre ningún registro; una tarea de portal solo es visible para el cliente cuyo registro tiene vinculado, así que nadie la vería en el portal",
   "workflows.visualEditor.problems.taskWithoutOwner": "La tarea \"{stepId}\" no indica ni una persona asignada ni una cola de roles, así que nadie puede completarla y el flujo se detendrá ahí",
   "workflows.visualEditor.problems.title": "Problemas",

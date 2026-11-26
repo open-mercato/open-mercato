@@ -339,6 +339,10 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
   issue and belongs in the Problems panel, not in a 400.
 - Widening a request schema needs no deprecation window: payloads rejected before are accepted
   now, and nothing previously accepted changes. MUST NOT be re-tightened without one.
+- **Completion accepts declared fields only** (#9142): `completeUserTask` refuses, with
+  `FORM_VALIDATION_FAILED` + `invalidFields`, any `formData` key the task's `formSchema` does not
+  declare and every reserved name (`isReservedTaskFieldName`); no schema ⇒ only `{}`. This covers
+  `formKey` renderers too. Reserved-name fields raise the `taskFieldReservedName` warning.
 
 ## Route Kinds (the handle ↔ `kind` round trip)
 

@@ -23,6 +23,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { UserTask } from '../../../../../data/entities'
 import { serializeUserTask } from '../../../../tasks/serialize'
 import type { TaskHandlerService } from '../../../../../lib/task-handler'
+import { readInvalidFormFields } from '../../../../../lib/task-form-schema'
 import {
   decidePortalTaskAccess,
   PORTAL_TASK_REFUSAL,
@@ -120,8 +121,13 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   } catch (error) {
     const code = (error as { code?: unknown }).code
     if (code === 'UNKNOWN_DECISION' || code === 'FORM_VALIDATION_FAILED') {
+      const invalidFields = readInvalidFormFields(error)
       return NextResponse.json(
-        { ok: false, error: error instanceof Error ? error.message : 'Invalid submission' },
+        {
+          ok: false,
+          error: error instanceof Error ? error.message : 'Invalid submission',
+          ...(invalidFields ? { invalidFields } : {}),
+        },
         { status: 400 },
       )
     }

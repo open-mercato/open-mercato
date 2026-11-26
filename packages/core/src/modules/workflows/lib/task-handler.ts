@@ -26,7 +26,7 @@ import {
   withRecordedDecision,
 } from './task-decisions'
 import { loadTaskDecisionContext } from './task-decision-context'
-import { normalizeTaskFormSchema, readRequiredFormFields } from './task-form-schema'
+import { isReservedTaskFieldName, normalizeTaskFormSchema, readRequiredFormFields } from './task-form-schema'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isRunClosedToUserTasks } from './instance-status'
 import * as stepHandler from './step-handler'
@@ -157,7 +157,7 @@ export async function completeUserTask(
   const declaredFields = normalizeTaskFormSchema(task.formSchema)?.properties ?? {}
   const reservedFields = findReservedContextKeys(formData)
   const invalidFields = Object.keys(formData).filter((field) =>
-    field.startsWith('__') || reservedFields.includes(field) || !Object.hasOwn(declaredFields, field)
+    isReservedTaskFieldName(field) || reservedFields.includes(field) || !Object.hasOwn(declaredFields, field)
   )
   if (invalidFields.length > 0) {
     const { translate } = await resolveTranslations()

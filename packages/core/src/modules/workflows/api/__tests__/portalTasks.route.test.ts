@@ -463,9 +463,24 @@ describe('issue 9142 portal route with real completion validation', () => {
       const flush = jest.fn()
       Object.assign(mockEm, { flush })
 
-      expect((await runComplete({ formData: { note: 'ok', [field]: 'injected' } })).status).toBe(400)
+      const response = await runComplete({ formData: { note: 'ok', [field]: 'injected' } })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual(expect.objectContaining({ ok: false, invalidFields: [field] }))
       expect(taskRow).toEqual(before)
       expect(flush).not.toHaveBeenCalled()
     },
   )
+})
+
+describe('issue 9142 portal route on a task without a form schema', () => {
+  test('refuses any submitted key and names it', async () => {
+    taskRow = makeTask({ formSchema: null })
+    const handler = await import('../../lib/task-handler')
+    completeUserTask.mockImplementation(handler.completeUserTask)
+    Object.assign(mockEm, { flush: jest.fn() })
+
+    const refused = await runComplete({ formData: { note: 'x' } })
+    expect(refused.status).toBe(400)
+    expect(await refused.json()).toEqual(expect.objectContaining({ invalidFields: ['note'] }))
+  })
 })

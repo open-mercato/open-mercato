@@ -489,7 +489,9 @@ describe('issue 9142 staff route with real completion validation', () => {
       const flush = jest.fn()
       Object.assign(mockEm, { flush })
 
-      expect((await runComplete(TASK_ID, { note: 'ok', [field]: 'injected' })).status).toBe(400)
+      const response = await runComplete(TASK_ID, { note: 'ok', [field]: 'injected' })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual(expect.objectContaining({ invalidFields: [field] }))
       expect(task).toEqual(before)
       expect(flush).not.toHaveBeenCalled()
     },

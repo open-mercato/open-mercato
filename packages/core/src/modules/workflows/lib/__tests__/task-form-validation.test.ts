@@ -190,3 +190,29 @@ describe('issue 9142 completion field allowlist', () => {
       .rejects.toMatchObject({ code: 'INSTANCE_NOT_FOUND' })
   })
 })
+
+describe('issue 9142 tasks rendered by a registered formKey renderer', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  test('a renderer-only task with no formSchema refuses every value the renderer emits', async () => {
+    const { em } = makeEm(null)
+
+    await expect(complete(em, { creditLimit: 5000, riskNote: 'ok' })).rejects.toMatchObject({
+      code: 'FORM_VALIDATION_FAILED',
+      details: expect.objectContaining({ invalidFields: ['creditLimit', 'riskNote'] }),
+    })
+  })
+
+  test('the same values pass once the step declares them in its formSchema', async () => {
+    const { em } = makeEm({
+      fields: [
+        { name: 'creditLimit', type: 'number' },
+        { name: 'riskNote', type: 'text' },
+      ],
+    })
+
+    await expect(complete(em, { creditLimit: 5000, riskNote: 'ok' })).rejects.toMatchObject({
+      code: 'INSTANCE_NOT_FOUND',
+    })
+  })
+})
