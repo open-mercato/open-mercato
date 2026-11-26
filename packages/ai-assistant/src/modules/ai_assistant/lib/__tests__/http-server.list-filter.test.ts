@@ -205,6 +205,21 @@ describe('MCP HTTP server — tools/list filtered per principal', () => {
     expect(result.names).toEqual(['customers.list_people'])
   })
 
+  it.each([false, true])('lists Code Mode execution only with explicit direct mode (%s)', async (explicitMode) => {
+    registerTool({ name: 'search' })
+    registerTool({
+      name: 'execute',
+      isMutation: true,
+      mcp: { approvalMode: 'refuse', explicitDirectOnly: true },
+    })
+    const baseUrl = await startHandler(resolveMcpExposureConfig(explicitMode ? { OM_MCP_MUTATION_MODE: 'direct' } : {}))
+    const result = await listTools(baseUrl)
+
+    expect(result.names).toContain('search')
+    expect(result.names).toContain('customers.list_people')
+    expect(result.names.includes('execute')).toBe(explicitMode)
+  })
+
   it('hides mutation tools when the mutation mode is deny', async () => {
     const baseUrl = await startHandler({ ...DEFAULT_MCP_EXPOSURE_CONFIG, mutationMode: 'deny' })
     const result = await listTools(baseUrl)
