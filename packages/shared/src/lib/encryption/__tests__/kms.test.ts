@@ -248,3 +248,168 @@ describe('kms self-healing circuit breaker (#2661)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2) // 404 read probe + the write
   })
 })
+
+describe('derived tenant keys (#8994)', () => {
+  afterEach(() => {
+    process.env = { ...originalEnv }
+    jest.restoreAllMocks()
+  })
+
+  function useDerivedKeys(secret: string) {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY = secret
+    delete process.env.TENANT_DATA_ENCRYPTION_KEY
+    delete process.env.VAULT_ADDR
+    delete process.env.VAULT_TOKEN
+  }
+
+  function legacyDerivedKey(secret: string, tenantId: string): string {
+    const root = crypto.createHash('sha256').update(secret).digest()
+    return crypto.pbkdf2Sync(root, tenantId, 310_000, 32, 'sha512').toString('base64')
+  }
+
+  it('derives the same key as before, so existing ciphertext stays readable', async () => {
+    useDerivedKeys('derived-compat-secret')
+    const dek = await createKmsService().getTenantDek('tenant-compat')
+    expect(dek?.key).toBe(legacyDerivedKey('derived-compat-secret', 'tenant-compat'))
+  })
+
+  it('derives each tenant key once per process, asynchronously, across KMS instances', async () => {
+    useDerivedKeys('derived-memo-secret')
+    const asyncDerive = jest.spyOn(crypto, 'pbkdf2')
+    const syncDerive = jest.spyOn(crypto, 'pbkdf2Sync')
+
+    const first = createKmsService()
+    const second = createKmsService()
+    const keys = await Promise.all([
+      first.getTenantDek('tenant-memo'),
+      first.getTenantDek('tenant-memo'),
+      second.getTenantDek('tenant-memo'),
+      second.createTenantDek('tenant-memo'),
+    ])
+
+    expect(new Set(keys.map((dek) => dek?.key)).size).toBe(1)
+    expect(asyncDerive).toHaveBeenCalledTimes(1)
+    expect(syncDerive).not.toHaveBeenCalled()
+  })
+
+  it('keeps keys distinct per tenant and per fallback secret', async () => {
+    useDerivedKeys('derived-scope-secret-a')
+    const serviceA = createKmsService()
+    const tenantOne = await serviceA.getTenantDek('tenant-one')
+    const tenantTwo = await serviceA.getTenantDek('tenant-two')
+    useDerivedKeys('derived-scope-secret-b')
+    const otherSecret = await createKmsService().getTenantDek('tenant-one')
+
+    expect(tenantOne?.key).not.toBe(tenantTwo?.key)
+    expect(otherSecret?.key).not.toBe(tenantOne?.key)
+    expect(otherSecret?.key).toBe(legacyDerivedKey('derived-scope-secret-b', 'tenant-one'))
+  })
+
+  it('does not memoize a failed derivation', async () => {
+    useDerivedKeys('derived-failure-secret')
+    const realDerive = crypto.pbkdf2
+    const derive = jest.spyOn(crypto, 'pbkdf2')
+    derive.mockImplementationOnce(((...args: unknown[]) => {
+      const callback = args[args.length - 1] as (err: Error | null, key: Buffer) => void
+      callback(new Error('derivation failed'), Buffer.alloc(0))
+    }) as unknown as typeof crypto.pbkdf2)
+    derive.mockImplementation(realDerive)
+
+    const service = createKmsService()
+    await expect(service.getTenantDek('tenant-failure')).rejects.toThrow('derivation failed')
+    const recovered = await service.getTenantDek('tenant-failure')
+
+    expect(recovered?.key).toBe(legacyDerivedKey('derived-failure-secret', 'tenant-failure'))
+    expect(derive).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('cached Vault keys during the breaker cooldown', () => {
+  afterEach(() => {
+    process.env = { ...originalEnv }
+    jest.restoreAllMocks()
+  })
+
+  it('serves a tenant key fetched before the outage instead of the derived fallback key', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    process.env.VAULT_ADDR = 'http://vault.test'
+    process.env.VAULT_TOKEN = 'token'
+    process.env.VAULT_RECOVERY_COOLDOWN_MS = String(60 * 60 * 1000)
+    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY = 'cooldown-fallback-secret'
+    const fetchMock = jest.fn(async (url: string) =>
+      url.endsWith('tenant_key_tenant-cached')
+        ? { ok: true, status: 200, json: async () => ({ data: { data: { key: 'vault-key' } } }) }
+        : { ok: false, status: 503, json: async () => ({}) },
+    )
+    ;(globalThis as { fetch?: typeof fetch }).fetch = fetchMock as unknown as typeof fetch
+    const service = createKmsService()
+
+    await expect(service.getTenantDek('tenant-cached')).resolves.toMatchObject({ key: 'vault-key' })
+    await service.getTenantDek('tenant-uncached')
+    const readsAfterOutage = fetchMock.mock.calls.length
+
+    expect(service.getCachedTenantDek?.('tenant-cached')?.key).toBe('vault-key')
+    await expect(service.getTenantDek('tenant-cached')).resolves.toMatchObject({ key: 'vault-key' })
+    expect(fetchMock.mock.calls.length).toBe(readsAfterOutage)
+  })
+})
+
+describe('derived tenant key retention', () => {
+  afterEach(() => {
+    process.env = { ...originalEnv }
+    jest.restoreAllMocks()
+  })
+
+  function useDerivedKeys(secret: string) {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY = secret
+    delete process.env.TENANT_DATA_ENCRYPTION_KEY
+    delete process.env.VAULT_ADDR
+    delete process.env.VAULT_TOKEN
+  }
+
+  it('re-derives a tenant key once its retention window has passed', async () => {
+    useDerivedKeys('retention-ttl-secret')
+    process.env.OM_KMS_DERIVED_KEY_CACHE_TTL_MS = '1000'
+    let clock = 5_000_000
+    jest.spyOn(Date, 'now').mockImplementation(() => clock)
+    const derive = jest.spyOn(crypto, 'pbkdf2')
+    const service = createKmsService()
+
+    const first = await service.getTenantDek('tenant-ttl')
+    await service.getTenantDek('tenant-ttl')
+    expect(derive).toHaveBeenCalledTimes(1)
+    clock += 1_001
+    const afterExpiry = await service.getTenantDek('tenant-ttl')
+
+    expect(derive).toHaveBeenCalledTimes(2)
+    expect(afterExpiry?.key).toBe(first?.key)
+  })
+
+  it('caps how many tenant keys it retains', async () => {
+    useDerivedKeys('retention-cap-secret')
+    process.env.OM_KMS_DERIVED_KEY_CACHE_MAX_ENTRIES = '1'
+    const derive = jest.spyOn(crypto, 'pbkdf2')
+    const service = createKmsService()
+
+    await service.getTenantDek('tenant-cap-a')
+    await service.getTenantDek('tenant-cap-b')
+    await service.getTenantDek('tenant-cap-a')
+
+    expect(derive).toHaveBeenCalledTimes(3)
+  })
+
+  it('still coalesces concurrent derivations when retention is off', async () => {
+    useDerivedKeys('retention-off-secret')
+    process.env.OM_KMS_DERIVED_KEY_CACHE_TTL_MS = '0'
+    const derive = jest.spyOn(crypto, 'pbkdf2')
+    const service = createKmsService()
+
+    const keys = await Promise.all([service.getTenantDek('tenant-off'), service.getTenantDek('tenant-off')])
+    await service.getTenantDek('tenant-off')
+
+    expect(keys[0]?.key).toBe(keys[1]?.key)
+    expect(derive).toHaveBeenCalledTimes(2)
+  })
+})

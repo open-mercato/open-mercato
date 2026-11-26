@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## MCP tool calls no longer block on key derivation (#8994)
+
+Without Vault, the derived-key KMS (`TENANT_DATA_ENCRYPTION_FALLBACK_KEY`) now derives each tenant key once per process with async `crypto.pbkdf2` and reuses it. It used to run a synchronous 310k-iteration PBKDF2 on every `getTenantDek` call, and the MCP server built a new KMS for every session-token tool call, so each call blocked the event loop. The derived keys are byte-for-byte the same, so existing ciphertext stays readable. A derived key is kept for `OM_KMS_DERIVED_KEY_CACHE_TTL_MS` (default 15 minutes) and at most `OM_KMS_DERIVED_KEY_CACHE_MAX_ENTRIES` keys (default 1000) are kept; the cache holds no copy of the fallback secret or its root digest. `createSessionApiKey` and `findSessionApiKeyWithSecret` accept an optional `{ kms }` argument, and the MCP HTTP server passes the process `kmsService`. `KmsService` gains an optional `getCachedTenantDek(tenantId)`: a Vault key fetched before a transient Vault failure stays usable while the circuit breaker cools down, instead of the fallback KMS answering with a derived key that cannot open Vault-sealed data.
+
+API-key tool calls now group their session memory by the key's record id (`apiKeySessionId(apiKeyId)`) instead of a PBKDF2 of the key secret. The grouping is the same, one memory per key; the ids only lived in process memory, so nothing persisted changes. `deriveApiKeySessionId` in `@open-mercato/ai-assistant/modules/ai_assistant/lib/log-redaction` is deprecated and no longer used; switch to `apiKeySessionId` with the key's id. No database migration or configuration change is required.
+
 ## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
 
 When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.

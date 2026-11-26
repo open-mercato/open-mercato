@@ -292,3 +292,4 @@ Priority implication: the benchmarked build already contained the shipped P0 fix
   - Added a `[2026-08 correction]` pointer under the Risks table for the superseded 2.1 row.
   - Spelled out the sub-item ids that were undefined before (`P2.2b`, `P2.4d`).
 - **2026-11-21** — #2967 row: process-wide query_index column map and DI-cached custom-field definitions and sort kinds; the event-wiring half shipped with #9628. `customEntityCache` deliberately stays per instance (#2939).
+- **2026-11-25** — #8994 MCP crypto half: derived tenant keys derived once per process with async PBKDF2, the MCP session lookup reuses the process `kmsService`, and API-key session memory is keyed by the key's record id instead of a per-call PBKDF2 of its secret. The lint-ratchet half of #8994 stays open.

@@ -165,3 +165,86 @@ describe('session secret storage', () => {
     expect(result?.secret).toBe(plaintext)
   })
 })
+
+describe('session secret with the process KMS', () => {
+  it('seals and recovers through the KMS it is handed, without building one per call', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    const dek = generateDek()
+    const getTenantDek = jest.fn(async (tenantId: string) => ({ tenantId, key: dek, fetchedAt: Date.now() }))
+    const kms = { isHealthy: () => true, getTenantDek, createTenantDek: getTenantDek }
+    const { em, created } = buildEm()
+
+    await createSessionApiKey(em as never, {
+      sessionToken: 'sess_alice',
+      userId: 'user-alice',
+      userRoles: ['admin'],
+      tenantId: TENANT,
+      organizationId: 'org-1',
+    }, { kms })
+    const result = await findSessionApiKeyWithSecret(em as never, 'sess_alice', { kms })
+
+    expect(mockCreateKmsService).not.toHaveBeenCalled()
+    expect(getTenantDek).toHaveBeenCalledTimes(2)
+    expect(looksLikeEncryptedPayload(created[0].sessionSecretEncrypted)).toBe(true)
+    expect(result?.secret).toEqual(expect.any(String))
+    expect(result?.secret).not.toEqual(created[0].sessionSecretEncrypted)
+  })
+})
+
+describe('session secret through a Vault outage on the process KMS', () => {
+  const actualKms = jest.requireActual('@open-mercato/shared/lib/encryption/kms') as typeof import('@open-mercato/shared/lib/encryption/kms')
+  const originalFetch = globalThis.fetch
+  const envKeys = ['VAULT_ADDR', 'VAULT_TOKEN', 'VAULT_RECOVERY_COOLDOWN_MS', 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'TENANT_DATA_ENCRYPTION_KEY'] as const
+  const previousEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]))
+
+  afterEach(() => {
+    ;(globalThis as { fetch?: typeof fetch }).fetch = originalFetch
+    for (const key of envKeys) {
+      if (previousEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = previousEnv[key]
+    }
+  })
+
+  function stubVault(tenantKey: string) {
+    const fetchMock = jest.fn(async (url: string) => {
+      if (url.endsWith(`tenant_key_${TENANT}`)) {
+        return { ok: true, status: 200, json: async () => ({ data: { data: { key: tenantKey } } }) }
+      }
+      return { ok: false, status: 503, json: async () => ({}) }
+    })
+    ;(globalThis as { fetch?: typeof fetch }).fetch = fetchMock as unknown as typeof fetch
+    return fetchMock
+  }
+
+  it.each([
+    ['with a derived-key fallback', 'fallback-secret-for-outage-test'],
+    ['with Vault only', null],
+  ])('recovers a Vault-sealed secret after a transient Vault failure opens the breaker (%s)', async (_label, fallbackSecret) => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    process.env.VAULT_ADDR = 'http://vault.test'
+    process.env.VAULT_TOKEN = 'token'
+    process.env.VAULT_RECOVERY_COOLDOWN_MS = String(60 * 60 * 1000)
+    delete process.env.TENANT_DATA_ENCRYPTION_KEY
+    if (fallbackSecret) process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY = fallbackSecret
+    else delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+    const fetchMock = stubVault(generateDek())
+    const kms = actualKms.createKmsService()
+    const { em } = buildEm()
+
+    const { secret } = await createSessionApiKey(em as never, {
+      sessionToken: 'sess_alice',
+      userId: 'user-alice',
+      userRoles: ['admin'],
+      tenantId: TENANT,
+      organizationId: 'org-1',
+    }, { kms })
+    await kms.getTenantDek('tenant-whose-read-fails')
+    const vaultReadsBeforeLookup = fetchMock.mock.calls.length
+
+    const result = await findSessionApiKeyWithSecret(em as never, 'sess_alice', { kms })
+
+    expect(result?.secret).toBe(secret)
+    expect(fetchMock.mock.calls.length).toBe(vaultReadsBeforeLookup)
+    expect(mockCreateKmsService).not.toHaveBeenCalled()
+  })
+})
