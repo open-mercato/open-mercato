@@ -154,6 +154,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
         ApiKey,
         { id: record.id, tenantId, organizationId, deletedAt: null },
         { fields: ['expiresAt'], disableIdentityMap: true },
+        { tenantId, organizationId },
       )
       expect(findApiKeyBySecret).toHaveBeenCalledTimes(2)
     } finally {
