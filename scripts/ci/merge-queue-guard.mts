@@ -231,7 +231,6 @@ async function evaluate({ github, context, guardAppSlug, at }: GuardRunOptions &
       report: { ...report, outcome: 'already-gone', reason: `it would have been removed because ${decision.reason}, but someone took it off first` },
     }
   }
-  await github.rest.issues.createComment({ ...issue, body: formatComment(decision.reason) })
   return { decision, report: { ...report, outcome: 'removed', reason: decision.reason } }
 }
 
@@ -243,16 +242,25 @@ async function writeReport(core: GuardCore, report: GuardReport): Promise<void> 
 
 export async function run(options: GuardRunOptions): Promise<GuardDecision> {
   const at = (options.now ?? (() => new Date()))().toISOString()
-  let result: { decision: GuardDecision; report: GuardReport }
+  let result: { decision: GuardDecision; report: GuardReport } | undefined
   try {
     result = await evaluate({ ...options, at })
+    if (result.decision.remove && result.report.pullRequest) {
+      await options.github.rest.issues.createComment({
+        ...options.context.repo,
+        issue_number: result.report.pullRequest.number,
+        body: formatComment(result.decision.reason),
+      })
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    const report: GuardReport = {
-      ...describeEvent(options.context, at),
-      outcome: 'failed',
-      reason: `the guard stopped with an error (${message}); check ${code(MERGE_QUEUE_LABEL)} on the PR by hand`,
-    }
+    const report: GuardReport = result?.report.outcome === 'removed'
+      ? { ...result.report, reason: `${result.report.reason}; posting the removal comment failed (${message})` }
+      : {
+        ...describeEvent(options.context, at),
+        outcome: 'failed',
+        reason: `the guard stopped with an error (${message}); check ${code(MERGE_QUEUE_LABEL)} on the PR by hand`,
+      }
     await writeReport(options.core, report).catch((summaryError: unknown) => {
       options.core.info(`Could not write the job summary: ${String(summaryError)}`)
     })

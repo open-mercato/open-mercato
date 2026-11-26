@@ -195,6 +195,29 @@ test('run ignores events that are not pull request label changes', async () => {
   assert.deepEqual(calls, [])
 })
 
+test('a failed removal comment preserves the completed removal and fails the run', async () => {
+  const recorder = fakeCore()
+  const { github, calls } = fakeGithub(['merge-queue', 'blocked'])
+  const commentError = Object.assign(new Error('comment unavailable'), { status: 503 })
+  github.rest.issues.createComment = async (params) => {
+    calls.push({ method: 'createComment', params })
+    throw commentError
+  }
+
+  await assert.rejects(
+    run({ github, context: fakeContext('labeled', 'blocked'), core: recorder.core, now }),
+    (error: unknown) => error === commentError,
+  )
+  assert.deepEqual(calls.map((call) => call.method), ['listLabelsOnIssue', 'removeLabel', 'createComment'])
+  assert.equal(recorder.summaries.length, 1)
+  assert.equal(recorder.written(), 1)
+  assert.equal(recorder.logs.length, 1)
+  assert.match(recorder.summaries[0], /^## .*Removed `merge-queue` from #7\n/)
+  assert.match(recorder.summaries[0], /\| Decision \| \*\*removed `merge-queue`\*\* \|/)
+  assert.match(recorder.summaries[0], /`blocked` was added; posting the removal comment failed \(comment unavailable\)/)
+  assert.match(recorder.logs[0], /^#7: removed merge-queue \(blocked was added; posting the removal comment failed/)
+})
+
 test('every run writes one job summary and one log line', async () => {
   const recorder = fakeCore()
   const { github } = fakeGithub(['merge-queue', 'qa-failed'])
