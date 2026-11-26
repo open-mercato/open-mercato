@@ -390,6 +390,36 @@ test('every area module is a real module directory', () => {
   }
 })
 
+test('ci-area:ai covers web research: its own modules and every module that consumes it', () => {
+  // Web research ships as library packages (packages/web-research*), not as src/modules/ directories,
+  // so its integration surface is the modules that import it. Every one of them must be in the ai area,
+  // and a future web research module directory must be mapped there too.
+  const root = new URL('../../', import.meta.url)
+  const webResearchPackages = fs.readdirSync(new URL('packages/', root)).filter((entry) => /^web-research(-|$)/.test(entry))
+  assert.ok(webResearchPackages.length > 0, 'no packages/web-research* found')
+  const expected = new Set<string>()
+  for (const entry of webResearchPackages) {
+    const modulesDir = new URL(`packages/${entry}/src/modules/`, root)
+    if (fs.existsSync(modulesDir)) for (const moduleId of fs.readdirSync(modulesDir)) expected.add(moduleId)
+  }
+  const grep = spawnSync('git', ['grep', '-l', '-E', `['"]@open-mercato/web-research(-[a-z]+)?(/|['"])`, '--', 'packages/*/src/modules/*', 'apps/*/src/modules/*'], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+  assert.ok(grep.status === 0 || grep.status === 1, grep.stderr)
+  for (const file of grep.stdout.split('\n').filter(Boolean)) {
+    if (file.startsWith('packages/web-research')) continue
+    for (const moduleId of extractChangedModules([file])) expected.add(moduleId)
+  }
+  assert.ok(expected.has('agent_orchestrator'), 'agent_orchestrator no longer consumes web research: revisit this test')
+  const result = resolve({ changedFiles: ['scripts/a.mjs'], labels: ['ci-area:ai'] })
+  assert.deepEqual(result.areas, ['ai'])
+  for (const moduleId of expected) {
+    assert.ok(config.areas.ai.includes(moduleId), `web research module ${moduleId} is not in the ai area`)
+    assert.ok(result.modules.includes(moduleId), `ci-area:ai does not run ${moduleId}`)
+  }
+})
+
 test('parseCiScopeConfig rejects a module in two areas', () => {
   assert.throws(() => parseCiScopeConfig({ ...rawConfig, areas: { a: ['sales'], b: ['sales'] } }), /"sales" is in both "a" and "b"/)
 })
