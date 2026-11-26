@@ -50,6 +50,7 @@ type ImportApplyResponse = {
     skipped?: number
     failed?: number
   }
+  rows?: Array<{ rowNumber?: number; status?: string; movementId?: string }>
 }
 
 test.describe('TC-WMS-025: Inventory CSV import API', () => {
@@ -213,6 +214,9 @@ test.describe('TC-WMS-025: Inventory CSV import API', () => {
         },
       })
       expect(retryApplyResponse.ok(), `retry apply failed: ${retryApplyResponse.status()}`).toBeTruthy()
+      const retryApplyResult = (await readJsonSafe<ImportApplyResponse>(retryApplyResponse)) ?? {}
+      expect(retryApplyResult.rows?.[0]?.movementId).toBeTruthy()
+      expect(retryApplyResult.rows?.[0]?.movementId).toBe(applyResult.rows?.[0]?.movementId)
       const balanceAfterRetry = await fetchBalance(request, adminToken, warehouseId!, variantId)
       expect(toNumber(balanceAfterRetry?.quantity_on_hand)).toBe(25)
 

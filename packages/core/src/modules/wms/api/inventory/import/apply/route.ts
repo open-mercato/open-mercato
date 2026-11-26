@@ -34,7 +34,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Apply inventory CSV import',
       description:
-        'Applies validated inventory import rows via wms.inventory.adjust commands (idempotent skip when delta is zero).',
+        'Applies validated inventory import rows via wms.inventory.adjust commands (idempotent skip when delta is zero). Re-sending a row of the same importBatchId with the same target and quantity returns the original movement instead of posting it again.',
       requestBody: { contentType: 'application/json', schema: inventoryImportApplySchema },
       responses: [{ status: 200, description: 'Import applied', schema: successSchema }],
       errors: [
