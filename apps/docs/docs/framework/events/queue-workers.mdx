@@ -479,6 +479,8 @@ The [npm queue provider proposal](https://github.com/open-mercato/open-mercato/p
 
 The proposed app convention puts a typed `queueProviders` registry in `src/providers/queue.ts`, alongside the cache and KMS registries. In the Open Mercato monorepo, the same directory is `apps/mercato/src/providers/`. Applications would install each driver as its own npm package and register it with a lazy import. The web app, workers, and queue-aware CLI commands would resolve the same registration during early bootstrap.
 
+The proposal packages the existing stock strategies as `@open-mercato/queue-provider-local` and `@open-mercato/queue-provider-bullmq`, with both included by default. The names `local` and `async` and the existing `QUEUE_BASE_DIR`, `QUEUE_REDIS_URL`, and `REDIS_URL` settings keep their meanings.
+
 The proposed `QUEUE_STRATEGY=npm:<package-name>` selects a registered driver. An explicit `QUEUE_ROUTES` map chooses the queues that use it and sets `local` or `async` as the baseline for the remaining queues. The proposal requires Enterprise activation for commercial drivers and a verified drain, routing, and readiness check before cutover.
 
 ### Multi-Instance Safety Guard
