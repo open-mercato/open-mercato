@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { MfaChallenge, UserMfaMethod } from '../data/entities'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
 import { emitSecurityEvent } from '../events'
@@ -291,7 +292,7 @@ export class MfaVerificationService {
   }
 
   private async findMethod(userId: string, methodType: string): Promise<UserMfaMethod> {
-    const method = await this.em.findOne(UserMfaMethod, {
+    const method = await findOneWithDecryption(this.em, UserMfaMethod, {
       userId,
       type: methodType,
       isActive: true,
@@ -304,7 +305,7 @@ export class MfaVerificationService {
   }
 
   private async findMethodById(userId: string, methodId: string): Promise<UserMfaMethod> {
-    const method = await this.em.findOne(UserMfaMethod, {
+    const method = await findOneWithDecryption(this.em, UserMfaMethod, {
       id: methodId,
       userId,
       isActive: true,

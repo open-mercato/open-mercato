@@ -13,8 +13,12 @@ import {
   type CrudIndexerConfig,
   type CrudEntityIdentifiers,
 } from '../crud/types'
+import {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+  type TransactionOutcome,
+} from '../commands/transaction-lifetime'
 import type { BulkImportSuppression } from '../commands/types'
-import type { TransactionOutcome } from '../commands/transaction-lifetime'
 import { conflict, CrudHttpError, isUniqueViolation, notFound } from '../crud/errors'
 import { AdvisoryLockUnavailableError, withAdvisoryXactLock } from '../db/advisoryLock'
 import { resolveRegisteredEntityTableName } from '../query/engine'
@@ -126,6 +130,8 @@ export interface DataEngine {
      * not checked against the `events.ts` registry.
      */
     notify?: boolean
+    /** Active manager from withAtomicFlush. Notifications run after its transaction commits. */
+    transactionalEm?: EntityManager
     // Forwarded to `setRecordCustomFields` — see its doc for when a caller must pass
     // true (a recordId that is not unique across organizations for this entityId).
     pinOrganizationId?: boolean
@@ -337,20 +343,27 @@ export class DefaultDataEngine implements DataEngine {
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
     const { entityId, recordId, organizationId = null, tenantId = null, values } = opts
-    const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
+    const em = opts.transactionalEm ?? this.em
+    if (this.deferredNotifications && em !== this.em) {
+      throw new Error('[internal] Custom-field writes must use the ambient command transaction')
+    }
+    if (opts.transactionalEm && (!em.isInTransaction() || !getTransactionLifetime(em))) {
+      throw new Error('[internal] Custom-field writes require an active managed transaction')
+    }
+    const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(em, {
       entityId,
       organizationId,
       tenantId,
       values,
     })
-    await this.validateCustomFieldValues(entityId, organizationId, tenantId, sanitizedValues as Record<string, unknown>)
+    await this.validateCustomFieldValues(entityId, organizationId, tenantId, sanitizedValues as Record<string, unknown>, em)
     let encryptionService: any = null
     try {
       encryptionService = this.container.resolve('tenantEncryptionService') as any
     } catch {
       encryptionService = null
     }
-    await setRecordCustomFields(this.em, {
+    await setRecordCustomFields(em, {
       entityId,
       recordId,
       organizationId,
@@ -359,7 +372,16 @@ export class DefaultDataEngine implements DataEngine {
       encryptionService,
       pinOrganizationId: opts.pinOrganizationId === true,
     })
-    if (opts.notify !== false) await this.emitCustomFieldUpdate({ entityId, recordId, organizationId, tenantId })
+    if (opts.notify === false) return
+
+    const signal = { entityId, recordId, organizationId, tenantId }
+    if (opts.transactionalEm && !this.deferredNotifications) {
+      onTransactionLifetimeComplete(em, async (outcome) => {
+        if (outcome === 'committed') await this.emitCustomFieldUpdate(signal)
+      })
+      return
+    }
+    await this.emitCustomFieldUpdate(signal)
   }
 
   private async emitCustomFieldUpdate(input: {
@@ -465,10 +487,11 @@ export class DefaultDataEngine implements DataEngine {
     organizationId: string | null,
     tenantId: string | null,
     values: Record<string, unknown> | undefined | null,
+    em = this.em,
   ): Promise<void> {
     const prepared = this.normalizeValuesForValidation(values)
     if (!entityId || Object.keys(prepared).length === 0) return
-    const result = await validateCustomFieldValuesServer(this.em, {
+    const result = await validateCustomFieldValuesServer(em, {
       entityId,
       organizationId,
       tenantId,
