@@ -1984,7 +1984,10 @@ const transitionClaimCommand: CommandHandler<TransitionClaimInput, { claimId: st
           if (hasOwn(input, 'resolutionSummary')) claim.resolutionSummary = input.resolutionSummary ?? null
         }
         if (input.toStatus === 'closed') claim.closedAt = now
-        else if (fromStatus === 'closed') claim.closedAt = null
+        else if (fromStatus === 'closed') {
+          claim.closedAt = null
+          claim.resolvedAt = null
+        }
         applySlaResume(em, claim, fromStatus, input.toStatus, now, effectiveSettings)
         applySlaPause(em, claim, fromStatus, input.toStatus, now, effectiveSettings)
         claim.awaitingStaffReply = false

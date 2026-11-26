@@ -848,7 +848,7 @@ describe('warranty claim commands', () => {
     }
   })
 
-  test('transition clears closedAt when a closed claim is reopened and stamps a fresh one on re-close', async () => {
+  test('reopening clears both timestamps and resolving and closing again stamps fresh ones', async () => {
     jest.useFakeTimers()
     try {
       const { ctx } = makeContext()
@@ -863,10 +863,12 @@ describe('warranty claim commands', () => {
 
       expect(claim.status).toBe('in_review')
       expect(claim.closedAt).toBeNull()
-      expect(claim.resolvedAt?.toISOString()).toBe('2026-07-04T10:00:00.000Z')
+      expect(claim.resolvedAt).toBeNull()
 
       jest.setSystemTime(new Date('2026-07-09T10:00:00.000Z'))
-      await transitionClaimCommand.execute({ id: CLAIM_ID, toStatus: 'rejected', rejectionReasonCode: 'out_of_warranty' }, ctx)
+      await transitionClaimCommand.execute({ id: CLAIM_ID, toStatus: 'approved' }, ctx)
+      await transitionClaimCommand.execute({ id: CLAIM_ID, toStatus: 'resolved' }, ctx)
+      expect(claim.resolvedAt?.toISOString()).toBe('2026-07-09T10:00:00.000Z')
       expect(claim.closedAt).toBeNull()
 
       jest.setSystemTime(new Date('2026-07-10T10:00:00.000Z'))
@@ -878,7 +880,7 @@ describe('warranty claim commands', () => {
     }
   })
 
-  test('undoing a reopen restores the original closedAt', async () => {
+  test('undoing a reopen restores the original resolution and closure timestamps', async () => {
     const { ctx } = makeContext()
     const claim = makeClaim('closed', {
       resolvedAt: new Date('2026-07-04T10:00:00.000Z'),
@@ -888,10 +890,12 @@ describe('warranty claim commands', () => {
 
     const undo = await executeAndCaptureUndo(transitionClaimCommand, { id: CLAIM_ID, toStatus: 'in_review' }, ctx)
     expect(claim.closedAt).toBeNull()
+    expect(claim.resolvedAt).toBeNull()
 
     await undo()
     expect(claim.status).toBe('closed')
     expect(claim.closedAt?.toISOString()).toBe('2026-07-06T10:00:00.000Z')
+    expect(claim.resolvedAt?.toISOString()).toBe('2026-07-04T10:00:00.000Z')
   })
 
   test('transition rejects illegal moves, rejected without a reason, and unresolved lines on resolve', async () => {

@@ -135,6 +135,7 @@ Exact transition map (`data/constants.ts`): `draft → submitted|cancelled`; `su
 
 - Transitions are validated in `warranty_claims.claim.transition`; illegal moves return 400 `warranty_claims.errors.invalidTransition`.
 - The header cannot enter `resolved` while any non-deleted line is outside `{resolved, rejected}`. Entering `rejected` requires a `rejectionReasonCode`.
+- Reopening a closed claim clears `resolvedAt` and `closedAt`. Resolving and closing it again records fresh timestamps. The claim timeline retains the prior resolve and close events, and undoing a reopen restores the previous timestamps.
 - Line statuses: `pending → approved|rejected`; `approved → received|resolved` (the `resolved` edge carries the credit-only / field-destroy flow); `received → inspected`; `inspected → resolved`.
 - `status` is never writable through the generic update route — only through `transition`. `claimType` is immutable after creation.
 
@@ -498,6 +499,10 @@ Live line numbers must be unique within a claim. Initial claim creation, explici
 Number allocation, explicit renumbering, and line undo validation serialize on the tenant/org-scoped claim lock before checking live siblings or changing lines. Aggregate undo validates its projected live numbers before restoring any fields. The TC-WC-040 integration scenario covers delete/add/undo refusal and retry, explicit/batch duplicate input, and concurrent creates. Command tests also cover snapshot restoration, nonconflicting operations, and scope isolation.
 
 ## Changelog
+
+### 2026-11-26 — Clear the resolution timestamp on reopen (#10705)
+
+- Claim responses return `resolvedAt: null` after a reopen until the claim is resolved again. Previously reopened claims keep their stored timestamps until a later transition updates them.
 
 ### 2026-10-13 — Claim line number uniqueness (#7306)
 - Refuse colliding line creates, renumbering, and undo restoration under the claim lock, preserving automatic allocation and atomic rollups.
