@@ -2,7 +2,7 @@
 
 ## Always
 
-- Route all axes; missing context: `yarn mercato agentic:init --update-harness`.
+- Route all matches on each axis; missing context: `yarn mercato agentic:init --update-harness`.
 - Lessons: scan `.ai/lessons.md` tags; open/update one matching record + row.
 - Use `src/modules/<id>/` for business modules and `src/providers/` for [cache, queue, and KMS](.ai/guides/infrastructure-providers.md).
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
@@ -35,8 +35,6 @@ Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn te
 Route production deployment/go-live/security-readiness to `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; use its inventory. Readiness: only names and comments in checked-in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or live deployments.
 
 ## Three-Axis Context Assembler
-
-Select all matches on all axes.
 
 `debugging` is additive. A scalar-ID/snapshot fix to persisted records or commands linked to an installed record MUST use `module-data` + `umes` and load `om-data-model-design` + `om-system-extension`.
 
@@ -106,8 +104,7 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ### Token-Efficient Assembly Policy
 
-- Load matched guides once; only needed references/facts.
-- Budget order: guide > skill > references; only subject-matched references.
+- Read each matched guide once, then relevant skills and required references/facts.
 - `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.

@@ -9,20 +9,6 @@
       "resolvedPath": ".ai/guides/infrastructure-providers.md"
     },
     {
-      "topicId": "guides/architecture:.ai/guides/infrastructure-providers.md",
-      "owner": ".ai/guides/architecture.md",
-      "requirement": "source-required",
-      "href": "./infrastructure-providers.md",
-      "resolvedPath": ".ai/guides/infrastructure-providers.md"
-    },
-    {
-      "topicId": "guides/integrations:.ai/guides/infrastructure-providers.md",
-      "owner": ".ai/guides/integrations.md",
-      "requirement": "source-required",
-      "href": "./infrastructure-providers.md",
-      "resolvedPath": ".ai/guides/infrastructure-providers.md"
-    },
-    {
       "topicId": "guides/infrastructure-providers:src/providers/cache.ts",
       "owner": ".ai/guides/infrastructure-providers.md",
       "requirement": "source-required",

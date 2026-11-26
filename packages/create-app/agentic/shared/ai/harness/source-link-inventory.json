@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 36,
-    "recordCount": 167,
-    "sourceRequiredCount": 141,
-    "readableCount": 167,
+    "ownerCount": 34,
+    "recordCount": 165,
+    "sourceRequiredCount": 139,
+    "readableCount": 165,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -13,29 +13,6 @@
     "External Figma publication remains not-evidenced; packed Code Connect source proves neither publication nor runtime export."
   ],
   "records": [
-    {
-      "referenceId": "guides/architecture:.ai/guides/infrastructure-providers.md",
-      "requirement": "source-required",
-      "originAsset": ".ai/guides/architecture.md",
-      "heading": "Ownership Decision",
-      "href": "./infrastructure-providers.md",
-      "targetKind": "local-owner",
-      "readStatus": "readable",
-      "resolvedPath": ".ai/guides/infrastructure-providers.md",
-      "moduleId": null,
-      "capabilityIds": [],
-      "presets": [
-        "classic",
-        "crm",
-        "empty",
-        "wms"
-      ],
-      "tiers": [
-        "automation",
-        "core",
-        "migration"
-      ]
-    },
     {
       "referenceId": "guides/backend-ui:components/TodoForm.tsx",
       "requirement": "source-required",
@@ -693,29 +670,6 @@
       "targetKind": "local-owner",
       "readStatus": "readable",
       "resolvedPath": "src/providers/queue.example.ts",
-      "moduleId": null,
-      "capabilityIds": [],
-      "presets": [
-        "classic",
-        "crm",
-        "empty",
-        "wms"
-      ],
-      "tiers": [
-        "automation",
-        "core",
-        "migration"
-      ]
-    },
-    {
-      "referenceId": "guides/integrations:.ai/guides/infrastructure-providers.md",
-      "requirement": "source-required",
-      "originAsset": ".ai/guides/integrations.md",
-      "heading": "Provider Family Selector",
-      "href": "./infrastructure-providers.md",
-      "targetKind": "local-owner",
-      "readStatus": "readable",
-      "resolvedPath": ".ai/guides/infrastructure-providers.md",
       "moduleId": null,
       "capabilityIds": [],
       "presets": [

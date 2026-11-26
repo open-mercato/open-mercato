@@ -1,10 +1,8 @@
 # Integration and Provider Engineering
 
-Build provider-owned modules around generic integration, data-sync, webhook, queue, and progress contracts. Never place provider-specific behavior inside a generic host module.
+Build business integration providers with host contracts for sync, webhooks, queues, and progress. Keep provider logic in its package.
 
 ## Provider Family Selector
-
-Cache, queue drivers, and KMS are process-wide infrastructure. Use the [infrastructure provider guide](./infrastructure-providers.md) for their package registration and bootstrap wiring.
 
 | Family | Primary contract |
 |---|---|

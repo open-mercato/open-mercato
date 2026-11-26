@@ -268,15 +268,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  assert.equal(inventory.derived.sourceRequiredCount, 141)
-  assert.equal(inventory.records.length, 167)
-  assert.equal(inventory.derived.renderedLinkCount, 143)
+  assert.equal(inventory.derived.sourceRequiredCount, 139)
+  assert.equal(inventory.records.length, 165)
+  assert.equal(inventory.derived.renderedLinkCount, 141)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 141)
+  assert.equal(sourceRequired.length, 139)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
