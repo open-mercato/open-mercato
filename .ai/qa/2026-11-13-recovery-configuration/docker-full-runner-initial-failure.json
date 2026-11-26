@@ -1,0 +1,33 @@
+{
+  "sourceHead": "fc34a42fe73dd4542d715be67a938cb9cc96157f",
+  "target": "runner",
+  "status": "failed-resource-limit",
+  "exitCode": 102,
+  "platform": "linux/arm64",
+  "dockerMemoryBytes": 8317267968,
+  "dockerCPUs": 18,
+  "capabilityBuildArgs": {
+    "OM_ENABLE_ENTERPRISE_MODULES": "true",
+    "OM_ENABLE_ENTERPRISE_MODULES_BACKUPS": "true",
+    "POSTGRES_CLIENT_MAJOR": "17"
+  },
+  "completed": [
+    "PG17 recovery-tools stage",
+    "immutable dependency install",
+    "42 package build tasks",
+    "application code generation"
+  ],
+  "failure": {
+    "stage": "Dockerfile:153 RUN yarn build",
+    "phase": "Next.js optimized production application build",
+    "diagnostic": "BuildKit ResourceExhausted: cannot allocate memory",
+    "buildRunSeconds": 435.3
+  },
+  "imageProduced": false,
+  "safeSmokeExecuted": false,
+  "databaseContacted": false,
+  "applicationServerStarted": false,
+  "resourcesPruned": false,
+  "backupImageBuild": "not started pending resource diagnosis",
+  "provenance": "exact committed git archive; no untracked env, secrets, rights attestation, tokens or certificate inputs"
+}
