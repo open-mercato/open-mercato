@@ -22,7 +22,6 @@ services:
       - .:/app
       - app_node_modules:/app/node_modules
       - app_next:/app/.next
-      - recovery_data:/var/lib/open-mercato/recovery
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/storage
     ports:

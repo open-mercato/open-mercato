@@ -325,18 +325,43 @@ integration('native PostgreSQL backup transport (isolated fixture only)', () => 
     finally { await source.close() }
   }, 60000)
 
-  test('large-object stream integrity failure rolls back both LO and journal creation', async () => {
-    const source = createPostgresSource(options); const target = createPostgresTarget(options)
+  test.each([
+    { placeholder: false, initialCount: '0' },
+    { placeholder: true, initialCount: '1' },
+  ])('rolls back a failed large-object chunk and retries with placeholder=$placeholder', async ({ placeholder, initialCount }) => {
+    const source = createPostgresSource(options)
+    const target = createPostgresTarget(options)
     try {
-      const snapshot = await source.open(); await initialize(snapshot, target)
+      const snapshot = await source.open()
+      await initialize(snapshot, target)
       const entity = snapshot.entities.find((entry) => entry.largeObjectOid === largeObjectOid)!
+      await targetDb.query('SELECT lo_unlink(oid) FROM pg_largeobject_metadata WHERE oid=$1::oid', [largeObjectOid])
+      if (placeholder) await targetDb.query('SELECT lo_create($1::oid)', [largeObjectOid])
+      expect(await target.countRows(entity)).toBe(initialCount)
+
       const header = Buffer.alloc(8)
-      const corrupted = (async function* () { yield header; yield Buffer.from('partial'); throw new Error('integrity failure') })()
-      await expect(target.chunk(entity, corrupted, { runId: 'run', sequence: 0, sha256: 'b'.repeat(64), rows: '1' })).rejects.toThrow('integrity failure')
-      expect(await target.countRows(entity)).toBe('1')
-      expect((await targetDb.query<{ data: Buffer }>('SELECT lo_get($1::oid) AS data', [largeObjectOid])).rows[0].data).toEqual(Buffer.alloc(0))
+      const corrupted = (async function* () {
+        yield header
+        yield Buffer.from('partial')
+        throw new Error('integrity failure')
+      })()
+      const record = { runId: 'run', sequence: 0, sha256: 'b'.repeat(64), rows: '1' }
+      await expect(target.chunk(entity, corrupted, record)).rejects.toThrow('integrity failure')
+      expect(await target.countRows(entity)).toBe(initialCount)
+      if (placeholder) {
+        expect((await targetDb.query<{ data: Buffer }>('SELECT lo_get($1::oid) AS data', [largeObjectOid])).rows[0].data).toEqual(Buffer.alloc(0))
+      }
       expect((await targetDb.query('SELECT count(*) FROM om_backup_restore.restore_chunks')).rows[0].count).toBe('0')
-    } finally { await source.close(); await target.close() }
+
+      const contents = Buffer.concat([header, loContent])
+      await target.chunk(entity, data(contents), { ...record, sha256: digest(contents) })
+      expect(await target.countRows(entity)).toBe('1')
+      expect((await targetDb.query<{ data: Buffer }>('SELECT lo_get($1::oid) AS data', [largeObjectOid])).rows[0].data).toEqual(loContent)
+      expect((await targetDb.query('SELECT count(*) FROM om_backup_restore.restore_chunks')).rows[0].count).toBe('1')
+    } finally {
+      await source.close()
+      await target.close()
+    }
   }, 60000)
 
   test('a durable bound terminal receipt safely completes before and after journal deletion', async () => {

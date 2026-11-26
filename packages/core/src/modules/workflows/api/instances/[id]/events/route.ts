@@ -100,7 +100,7 @@ export async function GET(
       WorkflowEvent,
       where,
       {
-        orderBy: { occurredAt: 'DESC' },
+        orderBy: { occurredAt: 'DESC', id: 'DESC' },
         limit,
         offset,
       }

@@ -64,7 +64,7 @@ The CLI detects macOS, Linux and containers, discovers a trusted matching Postgr
 | Linux | `$XDG_STATE_HOME/open-mercato/recovery`, or `~/.local/state/open-mercato/recovery` |
 | Docker/container | `/var/lib/open-mercato/recovery`, on a validated persistent mount |
 
-Set `OM_RECOVERY_ROOT` to a private persistent root when needed, especially to separate applications. Defaults beneath it are `backups`, `workspace`, `rotation-artifacts`, `rotation-trust` and `custody`. Native libpq defaults are `~/.pg_service.conf` and `~/.pgpass`; containers use `custody/pg_service.conf` and `custody/pgpass`. Containers refuse overlay/tmpfs or temporary recovery storage. See [Docker recovery](https://github.com/open-mercato/open-mercato/blob/develop/docker/RECOVERY.md) when operating the checkout's container wrapper.
+Set `OM_RECOVERY_ROOT` to a private persistent root when needed, especially to separate applications. Defaults beneath it are `backups`, `workspace`, `rotation-artifacts`, `rotation-trust` and `custody`. Native libpq defaults are `~/.pg_service.conf` and `~/.pgpass`; containers use `custody/pg_service.conf` and `custody/pgpass`. Containers refuse overlay/tmpfs or temporary recovery storage. See [Docker recovery](https://github.com/open-mercato/open-mercato/blob/main/docker/RECOVERY.md) when operating the checkout's container wrapper.
 
 | Optional override | Resolved purpose |
 |---|---|

@@ -17,17 +17,15 @@ and operator rights are required; module flags alone do not grant a license. Set
 | `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS` | `true` |
 | `OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED` | `true`, only when the operator has those rights |
 | `TENANT_DATA_ENCRYPTION` | Enabled using the existing application configuration |
-| `TENANT_DATA_ENCRYPTION_OLD_KEY` | Original derived root, injected through the existing secret manager |
-| `OM_ROTATION_KMS_PROVIDER` | Explicitly `derived` or `vault`; no provider fallback |
+| `OM_ROTATION_SOURCE_PROVIDER` / `OM_ROTATION_TARGET_PROVIDER` | Select `derived` or `vault` independently for each role |
 | `DB_POOL_MIN` / `DB_POOL_MAX` | `0` / `1` for this dedicated maintenance invocation |
 
-The supported source adapter uses the existing previous derived root. The target
-uses the configured `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`/`TENANT_DATA_ENCRYPTION_KEY`,
-or explicit `VAULT_ADDR`, `VAULT_TOKEN` and optional `VAULT_KV_PATH`. A Vault-only
-historical source inventory without the supported original derived binding refuses;
-do not substitute a different key to force progress. Source and target concrete DEKs
-must differ. Retain every original key in approved external custody. Do not pass
-keys in command-line arguments, shell history, reports or support screenshots.
+A derived source uses `TENANT_DATA_ENCRYPTION_OLD_KEY`. A derived target uses the
+configured `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` or `TENANT_DATA_ENCRYPTION_KEY`.
+Vault sources and targets use independently configured read credentials and exact
+per-tenant versions. The [rotation operator guide](../../../../../../../apps/docs/docs/user-guide/key-rotation-protection.mdx#provider-and-key-custody)
+covers custody for all four provider combinations. Source and target concrete DEKs
+must differ. Retain every original key in approved external custody.
 
 Configure absolute, owner-controlled paths:
 

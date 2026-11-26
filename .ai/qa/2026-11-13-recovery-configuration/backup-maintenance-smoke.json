@@ -1,6 +1,6 @@
 {
-  "sourceHead": "f1d35059067402206b1d24631d6f2a56dfdf6026",
-  "image": "om-recovery-maintenance:backup-f1d-20261113",
+  "sourceHead": "724b6cb37eb98fcf5ce472b1b2090fdb5f704897",
+  "image": "om-recovery-maintenance:backup-724-20261113",
   "status": "passed",
   "network": "none",
   "applicationServerStarted": false,
@@ -66,9 +66,9 @@
     }
   ],
   "limits": "Safe CLI/configuration and generated registry smoke only; no production startup or migration/data operation.",
-  "imageId": "sha256:06413141462ecddbdb1567181c7ffe35ed584e0880410c510637d367b3900fd1",
-  "imageConfigId": "sha256:e86726efb17b2f316eb5791170b850ffa98070c51fdfc4c281b7207a1d2fe73a",
-  "imageIndexDigest": "sha256:06413141462ecddbdb1567181c7ffe35ed584e0880410c510637d367b3900fd1",
+  "imageId": "sha256:91fb2f97c42ea9ac4f67034e0fc17eb22c4c87882966ff52d55ce5efe8679509",
+  "imageConfigId": "sha256:eeeedc80b992f4fa4eb943dda2033d695c24642c68daa17d009b9823324435ca",
+  "imageIndexDigest": "sha256:91fb2f97c42ea9ac4f67034e0fc17eb22c4c87882966ff52d55ce5efe8679509",
   "buildTarget": "maintenance",
   "buildArgs": {
     "OM_ENABLE_ENTERPRISE_MODULES": "true",
@@ -77,5 +77,7 @@
   },
   "platform": "linux/arm64",
   "imageUser": "1001:1001",
+  "overlaysUsed": false,
+  "imagesPushed": false,
   "imageConfigIdProvenance": "BuildKit immutable OCI config digest; Docker inspect imageId independently matches exported image-index digest"
 }

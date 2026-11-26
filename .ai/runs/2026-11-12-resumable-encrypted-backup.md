@@ -2,7 +2,7 @@
 
 Source doc: .ai/specs/enterprise/2026-11-06-cli-backup-restore.md
 Spec PR: #8910
-Status: in-progress
+Status: complete
 Engine: om-auto-create-pr (steps: 12, --loop: no)
 
 ## Goal and scope
@@ -58,9 +58,9 @@ PR: #9333
 
 ### Phase 3: integration and release verification
 
-- [ ] 3.1 Expose the backup facade for the automated pipeline and protected rotation; coordinate Core acknowledgment/verifier boundary B19/B20 with #9328 implementation without duplicate code ownership.
-- [ ] 3.2 Complete B01–B20, benchmarks, operator documentation, custody guidance and configured full validation commands.
-- [ ] 3.3 Run authoritative om-auto-review-pr --autofix, post verification/outcome comments, publish ready only when every step is complete and gates pass.
+- [x] 3.1 Expose the backup facade for the automated pipeline and protected rotation; coordinate Core acknowledgment/verifier boundary B19/B20 with #9328 implementation without duplicate code ownership.
+- [x] 3.2 Complete B01–B20, benchmarks, operator documentation, custody guidance and configured full validation commands.
+- [x] 3.3 Run authoritative om-auto-review-pr --autofix, post verification/outcome comments, publish ready only when every step is complete and gates pass.
 
 ## Resume
 
@@ -100,3 +100,64 @@ Actual20-GiB restore resume:705ms overhead including challenge, authenticated me
 
 Verification comment: https://github.com/open-mercato/open-mercato/pull/9333#issuecomment-6825226947
 Source backlink: https://github.com/open-mercato/open-mercato/pull/8910#issuecomment-6825998376
+
+
+## Final release verification — source d6c6e3e0bb
+
+All twelve steps are complete. The final source passed96/96 tests across eight backup module suites against real PostgreSQL in61.774s. Every configured command passed in order: build:packages2.53s, generate9.02s, build:packages0.96s, i18n:check-sync0.97s, i18n:check-usage3.06s, typecheck2.01s, full test304.81s, production build:app20.80s. Generated files and diff checks are clean. This final evidence supersedes the earlier in-progress checkpoints without rewriting their history.
+
+All16 actual eight-entity1/20-GiB jobs1–8 worker runs passed full ordered content equality, observed requested concurrency in both directions and coordinator RSS≤256MiB (maximum227.44MiB). Matched warm/cold1/20-GiB latency and production progress CPU pass; final20-GiB cold backup/restore32.248/30.405s, RSS198MiB. Exact artifact hashes, runtime/image provenance, safe aggregate reports and fixture/cache/row-width limits are committed under `.ai/qa/2026-11-12-cli-backup-restore/`. The final cold measurement includes the public summary and multi-entity renderer.
+
+Fresh Enterprise build and actual packed Node24 binary outside the application checkout passed all five locale help checks, single JSON stdout on development/production errors even with caller stdout logging selected, encrypted create128rows, offline schema TOC verification without DB configuration, completed status and no files/.env created in the outside working directory. The actual final built-bin PTY capture shows simultaneous workers/queued summary, three recent completions and final143/143; screenshot evidence is linked from the verification report.
+
+Final sequence safety tests cover signed int8 values, exact non-unit positive/negative progressions, values beyond JS safe integers, captured empty is_called=false, source reset/deletion across snapshots, all-plan validation before nontransactional writes, and lost acknowledgment after a successful setval followed by idempotent replay. Owned cyclic/non-base-integer sequence configurations fail before backup streams. Target unsafe plans remain quarantined with exit6. Restore now checks authenticated expected SHA/count against each committed chunk checkpoint before skipping; a tampered checkpoint is rejected with integrity context, while a valid committed chunk need not be reread from the artifact.
+
+The backup facade is consumed by companion #9334. Parent executed actual Core CLI, real Enterprise DI and MikroORM integration against a separate disposable database; this PR remains scoped to the backup engine and registration contract. The July automated-backup design remains a separate spec; B16's scheduler/S3/retention/chunk-store pipeline is not folded into this manual CLI implementation.
+
+Authoritative final review: https://github.com/open-mercato/open-mercato/pull/9333#pullrequestreview-5878610354 — APPROVED recommendation, no unresolved blocker/major, recorded as COMMENT because the authenticated account is the PR author. Independent review scopes and older native-adapter authorship limitations are disclosed. Required CI and manual QA remain external merge gates; no self-QA approval or merge is claimed. The documented giant-row/performance/custody limitations remain applicable.
+
+Final publication uses the existing verification and source-backlink comments above, completes this plan, publishes the PR ready for manual QA and releases only this run's atomic claim. No production source changed after d6c6e3e0bb; this final commit records verification only.
+
+
+## Approved operator presentation and documentation amendment — 2026-11-13
+
+The owner reviewed the setup-style terminal mockups and explicitly approved implementation. Scope: colored titles, phase headings, status icons, divider/result/error cards, truthful progress, strict plain/NO_COLOR/dumb fallback and machine-progress purity, preserving existing stdout, commands and exit codes. Official operator documentation and Enterprise licensing/feature lists are also requested. This does not approve the separately proposed isolated CI automation. No backup archives, dumps, keys or large fixtures are uploaded.
+
+- [x] A.1 Implement the approved terminal presentation and output-contract regressions.
+- [x] A.2 Publish official feature documentation and Enterprise feature listings.
+- [x] A.3 Run configured validation, independent review and actual CLI screenshot checks.
+- [x] A.4 Publish verification and executable manual-test instructions in the PR comment.
+
+
+### Presentation amendment verification — source 901e4a8826
+
+All eight configured commands passed in order with local Node 24.22.2, including the 51-task workspace test and production application build. Separate-agent source review found no unresolved blocker or major. Official operator guides/navigation and Enterprise overview, README and subscription feature lists pass documentation checks. Current-source actual terminal/JSON proof and immutable screenshots are recorded in `.ai/qa/2026-11-13-cli-presentation/`. Manual test instructions and the actual-output screenshots are published at https://github.com/open-mercato/open-mercato/pull/9333#issuecomment-6852294617. No archives, dumps, keys or raw private logs were uploaded. Required CI and manual QA remain separate; no merge was performed.
+
+
+## Requested AI operator skills — 2026-11-13
+
+Add an invocable operator skill for the existing CLI, bundle portable command/safety references, register it in the opt-in infra tier, install it locally, and document invocation in the official guide and PR comment. This is instruction/documentation work only; authoring does not authorize running backup, restore, key rotation or database provisioning. Preserve runtime code, machine contracts, current review state, commercial boundaries and outstanding performance acceptance.
+
+- [x] B.1 Author the operator skill and command references against the actual CLI.
+- [x] B.2 Validate registration, frontmatter, references, installation and behavioral scenarios.
+- [x] B.3 Install locally and publish invocation instructions and skill checks on the PR.
+
+
+## Owner-requested OS/Docker defaults and provider migration — 2026-11-13
+
+The owner requested automatic nonsecret operational defaults on macOS/Linux/Docker, complete official operator procedures and scenario proof in both PR comments. The owner explicitly confirmed all four source/target routes, including fallback-to-Vault, Vault-to-fallback and existing Vault key version rotation. Provider/key/custody selection and commercial rights remain explicit; no production operation, automatic key generation/retirement, fence release, remote TLS bypass or new CI job is authorized by this implementation request.
+
+- [x] C.1 Implement safe OS-aware recovery paths/client discovery and read-only configuration inspection.
+- [x] C.2 Add durable Docker maintenance/client support and validate actual runtime primitives.
+- [x] C.3 Verify native and simulated OS scenarios, precedence, permissions, custody, resume and refusal cases.
+- [x] C.4 Document default setup, custody and exact old/new provider procedures, including all tenants.
+- [x] C.5 Run source review/configured validation and publish current-source proof/manual instructions.
+
+
+### Completed configuration/operator amendment — production724b6cb37e
+
+All eight configured commands passed in order under local Node24.22.2 (full workspace tests357.621s; production app build95.692s); tracked production/generated files are unchanged after the gate. The exact724 complete maintenance image built and passed all7 read-only/network-none checks with no overlays. Config/index digests and source/build provenance are committed in the small QA report. The retained exactf1d143-row real SIGINT130/fresh-confirmation/new-container/same-run resume0 proof remains valid for the6 byte-identical engine/config/launcher/guard Git objects. Recovery stays quarantined/promotion-disabled; key recovery without canaries is not-tested. Failed web-runner attempts remain disclosed; no new performance envelope is inferred.
+
+Official scenario guides compile/link-check; portable operator skills are installed and validated. Full manual commands, actual reviewed output screenshot, automatic companion Enterprise backup confirmation and evidence scope are published at https://github.com/open-mercato/open-mercato/pull/9333#issuecomment-6856514943. Source re-review found no new blocker/major in the amendment; native review is COMMENT because the authenticated actor authors the PR. Original July/November specs are preserved.
+
+The requested amendment is complete. Required CI and independent manual QA remain separate merge gates; the existing owner-ready/pipeline state is preserved. No merge, key retirement, writer-fence release or recovery promotion occurred. Only small sanitized aggregates/reviewed screenshots were uploaded, never backups, dumps, volumes, keys, private workspaces or raw logs. Companion #9334 still has its separate original large-data performance/RSS and concluding acceptance steps open; no threshold or workflow approval is inferred.

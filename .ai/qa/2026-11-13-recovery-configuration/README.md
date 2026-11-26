@@ -27,6 +27,18 @@ No automatic key retirement, fence release, recovery promotion, price/rights cha
 
 Only small sanitized aggregate reports and reviewed screenshots are published. No backup archives, dumps, volumes, private workspaces, keys, tokens or raw logs are included.
 
+Protected four-provider rotation is delivered separately in PR #9334.
+
+## Final production gate and companion JSON result
+
+Exact production724b6cb37e passes all8 configured commands in order under local Node24.22.2, including full tests357.621s and production app build95.692s. Tracked production/generated files are unchanged after the gate. Only reports/plan follow.
+
+The common KMS warning follow-up passes26 focused cases, including the actual bin boundary before env/bootstrap. Companion sourceb04 maintenance-image JSON refusal has3 existing-schema1 records, no ANSI/decorative icons, full source/persistence/Core warnings and one retained canonical stdout security warning; no overlays or secret bytes. These companion Core guard/provider features belong to #9334, not this backup-only branch.
+
+## Final backup image result
+
+The exact724b6cb37e complete self-contained maintenance image built and passed all7 actual read-only/network-none CLI/configuration/metadata checks with no overlays. Immutable OCI config/index IDs, client versions, nonroot UID and build arguments are recorded in backup-maintenance-image.json and backup-maintenance-smoke.json. Neither image was pushed to a registry. The original exactf1d143-row real SIGINT/fresh-confirmation/same-run proof remains explicitly source-bound, with all6 engine/config/launcher/guard Git objects identical through724. No additional operation/performance claim is inferred from help/configuration smoke checks.
+
 ## Four-provider rotation evidence
 
 `vault-provider-matrix.json` records the exactfc34a42fe7 real16-case PostgreSQL16/Vault1.21.4 run (59.932s):3 existing Core cases,1 actual macOS persistent-root/PATH-default case,8 positives covering four provider directions for one/two tenants and4 real Vault failures. The integration harness supplies the app-container factory. macOS clients are trusted test-only wrappers forwarding real PostgreSQL binaries into Docker, not native/Homebrew installation proof. Loopback dev Vault is not production TLS acceptance.
