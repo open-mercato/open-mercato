@@ -14,7 +14,15 @@
  * The EntityManager is read-only — enrichers MUST NOT perform writes.
  */
 export interface EnricherContext {
+  /**
+   * Organization the request is scoped to, or `''` when no single organization is in
+   * scope (for example an API key created for all organizations). The empty string is
+   * a "no organization" sentinel kept for type compatibility, never an id: check it for
+   * truthiness (`context.organizationId || null`) before binding it to a uuid column or
+   * a decryption scope. `?? null` does not catch it.
+   */
   organizationId: string
+  /** Tenant the request is scoped to, or `''` when the caller has none. Same sentinel rule as `organizationId`. */
   tenantId: string
   userId: string
   /** Concrete entity currently being enriched, including for wildcard enrichers. */
