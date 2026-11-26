@@ -4,8 +4,8 @@ import PortalRecentActivityWidget from './widget.client'
 const widget: InjectionWidgetModule = {
   metadata: {
     id: 'example.injection.portal-recent-activity',
-    title: 'Recent Activity',
-    description: 'Shows recent account activity in the portal dashboard.',
+    title: 'example.portal.dashboard.recentActivity.title',
+    description: 'example.portal.dashboard.recentActivity.description',
     priority: 10,
     enabled: true,
   },
