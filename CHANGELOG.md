@@ -1598,7 +1598,7 @@ The release closes with a hard **security pass on authentication and scope**. Pa
 - ✨ Add UMES extension-point catalog. (#4810) *(@pkarw)*
 - ✨ Cache notification lists (supersedes #4535). (#4543) *(@hubert-madej-softiq, via @pkarw)*
 - ✨ Expose the signed-in user's display name (supersedes #4713). (#4795) *(@lchrusciel, via @pkarw)*
-- ✨ Inbound webhook handlers — Phase 1 core infrastructure. (#3145) *(@adeptofvoltron)*
+- ✨ Add Phase 1 extension points for modules to register inbound webhook sources and handlers. This release includes the infrastructure and ships without a built-in consumer for the new extension points. (#3145) *(@adeptofvoltron)*
 - ✨ Hide or show a whole sidebar group in one toggle (supersedes #4714). (#4801) *(@lchrusciel, via @pkarw)*
 - ✨ Make Tpay settlement proposal implementation-ready (supersedes #4523). (#4803) *(@lchrusciel, via @pkarw)*
 - ✨ Add generative session judge. (#4786) *(@pkarw)*
