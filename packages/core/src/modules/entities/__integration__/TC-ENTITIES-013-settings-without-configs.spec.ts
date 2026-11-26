@@ -6,12 +6,14 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
 
 export const integrationMeta = { dependsOnModules: ['auth', 'entities'] }
 
+test.skip(process.env.OM_INTEGRATION_CONFIGS_OMITTED !== '1', 'Requires the Configs-omitted integration profile')
+
 test('TC-ENTITIES-013: entity settings and create form work with Configs omitted', async ({ page, request }) => {
   const english = JSON.parse(readFileSync(new URL('../i18n/en.json', import.meta.url), 'utf8')) as Record<string, string>
   const polish = JSON.parse(readFileSync(new URL('../i18n/pl.json', import.meta.url), 'utf8')) as Record<string, string>
   const token = await getAuthToken(request, 'admin')
   const configs = await apiRequest(request, 'GET', '/api/configs/system-status', { token })
-  test.skip(configs.status() !== 404, 'This regression requires Configs omitted from the actual app module registry')
+  expect(configs.status(), 'The app must omit the Configs module').toBe(404)
 
   const endpoint = '/api/entities/entity-settings'
   const defaultPolicy = { newEntitiesRestrictedByDefault: false, updatedAt: null }

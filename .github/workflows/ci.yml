@@ -1254,6 +1254,15 @@ jobs:
           RATE_LIMIT_CUSTOMER_LOGIN_IP_POINTS: '2'
         run: yarn test:integration:ephemeral TC-AUTH-016 --no-reuse-env
 
+      - name: Verify Entities settings with Configs omitted
+        # Rebuild the registry and app after all steps using the default profile.
+        if: >-
+          matrix.shard == '1/15' ||
+          (matrix.shard == 'none' &&
+          (contains(format(',{0},', needs.prepare.outputs.affected_modules), ',entities,') ||
+          contains(format(',{0},', needs.prepare.outputs.affected_modules), ',configs,')))
+        run: bash scripts/ci/test-configs-omitted.sh
+
   # ── Merge shard coverage ─────────────────────────────────────────────────────
   # Final gate — runs after all integration shards AND the test job complete.
   # Ensures both typecheck/units and integration must pass before reporting green.

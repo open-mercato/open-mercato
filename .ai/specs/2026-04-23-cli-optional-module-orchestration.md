@@ -112,6 +112,8 @@ This helper must continue to be used by `mercato init` and any future in-process
 
 `init` also treats `configs:restore-defaults` as optional. An app that omits Configs continues through initialization; a present restore command that throws still fails initialization. The CLI regression matrix covers both Configs-enabled and Configs-omitted registries.
 
+CI runs `TC-ENTITIES-013` in a dedicated Configs-omitted ephemeral profile on full runs and PRs that affect Entities or Configs. The scenario asserts the absence of the Configs route and checks the entity settings API and create form. To reproduce it, run `bash scripts/ci/test-configs-omitted.sh` from a disposable checkout after installing dependencies and running `yarn build:packages`. The profile regenerates the app artifacts for the omitted registry.
+
 ### 3. Add optional handling before spawned module subprocesses
 
 For orchestration code that uses `spawn('node', [mercatoBin, module, command, ...])`, availability must be checked before spawning.
@@ -327,3 +329,4 @@ This is intentional and consistent with `server dev`, but supervisors or CI pipe
 | 2026-04-23 | Created companion spec for CLI optional-module orchestration across `init`, `server dev`, `server start`, and standalone runtime supervision. |
 | 2026-05-05 | Documented `server start` non-zero-exit behavior change in BC section, justified `dev.mjs` `resolveProjectBinary(...)` scope, and explained the intentional dev/prod env divergence for `next dev`, queue-worker, and scheduler subprocesses. Worker exit labels now include the discovered queue names so `Queue worker (queue-a, queue-b)` makes post-mortems unambiguous. |
 | 2026-11-24 | Documented Configs-omitted initialization and added coverage for a restore command that fails while Configs is enabled. |
+| 2026-11-26 | Added a CI profile that runs the Entities settings regression with Configs omitted. |
