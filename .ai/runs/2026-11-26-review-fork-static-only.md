@@ -12,9 +12,11 @@ Change the tracked review-skill overrides for the Open Mercato repository. Valid
 
 ## Progress
 
+PR: #10807
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Defensive review policy
 
-- [ ] 1.1 Document the trusted metadata and static-review path in both overrides
-- [ ] 1.2 Review the resulting workflow and record verification
+- [x] 1.1 Document the trusted metadata and static-review path in both overrides — d718fa0309
+- [x] 1.2 Review the resulting workflow and record verification — d718fa0309
