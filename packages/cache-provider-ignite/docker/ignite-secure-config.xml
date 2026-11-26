@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Single-node Apache Ignite 2.x configuration for the authenticated + TLS
+  profile of the Open Mercato cache provider.
+
+  - Ignite 2.x built-in authentication requires native persistence, so the
+    default data region is persistent and the cluster activates on start.
+  - The thin client connector accepts TLS only, using the PKCS#12 key store
+    mounted at /opt/om-tls/server.p12 (password from OM_IGNITE_KEYSTORE_PASSWORD).
+    Client certificates are not requested.
+  - The same "om-cache-*" template (cache group, 64 partitions,
+    CreatedExpiryPolicy) as the plain profile.
+-->
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd">
+  <bean class="org.apache.ignite.configuration.IgniteConfiguration">
+    <property name="igniteInstanceName" value="om-cache-secure"/>
+    <property name="peerClassLoadingEnabled" value="false"/>
+    <property name="metricsLogFrequency" value="0"/>
+    <property name="authenticationEnabled" value="true"/>
+    <property name="clusterStateOnStart" value="ACTIVE"/>
+
+    <property name="clientConnectorConfiguration">
+      <bean class="org.apache.ignite.configuration.ClientConnectorConfiguration">
+        <property name="port" value="10800"/>
+        <property name="portRange" value="0"/>
+        <property name="thinClientEnabled" value="true"/>
+        <property name="sslEnabled" value="true"/>
+        <property name="sslClientAuth" value="false"/>
+        <property name="useIgniteSslContextFactory" value="false"/>
+        <property name="sslContextFactory">
+          <bean class="org.apache.ignite.ssl.SslContextFactory">
+            <property name="keyStoreType" value="PKCS12"/>
+            <property name="keyStoreFilePath" value="/opt/om-tls/server.p12"/>
+            <property name="keyStorePassword" value="#{systemEnvironment['OM_IGNITE_KEYSTORE_PASSWORD']}"/>
+            <property name="protocols">
+              <list>
+                <value>TLSv1.2</value>
+                <value>TLSv1.3</value>
+              </list>
+            </property>
+            <property name="trustManagers">
+              <bean class="org.apache.ignite.ssl.SslContextFactory" factory-method="getDisabledTrustManager"/>
+            </property>
+          </bean>
+        </property>
+      </bean>
+    </property>
+
+    <property name="dataStorageConfiguration">
+      <bean class="org.apache.ignite.configuration.DataStorageConfiguration">
+        <property name="walMode" value="LOG_ONLY"/>
+        <property name="walSegmentSize" value="#{16 * 1024 * 1024}"/>
+        <property name="maxWalArchiveSize" value="#{256L * 1024 * 1024}"/>
+        <property name="defaultDataRegionConfiguration">
+          <bean class="org.apache.ignite.configuration.DataRegionConfiguration">
+            <property name="name" value="om-cache-region"/>
+            <property name="persistenceEnabled" value="true"/>
+            <property name="initialSize" value="#{64L * 1024 * 1024}"/>
+            <property name="maxSize" value="#{T(java.lang.Long).parseLong(systemEnvironment['OM_IGNITE_REGION_MB'] ?: '128') * 1024 * 1024}"/>
+          </bean>
+        </property>
+      </bean>
+    </property>
+
+    <property name="cacheConfiguration">
+      <list>
+        <bean class="org.apache.ignite.configuration.CacheConfiguration">
+          <property name="name" value="om-cache-*"/>
+          <property name="groupName" value="om-cache"/>
+          <property name="cacheMode" value="PARTITIONED"/>
+          <property name="atomicityMode" value="ATOMIC"/>
+          <property name="backups" value="0"/>
+          <property name="eagerTtl" value="true"/>
+          <property name="affinity">
+            <bean class="org.apache.ignite.cache.affinity.rendezvous.RendezvousAffinityFunction">
+              <property name="partitions" value="64"/>
+            </bean>
+          </property>
+          <property name="expiryPolicyFactory">
+            <bean class="javax.cache.expiry.CreatedExpiryPolicy" factory-method="factoryOf">
+              <constructor-arg>
+                <bean class="javax.cache.expiry.Duration">
+                  <constructor-arg value="SECONDS"/>
+                  <constructor-arg value="#{T(java.lang.Long).parseLong(systemEnvironment['OM_IGNITE_MAX_TTL_SECONDS'] ?: '86400')}"/>
+                </bean>
+              </constructor-arg>
+            </bean>
+          </property>
+        </bean>
+      </list>
+    </property>
+
+    <property name="discoverySpi">
+      <bean class="org.apache.ignite.spi.discovery.tcp.TcpDiscoverySpi">
+        <property name="localAddress" value="127.0.0.1"/>
+        <property name="ipFinder">
+          <bean class="org.apache.ignite.spi.discovery.tcp.ipfinder.vm.TcpDiscoveryVmIpFinder">
+            <property name="addresses">
+              <list>
+                <value>127.0.0.1:47500..47502</value>
+              </list>
+            </property>
+          </bean>
+        </property>
+      </bean>
+    </property>
+    <property name="communicationSpi">
+      <bean class="org.apache.ignite.spi.communication.tcp.TcpCommunicationSpi">
+        <property name="localAddress" value="127.0.0.1"/>
+      </bean>
+    </property>
+  </bean>
+</beans>

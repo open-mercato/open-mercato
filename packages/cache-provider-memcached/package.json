@@ -1,0 +1,69 @@
+{
+  "name": "@open-mercato/cache-provider-memcached",
+  "version": "0.11.0",
+  "license": "MIT",
+  "description": "Open Mercato cache provider for a self-hosted Memcached server (fixed CAS buckets with tag invalidation)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
+    "test:containers": "cross-env OM_CACHE_PROVIDER_CONTAINER_TESTS=1 jest --config jest.config.cjs --runInBand 'src/.+\\.container\\.test\\.ts$'",
+    "qualify": "node scripts/qualify.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./protocol": {
+      "types": "./src/protocol/index.ts",
+      "default": "./dist/protocol/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/__tests__",
+    "README.md"
+  ],
+  "keywords": [
+    "open-mercato",
+    "cache",
+    "cache-provider",
+    "memcached"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@open-mercato/cache": ">=0.11.0"
+  },
+  "dependencies": {
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@open-mercato/cache": "workspace:*",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.4.0",
+    "cross-env": "^10.1.0",
+    "esbuild": "^0.28.2",
+    "jest": "^30.4.2",
+    "testcontainers": "^12.0.3",
+    "ts-jest": "^29.4.12",
+    "typescript": "7.0.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/cache-provider-memcached"
+  }
+}
