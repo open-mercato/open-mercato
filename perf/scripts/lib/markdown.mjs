@@ -1,6 +1,6 @@
 export function escapeCell(value) {
   if (value === null || value === undefined || value === '') return '–'
-  return String(value).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+  return String(value).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
 }
 
 export function markdownTable(headers, rows) {
