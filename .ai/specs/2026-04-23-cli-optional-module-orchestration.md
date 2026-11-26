@@ -112,7 +112,7 @@ This helper must continue to be used by `mercato init` and any future in-process
 
 `init` also treats `configs:restore-defaults` as optional. An app that omits Configs continues through initialization; a present restore command that throws still fails initialization. The CLI regression matrix covers both Configs-enabled and Configs-omitted registries.
 
-CI runs `TC-ENTITIES-013` in a dedicated Configs-omitted ephemeral profile on full runs and PRs that affect Entities or Configs. The scenario asserts the absence of the Configs route and checks the entity settings API and create form. To reproduce it, run `bash scripts/ci/test-configs-omitted.sh` from a disposable checkout after installing dependencies and running `yarn build:packages`. The profile regenerates the app artifacts for the omitted registry.
+CI runs `TC-ENT-9197` in a dedicated Configs-omitted ephemeral profile on full runs and PRs that affect Entities or Configs. The suite asserts the absence of the Configs route and checks the entity settings API, save failure, and create form. To reproduce it, run `bash scripts/ci/test-configs-omitted.sh` from a disposable checkout after installing dependencies and running `yarn build:packages`. The profile regenerates the app artifacts for the omitted registry.
 
 ### 3. Add optional handling before spawned module subprocesses
 

@@ -28,4 +28,4 @@ NODE
 yarn workspace @open-mercato/app generate
 yarn build:packages
 OM_INTEGRATION_CONFIGS_OMITTED=1 OM_INTEGRATION_MODULES=entities \
-  yarn test:integration:ephemeral TC-ENTITIES-013 --no-reuse-env --force-rebuild
+  yarn test:integration:ephemeral TC-ENT-9197-settings-without-configs.spec.ts --no-reuse-env --force-rebuild
