@@ -25,7 +25,7 @@ import { ACCESS_LOGS_PATH, DEAL_READ_TOOL, MCP_AUDIT_RESOURCE_KIND, executeTool 
  * `actorScope=all` and a foreign `actorUserId` drop the actor predicate, so organization visibility
  * and the tenant filter become the only barriers. This proves, against the running app, that:
  *   - an auditor restricted to one organization never sees another organization's rows;
- *   - an auditor whose organization visibility is empty sees nothing (fail closed);
+ *   - an auditor whose organization visibility is empty is denied with 403 (fail closed, #10503);
  *   - a tenant administrator never sees another tenant's rows, in either direction.
  */
 
@@ -157,13 +157,16 @@ test.describe('TC-AI-MCP-AUDIT-016: auditor organization and tenant isolation', 
       const restrictedForeignActor = await listCorrelations(request, restrictedToken, `&actorUserId=${callerA2.id}`);
       expect(restrictedForeignActor.correlations, 'actorUserId must not reach a hidden organization').not.toContain(corrA2);
 
-      const emptyAll = await listCorrelations(request, emptyToken, '&actorScope=all');
-      const emptyForeignActor = await listCorrelations(request, emptyToken, `&actorUserId=${callerA1.id}`);
-      expect(emptyAll.canViewTenant, 'empty-visibility auditor still holds view_tenant, so the fail-closed branch is exercised').toBe(true);
-      for (const [label, result] of [['actorScope=all', emptyAll], ['actorUserId', emptyForeignActor]] as const) {
-        expect(result.correlations, `empty-visibility auditor (${label}) must not see A1`).not.toContain(corrA1);
-        expect(result.correlations, `empty-visibility auditor (${label}) must not see A2`).not.toContain(corrA2);
-        expect(result.correlations, `empty-visibility auditor (${label}) must not see tenant B`).not.toContain(corrB);
+      for (const [label, query] of [['actorScope=all', '&actorScope=all'], ['actorUserId', `&actorUserId=${callerA1.id}`]] as const) {
+        const response = await apiRequest(
+          request,
+          'GET',
+          `${ACCESS_LOGS_PATH}?resourceKind=${encodeURIComponent(MCP_AUDIT_RESOURCE_KIND)}&pageSize=100${query}`,
+          { token: emptyToken },
+        );
+        expect(response.status(), `empty-visibility auditor (${label}) is denied by the feature guard`).toBe(403);
+        const body = await readJsonSafe<AccessLogBody>(response);
+        expect(body?.items ?? [], `empty-visibility auditor (${label}) must not receive access-log rows`).toEqual([]);
       }
 
       const foreignAll = await listCorrelations(request, foreignToken, '&actorScope=all');
