@@ -69,6 +69,8 @@ export interface EventDefinition {
   entity?: string
   /** Whether excluded from workflow triggers */
   excludeFromTriggers?: boolean
+  /** Allows tenant-authored workflows to emit this event with an authored payload. Defaults to false. */
+  workflowEmittable?: boolean
   /** When true, this event is bridged to the browser via SSE (DOM Event Bridge). Default: false */
   clientBroadcast?: boolean
   /** When true, this event is bridged between server processes without enabling browser delivery. Default: false */

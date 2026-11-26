@@ -706,7 +706,7 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 
 ## 2026-11 — CRUD security (#3827, #9154, #9106)
 
-STABLE API limits sort keys, deleted rows, labels and global reads. Bridging retains leaks. Named waiver pending. [Upgrade](UPGRADE_NOTES.md).
+STABLE API limits sorts, deleted rows, labels and global reads. 2026-11-24: relation options need owner policies. Bridges leak data. Use Staff timesheet APIs. Named waiver pending. [Upgrade](UPGRADE_NOTES.md).
 
 ## 2026-11-19 — Entity translation authorization (#9139)
 
@@ -740,6 +740,6 @@ STABLE feature-gated APIs return `403` before lookup when organization scope res
 
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
 
-## Relation options (2026-11-24, #9106)
+## Workflow events (2026-11-20, #9134)
 
-STABLE API requires owner policies. Bridging retains unauthorized reads. Use Staff APIs for time projects, tasks and reports. Named maintainer waiver pending. [Upgrade](UPGRADE_NOTES.md).
+STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
