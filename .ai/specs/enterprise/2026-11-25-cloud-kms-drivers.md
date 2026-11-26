@@ -77,6 +77,11 @@ The Enterprise lifecycle SHALL preserve every in-scope key dependency during off
 - WHEN recovery imports a snapshot protected by a retained source KEK
 - THEN the operator can prove recovery with the original envelope context or rewrap under an authorized destination profile before releasing quarantine
 
+##### Scenario: Verify a distinct target with a warmed source in the same process
+- WHEN ordinary serving has cached the source DEK or has a source lookup in flight for a logical scope that rotation verifies against a distinct target generation
+- THEN verification reads the target DEK through its pinned profile and generation without reading, joining or populating either ordinary shared map
+- AND the target must authenticate target ciphertext before activation, even if the source key is still available
+
 ## Architecture
 
 ### Edition and package boundaries
@@ -194,7 +199,7 @@ The OSS seam stays provider-neutral. Enterprise packages own cloud SDKs, protect
 ## Implementation Plan
 
 1. Consume the OSS manifest and strict write-safety prerequisites. Exercise `src/providers/kms.ts` registration and the same early provider bootstrap across serving and maintenance entry points. Implement the guarded Enterprise store and shared envelope contract. Qualify provisioning and refusal against disposable fixtures with all provider SDKs absent.
-2. Add explicit, version-pinned maintenance profiles to the protected rotation coordinator. Implement the rewrap checkpoint and rollback rules. Prove no persistence from preview and test resume and stale-epoch refusal.
+2. Add explicit, version-pinned maintenance profiles to the protected rotation coordinator. Bypass the shared DEK cache and in-flight map for maintenance reads, and prove verification uses the distinct target key for the same scope with the source cached and with the source lookup in flight. Implement the rewrap checkpoint and rollback rules. Prove no persistence from preview and test resume and stale-epoch refusal.
 3. Extend backup snapshot and restore custody checks once #9333's operational contract lands. Rehearse full isolated recovery and cross-deployment rewrap with a fixture before releasing a cloud driver.
 4. Implement and qualify the AWS package with native IAM-role authentication and historical references.
 5. Implement and qualify the Google Cloud package with ADC workload identity, primary/explicit version handling and integrity checks.
