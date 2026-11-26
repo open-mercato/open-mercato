@@ -1437,11 +1437,11 @@ describe('RbacService', () => {
       await expect(service.getEffectiveFeatures(baseUser.id!, noOrganization)).resolves.toEqual(['entities.definitions.manage'])
     })
 
-    it('keeps granting a super-admin user ACL with an empty organization list', async () => {
+    it('does not grant platform access from a super-admin user ACL with an empty organization list', async () => {
       mockUserAcl([], true)
 
       await expect(service.userHasAllFeatures(baseUser.id!, ['entities.definitions.manage'], noOrganization))
-        .resolves.toBe(true)
+        .resolves.toBe(false)
     })
   })
 
