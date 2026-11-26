@@ -233,13 +233,8 @@
     "ajv@npm:^8.17.1": "8.18.0",
     "@babel/plugin-transform-modules-systemjs": "7.29.4",
     "@tiptap/starter-kit@npm:^3.19.0": "3.32.0",
-<<<<<<< HEAD
     "fast-uri": "3.1.7",
-    "serialize-javascript": "7.0.5",
-=======
-    "fast-uri": "3.1.9",
     "serialize-javascript": "7.1.3",
->>>>>>> 16d24d28c7 (fix(deps): patch HumanFS copying and JavaScript serialization (#8982))
     "svgo": "3.3.5",
     "qs": "6.15.2",
     "flatted": "3.4.2",
