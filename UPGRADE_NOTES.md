@@ -6791,3 +6791,9 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+### MFA method encryption (#3854)
+
+With tenant encryption enabled, Security now encrypts MFA method secrets and provider metadata, including legacy TOTP seeds. Apply the additive `secret_hash` migration before deploying the new writes; regenerate module registries. In-flight plaintext pending setups remain compatible and new setups use the lookup hash. The MFA methods list returns public provider metadata without the private legacy TOTP seed. Do not roll back to code that cannot decrypt these fields.
+
+The SQL migration registers existing enabled scopes; it cannot encrypt historical seeds. During the established encryption maintenance window, preview `mercato entities rotate-encryption-key --tenant <tenant UUID> --dry-run`, then run without `--dry-run` and without an old key for every affected tenant, following the existing maintenance safety gates. Restart replicas and verify no plaintext remains. Disabled encryption/maps remain unchanged. This does not erase old backups or log snapshots; suspected exposure requires re-enrollment. See [the rollout spec](.ai/specs/enterprise/2026-11-07-mfa-secret-encryption.md).
