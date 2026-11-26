@@ -18,7 +18,7 @@ import {
 } from './selection.js'
 import type { CatalogModule } from './types.js'
 
-export const MODULES_SITE_URL = 'https://modules.openmercato.com'
+export const MODULES_SITE_URL = 'https://www.openmercato.com/run/modules'
 
 export type CatalogAsk = (question: string) => Promise<string>
 

@@ -6,7 +6,7 @@ description: Installs and registers an npm or GitHub module package, official or
 
 `yarn mercato module add` fetches a module package from npm or GitHub, auto-discovers the module it contains, registers it in your app's `src/modules.ts`, and runs the code generators. It is the primary command for adding pre-built modules published under the `@open-mercato/*` scope. Third-party packages that follow the same module conventions can be installed too by passing `--allow-third-party`. If the package is already installed, [`mercato module enable`](./module-enable) supports the same optional `--eject` flow without reinstalling dependencies.
 
-To find a module package, search [modules.openmercato.com](https://modules.openmercato.com): every module page shows the exact install command for the version the catalog recommends (libraries and adapters install with `yarn add` and `yarn generate`, not `module add`). See [Modules catalog](/framework/modules/official-modules).
+To find a module package, search [www.openmercato.com/run/modules](https://www.openmercato.com/run/modules): every module page shows the exact install command for the version the catalog recommends (libraries and adapters install with `yarn add` and `yarn generate`, not `module add`). See [Modules catalog](/framework/modules/official-modules).
 
 To create and publish a reusable package from your own standalone app, see [Publishing Custom Modules](/framework/modules/publishing-custom-modules). GitHub packages can be installed directly with `module add`, or with Yarn followed by `module enable`.
 
@@ -52,7 +52,7 @@ When a descriptor declares `metadata.requires`, it must use a static array conta
 
 ## Fresh Releases and the 5-Day Age Gate
 
-Apps created with `create-mercato-app` set `npmMinimalAgeGate: 5d` in `.yarnrc.yml`, so Yarn refuses third-party versions published less than 5 days ago. The `@open-mercato/*` scope is preapproved and installs immediately. The [module page](https://modules.openmercato.com) shows the date a fresh release becomes installable as **Installable from**, and its install command keeps the previous version until then. Pass that exact version in `<packageSpec>`.
+Apps created with `create-mercato-app` set `npmMinimalAgeGate: 5d` in `.yarnrc.yml`, so Yarn refuses third-party versions published less than 5 days ago. The `@open-mercato/*` scope is preapproved and installs immediately. The [module page](https://www.openmercato.com/run/modules) shows the date a fresh release becomes installable as **Installable from**, and its install command keeps the previous version until then. Pass that exact version in `<packageSpec>`.
 
 ## What the Command Does
 
