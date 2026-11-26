@@ -1,0 +1,9 @@
+{
+  "journal_entry_line_dimensions.audit.set": "Dimension der Buchungszeile festgelegt",
+  "journal_entry_line_dimensions.errors.duplicateDimensionIds": "Dieselbe Dimension darf nicht mehrfach angegeben werden.",
+  "journal_entry_line_dimensions.errors.fiscalPeriodLocked": "Die Buchungsperiode, die diese Buchung abdeckt, ist gesperrt. Buchen Sie stattdessen eine Korrekturbuchung mit eigenen Dimensionen.",
+  "journal_entry_line_dimensions.errors.lineNotFound": "Buchungszeile nicht gefunden.",
+  "journal_entry_line_dimensions.errors.noFiscalPeriodForOperationDate": "Keine Buchungsperiode deckt das Operationsdatum dieser Buchung ab, daher können ihre Dimensionen nicht geändert werden.",
+  "journal_entry_line_dimensions.errors.scopeRequired": "Für das Ändern der Dimensionen einer Buchungszeile ist ein Mandanten- und Organisationskontext erforderlich.",
+  "journal_entry_line_dimensions.errors.writtenByAnotherWriter": "Diese Dimension der Buchungszeile wurde bereits von einem anderen Modul ({writer}) festgelegt."
+}
