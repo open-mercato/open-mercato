@@ -63,7 +63,7 @@ export function formatComment(reason: string): string {
   return `Removed ${code(MERGE_QUEUE_LABEL)}: ${reason}, so this PR is not merge-ready (see the merge-ready rule in \`.ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md\`).`
 }
 
-export type GuardOutcome = 'removed' | 'stays' | 'already-gone' | 'not-relevant' | 'removed-by-someone-else'
+export type GuardOutcome = 'removed' | 'stays' | 'already-gone' | 'not-relevant' | 'removed-by-someone-else' | 'failed'
 
 export type GuardReport = {
   pullRequest?: { number: number; url: string }
@@ -93,6 +93,7 @@ const DECISION_TEXT: Record<GuardOutcome, string> = {
   'already-gone': `${code(MERGE_QUEUE_LABEL)} was already gone`,
   'not-relevant': 'not relevant',
   'removed-by-someone-else': `${code(MERGE_QUEUE_LABEL)} removed by someone else (recorded only)`,
+  failed: 'guard failed',
 }
 
 function headline({ outcome, pullRequest, actor }: GuardReport): string {
@@ -108,6 +109,8 @@ function headline({ outcome, pullRequest, actor }: GuardReport): string {
       return `\u{1F464} ${code(MERGE_QUEUE_LABEL)} was removed from ${target} by ${actor ?? 'an unknown actor'}`
     case 'not-relevant':
       return `\u2796 Nothing to do for ${target}`
+    case 'failed':
+      return `\u274C The guard failed on ${target}`
   }
 }
 
@@ -122,7 +125,7 @@ export function formatSummary(report: GuardReport): string {
     ['Event', event],
     ['Decision', `**${DECISION_TEXT[report.outcome]}**`],
     ['Reason', report.reason],
-    ['At', report.at],
+    ['Seen at', report.at],
   ]
   return [
     `## ${headline(report)}`,
@@ -137,7 +140,7 @@ export function formatSummary(report: GuardReport): string {
 export function formatLogLine(report: GuardReport): string {
   const target = report.pullRequest ? `#${report.pullRequest.number}` : '(no PR)'
   const event = report.action ? `${report.action} ${report.label ?? '(no label)'} by ${report.actor ?? 'unknown'}` : 'no label event'
-  return `${target}: ${DECISION_TEXT[report.outcome].replace(/`/g, '')} (${report.reason.replace(/`/g, '')}) [event: ${event}, at ${report.at}]`
+  return `${target}: ${DECISION_TEXT[report.outcome].replace(/`/g, '')} (${report.reason.replace(/`/g, '')}) [event: ${event}, seen at ${report.at}]`
 }
 
 type IssueParams = { owner: string; repo: string; issue_number: number }
@@ -180,17 +183,22 @@ function isNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 404
 }
 
-async function evaluate({ github, context, guardAppSlug, at }: GuardRunOptions & { at: string }): Promise<{ decision: GuardDecision; report: GuardReport }> {
+function describeEvent(context: GuardContext, at: string): Omit<GuardReport, 'outcome' | 'reason'> {
   const { action, label, pull_request: pullRequest, sender } = context.payload
-  const actor = sender?.login
-  const base = { action, label: label?.name, actor, at }
+  const base = { action, label: label?.name, actor: sender?.login, at }
+  if (!pullRequest) return base
+  const url = pullRequest.html_url ?? `${context.serverUrl ?? 'https://github.com'}/${context.repo.owner}/${context.repo.repo}/pull/${pullRequest.number}`
+  return { ...base, pullRequest: { number: pullRequest.number, url } }
+}
+
+async function evaluate({ github, context, guardAppSlug, at }: GuardRunOptions & { at: string }): Promise<{ decision: GuardDecision; report: GuardReport }> {
+  const { action, label, pull_request: pullRequest } = context.payload
+  const report = describeEvent(context, at)
+  const actor = report.actor
   const keep: GuardDecision = { remove: false }
   if ((action !== 'labeled' && action !== 'unlabeled') || !label?.name || !pullRequest) {
-    return { decision: keep, report: { ...base, outcome: 'not-relevant', reason: 'not a pull request label event' } }
+    return { decision: keep, report: { ...report, outcome: 'not-relevant', reason: 'not a pull request label event' } }
   }
-
-  const prUrl = pullRequest.html_url ?? `${context.serverUrl ?? 'https://github.com'}/${context.repo.owner}/${context.repo.repo}/pull/${pullRequest.number}`
-  const report = { ...base, pullRequest: { number: pullRequest.number, url: prUrl } }
 
   if (action === 'unlabeled' && label.name === MERGE_QUEUE_LABEL) {
     if (guardAppSlug && actor === `${guardAppSlug}[bot]`) {
@@ -201,7 +209,7 @@ async function evaluate({ github, context, guardAppSlug, at }: GuardRunOptions &
       report: {
         ...report,
         outcome: 'removed-by-someone-else',
-        reason: `${actor ?? 'an unknown actor'} removed ${code(MERGE_QUEUE_LABEL)} at ${at}; the guard does not re-add it`,
+        reason: `${actor ?? 'an unknown actor'} removed ${code(MERGE_QUEUE_LABEL)} (event seen at ${at}); the guard does not re-add it`,
       },
     }
   }
@@ -225,11 +233,29 @@ async function evaluate({ github, context, guardAppSlug, at }: GuardRunOptions &
   return { decision, report: { ...report, outcome: 'removed', reason: decision.reason } }
 }
 
+async function writeReport(core: GuardCore, report: GuardReport): Promise<void> {
+  core.info(formatLogLine(report))
+  core.summary.addRaw(formatSummary(report), true)
+  await core.summary.write()
+}
+
 export async function run(options: GuardRunOptions): Promise<GuardDecision> {
   const at = (options.now ?? (() => new Date()))().toISOString()
-  const { decision, report } = await evaluate({ ...options, at })
-  options.core.info(formatLogLine(report))
-  options.core.summary.addRaw(formatSummary(report), true)
-  await options.core.summary.write()
-  return decision
+  let result: { decision: GuardDecision; report: GuardReport }
+  try {
+    result = await evaluate({ ...options, at })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const report: GuardReport = {
+      ...describeEvent(options.context, at),
+      outcome: 'failed',
+      reason: `the guard stopped with an error (${message}); check ${code(MERGE_QUEUE_LABEL)} on the PR by hand`,
+    }
+    await writeReport(options.core, report).catch((summaryError: unknown) => {
+      options.core.info(`Could not write the job summary: ${String(summaryError)}`)
+    })
+    throw error
+  }
+  await writeReport(options.core, result.report)
+  return result.decision
 }

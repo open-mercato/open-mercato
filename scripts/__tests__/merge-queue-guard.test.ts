@@ -177,9 +177,16 @@ test('run skips the comment when merge-queue was already removed concurrently', 
   assert.deepEqual(calls.map((call) => call.method), ['listLabelsOnIssue', 'removeLabel'])
 })
 
-test('run rethrows unexpected API errors', async () => {
+test('run rethrows unexpected API errors after writing a failure summary', async () => {
+  const recorder = fakeCore()
   const { github } = fakeGithub(['merge-queue', 'blocked'], { removeStatus: 500 })
-  await assert.rejects(run({ github, context: fakeContext('labeled', 'blocked'), core }), /fail/)
+  await assert.rejects(run({ github, context: fakeContext('labeled', 'blocked'), core: recorder.core, now }), /fail/)
+  assert.equal(recorder.summaries.length, 1)
+  assert.equal(recorder.written(), 1)
+  assert.match(recorder.summaries[0], /^## .*The guard failed on #7\n/)
+  assert.match(recorder.summaries[0], /\| Decision \| \*\*guard failed\*\* \|/)
+  assert.match(recorder.summaries[0], /the guard stopped with an error \(fail\)/)
+  assert.match(recorder.logs[0], /^#7: guard failed/)
 })
 
 test('run ignores events that are not pull request label changes', async () => {
@@ -230,8 +237,9 @@ test('merge-queue removed by someone else is recorded with who and when, never r
   assert.deepEqual(decision, { remove: false })
   assert.deepEqual(calls, [])
   assert.match(recorder.summaries[0], /`merge-queue` was removed from #7 by om-bot\[bot\]/)
-  assert.match(recorder.summaries[0], /om-bot\[bot\] removed `merge-queue` at 2026-11-26T10:00:00\.000Z/)
-  assert.match(recorder.logs[0], /removed by someone else.*om-bot\[bot\] removed merge-queue at 2026-11-26T10:00:00\.000Z/)
+  assert.match(recorder.summaries[0], /om-bot\[bot\] removed `merge-queue` \(event seen at 2026-11-26T10:00:00\.000Z\)/)
+  assert.match(recorder.summaries[0], /\| Seen at \| 2026-11-26T10:00:00\.000Z \|/)
+  assert.match(recorder.logs[0], /removed by someone else.*om-bot\[bot\] removed merge-queue \(event seen at 2026-11-26T10:00:00\.000Z\)/)
 })
 
 test("the guard's own merge-queue removal is not reported as someone else's", async () => {
@@ -333,7 +341,13 @@ test('the script never interpolates event data and token-holding actions are pin
 
 test('the job also runs when merge-queue itself is removed, and tells the script which app it acts as', () => {
   const job = readGuardWorkflow().jobs.guard
-  assert.doesNotMatch(job.if ?? '', /github\.event\.action == 'unlabeled'/)
+  const condition = job.if ?? ''
+  assert.doesNotMatch(condition, /github\.event\.action/)
+  const allowList = condition.match(/contains\(fromJSON\('(\[[^\]]*\])'\), github\.event\.label\.name\)/)
+  assert.ok(allowList, 'the job filters on a label allow-list')
+  const labels = JSON.parse(allowList[1]) as string[]
+  assert.ok(labels.includes('merge-queue'))
+  for (const label of [...ALWAYS_BLOCKING_LABELS, 'needs-human-qa', 'qa-approved']) assert.ok(labels.includes(label), label)
   const scriptStep = job.steps.find((step) => step.uses?.startsWith('actions/github-script@'))
   assert.ok(scriptStep)
   assert.equal(scriptStep.name, 'Check merge-queue against blocking labels')
