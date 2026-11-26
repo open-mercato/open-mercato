@@ -297,8 +297,9 @@ const STATEMENT_UPDATE_FIELDS = [
 ] as const
 
 type StatementUpdateField = (typeof STATEMENT_UPDATE_FIELDS)[number]
-type StatementFieldPatch = Omit<StatementUpdateInput, 'id' | 'commodity' | 'quantityKg' | 'supplementaryQuantity'> & {
+type StatementFieldPatch = Omit<StatementUpdateInput, 'id' | 'commodity' | 'referencedStatements' | 'quantityKg' | 'supplementaryQuantity'> & {
   commodity?: string
+  referencedStatements?: StatementSnapshot['referencedStatements']
   quantityKg?: number | string | null
   supplementaryQuantity?: number | string | null
 }
