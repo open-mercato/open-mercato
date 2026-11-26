@@ -43,10 +43,20 @@ test('TC-ENTITIES-9106: metadata access cannot read system secrets; permitted re
     const metadataOnly = await apiRequest(request, 'GET', `/api/entities/relations/options?entityId=${entityId}&labelField=title&ids=${recordId}`, { token: actor })
     expect(metadataOnly.status()).toBe(403)
     readerRoleId = await createRoleFixture(request, administrator, { name: `relation-reader-9106-${randomUUID()}` })
-    await setRoleAclFeatures(request, administrator, { roleId: readerRoleId, features: ['entities.definitions.view', 'entities.records.view'] })
+    await setRoleAclFeatures(request, administrator, {
+      roleId: readerRoleId,
+      features: [
+        'entities.definitions.view', 'entities.records.view',
+        'staff.timesheets.projects.view', 'staff.timesheets.tasks.view', 'staff.timesheets.reports.view',
+      ],
+    })
     const readerEmail = `relation-reader-${randomUUID()}@example.test`
     readerUserId = await createUserFixture(request, administrator, { email: readerEmail, password, organizationId, roles: [readerRoleId] })
     const reader = await getAuthToken(request, readerEmail, password)
+    for (const target of ['staff:staff_time_project', 'staff:staff_time_task', 'staff:staff_time_report']) {
+      const response = await apiRequest(request, 'GET', `/api/entities/relations/options?entityId=${target}`, { token: reader })
+      expect(response.status(), `${target} must require its owning record policy`).toBe(403)
+    }
     const label = await apiRequest(request, 'GET', `/api/entities/relations/options?entityId=${entityId}&labelField=title&ids=${recordId}`, { token: reader })
     expect(label.status()).toBe(200)
     expect(await label.json()).toEqual({ items: [{ value: recordId, label: 'Own relation label' }] })
