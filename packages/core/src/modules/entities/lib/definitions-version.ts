@@ -18,14 +18,9 @@ import {
  *   - `CustomFieldDef` (active + tombstoned) — a field add/edit/delete bumps it,
  *   - `CustomFieldEntityConfig` — a fieldset/settings change bumps it.
  *
- * The `CustomEntity` metadata row is deliberately NOT part of this token: the
- * form's Save first PUTs entity metadata (`POST /api/entities/entities`, which
- * bumps `CustomEntity.updatedAt` and enforces its own optimistic lock) and only
- * then PUTs the definitions batch — folding the metadata row in here would make
- * the batch 409 against the form's OWN just-completed metadata save. Custom
- * entities therefore keep their concurrent-edit protection from the metadata
- * lock (primary) with the definitions token as defense-in-depth; system/code
- * entities (no metadata row, no metadata PUT) rely on the definitions token.
+ * Custom entity metadata keeps a separate version (`CustomEntity.updatedAt`).
+ * The editor checks both versions when saving metadata and definitions together.
+ * Code-declared entities rely on the definitions token alone.
  * A schema with zero definitions and no config yields `null`, so locking
  * degrades to a no-op for that first-ever concurrent add edge case.
  *

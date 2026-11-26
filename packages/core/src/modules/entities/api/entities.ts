@@ -11,6 +11,7 @@ import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { invalidateCustomEntityNavigation, persistCustomEntityMetadata } from '../lib/custom-entity-metadata'
 import { canReadEntityMetadata, getDeclaredCustomEntityRestriction } from '../lib/entityAcl'
 import {
   beginEntitiesMutationGuard,
@@ -190,46 +191,10 @@ export async function POST(req: Request) {
   })
   if (guard.blockedResponse) return guard.blockedResponse
 
-  const isCreate = !ent
-  if (!ent) ent = em.create(CustomEntity, { ...where, createdAt: new Date() })
-  ent.label = input.label
-  ent.description = input.description ?? null
-  ent.isActive = input.isActive ?? true
-  ent.labelField = input.labelField ?? ent.labelField ?? null
-  ent.defaultEditor = input.defaultEditor ?? ent.defaultEditor ?? null
-  ent.showInSidebar = input.showInSidebar ?? ent.showInSidebar ?? false
-  // Never silently flip a security control on a partial upsert. `access_restricted`
-  // changes ONLY when the caller explicitly sends the field. On create without it,
-  // fall back to the tenant default-restricted policy; on update without it, keep
-  // the entity's current value (a metadata-only update must not un-restrict).
-  if (accessRestrictedExplicit) {
-    ent.accessRestricted = input.accessRestricted === true
-  } else if (isCreate) {
-    let policyDefault = false
-    try {
-      const moduleConfigService = resolve('moduleConfigService') as {
-        getValue: (m: string, n: string, o?: { defaultValue?: unknown; scope?: { tenantId?: string | null } }) => Promise<unknown>
-      }
-      policyDefault = (await moduleConfigService.getValue('entities', 'newEntitiesRestrictedByDefault', {
-        defaultValue: false,
-        scope: { tenantId: auth.tenantId ?? null },
-      })) === true
-    } catch {}
-    ent.accessRestricted = policyDefault
-  } else {
-    ent.accessRestricted = ent.accessRestricted ?? false
-  }
-  ent.updatedAt = new Date()
-  em.persist(ent)
+  ent = await persistCustomEntityMetadata(em, container, where, ent, input, accessRestrictedExplicit)
   await em.flush()
   await guard.runAfterSuccess()
-  // Invalidate sidebar/nav cache for tenant scope (also when tenantId is null)
-  try {
-    const cache = (await createRequestContainer()).resolve('cache') as any
-    if (cache) {
-      await cache.deleteByTags([`nav:entities:${auth.tenantId || 'null'}`])
-    }
-  } catch {}
+  await invalidateCustomEntityNavigation(container, auth.tenantId)
   return NextResponse.json({ ok: true, item: { id: ent.id, entityId: ent.entityId, label: ent.label, description: ent.description ?? undefined } })
 }
 
