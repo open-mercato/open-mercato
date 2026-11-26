@@ -3,6 +3,7 @@ import { registerNotificationHandlers } from '@open-mercato/shared/lib/notificat
 import {
   __resetNotificationDispatcherForTests,
   dispatchNotificationHandlers,
+  subscribeNotificationEffects,
 } from '../NotificationDispatcher'
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -73,4 +74,36 @@ describe('NotificationDispatcher — handler navigation stays on the application
     dispatchNotificationHandlers([makeNotification('n-safe', '/backend/notifications')], ctx)
     expect(ctx.navigate).toHaveBeenCalledWith('/backend/notifications')
   })
+})
+
+it('replays only handlers that were blocked while grants were pending', () => {
+  __resetNotificationDispatcherForTests()
+  const gated = jest.fn()
+  const ungated = jest.fn()
+  const listener = jest.fn()
+  registerNotificationHandlers([{
+    moduleId: 'test',
+    handlers: [
+      { id: 'gated', notificationType: TYPE, features: ['test.view'], handle: gated },
+      { id: 'ungated', notificationType: TYPE, handle: ungated },
+    ],
+  }])
+  const unsubscribe = subscribeNotificationEffects(TYPE, listener)
+  try {
+    const notifications = [makeNotification('replay', '/backend/notifications')]
+    dispatchNotificationHandlers(notifications, { ...runtime(), featuresPending: true })
+    expect(gated).not.toHaveBeenCalled()
+    expect(ungated).toHaveBeenCalledTimes(1)
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    const recovered = { ...runtime(), features: ['test.view'] }
+    dispatchNotificationHandlers(notifications, recovered)
+    dispatchNotificationHandlers(notifications, recovered)
+    expect(gated).toHaveBeenCalledTimes(1)
+    expect(ungated).toHaveBeenCalledTimes(1)
+    expect(listener).toHaveBeenCalledTimes(1)
+  } finally {
+    unsubscribe()
+    registerNotificationHandlers([])
+  }
 })

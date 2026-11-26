@@ -19,6 +19,7 @@ const logger = createLogger('ui').child({ component: 'notifications' })
 type RuntimeContext = {
   userId?: string
   features: string[]
+  featuresPending?: boolean
   currentPath: string
   t?: (key: string, fallback?: string) => string
   refreshNotifications: () => void
@@ -93,7 +94,7 @@ function buildHandlerContext(runtime: RuntimeContext): NotificationHandlerContex
 }
 
 class NotificationDispatcher {
-  private handledIds = new Set<string>()
+  private handledNotifications = new Map<string, Set<NotificationHandler> | null>()
   private handledOrder: string[] = []
   private listeners = new Map<number, NotificationEffectListener>()
   private listenerIdSeq = 1
@@ -108,9 +109,11 @@ class NotificationDispatcher {
       .sort((a, b) => (b.handler.priority ?? DEFAULT_PRIORITY) - (a.handler.priority ?? DEFAULT_PRIORITY))
 
     for (const notification of notifications) {
-      if (this.handledIds.has(notification.id)) continue
+      const previousHandlers = this.handledNotifications.get(notification.id)
+      if (previousHandlers === null) continue
 
       let handlerRan = false
+      const completedHandlers = previousHandlers ?? new Set<NotificationHandler>()
       let hadFeatureBlockedHandler = false
       const localized = localizeNotificationCopy(notification, runtime.t)
 
@@ -121,7 +124,8 @@ class NotificationDispatcher {
           hadFeatureBlockedHandler = true
           continue
         }
-        if (this.shouldDebounce(handler, notification.id)) continue
+        if (completedHandlers.has(handler) || this.shouldDebounce(handler, notification.id)) continue
+        completedHandlers.add(handler)
         handlerRan = true
         try {
           void Promise.resolve(handler.handle(localized, context))
@@ -131,7 +135,7 @@ class NotificationDispatcher {
       }
 
       for (const listener of this.listeners.values()) {
-        if (!matchesType(listener.pattern, notification.type)) continue
+        if (previousHandlers || !matchesType(listener.pattern, notification.type)) continue
         handlerRan = true
         try {
           listener.effect(notification)
@@ -140,13 +144,10 @@ class NotificationDispatcher {
         }
       }
 
-      // Only mark as permanently handled when something actually ran, or when no handler
-      // was blocked by missing features. This prevents a race where the initial notification
-      // fetch completes before the feature-check API resolves (features: []), causing all
-      // feature-gated handlers to be skipped — but the notification gets permanently
-      // deduped so it never fires when features are available on the next dispatch.
-      if (handlerRan || !hadFeatureBlockedHandler) {
-        this.markHandled(notification.id)
+      if (hadFeatureBlockedHandler && runtime.featuresPending) {
+        this.markHandled(notification.id, completedHandlers)
+      } else if (handlerRan || previousHandlers || !hadFeatureBlockedHandler) {
+        this.markHandled(notification.id, null)
       }
     }
   }
@@ -160,7 +161,7 @@ class NotificationDispatcher {
   }
 
   resetForTests() {
-    this.handledIds.clear()
+    this.handledNotifications.clear()
     this.handledOrder = []
     this.listeners.clear()
     this.listenerIdSeq = 1
@@ -179,14 +180,14 @@ class NotificationDispatcher {
     return false
   }
 
-  private markHandled(notificationId: string) {
-    this.handledIds.add(notificationId)
-    this.handledOrder.push(notificationId)
+  private markHandled(notificationId: string, completedHandlers: Set<NotificationHandler> | null) {
+    if (!this.handledNotifications.has(notificationId)) this.handledOrder.push(notificationId)
+    this.handledNotifications.set(notificationId, completedHandlers)
     if (this.handledOrder.length <= MAX_TRACKED_IDS) return
     const removeCount = this.handledOrder.length - RETAINED_IDS_AFTER_PRUNE
     const removed = this.handledOrder.splice(0, removeCount)
     for (const id of removed) {
-      this.handledIds.delete(id)
+      this.handledNotifications.delete(id)
     }
   }
 }

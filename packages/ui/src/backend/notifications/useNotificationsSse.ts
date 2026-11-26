@@ -44,7 +44,7 @@ export function useNotificationsSse(): UseNotificationsSseResult {
   const [hasNew, setHasNew] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const grantedFeaturesRef = useNotificationHandlerFeatures()
+  const { grantedFeaturesRef, grantedFeatures } = useNotificationHandlerFeatures()
   const translate = useOptionalT()
   const translateRef = React.useRef(translate)
   React.useEffect(() => { translateRef.current = translate }, [translate])
@@ -61,6 +61,28 @@ export function useNotificationsSse(): UseNotificationsSseResult {
     dismissRef,
   } = useNotificationActions(notifications, setNotifications, setUnreadCount)
 
+  const dispatchNotifications = React.useCallback((items: NotificationDto[]) => {
+    if (items.length === 0) return
+    dispatchNotificationHandlers(items, {
+      features: grantedFeaturesRef.current ?? [],
+      featuresPending: grantedFeaturesRef.current === undefined,
+      t: translateRef.current,
+      currentPath:
+        typeof window === 'undefined'
+          ? '/'
+          : `${window.location.pathname}${window.location.search}`,
+      refreshNotifications: () => {
+        // SSE already applied the notification payload or refreshed the list.
+      },
+      navigate: (href) => {
+        if (typeof window === 'undefined' || !href.startsWith('/')) return
+        window.location.assign(href)
+      },
+      markAsRead: async (notificationId) => markAsReadRef.current(notificationId),
+      dismiss: async (notificationId) => dismissRef.current(notificationId),
+    })
+  }, [grantedFeaturesRef, markAsReadRef, dismissRef])
+
   const fetchNotifications = React.useCallback(async () => {
     try {
       const [notifResult, countResult] = await Promise.all([
@@ -73,23 +95,7 @@ export function useNotificationsSse(): UseNotificationsSseResult {
         setNotifications(fetched)
         if (fetched.length > 0) {
           lastIdRef.current = fetched[0].id
-          dispatchNotificationHandlers(fetched, {
-            features: grantedFeaturesRef.current,
-            t: translateRef.current,
-            currentPath:
-              typeof window === 'undefined'
-                ? '/'
-                : `${window.location.pathname}${window.location.search}`,
-            refreshNotifications: () => {
-              // No-op: data was just fetched — avoid redundant refetch loop.
-            },
-            navigate: (href) => {
-              if (typeof window === 'undefined' || !href.startsWith('/')) return
-              window.location.assign(href)
-            },
-            markAsRead: async (notificationId) => markAsReadRef.current(notificationId),
-            dismiss: async (notificationId) => dismissRef.current(notificationId),
-          })
+          dispatchNotifications(fetched)
         }
       }
 
@@ -103,7 +109,7 @@ export function useNotificationsSse(): UseNotificationsSseResult {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [dispatchNotifications])
 
   const refresh = React.useCallback(() => {
     void fetchNotifications()
@@ -112,6 +118,13 @@ export function useNotificationsSse(): UseNotificationsSseResult {
   React.useEffect(() => {
     void fetchNotifications()
   }, [fetchNotifications])
+
+  const replayedGrantsRef = React.useRef<string[] | undefined>(undefined)
+  React.useEffect(() => {
+    if (!grantedFeatures || replayedGrantsRef.current === grantedFeatures) return
+    replayedGrantsRef.current = grantedFeatures
+    dispatchNotifications(notifications)
+  }, [notifications, grantedFeatures, dispatchNotifications])
 
   React.useEffect(() => {
     const unsub = subscribeNotificationNew(() => refresh())
@@ -141,26 +154,9 @@ export function useNotificationsSse(): UseNotificationsSseResult {
       }
       setHasNew(true)
       window.setTimeout(() => setHasNew(false), 3000)
-      dispatchNotificationHandlers([notification], {
-        features: grantedFeaturesRef.current,
-        t: translateRef.current,
-        currentPath:
-          typeof window === 'undefined'
-            ? '/'
-            : `${window.location.pathname}${window.location.search}`,
-        refreshNotifications: () => {
-          // No-op: notification was already applied optimistically from the SSE payload.
-          // Full refetch is only needed for batch_created, reconnect, or missing payload.
-        },
-        navigate: (href) => {
-          if (typeof window === 'undefined' || !href.startsWith('/')) return
-          window.location.assign(href)
-        },
-        markAsRead: async (notificationId) => markAsReadRef.current(notificationId),
-        dismiss: async (notificationId) => dismissRef.current(notificationId),
-      })
+      dispatchNotifications([notification])
     },
-    [fetchNotifications],
+    [fetchNotifications, dispatchNotifications],
   )
 
   useAppEvent(

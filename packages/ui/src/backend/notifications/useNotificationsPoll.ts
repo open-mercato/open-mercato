@@ -34,7 +34,7 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
   const [hasNew, setHasNew] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const grantedFeaturesRef = useNotificationHandlerFeatures()
+  const { grantedFeaturesRef } = useNotificationHandlerFeatures()
   const translate = useOptionalT()
   const translateRef = React.useRef(translate)
   React.useEffect(() => { translateRef.current = translate }, [translate])
@@ -77,7 +77,8 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
 
         if (newNotifications.length > 0) {
           dispatchNotificationHandlers(newNotifications, {
-            features: grantedFeaturesRef.current,
+            features: grantedFeaturesRef.current ?? [],
+            featuresPending: grantedFeaturesRef.current === undefined,
             t: translateRef.current,
             currentPath:
               typeof window === 'undefined'
@@ -112,7 +113,7 @@ export function useNotificationsPoll(): UseNotificationsPollResult {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [grantedFeaturesRef, markAsReadRef, dismissRef])
 
   const refresh = React.useCallback(() => {
     fetchNotifications()
