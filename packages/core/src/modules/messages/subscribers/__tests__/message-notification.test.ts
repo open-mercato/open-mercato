@@ -210,6 +210,37 @@ describe('messages sent subscriber', () => {
     expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external_participants', messageId: 'message-1' }))
   })
 
+  it('routes an external_conversation to the platform sender when the channel lookup throws', async () => {
+    const nativeUpdate = jest.fn(async () => 1)
+    const ctxWithEm = { resolve: jest.fn(() => ({ fork: () => ({ nativeUpdate }) })) }
+    findOneWithDecryptionMock.mockResolvedValueOnce({
+      sourceEntityType: 'communication_channels.external_conversation',
+      threadId: 'thread-1',
+      visibility: 'public',
+    })
+    resolveMessageChannelThreadAccessMock.mockRejectedValueOnce(new Error('[internal] lookup failed'))
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      sendViaEmail: true,
+      externalEmail: 'ext@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctxWithEm)
+
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      { id: 'message-1', tenantId: 'tenant-1', organizationId: 'org-1', emailDeliveryRoute: null },
+      { emailDeliveryRoute: 'system' },
+    )
+    expect(nativeUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      enqueueMock.mock.invocationCallOrder[enqueueMock.mock.calls.length - 1],
+    )
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external_participants', messageId: 'message-1' }))
+  })
+
   it('skips the external job for an external_conversation sourced message', async () => {
     findOneWithDecryptionMock.mockResolvedValueOnce({ sourceEntityType: 'communication_channels.external_conversation' })
 

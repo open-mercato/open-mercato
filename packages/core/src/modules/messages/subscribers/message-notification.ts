@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createQueue } from '@open-mercato/queue'
 import { buildBatchNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
@@ -117,9 +118,10 @@ async function resolveNotificationVariables(payload: MessageSentPayload, ctx: Re
  * found — we can only skip the external send when we can affirmatively show
  * it is channel-routed.
  *
- * A channel conversation whose thread no longer resolves falls back to the
- * platform sender, so its route is recorded as `system` here: the email worker
- * and the retry tick only deliver `system`-routed messages.
+ * A channel conversation whose thread no longer resolves (or whose thread
+ * lookup fails) falls back to the platform sender, so its route is recorded as
+ * `system` here: the email worker and the retry tick only deliver
+ * `system`-routed messages.
  */
 async function isChannelRoutedMessage(payload: MessageSentPayload, ctx: ResolverContext): Promise<boolean> {
   try {
@@ -153,7 +155,14 @@ async function isChannelRoutedMessage(payload: MessageSentPayload, ctx: Resolver
       },
       { messageThreadId: message.threadId },
       { userId: null, features: [] },
-    )
+    ).catch((error: unknown) => {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'messages',
+        code: 'messages.channel_thread_lookup_failed',
+        attributes: { messageId: payload.messageId },
+      })
+      return null
+    })
     if (channelThreadAccess !== null) return true
     await em.nativeUpdate(
       Message,
