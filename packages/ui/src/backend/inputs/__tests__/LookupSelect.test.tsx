@@ -310,15 +310,23 @@ describe('LookupSelect selected value display', () => {
       )
     }
 
-    const { container } = render(<CustomerPickerHarness />)
-    const input = getInput(container)
+    jest.useFakeTimers()
+    try {
+      const { container } = render(<CustomerPickerHarness />)
+      const input = getInput(container)
 
-    fireEvent.change(input, { target: { value: 'Exc' } })
-    fireEvent.click(await screen.findByRole('option'))
-    fireEvent.keyDown(input, { key: 'Escape' })
+      fireEvent.change(input, { target: { value: 'Exc' } })
+      await act(async () => {
+        await jest.runOnlyPendingTimersAsync()
+      })
+      fireEvent.click(screen.getByRole('option', { name: /ExcelMed/ }))
+      fireEvent.keyDown(input, { key: 'Escape' })
 
-    expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('ExcelMed')
-    expect(container.textContent ?? '').not.toContain(RECORD_ID)
+      expect(screen.getByTestId('lookup-select-selected')).toHaveTextContent('ExcelMed')
+      expect(container.textContent ?? '').not.toContain(RECORD_ID)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('clears the selection from the collapsed summary', () => {
