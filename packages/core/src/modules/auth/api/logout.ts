@@ -60,14 +60,30 @@ export async function POST(req: Request) {
     : null
   const authToken = bearerToken || parseCookie(req, 'auth_token')
   if (!sessToken && !authToken) return buildSafeRedirectResponse(req, '/login', 303)
-  const claims = extractAuthTokenClaims(authToken)
+  const accessClaims = extractAuthTokenClaims(authToken)
+  let claims = accessClaims
   let sessionRevoked = false
   if (sessToken || claims.sessionId) {
     try {
       const c = await createRequestContainer()
       const auth = c.resolve<AuthService>('authService')
-      if (claims.sessionId) {
-        await auth.deleteSessionById(claims.sessionId)
+      if (!claims.userId && sessToken) {
+        try {
+          const refreshSession = await auth.refreshFromSessionToken(sessToken)
+          if (refreshSession) {
+            claims = {
+              userId: refreshSession.user.id,
+              sessionId: refreshSession.session.id,
+              tenantId: refreshSession.user.tenantId ?? null,
+              organizationId: refreshSession.user.organizationId ?? null,
+            }
+          }
+        } catch (error) {
+          getTelemetryRuntime()?.reportError(error, { module: 'auth', code: 'auth.logout_identity_failed' })
+        }
+      }
+      if (accessClaims.sessionId) {
+        await auth.deleteSessionById(accessClaims.sessionId)
       }
       if (sessToken) {
         await auth.deleteSessionByToken(sessToken)

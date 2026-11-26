@@ -1,11 +1,12 @@
 /** @jest-environment node */
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 
+const refreshFromSessionToken = jest.fn()
 const deleteSessionById = jest.fn()
 const deleteSessionByToken = jest.fn()
 const containerResolve = jest.fn((name: string) => {
   if (name === 'authService') {
-    return { deleteSessionById, deleteSessionByToken }
+    return { deleteSessionById, deleteSessionByToken, refreshFromSessionToken }
   }
   return null
 })
@@ -65,6 +66,7 @@ function buildCookieHeader(parts: Record<string, string>): string {
 describe('POST /api/auth/logout — session revocation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    refreshFromSessionToken.mockResolvedValue(null)
   })
 
   it('revokes the session referenced by the auth_token JWT sid claim', async () => {
@@ -307,6 +309,7 @@ describe('POST /api/auth/logout — session revocation', () => {
 describe('POST /api/auth/logout — auth.logout event', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    refreshFromSessionToken.mockResolvedValue(null)
   })
 
   it('emits auth.logout with the identity carried by the auth_token', async () => {
@@ -325,6 +328,64 @@ describe('POST /api/auth/logout — auth.logout event', () => {
       sessionRevoked: true,
       at: expect.any(String),
     }, { persistent: true })
+  })
+
+  it.each(['missing', 'expired', 'invalid'])('emits for a valid refresh session with a %s access token', async (accessState) => {
+    refreshFromSessionToken.mockResolvedValueOnce({
+      user: { id: userId, tenantId: 'refresh-tenant', organizationId: 'refresh-org' },
+      session: { id: sessionId },
+    })
+    const accessToken = accessState === 'expired'
+      ? buildAuthToken({ sub: 'expired-user', exp: Math.floor(Date.now() / 1000) - 60 })
+      : accessState === 'invalid' ? 'not-a-valid-jwt' : null
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ session_token: 'remember-me-token', ...(accessToken ? { auth_token: accessToken } : {}) }) },
+    }))
+
+    expect(refreshFromSessionToken).toHaveBeenCalledWith('remember-me-token')
+    expect(deleteSessionByToken).toHaveBeenCalledWith('remember-me-token')
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.logout', {
+      id: userId, tenantId: 'refresh-tenant', organizationId: 'refresh-org', sessionId,
+      sessionRevoked: true, at: expect.any(String),
+    }, { persistent: true })
+    expect(refreshFromSessionToken.mock.invocationCallOrder[0]).toBeLessThan(deleteSessionByToken.mock.invocationCallOrder[0])
+  })
+
+  it('keeps verified access identity authoritative when both cookies are present', async () => {
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { cookie: buildCookieHeader({ auth_token: buildAuthToken(), session_token: 'remember-me-token' }) },
+    }))
+    expect(refreshFromSessionToken).not.toHaveBeenCalled()
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.logout', expect.objectContaining({ id: userId, sessionId }), { persistent: true })
+  })
+
+  it('reports a refresh-only revocation failure with the verified refresh identity', async () => {
+    refreshFromSessionToken.mockResolvedValueOnce({
+      user: { id: userId, tenantId: 'refresh-tenant', organizationId: 'refresh-org' },
+      session: { id: sessionId },
+    })
+    deleteSessionByToken.mockRejectedValueOnce(new Error('[internal] revocation failed'))
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST', headers: { cookie: buildCookieHeader({ session_token: 'remember-me-token' }) },
+    }))
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.logout', expect.objectContaining({
+      id: userId, sessionId, sessionRevoked: false,
+    }), { persistent: true })
+  })
+
+  it('still revokes the refresh token if identity lookup fails', async () => {
+    const failure = new Error('[internal] identity lookup failed')
+    refreshFromSessionToken.mockRejectedValueOnce(failure)
+    await POST(new Request('http://localhost/api/auth/logout', {
+      method: 'POST', headers: { cookie: buildCookieHeader({ session_token: 'remember-me-token' }) },
+    }))
+    expect(deleteSessionByToken).toHaveBeenCalledWith('remember-me-token')
+    expect(mockEmitAuthEvent).not.toHaveBeenCalled()
+    expect(mockReportError).toHaveBeenCalledWith(failure, { module: 'auth', code: 'auth.logout_identity_failed' })
   })
 
   it('reports sessionRevoked false when server-side revocation failed', async () => {
