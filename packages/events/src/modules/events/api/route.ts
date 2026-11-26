@@ -37,6 +37,7 @@ const eventDefinitionSchema = z.object({
   module: z.string().optional(),
   entity: z.string().optional(),
   excludeFromTriggers: z.boolean().optional(),
+  workflowEmittable: z.boolean().optional(),
   clientBroadcast: z.boolean().optional(),
   crossProcessBroadcast: z.boolean().optional(),
   portalBroadcast: z.boolean().optional(),
