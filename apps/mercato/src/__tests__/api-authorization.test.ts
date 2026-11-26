@@ -26,11 +26,20 @@ const mockRbac = {
   loadAcl: jest.fn<
     ReturnType<RbacService['loadAcl']>,
     Parameters<RbacService['loadAcl']>
-  >()
+  >(),
+  resolveFeatureOrganizationAccess: jest.fn<
+    ReturnType<RbacService['resolveFeatureOrganizationAccess']>,
+    Parameters<RbacService['resolveFeatureOrganizationAccess']>
+  >(),
 }
+const mockOrganizationLookup: { em: { find: jest.Mock } | null } = { em: null }
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
-    resolve: <T>(key: string): T | null => (key === 'rbacService' ? (mockRbac as unknown as T) : null)
+    resolve: <T>(key: string): T | null => {
+      if (key === 'rbacService') return mockRbac as unknown as T
+      if (key === 'em') return mockOrganizationLookup.em as unknown as T
+      return null
+    },
   }),
 }))
 
@@ -216,6 +225,7 @@ describe('API Route Authorization', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
+    mockOrganizationLookup.em = null
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockRbac.loadAcl.mockResolvedValue({
       isSuperAdmin: false,
@@ -522,6 +532,59 @@ describe('API Route Authorization', () => {
       const setCookie = response.headers.get('set-cookie') || ''
       expect(setCookie).not.toContain('auth_token=;')
       expect(setCookie).not.toContain('session_token=;')
+    })
+  })
+
+  describe('Organization scope that resolves to no organization', () => {
+    const staleOrganizationId = '11111111-1111-4111-8111-111111111111'
+    const liveOrganizationId = '22222222-2222-4222-8222-222222222222'
+
+    function restrictActorTo(organizationIds: string[], existingOrganizationIds: string[]) {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({
+        auth: { sub: 'user1', tenantId: 'tenant1', orgId: null, email: 'user@test.com', roles: ['admin'] },
+        status: 'authenticated' as const,
+      })
+      mockRbac.loadAcl.mockResolvedValue({
+        isSuperAdmin: false,
+        features: ['example.*'],
+        organizations: organizationIds,
+      })
+      mockRbac.resolveFeatureOrganizationAccess.mockResolvedValue({
+        unrestricted: true,
+        filterOrganizationIds: (organizations) => organizations.map((organization) => organization.id),
+      })
+      mockOrganizationLookup.em = {
+        find: jest.fn(async () => existingOrganizationIds.map((id) => ({ id, descendantIds: [], ancestorIds: [] }))),
+      }
+    }
+
+    it('denies a feature-gated route when every organization in the ACL list no longer resolves, even though the feature check itself passes', async () => {
+      restrictActorTo([staleOrganizationId], [])
+
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(403)
+      await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
+      expect(mockRbac.userHasAllFeatures).not.toHaveBeenCalled()
+    })
+
+    it('denies writes for the same stale scope', async () => {
+      restrictActorTo([staleOrganizationId], [])
+
+      const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'POST' })
+      const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(403)
+    })
+
+    it('still allows the route when at least one organization in the ACL list resolves', async () => {
+      restrictActorTo([staleOrganizationId, liveOrganizationId], [liveOrganizationId])
+
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(200)
     })
   })
 

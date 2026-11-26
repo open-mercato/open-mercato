@@ -190,6 +190,7 @@ describe('cancelled-receipt putaway recreate shares the source balance lock', ()
         resolve: (name: string) => {
           if (name === 'em') return em
           if (name === 'dataEngine') return {}
+          if (name === 'rbacService') return { userHasAllFeatures: async () => true }
           throw new Error(`Unexpected resolve: ${name}`)
         },
       },

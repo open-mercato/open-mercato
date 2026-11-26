@@ -700,15 +700,13 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
+## 2026-11 — CRUD security (#3827, #9154, #9106)
+
+STABLE API: restrict sort keys, deleted-row reads, relation labels and global reads. Legacy behavior keeps leaks open. Named waiver pending. [Migration](UPGRADE_NOTES.md#crud-factory-security-and-query-correctness-bundle).
+
 ## 2026-11-19 — Entity translation authorization (#9139)
 
-The STABLE entity translation route and localization resolver require target
-permissions and registered text fields. Continuing to accept or render
-unregistered translations would preserve the vulnerability. See
-[upgrade notes](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139)
-for client and operator migration guidance. Piotr Karwatka (@pkarw) acknowledged
-the emergency waiver of steps 1–3 on 2026-11-20:
-[human approval](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
+STABLE translation API and localization require target permissions and registered text fields. A bridge retains the leak. [Migration](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139). [Piotr Karwatka (@pkarw) waived steps 1–3 on 2026-11-20](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
 
 ## SSO authority (2026-11-15, #9014)
 
@@ -732,3 +730,11 @@ action button into an open redirect to an attacker-controlled site. Composers us
 in-app paths; code-declared message-type/object-type actions are unaffected.
 [Upgrade](UPGRADE_NOTES.md#message-action-href-same-origin-restriction-3487);
 [issue](https://github.com/open-mercato/open-mercato/issues/3487).
+
+## 2026-11-24 — Trace ingest
+
+STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-25 — Empty organization scope (#10503)
+
+STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
