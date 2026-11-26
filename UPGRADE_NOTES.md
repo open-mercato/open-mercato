@@ -6800,4 +6800,4 @@ Message composers must use relative destinations for action links, such as `/bac
 
 **Operator migration.** This change requires no deployment settings or database migration. Previously sent messages remain stored. Send a replacement message if a recipient needs a corrected action.
 
-**Compatibility.** The compose, draft, and execute API shapes stay the same. The Emergency Security Exception for narrowing accepted destinations requires named maintainer approval. See the [compatibility ledger](BACKWARD_COMPATIBILITY.md#2026-11-26--message-supplied-action-links-3487).
+**Compatibility.** The compose, draft, and execute API shapes stay the same. The Emergency Security Exception for narrowing accepted destinations requires named maintainer approval. See the [compatibility ledger](BACKWARD_COMPATIBILITY.md#2026-11-26--message-supplied-action-links-3487) and [compatibility spec](.ai/specs/2026-11-26-message-action-link-policy.md).
