@@ -289,6 +289,7 @@ function buildWarehouseAvailability(
 export async function reserveInventoryForConfirmedOrder(
   payload: SalesOrderLifecyclePayload,
   ctx: EventContext,
+  onlyVariantIds?: ReadonlySet<string>,
 ): Promise<void> {
   if (!payload.orderId || !payload.tenantId || !payload.organizationId) return
   if (!(await isInventoryAutomationEnabled(ctx, payload.tenantId))) return
@@ -325,6 +326,7 @@ export async function reserveInventoryForConfirmedOrder(
   const shortfalls: ReservationShortfallLine[] = []
 
   for (const [variantId, requiredQuantity] of requiredByVariant.entries()) {
+    if (onlyVariantIds && !onlyVariantIds.has(variantId)) continue
     let remainingQuantity = requiredQuantity - (reservedByVariant.get(variantId) ?? 0)
     if (remainingQuantity <= 0) continue
 
@@ -563,4 +565,76 @@ export async function releaseInventoryForCancelledOrder(
       }).catch(() => undefined)
     }
   }
+}
+
+type SalesDocumentTotalsPayload = {
+  documentKind?: string | null
+  documentId?: string | null
+  tenantId?: string | null
+  organizationId?: string | null
+}
+
+function isAllocatedReservation(reservation: InventoryReservation): boolean {
+  const metadata = reservation.metadata
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false
+  return (metadata as { allocationState?: unknown }).allocationState === 'allocated'
+}
+
+export async function reconcileInventoryForUpdatedOrder(
+  payload: SalesDocumentTotalsPayload,
+  ctx: EventContext,
+): Promise<void> {
+  if (payload.documentKind !== 'order') return
+  if (!payload.documentId || !payload.tenantId || !payload.organizationId) return
+  if (!(await isInventoryAutomationEnabled(ctx, payload.tenantId))) return
+
+  const scope: Scope = {
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  }
+  const order = await loadOrderViaQueryEngine(ctx, payload.documentId, scope)
+  if (!order || typeof order.id !== 'string') return
+  if (!isReservableOrderStatus(order.status)) return
+
+  const orderId = order.id
+  const em = ctx.resolve<EntityManager>('em').fork()
+  const commandBus = ctx.resolve<CommandBus>('commandBus')
+  const commandCtx = buildCommandContext(ctx, scope)
+  const [lines, activeReservations] = await Promise.all([
+    loadOrderLinesViaQueryEngine(ctx, orderId, scope),
+    loadActiveReservations(em, orderId, scope),
+  ])
+  const requiredByVariant = buildRequiredQuantityByVariant(lines)
+  const reservedByVariant = buildReservedQuantityByVariant(activeReservations)
+  const trimmedVariantIds = new Set<string>()
+  for (const [variantId, reservedQuantity] of reservedByVariant.entries()) {
+    if (reservedQuantity > (requiredByVariant.get(variantId) ?? 0) + 0.000001) {
+      trimmedVariantIds.add(variantId)
+    }
+  }
+  if (trimmedVariantIds.size === 0) return
+
+  for (const reservation of activeReservations) {
+    if (!trimmedVariantIds.has(reservation.catalogVariantId)) continue
+    if (isAllocatedReservation(reservation)) continue
+    try {
+      await commandBus.execute('wms.inventory.release', {
+        input: {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          reservationId: reservation.id,
+          reason: 'sales.order.lines_changed',
+          metadata: {
+            automation: 'sales.document.totals.calculated',
+            orderId,
+          },
+        },
+        ctx: commandCtx,
+      })
+    } catch (error) {
+      if (!isInvalidReservationStateError(error)) throw error
+    }
+  }
+
+  await reserveInventoryForConfirmedOrder({ orderId, ...scope }, ctx, trimmedVariantIds)
 }
