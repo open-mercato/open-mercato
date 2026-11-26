@@ -585,13 +585,11 @@ test('cut --at --dry-run validates the green tag and names the line', async () =
 })
 
 test('cut --at re-runs safely from the same green tag, even after main moved', async () => {
-  const { root, tagged, head } = greenTagRepo()
   const lineTip = 'c'.repeat(40)
   const expectedLine = `# Unreleased\n\n- Quotes. (#101)\n\n${CHANGELOG}`
-  for (const options of [
-    { existing: tagged },
-    { existing: lineTip, existingParent: tagged, existingChangelog: expectedLine },
-  ]) {
+  for (const lineAt of ['tag', 'changelog commit'] as const) {
+    const { root, tagged, head } = greenTagRepo()
+    const options = lineAt === 'tag' ? { existing: tagged } : { existing: lineTip, existingParent: tagged, existingChangelog: expectedLine }
     const api = await fakeApi(cutApi({ tagged, head, ...options }))
     try {
       const result = await runLine(root, ['cut', '--branch', 'main', '--at', 'green/2026-11-20'], apiEnv(api.url))
@@ -599,7 +597,7 @@ test('cut --at re-runs safely from the same green tag, even after main moved', a
       assert.match(result.stdout, /release\/v0\.9\.x already exists/)
       assert.ok(!api.requests.some((request) => request.method === 'POST' && request.body?.ref === 'refs/heads/release/v0.9.x'), 'the line is not created twice')
       const lineCommits = api.requests.filter((request) => request.method === 'POST' && request.url.endsWith('/git/commits') && (request.body?.parents as string[])[0] === tagged)
-      assert.equal(lineCommits.length, options.existing === tagged ? 1 : 0, 'the changelog commit is added once')
+      assert.equal(lineCommits.length, lineAt === 'tag' ? 1 : 0, 'the changelog commit is added once')
       assert.equal(result.outputs.prUrl, 'https://example/pr/9')
     } finally {
       await api.close()
