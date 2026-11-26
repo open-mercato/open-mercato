@@ -500,7 +500,7 @@ Spec: [Error-reporting spec](.ai/specs/2026-09-08-error-reporting-policy.md). Ev
 
 ## Data Sync Adapter Default Batch Size (2026-09-16)
 
-Additive: optional adapter default, helpers, sparse `defaultBatchSizes` and `runSyncRequestSchema`. Explicit batch sizes win. Missing or invalid defaults fall back to 100. `runSyncSchema` keeps its type and 100 default through at least one post-0.9.0 minor. [Contracts and migration](.ai/specs/2026-09-16-data-sync-adapter-default-batch-size.md).
+Additive. Explicit size wins, then valid adapter default, then 100. [Details](UPGRADE_NOTES.md).
 
 ## Data Sync Retry, Resume and Run Again (2026-09-16)
 
