@@ -26,7 +26,7 @@ test.describe('TC-CRM-039: Person header exposes Object-history icon', () => {
     let personId: string | null = null;
     const stamp = Date.now();
     const companyName = `QA TC-CRM-039 Co ${stamp}`;
-    const personName = `QA TC-CRM-039 Person ${stamp}`;
+    const personName = `QA TC-CRM-039 ${stamp} Person`;
 
     try {
       token = await getAuthToken(request);
@@ -41,6 +41,9 @@ test.describe('TC-CRM-039: Person header exposes Object-history icon', () => {
       await login(page, 'admin');
       await page.goto(`/backend/customers/people-v2/${personId}`, { waitUntil: 'domcontentloaded' });
       await expect(page.getByRole('heading', { name: personName, exact: true })).toBeVisible({ timeout: 15000 });
+      const avatar = page.getByRole('img', { name: personName, exact: true });
+      await expect(avatar).toBeVisible();
+      await expect(avatar).toHaveText('QP');
 
       const historyButton = page.getByRole('button', { name: 'Version History' });
       await expect(historyButton).toBeVisible();

@@ -3,8 +3,11 @@
  */
 import * as React from 'react'
 import { fireEvent, screen } from '@testing-library/react'
+import { z } from 'zod'
+import { ComponentOverrideProvider } from '@open-mercato/ui/backend/injection/ComponentOverrideProvider'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CompanyDetailHeader } from '../CompanyDetailHeader'
+import { COMPANY_DETAIL_HEADER_AVATAR_COMPONENT_ID } from '../DetailHeaderAvatar'
 
 const invalidateCustomerDictionaryMock = jest.fn()
 const mockSendObjectMessageDialog = jest.fn()
@@ -31,6 +34,39 @@ describe('CompanyDetailHeader', () => {
   beforeEach(() => {
     invalidateCustomerDictionaryMock.mockReset()
     mockSendObjectMessageDialog.mockReset()
+  })
+
+  it('passes the overview and heading to a replacement company logo', () => {
+    const data = {
+      company: { id: 'company-1', displayName: '' },
+      profile: null, customFields: {}, tags: [], comments: [], activities: [],
+      interactions: [], deals: [], todos: [], people: [],
+    }
+    const propsSchema = z.object({ data: z.unknown(), displayName: z.string() })
+    const replacement = jest.fn((_props: unknown) => <span role="img" aria-label="Custom company logo" />)
+    renderWithProviders(
+      <ComponentOverrideProvider overrides={[{
+        target: { componentId: COMPANY_DETAIL_HEADER_AVATAR_COMPONENT_ID },
+        priority: 0, replacement, propsSchema,
+      }]}>
+        <CompanyDetailHeader
+          data={data}
+          onTagsChange={jest.fn()}
+          tagsSectionControllerRef={{ current: null }}
+          onSave={jest.fn()}
+          onDelete={jest.fn(async () => undefined)}
+          isDirty={false}
+          isSaving={false}
+        />
+      </ComponentOverrideProvider>,
+    )
+
+    const props = propsSchema.parse(replacement.mock.calls[0][0])
+    expect(props.data).toBe(data)
+    expect(props.displayName).toBe('Untitled')
+    expect(screen.getByRole('heading', { name: props.displayName })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Custom company logo' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument()
   })
 
   it('opens the company record tags dialog from the edit tags action', () => {

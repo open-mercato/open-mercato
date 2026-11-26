@@ -723,3 +723,9 @@ STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
 ## 2026-11-24 — Trace ingest
 
 STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-26 — Customer detail header avatars (#6490)
+
+The component replacement handles `section:customers.companies.detailHeader.avatar` and `section:customers.people.detailHeader.avatar` are **FROZEN**. Each host passes `data`, the current record's `CompanyOverview` or `PersonOverview`, and `displayName`, the string shown in the header. Future releases may add optional props. Removing or narrowing either prop requires the deprecation protocol.
+
+The props types `CompanyDetailHeaderAvatarProps` and `PersonDetailHeaderAvatarProps` are exported from `@open-mercato/core/modules/customers/components/detail/DetailHeaderAvatar`.

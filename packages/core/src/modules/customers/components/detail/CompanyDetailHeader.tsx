@@ -1,15 +1,15 @@
 "use client"
 
 import * as React from 'react'
-import { Phone, Mail, Trash2, Building2, Globe, Pencil, MapPin } from 'lucide-react'
+import { Phone, Mail, Trash2, Globe, Pencil, MapPin } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { CompanyTagsDialog } from './CompanyTagsDialog'
+import { CompanyDetailHeaderAvatar } from './DetailHeaderAvatar'
 import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { invalidateCustomerDictionary, useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { renderDictionaryIcon } from '../../../dictionaries/components/dictionaryAppearance'
@@ -105,13 +105,7 @@ export function CompanyDetailHeader({
     <div className="rounded-lg border bg-card">
       {/* Top row: avatar + company info + account manager + actions */}
       <div className="flex flex-col gap-4 px-6 pt-6 pb-3 sm:flex-row sm:items-start sm:gap-5">
-        {/* Avatar */}
-        <Avatar
-          label=""
-          icon={<Building2 />}
-          size="xl"
-          variant="monochrome"
-        />
+        <CompanyDetailHeaderAvatar data={data} displayName={displayName} />
 
         {/* Company info */}
         <div className="min-w-0 flex-1">

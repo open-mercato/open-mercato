@@ -37,6 +37,11 @@ export const extensionPoints = defineModuleExtensionPoints({
       propsContract: 'customers.calendar.event-type-panel.v1',
       source: 'components/calendar/editor/EventTypePanel.tsx',
     }),
+    companyHeaderAvatar: componentExtensionHost({
+      componentId: 'section:customers.companies.detailHeader.avatar',
+      propsContract: 'customers.company_detail_header_avatar.props.v1',
+      source: ['components/detail/DetailHeaderAvatar.tsx', 'components/detail/CompanyDetailHeader.tsx'],
+    }),
     companyHeaderActions: detailHost('detail:customers.company:header-actions', 'backend/customers/companies-v2/[id]/page.tsx', 'customers.detail.overview.v1'),
     companySidebar: detailHost('detail:customers.company:sidebar', 'backend/customers/companies-v2/[id]/page.tsx', 'customers.detail.overview.v1'),
     companyTabs: detailHost('detail:customers.company:tabs', 'backend/customers/companies-v2/[id]/page.tsx', 'customers.detail.overview.v1'),
@@ -50,6 +55,11 @@ export const extensionPoints = defineModuleExtensionPoints({
     dealHeader: detailHost('detail:customers.deal:header', 'backend/customers/deals/[id]/page.tsx'),
     dealStatusBadges: detailHost('detail:customers.deal:status-badges', 'backend/customers/deals/[id]/page.tsx'),
     dealFooter: detailHost('detail:customers.deal:footer', 'backend/customers/deals/[id]/page.tsx'),
+    personHeaderAvatar: componentExtensionHost({
+      componentId: 'section:customers.people.detailHeader.avatar',
+      propsContract: 'customers.person_detail_header_avatar.props.v1',
+      source: ['components/detail/DetailHeaderAvatar.tsx', 'components/detail/PersonDetailHeader.tsx'],
+    }),
     personHeaderActions: detailHost('detail:customers.person:header-actions', 'backend/customers/people-v2/[id]/page.tsx', 'customers.detail.overview.v1'),
     personSidebar: detailHost('detail:customers.person:sidebar', 'backend/customers/people-v2/[id]/page.tsx', 'customers.detail.overview.v1'),
     personTabs: detailHost('detail:customers.person:tabs', 'backend/customers/people-v2/[id]/page.tsx', 'customers.detail.overview.v1'),

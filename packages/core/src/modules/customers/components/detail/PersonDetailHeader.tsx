@@ -4,12 +4,12 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Trash2, Pencil } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { useQueryClient } from '@tanstack/react-query'
+import { PersonDetailHeaderAvatar } from './DetailHeaderAvatar'
 import { ObjectHistoryButton } from './ObjectHistoryButton'
 import { PersonTagsDialog } from './PersonTagsDialog'
 import { useCustomerDictionary, invalidateCustomerDictionary } from './hooks/useCustomerDictionary'
@@ -114,7 +114,7 @@ export function PersonDetailHeader({
     <div className="rounded-lg border bg-card p-6">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="flex min-w-0 gap-5">
-          <Avatar label={displayName} size="lg" variant="monochrome" />
+          <PersonDetailHeaderAvatar data={data} displayName={displayName} />
           <div className="min-w-0 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="min-w-0 truncate text-2xl font-normal leading-tight text-foreground">{displayName}</h1>

@@ -4,8 +4,11 @@
 import * as React from 'react'
 import { fireEvent } from '@testing-library/react'
 import { screen } from '@testing-library/react'
+import { z } from 'zod'
+import { ComponentOverrideProvider } from '@open-mercato/ui/backend/injection/ComponentOverrideProvider'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { PersonDetailHeader } from '../PersonDetailHeader'
+import { PERSON_DETAIL_HEADER_AVATAR_COMPONENT_ID } from '../DetailHeaderAvatar'
 
 const invalidateCustomerDictionaryMock = jest.fn()
 const mockSendObjectMessageDialog = jest.fn()
@@ -30,6 +33,39 @@ describe('PersonDetailHeader', () => {
   beforeEach(() => {
     invalidateCustomerDictionaryMock.mockReset()
     mockSendObjectMessageDialog.mockReset()
+  })
+
+  it('passes the overview and heading to a replacement contact photo', () => {
+    const data = {
+      person: { id: 'person-1', displayName: '' },
+      profile: null, customFields: {}, tags: [], comments: [], activities: [],
+      interactions: [], deals: [], todos: [], companies: [],
+    }
+    const propsSchema = z.object({ data: z.unknown(), displayName: z.string() })
+    const replacement = jest.fn((_props: unknown) => <span role="img" aria-label="Custom contact photo" />)
+    renderWithProviders(
+      <ComponentOverrideProvider overrides={[{
+        target: { componentId: PERSON_DETAIL_HEADER_AVATAR_COMPONENT_ID },
+        priority: 0, replacement, propsSchema,
+      }]}>
+        <PersonDetailHeader
+          data={data}
+          onTagsChange={jest.fn()}
+          tagsSectionControllerRef={{ current: null }}
+          onSave={jest.fn()}
+          onDelete={jest.fn(async () => undefined)}
+          isDirty={false}
+          isSaving={false}
+        />
+      </ComponentOverrideProvider>,
+    )
+
+    const props = propsSchema.parse(replacement.mock.calls[0][0])
+    expect(props.data).toBe(data)
+    expect(props.displayName).toBe('Untitled')
+    expect(screen.getByRole('heading', { name: props.displayName })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Custom contact photo' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeInTheDocument()
   })
 
   it('renders the object history trigger in the header action cluster', () => {

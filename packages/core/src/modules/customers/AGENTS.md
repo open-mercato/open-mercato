@@ -115,6 +115,22 @@ Use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFiel
 - **Create page**: `CrudForm` with fields, groups, custom fields
 - **Detail page**: Tabbed layout with entity data, related entities, activities, timeline
 
+## Component replacement handles
+
+Target these sections from `widgets/components.ts`. The avatar props types are exported from `@open-mercato/core/modules/customers/components/detail/DetailHeaderAvatar`.
+
+| Handle | Props |
+| --- | --- |
+| `section:customers.companies.detailHeader.avatar` | `CompanyDetailHeaderAvatarProps` with `data: CompanyOverview` and `displayName: string` |
+| `section:customers.people.detailHeader.avatar` | `PersonDetailHeaderAvatarProps` with `data: PersonOverview` and `displayName: string` |
+| `section:customers.companies.detailTabs` | `CompanyDetailTabsProps` |
+| `section:customers.people.detailTabs` | `PersonDetailTabsProps` |
+| `section:customers.deals.detailTabs` | `DealDetailTabsProps` |
+| `section:customers.deals.viewTabs` | `ViewTabsRowProps` |
+| `section:customers.calendar-event-editor.type-panel` | `CalendarEventTypePanelProps` |
+
+Keep the avatar footprint at `xl` for companies and `lg` for people. When a wrapper fetches an image, cache the lookup by record ID and render `Original` with the received props while it loads.
+
 ## Module Files Checklist — All MUST Be Present
 
 `acl.ts`, `ce.ts`, `di.ts`, `events.ts`, `index.ts`, `notifications.ts`, `search.ts`, `setup.ts`, `analytics.ts`, `vector.ts`

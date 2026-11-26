@@ -56,7 +56,7 @@ function DefaultCompanyDetailHeaderAvatar(_props: CompanyDetailHeaderAvatarProps
 }
 
 function DefaultPersonDetailHeaderAvatar({ displayName }: PersonDetailHeaderAvatarProps) {
-  return <Avatar label={displayName} size="xl" variant="monochrome" />
+  return <Avatar label={displayName} size="lg" variant="monochrome" />
 }
 
 registerComponent<CompanyDetailHeaderAvatarProps>({
@@ -203,7 +203,7 @@ No new strings. The person default keeps using `displayName`, which already fall
 
 ## UI/UX
 
-No visual change without overrides. The avatar is the first item of the header's flex row (`sm:flex-row sm:items-start`). Overrides should keep the `size="xl"` footprint (`size-16`) so the heading does not shift; `Avatar` with `src` keeps it.
+No visual change without overrides. The avatar sits beside the record name. Use `size="xl"` for the company logo and `size="lg"` for the person photo to preserve the space reserved by each header.
 
 ## Migration & Backward Compatibility
 
@@ -250,7 +250,7 @@ No visual change without overrides. The avatar is the first item of the header's
 
 `CompanyDetailHeader.test.tsx` / `PersonDetailHeader.test.tsx`: one case each. With a `replacement` registered, the header renders it in the avatar position and still renders the heading and actions.
 
-No integration test: the change is client-side rendering with unchanged default markup. The consuming side of the new contract, an override module targeting the handle, is exercised by the provider-based tests above. That is the evidence a `risk-high` change needs for a shared contract surface.
+The existing Playwright header tests load both detail routes with API-created fixtures. TC-CRM-039 checks the person avatar’s accessible name and initials on `/backend/customers/people-v2/[id]`. TC-CRM-040 checks the building icon on `/backend/customers/companies-v2/[id]`. Provider-based tests exercise applications’ overrides for both handles.
 
 ## Risks & Impact Review
 
@@ -278,7 +278,7 @@ No integration test: the change is client-side rendering with unchanged default 
 - **Scenario**: A larger or differently shaped element shifts the heading and the actions.
 - **Severity**: Low
 - **Affected area**: Header layout on the two detail pages.
-- **Mitigation**: The docs name the `size="xl"` footprint; `Avatar` with `src` keeps it.
+- **Mitigation**: The docs specify the original `Avatar` size for each header, `xl` for a company and `lg` for a person.
 - **Residual risk**: Visual only, owned by the app.
 
 #### Props contract ties the handle to the detail response
@@ -339,6 +339,11 @@ None.
 Fully compliant. Ready for implementation once maintainers agree on the handle IDs and props.
 
 ## Changelog
+
+### 2026-11-26
+
+- Implemented the company and person avatar handles using their declared extension points. Preserved the person header’s current `lg` avatar size.
+- Added component-registry coverage and browser assertions for the default avatars on both detail routes.
 
 ### 2026-09-28
 - Initial specification for #6490.
