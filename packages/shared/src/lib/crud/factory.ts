@@ -227,7 +227,10 @@ export type ListConfig<TList> = {
   // fetching and decrypting blobs the list never renders (#2233).
   entityId?: any
   fields?: any[] | ((query: TList, ctx: CrudCtx) => any[])
-  /** Ordinary requested sort fields must be own keys; dynamic custom-field selectors remain supported. */
+  /**
+   * Map ordinary sort keys to a column or a selector with fallback columns.
+   * Requested keys must be own keys; dynamic custom-field selectors remain supported.
+   */
   sortFieldMap?: Record<string, any>
   /**
    * Sort used when the request carries no `sortField` / `sort` param. The field is
@@ -2040,9 +2043,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const qe = (ctx.container.resolve('queryEngine') as QueryEngine)
         profiler.mark('query_engine_resolved')
         const sortFieldMap = opts.list.sortFieldMap
-        const resolveSortSelector = (field: string) => {
+        const resolveSortSelector = (field: string): Pick<Sort, 'field' | 'fallbackFields'> => {
           const mapped = sortFieldMap && Object.hasOwn(sortFieldMap, field) ? sortFieldMap[field] : field
-          return typeof mapped === 'string' ? normalizeSortFieldSelector(mapped) : mapped
+          return typeof mapped === 'string' ? { field: normalizeSortFieldSelector(mapped) } : mapped
         }
         const requestedSort = resolveSortParams(
           queryParams as Record<string, unknown>,
@@ -2058,11 +2061,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           hasExplicitSort && !isMappedSort && !isCustomSort
             ? resolveSortParams({}, opts.list.defaultSort)
             : requestedSort
-        const sortField = resolveSortSelector(sortFieldRaw)
-        const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
+        const primarySort = resolveSortSelector(sortFieldRaw)
+        const sort: Sort[] = [{ ...primarySort, dir: sortDirRaw }]
         if (opts.list.tiebreakSortField) {
-          const tiebreakField = resolveSortSelector(opts.list.tiebreakSortField)
-          if (tiebreakField !== sortField) sort.push({ field: tiebreakField as any, dir: SortDir.Asc } as any)
+          const tiebreakSort = resolveSortSelector(opts.list.tiebreakSortField)
+          if (tiebreakSort.field !== primarySort.field || tiebreakSort.fallbackFields !== primarySort.fallbackFields) {
+            sort.push({ ...tiebreakSort, dir: SortDir.Asc })
+          }
         }
         const page: Page = exportRequested
           ? { page: 1, pageSize: exportPageSize }

@@ -470,6 +470,42 @@ describe('HybridQueryEngine', () => {
     expect((mockLogger.warn.mock.calls[0] || [])[0]).toContain('Partial index coverage')
   })
 
+  test('sorts a base-table page by the first non-null date and breaks ties by id', async () => {
+    const table = 'sales_quotes'
+    const db = createFakeKysely({
+      baseTable: table,
+      hasIndexAny: true,
+      baseCount: 4,
+      indexCount: 4,
+      columns: ['id', 'tenant_id', 'organization_id', 'placed_at', 'valid_until', 'created_at'].map((column_name) => ({
+        table_name: table,
+        column_name,
+      })),
+    })
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(
+      buildEm(db),
+      fallback as unknown as BasicQueryEngine,
+      () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }),
+    )
+
+    await engine.query('sales:sales_quote', {
+      fields: ['id'],
+      sort: [{ field: 'placed_at', fallbackFields: ['valid_until', 'created_at'], dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+      page: { page: 2, pageSize: 2 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const dataQuery = db._chains.find((chain: ChainLog) => chain.table === table && chain.orderBys.length > 0)
+    expect(dataQuery).toBeDefined()
+    const [[expression, direction], tiebreak] = dataQuery!.orderBys
+    expect(JSON.stringify(expression.toOperationNode())).toMatch(/coalesce\(.*placed_at.*valid_until.*created_at/)
+    expect(direction).toBe('asc')
+    expect(tiebreak).toEqual(['b.id', 'asc'])
+  })
+
   test('casts a numeric-kind cf sort to numeric instead of ordering it as jsonb text (#5674)', async () => {
     const db = createFakeKysely({
       baseTable: 'todos', hasIndexAny: true, baseCount: 3, indexCount: 3,

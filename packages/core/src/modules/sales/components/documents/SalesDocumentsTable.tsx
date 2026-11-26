@@ -450,7 +450,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     if (search.trim()) params.set('search', search.trim())
     const sort = sorting[0]
     if (sort?.id) {
-      params.set('sortField', sort.id)
+      params.set('sortField', sort.id === 'createdAt' ? 'documentDate' : sort.id)
       params.set('sortDir', sort.desc ? 'desc' : 'asc')
     }
     const channelSelection = normalizeChannelSelection(filterValues.channelId)

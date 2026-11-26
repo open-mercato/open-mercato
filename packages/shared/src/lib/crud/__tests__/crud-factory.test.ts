@@ -878,6 +878,23 @@ describe('CRUD Factory', () => {
     ])
   })
 
+  it('GET forwards fallback columns only for the sort key configured with them', async () => {
+    const sortedRoute = makeSortedRoute({
+      sortFieldMap: {
+        documentDate: { field: 'placed_at', fallbackFields: ['valid_until', 'created_at'] },
+        createdAt: 'created_at',
+      },
+    })
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?sortField=documentDate&sortDir=desc'))
+    expect(queryEngine.query.mock.calls.at(-1)?.[1]?.sort).toEqual([
+      { field: 'placed_at', fallbackFields: ['valid_until', 'created_at'], dir: 'desc' },
+    ])
+
+    await sortedRoute.GET(new Request('http://x/api/example/todos?sortField=createdAt'))
+    expect(queryEngine.query.mock.calls.at(-1)?.[1]?.sort).toEqual([{ field: 'created_at', dir: 'asc' }])
+  })
+
   it('GET forwards list.decryptEncryptedFields=false to the query engine (#5430)', async () => {
     await makeSortedRoute({ decryptEncryptedFields: false }).GET(
       new Request('http://x/api/example/todos?page=1&pageSize=10'),

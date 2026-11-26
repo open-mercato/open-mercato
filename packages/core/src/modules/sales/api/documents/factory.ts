@@ -119,7 +119,9 @@ const listSchema = z
       .optional()
       .refine(isUuidListParam, { message: 'tagIds must be a comma-separated list of UUIDs' }),
     tagIdsEmpty: z.string().optional(),
-    sortField: z.string().optional(),
+    sortField: z.string().optional().describe(
+      'Use documentDate to sort by placedAt, then validUntil for quotes, then createdAt.',
+    ),
     sortDir: z.enum(['asc', 'desc']).optional(),
     withDeleted: z.coerce.boolean().optional(),
   })
@@ -196,11 +198,15 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   return filters
 }
 
-function buildSortMap(numberColumn: string) {
+function buildSortMap(numberColumn: string, kind: DocumentKind) {
   return {
     id: 'id',
     number: numberColumn,
     placedAt: 'placed_at',
+    documentDate: {
+      field: 'placed_at',
+      fallbackFields: kind === 'quote' ? ['valid_until', 'created_at'] : ['created_at'],
+    },
     lineItemCount: 'line_item_count',
     grandTotalNetAmount: 'grand_total_net_amount',
     grandTotalGrossAmount: 'grand_total_gross_amount',
@@ -527,7 +533,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
       schema: listSchema,
       entityId: binding.entityId,
       fields: (query: ListQuery) => resolveListFields(query),
-      sortFieldMap: buildSortMap(numberColumn),
+      sortFieldMap: buildSortMap(numberColumn, binding.kind),
       buildFilters: async (query: any) => buildFilters(query, numberColumn, binding.kind),
       decorateCustomFields: { entityIds: [binding.entityId] },
       joins: [

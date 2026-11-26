@@ -28,7 +28,12 @@ export type Filter = {
   value?: any
 }
 
-export type Sort = { field: FieldSelector; dir?: SortDir }
+export type Sort = {
+  field: FieldSelector
+  dir?: SortDir
+  /** Sort by the first non-null value from field and these fallback columns, in order. Base-table columns must have compatible SQL types. */
+  fallbackFields?: readonly FieldSelector[]
+}
 
 export type Page = { page?: number; pageSize?: number }
 

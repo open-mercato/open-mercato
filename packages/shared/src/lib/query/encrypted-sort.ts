@@ -100,6 +100,16 @@ function readField(row: Record<string, unknown>, field: string): unknown {
   return undefined
 }
 
+function readSortValue(row: Record<string, unknown>, sort: Sort): unknown {
+  const primary = readField(row, sort.field)
+  if (primary != null) return primary
+  for (const field of sort.fallbackFields ?? []) {
+    const fallback = readField(row, field)
+    if (fallback != null) return fallback
+  }
+  return primary
+}
+
 function compareValues(left: unknown, right: unknown): number {
   const leftMissing = left === null || left === undefined
   const rightMissing = right === null || right === undefined
@@ -122,7 +132,7 @@ export function sortRowsInMemory<T extends Record<string, unknown>>(
   return [...rows].sort((left, right) => {
     for (const sort of sorts) {
       const direction = sort.dir === SortDir.Desc ? -1 : 1
-      const compared = compareValues(readField(left, sort.field), readField(right, sort.field))
+      const compared = compareValues(readSortValue(left, sort), readSortValue(right, sort))
       if (compared !== 0) return compared * direction
     }
     const leftId = readField(left, 'id')
