@@ -21,6 +21,9 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isWithinPasswordByteLimit } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
+import type { TenantSetupScope } from '@open-mercato/shared/modules/setup'
 
 const logger = createLogger('auth').child({ component: 'setup' })
 
@@ -122,7 +125,8 @@ export type SetupInitialTenantOptions = {
   failIfUserExists?: boolean
   primaryUserRoles?: string[]
   includeSuperadminRole?: boolean
-  /** Optional list of enabled modules. When provided, module setup hooks are called. */
+  container?: AppContainer
+  /** Optional override for the list of enabled modules used by setup hooks. */
   modules?: Module[]
   /**
    * Optional global slug to persist on the new Organization. When set, a
@@ -508,12 +512,7 @@ export async function setupInitialTenant(
   await ensureDefaultRoleAcls(em, tenantId, resolvedModules, { includeSuperadminRole })
   await deactivateDemoUsersIfSelfOnboardingEnabled(em)
 
-  // Call module onTenantCreated hooks
-  for (const mod of resolvedModules) {
-    if (mod.setup?.onTenantCreated) {
-      await mod.setup.onTenantCreated({ em, tenantId, organizationId })
-    }
-  }
+  await runTenantCreatedHooks(em, { tenantId, organizationId }, resolvedModules, options.container)
 
   // Custom roles are often created inside onTenantCreated hooks, so they did not
   // exist yet when ensureDefaultRoleAcls ran above and were skipped there. Sync
@@ -527,6 +526,30 @@ export async function setupInitialTenant(
     users: userSnapshots,
     reusedExistingUser,
   }
+}
+
+async function runTenantCreatedHooks(
+  em: EntityManager,
+  scope: TenantSetupScope,
+  modules: Module[],
+  container?: AppContainer,
+): Promise<void> {
+  const enabledModuleIds = new Set(modules.map((mod) => mod.id))
+  const runHooks = async (setupContainer?: AppContainer) => {
+    for (const mod of modules) {
+      await mod.setup?.onTenantCreated?.({ em, ...scope, container: setupContainer, enabledModuleIds })
+    }
+  }
+
+  if (container || !enabledModuleIds.has('configs') || !modules.some((mod) => mod.setup?.onTenantCreated)) {
+    await runHooks(container)
+    return
+  }
+
+  await runInOwnedRequestScope(async () => {
+    const setupContainer = await createRequestContainer()
+    await runHooks(setupContainer)
+  })
 }
 
 function resolvePrimaryName(input: PrimaryUserInput): string | null {

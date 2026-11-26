@@ -730,11 +730,11 @@ STABLE API: legacy signatures leave organization unverified. Rotate scoped keys 
 
 ## 2026-11-25 — Encrypted custom field writes
 
-STABLE API: encrypted custom-field writes return HTTP 503 when the data key is unavailable. Allowing success would persist plaintext. Restore key access, retry, and review historical values. [Migration](UPGRADE_NOTES.md#encrypted-tenant-custom-field-writes-require-a-usable-key) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
+STABLE API: encrypted tenant custom-field writes return HTTP 503 when the data key is unavailable. Allowing success would persist plaintext. Restore key access, retry, and review historical values. [Migration](UPGRADE_NOTES.md#encrypted-tenant-custom-field-writes-require-a-usable-key) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
 
 ## 2026-11-25 — Empty organization scope (#10503)
 
-STABLE feature-gated APIs return `403` before lookup for empty organization scope. Checking permissions without scope reopens access. Grant scope and handle `403`. [Migration](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md) · [Review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527). Named waiver pending.
+STABLE feature-gated APIs return `403` before lookup for explicitly empty organization scope. Checking permissions without scope reopens access. Grant scope and handle `403`. [Migration](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md) · [Review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527). Named waiver pending.
 
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
 

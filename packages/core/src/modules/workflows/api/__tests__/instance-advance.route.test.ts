@@ -21,17 +21,18 @@ const instance = {
   currentStepId: 'start',
   context: { previousValue: true },
 }
+const requestContainer = {
+  resolve(key: string) {
+    if (key === 'em') return manager
+    if (key === 'rbacService') return { userHasAllFeatures: async () => true }
+    if (key === 'workflowExecutor') return { findReservedContextKeys, executeWorkflow }
+    if (key === 'transitionHandler') return { findValidTransitions, executeTransition }
+    throw new Error(`[internal] Missing registration ${key}`)
+  },
+}
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({
-    resolve(key: string) {
-      if (key === 'em') return manager
-      if (key === 'rbacService') return { userHasAllFeatures: async () => true }
-      if (key === 'workflowExecutor') return { findReservedContextKeys, executeWorkflow }
-      if (key === 'transitionHandler') return { findValidTransitions, executeTransition }
-      throw new Error(`[internal] Missing registration ${key}`)
-    },
-  }),
+  createRequestContainer: async () => requestContainer,
 }))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: async () => ({ sub: 'user', tenantId, orgId: organizationId }),
@@ -79,6 +80,7 @@ it('evaluates caller context without modifying the stored context on an unavaila
     organizationId,
   }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { tenantId, organizationId })
   expect(findValidTransitions).toHaveBeenCalledWith(transaction, instance, 'start', expect.objectContaining({
+    container: requestContainer,
     workflowContext: { previousValue: true, proposed: true },
   }))
   expect(instance.context).toEqual({ previousValue: true })
