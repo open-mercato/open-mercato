@@ -1010,6 +1010,7 @@
   "ui.forms.unsavedChangesDiscard": "Descartar cambios",
   "ui.forms.unsavedChangesKeep": "Seguir editando",
   "ui.forms.unsavedChangesTitle": "¿Descartar los cambios sin guardar?",
+  "ui.helpTip.ariaLabel": "¿Qué es esto?",
   "ui.inputs.amountInput.currencyLabel": "Moneda",
   "ui.inputs.amountInput.placeholder": "0,00",
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",

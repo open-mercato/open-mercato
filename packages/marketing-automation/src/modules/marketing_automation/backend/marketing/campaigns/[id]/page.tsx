@@ -1,0 +1,1688 @@
+"use client"
+
+import * as React from 'react'
+import type { Edge, Node } from '@xyflow/react'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Label } from '@open-mercato/ui/primitives/label'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useMarketingMutation } from '../../../../components/useMarketingMutation'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useUnsavedGuard } from '../../../../components/useUnsavedGuard'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
+import { AudienceBuilder, type AudienceOptions } from '../../../../components/AudienceBuilder.js'
+import { CustomerPicker } from '../../../../components/CustomerPicker.js'
+import { findAudienceField, type AudienceField } from '../../../../lib/audience/field-catalog.js'
+import type { GroupCondition } from '@open-mercato/core/modules/business_rules/lib/expression-evaluator'
+import { CampaignCanvas } from '../../../../components/CampaignCanvas'
+import { ParamFields } from '../../../../components/ParamFields'
+import type { UiFieldSpec } from '../../../../components/ParamFields'
+import { AUDIENCE_NODE_ID, definitionToGraph, autoArrange, triggerNodeId } from '../../../../lib/canvas/graph-mapping'
+import {
+  addVariant,
+  appendStep,
+  collectStepIds,
+  locateStep,
+  moveStep as moveStepInTree,
+  removeStep,
+  removeVariant,
+  updateStepParams,
+  updateVariant,
+} from '../../../../lib/canvas/step-tree'
+import type { StepLocation } from '../../../../lib/canvas/step-tree'
+import { makeSplitStep, readVariants, SPLIT_STEP_TYPE } from '../../../../lib/engine/split'
+import type { CampaignDefinition, CampaignStep } from '../../../../lib/engine/types'
+import type { CampaignTriggerInput } from '../../../../data/validators'
+import { readApiErrorField } from '../../../../components/apiError'
+
+type PaletteTrigger = {
+  eventId: string
+  labelKey: string
+  available: boolean
+  blockedReasonKey: string | null
+}
+
+type PaletteContentBlock = { key: string; name: string }
+
+type PaletteSegment = { slug: string; name: string }
+
+/**
+ * The whole palette response, named once.
+ *
+ * It used to be written out twice — at the fetch and at the state — and the two drifted the moment a
+ * member was added, which is exactly what happened when the audience catalogue arrived.
+ */
+type Palette = {
+  triggers: PaletteTrigger[]
+  steps: PaletteStep[]
+  sweepSources: PaletteSweepSource[]
+  contentBlocks: PaletteContentBlock[]
+  segments: PaletteSegment[]
+  audienceFields: AudienceField[]
+  audienceOptions: AudienceOptions
+}
+
+type PaletteSweepSource = {
+  id: string
+  labelKey: string
+  available: boolean
+  blockedReasonKey: string | null
+  defaultWithinDays: number | null
+}
+
+type PaletteStep = {
+  type: string
+  labelKey: string
+  descriptionKey: string | null
+  channel: string | null
+  uiFields: UiFieldSpec[]
+}
+
+type PreviewEntry =
+  | { kind: 'step'; at: string; stepId: string; type: string; status: string; detail: string | null; channel: string | null }
+  | { kind: 'pause'; at: string; until: string; reason: 'wait' | 'quiet_hours' | 'send_time' | 'paused' }
+
+type JourneyPreview = {
+  entered: boolean
+  entries: PreviewEntry[]
+  stoppedBecause: 'completed' | 'stepLimit' | 'horizon' | 'failed'
+  variantChoices: Record<string, string>
+  endsAt: string | null
+}
+
+type AudienceEstimate = {
+  count: number
+  /** `exact` when the whole audience was answerable in the database; otherwise an upper bound. */
+  qualifier: 'exact' | 'atMost'
+  candidates: number | null
+}
+
+type CampaignResponse = {
+  id: string
+  name: string
+  description: string | null
+  isEnabled: boolean
+  definition: CampaignDefinition
+  triggers: CampaignTriggerInput[]
+  updatedAt: string
+}
+
+/** Hours are 0–23; anything else would make a window that never opens or never closes. */
+function clampHour(raw: string, fallback: number): number {
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(parsed, 0), 23)
+}
+
+function newStepId(): string {
+  return `step-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/**
+ * Short, human summary of an audience expression for the canvas node body.
+ *
+ * Written through the same catalogue the editor uses, so the node reads "Number of orders at least 1"
+ * rather than `orders.count >= 1`. A rule the catalogue does not describe falls back to the raw form —
+ * it was authored in the advanced editor and there is nothing truer to show.
+ */
+function summarizeAudience(
+  audience: CampaignDefinition['audience'],
+  t: (key: string, fallback?: string) => string,
+): string[] {
+  if (!audience) return []
+  const lines: string[] = []
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== 'object') return
+    const group = node as { operator?: unknown; rules?: unknown; field?: unknown; value?: unknown }
+    if (Array.isArray(group.rules)) {
+      group.rules.forEach(walk)
+      return
+    }
+    if (typeof group.field === 'string' && group.field) {
+      const field = findAudienceField(group.field)
+      const operator = String(group.operator ?? '')
+      const value = group.value === null || group.value === undefined ? '' : String(group.value)
+      lines.push(field
+        ? `${t(field.labelKey, field.path)} ${t(`marketing_automation.audience.operator.${field.kind}.${operator}`, operator)} ${value}`.trim()
+        : `${group.field} ${operator} ${JSON.stringify(group.value ?? null)}`)
+    }
+  }
+  walk(audience)
+  return lines
+}
+
+/**
+ * Maps the server's validation `code` to a localized message.
+ *
+ * The command answers with a stable code precisely so the author is told what is wrong; collapsing
+ * everything into "could not save" is what made the localized validation strings dead weight.
+ */
+function describeSaveError(error: unknown, t: (key: string, fallback?: string) => string): string {
+  const code = readApiErrorField(error, 'code')
+  if (!code) return t('marketing_automation.errors.saveFailed', 'Could not save the campaign.')
+  const detail = readApiErrorField(error, 'detail') ?? ''
+  const message = t(code, code)
+  return detail ? `${message} (${detail})` : message
+}
+
+export default function CampaignEditorPage({ params }: { params?: { id?: string } }) {
+  const t = useT()
+  const runMutation = useMarketingMutation('campaigns')
+  const campaignId = typeof params?.id === 'string' ? params.id : ''
+
+  const [loading, setLoading] = React.useState(true)
+  const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [dirty, setDirty] = React.useState(false)
+
+  const [name, setName] = React.useState('')
+  const [description, setDescription] = React.useState<string | null>(null)
+  const [isEnabled, setIsEnabled] = React.useState(false)
+  const [updatedAt, setUpdatedAt] = React.useState('')
+  const [triggers, setTriggers] = React.useState<CampaignTriggerInput[]>([])
+  const [definition, setDefinition] = React.useState<CampaignDefinition>({ version: 1, audience: null, steps: [] })
+  const [palette, setPalette] = React.useState<Palette | null>(null)
+  /**
+   * Off by default, and remembered for the session only.
+   *
+   * Persisting it would be a preference nobody set: somebody who opened the advanced editor once to read a
+   * rule should not find it waiting for them on the next campaign.
+   */
+  const [advancedAudience, setAdvancedAudience] = React.useState(false)
+  const [estimate, setEstimate] = React.useState<AudienceEstimate | null>(null)
+  const [estimating, setEstimating] = React.useState(false)
+  const [previewSubject, setPreviewSubject] = React.useState('')
+  const [preview, setPreview] = React.useState<JourneyPreview | null>(null)
+  const [previewing, setPreviewing] = React.useState(false)
+  const [testSending, setTestSending] = React.useState(false)
+  const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null)
+  /**
+   * The variant the palette adds to, chosen explicitly.
+   *
+   * Needed because a new split has EMPTY lanes: deriving the target from the selected step meant there
+   * had to be a step inside a lane already, which there never is, so the first step could not be added
+   * and A/B was unauthorable from the canvas at all.
+   */
+  const [laneTarget, setLaneTarget] = React.useState<StepLocation['lane']>(null)
+
+  React.useEffect(() => {
+    if (!campaignId) return
+    let cancelled = false
+    void (async () => {
+      // Wrapped: `apiCall` resolves for HTTP errors but a network failure or a parse error rejects,
+      // and an unhandled rejection here left the page on a spinner forever instead of showing the
+      // error state that is right below.
+      try {
+        const [campaign, paletteResult] = await Promise.all([
+          apiCall<CampaignResponse>(`/api/marketing_automation/campaigns/${campaignId}`),
+          apiCall<Palette>('/api/marketing_automation/palette'),
+        ])
+        if (cancelled) return
+        if (!campaign.ok || !campaign.result) {
+          setError(t('marketing_automation.errors.loadFailed', 'Could not load the campaign.'))
+          return
+        }
+        setName(campaign.result.name)
+        setDescription(campaign.result.description ?? null)
+        setIsEnabled(campaign.result.isEnabled)
+        setUpdatedAt(campaign.result.updatedAt)
+        setTriggers(campaign.result.triggers ?? [])
+        setDefinition(campaign.result.definition)
+        if (paletteResult.ok && paletteResult.result) setPalette(paletteResult.result)
+      } catch {
+        if (!cancelled) setError(t('marketing_automation.errors.loadFailed', 'Could not load the campaign.'))
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [campaignId, t])
+
+  React.useEffect(() => {
+    // Selecting something else means the author has moved on; a stale lane target would silently send
+    // the next palette click into a variant they are no longer looking at.
+    if (!selectedNodeId || !laneTarget) return
+    if (selectedNodeId !== laneTarget.splitId) setLaneTarget(null)
+  }, [selectedNodeId, laneTarget])
+
+  const graph = React.useMemo(() => definitionToGraph(definition, triggers), [definition, triggers])
+
+  const nodes = React.useMemo<Node[]>(() => graph.nodes.map((node) => {
+    if (node.type === 'audience') {
+      return {
+        id: node.id,
+        type: 'audience',
+        position: node.position,
+        data: {
+          isEveryone: node.data.isEveryone,
+          summary: summarizeAudience(definition.audience, t),
+          logic: (definition.audience as { operator?: 'AND' | 'OR' | 'NOT' } | null)?.operator ?? null,
+          estimate,
+        },
+      }
+    }
+    if (node.type === 'trigger') {
+      // Bound once so the narrowing survives into the closures below.
+      const nodeTrigger = node.data.trigger
+      const entry = palette?.triggers.find((item) => nodeTrigger.kind === 'event' && item.eventId === nodeTrigger.eventId)
+      const sourceEntry = nodeTrigger.kind === 'schedule'
+        ? palette?.sweepSources.find((item) => item.id === (nodeTrigger.sweepSource ?? 'customers'))
+        : undefined
+      return {
+        id: node.id,
+        type: 'trigger',
+        position: node.position,
+        data: { trigger: nodeTrigger, labelKey: entry?.labelKey, sourceLabelKey: sourceEntry?.labelKey },
+      }
+    }
+    const stepEntry = palette?.steps.find((item) => item.type === node.data.step.type)
+    const shared = {
+      step: node.data.step,
+      index: node.data.index,
+      labelKey: stepEntry?.labelKey,
+      laneKey: node.data.lane?.laneKey ?? null,
+    }
+    if (node.type === 'split') {
+      return { id: node.id, type: 'split', position: node.position, data: { ...shared, variants: node.data.variants } }
+    }
+    return { id: node.id, type: 'step', position: node.position, data: shared }
+  // `t` joins the dependencies now that the node bodies are written with it.
+  }), [graph.nodes, definition.audience, palette, estimate, t])
+
+  const edges = React.useMemo<Edge[]>(
+    () => graph.edges.map((edge) => ({ ...edge, deletable: false, focusable: false })),
+    [graph.edges],
+  )
+
+  /**
+   * Asks the server how many customers the audience ON SCREEN reaches.
+   *
+   * Explicit rather than automatic: it runs aggregate queries over orders and tags, which is not
+   * something to fire on every keystroke in the condition builder.
+   */
+  const runEstimate = async () => {
+    setEstimating(true)
+    try {
+      const response = await apiCallOrThrow<AudienceEstimate>(
+        `/api/marketing_automation/campaigns/${campaignId}/audience-estimate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ audience: definition.audience }),
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+      setEstimate(response.result ?? null)
+    } catch (estimateError) {
+      flash(describeSaveError(estimateError, t), 'error')
+    } finally {
+      setEstimating(false)
+    }
+  }
+
+  /**
+   * Asks the server what one named customer would receive, and when.
+   *
+   * The server drives the real engine for this, so the answer includes every gate — a message the
+   * frequency cap would drop shows as skipped, and quiet hours move the timestamp. That is the only
+   * version of this feature worth having: a hand-written explanation would drift from the engine, and an
+   * author trusts a preview exactly where they cannot check it themselves.
+   */
+  const runPreview = async () => {
+    const subjectEntityId = previewSubject.trim()
+    if (!subjectEntityId) return
+    setPreviewing(true)
+    try {
+      const response = await apiCallOrThrow<JourneyPreview>(
+        `/api/marketing_automation/campaigns/${campaignId}/preview`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ subjectEntityId }),
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+      setPreview(response.result ?? null)
+    } catch (previewError) {
+      flash(describeSaveError(previewError, t), 'error')
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  /**
+   * Sends one real message for this step, to the author's own address.
+   *
+   * The endpoint takes the recipient from the session and refuses to accept one from the request, so
+   * there is nothing to pass here — which is the point: an editor that can send to an arbitrary address
+   * is a spam relay.
+   */
+  const sendTest = async (stepId: string) => {
+    setTestSending(true)
+    try {
+      /**
+       * Guarded, even though it writes no record.
+       *
+       * It sends a real email, which is the act this module treats as the most consequential one it has, and
+       * the rule in AGENTS.md is about the method rather than about what the endpoint happens to touch. A
+       * record-lock dialog has nothing to say here; an approval hook the platform adds later does.
+       */
+      const response = await runMutation(
+        () => apiCallOrThrow<{ to?: string }>(
+          `/api/marketing_automation/campaigns/${campaignId}/test-send`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ stepId }),
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+      flash(
+        t('marketing_automation.testSend.sent', 'Sent to {address}.').replace('{address}', response.result?.to ?? ''),
+        'success',
+      )
+    } catch (sendError) {
+      flash(describeSaveError(sendError, t), 'error')
+    } finally {
+      setTestSending(false)
+    }
+  }
+
+  const mutate = React.useCallback((next: Partial<{ definition: CampaignDefinition; triggers: CampaignTriggerInput[] }>) => {
+    if (next.definition) setDefinition(next.definition)
+    if (next.triggers) setTriggers(next.triggers)
+    setDirty(true)
+  }, [])
+
+  const selectedLocation: StepLocation | null = selectedNodeId ? locateStep(definition.steps, selectedNodeId) : null
+
+  /**
+   * Where a new step goes: into the variant the selection sits in, otherwise at the end of the
+   * top-level chain. Without this the palette could only ever append to the trunk, and a variant
+   * would be limited to whatever it was created with.
+   */
+  // An explicit choice wins; otherwise a step selected inside a lane implies that lane.
+  const addTarget: StepLocation['lane'] = laneTarget ?? selectedLocation?.lane ?? null
+
+  const addStep = (type: string) => {
+    const step = type === SPLIT_STEP_TYPE
+      ? makeSplitStep(newStepId())
+      : { id: newStepId(), type, params: type === 'wait' ? { minutes: 60 } : {} } satisfies CampaignStep
+    mutate({ definition: { ...definition, steps: appendStep(definition.steps, step, addTarget) } })
+    setSelectedNodeId(step.id)
+  }
+
+  const addTrigger = (eventId: string) => {
+    if (triggers.some((trigger) => trigger.kind === 'event' && trigger.eventId === eventId)) return
+    mutate({ triggers: [...triggers, { kind: 'event', eventId }] })
+  }
+
+  /**
+   * Adds a periodic trigger.
+   *
+   * Nothing HAPPENS to make a customer dormant and nothing happens when an order is old enough to
+   * review, so those campaigns have no event to react to — only a question to ask on a schedule. This
+   * is the only way to author one, and until it existed every periodic campaign was API-only.
+   */
+  const addScheduleTrigger = (source: PaletteSweepSource) => {
+    const next: CampaignTriggerInput = {
+      kind: 'schedule',
+      scheduleValue: '1d',
+      // Once ever by default: a sweep's audience usually STAYS true ("has not ordered in 90 days"),
+      // so an unlimited default would re-enrol the same customer on every tick.
+      reentryAfterDays: null,
+      sweepSource: source.id,
+      sweepParams: source.defaultWithinDays !== null ? { withinDays: source.defaultWithinDays } : {},
+    }
+    if (triggers.some((trigger) => triggerNodeId(trigger) === triggerNodeId(next))) return
+    mutate({ triggers: [...triggers, next] })
+    setSelectedNodeId(triggerNodeId(next))
+  }
+
+  const updateScheduleTrigger = (nodeId: string, patch: Partial<Extract<CampaignTriggerInput, { kind: 'schedule' }>>) => {
+    /**
+     * Found by POSITION, not by a predicate over the result.
+     *
+     * A schedule's node id is derived from its source and interval, so editing either CHANGES the id, and the
+     * selection has to follow it — otherwise one keystroke in the interval field unmounts the panel being
+     * typed into and leaves a Remove button pointing at an id that no longer exists. Identifying the edited
+     * trigger by searching for "a schedule whose id differs from the old one" found the FIRST such trigger,
+     * which in a campaign with two schedules is usually the other one: editing either moved the selection to
+     * its sibling.
+     */
+    const index = triggers.findIndex((trigger) => trigger.kind === 'schedule' && triggerNodeId(trigger) === nodeId)
+    if (index === -1) return
+
+    const next: CampaignTriggerInput[] = triggers.map((trigger, at) => (
+      // Narrowed by the search above; `at === index` is a schedule trigger.
+      at === index && trigger.kind === 'schedule' ? { ...trigger, ...patch } : trigger
+    ))
+    mutate({ triggers: next })
+
+    const movedId = triggerNodeId(next[index])
+    if (movedId !== nodeId) setSelectedNodeId(movedId)
+  }
+
+  const withSteps = (steps: CampaignStep[]) => mutate({ definition: { ...definition, steps } })
+
+  /**
+   * Send rules apply to the whole campaign rather than to a step, so they are edited here rather than
+   * on a node. They were implemented, tested and unauthorable before this panel existed — a guard
+   * nobody can switch on is a guard nobody has.
+   */
+  const updateSendPolicy = (patch: Partial<NonNullable<CampaignDefinition['sendPolicy']>>) => {
+    mutate({ definition: { ...definition, sendPolicy: { ...(definition.sendPolicy ?? {}), ...patch } } })
+  }
+
+  const updateStep = (stepId: string, params: Record<string, unknown>) => {
+    withSteps(updateStepParams(definition.steps, stepId, params))
+  }
+
+  const moveStep = (stepId: string, delta: -1 | 1) => {
+    withSteps(moveStepInTree(definition.steps, stepId, delta))
+  }
+
+  const removeNode = (nodeId: string) => {
+    if (locateStep(definition.steps, nodeId)) {
+      withSteps(removeStep(definition.steps, nodeId))
+    } else {
+      // Uses the same id function the graph does, so a node and its trigger can never disagree.
+      mutate({ triggers: triggers.filter((trigger) => triggerNodeId(trigger) !== nodeId) })
+    }
+    setSelectedNodeId(null)
+  }
+
+  const onPositionsChange = React.useCallback((nodePositions: Record<string, { x: number; y: number }>) => {
+    setDefinition((current) => {
+      // Only positions of nodes that still exist are kept. Writing the raw map back let a deleted
+      // step's coordinates survive every subsequent save and grow the jsonb without bound.
+      const live = new Set<string>([AUDIENCE_NODE_ID, ...collectStepIds(current.steps)])
+      const pruned: Record<string, { x: number; y: number }> = {}
+      for (const [nodeId, position] of Object.entries(nodePositions)) {
+        if (live.has(nodeId) || nodeId.startsWith('trigger:')) pruned[nodeId] = position
+      }
+      return { ...current, canvas: { ...current.canvas, nodePositions: pruned } }
+    })
+    setDirty(true)
+  }, [])
+
+  /**
+   * How many people this is about to start messaging, asked at the moment somebody publishes.
+   *
+   * The audience estimate has existed since Phase 2 and lived behind a button in the audience panel, which is
+   * not where the decision is made — publishing is. "This will start the journey for 12,400 people" is the one
+   * fact an operator wants before that click, and it was two panels away from it.
+   *
+   * Counted in PEOPLE, with the number of sending steps beside it rather than multiplied into a message count:
+   * the gates decide how many messages each person actually gets, so a product of the two would be a confident
+   * number that is wrong in the direction that matters.
+   */
+  /**
+   * How many messages ONE person can receive from this journey.
+   *
+   * A step's channel comes from the palette, which is the server's own registry — so a channel added by another
+   * module counts without this screen knowing its name. Recursing into `readVariants` because a split lane's steps
+   * are steps, the rule every walk in this module obeys.
+   *
+   * A split takes the LARGEST lane rather than the sum: a subject walks one lane, so adding them together would
+   * report a number nobody can receive. That is the same per-person-versus-total confusion the A/B rates and the
+   * funnel both refuse, applied to the figure an operator reads just before publishing.
+   */
+  const countSendingSteps = React.useCallback((steps: CampaignStep[]): number => {
+    let total = 0
+    for (const step of steps) {
+      if (palette?.steps.find((item) => item.type === step.type)?.channel) total += 1
+      if (step.type === SPLIT_STEP_TYPE) {
+        const lanes = readVariants(step).map((variant) => countSendingSteps(variant.steps))
+        total += lanes.length > 0 ? Math.max(...lanes) : 0
+      }
+    }
+    return total
+  }, [palette])
+
+  const confirmPublish = async (): Promise<boolean> => {
+    let estimated: AudienceEstimate | null = null
+    try {
+      const response = await apiCallOrThrow<AudienceEstimate>(
+        `/api/marketing_automation/campaigns/${campaignId}/audience-estimate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ audience: definition.audience }),
+          headers: { 'content-type': 'application/json' },
+        },
+      )
+      estimated = response.result ?? null
+    } catch {
+      // An estimate that cannot be produced must not block publishing: the dialog then asks without a number
+      // rather than refusing, because the author may know perfectly well what they are enabling.
+      estimated = null
+    }
+
+    const sendingSteps = countSendingSteps(definition.steps)
+    /**
+     * Which kind of campaign this is, because the same number means two different things.
+     *
+     * A scheduled campaign's next sweep starts the journey for everybody who matches; an event-triggered one
+     * messages nobody until the event happens, and the count is the pool that would qualify when it does.
+     */
+    const scheduled = triggers.some((trigger) => trigger.kind === 'schedule')
+    const people = estimated
+      ? (estimated.qualifier === 'exact'
+        ? String(estimated.count)
+        : t('marketing_automation.publish.atMost', 'at most {count}').replace('{count}', String(estimated.count)))
+      : t('marketing_automation.publish.unknownCount', 'an unknown number of')
+
+    return confirm({
+      title: t('marketing_automation.publish.title', 'Publish this campaign?'),
+      text: [
+        scheduled
+          ? t('marketing_automation.publish.scheduled', 'The next scheduled pass will start this journey for {people} people.')
+            .replace('{people}', people)
+          : t('marketing_automation.publish.event', 'Nobody is messaged until the trigger fires. {people} people currently match this audience.')
+            .replace('{people}', people),
+        sendingSteps > 0
+          ? t('marketing_automation.publish.steps', 'Each of them can receive up to {count} messages, subject to consent, quiet hours and the frequency cap.')
+            .replace('{count}', String(sendingSteps))
+          : t('marketing_automation.publish.noSendingSteps', 'This campaign has no sending step, so it will change data without messaging anybody.'),
+      ].join(' '),
+    })
+  }
+
+  const toggleEnabled = async () => {
+    // Only on the way IN. Switching a campaign off needs no warning about volume; it is the safe direction.
+    if (!isEnabled && !(await confirmPublish())) return
+    setSaving(true)
+    try {
+      const response = await runMutation(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCallOrThrow<{ isEnabled: boolean; updatedAt: string }>(
+            `/api/marketing_automation/campaigns/${campaignId}/enabled`,
+            {
+              method: 'PUT',
+              body: JSON.stringify({ updatedAt, isEnabled: !isEnabled }),
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+        ),
+      )
+      const next = response.result
+      if (next) {
+        setIsEnabled(next.isEnabled)
+        setUpdatedAt(next.updatedAt)
+      }
+    } catch (toggleError) {
+      if (!extractOptimisticLockConflict(toggleError)) {
+        flash(describeSaveError(toggleError, t), 'error')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      // The expected version travels as the platform's extension header, which is what the
+      // command guard reads and what makes a conflict surface through the shared conflict bar.
+      const response = await runMutation(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCallOrThrow<{ updatedAt: string; waitingRuns: number }>(
+            `/api/marketing_automation/campaigns/${campaignId}/save-graph`,
+            {
+              method: 'PUT',
+              body: JSON.stringify({ updatedAt, name, description, triggers, definition }),
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+        ),
+      )
+      const saved = response.result
+      setUpdatedAt(saved?.updatedAt ?? updatedAt)
+      setDirty(false)
+      // A sentence, not the button's own label: the toast that confirmed a save said "Save".
+      flash(t('marketing_automation.campaign.saved', 'Campaign saved.'), 'success')
+      if ((saved?.waitingRuns ?? 0) > 0) {
+        // Editing a campaign changes what customers mid-journey receive next, which is worth
+        // saying out loud rather than discovering later.
+        flash(
+          t('marketing_automation.confirm.droppedPendingResumes', '{count} customers are currently waiting in this campaign.')
+            .replace('{count}', String(saved?.waitingRuns ?? 0)),
+          'info',
+        )
+      }
+    } catch (saveError) {
+      // One conflict surface for the whole app: this renders the shared bar (or defers to a merge
+      // dialog when one is registered) and only falls through for non-conflict failures.
+      if (!extractOptimisticLockConflict(saveError)) {
+        flash(describeSaveError(saveError, t), 'error')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  /**
+   * Everything below is a HOOK, so it must sit above the early returns.
+   *
+   * These were added after them, which is a hook-order violation: the first render bails at `if (loading)`
+   * having called fewer hooks, and the render right after `setLoading(false)` calls six more — React then
+   * throws "Rendered more hooks than during the previous render" and the editor never opens at all.
+   */
+  /**
+   * An AI draft for the selected message.
+   *
+   * Held in state and APPLIED on request rather than written straight into the step: the draft is a
+   * suggestion, and an author who did not like it should not have to undo a save. Nothing here saves — the
+   * campaign is saved by the same button as every other edit.
+   */
+  const [draft, setDraft] = React.useState<{ subject: string; bodyHtml: string; bodyText: string } | null>(null)
+  const [drafting, setDrafting] = React.useState(false)
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+
+  /**
+   * An authored graph is minutes of work held only in this component's state.
+   *
+   * Until this guard existed, clicking the breadcrumb threw all of it away without a word — triggers, steps, the
+   * audience expression, the canvas layout. `CrudForm` has protected against this for a long time; the editor is
+   * not a `CrudForm`, so the module carries its own version.
+   */
+  useUnsavedGuard(dirty, async () => confirm({
+    title: t('marketing_automation.canvas.leaveTitle', 'Leave without saving?'),
+    text: t(
+      'marketing_automation.canvas.leaveText',
+      'This campaign has changes that have not been saved. Leaving now loses them.',
+    ),
+    variant: 'destructive',
+  }))
+
+  const [rendered, setRendered] = React.useState<{ subject: string; html: string; personalised: boolean } | null>(null)
+  const [rendering, setRendering] = React.useState(false)
+
+  /**
+   * Shows the author their own message with the placeholders filled in.
+   *
+   * Until this existed the only way to see that was to test send it to yourself and go and look at your inbox —
+   * for the one thing an author most wants to check before publishing. It goes through the same `renderEmail` a
+   * real send uses, so what is shown is what would be delivered rather than a second rendering that could drift.
+   */
+  const requestRender = async (stepId: string) => {
+    setRendering(true)
+    try {
+      const response = await apiCallOrThrow<{ subject: string; html: string; personalised: boolean }>(
+        `/api/marketing_automation/campaigns/${campaignId}/render`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          // The same customer the journey preview is pointed at, when one is chosen.
+          // The same customer the journey preview is pointed at, when the author has named one.
+          body: JSON.stringify({ stepId, subjectEntityId: previewSubject.trim() || null }),
+        },
+      )
+      if (response.result) setRendered(response.result)
+    } catch {
+      flash(t('marketing_automation.render.failed', 'That message could not be rendered.'), 'error')
+    } finally {
+      setRendering(false)
+    }
+  }
+  const [brief, setBrief] = React.useState('')
+  /**
+   * The campaign's saved versions, loaded on demand.
+   *
+   * Not fetched with the campaign: most editing sessions never ask for history, and a list of thirty
+   * entries is not worth adding to the first paint of every campaign that is opened.
+   */
+  const [revisions, setRevisions] = React.useState<Array<{
+    version: number
+    name: string
+    note: string
+    createdAt: string
+    stepCount: number
+    triggerCount: number
+  }> | null>(null)
+  const [restoring, setRestoring] = React.useState(false)
+
+  const loadRevisions = React.useCallback(async () => {
+    try {
+      const result = await apiCall<{ items?: Array<{
+        version: number
+        name: string
+        note: string
+        createdAt: string
+        stepCount: number
+        triggerCount: number
+      }> }>(`/api/marketing_automation/campaigns/${campaignId}/revisions`)
+      setRevisions(result.ok && Array.isArray(result.result?.items) ? result.result.items : [])
+    } catch {
+      setRevisions([])
+    }
+  }, [campaignId])
+
+  if (loading) {
+    return <Page><PageBody><div className="flex items-center justify-center py-16"><Spinner /></div></PageBody></Page>
+  }
+  if (error) {
+    return <Page><PageBody><div className="text-sm text-muted-foreground">{error}</div></PageBody></Page>
+  }
+
+  const selectedStep = selectedLocation?.step ?? null
+  const selectedStepMeta = selectedStep ? palette?.steps.find((item) => item.type === selectedStep.type) ?? null : null
+  const selectedSplit = selectedStep && selectedStep.type === SPLIT_STEP_TYPE ? selectedStep : null
+  const audienceSelected = selectedNodeId === AUDIENCE_NODE_ID
+
+  const requestDraft = async (stepId: string) => {
+    setDrafting(true)
+    try {
+      const response = await apiCallOrThrow<{ subject: string; bodyHtml: string; bodyText: string }>(
+        `/api/marketing_automation/campaigns/${campaignId}/draft-copy`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ brief: brief.trim() || undefined }),
+        },
+      )
+      if (response.result) setDraft(response.result)
+    } catch (error) {
+      const code = readApiErrorField(error, 'code')
+      flash(
+        code === 'marketing_automation.errors.aiNotConfigured'
+          ? t('marketing_automation.errors.aiNotConfigured', 'No AI model is configured for this installation.')
+          : t('marketing_automation.errors.aiFailed', 'Could not draft the copy. Try again, or write it yourself.'),
+        'error',
+      )
+    } finally {
+      setDrafting(false)
+      void stepId
+    }
+  }
+
+  const restoreRevision = async (version: number) => {
+    /**
+     * Asked first, because the button is one click away from a list of versions and the page reloads
+     * immediately afterwards. Nothing is lost — the restore is an ordinary save, so the current content
+     * becomes a version of its own — and the sentence says so, which is the part somebody needs to read
+     * before deciding rather than after.
+     */
+    const confirmed = await confirm({
+      text: t(
+        'marketing_automation.history.confirmRestore',
+        'Put version {version} back? What the campaign says now is kept as a version you can return to.',
+      ).replace('{version}', String(version)),
+    })
+    if (!confirmed) return
+    setRestoring(true)
+    try {
+      /**
+       * The version this screen last read travels with the request.
+       *
+       * Without it the server compared the campaign against itself and the lock could never fire, so restoring
+       * from a history list somebody else had already moved on from silently discarded their work — and
+       * `surfaceRecordConflict` below was unreachable code.
+       */
+      await runMutation(
+        () => apiCallOrThrow(
+          `/api/marketing_automation/campaigns/${campaignId}/revisions/${version}/restore`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ updatedAt }),
+          },
+        ),
+      )
+      flash(t('marketing_automation.history.restored', 'Version restored.'), 'success')
+      // Reloaded rather than patched in: the restore went through the ordinary save, so the canvas has to
+      // come back from the server exactly as it would after somebody else's edit.
+      window.location.reload()
+    } catch (error) {
+      if (!extractOptimisticLockConflict(error)) {
+        flash(t('marketing_automation.history.restoreFailed', 'Could not restore that version.'), 'error')
+      }
+    } finally {
+      setRestoring(false)
+    }
+  }
+
+  const selectedTrigger = selectedNodeId
+    ? triggers.find((trigger) => triggerNodeId(trigger) === selectedNodeId) ?? null
+    : null
+  const selectedScheduleTrigger = selectedTrigger?.kind === 'schedule' ? selectedTrigger : null
+  const selectedSweepSource = selectedScheduleTrigger
+    ? palette?.sweepSources.find((source) => source.id === (selectedScheduleTrigger.sweepSource ?? 'customers')) ?? null
+    : null
+
+  return (
+    <Page>
+      <PageBody>
+        <div className="mb-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-64 flex-1 space-y-1">
+            <Label htmlFor="campaign-name">{t('marketing_automation.list.columns.name', 'Name')}</Label>
+            <Input
+              id="campaign-name"
+              value={name}
+              onChange={(event) => { setName(event.target.value); setDirty(true) }}
+            />
+          </div>
+          <Button
+            variant={isEnabled ? 'default' : 'outline'}
+            disabled={saving || dirty}
+            title={dirty ? t('marketing_automation.canvas.unsavedChanges', 'Unsaved changes') : undefined}
+            onClick={() => void toggleEnabled()}
+          >
+            {isEnabled
+              ? t('marketing_automation.action.disable', 'Disable')
+              : t('marketing_automation.action.enable', 'Enable')}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => mutate({ definition: { ...definition, canvas: autoArrange(definition, triggers) } })}
+          >
+            {t('marketing_automation.action.autoArrange', 'Auto-arrange')}
+          </Button>
+          {/*
+            A plain link rather than a fetch-and-blob dance: the endpoint already answers with a
+            content-disposition, so the browser does the saving and there is no object URL to leak or revoke.
+            Disabled while dirty, because exporting the SAVED campaign while the screen shows something else
+            would hand somebody a file that does not match what they are looking at.
+          */}
+          <Button variant="outline" asChild disabled={dirty}>
+            <a
+              href={dirty ? undefined : `/api/marketing_automation/campaigns/${campaignId}/export`}
+              title={dirty ? t('marketing_automation.canvas.unsavedChanges', 'Unsaved changes') : undefined}
+            >
+              {t('marketing_automation.action.export', 'Export')}
+            </a>
+          </Button>
+          {/* Plain links: the unsaved-changes guard intercepts them like any other way out of the editor. */}
+          <Button variant="outline" asChild>
+            <a href={`/backend/marketing/campaigns/${campaignId}/results`}>{t('marketing_automation.results.title', 'Results')}</a>
+          </Button>
+          <Button variant="outline" asChild>
+            <a href={`/backend/marketing/campaigns/${campaignId}/runs`}>{t('marketing_automation.runs.title', 'Runs')}</a>
+          </Button>
+          <Button onClick={save} disabled={saving || !dirty}>
+            {saving ? <Spinner /> : t('marketing_automation.action.save', 'Save')}
+          </Button>
+          {dirty ? (
+            <span className="text-xs text-muted-foreground">
+              {t('marketing_automation.canvas.unsavedChanges', 'Unsaved changes')}
+            </span>
+          ) : null}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[14rem_1fr_20rem]">
+          <aside className="space-y-4">
+            <div>
+              <div className="mb-2 text-overline text-muted-foreground">
+                {t('marketing_automation.canvas.palette.triggers', 'Triggers')}
+              </div>
+              <div className="space-y-1">
+                {(palette?.triggers ?? []).map((trigger) => (
+                  <Button
+                    key={trigger.eventId}
+                    variant="outline"
+                    /**
+                     * `truncate` on the label, not on the button.
+                     *
+                     * `Button` sets `whitespace-nowrap`, so inside a fixed-width column a long name like
+                     * "Watched product price dropped" simply painted past its own border. Truncating the
+                     * span keeps the button's shape and the full name stays in the tooltip — which is
+                     * where a blocked trigger already explains itself.
+                     */
+                    className="w-full justify-start"
+                    disabled={!trigger.available}
+                    title={trigger.blockedReasonKey
+                      ? t(trigger.blockedReasonKey, '')
+                      : t(trigger.labelKey, trigger.eventId)}
+                    onClick={() => addTrigger(trigger.eventId)}
+                  >
+                    <span className="truncate">{t(trigger.labelKey, trigger.eventId)}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-overline text-muted-foreground">
+                {t('marketing_automation.canvas.palette.schedules', 'On a schedule')}
+              </div>
+              <div className="space-y-1">
+                {(palette?.sweepSources ?? []).map((source) => (
+                  <Button
+                    key={source.id}
+                    variant="outline"
+                    className="w-full justify-start"
+                    disabled={!source.available}
+                    title={source.blockedReasonKey
+                      ? t(source.blockedReasonKey, '')
+                      : t(source.labelKey, source.id)}
+                    onClick={() => addScheduleTrigger(source)}
+                  >
+                    <span className="truncate">{t(source.labelKey, source.id)}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-overline text-muted-foreground">
+                {t('marketing_automation.canvas.palette.steps', 'Steps')}
+              </div>
+              {addTarget ? (
+                <div className="mb-2 text-xs text-muted-foreground">
+                  {t('marketing_automation.canvas.palette.addsToVariant', 'Adds to variant {key}').replace('{key}', addTarget.laneKey)}
+                </div>
+              ) : null}
+              <div className="space-y-1">
+                {(palette?.steps ?? []).map((step) => (
+                  <Button
+                    key={step.type}
+                    variant="outline"
+                    className="w-full justify-start"
+                    onClick={() => addStep(step.type)}
+                  >
+                    <span className="truncate">{t(step.labelKey, step.type)}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </aside>
+
+          <CampaignCanvas
+            nodes={nodes}
+            edges={edges}
+            selectedNodeId={selectedNodeId}
+            onSelectNode={setSelectedNodeId}
+            onPositionsChange={onPositionsChange}
+          />
+
+          <aside className="space-y-3">
+            {audienceSelected ? (
+              <div className="space-y-2">
+                <div className="text-overline text-muted-foreground">
+                  {t('marketing_automation.canvas.node.audience.title', 'Audience')}
+                </div>
+                {/*
+                  The guided editor by default, the platform's own builder behind a toggle.
+
+                  Both write the same expression, so this is a choice of interface rather than of language:
+                  a marketer picks a field from a list and a value from the shop's own tags and segments,
+                  and somebody who knows the data model can still type a path the catalogue has never heard
+                  of. The advanced editor is not hidden away — a rule written there is shown, read-only, in
+                  the guided one, so nothing authored is ever invisible.
+                */}
+                {advancedAudience ? (
+                  <ConditionBuilder
+                    value={definition.audience as GroupCondition | null}
+                    onChangeAction={(value) => {
+                      // The previous number describes the previous audience, so it stops being shown
+                      // the moment the expression changes rather than lingering as a wrong answer.
+                      setEstimate(null)
+                      mutate({ definition: { ...definition, audience: value } })
+                    }}
+                  />
+                ) : (
+                  <AudienceBuilder
+                    value={definition.audience as GroupCondition | null}
+                    fields={palette?.audienceFields ?? []}
+                    options={palette?.audienceOptions ?? {}}
+                    onChange={(value) => {
+                      setEstimate(null)
+                      mutate({ definition: { ...definition, audience: value } })
+                    }}
+                  />
+                )}
+                <button
+                  type="button"
+                  className="block text-xs text-muted-foreground underline"
+                  onClick={() => setAdvancedAudience((on) => !on)}
+                >
+                  {advancedAudience
+                    ? t('marketing_automation.audience.guided', 'Back to the guided editor')
+                    : t('marketing_automation.audience.advanced', 'Advanced editor')}
+                </button>
+                <Button variant="outline" disabled={estimating} onClick={() => void runEstimate()}>
+                  {estimating ? <Spinner /> : t('marketing_automation.action.estimateAudience', 'Estimate audience')}
+                </Button>
+                {estimate ? (
+                  <div className="text-xs text-muted-foreground">
+                    {estimate.qualifier === 'exact'
+                      ? t('marketing_automation.canvas.node.audience.estimateExact', '{count} customers match')
+                          .replace('{count}', String(estimate.count))
+                      : t('marketing_automation.canvas.node.audience.estimateAtMost', 'At most {count} customers; the rest is decided per customer when the campaign runs')
+                          .replace('{count}', String(estimate.count))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {selectedStep && selectedLocation ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-overline text-muted-foreground">
+                    {t(selectedStepMeta?.labelKey ?? `marketing_automation.step.${selectedStep.type}.label`, selectedStep.type)}
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={selectedLocation.index === 0}
+                      aria-label={t('marketing_automation.action.moveUp', 'Move up')}
+                      onClick={() => moveStep(selectedStep.id, -1)}
+                    >
+                      ↑
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={selectedLocation.index >= selectedLocation.siblingCount - 1}
+                      aria-label={t('marketing_automation.action.moveDown', 'Move down')}
+                      onClick={() => moveStep(selectedStep.id, 1)}
+                    >
+                      ↓
+                    </Button>
+                  </div>
+                </div>
+                {selectedLocation.lane ? (
+                  <div className="text-xs text-muted-foreground">
+                    {t('marketing_automation.canvas.node.split.variant', 'Variant {key}').replace('{key}', selectedLocation.lane.laneKey)}
+                  </div>
+                ) : null}
+
+                {selectedSplit ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-muted-foreground">
+                      {t(
+                        'marketing_automation.canvas.split.hint',
+                        'Each customer is assigned one variant and stays in it. Press "Add steps here" on a variant, then pick from the palette.',
+                      )}
+                    </div>
+                    {readVariants(selectedSplit).map((variant) => (
+                      <div
+                        key={variant.key}
+                        className={[
+                          'space-y-2 rounded-md border p-2',
+                          addTarget?.splitId === selectedSplit.id && addTarget?.laneKey === variant.key
+                            ? 'border-primary'
+                            : 'border-border',
+                        ].join(' ')}
+                      >
+                        <div className="flex gap-2">
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <Label htmlFor={`variant-key-${variant.key}`}>
+                              {t('marketing_automation.field.variant.key', 'Variant')}
+                            </Label>
+                            {/* Committed on BLUR, not per keystroke. The key identifies the lane, and runs
+                                already enrolled recorded the old one — so renaming `a` to `abc` used to
+                                commit `a`, `ab`, `abc` and strand the results of the first two. */}
+                            <Input
+                              id={`variant-key-${variant.key}`}
+                              key={`variant-key-input-${variant.key}`}
+                              defaultValue={variant.key}
+                              onBlur={(event) => {
+                                const next = event.target.value.trim()
+                                if (!next || next === variant.key) return
+                                withSteps(updateVariant(definition.steps, selectedSplit.id, variant.key, { key: next }))
+                              }}
+                            />
+                          </div>
+                          <div className="w-20 space-y-1">
+                            <Label htmlFor={`variant-weight-${variant.key}`}>
+                              {t('marketing_automation.field.variant.weight', 'Weight')}
+                            </Label>
+                            <Input
+                              id={`variant-weight-${variant.key}`}
+                              type="number"
+                              min={1}
+                              value={String(variant.weight)}
+                              onChange={(event) => withSteps(updateVariant(definition.steps, selectedSplit.id, variant.key, { weight: Number(event.target.value) }))}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            {t('marketing_automation.canvas.split.variantSteps', '{count} steps').replace('{count}', String(variant.steps.length))}
+                          </span>
+                          <div className="flex gap-1">
+                            {/* The only way to put the FIRST step into a lane: a new split's lanes are
+                                empty, so there is nothing inside one to select. */}
+                            <Button
+                              variant={
+                                addTarget?.splitId === selectedSplit.id && addTarget?.laneKey === variant.key
+                                  ? 'default'
+                                  : 'outline'
+                              }
+                              size="sm"
+                              onClick={() => setLaneTarget({ splitId: selectedSplit.id, laneKey: variant.key })}
+                            >
+                              {t('marketing_automation.action.addToVariant', 'Add steps here')}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => withSteps(removeVariant(definition.steps, selectedSplit.id, variant.key))}
+                            >
+                              {t('marketing_automation.action.removeVariant', 'Remove variant')}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <Button variant="outline" onClick={() => withSteps(addVariant(definition.steps, selectedSplit.id))}>
+                      {t('marketing_automation.action.addVariant', 'Add variant')}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <ParamFields
+                      fields={selectedStepMeta?.uiFields ?? []}
+                      values={selectedStep.params}
+                      onChange={(params) => updateStep(selectedStep.id, params)}
+                    />
+                    {/* The blank page is what stops a campaign being written at all, so the draft lives
+                        beside the fields it fills — and it fills them only when the author says so. */}
+                    {selectedStepMeta?.channel === 'email' ? (
+                      <div className="space-y-2 rounded-sm border border-border p-2">
+                        <div className="text-overline text-muted-foreground">
+                          {t('marketing_automation.ai.title', 'Draft with AI')}
+                        </div>
+                        <Textarea
+                          rows={2}
+                          value={brief}
+                          placeholder={t('marketing_automation.ai.briefPlaceholder', 'What should this message say? e.g. remind them about the items they looked at, offer free delivery this week')}
+                          onChange={(event) => setBrief(event.target.value)}
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" disabled={drafting} onClick={() => void requestDraft(selectedStep.id)}>
+                            {drafting ? <Spinner /> : t('marketing_automation.ai.draft', 'Draft')}
+                          </Button>
+                          {/* Seeing the finished message, without sending it to yourself first. */}
+                          <Button variant="outline" disabled={rendering} onClick={() => void requestRender(selectedStep.id)}>
+                            {rendering ? <Spinner /> : t('marketing_automation.render.preview', 'Preview')}
+                          </Button>
+                          {draft ? (
+                            <>
+                              <Button
+                                variant="outline"
+                                onClick={() => {
+                                  updateStep(selectedStep.id, {
+                                    ...selectedStep.params,
+                                    subject: draft.subject,
+                                    bodyHtml: draft.bodyHtml,
+                                    bodyText: draft.bodyText,
+                                  })
+                                  setDraft(null)
+                                }}
+                              >
+                                {t('marketing_automation.ai.apply', 'Use this draft')}
+                              </Button>
+                              <Button variant="outline" onClick={() => setDraft(null)}>
+                                {t('marketing_automation.ai.discard', 'Discard')}
+                              </Button>
+                            </>
+                          ) : null}
+                        </div>
+                        {rendered ? (
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-xs font-medium text-foreground">{rendered.subject}</div>
+                              <Button variant="outline" size="sm" onClick={() => setRendered(null)}>
+                                {t('marketing_automation.render.close', 'Close')}
+                              </Button>
+                            </div>
+                            {rendered.personalised ? null : (
+                              <div className="text-xs text-muted-foreground">
+                                {t(
+                                  'marketing_automation.render.noSubject',
+                                  'No customer chosen, so the placeholders are empty. Pick one under "Preview for" to fill them in.',
+                                )}
+                              </div>
+                            )}
+                            {/*
+                              A sandboxed iframe with no permissions at all.
+                              This is the author's own HTML with a customer's data interpolated into it, so it is
+                              shown as it will arrive rather than as text — but `sandbox=""` means no scripts, no
+                              forms and no same-origin access, so a body that contains something unexpected cannot
+                              reach this page. The rule this module has about never rendering a MODEL's markup is
+                              about trust in the author; this is the author's own copy, after a human wrote it.
+                            */}
+                            <iframe
+                              title={t('marketing_automation.render.preview', 'Preview')}
+                              sandbox=""
+                              className="h-64 w-full rounded-sm border border-border bg-background"
+                              srcDoc={rendered.html}
+                            />
+                          </div>
+                        ) : null}
+                        {draft ? (
+                          <div className="space-y-1">
+                            <div className="text-xs font-medium text-foreground">{draft.subject}</div>
+                            {/* Shown as TEXT, not rendered: a draft is untrusted markup until somebody has
+                                read it, and rendering it here would execute whatever survived sanitising. */}
+                            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                              {draft.bodyHtml}
+                            </pre>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {/* An author cannot reference a block whose key they have to remember. */}
+                    {selectedStepMeta?.channel === 'email' && (palette?.contentBlocks ?? []).length > 0 ? (
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">
+                          {t('marketing_automation.blocks.available', 'Reusable blocks you can paste into the body:')}
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {(palette?.contentBlocks ?? []).map((block) => (
+                            <span key={block.key} className="rounded-sm bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
+                              {`{{block:${block.key}}}`}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+
+                {selectedStepMeta?.channel === 'email' ? (
+                  <Button
+                    variant="outline"
+                    disabled={testSending || dirty}
+                    title={dirty ? t('marketing_automation.canvas.unsavedChanges', 'Unsaved changes') : undefined}
+                    onClick={() => void sendTest(selectedStep.id)}
+                  >
+                    {testSending ? <Spinner /> : t('marketing_automation.testSend.run', 'Send a test to me')}
+                  </Button>
+                ) : null}
+
+                <Button variant="outline" onClick={() => removeNode(selectedStep.id)}>
+                  {t('marketing_automation.action.removeNode', 'Remove')}
+                </Button>
+              </div>
+            ) : null}
+
+            {selectedScheduleTrigger && selectedNodeId ? (
+              <div className="space-y-3">
+                <div className="text-overline text-muted-foreground">
+                  {t('marketing_automation.canvas.node.schedule.title', 'Schedule')}
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="schedule-interval">
+                    {t('marketing_automation.field.schedule.interval', 'Run every')}
+                  </Label>
+                  <Input
+                    id="schedule-interval"
+                    value={selectedScheduleTrigger.scheduleValue}
+                    placeholder="1d"
+                    onChange={(event) => updateScheduleTrigger(selectedNodeId, { scheduleValue: event.target.value })}
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    {t('marketing_automation.field.schedule.intervalHint', 'Minutes, hours or days: 30m, 6h, 1d.')}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="schedule-reentry">
+                    {t('marketing_automation.field.schedule.reentry', 'Re-enter the same customer after (days)')}
+                  </Label>
+                  <Input
+                    id="schedule-reentry"
+                    type="number"
+                    min={1}
+                    value={selectedScheduleTrigger.reentryAfterDays ?? ''}
+                    placeholder={t('marketing_automation.field.schedule.reentryOnce', 'Once ever')}
+                    onChange={(event) => {
+                      const raw = event.target.value.trim()
+                      const parsed = Number.parseInt(raw, 10)
+                      // Empty means "once ever", which is the safe default for a sweep whose audience
+                      // stays true — not "re-enter immediately".
+                      updateScheduleTrigger(selectedNodeId, {
+                        reentryAfterDays: raw && Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+                      })
+                    }}
+                  />
+                </div>
+                {selectedSweepSource?.defaultWithinDays !== null && selectedSweepSource ? (
+                  <div className="space-y-1">
+                    <Label htmlFor="schedule-within">
+                      {t('marketing_automation.field.schedule.withinDays', 'Window (days)')}
+                    </Label>
+                    <Input
+                      id="schedule-within"
+                      type="number"
+                      min={1}
+                      value={
+                        typeof selectedScheduleTrigger.sweepParams?.withinDays === 'number'
+                          ? selectedScheduleTrigger.sweepParams.withinDays
+                          : ''
+                      }
+                      onChange={(event) => {
+                        const parsed = Number.parseInt(event.target.value, 10)
+                        updateScheduleTrigger(selectedNodeId, {
+                          sweepParams: Number.isFinite(parsed) && parsed > 0 ? { withinDays: parsed } : {},
+                        })
+                      }}
+                    />
+                  </div>
+                ) : null}
+                <Button variant="outline" onClick={() => removeNode(selectedNodeId)}>
+                  {t('marketing_automation.action.removeNode', 'Remove')}
+                </Button>
+              </div>
+            ) : null}
+
+            {!audienceSelected && !selectedStep && !selectedScheduleTrigger && selectedNodeId ? (
+              <div className="space-y-2">
+                {/* An event trigger needs no parameters — except this one, which needs a URL that lives on
+                    another screen. Saying so here is the difference between a trigger that works and one an
+                    author enables and then waits for. */}
+                {selectedTrigger?.kind === 'event' && selectedTrigger.eventId === 'marketing_automation.inbound.received' ? (
+                  <div className="text-xs text-muted-foreground">
+                    {t('marketing_automation.hooks.triggerHint', 'This campaign starts when something posts to one of its inbound hooks. Create one under Inbound hooks.')}
+                    {' '}
+                    <a className="underline" href="/backend/marketing/inbound-hooks">
+                      {t('marketing_automation.hooks.title', 'Inbound hooks')}
+                    </a>
+                  </div>
+                ) : null}
+                <Button variant="outline" onClick={() => removeNode(selectedNodeId)}>
+                  {t('marketing_automation.action.removeNode', 'Remove')}
+                </Button>
+              </div>
+            ) : null}
+
+            {!selectedNodeId ? (
+              <div className="space-y-4">
+                <div className="text-xs text-muted-foreground">
+                  {t('marketing_automation.canvas.edge.derivedHint', 'Steps run top to bottom. Reorder with the arrows, not by dragging.')}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-overline text-muted-foreground">
+                    {t('marketing_automation.history.title', 'History')}
+                  </div>
+                  {revisions === null ? (
+                    <Button variant="outline" onClick={() => void loadRevisions()}>
+                      {t('marketing_automation.history.load', 'Show saved versions')}
+                    </Button>
+                  ) : revisions.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      {t('marketing_automation.history.empty', 'No versions recorded yet — the next save will start the history.')}
+                    </div>
+                  ) : (
+                    <ul className="space-y-1">
+                      {revisions.map((revision) => (
+                        <li key={revision.version} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-xs">
+                          <span className="text-foreground">
+                            {t('marketing_automation.history.version', 'v{version}').replace('{version}', String(revision.version))}
+                            {' · '}
+                            {formatDateTime(revision.createdAt)}
+                            {revision.note.startsWith('restored:')
+                              ? ` · ${t('marketing_automation.history.restoredFrom', 'restored v{from}').replace('{from}', revision.note.slice('restored:'.length))}`
+                              : ''}
+                            {/* Promoting an A/B winner rewrites the campaign, so it is a version like any other. */}
+                            {revision.note.startsWith('winner:')
+                              ? ` · ${t('marketing_automation.history.winnerApplied', 'promoted {variant}').replace('{variant}', revision.note.slice('winner:'.length))}`
+                              : ''}
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className="text-muted-foreground">
+                              {t('marketing_automation.history.counts', '{steps} steps · {triggers} triggers')
+                                .replace('{steps}', String(revision.stepCount))
+                                .replace('{triggers}', String(revision.triggerCount))}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={restoring}
+                              onClick={() => void restoreRevision(revision.version)}
+                            >
+                              {t('marketing_automation.history.restore', 'Restore')}
+                            </Button>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-overline text-muted-foreground">
+                    {t('marketing_automation.preview.title', 'Preview for a customer')}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {t('marketing_automation.preview.hint', 'Shows every step and when it would happen, with the send rules applied. Sends nothing.')}
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="preview-subject">
+                      {t('marketing_automation.preview.subject', 'Preview for')}
+                    </Label>
+                    {/*
+                      Searched by name, not typed as a uuid.
+                      This was an `Input` labelled "Customer id" whose placeholder was a literal
+                      `00000000-0000-0000-0000-000000000000`, which put the module's best safety feature —
+                      "show me what this person would get, and when" — behind a value no marketer can produce.
+                    */}
+                    <CustomerPicker
+                      id="preview-subject"
+                      value={previewSubject}
+                      onChange={(customerEntityId) => { setPreviewSubject(customerEntityId); setPreview(null) }}
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    disabled={previewing || !previewSubject.trim() || dirty}
+                    title={dirty ? t('marketing_automation.canvas.unsavedChanges', 'Unsaved changes') : undefined}
+                    onClick={() => void runPreview()}
+                  >
+                    {previewing ? <Spinner /> : t('marketing_automation.preview.run', 'Preview')}
+                  </Button>
+                  {preview ? (
+                    <div className="space-y-1">
+                      {!preview.entered ? (
+                        <div className="text-xs text-muted-foreground">
+                          {t('marketing_automation.preview.notEntered', 'The audience would not admit this customer.')}
+                        </div>
+                      ) : null}
+                      {Object.entries(preview.variantChoices).map(([splitId, variant]) => (
+                        <div key={splitId} className="text-xs text-muted-foreground">
+                          {t('marketing_automation.preview.variant', '{split}: variant {key}')
+                            .replace('{split}', splitId)
+                            .replace('{key}', variant)}
+                        </div>
+                      ))}
+                      {preview.entries.map((entry, index) => (
+                        <div key={`${index}`} className="flex items-baseline justify-between gap-2 border-b border-border py-1 text-xs">
+                          {entry.kind === 'pause' ? (
+                            <>
+                              <span className="truncate text-muted-foreground">
+                                {t(`marketing_automation.preview.pause.${entry.reason}`, entry.reason)}
+                              </span>
+                              <span className="shrink-0 text-muted-foreground">{formatDateTime(entry.until)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="truncate text-foreground">
+                                {t(`marketing_automation.step.${entry.type}.label`, entry.type)}
+                                {entry.status === 'skipped' ? (
+                                  <span className="text-muted-foreground"> · {entry.detail ?? t('marketing_automation.preview.skipped', 'skipped')}</span>
+                                ) : null}
+                              </span>
+                              <span className="shrink-0 text-muted-foreground">{formatDateTime(entry.at)}</span>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                      {preview.entered && preview.entries.length === 0 ? (
+                        <div className="text-xs text-muted-foreground">
+                          {t('marketing_automation.preview.noSteps', 'This campaign has no steps to run.')}
+                        </div>
+                      ) : null}
+                      {preview.stoppedBecause !== 'completed' ? (
+                        <div className="text-xs text-muted-foreground">
+                          {t(`marketing_automation.preview.stopped.${preview.stoppedBecause}`, preview.stoppedBecause)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-overline text-muted-foreground">
+                    {t('marketing_automation.sendPolicy.title', 'Send rules')}
+                  </div>
+
+                  {/*
+                    * The author's own hour, above the learned one because it outranks it.
+                    *
+                    * A decision beats a guess, so when this is set the learned hour is not consulted at all —
+                    * said on the screen rather than left for somebody to deduce from two settings that appear
+                    * to be additive.
+                    */}
+                  <CheckboxField
+                    id="policy-send-hour-on"
+                    label={t('marketing_automation.sendPolicy.sendHour', 'Send at a fixed hour, in the recipient\'s local time')}
+                    description={t('marketing_automation.sendPolicy.sendHourHint', 'A message that comes due later than this waits for the hour to come round again, so it suits scheduled campaigns rather than reactions to something a customer just did. Quiet hours still apply, and an hour inside them is refused when you save.')}
+                    checked={definition.sendPolicy?.sendHour != null}
+                    onCheckedChange={(next) => updateSendPolicy({ sendHour: next === true ? 9 : null })}
+                  />
+                  {definition.sendPolicy?.sendHour != null ? (
+                    <div className="w-24 space-y-1 pl-6">
+                      <Label htmlFor="policy-send-hour">
+                        {t('marketing_automation.sendPolicy.sendHourLabel', 'Hour (0–23)')}
+                      </Label>
+                      <Input
+                        id="policy-send-hour"
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={definition.sendPolicy.sendHour}
+                        onChange={(event) => updateSendPolicy({ sendHour: clampHour(event.target.value, 9) })}
+                      />
+                    </div>
+                  ) : null}
+
+                  <CheckboxField
+                    id="policy-optimize"
+                    label={t('marketing_automation.sendPolicy.optimizeSendTime', 'Send at the hour each customer usually opens email')}
+                    description={definition.sendPolicy?.sendHour != null
+                      ? t('marketing_automation.sendPolicy.optimizeSendTimeOverridden', 'Ignored while a fixed hour is set above: a decision outranks a guess about the same question.')
+                      : t('marketing_automation.sendPolicy.optimizeSendTimeHint', 'Needs a few opens from that customer first; until then the message goes out immediately.')}
+                    checked={definition.sendPolicy?.optimizeSendTime === true}
+                    disabled={definition.sendPolicy?.sendHour != null}
+                    onCheckedChange={(next) => updateSendPolicy({ optimizeSendTime: next === true })}
+                  />
+
+                  <CheckboxField
+                    id="policy-quiet"
+                    label={t('marketing_automation.sendPolicy.quietHours', 'Do not send during quiet hours')}
+                    checked={definition.sendPolicy?.quietHours != null}
+                    onCheckedChange={(next) => updateSendPolicy({
+                      // A sensible night window rather than 00:00–00:00, which means "never send".
+                      quietHours: next === true ? { startHour: 21, endHour: 8 } : null,
+                    })}
+                  />
+                  {definition.sendPolicy?.quietHours ? (
+                    <div className="flex gap-2 pl-6">
+                      <div className="w-24 space-y-1">
+                        <Label htmlFor="policy-quiet-start">
+                          {t('marketing_automation.sendPolicy.quietFrom', 'From (hour)')}
+                        </Label>
+                        <Input
+                          id="policy-quiet-start"
+                          type="number"
+                          min={0}
+                          max={23}
+                          value={definition.sendPolicy.quietHours.startHour}
+                          onChange={(event) => updateSendPolicy({
+                            quietHours: {
+                              startHour: clampHour(event.target.value, 21),
+                              endHour: definition.sendPolicy?.quietHours?.endHour ?? 8,
+                            },
+                          })}
+                        />
+                      </div>
+                      <div className="w-24 space-y-1">
+                        <Label htmlFor="policy-quiet-end">
+                          {t('marketing_automation.sendPolicy.quietTo', 'To (hour)')}
+                        </Label>
+                        <Input
+                          id="policy-quiet-end"
+                          type="number"
+                          min={0}
+                          max={23}
+                          value={definition.sendPolicy.quietHours.endHour}
+                          onChange={(event) => updateSendPolicy({
+                            quietHours: {
+                              startHour: definition.sendPolicy?.quietHours?.startHour ?? 21,
+                              endHour: clampHour(event.target.value, 8),
+                            },
+                          })}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <CheckboxField
+                    id="policy-cap"
+                    label={t('marketing_automation.sendPolicy.frequencyCap', 'Limit how many messages one customer receives')}
+                    description={t('marketing_automation.sendPolicy.frequencyCapHint', 'Counted across every campaign, not just this one.')}
+                    checked={definition.sendPolicy?.frequencyCap != null}
+                    onCheckedChange={(next) => updateSendPolicy({
+                      frequencyCap: next === true ? { maxMessages: 3, windowHours: 24 } : null,
+                    })}
+                  />
+                  {definition.sendPolicy?.frequencyCap ? (
+                    <div className="flex gap-2 pl-6">
+                      <div className="w-24 space-y-1">
+                        <Label htmlFor="policy-cap-max">
+                          {t('marketing_automation.sendPolicy.capMax', 'At most')}
+                        </Label>
+                        <Input
+                          id="policy-cap-max"
+                          type="number"
+                          min={1}
+                          value={definition.sendPolicy.frequencyCap.maxMessages}
+                          onChange={(event) => updateSendPolicy({
+                            frequencyCap: {
+                              maxMessages: Math.max(Number.parseInt(event.target.value, 10) || 1, 1),
+                              windowHours: definition.sendPolicy?.frequencyCap?.windowHours ?? 24,
+                            },
+                          })}
+                        />
+                      </div>
+                      <div className="w-24 space-y-1">
+                        <Label htmlFor="policy-cap-window">
+                          {t('marketing_automation.sendPolicy.capWindow', 'Per (hours)')}
+                        </Label>
+                        <Input
+                          id="policy-cap-window"
+                          type="number"
+                          min={1}
+                          value={definition.sendPolicy.frequencyCap.windowHours}
+                          onChange={(event) => updateSendPolicy({
+                            frequencyCap: {
+                              maxMessages: definition.sendPolicy?.frequencyCap?.maxMessages ?? 3,
+                              windowHours: Math.max(Number.parseInt(event.target.value, 10) || 1, 1),
+                            },
+                          })}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </aside>
+        </div>
+      </PageBody>
+      {/* The dialogue the leave guard asks with, and the delete confirmations if any are added later. */}
+      {ConfirmDialogElement}
+    </Page>
+  )
+}
