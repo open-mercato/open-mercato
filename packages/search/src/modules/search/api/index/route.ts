@@ -7,15 +7,12 @@ import type { SearchService } from '../../../../service'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { VectorSearchStrategy } from '../../../../strategies/vector.strategy'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { searchDebugWarn, searchError } from '../../../../lib/debug'
 import { indexOpenApi } from '../openapi'
 import { resolveReadableEntityTypes, type SearchEntityConfigLookup } from '../../lib/entity-access'
-
-const ACL_LOOKUP_CONCURRENCY = 8
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -60,21 +57,24 @@ export async function GET(req: Request) {
         { status: 503 },
       )
     }
-    const rbac = container.resolve<Pick<RbacService, 'loadAcl'>>('rbacService')
+    const rbac = container.resolve<Pick<RbacService, 'loadAcl' | 'loadOrganizationAcls'>>('rbacService')
     const searchIndexer = container.resolve<SearchEntityConfigLookup>('searchIndexer')
     const tenantId = scope.tenantId ?? auth.tenantId
     const selectedOrganizationId = scope.selectedId?.trim() || null
     const organizationIds = selectedOrganizationId ? [selectedOrganizationId] : scope.filterIds
     const requestedEntityTypes = entityIdParam ? [entityIdParam] : undefined
-    const entityAccess = await mapWithConcurrency(organizationIds ?? [null], ACL_LOOKUP_CONCURRENCY, async (organizationId) => {
-      const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId })
-      const entityIds = resolveReadableEntityTypes(
+    const singleOrganizationId = organizationIds?.[0] ?? null
+    const scopedAcls: ReadonlyMap<string | null, Awaited<ReturnType<RbacService['loadAcl']>>> = organizationIds && organizationIds.length > 1
+      ? await rbac.loadOrganizationAcls(auth.sub, tenantId, organizationIds)
+      : new Map([[singleOrganizationId, await rbac.loadAcl(auth.sub, { tenantId, organizationId: singleOrganizationId })]])
+    const entityAccess = Array.from(scopedAcls, ([organizationId, acl]) => ({
+      organizationId,
+      entityIds: resolveReadableEntityTypes(
         searchIndexer,
         { grantedFeatures: acl.features, isSuperAdmin: acl.isSuperAdmin },
         requestedEntityTypes,
-      )
-      return { organizationId, entityIds: entityIds ?? null }
-    })
+      ) ?? null,
+    }))
     const readableScopes = entityAccess.filter(({ entityIds }) => entityIds === null || entityIds.length > 0)
     if (readableScopes.length === 0) return NextResponse.json(emptyPage)
 

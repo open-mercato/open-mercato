@@ -6,9 +6,11 @@ Apply the existing search entity view policy to `GET /api/search/index` (#10693)
 
 ## Behavior
 
-Load the caller's entity grants for each explicitly scoped organization. For a tenant-wide request, use the tenant-wide ACL. Preserve the superadmin behavior of the shared entity policy within approved scopes. Filter the pgvector query by the readable sets before applying its offset and limit. Check returned tenant, organization and entity at the response boundary for all drivers. An empty permitted set returns an empty page. An unavailable authorization service returns the existing service-unavailable response.
+For requests spanning multiple organizations, load the selected organizations and the caller's grants in batches, then evaluate each organization's entity access in memory. For a tenant-wide request, use the tenant-wide ACL. Preserve the superadmin behavior of the shared entity policy within approved scopes. Filter the pgvector query by the readable sets before applying its offset and limit. Check returned tenant, organization and entity at the response boundary for all drivers. An empty permitted set returns an empty page. An unavailable authorization service returns the existing service-unavailable response.
 
 ## Integration coverage
+
+A cold tenant API-key batch used three PostgreSQL statements at both 10 and 1,000 organizations. The count covers reading organizations, the key, and its role ACLs. The test for the route also asserts that it makes no per-organization hierarchy lookups.
 
 Extend `TC-SEARCH-003` to verify that a caller with only `search.view` receives empty pages when listing the index or requesting a specific entity. Route and driver tests cover authorized explicit entities, wildcard features, mixed organizations, pagination and responses from a driver that omits its filters.
 
@@ -20,4 +22,5 @@ The old listing cannot be offered during deprecation because it would still expo
 
 ## Changelog
 
+- 2026-11-26 — Bound multi-organization ACL database reads independently of organization count.
 - 2026-11-26 — Define readable vector index pages and regression coverage.

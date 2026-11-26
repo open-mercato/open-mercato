@@ -192,6 +192,41 @@ describe('GET /api/search/index for a tenant-level API key without an organizati
     expect(result.body).toMatchObject({ limit: 3, offset: 2 })
   })
 
+  it.each([10, 1000])('uses three database reads for index authorization across %i organizations', async (count) => {
+    const extraOrganizations = Array.from({ length: count - organizations.length }, (_, index) => ({
+      id: `dddddddd-dddd-4ddd-8ddd-${String(index).padStart(12, '0')}`,
+      tenant: TENANT,
+      ancestorIds: [],
+      descendantIds: [],
+    }))
+    organizations.push(...extraOrganizations)
+    world.searchRoleOrganizations = organizations.map(({ id }) => id)
+    world.customerRoleOrganizations = [ORG_B]
+    try {
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue(apiKeyAuth)
+      const req = new Request('http://localhost/api/search/index?limit=1')
+      await resolveFeatureCheckContext({
+        container: container as never,
+        auth: apiKeyAuth as never,
+        request: req,
+        requiredFeatures: ['search.view'],
+      })
+      em.find.mockClear()
+      em.findOne.mockClear()
+      hierarchy.resolveAncestorIds.mockClear()
+
+      const response = await GET(req)
+
+      expect(response.status).toBe(200)
+      expect(entryIds(await response.json())).toEqual(['b1'])
+      expect(em.find.mock.calls.map(([entity]) => entity)).toEqual([Organization, RoleAcl])
+      expect(em.findOne.mock.calls.map(([entity]) => entity)).toEqual([ApiKey])
+      expect(hierarchy.resolveAncestorIds).not.toHaveBeenCalled()
+    } finally {
+      organizations.splice(organizations.length - extraOrganizations.length, extraOrganizations.length)
+    }
+  })
+
   it('reads past the driver limit cap when one organization holds more than 200 entries', async () => {
     world.searchRoleOrganizations = [ORG_A, ORG_B]
     const manyA = Array.from({ length: 500 }, (_, index) => ({ id: `a-${index}`, organizationId: ORG_A, tenantId: TENANT, entityId: CUSTOMER_ENTITY }))
