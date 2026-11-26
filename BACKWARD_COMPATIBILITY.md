@@ -747,3 +747,7 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 ## 2026-11-25 — MCP Code Mode
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## 2026-11-26 — Audit-log actor visibility (#10788)
+
+STABLE audit-log read routes: `audit_logs.view_tenant` is checked for the organization being read; a read without an organization needs a grant that is not organization-restricted. Otherwise the caller gets its own rows; status codes and fields are unchanged. No bridge: one would keep other actors' rows visible outside the grant. Named confirmation of the emergency exception is pending. [Upgrade](UPGRADE_NOTES.md#audit-log-reads-check-audit_logsview_tenant-for-the-organization-being-read-10788).
