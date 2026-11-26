@@ -37,9 +37,10 @@ type EmMock = {
 }
 
 function makeCtx(em: EmMock) {
+  const entityManager = { ...em, getMetadata: () => ({ find: (entity: unknown) => ({ class: entity }) }) }
   return {
     resolve: (<T = unknown>(name: string) => {
-      if (name === 'em') return em as unknown as T
+      if (name === 'em') return entityManager as unknown as T
       return undefined as unknown as T
     }),
     eventName: 'customer_accounts.user.created',

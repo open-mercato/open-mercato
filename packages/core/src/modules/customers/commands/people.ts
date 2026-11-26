@@ -925,7 +925,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           newProfile = graph.profile
         },
         () => syncLegacyPrimaryCompanyLink(em, newEntity, newProfile, after.profile.companyEntityId),
-        () => syncEntityTags(em, newEntity, after.tagIds),
+        () => syncEntityTags(em, newEntity, after.tagIds, { ignoreMissing: true }),
       ], { transaction: true })
       entity = newEntity
       profile = newProfile
@@ -968,7 +968,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           profile.twitterUrl = after.profile.twitterUrl
         },
         () => syncLegacyPrimaryCompanyLink(em, survivingEntity, profile, after.profile.companyEntityId),
-        () => syncEntityTags(em, survivingEntity, after.tagIds),
+        () => syncEntityTags(em, survivingEntity, after.tagIds, { ignoreMissing: true }),
       ], { transaction: true })
     }
 
@@ -999,7 +999,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
   },
 }
 
-const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string }> = {
+const updatePersonCommand = {
   id: 'customers.people.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(personUpdateSchema, rawInput)
@@ -1007,7 +1007,11 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const snapshot = await loadPersonSnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
-  async execute(rawInput, ctx) {
+  async execute(
+    rawInput: PersonUpdateInput,
+    ctx: CommandRuntimeContext,
+    ignoreMissingTags = false,
+  ): Promise<{ entityId: string; updatedAt: Date }> {
     const { parsed, custom } = parseWithCustomFields(personUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await findScopedCustomerCommandTarget(
@@ -1138,7 +1142,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           await syncLegacyPrimaryCompanyLink(em, record, profile, parsed.companyEntityId)
         }
       },
-      () => syncEntityTags(em, record, parsed.tags),
+      () => syncEntityTags(em, record, parsed.tags, { ignoreMissing: ignoreMissingTags }),
       () => setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom, em),
     ], { transaction: true })
 
@@ -1246,7 +1250,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           em.persist(newProfile)
         },
         () => syncLegacyPrimaryCompanyLink(em, newEntity, newProfile, before.profile.companyEntityId),
-        () => syncEntityTags(em, newEntity, before.tagIds),
+        () => syncEntityTags(em, newEntity, before.tagIds, { ignoreMissing: true }),
       ], { transaction: true })
     } else {
       await withAtomicFlush(em, [
@@ -1288,7 +1292,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
             await syncLegacyPrimaryCompanyLink(em, entity, profile, before.profile.companyEntityId)
           }
         },
-        () => syncEntityTags(em, entity, before.tagIds),
+        () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
       ], { transaction: true })
     }
 
@@ -1320,7 +1324,10 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       await setCustomFieldsForPerson(ctx, before.entity.id, before.profile.id, before.entity.organizationId, before.entity.tenantId, resetValues)
     }
   },
-}
+  redo({ input, ctx }): Promise<{ entityId: string }> {
+    return updatePersonCommand.execute(input, ctx, true)
+  },
+} satisfies CommandHandler<PersonUpdateInput, { entityId: string }>
 
 const deletePersonCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
@@ -1659,7 +1666,7 @@ const deletePersonCommand: CommandHandler<
         }
       }
       await withAtomicFlush(em, [
-        () => syncEntityTags(em, entity, before.tagIds),
+        () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
       ])
       const restoredLabelAssignments = await restoreEntityLabelAssignments(em, entity, payload?.labelAssignments)
       await em.flush()

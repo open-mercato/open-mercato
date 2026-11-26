@@ -12,6 +12,34 @@ When the model's answer does not match an object-mode agent's `output` schema, o
 
 Clients that treated this 500 as a server fault can retry on `structured_output_invalid`. The request contract and response fields are unchanged. No database migration or configuration change is required.
 
+## An empty organization scope is stopped at the feature guard (#10503)
+
+A non-super-admin principal whose organization scope resolves to **no organization** is now denied
+by the feature guard itself. That covers a user or role whose organization visibility list is
+explicitly empty, and a list whose organizations no longer resolve (for example, the one
+organization a user was restricted to was deleted).
+
+- Every feature-gated API route answers `403`. Previously list routes answered `200` with an empty
+  page and detail routes answered their own `404`. This supersedes the "CRUD list routes return an
+  empty page" statement in "An explicitly empty organization scope now denies access everywhere"
+  below. The `403` is issued before any record lookup, so an existing, a foreign and an unknown id
+  still get the same response.
+- `rbacService.userHasAllFeatures`, `userHasAllFeaturesWithEntityManager`, `getGrantedFeatures`,
+  `getGrantedFeaturesWithEntityManager` and `getEffectiveFeatures` deny an explicitly empty list when
+  called without an organization, as they already did when an organization was given.
+- `GET` and `POST /api/entities/encryption` answer `403` for an explicitly empty scope. This
+  includes an unrestricted user whose home organization was deleted and who has no organization
+  selected; selecting an organization restores access.
+
+Unchanged: an absent list (`null`), `['__all__']`, a list with at least one resolving organization,
+and super-admins.
+
+**Action for operators:** a user who sees "access denied" on backend pages and `403` on API calls after the upgrade can
+see no organization. Grant the intended organizations in the user's or role's access settings.
+
+**Action for integrators:** a client that treated an empty list or a `404` as "nothing visible"
+for such a principal must also handle `403`.
+
 ## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
 
 An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
