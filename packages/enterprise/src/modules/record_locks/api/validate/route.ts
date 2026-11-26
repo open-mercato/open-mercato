@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { recordLockValidateResponseSchema } from '../../data/validators'
+import { recordLockErrorSchema, recordLockValidateResponseSchema } from '../../data/validators'
 import { jsonError, resolveRecordLocksApiContext } from '../utils'
 
 const validateSchema = z.object({
@@ -168,6 +168,14 @@ export const openApi: OpenApiRouteDoc = {
       },
       responses: [
         { status: 200, description: 'Validation result', schema: recordLockValidateResponseSchema },
+      ],
+      errors: [
+        { status: 403, description: 'Missing permission for the selected scope', schema: recordLockErrorSchema },
+        {
+          status: 404,
+          description: 'Record unavailable',
+          schema: recordLockErrorSchema.extend({ code: z.literal('record_not_found') }),
+        },
       ],
     },
   },
