@@ -4,18 +4,19 @@ Issue: [#9344](https://github.com/open-mercato/open-mercato/issues/9344) · OSS 
 
 ## TLDR
 
-An OSS or Enterprise app can install and explicitly register an npm package that supplies the existing tenant-data `KmsService`. A deployment-level selector chooses the driver consistently across processes. The [Enterprise cloud drivers](enterprise/2026-11-25-cloud-kms-drivers.md) use this same contract.
+An OSS or Enterprise app registers npm packages that supply the existing tenant-data `KmsService` in `src/providers/kms.ts`. Early provider bootstrap selects the driver consistently across processes. HashiCorp Vault ships as a separate npm package and remains the default for deployments already configured with `VAULT_*`. The [Enterprise cloud drivers](enterprise/2026-11-25-cloud-kms-drivers.md) use the same contract.
 
 ## Resolved assumptions (autonomous defaults)
 
 | # | Question | Applied default | Why |
 |---|---|---|---|
 | OSS1 | Can the npm driver contract ship independently? | Publish the OSS contract first and prove it with an out-of-repo fixture. | An unknown third-party package can use the seam with Enterprise disabled. |
-| OSS2 | How are packages registered? | Explicit app-owned registrations with literal npm imports. | This follows the cache proposal and gives operators a reviewable list of trusted code. |
+| OSS2 | How are packages registered? | Explicit app-owned registrations with literal lazy npm imports under `src/providers/`. | Cache, queue and KMS share a location and early bootstrap lifecycle. |
+| OSS3 | How do existing Vault deployments adopt the registration? | Include the Vault npm package and its default registration in the monorepo app and standalone scaffold. | Existing deployment variables, DEK locations and ciphertext formats continue to work without a key migration. |
 
 ## Overview
 
-Deployment maintainers own package installation and selection. Business modules keep requesting the existing KMS service and using existing encryption helpers. Drivers can use different storage or key-management systems and must implement stable DEK lifecycle behavior. This spec covers the extension point, provider initialization and safety rules for explicit selection. Official cloud adapters, envelope persistence and cross-provider maintenance are covered by the Enterprise spec.
+Deployment maintainers own package installation and selection. Business modules keep requesting the existing KMS service and using existing encryption helpers. Drivers can use different storage or key-management systems and must implement stable DEK lifecycle behavior. This spec covers the extension point, provider initialization, the first-party Vault package and safety rules for explicit selection. Official cloud adapters, envelope persistence and cross-provider maintenance are covered by the Enterprise spec.
 
 ## Problem Statement
 
@@ -23,7 +24,7 @@ Deployment maintainers own package installation and selection. Business modules 
 
 ## Proposed Solution
 
-Follow the [pluggable cache proposal](2026-11-24-pluggable-cache-providers.md) for an application-owned registration file, typed provider descriptors and lazy server-only imports. Follow the [queue driver proposal](https://github.com/open-mercato/open-mercato/pull/10510) for deterministic generation, runtime edition checks, CLI parity and a packed partner fixture. Both are design precedents. Reuse the generator conventions for literal imports and verify the production artifact with [Next.js output file tracing](https://nextjs.org/docs/app/api-reference/config/next-config-js/output).
+Use the shared application-provider convention from the [cache host](https://github.com/open-mercato/open-mercato/pull/10513) and [queue driver proposal](https://github.com/open-mercato/open-mercato/pull/10510). Keep app-owned, typed registrations in `src/providers/` and provider implementations in independent npm packages. Use the same early server bootstrap for explicit registration and resolve the appropriate provider before starting any process that needs it. Verify the production artifact with [Next.js output file tracing](https://nextjs.org/docs/app/api-reference/config/next-config-js/output).
 
 ## Delta
 
@@ -51,16 +52,28 @@ An explicitly selected npm driver SHALL refuse protected writes when the configu
 
 ##### Scenario: Selection omitted
 - WHEN the deployment uses the legacy selection path
-- THEN existing built-in selection remains governed by its own policy, including the separately tracked [outage policy](https://github.com/open-mercato/open-mercato/pull/10648)
+- THEN existing Vault, derived-key and disabled selection remains governed by the existing policy and the separately tracked [outage policy](https://github.com/open-mercato/open-mercato/pull/10648)
+
+#### ADDED Requirement: Vault is a packaged default driver
+
+The monorepo app and generated standalone app SHALL ship the same Vault npm package and registration. Existing Vault configuration SHALL continue to select that driver when a deployment omits `OM_KMS_DRIVER`.
+
+##### Scenario: Existing Vault deployment upgrades
+- WHEN a deployment built from either template boots with its existing Vault environment and omits `OM_KMS_DRIVER`
+- THEN the default registration resolves the Vault npm package and reads the same authoritative key at the same Vault KV v2 path
+
+##### Scenario: Vault is selected explicitly
+- WHEN `OM_KMS_DRIVER=open-mercato/vault` is set and Vault cannot provide the configured key
+- THEN protected work fails under the explicit-driver safety policy
 
 ## Architecture
 
 ### Registration and selection
 
-1. The app declares direct production dependencies and pins resolved versions in its lockfile. The proposed `<app root>/mercato.kms.ts` exports `kmsDrivers` using `defineKmsDriverRegistration`. Each registration has a stable namespaced ID, edition, a literal lazy import and a settings function. Registration is declarative and side-effect-free. The generated server manifest validates registration syntax and contains literal loaders, including a deterministic empty manifest for a stock app. Generate a single registry that both the Next standalone server and app-root CLI loader can resolve. Generation and build require package code to be installed and need no cloud connectivity or secrets.
-2. `OM_KMS_DRIVER` selects an exact registered ID. Unset selects the legacy factory behavior. An explicitly blank or malformed setting, a selection with tenant encryption disabled, a missing/stale registry, incompatible version, duplicate or reserved ID, absent package, load failure, or edition mismatch fails with a safe configuration error. Resolve named modules from app code. Runtime input cannot supply a URL, filesystem path, npm specifier, version or shell command. The deployment owns selector and settings. Tenant and organization administrators have no control over loading or credentials.
+1. The app declares direct production dependencies and pins resolved versions in its lockfile. `<app root>/src/providers/kms.ts` exports `kmsDrivers` using `defineKmsDriverRegistration`. Each registration has a stable namespaced ID, edition, a literal lazy import and a settings function. Registration is declarative and side-effect-free. Generate the shared server provider manifest from the app-owned files. The Next standalone server and app-root Node loader use the same registrations. A missing optional registry has a deterministic empty entry. Generation and build require installed packages and run without evaluating registries, reading settings or connecting to Vault or a cloud service.
+2. `OM_KMS_DRIVER` selects an exact registered ID. When unset, the existing encryption toggle and legacy settings select a default. An explicitly blank or malformed setting, a selection with tenant encryption disabled, a missing/stale registry, incompatible version, duplicate or reserved ID, absent package, load failure, or edition mismatch fails with a safe configuration error. Resolve named modules from app code. Runtime input cannot supply a URL, filesystem path, npm specifier, version or shell command. The deployment owns selector and settings. Tenant and organization administrators have no control over loading or credentials.
 3. Reject a commercial registration before its loader runs if Enterprise activation is absent. The OSS host accepts the existing Enterprise activation decision and contains no cloud SDK imports. Reserve the `open-mercato/` registration namespace for first-party definitions and protect built-in names. Reconcile manifest and descriptor IDs and editions before construction. Installed drivers are trusted Node.js dependencies with process privileges. Code review, pinning and provenance matter even when an inactive loader is never evaluated.
-4. Initialize once per process at the app server/CLI entry point before service or request-container construction. Await one resolved-driver startup promise and publish the result only after validation and readiness. Keep `createKmsService(): KmsService` synchronous and the `kmsService` DI key stable. Direct consumers and both bootstrap paths resolve the same initialized handle. A call with an explicit selector before initialization fails with a configuration error. Keep caller-supplied service objects working for existing tests and maintenance, and make those lifecycle choices explicit in maintenance. Selection and configuration change on coordinated restart. Inspect setup, auth/entities maintenance, indexing, onboarding and OAuth before enabling the selector. Commands without a key-consuming dependency can run without provider initialization.
+4. Run the shared early provider bootstrap before service or request-container construction. The web server, workers, scheduler, application CLI and setup run this phase. The starter preflight child process and key-consuming maintenance commands call the same phase directly. Await one resolved-driver startup promise and publish the result only after validation and readiness. Keep `createKmsService(): KmsService` synchronous and the `kmsService` DI key stable. Direct consumers and both bootstrap paths resolve the same initialized handle. A call with an explicit selector before initialization fails with a configuration error. Keep caller-supplied service objects working for existing tests and maintenance, and make those lifecycle choices explicit in maintenance. Selection and configuration change on coordinated restart. Commands without a key-consuming dependency can run without KMS initialization.
 5. Load, validate and construct only the selected package during serving startup. Use a bounded startup check, request deadlines, finite retries for transient failures, single-flight recovery probes with backoff, and idempotent close on shutdown and failed initialization. Retain the existing `isHealthy(): boolean` contract as a synchronous snapshot. Add a bounded async probe to npm driver definitions, with stable sanitized reason classes and no allocation of real tenant DEKs. Fold selected-provider readiness into the existing `/api/healthz` 200/503 contract, with its current response shape. A health probe exercises the selected crypto dependency and, where applicable, its independent key store. Recovery tools verify decryptability for the scopes they operate on.
 
 ### Proposed server contract
@@ -91,6 +104,13 @@ export const kmsDrivers = [
 
 Set `OM_KMS_DRIVER=example/key-store` at runtime. Packages can be scoped or unscoped and can come from the app's approved public or private npm registry. The host does not assume any future provider ID or vendor capabilities.
 
+### Default Vault package
+
+- Ship `@open-mercato/kms-driver-vault` as a first-party OSS package with the ID `open-mercato/vault`. Both `apps/mercato/src/providers/kms.ts` and the standalone template's `src/providers/kms.ts` ship a registration with a literal lazy import. The package owns the Vault KV v2 client, CAS provisioning, deadlines and recovery. The host owns selection, encryption policy and the public `KmsService` facade. Keep package dependencies acyclic so Vault can be packed and built independently.
+- Preserve `TENANT_DATA_ENCRYPTION`, `VAULT_ADDR`, `VAULT_TOKEN`, `VAULT_KV_PATH`, `VAULT_REQUEST_TIMEOUT_MS`, `VAULT_RECOVERY_COOLDOWN_MS`, and the existing derived-key configuration. A legacy configuration that resolves to Vault uses the same factory through the default registration, with legacy behavior governed by the established outage policy. Explicit `OM_KMS_DRIVER=open-mercato/vault` uses the strict selected-driver policy. A missing default registration or unavailable package for a configured Vault deployment is a configuration error.
+- Keep the existing Vault key addresses, mount, DEK encoding, compare-and-set winner and cache invalidation behavior. Keep the published `HashicorpVaultKmsService` constructor available at its existing import path as a compatibility facade to the extracted client. The facade loads the client only when called. The packaging change requires no data rewrite, key rotation or Vault permission change. Preserve standalone upgrades by carrying forward the pinned Vault default package and registration and testing existing deployment environments after regeneration.
+- Distinguish a proven absent key from a transport failure, forbidden read or invalid response. The explicit driver returns `null` only for proven absence and permits creation only under its provisioning policy. Preserve the implicit profile's existing behavior through the host policy.
+
 ### Write safety and diagnostics
 
 The host owns strict handling for explicitly selected npm drivers. Implement on the shared [KMS unavailability enforcement](https://github.com/open-mercato/open-mercato/pull/10648) or a reviewed equivalent that covers the same entry points. Verify the prerequisite before enabling npm drivers. The selected driver supplies the only keys for serving, even when legacy Vault or derived-key environment settings are present. Audit guards that interpret `isHealthy() === false` as disabled, including subscriber, raw/custom-field and index writers. Sanitize failures at existing error boundaries, reuse `KMS_UNAVAILABLE` for dependency failure, and preserve authorization-before-key-resolution. A verified missing slot can be created only under the selected driver's provisioning policy. A dry run cannot create a slot. Failure while reading never counts as proven absence. Any successful protected read must authenticate existing ciphertext with the correct key. External DEK storage and key custody remain the driver's responsibility.
@@ -105,7 +125,15 @@ Preserve existing HTTP routes, readiness JSON shape, `KmsService` method signatu
 
 ## Migration & Backward Compatibility
 
-Stock apps need no changes. A deployment can add the package and manifest without selecting it. A compatible driver upgrade has to read keys produced by its supported previous versions. Unknown contract or key format fails closed. Rollback by restoring a prior image requires proving it can read the authoritative key store or completing that driver's documented reverse migration with writers stopped. Removing the selector is safe only when the previously used built-in still has every authoritative key and can decrypt every scope.
+Stock apps use the delivered Vault registration and keep their deployment settings. Existing standalone apps upgrading from before provider registries were tracked receive the default package and registration through the supported upgrade path. A deployment can add an optional package and manifest without selecting it. A compatible driver upgrade has to read keys produced by its supported previous versions. Unknown contract or key format fails closed. Rollback of the packaging-only Vault change restores the old binary with the same mounts and scopes. Rollback across a custody change requires proving the prior image can read the authoritative key store or completing the driver's documented reverse migration with writers stopped. Removing the selector is safe only when the next effective driver can read every authoritative key and decrypt every scope.
+
+## Operator documentation
+
+Update the [encryption guide](../../apps/docs/docs/user-guide/encryption.mdx) and the application provider guide with the implementation. Include the following instructions once the packages are available.
+
+- Existing Vault installations keep their `TENANT_DATA_ENCRYPTION` and `VAULT_*` settings. Use the default entry in `src/providers/kms.ts`. Verify that an upgraded deployment can read previously encrypted records before accepting writes. No key rotation is required for the packaging update.
+- To install a different driver, add a direct dependency from an approved npm registry and add its documented registration to `src/providers/kms.ts`. Run `yarn generate`, build the app, and configure the same exact `OM_KMS_DRIVER` on the web server, workers, scheduler and key-consuming CLI. Supply provider settings at runtime. For explicit Vault selection use `OM_KMS_DRIVER=open-mercato/vault`.
+- Changing key custody is a separate operation. Preserve a recoverable snapshot and the old keys, pause writers and follow the provider's documented adoption or rewrap procedure. Verify authenticated reads and the rollback path before restarting writers.
 
 ## Risks & Impact Review
 
@@ -120,6 +148,7 @@ Stock apps need no changes. A deployment can add the package and manifest withou
 
 - Pack and install a fixture from outside the Mercato workspace, then generate and build a clean standalone consumer. With Enterprise disabled, prove the built web app, a separate worker and CLI encrypt/decrypt the same committed data across restarts. Include the starter child process and system scopes. Repeat with Enterprise enabled.
 - Test untouched stock Vault, derived, disabled and unconfigured deployments. Verify bound database startup when the selector is absent, wrong, disabled or incompatible, and intentionally untouched databases without a binding. Exercise dynamic-import isolation, duplicate/invalid descriptors, version/edition mismatch, and one initialization/close per process. Assert the provider build needs no runtime credentials or provider network access.
+- Pack the Vault package and install it with the shipped registration in a standalone fixture. Against disposable Vault KV v2, seed fixtures using the previous runtime and prove the upgraded web, worker and starter/CLI read the same keys and old ciphertext. Cover explicit and legacy selection, disabled or derived-only deployments without a Vault import, simultaneous creates converging on the stored winner, transient recovery with the documented settings, and strict refusal on explicit selection failure. Verify the old import path resolves in the packed consumer and rolling back the package-only change can still read its keys.
 - Use isolated PostgreSQL and self-created fixtures via normal entry points. After warming and again with a cold cache, inject failure and check persisted values and response status on CRM mapped writes, user/session-key and OAuth credentials, custom-field/custom-entity writes and search/index propagation. Verify another tenant cannot substitute a key, and a failed write leaves neither plaintext nor partial state.
 - Cover `/api/healthz` healthy, transient recovery, persistent configuration failure and legacy response compatibility. Exercise CLI dry run, setup refusal before writes and concurrent provisioning using two processes. Keep fixture creation and teardown self-contained.
 
@@ -127,6 +156,7 @@ Stock apps need no changes. A deployment can add the package and manifest withou
 
 1. Ship the OSS contract, deterministic registry and lifecycle needed by a packed OSS fixture.
 2. Connect normal operational entry points and enforce explicit-provider safety before declaring the extension supported.
+3. Extract and ship the Vault package with a default registration in both app layouts, then prove compatibility with a previously deployed Vault configuration.
 
 ## Final Compliance Report — 2026-11-25
 
@@ -135,10 +165,12 @@ Server-only additive registration keeps business call sites on the existing shar
 ## Changelog
 
 - 2026-11-25 · Proposed the independent OSS extension for #9344.
+- 2026-11-26 · Aligned setup with `src/providers/` and specified the packaged Vault default and standalone compatibility tests.
 
 ## Implementation Plan
 
-1. Publish descriptor and registration types. Add the generator and literal loaders and prove a stock app still builds with no registered driver.
+1. Publish descriptor and registration types. Add the KMS entry to the shared provider generator and prove a minimal app still builds with no registered driver.
 2. Bind the validated process resolver through both core bootstrap paths, direct consumers, standalone server, worker, scheduler, init and starter. Test startup/close and readiness with an out-of-repo package before moving to real encrypted writes.
 3. Integrate strict write safety and run the failure/tenant-isolation matrix with the packed OSS driver. Document driver authorship, installation and verification for every process type.
-4. Archive the Delta into `.ai/specs/capabilities/pluggable-kms-drivers.md` in the implementation PR.
+4. Extract and pack the Vault driver, keep the existing constructor facade, and ship the default `src/providers/kms.ts` registration and dependency in both app layouts. Verify an environment-only upgrade, both routes to Vault and a package-only rollback against existing fixture keys. Publish the operator guidance in the encryption and application provider guides.
+5. Archive the verified requirements into `.ai/specs/capabilities/pluggable-kms-drivers.md` in the implementation PRs.
