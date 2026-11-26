@@ -34,7 +34,7 @@ The Enterprise Subscription answers this directly: run verified builds of Open M
 - **Per project, not per seat.** Charged per Open Mercato project / monorepo, never per developer or end user.
 - **Unlimited seats.** No limit on users or servers within a given system.
 - **Revenue-based tiers.** The applicable tier is determined by the Licensee's annual revenue, verified against public registry data (e.g. KRS).
-- **Usage verification ("Phone Home").** On-premise deployments report aggregate usage counts for transparent billing verification, without Open Mercato needing standing access to your repository.
+- **Planned usage verification ("Phone Home").** On-premises deployments will report aggregate usage counts for billing verification without requiring ongoing access to your repository. See the [Enterprise roadmap](ROADMP.md#open-mercato-enterprise-maintenance-and-deployment-toolkit) for release estimates.
 
 A *project* is a single business domain / department / goal-oriented deployment of Open Mercato — not limited to a single physical instance (a multi-server deployment can be one project).
 
@@ -82,14 +82,32 @@ Startups below $5M in annual revenue can request a startup discount via [info@op
 
 ## Enterprise Software Package
 
-The `@open-mercato/enterprise` package delivers the proprietary modules included with every subscription — not available in the open-source distribution:
+Every Enterprise subscription includes the proprietary modules in `@open-mercato/enterprise`.
 
-- **MFA / 2FA** — multi-factor authentication with pluggable providers (TOTP, WebAuthn/passkeys, OTP email), enforcement policies, sudo challenge flows, provider-specific challenge UI registry, and enrollment redirect UX
-- **SSO & Directory Sync** — SAML/OIDC single sign-on with SCIM directory provisioning, per-org IdP configuration, and JIT user provisioning
-- **Record Locking** — optimistic and pessimistic mutation protection with participant presence, conflict detection/resolution, and force release
-- **Auth Login Interceptors** — MFA login gating via UMES extension points with zero core modifications
-- **System Status Overlays** — enterprise overlays and injected widgets for system status pages
-- **Agent Orchestrator** — propose-only AI agent runtime (in-process + OpenCode file-defined agents), proposal/disposition workflow integration, trace · eval · correction capture, and the operator/engineer cockpit. Enabled with `OM_ENABLE_ENTERPRISE_MODULES` + `OM_ENABLE_ENTERPRISE_MODULES_AGENTS`
+### Enterprise Security Bundle
+
+- **Multi-factor authentication** — Protect sign-in with authenticator apps (TOTP), WebAuthn passkeys, or email one-time codes. Set enforcement policies, track enrollment, and support account recovery with backup codes and administrator resets. [MFA administration](../../apps/docs/docs/enterprise/security/mfa-admin.mdx)
+- **Step-up authentication** — Require users to verify their identity again before sensitive actions such as an administrator resetting MFA. [Step-up authentication](../../apps/docs/docs/enterprise/security/sudo.mdx)
+- **Single sign-on and directory sync** — Connect each organization to its OIDC identity provider. Provision users through SCIM 2.0 or at first sign-in, and map directory groups to application roles. [SSO and directory sync](../../apps/docs/docs/enterprise/sso/index.mdx)
+- **Self-service password changes** — Let users change their passwords with current-password verification, password policy checks, and a change notification. [Password changes](../../apps/docs/docs/enterprise/security/change-password.mdx)
+- **Record locking** — Prevent accidental overwrites when teams edit the same records. Choose optimistic or exclusive locking, see who is editing, resolve field-level conflicts, and let authorized administrators release locks. [Record locking](../../apps/docs/docs/enterprise/record-locks.mdx)
+
+### Enterprise Maintenance and Deployment Toolkit
+
+- **Edition and version visibility** — See the Enterprise edition and running application version in System Status when verifying a deployment or troubleshooting an environment.
+
+### Enterprise AI Toolkit
+
+- **Agent Orchestrator** — Run in-process or OpenCode agents that return research, propose actions, or produce artifacts. Start agent-powered workflows manually, on a schedule, or from events, and track progress through business milestones.
+- **Human review and approvals** — Give operators a shared caseload to review, edit, approve, or reject agent proposals. Capture reviewer decisions, reasons, and corrections, and use policy rules for routine approvals.
+- **Agent access controls and safeguards** — Scope agent identities and tool permissions, revoke delegated access, and screen inputs and outputs with configurable guardrails.
+- **Governed web research** — Configure search providers, allowed domains, and search and fetch budgets for agents that use the web.
+- **Run traces and observability** — Inspect agent runs, tool calls, token usage, and costs in the operator console. Export traces through OpenTelemetry.
+- **Evaluations and release checks** — Replay evaluation suites, compare results across runs, and gate releases on regression checks in CI.
+
+Enable the Agent Orchestrator with `OM_ENABLE_ENTERPRISE_MODULES` and `OM_ENABLE_ENTERPRISE_MODULES_AGENTS`.
+
+See the [Enterprise roadmap](ROADMP.md) for upcoming features, including the Scalability Toolkit and Compliance Bundle.
 
 ## Sandboxes
 

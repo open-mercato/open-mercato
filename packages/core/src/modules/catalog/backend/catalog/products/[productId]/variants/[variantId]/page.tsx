@@ -846,7 +846,7 @@ async function syncVariantPricesUpdate({
     if (existingId) {
       await withScopedApiRequestHeaders(
         buildOptimisticLockHeader(lockVersion),
-        () => updateCrud('catalog/prices', { id: existingId, ...payload }),
+        () => updateCrud('catalog/prices', { id: existingId, ...payload, announce: false }),
       )
     } else {
       await createCrud('catalog/prices', payload)
