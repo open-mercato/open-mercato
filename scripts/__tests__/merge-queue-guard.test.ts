@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   ALWAYS_BLOCKING_LABELS,
@@ -9,6 +10,11 @@ import {
   type GuardContext,
   type GuardGithub,
 } from '../ci/merge-queue-guard.mts'
+
+test('the workflow never coalesces pending label events', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/merge-queue-guard.yml', import.meta.url), 'utf8')
+  assert.doesNotMatch(workflow, /^\s*concurrency:/m)
+})
 
 test('each always-blocking label added to a queued PR removes merge-queue', () => {
   for (const label of ALWAYS_BLOCKING_LABELS) {
