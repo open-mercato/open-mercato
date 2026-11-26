@@ -438,7 +438,7 @@ function areaOf(moduleId: string): string | undefined {
 }
 
 test('every provider package module maps to an area', () => {
-  const providerPackages = fs.readdirSync(new URL('../../packages/', import.meta.url)).filter((entry) => /^(channel|gateway|carrier|sync)-/.test(entry))
+  const providerPackages = fs.readdirSync(new URL('../../packages/', import.meta.url)).filter((entry) => /^(channel|gateway|carrier|sync|storage)-/.test(entry))
   assert.ok(providerPackages.length > 0, 'no provider packages found')
   for (const entry of providerPackages) {
     const modules = moduleDirectories(`packages/${entry}/src/modules`)
