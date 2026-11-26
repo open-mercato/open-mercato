@@ -1,9 +1,19 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isRegisteredModuleEntity } from './moduleEntityRegistration'
 
 export type CustomerEntityScope = {
   tenantId: string | null | undefined
   organizationId: string | null | undefined
+}
+
+async function getRegisteredCustomerEntity(em: EntityManager) {
+  const { CustomerEntity } = await import('@open-mercato/core/modules/customers/data/entities')
+  return isRegisteredModuleEntity(em, CustomerEntity, 'customers.CustomerEntity') ? CustomerEntity : null
+}
+
+export async function isCustomerEntityRegistered(em: EntityManager): Promise<boolean> {
+  return (await getRegisteredCustomerEntity(em)) !== null
 }
 
 /**
@@ -57,6 +67,7 @@ export async function resolveOwnedCompanyForPerson(
   scope: CustomerEntityScope,
 ): Promise<string | null> {
   const { CustomerPersonProfile } = await import('@open-mercato/core/modules/customers/data/entities')
+  if (!isRegisteredModuleEntity(em, CustomerPersonProfile, 'customers.CustomerPersonProfile')) return null
   const profile = await em.findOne(CustomerPersonProfile as any, {
     entity: personEntityId,
     tenantId: scope.tenantId,
@@ -87,7 +98,8 @@ async function isOwnedEntityOfKind(
   kind: 'company' | 'person',
   scope: CustomerEntityScope,
 ): Promise<boolean> {
-  const { CustomerEntity } = await import('@open-mercato/core/modules/customers/data/entities')
+  const CustomerEntity = await getRegisteredCustomerEntity(em)
+  if (!CustomerEntity) return false
   const entity = await findOneWithDecryption(
     em,
     CustomerEntity,

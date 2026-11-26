@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Encrypted tenant custom-field writes require a usable key
+
+With tenant data encryption enabled, saving a non-null value to an encrypted tenant custom field requires a usable tenant key. Affected CRUD requests return HTTP 503 with code `ENCRYPTION_UNAVAILABLE` when the key cannot be read or created. Restore key access before retrying the field write. Custom routes that commit the base record and custom fields separately should check whether the base record already exists before retrying a create.
+
+Use earlier `Custom field configured as encrypted was stored as plaintext` warnings to find affected values, then re-save those values after restoring key access. Existing plaintext values remain readable. The explicit global encryption disable setting and clearing a custom field retain their existing behavior.
+
 ## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
 
 When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.
@@ -188,6 +194,26 @@ Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibilit
 
 All published ports in these dev stacks now bind to `127.0.0.1` by default. Operators who deliberately need remote access must set `INFRA_BIND_HOST` explicitly and control access to every published development service. This change does not alter production or hybrid startup.
 
+## MCP HTTP tool calls require a per-user session token, no fallback (#5173)
+
+The production MCP HTTP server (`mcp:serve-http` — the transport web chat and Code Mode go through) now requires a valid `_sessionToken` on every tool call. A call that omits it receives `UNAUTHORIZED`; one that supplies an invalid or expired token receives `SESSION_EXPIRED`. There is no fallback to the transport `x-api-key`'s ACL and no opt-in to restore one: `McpServerConfig.allowApiKeyFallback` and `mcp:serve-http --allow-api-key-fallback` do not exist (neither shipped in a prior release — both were introduced and removed again within this same change, after review).
+
+**What stops working:** a deployment that calls `mcp:serve-http` with only an `x-api-key` header and no `_sessionToken` — previously authorized against the transport key's (typically superadmin) ACL — now gets `UNAUTHORIZED` on every tool call, unconditionally.
+
+**Client migration (chat-facing callers):** none for the normal path — the web chat and Code Mode flows already mint and pass a per-user `_sessionToken` on every tool call; this change only removes a fallback those flows never relied on. One edge case needs attention: a session token is minted only when a chat turn starts a brand-new session; if that minting fails (a transient DB error), the turn continues without one and no later turn on that same session retries it. A chat session stuck in that state now gets `UNAUTHORIZED` on every tool call instead of silently running under the old transport-key fallback. **Recovery:** there is no in-place repair for an already-established session — start a new chat session, which mints a fresh token on its first turn. No stored credential or data needs cleanup.
+
+**Operator migration (header-only / automation callers):** switch to the stdio transport, which already supports header-only / unattended access deliberately and is never reachable from a chat turn. Authenticate it the same way any other automation caller would — with an API key scoped to that caller's own account, or an explicit user context — not with a superadmin bypass:
+
+```bash
+OPEN_MERCATO_API_KEY=omk_xxxx.yyyy... mercato ai_assistant mcp:serve
+# or, with a manually supplied tenant/user context instead of an API key:
+mercato ai_assistant mcp:serve --tenant <id> --user <id>
+```
+
+`mcp:serve --allow-unauthenticated-superadmin` also exists, but it is **DEV/TEST ONLY** — it runs with no per-user ACL and must never be used in production.
+
+No database, event-id, route, or ACL-feature change. No stored credential or data becomes unusable — this only changes which auth path an HTTP tool call is allowed to take. See [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md#mcp-http-session-token-no-fallback-2026-11-14-5173) and spec [`2026-11-14-mcp-http-session-required-no-fallback.md`](.ai/specs/2026-11-14-mcp-http-session-required-no-fallback.md).
+
 ## Query index metadata cached across requests (#2967)
 
 The query index engine no longer re-reads table metadata and custom-field definitions
@@ -231,6 +257,35 @@ configuration is required. What changes when a peer is disabled:
   offered and are rejected with `UPGRADE_ACTION_NOT_AVAILABLE`.
 - **Translate actions** on dictionary entries and custom-field definitions appear only when the
   `translations` module is enabled and the user holds `translations.manage`.
+
+## File-agent attachment inputs enforce read permissions (#9117)
+
+OpenCode file-agent runs with nonempty `__files.attachments` now require the
+execution principal to hold `attachments.view` and pass each attachment owner's
+existing read policy. All inputs are authorized before storage reads, sandbox
+writes, cached OCR disclosure, or billable OCR. Previously accepted runs that
+lacked these permissions now fail. Empty envelopes retain their behavior.
+
+**Clients and custom runtimes:** submit only files the execution principal may
+read. Custom callers of `stageAttachments` must supply that principal as `userId`
+for nonempty envelopes. A direct run uses its authenticated subject; workflow
+runs use the resolved workflow principal: the configured execution grant, or
+otherwise the initiating user and then the definition creator. Audit-only `runAs`
+does not replace that principal. A denial fails the run before the model is prompted; do not retry
+it with a more privileged identity.
+
+**Operators:** review existing file-agent and workflow grants for
+`attachments.view` and the protected owner's read requirements. Grant only
+intended access through existing permissions and record sharing. No environment,
+startup, dependency, or database migration is required. Already staged files,
+model input, and cached OCR from earlier unauthorized runs are not revoked or
+erased by this change; assess affected run artifacts and retention using your
+existing incident process. Rolling back restores the authorization bypass.
+
+Maintainer @pkarw explicitly acknowledged the steps 1–3 security exception on
+2026-11-13 in the task conversation; [the acknowledgment is recorded on the PR](https://github.com/open-mercato/open-mercato/pull/9127#issuecomment-6852864115).
+QA sign-off remains separate. See the
+[migration and compatibility specification](.ai/specs/enterprise/agent-orchestrator/next/2026-06-26-agent-attachments-and-artifacts.md#migration--backward-compatibility).
 
 ## Optional process DI root (#8989)
 
@@ -6805,3 +6860,9 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+### MFA method encryption (#3854)
+
+With tenant encryption enabled, Security now encrypts MFA method secrets and provider metadata, including legacy TOTP seeds. Apply the additive `secret_hash` migration before deploying the new writes; regenerate module registries. In-flight plaintext pending setups remain compatible and new setups use the lookup hash. The MFA methods list returns public provider metadata without the private legacy TOTP seed. Do not roll back to code that cannot decrypt these fields.
+
+The SQL migration registers existing enabled scopes; it cannot encrypt historical seeds. During the established encryption maintenance window, preview `mercato entities rotate-encryption-key --tenant <tenant UUID> --dry-run`, then run without `--dry-run` and without an old key for every affected tenant, following the existing maintenance safety gates. Restart replicas and verify no plaintext remains. Disabled encryption/maps remain unchanged. This does not erase old backups or log snapshots; suspected exposure requires re-enrollment. See [the rollout spec](.ai/specs/enterprise/2026-11-07-mfa-secret-encryption.md).
