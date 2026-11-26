@@ -92,18 +92,63 @@ test('the required test job FAILS on a draft PR instead of skipping', () => {
   assert.equal(gate.name, 'Fail on draft pull request')
   assert.equal(gate.if, "needs.audit-scope.outputs.draft == 'true'")
   assert.match(gate.run, /exit 1/)
-  for (const step of ci.jobs.test.steps.slice(1)) {
-    assert.doesNotMatch(String(step.if ?? ''), /\balways\(\)|\bfailure\(\)/, `${step.name} must not run after the draft gate failed`)
+  for (const step of ci.jobs.test.steps.slice(2)) {
+    assert.doesNotMatch(String(step.if ?? ''), /\balways\(\)|\bfailure\(\)|cancelled\(\)/, `${step.name} must not run after a gate failed`)
   }
 })
 
-test('the draft failure path is the only change to when test runs on a ready PR', () => {
+test('test still skips on a failed required dependency, which is itself red', () => {
   assert.equal(evaluateCondition(ci.jobs.test), true)
   assert.equal(evaluateCondition(ci.jobs.test, { results: { audit: 'skipped' } }), true)
-  for (const dependency of ['prepare', 'audit-scope', 'lint', 'audit']) {
+  for (const dependency of ['prepare', 'audit-scope', 'lint']) {
     for (const result of ['failure', 'cancelled', 'skipped']) {
-      if (dependency === 'audit' && result === 'skipped') continue
       assert.equal(evaluateCondition(ci.jobs.test, { results: { [dependency]: result } }), false, `${dependency} ${result}`)
+    }
+  }
+})
+
+const requiredCiChecks = ['prepare', 'lint', 'ds-lint', 'test', 'audit-scope', 'documents-multi-instance']
+const auditGated = ['test', 'documents-multi-instance']
+
+test('no required check can be skipped by a failed non-required dependency', () => {
+  for (const name of requiredCiChecks) {
+    const job = ci.jobs[name]
+    for (const dependency of [job.needs ?? []].flat().filter((need) => !requiredCiChecks.includes(need))) {
+      for (const result of ['failure', 'cancelled']) {
+        assert.equal(evaluateCondition(job, { results: { [dependency]: result } }), true, `${name} must run (and fail) when ${dependency} is ${result}`)
+      }
+    }
+  }
+})
+
+for (const name of auditGated) {
+  test(`${name} fails at its first steps when audit failed or was cancelled`, () => {
+    const gate = ci.jobs[name].steps.find((step) => step.name === 'Fail on failed audit')
+    assert.ok(gate, `${name} needs an audit gate step`)
+    assert.equal(gate.if, "needs.audit.result == 'failure' || needs.audit.result == 'cancelled'")
+    assert.match(gate.run, /Audit failed/)
+    assert.match(gate.run, /exit 1/)
+    const gateIndex = ci.jobs[name].steps.indexOf(gate)
+    assert.ok(gateIndex <= 1, 'the audit gate must come before any real work')
+    for (const step of ci.jobs[name].steps.slice(gateIndex + 1)) {
+      const condition = String(step.if ?? '')
+      if (/cancelled\(\)|always\(\)/.test(condition)) {
+        assert.match(condition, /steps\.audit-gate\.outcome != 'failure'/, `${step.name} must not run after the audit gate failed`)
+      }
+    }
+  })
+
+  test(`${name} keeps its normal path when audit succeeded or was not needed`, () => {
+    for (const audit of ['success', 'skipped']) {
+      assert.equal(evaluateCondition(ci.jobs[name], { results: { audit } }), true, `audit ${audit}`)
+    }
+  })
+}
+
+test('non-required suite jobs keep skipping on a failed audit', () => {
+  for (const name of ['core-timezone', 'ephemeral-integration']) {
+    for (const result of ['failure', 'cancelled']) {
+      assert.equal(evaluateCondition(ci.jobs[name], { results: { audit: result } }), false, `${name} audit ${result}`)
     }
   }
 })

@@ -53,14 +53,17 @@ test('ordinary CI jobs stop when the workflow is cancelled even after successful
   }
 })
 
+const auditGatedJobNames = ['test', 'documents-multi-instance']
+
 test('ordinary CI jobs reject unsuccessful dependencies except an intentionally skipped audit', () => {
   for (const jobName of cancellableJobNames) {
     const job = workflow.jobs[jobName]
     for (const dependency of job.needs) {
       for (const result of ['failure', 'cancelled', 'skipped']) {
+        const auditGateRuns = auditGatedJobNames.includes(jobName) && dependency === 'audit' && result !== 'skipped'
         assert.equal(
           evaluateJobCondition(job, { [dependency]: result }),
-          dependency === 'audit' && result === 'skipped',
+          (dependency === 'audit' && result === 'skipped') || auditGateRuns,
           `${jobName}: ${dependency} ${result}`,
         )
       }
