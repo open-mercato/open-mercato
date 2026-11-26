@@ -637,6 +637,8 @@ Per `BACKWARD_COMPATIBILITY.md`, the command seam touches a STABLE shared helper
 
 Record Locks uses the target resource's read grant and checks that the target is visible in the caller's tenant and organization. It checks acquisition and heartbeat before reading or modifying lock state. An unavailable target produces the same acquire response whether the record is absent, unrecognized or outside the caller's read access. A heartbeat without current read access returns no expiry and leaves the lock untouched.
 
+Validation checks the same target policy before consulting lock or conflict history. Missing and unreadable records receive a generic HTTP 404 with `record_not_found`. The endpoint still returns HTTP 403 for a denied request scope. Authorized requests preserve their existing response contract. `TC-LOCK-VALIDATE-read-access.spec.ts` covers permitted and denied reads and the missing-record response.
+
 Field-bearing notifications require a fresh target-read decision for each recipient during queued delivery. A current or recently released lock identifies a potential recipient. The recipient's current grants and record visibility determine whether the subscriber can persist the notification. Notification IDs, successful API responses and the OSS version check retain their existing contracts.
 
 ## Implementation Status
@@ -648,6 +650,9 @@ Field-bearing notifications require a fresh target-read decision for each recipi
 - **Scope note — command-layer enrichment is floor-parity today (intentional, per S5/H5).** The enterprise `commandOptimisticLockGuardService` is registered and the async seam (`enforceCommandOptimisticLockWithGuards`) is wired at every migrated command site, but `recordLockService.resolveExpectedVersion` currently returns the client-supplied `updated_at` token — i.e. the command layer runs the **OSS `updated_at` floor** (the authoritative write-time gate, H5) and is fully covered by it, but does **not** yet add pessimistic-lock / action-log conflict *enrichment* at the command layer the way the CRUD layer does via `validateMutation`. This is **not** a regression (every command site is at least as protected as OSS; H6 holds) and is consistent with H5 (the pessimistic lock is advisory; the optimistic write-time check is authoritative). Richer command-layer (action-log–based) detection is a deliberate **future extension** — the DI seam exists precisely so it can be added without touching call sites. Flagged by the cross-model jury (Codex) and confirmed acceptable by the Claude fresh-reviewer.
 
 ## Changelog
+### 2026-11-26 (validation target read authorization — #10603)
+- Reused the target read policy for validation before the service consults record-lock state. Added route and API coverage for the authorization boundary.
+
 ### 2026-11-25 (target read authorization — #8674)
 - Added read checks for lock acquisition and renewal and for field-bearing notification delivery. Isolated regression tests cover scoped and wildcard grants, denied acquisition under either strategy, renewal after revocation and queued recipient reauthorization.
 

@@ -3,8 +3,9 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { recordLockValidateResponseSchema } from '../../data/validators'
-import { resolveRecordLocksApiContext } from '../utils'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { recordLockErrorSchema, recordLockValidateResponseSchema } from '../../data/validators'
+import { jsonError, resolveRecordLocksApiContext } from '../utils'
 
 const validateSchema = z.object({
   resourceKind: z.string().trim().min(1),
@@ -106,18 +107,32 @@ export async function POST(req: Request) {
   const ctxOrResponse = await resolveRecordLocksApiContext(req)
   if (ctxOrResponse instanceof Response) return ctxOrResponse
 
+  if (!ctxOrResponse.hasReadScope) {
+    const { translate } = await resolveTranslations()
+    return jsonError(translate('api.errors.forbidden', 'Forbidden'), 403)
+  }
+
   const body = await req.json().catch(() => ({}))
   const parsed = validateSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid validate payload', details: parsed.error.issues }, { status: 400 })
   }
 
-  const result = await ctxOrResponse.recordLockService.validateMutation({
+  const target = {
     tenantId: ctxOrResponse.auth.tenantId,
     organizationId: ctxOrResponse.organizationId,
     userId: ctxOrResponse.auth.sub,
     resourceKind: parsed.data.resourceKind,
     resourceId: parsed.data.resourceId,
+  }
+
+  if (!await ctxOrResponse.recordLockService.canReadTarget(target)) {
+    const { translate } = await resolveTranslations()
+    return jsonError(translate('record_locks.errors.not_found', 'Record not found'), 404, { code: 'record_not_found' })
+  }
+
+  const result = await ctxOrResponse.recordLockService.validateMutation({
+    ...target,
     method: parsed.data.method,
     headers: {
       resourceKind: parsed.data.resourceKind,
@@ -153,6 +168,14 @@ export const openApi: OpenApiRouteDoc = {
       },
       responses: [
         { status: 200, description: 'Validation result', schema: recordLockValidateResponseSchema },
+      ],
+      errors: [
+        { status: 403, description: 'Missing permission for the selected scope', schema: recordLockErrorSchema },
+        {
+          status: 404,
+          description: 'Record unavailable',
+          schema: recordLockErrorSchema.extend({ code: z.literal('record_not_found') }),
+        },
       ],
     },
   },

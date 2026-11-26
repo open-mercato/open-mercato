@@ -1,5 +1,16 @@
 # Upgrade Notes
 
+## Record-lock validation requires target read access (#10603)
+
+The record-lock validation endpoint returns a generic HTTP 404 when the record is
+missing or the caller lacks read access to it. Custom clients should handle
+`record_not_found` as an unavailable target. Integrations that legitimately
+validate record locks should use a staff session with both `record_locks.view`
+and the target record's ordinary read permission within the selected tenant and
+organization. The shared policy requires a live user identity. Operators should
+review custom role grants using the usual least-privilege policy. No data
+migration is needed.
+
 ## Production fullapp LocalStack binds to loopback (#10342)
 
 The production fullapp `storage-s3` profile now publishes LocalStack on
