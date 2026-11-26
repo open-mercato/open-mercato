@@ -55,3 +55,5 @@ PR: #10543
 
 - [x] 3.1 Integrate the latest main branch and verify both sets of authorization changes. — bcc4d33e4b (Merge 6a34aa410d. All 179 focused Jest tests passed.)
 - [x] 3.2 Add accessible labels, autocomplete, and password instructions to the Enterprise Security form. — 57f476674c (Enterprise Chromium assertions included in TC-SEC-016.)
+
+- [x] Validation follow-up: align the empty-scope RBAC and storefront query fixtures. — e239e1f644 (254 focused tests passed.)
