@@ -1,10 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-
-/** The DOM Event Bridge dispatches this after re-establishing a dropped SSE stream. */
-const BRIDGE_RECONNECTED_EVENT = 'om:bridge:reconnected'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 
 /**
  * A busy tenant can advance dozens of instances a second, and every step
@@ -79,7 +76,7 @@ export function useLiveRunUpdates({
   )
 
   useAppEvent(
-    BRIDGE_RECONNECTED_EVENT,
+    BRIDGE_RECONNECTED_EVENT_ID,
     () => {
       if (!enabled) return
       scheduleRefresh()
