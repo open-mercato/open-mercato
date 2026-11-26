@@ -238,7 +238,7 @@ export function EntryView({ data }: { data: EntryViewData }) {
           <EntryMeta data={data} />
         </PageHeader>
         <Tabs value={tab} onValueChange={setTab} variant="underline" className="min-w-0 space-y-8">
-          <TabsList aria-label={t('design.entry.tabsLabel')}>
+          <TabsList aria-label={t('design.entry.tabsLabel')} className="flex w-full">
             <TabsTrigger value="usage">{t('design.entry.tabUsage')}</TabsTrigger>
             <TabsTrigger value="api">{t('design.entry.tabApi')}</TabsTrigger>
             <TabsTrigger value="source">{t('design.entry.tabSource')}</TabsTrigger>

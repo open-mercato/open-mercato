@@ -194,7 +194,7 @@ function RecordScreen() {
         onAction={() => undefined}
       />
       <Tabs value={tab} onValueChange={setTab} variant="underline">
-        <TabsList aria-label={t('design.create.app.recordTabs')}>
+        <TabsList aria-label={t('design.create.app.recordTabs')} className="flex w-full">
           <TabsTrigger value="overview">{t('design.create.app.tabOverview')}</TabsTrigger>
           <TabsTrigger value="deals" count={3}>{t('design.create.app.nav.deals')}</TabsTrigger>
           <TabsTrigger value="files">{t('design.create.app.tabFiles')}</TabsTrigger>
