@@ -8,7 +8,7 @@ Close three unclaimed open Dependabot alert groups — glob (`>=9, <=14.0.1`), m
 
 Source identities (deduplication markers):
 
-- `dependabot:open-mercato/open-mercato:541` — GHSA-3g3m-2fjr-6pww — glob — fixed 14.0.2
+- `dependabot:open-mercato/open-mercato:541` — GHSA-3g3m-2fjr-6pw4 — glob — fixed 14.0.2
 - `dependabot:open-mercato/open-mercato:543` — GHSA-g3hv-75wg-m249 — minimatch — fixed 11.0.1
 - `dependabot:open-mercato/open-mercato:413` — GHSA-238p-pmpm-9mq7 — katex — fixed 0.18.2
 
@@ -56,3 +56,7 @@ No application code, no CI/workflow changes, no alert dismissals, no issue creat
 
 - [ ] 2.1 Run the ordered `validation.commands` gate (local runner — no Docker app container) plus `yarn lint`; document real blockers.
 - [ ] 2.2 Independent review verdict, PR labels, summary comment; ready only on approve.
+
+## Release-line dependency compatibility
+
+The coverage filter uses test-exclude 7.0.2 so it can load the named Glob and Minimatch exports supported by the new dependency graph. Glob 14.0.6 uses minimatch 11.0.5, which satisfies its declared range. KaTeX remains pinned to 0.18.2.
