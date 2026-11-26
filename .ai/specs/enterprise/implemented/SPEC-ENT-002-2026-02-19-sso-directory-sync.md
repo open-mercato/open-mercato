@@ -1,5 +1,7 @@
 # ADR: SSO & Directory Sync Module for @open-mercato/enterprise
 
+> ⚠️ Superseded by `.ai/specs/enterprise/2026-11-26-sso-verified-email-domains.md` (2026-11-26) — domain ownership in API Surface, Key Behaviors, Frontend, and Risk Assessment. Current state: see the new spec.
+
 **Status:** Draft
 **Date:** 2026-02-19
 **Package:** `packages/enterprise/src/modules/sso/`
