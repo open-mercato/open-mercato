@@ -10,7 +10,8 @@ const describeContainer = containerTestsEnabled ? describe : describe.skip
 const PACKAGE_NAME = '@open-mercato/cache-provider-ignite'
 
 const APP_SCRIPT = `
-import { defineCacheProviderRegistration, resolveCacheProvider, createCacheService, runWithCacheTenant } from '@open-mercato/cache'
+import { createCacheService, runWithCacheTenant } from '@open-mercato/cache'
+import { defineCacheProviderRegistration, resolveCacheProvider } from '@open-mercato/cache/provider'
 
 export const cacheProviders = [
   defineCacheProviderRegistration({
@@ -133,7 +134,7 @@ describeContainer('packed @open-mercato/cache-provider-ignite installed into a f
     const output = (() => {
       try {
         return execFileSync(process.execPath, [
-          tsc, '--noEmit', '--strict', '--skipLibCheck', '--module', 'nodenext', '--moduleResolution', 'nodenext',
+          tsc, '--noEmit', '--strict', '--skipLibCheck', '--module', 'esnext', '--moduleResolution', 'bundler',
           '--target', 'es2022', '--types', 'node', '--typeRoots', path.resolve(PACKAGE_DIR, '../../node_modules/@types'), 'consumer.ts',
         ], { cwd: appDir, encoding: 'utf8', stdio: 'pipe', timeout: 180_000 })
       } catch (error) {
