@@ -27,6 +27,125 @@ function processWorkspace(pid) {
   return result.stdout.split('\n').find((line) => line.startsWith('n'))?.slice(1) ?? null
 }
 
+const windowsProcessInspector = String.raw`
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class DevSessionProcess {
+  [StructLayout(LayoutKind.Sequential)]
+  struct BasicInformation {
+    public IntPtr Reserved1, Peb, Reserved2, Reserved3, ProcessId, Reserved4;
+  }
+  public sealed class Identity {
+    public string workspace;
+    public string startedAt;
+  }
+  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  [DllImport("kernel32.dll")] static extern bool IsWow64Process(IntPtr handle, out bool wow64);
+  [DllImport("kernel32.dll")] static extern bool GetProcessTimes(IntPtr handle, out long created, out long exited, out long kernel, out long user);
+  [DllImport("kernel32.dll")] static extern bool ReadProcessMemory(IntPtr handle, IntPtr address, byte[] buffer, IntPtr size, out IntPtr read);
+  [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr handle, uint exitCode);
+  [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr handle, int kind, out BasicInformation info, int size, out int returned);
+  [DllImport("ntdll.dll", EntryPoint = "NtQueryInformationProcess")]
+  static extern int QueryWow64(IntPtr handle, int kind, out IntPtr peb, int size, out int returned);
+  static byte[] Read(IntPtr handle, IntPtr address, int size) {
+    var buffer = new byte[size];
+    IntPtr read;
+    if (address == IntPtr.Zero || !ReadProcessMemory(handle, address, buffer, (IntPtr)size, out read) || read.ToInt64() != size) throw new InvalidOperationException();
+    return buffer;
+  }
+  static IntPtr Pointer(byte[] buffer, int offset, bool wow64) {
+    return wow64 ? new IntPtr((long)BitConverter.ToUInt32(buffer, offset)) : new IntPtr(BitConverter.ToInt64(buffer, offset));
+  }
+  static string StartedAt(IntPtr handle) {
+    long created, exited, kernel, user;
+    if (!GetProcessTimes(handle, out created, out exited, out kernel, out user)) throw new InvalidOperationException();
+    return DateTime.FromFileTimeUtc(created).ToString("o");
+  }
+  public static Identity Inspect(int pid) {
+    if (IntPtr.Size != 8) return null;
+    var handle = OpenProcess(0x410, false, pid);
+    if (handle == IntPtr.Zero) return null;
+    try {
+      bool wow64;
+      if (!IsWow64Process(handle, out wow64)) return null;
+      BasicInformation info;
+      int returned;
+      if (NtQueryInformationProcess(handle, 0, out info, Marshal.SizeOf(typeof(BasicInformation)), out returned) != 0) return null;
+      var peb = info.Peb;
+      if (wow64 && QueryWow64(handle, 26, out peb, IntPtr.Size, out returned) != 0) return null;
+      var parameters = Pointer(Read(handle, IntPtr.Add(peb, wow64 ? 0x10 : 0x20), wow64 ? 4 : 8), 0, wow64);
+      var directory = Read(handle, IntPtr.Add(parameters, wow64 ? 0x24 : 0x38), wow64 ? 8 : 16);
+      int length = BitConverter.ToUInt16(directory, 0);
+      int maximum = BitConverter.ToUInt16(directory, 2);
+      if (length == 0 || length % 2 != 0 || length > maximum) return null;
+      return new Identity {
+        workspace = Encoding.Unicode.GetString(Read(handle, Pointer(directory, wow64 ? 4 : 8, wow64), length)),
+        startedAt = StartedAt(handle)
+      };
+    } catch { return null; }
+    finally { CloseHandle(handle); }
+  }
+  public static bool Stop(int pid, string expectedStart) {
+    var handle = OpenProcess(0x1001, false, pid);
+    if (handle == IntPtr.Zero) return false;
+    try { return StartedAt(handle) == expectedStart && TerminateProcess(handle, 1); }
+    catch { return false; }
+    finally { CloseHandle(handle); }
+  }
+}
+`
+
+function windowsRecoveryUtilities(overrides) {
+  const run = (request) => {
+    const payload = Buffer.from(JSON.stringify(request)).toString('base64')
+    const source = `
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+Add-Type -TypeDefinition @'
+${windowsProcessInspector}
+'@
+$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json
+if ($request.action -eq 'stop') {
+  foreach ($record in $request.records) { $null = [DevSessionProcess]::Stop($record.pid, $record.startedAt) }
+  '[]'
+} else {
+  $table = @(Get-CimInstance Win32_Process)
+  $selected = @($table | Where-Object { $_.ProcessId -eq $request.pid })
+  for ($index = 0; $index -lt $selected.Count; $index++) {
+    $parent = $selected[$index]
+    $selected += @($table | Where-Object { $_.ParentProcessId -eq $parent.ProcessId -and $_.ProcessId -notin $selected.ProcessId -and $_.CreationDate -ge $parent.CreationDate })
+  }
+  @($selected | ForEach-Object {
+    $identity = [DevSessionProcess]::Inspect($_.ProcessId)
+    if ($identity -and ([DateTime]::Parse($identity.startedAt).ToUniversalTime().ToString('yyyyMMddHHmmssffffff') -ne $_.CreationDate.ToUniversalTime().ToString('yyyyMMddHHmmssffffff'))) { $identity = $null }
+    [pscustomobject]@{ pid = [int]$_.ProcessId; parentPid = [int]$_.ParentProcessId; command = $_.Name; startedAt = $identity.startedAt; workspace = $identity.workspace }
+  }) | ConvertTo-Json -Compress
+}
+`
+    try {
+      const result = (overrides.spawnSync ?? spawnSync)('powershell.exe', [
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(source, 'utf16le').toString('base64'),
+      ], { encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024, windowsHide: true })
+      if (result.error || result.status !== 0) return []
+      const parsed = JSON.parse(result.stdout.replace(/^\uFEFF/, '').trim() || '[]')
+      const rows = Array.isArray(parsed) ? parsed : [parsed]
+      if (!rows.every((row) => row && Number.isInteger(row.pid) && row.pid > 0 && Number.isInteger(row.parentPid) && Number.isFinite(Date.parse(row.startedAt)))) return []
+      return rows
+    } catch { return [] }
+  }
+  return {
+    inspectTree: (pid) => run({ action: 'inspect', pid }),
+    processWorkspace: (pid, row) => typeof row.workspace === 'string' && path.win32.isAbsolute(row.workspace) ? row.workspace : null,
+    signalTree: (rows) => run({
+      action: 'stop',
+      records: [...rows].reverse().filter((row) => row.pid > 1 && row.pid !== process.pid && Number.isFinite(Date.parse(row.startedAt)))
+        .map(({ pid, startedAt }) => ({ pid, startedAt })),
+    }),
+  }
+}
+
 function parseLocalEndpoint(value) {
   if (typeof value !== 'string' || !value) return null
   try {
@@ -86,7 +205,7 @@ function classifySession(state, dependencies) {
       stale.push({ member })
       continue
     }
-    const workspace = canonicalPath(dependencies.processWorkspace(member.pid))
+    const workspace = canonicalPath(dependencies.processWorkspace(member.pid, root))
     if (workspace && !isInsideWorkspace(state.workspaceRoot, workspace)) {
       stale.push({ member })
       continue
@@ -137,6 +256,7 @@ function describeRefusal(snapshot, plan) {
 
 async function loadProcessUtilities(overrides) {
   if (overrides.inspectTree && overrides.signalTree) return {}
+  if ((overrides.platform ?? process.platform) === 'win32') return windowsRecoveryUtilities(overrides)
   const { inspectProcessTree, signalProcessTree } = await import('./dev-shutdown-utils.mjs')
   return { inspectTree: inspectProcessTree, signalTree: signalProcessTree }
 }
