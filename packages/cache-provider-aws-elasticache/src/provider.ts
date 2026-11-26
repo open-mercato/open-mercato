@@ -16,7 +16,9 @@ import {
   toRespTls,
 } from '@open-mercato/cache-provider-managed-kit'
 
-export const AWS_ELASTICACHE_CACHE_PROVIDER_ID = 'open-mercato/aws-elasticache' as const
+import { AWS_ELASTICACHE_CACHE_PROVIDER_ID } from './registration'
+
+export { AWS_ELASTICACHE_CACHE_PROVIDER_ID } from './registration'
 
 export const ELASTICACHE_SIGNING_SERVICE = 'elasticache'
 /** ElastiCache IAM auth tokens are valid for 15 minutes. */

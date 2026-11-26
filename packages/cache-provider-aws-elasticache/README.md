@@ -27,9 +27,11 @@ With the gate closed, selection resolves to a stand-in that never reads your set
 
 ## Register and select
 
+Add the registration to the app's `src/providers/cache.ts`, then run `yarn generate`. The package's `/registration` entry loads the adapter only when selected and enabled.
+
 ```ts
 import { readFileSync } from 'node:fs'
-import { awsElastiCacheCacheProviderRegistration } from '@open-mercato/cache-provider-aws-elasticache'
+import { awsElastiCacheCacheProviderRegistration } from '@open-mercato/cache-provider-aws-elasticache/registration'
 
 export const cacheProviders = [
   awsElastiCacheCacheProviderRegistration({

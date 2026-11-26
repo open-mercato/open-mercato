@@ -15,7 +15,9 @@ import {
   toRespTls,
 } from '@open-mercato/cache-provider-managed-kit'
 
-export const GOOGLE_MEMORYSTORE_CACHE_PROVIDER_ID = 'open-mercato/google-memorystore' as const
+import { GOOGLE_MEMORYSTORE_CACHE_PROVIDER_ID } from './registration'
+
+export { GOOGLE_MEMORYSTORE_CACHE_PROVIDER_ID } from './registration'
 
 export const GOOGLE_CLOUD_PLATFORM_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 export const GOOGLE_DEFAULT_REAUTH_INTERVAL_MS = 10 * 60_000

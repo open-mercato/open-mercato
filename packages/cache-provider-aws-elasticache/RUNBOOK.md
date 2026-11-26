@@ -54,7 +54,7 @@ Keys are removed per namespace by the tests. After an aborted run, delete `om:{<
 ## 6. Rollout and rollback
 
 1. Confirm `elasticache:Connect`, security groups and DNS from every web/worker/CLI host.
-2. Deploy with both Enterprise flags, `CACHE_PROVIDER=open-mercato/aws-elasticache` and a new `CACHE_PROVIDER_NAMESPACE`.
+2. [Register the provider](README.md#register-and-select) in `src/providers/cache.ts` and run `yarn generate`. Deploy with both Enterprise flags, `CACHE_PROVIDER=open-mercato/aws-elasticache` and a new `CACHE_PROVIDER_NAMESPACE`.
 3. Watch readiness and redacted `[cache] provider open-mercato/aws-elasticache:` warnings.
 4. Rollback by restoring the previous `CACHE_PROVIDER`/namespace; then expire only the abandoned namespace.
 

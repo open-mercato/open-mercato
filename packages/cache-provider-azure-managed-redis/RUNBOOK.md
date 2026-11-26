@@ -57,7 +57,7 @@ Tests remove their keys by namespace. If a run aborts, delete keys matching `om:
 ## 6. Production rollout and rollback
 
 1. Verify identity and network reachability from every web/worker/CLI host first (run the readiness probe with a scratch namespace).
-2. Deploy with both Enterprise flags, `CACHE_PROVIDER=open-mercato/azure-managed-redis` and a **new** `CACHE_PROVIDER_NAMESPACE`.
+2. [Register the provider](README.md#register-and-select) in `src/providers/cache.ts` and run `yarn generate`. Deploy with both Enterprise flags, `CACHE_PROVIDER=open-mercato/azure-managed-redis` and a **new** `CACHE_PROVIDER_NAMESPACE`.
 3. Watch readiness and `[cache] provider open-mercato/azure-managed-redis:` warnings (connection errors are rate-limited and redacted).
 4. Rollback: unset `CACHE_PROVIDER` (stock strategy) or select the previous provider/namespace; then expire or remove only the abandoned namespace.
 

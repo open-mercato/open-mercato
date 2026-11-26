@@ -10,6 +10,8 @@ Shared building blocks for the official Open Mercato managed cloud cache provide
 
 Applications do not depend on this package directly; install a provider package.
 
+Managed providers use the kit's lightweight `/registration` entry to build a registration before importing the adapter or its engine client.
+
 ## Runtime surface (`@open-mercato/cache-provider-managed-kit`)
 
 | Area | Exports |

@@ -27,9 +27,11 @@ With the gate closed, selection resolves to a stand-in that never reads settings
 
 ## Register and select
 
+Add the registration to the app's `src/providers/cache.ts`, then run `yarn generate`. The package's `/registration` entry loads the adapter only when selected and enabled.
+
 ```ts
 import { readFileSync } from 'node:fs'
-import { googleMemorystoreCacheProviderRegistration } from '@open-mercato/cache-provider-google-memorystore'
+import { googleMemorystoreCacheProviderRegistration } from '@open-mercato/cache-provider-google-memorystore/registration'
 
 export const cacheProviders = [
   googleMemorystoreCacheProviderRegistration({

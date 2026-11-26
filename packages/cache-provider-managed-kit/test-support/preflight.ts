@@ -65,14 +65,14 @@ const SECRET_PATTERNS: RegExp[] = [
 
 function packedSmokeScript(options: ManagedPreflightOptions['packed'], providerId: string): string {
   return `
-import * as pkg from '${options.packageName}'
+import { ${options.registrationExport} } from '${options.packageName}/registration'
 import { createCacheProviderHostContext, defineCacheProviderRegistration, resolveCacheProvider } from '@open-mercato/cache/provider'
 const env = (namespace) => ({ CACHE_PROVIDER: ${JSON.stringify(providerId)}, CACHE_PROVIDER_NAMESPACE: namespace })
-const out = { ungatedExports: ['provider', 'default'].filter((name) => name in pkg) }
+const out = {}
 delete process.env.OM_ENABLE_ENTERPRISE_MODULES
 delete process.env.OM_ENABLE_ENTERPRISE_MODULES_CACHE_PROVIDERS
 let settingsEvaluated = false
-const gated = pkg.${options.registrationExport}({ settings: () => { settingsEvaluated = true; return {} } })
+const gated = ${options.registrationExport}({ settings: () => { settingsEvaluated = true; return {} } })
 const closed = await resolveCacheProvider([gated], { env: env('packed-closed') })
 out.id = closed.id
 try {
@@ -84,6 +84,9 @@ try {
 out.settingsEvaluatedWhileClosed = settingsEvaluated
 process.env.OM_ENABLE_ENTERPRISE_MODULES = 'true'
 process.env.OM_ENABLE_ENTERPRISE_MODULES_CACHE_PROVIDERS = 'true'
+const pkg = await import('${options.packageName}')
+out.ungatedExports = ['provider', 'default'].filter((name) => name in pkg)
+out.registrationExportCompatible = pkg.${options.registrationExport} === ${options.registrationExport}
 const provider = pkg.${options.factoryExport}({
   credentialSource: () => async () => ({ username: process.env.SMOKE_USER, password: process.env.SMOKE_PASSWORD, expiresAt: null }),
 })
@@ -357,6 +360,7 @@ export function defineManagedProviderPreflight(options: ManagedPreflightOptions)
           expect(result).toMatchObject({
             id: providerId,
             ungatedExports: [],
+            registrationExportCompatible: true,
             closed: 'unavailable',
             settingsEvaluatedWhileClosed: false,
             get: { ok: 1 },
@@ -365,7 +369,7 @@ export function defineManagedProviderPreflight(options: ManagedPreflightOptions)
           expect(result.invalidated).toBeGreaterThanOrEqual(1)
           expect(JSON.stringify(result.redacted)).not.toContain(current.password)
           packed.typecheck([
-            `import { ${options.packed.registrationExport} } from '${options.packed.packageName}'`,
+            `import { ${options.packed.registrationExport} } from '${options.packed.packageName}/registration'`,
             `export const cacheProviders = [${options.packed.registrationExport}({ settings: () => ({}) })]`,
             '',
           ].join('\n'))

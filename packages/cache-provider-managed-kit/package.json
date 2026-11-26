@@ -26,6 +26,10 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./registration": {
+      "types": "./src/enterprise.ts",
+      "default": "./dist/enterprise.js"
+    },
     "./package.json": "./package.json"
   },
   "keywords": [

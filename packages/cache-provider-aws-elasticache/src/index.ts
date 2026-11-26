@@ -1,8 +1,3 @@
-import type { CacheProviderRegistration } from '@open-mercato/cache/provider'
-import { defineEnterpriseCacheProviderRegistration } from '@open-mercato/cache-provider-managed-kit'
-import type { EnterpriseCacheProviderRegistrationOptions } from '@open-mercato/cache-provider-managed-kit'
-import { AWS_ELASTICACHE_CACHE_PROVIDER_ID, createAwsElastiCacheProvider } from './provider'
-
 export {
   AWS_DEFAULT_REAUTH_INTERVAL_MS,
   AWS_ELASTICACHE_CACHE_PROVIDER_ID,
@@ -36,19 +31,4 @@ export {
 } from '@open-mercato/cache-provider-managed-kit'
 export type { EnterpriseCacheProviderRegistrationOptions, OfficialManagedCacheProviderId } from '@open-mercato/cache-provider-managed-kit'
 export type { ManagedAccessToken, ManagedAccessTokenSource } from '@open-mercato/cache-provider-managed-kit'
-
-/**
- * Supported registration path: the provider definition is built and the AWS
- * SDK is imported only after the Enterprise activation gate passes; with the
- * gate closed the app's settings thunk is never evaluated. This is the only
- * supported entry point: the package exports no ungated provider definition.
- * Pass `env` when the host resolves providers with an explicit env.
- */
-export function awsElastiCacheCacheProviderRegistration(registration: EnterpriseCacheProviderRegistrationOptions): CacheProviderRegistration {
-  return defineEnterpriseCacheProviderRegistration({
-    id: AWS_ELASTICACHE_CACHE_PROVIDER_ID,
-    load: async (env) => createAwsElastiCacheProvider({ env }),
-    settings: registration.settings,
-    ...(registration.env !== undefined ? { env: registration.env } : {}),
-  })
-}
+export { awsElastiCacheCacheProviderRegistration } from './registration'

@@ -15,7 +15,9 @@ import {
   toRespTls,
 } from '@open-mercato/cache-provider-managed-kit'
 
-export const AZURE_MANAGED_REDIS_CACHE_PROVIDER_ID = 'open-mercato/azure-managed-redis' as const
+import { AZURE_MANAGED_REDIS_CACHE_PROVIDER_ID } from './registration'
+
+export { AZURE_MANAGED_REDIS_CACHE_PROVIDER_ID } from './registration'
 
 /** Microsoft Entra scope for Azure Managed Redis / Azure Cache for Redis data access. */
 export const AZURE_REDIS_ENTRA_SCOPE = 'https://redis.azure.com/.default'

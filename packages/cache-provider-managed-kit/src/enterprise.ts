@@ -130,7 +130,7 @@ export type EnterpriseCacheProviderRegistrationOptions = {
 
 /**
  * Registration helper for official managed providers. With the gate closed the
- * provider package (and its cloud SDK) is not imported and the app's settings
+ * provider implementation (and its cloud SDK) is not imported and the app's settings
  * thunk is not evaluated; selection then fails with a sanitized `unavailable`
  * error at cache initialization in web, worker and maintenance paths alike.
  * `load` receives the gate env so the loaded definition gates on the same env.

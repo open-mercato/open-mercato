@@ -8,7 +8,7 @@ Official managed adapters SHALL be individually installable through the commerci
 
 ### Scenario: Enterprise adapter selected
 
-- WHEN an Enterprise operator installs one official adapter, enables Enterprise and selects a valid provider registration
+- WHEN an Enterprise operator installs one official adapter, adds its registration to `src/providers/cache.ts`, enables Enterprise, and selects it with `CACHE_PROVIDER`
 - THEN the deployment uses it for the same cache DI consumers and uses the provider-specific settings and health probe
 
 ### Scenario: Enterprise unavailable

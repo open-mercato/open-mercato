@@ -27,11 +27,11 @@ With the gate closed, selection resolves to a stand-in that never reads your set
 
 ## Register and select
 
-`mercato.cache.ts` in the app root:
+Add the registration to the app's `src/providers/cache.ts`, then run `yarn generate`. The package's `/registration` entry loads the adapter only when selected and enabled.
 
 ```ts
 import { readFileSync } from 'node:fs'
-import { azureManagedRedisCacheProviderRegistration } from '@open-mercato/cache-provider-azure-managed-redis'
+import { azureManagedRedisCacheProviderRegistration } from '@open-mercato/cache-provider-azure-managed-redis/registration'
 
 export const cacheProviders = [
   azureManagedRedisCacheProviderRegistration({

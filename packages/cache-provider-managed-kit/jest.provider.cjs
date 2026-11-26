@@ -16,6 +16,7 @@ module.exports = function createManagedProviderJestConfig(packageDir) {
     moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
     moduleNameMapper: {
       '^@open-mercato/cache-provider-managed-kit$': '<rootDir>/../cache-provider-managed-kit/src/index.ts',
+      '^@open-mercato/cache-provider-managed-kit/registration$': '<rootDir>/../cache-provider-managed-kit/src/enterprise.ts',
       '^@open-mercato/cache-provider-managed-kit/testing$': '<rootDir>/../cache-provider-managed-kit/test-support/index.ts',
       '^@open-mercato/cache-provider-managed-kit/testing/(.*)$': '<rootDir>/../cache-provider-managed-kit/test-support/$1',
       '^@open-mercato/cache-redis-protocol$': '<rootDir>/../cache-redis-protocol/src/index.ts',

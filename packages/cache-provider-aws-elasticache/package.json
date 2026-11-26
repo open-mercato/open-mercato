@@ -29,6 +29,10 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./registration": {
+      "types": "./src/registration.ts",
+      "default": "./dist/registration.js"
+    },
     "./package.json": "./package.json"
   },
   "keywords": [

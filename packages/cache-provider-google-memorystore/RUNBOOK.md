@@ -52,7 +52,7 @@ Tests delete keys per namespace (all keys of a namespace live on one hash slot).
 ## 6. Rollout and rollback
 
 1. Confirm ADC, permission and network reachability to the discovery endpoint **and every shard** from all web/worker/CLI hosts.
-2. Deploy with both Enterprise flags, `CACHE_PROVIDER=open-mercato/google-memorystore` and a new `CACHE_PROVIDER_NAMESPACE`.
+2. [Register the provider](README.md#register-and-select) in `src/providers/cache.ts` and run `yarn generate`. Deploy with both Enterprise flags, `CACHE_PROVIDER=open-mercato/google-memorystore` and a new `CACHE_PROVIDER_NAMESPACE`.
 3. Watch readiness and redacted `[cache] provider open-mercato/google-memorystore:` warnings.
 4. Rollback by restoring the previous `CACHE_PROVIDER`/namespace; then expire only the abandoned namespace.
 
