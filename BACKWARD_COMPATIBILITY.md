@@ -740,9 +740,6 @@ STABLE feature-gated APIs return `403` before lookup when organization scope res
 
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
 
-## 2026-11-26 — Customer detail header avatars (#6490)
+## #6490
 
-Both component handles and their props are **FROZEN**.
-
-- `section:customers.companies.detailHeader.avatar` — `{ data: CompanyOverview, displayName: string }`
-- `section:customers.people.detailHeader.avatar` — `{ data: PersonOverview, displayName: string }`
+FROZEN `section:customers.{companies,people}.detailHeader.avatar`: `data` (CompanyOverview/PersonOverview, respectively), `displayName: string`.
