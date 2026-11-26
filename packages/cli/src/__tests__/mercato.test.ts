@@ -1245,6 +1245,7 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
