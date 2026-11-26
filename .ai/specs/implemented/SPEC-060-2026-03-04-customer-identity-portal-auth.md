@@ -1621,7 +1621,17 @@ Signup and verification keep their existing response shapes, routes, and event I
 
 Invitation acceptance can retire an active, unverified registration that has never signed in within the invitation's organization. Acceptance creates a separate verified identity with the invitation's roles and scope. Verified, previously used, inactive, and other-organization accounts still conflict. Previously verified accounts retain their existing credentials.
 
+### Migration & Backward Compatibility
+
+The v0.9 backport #10753 changes STABLE signup/verification authentication behavior: an anonymous signup's password is no longer usable after the email recipient verifies the address. Preserving that behavior as a bridge would preserve credential pre-registration takeover, so the proposed release uses the Emergency Security Exception for this narrow credential behavior. A named human maintainer must explicitly accept the waiver on the final release head; automatic source review is insufficient.
+
+Clients choose a fresh password at verification or direct token-only verifications to the existing password-reset/magic-link flow. Operators deploy the corresponding portal client, verify email delivery and session invalidation, and review unused unverified registrations that expire or are retired by a staff invitation. Already verified credentials remain intact and no schema migration is needed. [Upgrade instructions](../../../UPGRADE_NOTES.md#portal-signup-credentials-are-chosen-at-verification-9107-v09-backport-10753). Personally pinned release QA must cover victim-email pre-registration, first-verification session revocation, pending invitation replacement, cross-organization refusal and existing verified accounts. The release adaptation also preserves the source's atomic invitation state/retirement transaction and compare-and-swap CRM ownership checks.
+
 ## Changelog
+
+### 2026-11-26 — v0.9 release adaptation (#10753)
+
+- Preserve atomic invitation retirement and scoped CRM linking while resolving the release cherry-pick; document client/operator credential migration and the pending named security-waiver/personal QA gate.
 
 ### 2026-11-21 — Verified signup credentials (#9107)
 

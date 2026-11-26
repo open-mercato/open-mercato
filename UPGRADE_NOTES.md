@@ -1,5 +1,13 @@
 # Upgrade Notes
 
+## Portal signup credentials are chosen at verification (#9107, v0.9 backport #10753)
+
+Signup still returns HTTP 202 and accepts an optional password, but it no longer stores that password. The email recipient chooses a password through the verification link. Clients that submit only a verification token can still verify the address; they must then use the existing password-reset or magic-link flow before password login. Previously verified accounts keep their credentials. First verification invalidates the pending registration's old password and sessions. Unused, unverified registrations expire after the verification window; a staff invitation can retire such a registration in its own organization and create a separate verified identity with the invitation's roles.
+
+Client integrators must show password entry at verification or route token-only users to password reset/magic link. Operators must update their portal clients together with this release, confirm verification/reset email delivery and monitor legacy pending registrations. No database migration is required. Do not restore acceptance of an unverified registrant's chosen credential as a compatibility bridge: it lets an attacker pre-register a victim's email with a password known to the attacker and retain access when the recipient verifies the address.
+
+This changes documented successful authentication behavior. The v0.9 release requires a named maintainer's Emergency Security Exception acceptance and personally pinned protected QA; this note does not grant either. See the [migration and compatibility assessment](.ai/specs/implemented/SPEC-060-2026-03-04-customer-identity-portal-auth.md#migration--backward-compatibility).
+
 ## Backend API documentation permission (#3810)
 
 `/backend/docs` now requires `api_docs.view`. Staff without that feature lose the

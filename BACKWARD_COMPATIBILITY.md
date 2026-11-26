@@ -584,3 +584,7 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
+
+## Portal signup credentials (2026-11-26, #10753)
+
+STABLE: verification replaces unverified signup credentials; retaining them preserves pre-registration takeover. Named v0.9 emergency-waiver acceptance is pending. [Client/operator migration](UPGRADE_NOTES.md#portal-signup-credentials-are-chosen-at-verification-9107-v09-backport-10753).
