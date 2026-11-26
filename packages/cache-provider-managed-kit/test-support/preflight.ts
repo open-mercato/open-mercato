@@ -14,6 +14,7 @@ import type { TlsMaterial } from '@open-mercato/cache-redis-protocol/test-suppor
 import { buildConformanceHost, PACKAGES_DIR, spawnRespRemote } from '@open-mercato/cache-redis-protocol/test-support/host'
 import { createPackedInstall } from '@open-mercato/cache-redis-protocol/test-support/packed'
 import type { PackedInstall } from '@open-mercato/cache-redis-protocol/test-support/packed'
+import { CACHE_HOST_WORKSPACES } from '../../cache/fixtures/packed-workspaces'
 import { PREFLIGHT_CREDENTIAL_FILE_ENV, PREFLIGHT_REAUTH_INTERVAL_MS, preflightProviderFixture } from './file-credential'
 import type { PreflightProviderFixture } from './file-credential'
 
@@ -333,7 +334,7 @@ export function defineManagedProviderPreflight(options: ManagedPreflightOptions)
         let packed: PackedInstall | null = null
         try {
           packed = createPackedInstall(options.packageDirName, { withPackages: [MANAGED_KIT_PACKAGE_DIR_NAME] })
-          expect(packed.installedScopePackages).toEqual(['cache', 'cache-redis-protocol', MANAGED_KIT_PACKAGE_DIR_NAME, options.packageDirName].sort())
+          expect(packed.installedScopePackages).toEqual([...CACHE_HOST_WORKSPACES, 'cache-redis-protocol', MANAGED_KIT_PACKAGE_DIR_NAME, options.packageDirName].sort())
           const tarballs = readdirSync(path.join(packed.workDir, 'pack'))
           for (const [dirName, required] of [
             [options.packageDirName, ['package/RUNBOOK.md']],

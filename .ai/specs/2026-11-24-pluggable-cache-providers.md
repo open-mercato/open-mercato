@@ -20,7 +20,7 @@ Cache provider selection is deployment-wide and takes effect on restart. Applica
 
 ## Proposed Solution
 
-Use an explicit app-owned registration list and one additive `CACHE_PROVIDER` selector. Keep the core independent of provider package names. The [open-source provider catalog](2026-11-24-oss-cache-provider-packages.md) and [Enterprise companion](enterprise/2026-11-24-managed-cloud-cache-providers.md) specify independent delivery of adapter packages through this interface.
+Use an explicit app-owned registration list in `src/providers/cache.ts` and one additive `CACHE_PROVIDER` selector. Infrastructure families use `src/providers/<family>.ts` in both app layouts, and start before their service is constructed. Browser-facing entry points never import these server-only registrations. Keep the core independent of provider package names. The [open-source provider catalog](2026-11-24-oss-cache-provider-packages.md) and [Enterprise companion](enterprise/2026-11-24-managed-cloud-cache-providers.md) specify independent delivery of adapter packages through this interface.
 
 Keyv demonstrates independently packaged adapters and a common conformance suite. Symfony illustrates why tag invalidation deserves engine-specific implementation and verification. A generic get/set adaptor or an Awilix-only override would bypass required enumeration or process entry points. [Keyv adapter guidance](https://v5.keyv.org/docs/third-party-storage-adapters/), [Symfony Cache](https://symfony.com/doc/current/cache.html)
 
@@ -55,12 +55,16 @@ A provider SHALL preserve documented tenant scope, TTL, enumeration and tag inva
 
 ### Registration and lifecycle
 
-1. The application owns a server-only registration source at `<app root>/mercato.cache.ts`. It exports a list of explicit registrations with literal package import loaders, a provider ID, and a settings function. Generation emits a deterministic server manifest or an empty manifest. Follow the literal-import pattern of the existing generated bootstrap registries. Resolve the file in app context, include it in build tracing, and expose a narrow manifest loader for CLI maintenance. Generation does not evaluate settings or load adapters to discover them.
+1. The application owns a server-only registration source at `<app root>/src/providers/cache.ts`. It exports a list of explicit registrations with literal package import loaders, a provider ID, and a settings function. Generation emits a deterministic server manifest or an empty manifest. Follow the literal-import pattern of the existing generated bootstrap registries. Resolve the file in app context, include it in build tracing, and expose a narrow manifest loader for CLI maintenance. Generation does not evaluate settings or load adapters to discover them.
 2. Run one resolver before cache construction on both core bootstrap paths and before CLI topology checks. The app's server bootstrap and the app-root loader for CLI, worker and scheduler supply the same generated manifest. The app-level DI registrar runs too late for this job. Add a provider-specific failure path through the legacy optional bootstrap catch. Prove this through real entry points, including direct Next server readiness and the production standalone build.
 3. Validate registration IDs and the selected descriptor, then resolve and validate that provider's settings exactly once per process. Do not connect or evaluate settings for inactive providers. Keep `createCacheService(options?)` and `new CacheService(options?)` synchronous via a typed resolved provider input and a lazy strategy handle. Async operations await a shared in-flight client connect. Keep one owned client per process, bound initialization/reconnect times, and close clients idempotently on shutdown and failed initialization. When the legacy singleton is disabled, request scopes share provider transport or close owned handles on disposal. Refresh provider selection only on restart, including in production.
 4. Apply the existing tenant-aware wrapper once to the provider's base `CacheStrategy`. Pass already-scoped physical keys and tags into drivers. Drivers independently fence the deployment namespace for value, index, scan, and maintenance operations. Keep namespace separate from endpoints and credentials, and reserve an explicit, stable namespace per deployment and adapter layout.
 5. For `/api/healthz`, use the effective provider's non-mutating `healthcheck` and keep the response status/body contract. Use the resolved scope capability to drive the production multi-instance guard and the OAuth shared-store warning. The capability covers cross-process visibility. It does not make the existing OAuth `has`/ `set` sequence atomic or prevent backend eviction. Do not trust a replica read endpoint where stale reads could defeat invalidation. Keep existing behavior for stock strategies.
 6. Cache admin API and `mercato configs cache` continue using scoped DI. For `mercato generate` with the configs module enabled, load just the generated cache manifest, resolve the same provider, use the existing cross-scope pattern purge, and close the maintenance client in `finally`. Keep the post-step best effort and report failures through its existing result and sanitized diagnostics. Builds and bootstrap-free commands that do not already purge must work without provider access.
+
+### Stock npm packages
+
+The memory, SQLite, Redis and JSON file implementations ship as separate first-party npm packages and come with `@open-mercato/cache` by default. A typed host registry maps existing `CACHE_STRATEGY` names to the packaged factories. The synchronous cache API also uses this registry before app bootstrap. Preserve the memory default, programmatic strategy selection, dependency fallback, Redis key layout, local file paths, codecs and existing public strategy imports. App-provided npm adapters use explicit lazy registrations and their existing strict selection contract.
 
 ### Provider contract and configuration
 
@@ -130,7 +134,7 @@ With `CACHE_PROVIDER` unset, keep legacy selection precedence, defaults, connect
 ## Phasing
 
 1. Characterize stock behavior and add the optional provider contract and app registration manifest.
-2. Wire the real runtime and maintenance paths. Release v1 after the packed fixture, conformance kit, stock regression checks and documentation pass. The delivery status of any engine package is independent of this release.
+2. Extract the stock implementations into npm packages. Wire the shared early initialization into the application and maintenance paths. Release v1 after the packed fixture, conformance kit, stock regression checks and documentation pass. The delivery status of any engine package is independent of this release.
 
 ## Implementation Plan
 
@@ -160,3 +164,5 @@ With `CACHE_PROVIDER` unset, keep legacy selection precedence, defaults, connect
 ## Changelog
 
 - 2026-11-24 · Drafted the npm provider extension point. Scope review separated v1 completion from adapter release qualification.
+
+- 2026-11-26 · Adopted the shared `src/providers` placement and documented stock cache packaging and compatibility.

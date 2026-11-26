@@ -1,6 +1,6 @@
 # Capability: oss-cache-provider-packages
 
-Operators can install an individually qualified open-source engine adapter (`@open-mercato/cache-provider-*`) and select it through the pluggable cache provider extension.
+Operators can install an individually qualified open-source engine adapter (`@open-mercato/cache-provider-*`), register it in `src/providers/cache.ts`, and select it with `CACHE_PROVIDER`.
 
 ## Requirement: Independent qualified engine adapter
 

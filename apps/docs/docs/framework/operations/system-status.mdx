@@ -114,7 +114,7 @@ Selects the cache backend. Supported values include `memory` (in-process) and `s
 
 ### CACHE_PROVIDER {#cache_provider}
 **Default:** _(unset)_  
-Selects a cache provider registered by the application in `mercato.cache.ts`, by its `<scope>/<name>` id. When set it overrides `CACHE_STRATEGY`; an unknown or misconfigured provider fails startup instead of falling back to memory. Related docs: [Cache providers](https://docs.openmercato.com/docs/architecture/cache-providers).
+Selects a cache provider registered by the application in `src/providers/cache.ts`, by its `<scope>/<name>` id. When set it overrides `CACHE_STRATEGY`; an unknown or misconfigured provider fails startup instead of falling back to memory. Related docs: [Cache providers](https://docs.openmercato.com/docs/architecture/cache-providers).
 
 ### CACHE_PROVIDER_NAMESPACE {#cache_provider_namespace}
 **Default:** _(unset)_  

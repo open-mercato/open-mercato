@@ -20,6 +20,7 @@ function createMockResolver(): PackageResolver {
 
 beforeEach(() => {
   appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-cache-manifest-'))
+  fs.mkdirSync(path.join(appDir, 'src/providers'), { recursive: true })
   fs.writeFileSync(
     path.join(appDir, 'tsconfig.json'),
     JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'esnext', moduleResolution: 'bundler', strict: true } }),
@@ -47,7 +48,7 @@ describe('loadCacheProviderManifest', () => {
 
   it('loads the app manifest through the generated re-export and registers it', async () => {
     fs.writeFileSync(
-      path.join(appDir, 'mercato.cache.ts'),
+      path.join(appDir, 'src/providers/cache.ts'),
       [
         "import type { CacheProviderRegistration } from '@open-mercato/cache/provider'",
         'export const cacheProviders: CacheProviderRegistration[] = [',

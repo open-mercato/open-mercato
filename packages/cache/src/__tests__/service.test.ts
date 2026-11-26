@@ -8,10 +8,10 @@ import path from 'node:path'
 import { DEFAULT_JSON_FILE_CACHE_PATH, DEFAULT_SQLITE_CACHE_PATH } from '../defaults'
 import type { CacheStrategy } from '../types'
 import { runWithCacheTenant } from '../tenantContext'
-import * as memoryStrategyModule from '../strategies/memory'
-import * as sqliteStrategyModule from '../strategies/sqlite'
-import * as redisStrategyModule from '../strategies/redis'
-import * as jsonFileStrategyModule from '../strategies/jsonfile'
+import * as memoryStrategyModule from '@open-mercato/cache-provider-memory'
+import * as sqliteStrategyModule from '@open-mercato/cache-provider-sqlite'
+import * as redisStrategyModule from '@open-mercato/cache-provider-redis-legacy'
+import * as jsonFileStrategyModule from '@open-mercato/cache-provider-jsonfile'
 
 describe('Cache Service', () => {
   afterEach(() => {

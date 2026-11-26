@@ -19,6 +19,7 @@ import type { RespStandaloneSettings } from '../src/settings'
 import { APP_PASSWORD, APP_USER, describeContainers, startRespEngine } from './engine'
 import type { RespEngineSpec, StartedRespEngine } from './engine'
 import { buildConformanceHost, spawnRespRemote } from './host'
+import { CACHE_HOST_WORKSPACES } from '../../cache/fixtures/packed-workspaces'
 import { createPackedInstall, packedSmokeScript } from './packed'
 import type { PackedInstall } from './packed'
 import { runRespQualification } from './qualify'
@@ -438,7 +439,7 @@ export function defineRespProviderContainerSuite(options: RespProviderSuiteOptio
       afterAll(() => packed?.dispose())
 
       it('installs the provider without sibling adapters', () => {
-        expect(packed!.installedScopePackages).toEqual(['cache', 'cache-redis-protocol', options.packageDirName].sort())
+        expect(packed!.installedScopePackages).toEqual([...CACHE_HOST_WORKSPACES, 'cache-redis-protocol', options.packageDirName].sort())
       })
 
       it('type-checks an app registration against the installed types', () => {

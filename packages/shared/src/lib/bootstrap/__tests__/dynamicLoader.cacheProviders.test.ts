@@ -3,7 +3,7 @@
  *
  * Worker, scheduler and CLI processes bootstrap through `bootstrapFromAppRoot`, so the app's
  * generated cache provider manifest must reach the provider selection state there too — the
- * Next.js runtime registers it statically from `bootstrap-common.ts`. Stock deployments
+ * Next.js runtime registers a lazy import from `bootstrap-common.ts`. Stock deployments
  * (no `CACHE_PROVIDER`) must never compile or import the manifest.
  *
  * Like the app-DI guard next to it, this test authors both the `.ts` sources and fresh compiled
@@ -167,8 +167,8 @@ describe('bootstrapFromAppRoot — cache provider manifest reaches worker/CLI pr
 
   it('fails the bootstrap when the selected manifest cannot be imported', async () => {
     process.env.CACHE_PROVIDER = 'acme/fake'
-    const appRoot = createAppRoot({ ts: MANIFEST_TS, compiled: "throw new Error('mercato.cache.ts is broken')" })
+    const appRoot = createAppRoot({ ts: MANIFEST_TS, compiled: "throw new Error('src/providers/cache.ts is broken')" })
 
-    await expect(bootstrapFromAppRoot(appRoot)).rejects.toThrow(/mercato.cache.ts is broken/)
+    await expect(bootstrapFromAppRoot(appRoot)).rejects.toThrow('src/providers/cache.ts is broken')
   })
 })

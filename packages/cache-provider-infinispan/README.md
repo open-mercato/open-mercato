@@ -29,7 +29,9 @@ Create a **dedicated** distributed cache for Open Mercato with `text/plain` enco
 
 For example `POST /rest/v2/caches/open-mercato` with that body, the CLI (`create cache --file=...`) or a server configuration file. Give the application user read/write permissions on that cache only.
 
-## Register (`mercato.cache.ts`)
+## Register and select
+
+Add the registration to the app's `src/providers/cache.ts`, then run `yarn generate`.
 
 ```ts
 import { defineCacheProviderRegistration } from '@open-mercato/cache/provider'

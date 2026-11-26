@@ -21,9 +21,9 @@ yarn add @open-mercato/cache-provider-ignite
 
 **Also pin the client's transitive dependencies in your app.** `apache-ignite-client` declares `long` and `decimal.js` as `latest`. Add the `overrides` (npm) or `resolutions` (yarn) entries from [Supply-chain notes](#supply-chain-notes) to your app's `package.json`.
 
-## Register the provider (`mercato.cache.ts`)
+## Register the provider
 
-Add the registration to `<app root>/mercato.cache.ts` (next to `package.json`), then run `yarn generate`.
+Add the registration to the app's `src/providers/cache.ts`, then run `yarn generate`.
 
 ```ts
 import { readFileSync } from 'node:fs'
@@ -213,7 +213,7 @@ images pinned: `apacheignite/ignite:2.17.0-arm64`, reference `redis:7.4-alpine`.
 | `ignite.secure.container.test.ts`: same kit + wrong password, untrusted CA, plaintext client | `apacheignite/ignite:2.17.0-arm64` | 1 node, native persistence | built-in auth (SQL-created user) / TLS 1.2+ with throwaway CA | 19/19 pass |
 | `ignite.engine.container.test.ts`: two-process retag race, two-process tag churn, foreign-cache fencing, non-mutating healthcheck, oversize values (previous copy dropped), paused node → command timeout → recovery, paused node → scan budget, restart → reconnect + cache recreated | `apacheignite/ignite:2.17.0-arm64` | 1 node | none / none | 9/9 pass |
 | `ignite.limits.container.test.ts`: 3 s `CreatedExpiryPolicy` template reclaims un-TTL'd entries; 656 × 200 KiB into a 64 MiB region (336 survived) with no write failure | `apacheignite/ignite:2.17.0-arm64` | 1 node, 64 MiB region | none / none | 2/2 pass |
-| `ignite.packed.container.test.ts`: `npm pack` → install tarball into a fresh app outside the workspace (no sibling adapters) → registration + `resolveCacheProvider` → workflow on Ignite; consumer type-check | `apacheignite/ignite:2.17.0-arm64` | 1 node | none / none | 4/4 pass |
+| `ignite.packed.container.test.ts`: pack and install in a fresh app outside the workspace → registration + `resolveCacheProvider` → workflow on Ignite and consumer type-check | `apacheignite/ignite:2.17.0-arm64` | 1 node | none / none | 4/4 pass |
 | Unit (Docker-free, default `yarn test`): settings schema, redaction, transport warnings, key/record layout, CAS retry semantics on a fake transport, oversize overwrite drops the previous copy | none | none | none | 41/41 pass |
 
 Latest full run (2026-11-24, after the oversize and transport-warning changes): `test:containers` 50/50 in 33.6 s plus unit 41/41. An earlier full sequential run of all seven suites passed 89/89 in 42.8 s. Two earlier full runs that day
@@ -229,8 +229,8 @@ yarn workspace @open-mercato/cache-provider-ignite test:containers         # all
 yarn workspace @open-mercato/cache-provider-ignite qualify                 # performance (below)
 ```
 
-In the packed test, `@open-mercato/cache` is supplied as a bundle of this monorepo's sources, because
-the v1 provider host is not yet published.
+The packed test installs release-shaped tarballs for Ignite, `@open-mercato/cache`, and the host's default
+provider dependencies. It verifies that the standalone app needs only the selected optional adapter.
 
 ### Performance (`scripts/qualify.mjs`)
 

@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import os from 'node:os'
 import path from 'node:path'
 import { randomNamespace } from '@open-mercato/cache/testing/conformance'
+import { CACHE_HOST_WORKSPACES, packCacheWorkspaces } from '../../../cache/fixtures/packed-workspaces'
 import { containerTestsEnabled, PACKAGE_DIR, startIgnite, type StartedIgnite } from './support/ignite-container'
-import { installHostCachePackage } from './support/host-package'
 
 const describeContainer = containerTestsEnabled ? describe : describe.skip
 const PACKAGE_NAME = '@open-mercato/cache-provider-ignite'
@@ -64,22 +64,18 @@ describeContainer('packed @open-mercato/cache-provider-ignite installed into a f
   beforeAll(async () => {
     ignite = await startIgnite()
     workDir = mkdtempSync(path.join(os.tmpdir(), 'om-ignite-packed-'))
-    execFileSync(process.execPath, ['build.mjs'], { cwd: PACKAGE_DIR, stdio: 'pipe', timeout: 300_000 })
     const packDir = path.join(workDir, 'pack')
     mkdirSync(packDir, { recursive: true })
-    execFileSync('npm', ['pack', '--pack-destination', packDir, '--ignore-scripts', '--silent'], { cwd: PACKAGE_DIR, stdio: 'pipe', timeout: 120_000 })
-    const packed = readdirSync(packDir).find((name) => name.endsWith('.tgz'))
-    if (!packed) throw new Error('[internal] npm pack produced no tarball')
-    tarball = path.join(packDir, packed)
+    const tarballs = packCacheWorkspaces(packDir, [...CACHE_HOST_WORKSPACES, 'cache-provider-ignite'])
+    tarball = tarballs['cache-provider-ignite']
     appDir = path.join(workDir, 'app')
     mkdirSync(appDir, { recursive: true })
     writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: 'ignite-consumer-app', private: true, version: '0.0.0', type: 'module' }))
-    execFileSync('npm', ['install', tarball, '--no-audit', '--no-fund', '--legacy-peer-deps', '--ignore-scripts', '--no-package-lock'], {
+    execFileSync('npm', ['install', ...Object.values(tarballs), '--no-audit', '--no-fund', '--legacy-peer-deps', '--ignore-scripts', '--no-package-lock'], {
       cwd: appDir,
       stdio: 'pipe',
       timeout: 300_000,
     })
-    await installHostCachePackage(appDir)
     writeFileSync(path.join(appDir, 'app.mjs'), APP_SCRIPT)
     writeFileSync(path.join(appDir, 'consumer.ts'), APP_TYPES)
   }, 600_000)
@@ -104,7 +100,7 @@ describeContainer('packed @open-mercato/cache-provider-ignite installed into a f
 
   it('installs outside the workspace without sibling adapters', () => {
     const installed = path.join(appDir, 'node_modules', '@open-mercato')
-    expect(readdirSync(installed).sort()).toEqual(['cache', 'cache-provider-ignite'])
+    expect(readdirSync(installed).sort()).toEqual([...CACHE_HOST_WORKSPACES, 'cache-provider-ignite'].sort())
     expect(existsSync(path.join(appDir, 'node_modules', 'apache-ignite-client', 'package.json'))).toBe(true)
   })
 
