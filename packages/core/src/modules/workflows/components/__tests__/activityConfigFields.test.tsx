@@ -37,7 +37,7 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 const apiCallMock = apiCall as jest.Mock
 
-function mockDeclaredEvents(events: Array<{ id: string; label: string }>) {
+function mockDeclaredEvents(events: Array<{ id: string; label: string; workflowEmittable?: boolean }>) {
   apiCallMock.mockResolvedValue({
     ok: true,
     status: 200,
@@ -240,7 +240,10 @@ describe('ActivityConfigFields', () => {
   })
 
   it('renders the EMIT_EVENT event picker fed by declared events plus a payload JSON editor', async () => {
-    mockDeclaredEvents([{ id: 'sales.order.created', label: 'Order Created' }])
+    mockDeclaredEvents([
+      { id: 'approval.requested', label: 'Approval Requested', workflowEmittable: true },
+      { id: 'sales.order.created', label: 'Order Created' },
+    ])
     renderWithProviders(
       <ActivityConfigFields
         activityType="EMIT_EVENT"
@@ -250,10 +253,11 @@ describe('ActivityConfigFields', () => {
       />,
     )
 
-    const pickerInput = screen.getByPlaceholderText('sales.orders.created')
+    const pickerInput = screen.getByPlaceholderText('Select an event...')
     fireEvent.focus(pickerInput)
     await waitFor(() => {
-      expect(screen.getByText('Order Created')).toBeInTheDocument()
+      expect(screen.getByText('Approval Requested')).toBeInTheDocument()
+      expect(screen.queryByText('Order Created')).not.toBeInTheDocument()
     })
 
     expect(screen.getByText(/workflows\.activityConfig\.EMIT_EVENT\.payload/)).toBeInTheDocument()
@@ -271,7 +275,7 @@ describe('ActivityConfigFields', () => {
       />,
     )
 
-    const pickerInput = screen.getByPlaceholderText('sales.orders.created')
+    const pickerInput = screen.getByPlaceholderText('Select an event...')
     fireEvent.change(pickerInput, { target: { value: 'custom.record.archived' } })
     fireEvent.keyDown(pickerInput, { key: 'Enter' })
 
@@ -599,7 +603,7 @@ describe('ActivityArrayEditor — registry-driven forms with Advanced (JSON)', (
 
     fireEvent.click(screen.getByText('Emit Event'))
 
-    expect(screen.getByPlaceholderText('sales.orders.created')).toHaveValue('sales.order.created')
+    expect(screen.getByPlaceholderText('Select an event...')).toHaveValue('sales.order.created')
     expect(screen.getByRole('button', { name: /advancedJson/ })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('workflows.fieldEditors.activities.configurationHint')).toBeNull()
   })

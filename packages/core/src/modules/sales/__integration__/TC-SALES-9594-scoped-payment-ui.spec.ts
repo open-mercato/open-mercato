@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test as base, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   apiRequestWithSelectedOrg,
@@ -30,6 +30,25 @@ const languages = {
 type Order = Record<string, unknown> & { updatedAt: string }
 type Payment = Record<string, unknown> & { updated_at: string }
 
+type Cleanup = (request: APIRequestContext) => Promise<void>
+
+const test = base.extend<{ registerCleanup: (dispose: Cleanup) => void }>({
+  registerCleanup: async ({ request }, use) => {
+    const cleanup: Cleanup[] = []
+    try {
+      await use((dispose) => { cleanup.push(dispose) })
+    } finally {
+      for (const dispose of cleanup.reverse()) {
+        try {
+          await dispose(request)
+        } catch (error) {
+          expect.soft(String(error), 'Fixture cleanup should succeed').toBe('')
+        }
+      }
+    }
+  },
+})
+
 async function readSingleRecord<RecordType>(request: APIRequestContext, token: string, path: string) {
   const response = await apiRequest(request, 'GET', path, { token })
   expect(response.status(), `GET ${path}`).toBe(200)
@@ -38,18 +57,18 @@ async function readSingleRecord<RecordType>(request: APIRequestContext, token: s
   return body!.items[0]
 }
 
-test('TC-SALES-9594: scoped actors see localized payment metadata and preserve a concurrent order edit', async ({ page, request }, testInfo) => {
+test('TC-SALES-9594: scoped actors see localized payment metadata and preserve a concurrent order edit', async ({ page, request, registerCleanup }, testInfo) => {
   const bootstrap = await getAuthToken(request, 'superadmin')
   const { tenantId } = getTokenContext(bootstrap)
   const marker = `qa9594-${randomUUID()}`
   const password = `QaPayment1!${marker}`
-  const cleanup: (() => Promise<void>)[] = []
 
   function deleteOnExit(path: string, token = bootstrap, data?: Record<string, unknown>, selectedOrgId?: string) {
-    cleanup.push(async () => {
-      const response = selectedOrgId
-        ? await apiRequestWithSelectedOrg(request, 'DELETE', path, { token, data, selectedOrgId })
-        : await apiRequest(request, 'DELETE', path, { token, data, retryTransport: false })
+    registerCleanup(async (cleanupRequest) => {
+      const response = await apiRequest(cleanupRequest, 'DELETE', path, {
+        token, data, timeout: 1_000, retryTransport: false,
+        headers: selectedOrgId ? { Cookie: `om_selected_org=${selectedOrgId}` } : undefined,
+      })
       expect(response.ok(), `Cleanup DELETE ${path}: ${response.status()}`).toBe(true)
     })
   }
@@ -64,7 +83,7 @@ test('TC-SALES-9594: scoped actors see localized payment metadata and preserve a
     return id
   }
 
-  try {
+  await test.step('Verify scoped payment writes and localized actions', async () => {
     const organizationId = await createOrganizationFixture(request, bootstrap, { tenantId, name: `${marker} Sales` })
     deleteOnExit('/api/directory/organizations', bootstrap, { id: organizationId })
     const siblingId = await createOrganizationFixture(request, bootstrap, { tenantId, name: `${marker} Sibling` })
@@ -168,6 +187,7 @@ test('TC-SALES-9594: scoped actors see localized payment metadata and preserve a
       expect((await page.request.post('/api/auth/locale', { data: { locale } })).status()).toBe(200)
       await page.goto(`/backend/sales/orders/${orderId}`, { waitUntil: 'domcontentloaded' })
       await expect(page.locator('html')).toHaveAttribute('lang', locale)
+      await expect(page.getByRole('button', { name: new RegExp(`${marker} Sales$`) })).toBeVisible()
       await page.getByRole('button', { name: labels.tab, exact: true }).click()
       const reference = page.getByRole('cell', { name: paymentEdit.paymentReference, exact: true })
       const table = page.getByRole('table').filter({ has: reference })
@@ -188,19 +208,12 @@ test('TC-SALES-9594: scoped actors see localized payment metadata and preserve a
       const deleteItem = page.getByRole('menuitem', { name: labels.delete, exact: true })
       await expect(editItem).toBeVisible()
       await expect(deleteItem).toBeVisible()
+      await expect(editItem).toBeFocused()
       await page.keyboard.press('Escape')
       await expect(editItem).toBeHidden()
       await expect(deleteItem).toBeHidden()
       await expect(actions).toBeFocused()
       await testInfo.attach(`payments-${locale}`, { body: await table.screenshot(), contentType: 'image/png' })
     }
-  } finally {
-    for (const dispose of cleanup.reverse()) {
-      try {
-        await dispose()
-      } catch (error) {
-        expect.soft(String(error), 'Fixture cleanup should succeed').toBe('')
-      }
-    }
-  }
+  })
 })

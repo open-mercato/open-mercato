@@ -432,7 +432,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 ## Passkey MFA Verification Payload (2026-08-14)
 
-Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
+#3852 removed the non-cryptographic `PasskeyProvider` verification shape from enterprise security. This STABLE category 7 break uses the [Emergency Security Exception](#emergency-security-exception).
 
 **Classification.** This public `MfaProviderInterface.verifySchema` union shape was client-validatable and covered by an enterprise legacy-compatibility test. Its removal is a STABLE break authorized by the security exception.
 
@@ -454,7 +454,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 |Failure mode|A payload that fails the schema, and an assertion the verifier throws on, return `false` instead of throwing — so they answer the documented `401` and count toward the challenge attempt limit instead of logging a `500` that skipped lockout|✓ Strictly safer (no verdict flips from negative to positive)|
 |API route URLs, HTTP methods, response schemas, database schema, event IDs, ACL features, DI names, CLI commands|No change|✓ n/a|
 
-**Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
+**Why the deprecation protocol does not apply.** The server discloses both fields compared by the removed request shape. A bridge would keep login MFA and sudo step-up bypassable for another minor release.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
@@ -683,6 +683,10 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
 
+## File-agent attachment read authorization (2026-11-10, #9117)
+
+STABLE: nonempty inputs require principal/owner read access; bridges retain disclosure. [Migration/spec](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). Steps 1–3 waived by @pkarw on 2026-11-13.
+
 ## 2026-11-07 — Private next-interaction subjects (#8888)
 
 Surface: stable customer projection response behavior. Private email subjects and
@@ -700,15 +704,13 @@ Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
 
+## 2026-11 — CRUD security (#3827, #9154, #9106)
+
+STABLE API limits sorts, deleted rows, labels and global reads. 2026-11-24: relation options need owner policies. Bridges leak data. Use Staff timesheet APIs. Named waiver pending. [Upgrade](UPGRADE_NOTES.md).
+
 ## 2026-11-19 — Entity translation authorization (#9139)
 
-The STABLE entity translation route and localization resolver require target
-permissions and registered text fields. Continuing to accept or render
-unregistered translations would preserve the vulnerability. See
-[upgrade notes](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139)
-for client and operator migration guidance. Piotr Karwatka (@pkarw) acknowledged
-the emergency waiver of steps 1–3 on 2026-11-20:
-[human approval](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
+STABLE translation API and localization require target permissions and registered text fields. A bridge retains the leak. [Migration](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139). [Piotr Karwatka (@pkarw) waived steps 1–3 on 2026-11-20](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
 
 ## MFA audit (2026-11-15, #9144)
 
@@ -722,8 +724,32 @@ STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/to
 
 ## 2026-11-22 — Attachment assignment label authorization (#10336)
 
-The STABLE attachment library API response and the enrichment helper signature retain their shapes. Referenced records contribute optional labels and links only for an authorized read in the selected tenant and organization. Retaining an unrestricted fallback would keep the unauthorized read available. Server callers can supply verified request authorization and clients can fall back to existing assignment metadata. See the [upgrade notes](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [implementation spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
+STABLE attachment API and helper shapes stay. Optional labels/links need scoped tenant/org reads. An unrestricted fallback retains disclosure. Pass verified auth or use assignment metadata. [Upgrade](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
 
 ## #10331 #10332 (2026-11-23)
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
+
+## 2026-11-24 — Trace ingest
+
+STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-25 — Encrypted custom field writes
+
+STABLE API behavior changes for writes of tenant-scoped encrypted custom fields when the data key is unavailable. Preserving success during the outage would persist unencrypted values. Clients handle HTTP 503 and retry after key access recovers. Operators restore key access and review historical records. [Migration](UPGRADE_NOTES.md) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
+
+## 2026-11-25 — Empty organization scope (#10503)
+
+STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+
+## MCP HTTP session token, no fallback (2026-11-14, #5173)
+
+STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+
+## Workflow events (2026-11-20, #9134)
+
+STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
+
+## 2026-11-25 — MCP Code Mode
+
+STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.

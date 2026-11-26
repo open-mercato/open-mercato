@@ -1204,7 +1204,7 @@ async function handleSubWorkflowStep(
       },
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
-    })
+    }, container)
 
     // Log sub-workflow invocation event
     await logStepEvent(em, {
