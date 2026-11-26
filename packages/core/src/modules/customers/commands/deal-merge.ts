@@ -11,13 +11,13 @@ import {
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { listEntityMergeParticipants } from '@open-mercato/shared/lib/entities/merge-participants'
 import { lockEntityReferences } from '@open-mercato/shared/lib/entities/reference-lock'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -38,14 +38,18 @@ import { emitCustomersEvent } from '../events'
 import { canonicalDealStatus, isLostDealStatus, isWonDealStatus } from '../lib/dealStatus'
 import { DEAL_LOSS_REASON_DICTIONARY_KEY } from '../lib/dealLossReasons'
 import { findInteractionUserInScope } from '../lib/interactionUsers'
+import {
+  enqueueDealMergeEffects,
+  hasDealMergeEffectsConsumer,
+  markDealMergeEffects,
+  type DealMergeMovedRecords,
+  type MovedRecord,
+} from '../lib/dealMergeEffects'
 
 const logger = createLogger('customers').child({ component: 'deals.merge' })
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
-const ACTIVITY_ENTITY_ID = 'customers:customer_activity'
-const COMMENT_ENTITY_ID = 'customers:customer_comment'
-const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
-const MOVED_SIDE_EFFECT_CONCURRENCY = 8
+const INLINE_MOVED_EFFECT_LIMIT = 32
 const outputSchema = z.object({ survivorId: z.string().uuid(), sourceId: z.string().uuid() })
 
 const dealIndexer: CrudIndexerConfig<CustomerDeal> = { entityType: DEAL_ENTITY_ID }
@@ -58,28 +62,6 @@ const dealEvents: CrudEventsConfig = {
     tenantId: ctx.identifiers.tenantId,
     organizationId: ctx.identifiers.organizationId,
   }),
-}
-
-type MovedRecord = { id: string; payload: Record<string, unknown> }
-
-type MovedRecordGroup = {
-  indexer: CrudIndexerConfig<Record<string, unknown>>
-  events: CrudEventsConfig
-  records: MovedRecord[]
-}
-
-function movedRecordEvents(entity: string): CrudEventsConfig {
-  return {
-    module: 'customers',
-    entity,
-    persistent: true,
-    buildPayload: (ctx) => ({
-      ...((ctx.entity && typeof ctx.entity === 'object') ? ctx.entity as Record<string, unknown> : {}),
-      id: ctx.identifiers.id,
-      tenantId: ctx.identifiers.tenantId,
-      organizationId: ctx.identifiers.organizationId,
-    }),
-  }
 }
 
 export type DealMergeClosureOutcome = 'won' | 'lost' | null
@@ -156,12 +138,7 @@ function sameRecordId(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase()
 }
 
-function dealChipContainments(dealId: string): [string, string] {
-  return [
-    JSON.stringify([{ type: 'deal', id: dealId.toLowerCase() }]),
-    JSON.stringify([{ type: 'deal', id: dealId.toUpperCase() }]),
-  ]
-}
+const DEAL_CHIP_MATCH_SQL = "exists (select 1 from jsonb_array_elements(case when jsonb_typeof(linked_entities) = 'array' then linked_entities else '[]'::jsonb end) as chip where chip->>'type' = 'deal' and lower(chip->>'id') = lower(?))"
 
 export function rewriteDealLinkedEntities(
   entries: unknown,
@@ -418,10 +395,9 @@ async function collectMovedRecords(
   survivorId: string,
   scope: MergeScope,
 ): Promise<{ activities: MovedRecord[]; comments: MovedRecord[]; interactions: MovedRecord[] }> {
-  const [lowerChip, upperChip] = dealChipContainments(sourceId)
   await em.execute(
-    'select id from customer_interactions where tenant_id = ? and organization_id = ? and (deal_id = ? or linked_entities @> ?::jsonb or linked_entities @> ?::jsonb) order by id for update',
-    [scope.tenantId, scope.organizationId, sourceId, lowerChip, upperChip],
+    `select id from customer_interactions where tenant_id = ? and organization_id = ? and (deal_id = ? or ${DEAL_CHIP_MATCH_SQL}) order by id for update`,
+    [scope.tenantId, scope.organizationId, sourceId, sourceId],
   )
   const params = [sourceId, scope.tenantId, scope.organizationId]
   const [activities, comments, interactions] = [
@@ -457,10 +433,9 @@ async function rewriteInteractionLinkedEntities(
   survivor: CustomerDeal,
   scope: MergeScope,
 ): Promise<MovedRecord[]> {
-  const [lowerChip, upperChip] = dealChipContainments(source.id)
   const rows = await selectMovedRows(em,
-    'select id, entity_id, interaction_type, status, source, deal_id, linked_entities, deleted_at from customer_interactions where tenant_id = ? and organization_id = ? and (linked_entities @> ?::jsonb or linked_entities @> ?::jsonb) order by id for update',
-    [scope.tenantId, scope.organizationId, lowerChip, upperChip])
+    `select id, entity_id, interaction_type, status, source, deal_id, linked_entities, deleted_at from customer_interactions where tenant_id = ? and organization_id = ? and ${DEAL_CHIP_MATCH_SQL} order by id for update`,
+    [scope.tenantId, scope.organizationId, source.id])
   const rewrites: Array<{ id: string; linked_entities: LinkedEntityEntry[] }> = []
   const touched: MovedRecord[] = []
   for (const row of rows) {
@@ -560,7 +535,7 @@ export const mergeDealsCommand: CommandHandler<DealMergeRequest, MergeResult> = 
     let previousOutcome: DealMergeClosureOutcome = null
     let closure!: ReturnType<typeof resolveDealMergeClosure>
     let stageLabel: string | null = null
-    let moved: { activities: MovedRecord[]; comments: MovedRecord[]; interactions: MovedRecord[] } = {
+    let moved: DealMergeMovedRecords = {
       activities: [],
       comments: [],
       interactions: [],
@@ -738,20 +713,19 @@ export const mergeDealsCommand: CommandHandler<DealMergeRequest, MergeResult> = 
       indexer: dealIndexer,
       events: dealEvents,
     })
-    const movedGroups: MovedRecordGroup[] = [
-      { indexer: { entityType: ACTIVITY_ENTITY_ID }, events: movedRecordEvents('activity'), records: moved.activities },
-      { indexer: { entityType: COMMENT_ENTITY_ID }, events: movedRecordEvents('comment'), records: moved.comments },
-      { indexer: { entityType: INTERACTION_ENTITY_ID }, events: movedRecordEvents('interaction'), records: moved.interactions },
-    ]
-    const movedSideEffects = movedGroups.flatMap((group) => group.records.map((record) => ({ group, record })))
-    await mapWithConcurrency(movedSideEffects, MOVED_SIDE_EFFECT_CONCURRENCY, ({ group, record }) => emitCrudSideEffects({
-      dataEngine,
-      action: 'updated',
-      entity: { id: record.id, ...record.payload },
-      identifiers: { id: record.id, ...scope },
-      indexer: group.indexer,
-      events: group.events,
-    }))
+    const movedCount = moved.activities.length + moved.comments.length + moved.interactions.length
+    const movedEffects = { ...scope, moved }
+    let effectsQueued = false
+    if (movedCount > INLINE_MOVED_EFFECT_LIMIT && hasDealMergeEffectsConsumer() && !ctx.bulkImport && !isReadProjectionAlwaysConsistent()) {
+      try {
+        await enqueueDealMergeEffects(movedEffects)
+        effectsQueued = true
+      } catch (error) {
+        logger.warn('Deal merge effects enqueue failed, processing inline', { survivorId: survivor.id, sourceId: source.id, err: error })
+        getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.deal_merge_effects_enqueue_failed' })
+      }
+    }
+    if (!effectsQueued) markDealMergeEffects(dataEngine, movedEffects)
     if (closure.closureOutcome && closure.closureOutcome !== previousOutcome) {
       await emitClosureEvent(closure.closureOutcome, survivor, scope)
     }

@@ -1944,6 +1944,7 @@ describe('server dev managed process exits', () => {
       pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next') && call[1]?.includes('dev'),
     )
     expect(nextSpawn?.[2]?.env.NODE_ENV).toBe('development')
+    expect(nextSpawn?.[2]?.env.OM_MANAGED_QUEUE_WORKERS).toBe('')
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()

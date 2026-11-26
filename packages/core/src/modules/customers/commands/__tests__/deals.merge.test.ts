@@ -133,6 +133,15 @@ describe('rewriteDealLinkedEntities', () => {
       .toEqual([{ id: survivorId, type: 'deal', label: 'Survivor' }])
   })
 
+  it('matches a mixed-case source chip in either direction', () => {
+    const lowerSource = 'abcdef12-3456-4abc-8def-0123456789ab'
+    const mixedSource = 'aBcDeF12-3456-4AbC-8dEf-0123456789Ab'
+    expect(rewriteDealLinkedEntities([{ id: mixedSource, type: 'deal', label: 'Source' }], lowerSource, survivor))
+      .toEqual([{ id: survivorId, type: 'deal', label: 'Survivor' }])
+    expect(rewriteDealLinkedEntities([{ id: lowerSource, type: 'deal', label: 'Source' }], mixedSource, survivor))
+      .toEqual([{ id: survivorId, type: 'deal', label: 'Survivor' }])
+  })
+
   it('deduplicates when the survivor is already linked', () => {
     expect(rewriteDealLinkedEntities([
       { id: survivorId, type: 'deal', label: 'Kept' },

@@ -5,6 +5,19 @@ const lockEntityReferences = jest.fn(async () => {})
 const setCustomFields = jest.fn(async () => {})
 const findInteractionUserInScope = jest.fn()
 const reportError = jest.fn()
+const enqueue = jest.fn<Promise<void>, unknown[]>(async () => {})
+const hasDealMergeEffectsConsumer = jest.fn(() => true)
+const isReadProjectionAlwaysConsistent = jest.fn(() => false)
+
+jest.mock('@open-mercato/shared/lib/data/consistency', () => ({
+  isReadProjectionAlwaysConsistent: () => isReadProjectionAlwaysConsistent(),
+}))
+
+jest.mock('../../lib/dealMergeEffects', () => ({
+  ...jest.requireActual('../../lib/dealMergeEffects'),
+  enqueueDealMergeEffects: (payload: unknown) => enqueue(payload),
+  hasDealMergeEffectsConsumer: () => hasDealMergeEffectsConsumer(),
+}))
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError }),
@@ -257,7 +270,7 @@ function createHarness(options: HarnessOptions = {}) {
       executeCalls.push({ sql, params })
       if (sql.includes('from customer_activities')) return options.activityRows ?? []
       if (sql.includes('from customer_comments')) return options.commentRows ?? []
-      if (sql.includes('linked_entities @>')) return options.linkedRows ?? []
+      if (sql.includes('deal_id, linked_entities, deleted_at')) return options.linkedRows ?? []
       if (sql.includes('from customer_interactions')) return options.interactionRows ?? []
       return []
     }),
@@ -576,16 +589,15 @@ describe('customers.deals.merge execute', () => {
     await mergeDealsCommand.execute(buildInput(), harness.ctx)
 
     const interactionStatements = harness.executeCalls.filter((call) => call.sql.includes('customer_interactions'))
+    const chipMatch = "exists (select 1 from jsonb_array_elements(case when jsonb_typeof(linked_entities) = 'array' then linked_entities else '[]'::jsonb end) as chip where chip->>'type' = 'deal' and lower(chip->>'id') = lower(?))"
     expect(interactionStatements[0].sql).toBe(
-      'select id from customer_interactions where tenant_id = ? and organization_id = ? and (deal_id = ? or linked_entities @> ?::jsonb or linked_entities @> ?::jsonb) order by id for update',
+      `select id from customer_interactions where tenant_id = ? and organization_id = ? and (deal_id = ? or ${chipMatch}) order by id for update`,
     )
-    expect(interactionStatements[0].params).toEqual([
-      tenantId,
-      organizationId,
-      sourceId,
-      JSON.stringify([{ type: 'deal', id: sourceId.toLowerCase() }]),
-      JSON.stringify([{ type: 'deal', id: sourceId.toUpperCase() }]),
-    ])
+    expect(interactionStatements[0].params).toEqual([tenantId, organizationId, sourceId, sourceId])
+    const rewriteSelect = interactionStatements.find((call) => call.sql.includes('deal_id, linked_entities, deleted_at'))
+    expect(rewriteSelect?.sql).toContain(`and ${chipMatch} order by id for update`)
+    expect(rewriteSelect?.params).toEqual([tenantId, organizationId, sourceId])
+    expect(interactionStatements.some((call) => call.sql.includes('@>'))).toBe(false)
     const execute = harness.em.execute as jest.Mock
     const nativeUpdate = harness.em.nativeUpdate as jest.Mock
     const lockIndex = execute.mock.calls.findIndex(([sql]) => sql === interactionStatements[0].sql)
@@ -616,7 +628,21 @@ describe('customers.deals.merge execute', () => {
       const updates = harness.executeCalls.filter((call) => call.sql.startsWith('update customer_interactions'))
       expect(updates).toHaveLength(1)
       expect(JSON.parse(updates[0].params[0] as string)).toHaveLength(rowCount)
-      expect(harness.markOrmEntityChange.mock.calls.length).toBeGreaterThanOrEqual(rowCount * 4)
+      if (rowCount === 1) {
+        expect(harness.markOrmEntityChange).toHaveBeenCalledTimes(6)
+      } else {
+        expect(harness.markOrmEntityChange).toHaveBeenCalledTimes(2)
+        expect(enqueue).toHaveBeenCalledWith({
+          tenantId,
+          organizationId,
+          moved: {
+            activities: expect.arrayContaining([expect.objectContaining({ id: 'act-row-0' })]),
+            comments: expect.arrayContaining([expect.objectContaining({ id: 'com-row-0' })]),
+            interactions: expect.arrayContaining([expect.objectContaining({ id: 'int-row-0' }), expect.objectContaining({ id: 'linked-row-0' })]),
+          },
+        })
+        expect(enqueue.mock.invocationCallOrder.at(-1)).toBeGreaterThan(harness.em.commit.mock.invocationCallOrder[0])
+      }
       const em = harness.em as Record<string, jest.Mock>
       return ['find', 'findOne', 'execute', 'nativeUpdate', 'nativeDelete', 'flush']
         .reduce((total, method) => total + em[method].mock.calls.length, 0)
@@ -625,6 +651,41 @@ describe('customers.deals.merge execute', () => {
     const small = await statementsFor(1)
     const large = await statementsFor(250)
     expect(large).toBe(small)
+  })
+
+  it('keeps a committed merge successful and marks every moved effect if enqueue fails', async () => {
+    const error = new Error('[internal] queue unavailable')
+    enqueue.mockRejectedValueOnce(error)
+    const activityRows = Array.from({ length: 33 }, (_, index) => ({ id: `act-${index}`, entity_id: personA }))
+    const harness = createHarness({ activityRows })
+
+    await expect(mergeDealsCommand.execute(buildInput(), harness.ctx)).resolves.toMatchObject({ survivorId, sourceId })
+
+    expect(harness.markOrmEntityChange).toHaveBeenCalledTimes(activityRows.length + 2)
+    expect(reportError).toHaveBeenCalledWith(error, expect.objectContaining({ code: 'customers.deal_merge_effects_enqueue_failed' }))
+  })
+
+  it('marks every moved effect inline in always-consistent mode', async () => {
+    isReadProjectionAlwaysConsistent.mockReturnValueOnce(true)
+    const activityRows = Array.from({ length: 33 }, (_, index) => ({ id: `act-${index}`, entity_id: personA }))
+    const harness = createHarness({ activityRows })
+
+    await mergeDealsCommand.execute(buildInput(), harness.ctx)
+
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(harness.markOrmEntityChange).toHaveBeenCalledTimes(activityRows.length + 2)
+  })
+
+  it.each(['missing consumer', 'bulk import'])('marks every moved effect inline during %s', async (scenario) => {
+    const activityRows = Array.from({ length: 33 }, (_, index) => ({ id: `act-${index}`, entity_id: personA }))
+    const harness = createHarness({ activityRows })
+    if (scenario === 'missing consumer') hasDealMergeEffectsConsumer.mockReturnValueOnce(false)
+    else harness.ctx.bulkImport = { skipEvents: true }
+
+    await mergeDealsCommand.execute(buildInput(), harness.ctx)
+
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(harness.markOrmEntityChange).toHaveBeenCalledTimes(activityRows.length + 2)
   })
 
   it('round-trips an amount beyond float precision through the validator and command unchanged', async () => {

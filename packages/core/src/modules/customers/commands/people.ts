@@ -19,7 +19,6 @@ import {
   CustomerActivity,
   CustomerInteraction,
   CustomerEmailConversationShare,
-  CustomerDeal,
   CustomerDealPersonLink,
   CustomerPersonCompanyLink,
   CustomerTodoLink,
@@ -54,6 +53,7 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   CUSTOMER_ENTITY_UNDO_DATE_OPTIONS,
+  loadLockedDealsForRestore,
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
@@ -1532,6 +1532,10 @@ const deletePersonCommand: CommandHandler<
         tenantId: before.entity.tenantId ?? null,
         organizationId: before.entity.organizationId ?? null,
       }
+      const beforeActivities = (before as { activities?: PersonActivitySnapshot[] }).activities ?? []
+      const beforeTodos = (before as { todos?: PersonTodoSnapshot[] }).todos ?? []
+      const beforeInteractions = (before as { interactions?: PersonInteractionSnapshot[] }).interactions ?? []
+
       // Bind the outer EntityManager to an explicit transaction so every
       // `em.flush()` below participates in the same unit of work. Using
       // `em.transactional(cb)` would pass a forked em into `cb` and the
@@ -1547,6 +1551,9 @@ const deletePersonCommand: CommandHandler<
       }
       try {
         txResult = await (async () => {
+        const dealMap = await loadLockedDealsForRestore(em, decryptionScope, [
+          ...before.deals, ...beforeActivities, ...before.comments, ...beforeInteractions,
+        ])
         let entity = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -1668,37 +1675,9 @@ const deletePersonCommand: CommandHandler<
       const restoredLabelAssignments = await restoreEntityLabelAssignments(em, entity, payload?.labelAssignments)
       await em.flush()
 
-      const beforeActivities = (before as { activities?: PersonActivitySnapshot[] }).activities ?? []
-      const beforeTodos = (before as { todos?: PersonTodoSnapshot[] }).todos ?? []
-      const beforeInteractions = (before as { interactions?: PersonInteractionSnapshot[] }).interactions ?? []
-
-      const relatedDealIds = new Set<string>()
-      for (const link of before.deals) relatedDealIds.add(link.dealId)
-      for (const activity of beforeActivities) {
-        if (activity.dealId) relatedDealIds.add(activity.dealId)
-      }
-      for (const comment of before.comments) {
-        if (comment.dealId) relatedDealIds.add(comment.dealId)
-      }
-      let dealMap = new Map<string, CustomerDeal>()
-      if (relatedDealIds.size) {
-        const deals = await findWithDecryption(
-          em,
-          CustomerDeal,
-          {
-            id: { $in: Array.from(relatedDealIds) },
-            organizationId: entity.organizationId,
-            tenantId: entity.tenantId,
-          },
-          undefined,
-          { tenantId: entity.tenantId, organizationId: entity.organizationId },
-        )
-        dealMap = new Map(deals.map((deal) => [deal.id, deal]))
-      }
-
       await em.nativeDelete(CustomerDealPersonLink, { person: entity })
       for (const link of before.deals) {
-        const deal = dealMap.get(link.dealId)
+        const deal = dealMap.get(link.dealId.toLowerCase())
         if (!deal) continue
         const restoredLink = em.create(CustomerDealPersonLink, {
           id: link.id,
@@ -1726,7 +1705,7 @@ const deletePersonCommand: CommandHandler<
           authorUserId: activity.authorUserId,
           appearanceIcon: activity.appearanceIcon,
           appearanceColor: activity.appearanceColor,
-          deal: activity.dealId ? dealMap.get(activity.dealId) ?? null : null,
+          deal: activity.dealId ? dealMap.get(activity.dealId.toLowerCase()) ?? null : null,
           createdAt: activity.createdAt,
           updatedAt: activity.updatedAt,
         })
@@ -1745,7 +1724,7 @@ const deletePersonCommand: CommandHandler<
           authorUserId: comment.authorUserId,
           appearanceIcon: comment.appearanceIcon,
           appearanceColor: comment.appearanceColor,
-          deal: comment.dealId ? dealMap.get(comment.dealId) ?? null : null,
+          deal: comment.dealId ? dealMap.get(comment.dealId.toLowerCase()) ?? null : null,
           createdAt: comment.createdAt,
           updatedAt: comment.updatedAt,
           deletedAt: comment.deletedAt,
@@ -1813,11 +1792,14 @@ const deletePersonCommand: CommandHandler<
           priority: interaction.priority,
           authorUserId: interaction.authorUserId,
           ownerUserId: interaction.ownerUserId,
-          dealId: interaction.dealId,
+          dealId: interaction.dealId ? dealMap.get(interaction.dealId.toLowerCase())?.id ?? null : null,
           source: interaction.source,
           appearanceIcon: interaction.appearanceIcon,
           appearanceColor: interaction.appearanceColor,
           ...restoreInteractionRestoreDetails(interaction),
+          linkedEntities: interaction.linkedEntities?.filter((link) =>
+            link.type !== 'deal' || dealMap.has(link.id.toLowerCase()),
+          ) ?? null,
           createdAt: interaction.createdAt,
           updatedAt: interaction.updatedAt,
           deletedAt: interaction.deletedAt,

@@ -273,6 +273,17 @@ export async function requireDealInScope(
   return deal
 }
 
+export async function lockDealInScope(
+  em: EntityManager,
+  dealId: string | null | undefined,
+  tenantId: string,
+  organizationId: string,
+): Promise<CustomerDeal | null> {
+  if (!dealId) return null
+  await lockEntityReferences(em, [{ entityId: 'customers:customer_deal', recordId: dealId, tenantId, organizationId }])
+  return requireDealInScope(em, dealId, tenantId, organizationId)
+}
+
 export function linkedDealIds(entries: unknown): string[] {
   if (!Array.isArray(entries)) return []
   const ids = new Set<string>()
@@ -282,6 +293,36 @@ export function linkedDealIds(entries: unknown): string[] {
     if (candidate.type === 'deal' && typeof candidate.id === 'string') ids.add(candidate.id.toLowerCase())
   }
   return [...ids]
+}
+
+type DealRestoreReference = { dealId: string | null; linkedEntities?: unknown }
+
+export async function loadLockedDealsForRestore(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  references: DealRestoreReference[],
+): Promise<Map<string, CustomerDeal>> {
+  const dealIds = new Set<string>()
+  for (const reference of references) {
+    if (reference.dealId) dealIds.add(reference.dealId.toLowerCase())
+    for (const id of linkedDealIds(reference.linkedEntities)) {
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) dealIds.add(id)
+    }
+  }
+  if (!dealIds.size) return new Map()
+  await lockEntityReferences(em, [...dealIds].map((recordId) => ({
+    ...scope,
+    entityId: 'customers:customer_deal',
+    recordId,
+  })))
+  const deals = await findWithDecryption(
+    em,
+    CustomerDeal,
+    { ...scope, id: { $in: [...dealIds] }, deletedAt: null },
+    undefined,
+    scope,
+  )
+  return new Map(deals.map((deal) => [deal.id, deal]))
 }
 
 type StoredInteractionDealReferences = { dealId: string | null; chipIds: Set<string> }

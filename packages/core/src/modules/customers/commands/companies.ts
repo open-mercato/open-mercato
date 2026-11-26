@@ -53,6 +53,7 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   CUSTOMER_ENTITY_UNDO_DATE_OPTIONS,
+  loadLockedDealsForRestore,
   assertFound,
   syncEntityTags,
   loadEntityTagIds,
@@ -1037,7 +1038,7 @@ const updateCompanyCommand = {
       )
       const dealMap = new Map(deals.map((deal) => [deal.id, deal]))
       for (const link of before.deals) {
-        const deal = dealMap.get(link.dealId)
+        const deal = dealMap.get(link.dealId.toLowerCase())
         if (!deal) continue
         const restoredLink = em.create(CustomerDealCompanyLink, {
           id: link.id,
@@ -1302,85 +1303,6 @@ const deleteCompanyCommand: CommandHandler<
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       await redactRestoredNextInteractionName(em, before.entity)
-      let entity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id, tenantId: before.entity.tenantId, organizationId: before.entity.organizationId }, undefined, {
-        tenantId: before.entity.tenantId,
-        organizationId: before.entity.organizationId,
-      })
-      if (!entity) {
-        entity = em.create(CustomerEntity, {
-          id: before.entity.id,
-          organizationId: before.entity.organizationId,
-          tenantId: before.entity.tenantId,
-          kind: 'company',
-          displayName: before.entity.displayName,
-          description: before.entity.description,
-          ownerUserId: before.entity.ownerUserId,
-          primaryEmail: before.entity.primaryEmail,
-          primaryPhone: before.entity.primaryPhone,
-          status: before.entity.status,
-          lifecycleStage: before.entity.lifecycleStage,
-          source: before.entity.source,
-          temperature: before.entity.temperature,
-          renewalQuarter: before.entity.renewalQuarter,
-          nextInteractionAt: before.entity.nextInteractionAt,
-          nextInteractionName: before.entity.nextInteractionName,
-          nextInteractionRefId: before.entity.nextInteractionRefId,
-          nextInteractionIcon: before.entity.nextInteractionIcon,
-          nextInteractionColor: before.entity.nextInteractionColor,
-          isActive: before.entity.isActive,
-        })
-        em.persist(entity)
-      }
-
-      entity.displayName = before.entity.displayName
-      entity.description = before.entity.description
-      entity.ownerUserId = before.entity.ownerUserId
-      entity.primaryEmail = before.entity.primaryEmail
-      entity.primaryPhone = before.entity.primaryPhone
-      entity.status = before.entity.status
-      entity.lifecycleStage = before.entity.lifecycleStage
-      entity.source = before.entity.source
-      entity.temperature = before.entity.temperature
-      entity.renewalQuarter = before.entity.renewalQuarter
-      entity.nextInteractionAt = before.entity.nextInteractionAt
-      entity.nextInteractionName = before.entity.nextInteractionName
-      entity.nextInteractionRefId = before.entity.nextInteractionRefId
-      entity.nextInteractionIcon = before.entity.nextInteractionIcon
-      entity.nextInteractionColor = before.entity.nextInteractionColor
-      entity.isActive = before.entity.isActive
-      entity.deletedAt = null
-
-      let profile = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, tenantId: entity.tenantId, organizationId: entity.organizationId }, undefined, {
-        tenantId: entity.tenantId,
-        organizationId: entity.organizationId,
-      })
-      if (!profile) {
-        profile = em.create(CustomerCompanyProfile, {
-          id: before.profile.id,
-          organizationId: before.entity.organizationId,
-          tenantId: before.entity.tenantId,
-          entity,
-          legalName: before.profile.legalName,
-          brandName: before.profile.brandName,
-          domain: before.profile.domain,
-          websiteUrl: before.profile.websiteUrl,
-          industry: before.profile.industry,
-          sizeBucket: before.profile.sizeBucket,
-          taxId: before.profile.taxId,
-          annualRevenue: before.profile.annualRevenue,
-        })
-        em.persist(profile)
-      } else {
-        profile.legalName = before.profile.legalName
-        profile.brandName = before.profile.brandName
-        profile.domain = before.profile.domain
-        profile.websiteUrl = before.profile.websiteUrl
-        profile.industry = before.profile.industry
-        profile.sizeBucket = before.profile.sizeBucket
-        profile.taxId = before.profile.taxId
-        profile.annualRevenue = before.profile.annualRevenue
-      }
-
       const beforeDeals = before.deals ?? []
       const beforeMembers = before.members ?? []
       const beforeActivities = (before as { activities?: CompanyActivitySnapshot[] }).activities ?? []
@@ -1389,38 +1311,106 @@ const deleteCompanyCommand: CommandHandler<
       const beforeTodos = (before as { todos?: CompanyTodoSnapshot[] }).todos ?? []
       const beforeInteractions = (before as { interactions?: CompanyInteractionSnapshot[] }).interactions ?? []
 
-      let dealMap = new Map<string, CustomerDeal>()
+      let dealMap: Map<string, CustomerDeal>
+      let entity!: CustomerEntity
+      let profile!: CustomerCompanyProfile
       let restoredLabelAssignments: LabelAssignmentRestoreSnapshot[] = []
 
       await withAtomicFlush(em, [
-        () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
         async () => {
-          const relatedDealIds = new Set<string>()
-          for (const link of beforeDeals) relatedDealIds.add(link.dealId)
-          for (const activity of beforeActivities) {
-            if (activity.dealId) relatedDealIds.add(activity.dealId)
-          }
-          for (const comment of beforeComments) {
-            if (comment.dealId) relatedDealIds.add(comment.dealId)
-          }
-          if (relatedDealIds.size) {
-            const deals = await findWithDecryption(
-              em,
-              CustomerDeal,
-              {
-                id: { $in: Array.from(relatedDealIds) },
-                organizationId: entity.organizationId,
-                tenantId: entity.tenantId,
-              },
-              undefined,
-              { tenantId: entity.tenantId, organizationId: entity.organizationId },
-            )
-            dealMap = new Map(deals.map((deal) => [deal.id, deal]))
+          dealMap = await loadLockedDealsForRestore(
+            em,
+            { organizationId: before.entity.organizationId, tenantId: before.entity.tenantId },
+            [...beforeDeals, ...beforeActivities, ...beforeComments, ...beforeInteractions],
+          )
+          const existing = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id, tenantId: before.entity.tenantId, organizationId: before.entity.organizationId }, undefined, {
+            tenantId: before.entity.tenantId,
+            organizationId: before.entity.organizationId,
+          })
+          if (existing) {
+            entity = existing
+          } else {
+            entity = em.create(CustomerEntity, {
+              id: before.entity.id,
+              organizationId: before.entity.organizationId,
+              tenantId: before.entity.tenantId,
+              kind: 'company',
+              displayName: before.entity.displayName,
+              description: before.entity.description,
+              ownerUserId: before.entity.ownerUserId,
+              primaryEmail: before.entity.primaryEmail,
+              primaryPhone: before.entity.primaryPhone,
+              status: before.entity.status,
+              lifecycleStage: before.entity.lifecycleStage,
+              source: before.entity.source,
+              temperature: before.entity.temperature,
+              renewalQuarter: before.entity.renewalQuarter,
+              nextInteractionAt: before.entity.nextInteractionAt,
+              nextInteractionName: before.entity.nextInteractionName,
+              nextInteractionRefId: before.entity.nextInteractionRefId,
+              nextInteractionIcon: before.entity.nextInteractionIcon,
+              nextInteractionColor: before.entity.nextInteractionColor,
+              isActive: before.entity.isActive,
+            })
+            em.persist(entity)
           }
 
+          entity.displayName = before.entity.displayName
+          entity.description = before.entity.description
+          entity.ownerUserId = before.entity.ownerUserId
+          entity.primaryEmail = before.entity.primaryEmail
+          entity.primaryPhone = before.entity.primaryPhone
+          entity.status = before.entity.status
+          entity.lifecycleStage = before.entity.lifecycleStage
+          entity.source = before.entity.source
+          entity.temperature = before.entity.temperature
+          entity.renewalQuarter = before.entity.renewalQuarter
+          entity.nextInteractionAt = before.entity.nextInteractionAt
+          entity.nextInteractionName = before.entity.nextInteractionName
+          entity.nextInteractionRefId = before.entity.nextInteractionRefId
+          entity.nextInteractionIcon = before.entity.nextInteractionIcon
+          entity.nextInteractionColor = before.entity.nextInteractionColor
+          entity.isActive = before.entity.isActive
+          entity.deletedAt = null
+        },
+        async () => {
+          const existing = await findOneWithDecryption(em, CustomerCompanyProfile, { entity, tenantId: entity.tenantId, organizationId: entity.organizationId }, undefined, {
+            tenantId: entity.tenantId,
+            organizationId: entity.organizationId,
+          })
+          if (!existing) {
+            profile = em.create(CustomerCompanyProfile, {
+              id: before.profile.id,
+              organizationId: before.entity.organizationId,
+              tenantId: before.entity.tenantId,
+              entity,
+              legalName: before.profile.legalName,
+              brandName: before.profile.brandName,
+              domain: before.profile.domain,
+              websiteUrl: before.profile.websiteUrl,
+              industry: before.profile.industry,
+              sizeBucket: before.profile.sizeBucket,
+              taxId: before.profile.taxId,
+              annualRevenue: before.profile.annualRevenue,
+            })
+            em.persist(profile)
+          } else {
+            profile = existing
+            profile.legalName = before.profile.legalName
+            profile.brandName = before.profile.brandName
+            profile.domain = before.profile.domain
+            profile.websiteUrl = before.profile.websiteUrl
+            profile.industry = before.profile.industry
+            profile.sizeBucket = before.profile.sizeBucket
+            profile.taxId = before.profile.taxId
+            profile.annualRevenue = before.profile.annualRevenue
+          }
+        },
+        () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
+        async () => {
           await em.nativeDelete(CustomerDealCompanyLink, { company: entity })
           for (const link of beforeDeals) {
-            const deal = dealMap.get(link.dealId)
+            const deal = dealMap.get(link.dealId.toLowerCase())
             if (!deal) continue
             const restoredLink = em.create(CustomerDealCompanyLink, {
               id: link.id,
@@ -1466,7 +1456,7 @@ const deleteCompanyCommand: CommandHandler<
               authorUserId: activity.authorUserId,
               appearanceIcon: activity.appearanceIcon,
               appearanceColor: activity.appearanceColor,
-              deal: activity.dealId ? dealMap.get(activity.dealId) ?? null : null,
+              deal: activity.dealId ? dealMap.get(activity.dealId.toLowerCase()) ?? null : null,
               createdAt: activity.createdAt,
               updatedAt: activity.updatedAt,
             })
@@ -1484,7 +1474,7 @@ const deleteCompanyCommand: CommandHandler<
               authorUserId: comment.authorUserId,
               appearanceIcon: comment.appearanceIcon,
               appearanceColor: comment.appearanceColor,
-              deal: comment.dealId ? dealMap.get(comment.dealId) ?? null : null,
+              deal: comment.dealId ? dealMap.get(comment.dealId.toLowerCase()) ?? null : null,
               createdAt: comment.createdAt,
               updatedAt: comment.updatedAt,
               deletedAt: comment.deletedAt,
@@ -1549,11 +1539,14 @@ const deleteCompanyCommand: CommandHandler<
               priority: interaction.priority,
               authorUserId: interaction.authorUserId,
               ownerUserId: interaction.ownerUserId,
-              dealId: interaction.dealId,
+              dealId: interaction.dealId ? dealMap.get(interaction.dealId.toLowerCase())?.id ?? null : null,
               source: interaction.source,
               appearanceIcon: interaction.appearanceIcon,
               appearanceColor: interaction.appearanceColor,
               ...restoreInteractionRestoreDetails(interaction),
+              linkedEntities: interaction.linkedEntities?.filter((link) =>
+                link.type !== 'deal' || dealMap.has(link.id.toLowerCase()),
+              ) ?? null,
               createdAt: interaction.createdAt,
               updatedAt: interaction.updatedAt,
               deletedAt: interaction.deletedAt,

@@ -2418,6 +2418,11 @@ export async function run(argv = process.argv) {
               if (runtimeEnv.OM_LOG_PRETTY === undefined) runtimeEnv.OM_LOG_PRETTY = '1'
               if (runtimeEnv.OM_LOG_LEVEL === undefined) runtimeEnv.OM_LOG_LEVEL = 'debug'
               const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
+              const discoveredWorkers = autoSpawnWorkersMode === 'off'
+                ? []
+                : devSupervisorManifest?.workers ?? getRegisteredCliWorkers()
+              const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
+              runtimeEnv.OM_MANAGED_QUEUE_WORKERS = discoveredWorkerQueues.join(',')
               // Guard the default-on events single-delivery: if this process runs
               // no events worker, fall back to safe inline dual-dispatch so
               // persistent side effects are never silently dropped. Mutates both
@@ -2468,8 +2473,6 @@ export async function run(argv = process.argv) {
                 }
 
                 if (autoSpawnWorkersMode !== 'off') {
-                  const discoveredWorkers = devSupervisorManifest?.workers ?? getRegisteredCliWorkers()
-                  const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
                   if (discoveredWorkerQueues.length === 0) {
                     const workerRegistryFile = devSupervisorManifest
                       ? 'dev-supervisor.generated.json'
@@ -2608,6 +2611,9 @@ export async function run(argv = process.argv) {
           const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
           const runtimeEnv = buildServerProcessEnvironment(process.env)
+          const discoveredWorkers = autoSpawnWorkersMode === 'off' ? [] : getRegisteredCliWorkers()
+          const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
+          runtimeEnv.OM_MANAGED_QUEUE_WORKERS = discoveredWorkerQueues.join(',')
           // Guard the default-on events single-delivery (see the dev `server`
           // command): fall back to safe inline dual-dispatch when this process
           // runs no events worker, keeping process.env and runtimeEnv in sync.
@@ -2696,8 +2702,6 @@ export async function run(argv = process.argv) {
 
             // Start workers if enabled
             if (autoSpawnWorkersMode !== 'off') {
-              const discoveredWorkers = getRegisteredCliWorkers()
-              const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
               if (discoveredWorkerQueues.length === 0) {
                 console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
               } else if (autoSpawnWorkersMode === 'lazy') {

@@ -627,6 +627,166 @@ test.describe('TC-CRM-DEAL-MERGE: merge two Deals', () => {
     }
   })
 
+  test('concurrent comment writes either follow the survivor or are refused, never losing the Deal link', async ({ request }) => {
+    test.slow()
+    test.setTimeout(240_000)
+    const token = await getAuthToken(request, 'admin')
+    const stamp = randomUUID().slice(0, 8)
+    const rounds = 3
+    const writersPerKind = 6
+    const commentPath = '/api/customers/comments'
+    const companyId = await createCompanyFixture(request, token, `QA merge comment race company ${stamp}`)
+    const dealIds = new Set<string>()
+    const commentIds = new Set<string>()
+    let overlappingSuccesses = 0
+    let refusals = 0
+
+    const createComment = async (body: string, extra: Record<string, unknown>) =>
+      apiRequest(request, 'POST', commentPath, { token, data: { entityId: companyId, body, ...extra } })
+
+    try {
+      for (let round = 0; round < rounds; round += 1) {
+        const survivorId = await createDealFixture(request, token, { title: `QA comment race survivor ${stamp}-${round}`, companyIds: [companyId] })
+        const sourceId = await createDealFixture(request, token, { title: `QA comment race source ${stamp}-${round}`, companyIds: [companyId] })
+        dealIds.add(survivorId)
+        dealIds.add(sourceId)
+        const targetedSource = new Set<string>()
+
+        const existing: string[] = []
+        for (let index = 0; index < writersPerKind; index += 1) {
+          const response = await createComment(`QA comment race existing ${stamp}-${round}-${index}`, {})
+          expect([200, 201]).toContain(response.status())
+          const body = await readJsonSafe<CreatedRecord>(response)
+          existing.push(expectId(body?.id, 'existing comment id'))
+          commentIds.add(body!.id!)
+        }
+
+        const preview = await loadMergePreview(request, token, survivorId, sourceId)
+        const startMerge = async () => {
+          const startedAt = performance.now()
+          const response = await apiRequest(request, 'POST', MERGE_PATH, {
+            token,
+            data: {
+              ...mergeBody(survivorId, sourceId, `QA comment race merged ${stamp}-${round}`, preview.left.updatedAt),
+              sourceUpdatedAt: preview.right.updatedAt,
+              companyIds: [companyId],
+            },
+          })
+          return { response, startedAt, finishedAt: performance.now() }
+        }
+        const trackWriter = async (write: () => Promise<APIResponse>) => {
+          const startedAt = performance.now()
+          const response = await write()
+          return { response, startedAt, finishedAt: performance.now() }
+        }
+        const earlyMerge = round % 2 === 0 ? startMerge() : null
+        const writers = Array.from({ length: writersPerKind }, (_, index) => [
+          trackWriter(() => createComment(`QA comment race create ${stamp}-${round}-${index}`, { dealId: sourceId }))
+            .then((result) => ({ ...result, existingId: null })),
+          trackWriter(() => apiRequest(request, 'PUT', commentPath, { token, data: { id: existing[index], dealId: sourceId } }))
+            .then((result) => ({ ...result, existingId: existing[index] })),
+        ]).flat()
+        const [merge, results] = await Promise.all([earlyMerge ?? startMerge(), Promise.all(writers)])
+        expect(merge.response.status(), 'the merge must win or serialize with every comment writer').toBe(200)
+
+        for (const writer of results) {
+          const status = writer.response.status()
+          expect(writer.existingId ? [200, 400] : [200, 201, 400], `comment write targeting the source Deal returned ${status}`).toContain(status)
+          if (status === 400) {
+            refusals += 1
+            continue
+          }
+          const body = writer.existingId ? null : await readJsonSafe<CreatedRecord>(writer.response)
+          const id = writer.existingId ?? expectId(body?.id, 'raced comment id')
+          commentIds.add(id)
+          targetedSource.add(id)
+          if (writer.startedAt < merge.finishedAt && merge.startedAt < writer.finishedAt) {
+            overlappingSuccesses += 1
+          }
+        }
+
+        const late = await createComment(`QA comment race late ${stamp}-${round}`, { dealId: sourceId })
+        expect(late.status(), 'a comment create after the merge must be refused as not found').toBe(400)
+        const lateRelink = await apiRequest(request, 'PUT', commentPath, { token, data: { id: existing[0], dealId: sourceId } })
+        expect(lateRelink.status(), 'a comment relink after the merge must be refused as not found').toBe(400)
+
+        const list = await apiRequest(request, 'GET', `${commentPath}?entityId=${companyId}&pageSize=100`, { token })
+        expect(list.status()).toBe(200)
+        const items = (await readJsonSafe<ItemPage>(list))?.items ?? []
+        const dealOf = new Map(items.map((item) => [String(item.id), item.deal_id ?? item.dealId ?? null]))
+        for (const [id, dealId] of dealOf) {
+          expect(dealId, `comment ${id} must not keep the merged-away Deal`).not.toBe(sourceId)
+        }
+        for (const id of targetedSource) {
+          expect(dealOf.has(id), `comment ${id} that targeted the source Deal must still exist`).toBe(true)
+          expect(dealOf.get(id), `comment ${id} that targeted the source Deal must follow the survivor`).toBe(survivorId)
+        }
+        dealIds.delete(sourceId)
+      }
+      expect(overlappingSuccesses, `at least one overlapping comment write must succeed and move (${refusals} refused)`).toBeGreaterThan(0)
+    } finally {
+      for (const id of commentIds) await deleteEntityIfExists(request, token, commentPath, id)
+      for (const id of dealIds) await deleteEntityIfExists(request, token, DEALS_PATH, id)
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
+  test('moves an interaction chip whose Deal id uses mixed letter case', async ({ request }) => {
+    test.setTimeout(120_000)
+    const token = await getAuthToken(request, 'admin')
+    const stamp = randomUUID().slice(0, 8)
+    const interactionPath = '/api/customers/interactions'
+    const companyId = await createCompanyFixture(request, token, `QA merge mixed-case company ${stamp}`)
+    const dealIds = new Set<string>()
+    let interactionId: string | null = null
+    try {
+      const survivorId = await createDealFixture(request, token, { title: `QA mixed-case survivor ${stamp}`, companyIds: [companyId] })
+      const sourceId = await createDealFixture(request, token, { title: `QA mixed-case source ${stamp}`, companyIds: [companyId] })
+      dealIds.add(survivorId)
+      dealIds.add(sourceId)
+      let letterIndex = 0
+      const mixedSourceId = sourceId.replace(/[a-f]/g, (letter) => (letterIndex++ % 2 === 0 ? letter.toUpperCase() : letter))
+      expect(/[A-F]/.test(mixedSourceId) && /[a-f]/.test(mixedSourceId), 'fixture Deal id must contain both letter cases').toBe(true)
+
+      const created = await apiRequest(request, 'POST', interactionPath, {
+        token,
+        data: {
+          entityId: companyId,
+          interactionType: 'task',
+          title: `QA mixed-case chip ${stamp}`,
+          status: 'planned',
+          linkedEntities: [{ id: mixedSourceId, type: 'deal', label: 'Mixed-case source' }],
+        },
+      })
+      expect(created.status(), 'an interaction with a mixed-case Deal chip should be created').toBe(201)
+      interactionId = expectId((await readJsonSafe<CreatedRecord>(created))?.id, 'mixed-case interaction id')
+
+      const preview = await loadMergePreview(request, token, survivorId, sourceId)
+      const merge = await apiRequest(request, 'POST', MERGE_PATH, {
+        token,
+        data: {
+          ...mergeBody(survivorId, sourceId, `QA mixed-case merged ${stamp}`, preview.left.updatedAt),
+          sourceUpdatedAt: preview.right.updatedAt,
+          companyIds: [companyId],
+        },
+      })
+      expect(merge.status(), 'merge with a mixed-case chip should succeed').toBe(200)
+      dealIds.delete(sourceId)
+
+      const list = await apiRequest(request, 'GET', `${interactionPath}?entityId=${companyId}&limit=100`, { token })
+      expect(list.status()).toBe(200)
+      const item = ((await readJsonSafe<ItemPage>(list))?.items ?? []).find((entry) => entry.id === interactionId)
+      expect(item, 'the mixed-case interaction should still be listed').toBeTruthy()
+      const chips = (Array.isArray(item!.linkedEntities) ? item!.linkedEntities : []) as Array<{ id?: unknown; type?: unknown }>
+      const dealChipIds = chips.filter((entry) => entry.type === 'deal').map((entry) => String(entry.id).toLowerCase())
+      expect(dealChipIds, 'the mixed-case chip must now point at the survivor').toEqual([survivorId.toLowerCase()])
+    } finally {
+      if (interactionId) await deleteEntityIfExists(request, token, interactionPath, interactionId)
+      for (const id of dealIds) await deleteEntityIfExists(request, token, DEALS_PATH, id)
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
   test('a view-only caller can preview but cannot merge, and both Deals stay unchanged', async ({ request }) => {
     test.setTimeout(120_000)
     const stamp = randomUUID().slice(0, 8)

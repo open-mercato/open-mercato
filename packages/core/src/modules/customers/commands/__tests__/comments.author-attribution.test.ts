@@ -38,6 +38,9 @@ function harness(auth: Record<string, unknown> = {}, author: string | null = aut
       return null
     }),
     flush: jest.fn(async () => undefined),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
     fork: () => em,
   }
   const ctx = {
