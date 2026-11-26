@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+perf_root="$(cd "${script_dir}/.." && pwd)"
+repo_root="$(cd "${perf_root}/.." && pwd)"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "perf: node (>= 20) is required" >&2
+  exit 1
+fi
+
+node_major="$(node -p 'process.versions.node.split(".")[0]')"
+if [ "${node_major}" -lt 20 ]; then
+  echo "perf: node >= 20 is required (found $(node --version))" >&2
+  exit 1
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "perf: docker with the compose plugin is required" >&2
+  exit 1
+fi
+
+cd "${repo_root}"
+exec node "${perf_root}/scripts/cli.mjs" "$@"

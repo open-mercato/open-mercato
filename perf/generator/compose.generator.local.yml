@@ -1,0 +1,9 @@
+services:
+  k6:
+    networks:
+      - sut
+
+networks:
+  sut:
+    name: ${K6_NETWORK:-mercato-network-perf-v2}
+    external: true

@@ -1,0 +1,131 @@
+# Monitoring overlay for the perf SUT. Third file after docker-compose.fullapp.yml and perf/sut/compose.perf.yml.
+# Grafana and Prometheus bind to 127.0.0.1 only; reach them through `ssh -L` on a VPS.
+# The Prometheus remote-write receiver has no authentication: never publish it beyond loopback.
+
+services:
+  otel-collector:
+    profiles: !reset []
+    image: otel/opentelemetry-collector-contrib:0.159.0
+    container_name: mercato-otel-collector-${DEPLOY_ENV:-perf}
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes: !override
+      - ./perf/monitoring/otel-collector.yml:/etc/otelcol/config.yaml:ro
+
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    container_name: mercato-prometheus-${DEPLOY_ENV:-perf}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+      - --web.enable-remote-write-receiver
+      - --web.enable-lifecycle
+    volumes:
+      - ./perf/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - mercato-network-fullapp
+
+  grafana:
+    image: grafana/grafana:13.0.10
+    container_name: mercato-grafana-${DEPLOY_ENV:-perf}
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD via perf/bin/perf init-secrets}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      - ./perf/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./perf/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3300}:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - mercato-network-fullapp
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    container_name: mercato-node-exporter-${DEPLOY_ENV:-perf}
+    restart: unless-stopped
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run|var/lib/docker/.+)($$|/)
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - mercato-network-fullapp
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: mercato-cadvisor-${DEPLOY_ENV:-perf}
+    restart: unless-stopped
+    privileged: true
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=10s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project
+      - --disable_metrics=percpu,sched,tcp,udp,hugetlb,referenced_memory,cpu_topology,resctrl,advtcp
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    networks:
+      - mercato-network-fullapp
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1
+    container_name: mercato-postgres-exporter-${DEPLOY_ENV:-perf}
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: mercato-postgres-${DEPLOY_ENV:-perf}:5432/postgres?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER:-postgres}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD via perf/bin/perf init-secrets}
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"
+    command:
+      - --collector.stat_statements
+      - --collector.long_running_transactions
+      - --collector.stat_activity_autovacuum
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mercato-network-fullapp
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.94.0
+    container_name: mercato-redis-exporter-${DEPLOY_ENV:-perf}
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://mercato-redis-${DEPLOY_ENV:-perf}:6379
+      REDIS_EXPORTER_CHECK_KEYS: bull:*:wait,bull:*:active,bull:*:delayed,bull:*:prioritized,bull:*:failed,bull:*:paused
+      REDIS_EXPORTER_CHECK_KEYS_BATCH_SIZE: "1000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - mercato-network-fullapp
+
+volumes:
+  prometheus_data:
+    name: mercato-prometheus-data-${DEPLOY_ENV:-perf}
+  grafana_data:
+    name: mercato-grafana-data-${DEPLOY_ENV:-perf}

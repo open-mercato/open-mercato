@@ -1,0 +1,3 @@
+services:
+  k6:
+    network_mode: host

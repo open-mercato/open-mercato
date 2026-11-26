@@ -1,0 +1,201 @@
+# Perf overlay for docker-compose.fullapp.yml. Spec: .ai/specs/2026-11-26-crm-performance-test-plan.md
+# Use through perf/bin/perf (project om-perf, env file perf/config/sut.local.env).
+# Relative paths, including `extends.file`, resolve against the repository root (the first compose file).
+# Compose `!reset` tags do not survive YAML merge keys, so worker and scheduler repeat them literally.
+
+x-perf-app-environment: &perf-app-environment
+  QUEUE_STRATEGY: async
+  NEXT_PUBLIC_QUEUE_STRATEGY: async
+  QUEUE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-perf}:6379
+  REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-perf}:6379
+  AUTO_SPAWN_WORKERS: "false"
+  AUTO_SPAWN_SCHEDULER: "false"
+  OM_EVENTS_EXTERNAL_WORKER: "true"
+  OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING: "true"
+  RATE_LIMIT_LOGIN_IP_POINTS: ${RATE_LIMIT_LOGIN_IP_POINTS:-10000}
+  DEMO_MODE: "false"
+  SELF_SERVICE_ONBOARDING_ENABLED: "false"
+  UPGRADE_ACTIONS_ENABLED: "false"
+  NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: "false"
+  APP_ALLOWED_ORIGINS: ${PERF_APP_ALLOWED_ORIGINS:-https://tls:8443,https://localhost:8443}
+  TELEMETRY_BACKEND: otlp
+  TELEMETRY_SAMPLING_RATIO: ${TELEMETRY_SAMPLING_RATIO:-0.01}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=perf
+  SYSTEM_EMAIL_PROVIDER: smtp
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  SMTP_TLS: none
+  SMTP_USER: perf-sink
+  SMTP_PASSWORD: perf-sink
+  NOTIFICATIONS_EMAIL_FROM: perf@perf.local
+  EMAIL_FROM: perf@perf.local
+  ADMIN_EMAIL: perf@perf.local
+  OM_CHANNEL_SMTP_ALLOW_INTERNAL_HOSTS: "true"
+  OM_CHANNEL_SMTP_ALLOW_INSECURE_TRANSPORT: "true"
+  RESEND_API_KEY: ""
+  NEW_RELIC_LICENSE_KEY: ""
+  NEW_RELIC_APP_NAME: ""
+  OPENAI_API_KEY: ""
+  ANTHROPIC_API_KEY: ""
+  GOOGLE_GENERATIVE_AI_API_KEY: ""
+  OPENROUTER_API_KEY: ""
+
+x-perf-worker-environment: &perf-worker-environment
+  <<: *perf-app-environment
+  DB_POOL_MAX: ${WORKER_DB_POOL_MAX:-10}
+  DB_POOL_MIN: "1"
+  NODE_OPTIONS: ${WORKER_NODE_OPTIONS:---max-old-space-size=2048}
+
+x-perf-worker-depends-on: &perf-worker-depends-on
+  encryption-preflight:
+    condition: service_completed_successfully
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  meilisearch:
+    condition: service_healthy
+  app:
+    condition: service_healthy
+
+services:
+  app:
+    ports: !reset []
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        if [ ! -f /app/docker/scripts/init-or-migrate.sh ]; then
+          echo "ERROR: init-or-migrate.sh not found. Rebuild the image."
+          exit 1
+        fi
+        INIT_COMMAND='yarn mercato init --no-examples --no-demo-users' sh /app/docker/scripts/init-or-migrate.sh
+        yarn start
+    environment:
+      <<: *perf-app-environment
+      OTEL_SERVICE_NAME: om-app
+
+  worker:
+    extends:
+      file: docker-compose.fullapp.yml
+      service: app
+    build: !reset null
+    ports: !reset []
+    healthcheck: !reset null
+    restart: unless-stopped
+    command: ["yarn", "mercato", "queue", "worker", "--all"]
+    depends_on: *perf-worker-depends-on
+    environment:
+      <<: *perf-worker-environment
+      OTEL_SERVICE_NAME: om-worker
+
+  scheduler:
+    extends:
+      file: docker-compose.fullapp.yml
+      service: app
+    build: !reset null
+    ports: !reset []
+    healthcheck: !reset null
+    restart: "no"
+    command: ["yarn", "mercato", "scheduler", "start"]
+    depends_on: *perf-worker-depends-on
+    environment:
+      <<: *perf-worker-environment
+      DB_POOL_MAX: "2"
+      OTEL_SERVICE_NAME: om-scheduler
+
+  postgres:
+    shm_size: ${PG_SHM_SIZE:-1gb}
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements,auto_explain
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - pg_stat_statements.track=top
+      - -c
+      - track_io_timing=on
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - auto_explain.log_min_duration=1000
+      - -c
+      - auto_explain.log_analyze=on
+      - -c
+      - auto_explain.log_buffers=on
+      - -c
+      - auto_explain.log_nested_statements=off
+      - -c
+      - auto_explain.log_parameter_max_length=0
+      - -c
+      - log_parameter_max_length=0
+      - -c
+      - log_parameter_max_length_on_error=0
+      - -c
+      - log_lock_waits=on
+      - -c
+      - deadlock_timeout=1s
+      - -c
+      - log_temp_files=0
+      - -c
+      - "log_line_prefix=%m [%p] %q%u@%d "
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-200}
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-1GB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-3GB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-16MB}
+      - -c
+      - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-256MB}
+      - -c
+      - random_page_cost=${PG_RANDOM_PAGE_COST:-1.1}
+
+  tls:
+    image: caddy:2.11.7-alpine
+    container_name: mercato-tls-${DEPLOY_ENV:-perf}
+    restart: unless-stopped
+    environment:
+      PERF_TLS_HOST: ${PERF_TLS_HOST:-127.0.0.1}
+      PERF_TLS_DOMAIN: ${PERF_TLS_DOMAIN:-}
+      PERF_TLS_EMAIL: ${PERF_TLS_EMAIL:-}
+    volumes:
+      - ./perf/sut/caddy/${PERF_TLS_CADDYFILE:-Caddyfile.internal}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    ports:
+      - "${PERF_TLS_BIND:-127.0.0.1}:${PERF_TLS_PORT:-8443}:8443"
+      - "${PERF_TLS_BIND:-127.0.0.1}:${PERF_TLS_HTTP_PORT:-8080}:8080"
+    depends_on:
+      app:
+        condition: service_started
+    networks:
+      - mercato-network-fullapp
+
+  mailpit:
+    image: axllent/mailpit:v1.31.6
+    container_name: mercato-mailpit-${DEPLOY_ENV:-perf}
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+      MP_MAX_MESSAGES: "5000"
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    networks:
+      - mercato-network-fullapp
+
+  opencode:
+    profiles: !override [perf-disabled]
+
+  mcp:
+    profiles: !override [perf-disabled]
+
+  documents-collab:
+    profiles: !override [perf-disabled]
+
+volumes:
+  caddy_data:
+    name: mercato-caddy-data-${DEPLOY_ENV:-perf}

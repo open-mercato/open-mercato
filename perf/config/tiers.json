@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "profiles": {
+    "perf-v1": {
+      "tiers": {
+        "XS": { "customerEntities": 2000, "backgroundTenants": 0, "backgroundScale": 0.05 },
+        "S": { "customerEntities": 50000, "backgroundTenants": 2, "backgroundScale": 0.05 },
+        "M": { "customerEntities": 250000, "backgroundTenants": 4, "backgroundScale": 0.05 },
+        "L": { "customerEntities": 1000000, "backgroundTenants": 4, "backgroundScale": 0.05 }
+      },
+      "shape": {
+        "entities": {
+          "peopleShare": 0.75,
+          "companiesShare": 0.25,
+          "peoplePerCompany": 3,
+          "peopleWithoutCompanyShare": 0.1,
+          "peopleWithMultipleCompaniesShare": 0.05
+        },
+        "interactions": {
+          "buckets": [
+            { "name": "light", "min": 1, "max": 5, "share": 0.6 },
+            { "name": "medium", "min": 6, "max": 20, "share": 0.3 },
+            { "name": "heavy", "min": 21, "max": 100, "share": 0.09 },
+            { "name": "extreme", "min": 101, "max": 1000, "share": 0.01 }
+          ],
+          "types": ["call", "email", "meeting", "note", "task"],
+          "doneShare": 0.7,
+          "plannedShare": 0.3,
+          "dateWindow": { "pastYears": 3, "futureMonths": 3 }
+        },
+        "deals": {
+          "perEntity": 0.5,
+          "pipelines": 2,
+          "stagesPerPipeline": 6,
+          "statuses": ["open", "win", "lost"],
+          "currencies": ["USD", "EUR", "PLN"],
+          "stageTransitionsPerDeal": 3,
+          "stuckShare": 0.15,
+          "commentsPerDeal": 2
+        },
+        "addresses": { "perCompany": 1, "perPerson": 0.3, "geocodedShare": 0.6 },
+        "tags": { "count": 50, "perEntityMin": 0, "perEntityMax": 3, "distribution": "zipf" },
+        "customFields": { "fillRate": 0.6 },
+        "owners": { "staffUsers": 200, "adminUsers": 20, "employeeUsers": 180 },
+        "hotSet": { "people": 50, "companies": 20 },
+        "catalog": { "maxArrayLength": 2000 }
+      }
+    }
+  }
+}

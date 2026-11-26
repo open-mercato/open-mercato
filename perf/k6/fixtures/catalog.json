@@ -1,0 +1,294 @@
+{
+  "version": 1,
+  "profile": "perf-v1",
+  "tier": "XS",
+  "seed": 42,
+  "anchor": "2026-11-26",
+  "tenantId": "c8451cf7-6537-5f91-9cc9-0cb9dcc84e01",
+  "organizationId": "4c650370-ee28-5153-b127-7ad9c3432995",
+  "people": {
+    "light": [
+      "2035d85d-3575-5d61-bcad-3ecd3cd96e76",
+      "891686db-916e-535b-9813-b4cd309126c0",
+      "3dabac70-c030-5226-9691-4cd5734a5485",
+      "1fab88be-ff57-5307-bbf8-9da09675b35a",
+      "35eedb8e-4edc-5688-a95f-1c3b423ccd9f",
+      "98afe8b3-50b6-5a46-9f05-81b593dd38b5",
+      "a4f2ceab-c8b2-503b-b888-27211b880abc",
+      "3e4dc2fd-449b-5801-8355-e643db6a3a81",
+      "68f39276-6fdf-52a1-9c79-e1dea6e9825d",
+      "e3510e3c-83ae-5eb5-913c-daab098d6770",
+      "a30352d8-2b23-5c21-a992-45d4248e73e6",
+      "c316d003-75dc-501c-a649-4e03d3a90952"
+    ],
+    "medium": [
+      "d54ca341-c133-5a3a-aee6-3c27280985e4",
+      "ed6dd99b-bbd4-5ab5-bbd1-2563a6cf4729",
+      "35b3fded-73cd-59ae-a397-af33986fa56b",
+      "4808a3be-2c05-5cc8-bb12-65fa3b21ee5e",
+      "2705cd65-9f81-5df4-bbc2-41389863abde",
+      "de43b98a-d12b-5ad3-b313-557801b02642",
+      "bf4e111e-ffc5-51dc-a8ef-8d2b2d970d3a",
+      "5967ce08-025c-5dee-abf3-9f9a2f3594f0"
+    ],
+    "heavy": [
+      "166ffe13-9a98-5689-b041-8c5c9d188578",
+      "de524c1f-8979-503f-a920-b29e0de8a655",
+      "dfdc60b2-0c8b-59f1-bc04-27e9dc14ea10",
+      "19569c41-7269-5224-b3f5-e3d9cdfece13"
+    ],
+    "extreme": [
+      "8c042ba6-51ae-54e5-a545-39a300673c89",
+      "221403f7-ecb3-5f3c-adc5-16b1d9a93f60"
+    ]
+  },
+  "companies": {
+    "light": [
+      "f31cb9c3-6914-5100-b16f-aa58ef1dd40f",
+      "41cdf212-6d5c-5d5b-a0d6-8a5ee990d1e7",
+      "90ed4682-ac04-5f17-9448-298d52b0e0dd",
+      "2557cc81-0c06-5ac7-97ba-0e22d5246ce9",
+      "75bc4d21-3b65-56b1-ac87-1c7c5d503b98",
+      "0dfc5da3-8c1f-57ee-a554-80d1ae542ebb"
+    ],
+    "medium": [
+      "86c3e153-7291-575c-a39c-6065191a5851",
+      "05a35b08-ddca-5b29-a599-b049bfdec21e",
+      "b508d066-8310-5a6b-adfc-07866d3cb076",
+      "612c5316-41db-560a-9a46-0efce36a9a62"
+    ],
+    "heavy": [
+      "e7acfd8c-4e4f-5dc2-8a88-cb7553c729ef",
+      "354233f3-37a8-5ec0-978f-f08d5d614c83"
+    ],
+    "extreme": [
+      "9dcfe961-b21c-5709-8eeb-8370fcf96ff3"
+    ]
+  },
+  "hotSet": {
+    "people": [
+      "2035d85d-3575-5d61-bcad-3ecd3cd96e76",
+      "891686db-916e-535b-9813-b4cd309126c0",
+      "3dabac70-c030-5226-9691-4cd5734a5485",
+      "1fab88be-ff57-5307-bbf8-9da09675b35a",
+      "35eedb8e-4edc-5688-a95f-1c3b423ccd9f"
+    ],
+    "companies": [
+      "f31cb9c3-6914-5100-b16f-aa58ef1dd40f",
+      "41cdf212-6d5c-5d5b-a0d6-8a5ee990d1e7"
+    ]
+  },
+  "pipelines": [
+    {
+      "id": "23baa641-c27e-518d-9ab5-33d165988569",
+      "name": "Pipeline 1",
+      "stages": [
+        {
+          "id": "25a103f3-e39f-5d0a-b354-1e4374f57117",
+          "name": "Stage 1",
+          "order": 0
+        },
+        {
+          "id": "a160f0d5-a73f-5152-9a93-999020ee91c7",
+          "name": "Stage 2",
+          "order": 1
+        },
+        {
+          "id": "fda85dc4-063e-57f8-b6c7-f278c8cea688",
+          "name": "Stage 3",
+          "order": 2
+        },
+        {
+          "id": "d59f3756-f0b8-5f42-b56a-bc1e72ffb729",
+          "name": "Stage 4",
+          "order": 3
+        },
+        {
+          "id": "795f5b49-b50d-5d74-8d03-3f1945ef3cdd",
+          "name": "Stage 5",
+          "order": 4
+        },
+        {
+          "id": "03960480-0eda-5d58-827c-3e7e20b02ad7",
+          "name": "Stage 6",
+          "order": 5
+        }
+      ]
+    },
+    {
+      "id": "325ace30-27ae-5ae8-bd16-4c1d87196113",
+      "name": "Pipeline 2",
+      "stages": [
+        {
+          "id": "4164a134-329f-5633-92a9-974ee353232f",
+          "name": "Stage 1",
+          "order": 0
+        },
+        {
+          "id": "c35cf017-621c-58e2-90bf-e83ab823b1bf",
+          "name": "Stage 2",
+          "order": 1
+        },
+        {
+          "id": "c1ded2aa-6142-53d9-8672-f62008308fee",
+          "name": "Stage 3",
+          "order": 2
+        },
+        {
+          "id": "8f64333e-1d77-56c9-b535-7883c1edf220",
+          "name": "Stage 4",
+          "order": 3
+        },
+        {
+          "id": "99a7bb8a-aae8-5bac-bde5-c2b67e0b415d",
+          "name": "Stage 5",
+          "order": 4
+        },
+        {
+          "id": "bbb13a98-848c-5f67-9f55-19d2da13f393",
+          "name": "Stage 6",
+          "order": 5
+        }
+      ]
+    }
+  ],
+  "deals": {
+    "sample": [
+      "d466c100-0ff8-5558-ac35-1cd2f85d0270",
+      "38b668a0-9ec7-51fa-b2d7-8adc305ef1f0",
+      "97dc5112-7bc4-5446-a59e-b2e45cbcf002",
+      "5bc55d88-82a1-58d1-ab7a-6efcf387b45f",
+      "e934534c-57b0-5879-a36d-177c89f8f682",
+      "914117eb-78ec-500c-ba9f-f9addd7d6ed0",
+      "638e1699-5d8d-5377-b4fc-f7bf0f1e16c4",
+      "a1035922-abf3-5a26-9caf-f6464b475ad5",
+      "45650455-2910-5ef8-8c4a-605c72767dbf",
+      "5e647b2b-5a11-5f55-ac53-e51aa905bb0b",
+      "3bb469ee-9d5a-5a1c-918e-882fd52255dd",
+      "f77d72ae-6452-5be4-8a51-e8586732ee57",
+      "7ebc612e-33aa-5780-9531-0332e7a632b7",
+      "88b89009-8063-50c4-9fc4-385dcc88d8e4",
+      "bfd3d113-d619-5fc6-b0cc-19e414c3d23b",
+      "af47e1f2-0025-5dd8-86b1-d05ee663d0cd",
+      "72ef992c-3593-5aa5-ba71-6ca8ceb56ba0",
+      "ad1da978-0531-5fb4-b53d-f99c30d1e7e3",
+      "0a15d445-7c23-5c40-8a49-02f9801378e6",
+      "daa08787-a996-542b-9707-f6e1e1ed3a00",
+      "7c97f09b-8440-53ca-af6a-a47be148bea2",
+      "36df76e9-7d71-5f26-b0ce-01756ae55b7b",
+      "707cb5cf-3b93-5cb6-9d7d-f1a3023fb090",
+      "60b9799a-3f49-554f-8150-3d2eb0b09b24",
+      "938cb34a-4932-5fb5-b959-3f4f4be7ae3d",
+      "a407d650-d27e-5784-b1e3-a7043c4cd42e",
+      "4b37056a-cee3-5551-b8ba-fd0850e8af6d",
+      "71189a53-9dc4-52db-a140-d84fa32f1f5f",
+      "a84a04be-efde-5b4a-8ec0-89f5fc0f53c9",
+      "2c60b1c0-5508-5e7b-8352-aff6df79ca5c",
+      "1ece5dda-ab87-5a4c-89f8-7a03a1af11ec",
+      "6ba5658f-2e30-5d0d-8064-99c5ede64514",
+      "2a4f5488-ab23-50e7-8a25-97355cdf969f",
+      "fb707f81-f6b0-52cd-9a76-2593e1609b33",
+      "3598ae97-3474-5680-b678-0977194e9922",
+      "1d214ad7-eab1-579d-9308-8f9f60345248",
+      "6573b782-eda6-5994-ad52-0fdacb7510ac",
+      "76fb62cb-06dc-5423-ae0f-b981f634087c",
+      "cf55b68e-9ca0-5ce6-b7f0-fdcfd1cc0277",
+      "9ebd45e4-bad9-5394-9d18-de6512509cc0",
+      "2c70280c-0070-5ae5-ad5f-93a066b1fcb9",
+      "cb7e505d-cbfc-5aca-835b-5d3af144b64c",
+      "48b8b448-3f89-5042-9423-1a90fd97ef31",
+      "79775bef-17bc-5b78-9b0c-a33a655d2514",
+      "3759ece3-efc8-5459-934c-97272956c4a2",
+      "612b558c-00be-5a2a-8061-9f830d2690c6",
+      "122127a3-f38f-5ae9-b2de-565f57706893",
+      "248a0335-59c6-5f66-a7ac-afbae454db91",
+      "5431bb31-f059-5b4e-82ca-8eabbb89c84d",
+      "d058871f-1d68-5546-9f48-9460800db107",
+      "6bdf2595-1428-522f-ac55-6c60591c079b",
+      "1c35a34d-0a02-5be0-81ea-077cf5d382e5",
+      "61340177-011c-5b0d-b202-37fb6726df43",
+      "d7b73836-d4cb-5287-8157-fe295c35e860",
+      "0cbdf047-8aca-5b4a-bf16-75d39733a0cc",
+      "ed0d203a-1cd9-5a66-9bb3-74c62ec5c5a7",
+      "e83d337a-5c3e-5745-9b39-2f2f57d10d6e",
+      "222ebe80-50d1-5812-90f7-4310db852adb",
+      "7f49dad2-6661-5421-880f-c4c2a7d8a7c0",
+      "811a46f1-646c-5e71-8030-5b92c1ec1823"
+    ],
+    "byStage": {
+      "25a103f3-e39f-5d0a-b354-1e4374f57117": [
+        "d466c100-0ff8-5558-ac35-1cd2f85d0270",
+        "38b668a0-9ec7-51fa-b2d7-8adc305ef1f0",
+        "97dc5112-7bc4-5446-a59e-b2e45cbcf002",
+        "5bc55d88-82a1-58d1-ab7a-6efcf387b45f",
+        "e934534c-57b0-5879-a36d-177c89f8f682",
+        "914117eb-78ec-500c-ba9f-f9addd7d6ed0",
+        "638e1699-5d8d-5377-b4fc-f7bf0f1e16c4",
+        "a1035922-abf3-5a26-9caf-f6464b475ad5",
+        "45650455-2910-5ef8-8c4a-605c72767dbf",
+        "5e647b2b-5a11-5f55-ac53-e51aa905bb0b"
+      ]
+    }
+  },
+  "tags": [
+    "1e9f70f6-1c85-5615-8dab-bf8fc22ce9ce",
+    "fc278441-e639-55f6-86d8-5af9004b1dd0",
+    "c4a1cff0-6fc5-5464-a539-4c1c103c9367",
+    "4231f8bf-594c-5ac5-b011-aa5f8c928439",
+    "2a8ffee3-bcda-5a73-8b1f-82de4863c142"
+  ],
+  "owners": [
+    "d85b8456-6894-5509-b734-8487f6253a61",
+    "de00cd12-508e-5d26-b2ea-bd4b94a9acf3",
+    "39a8fe78-ae1f-5846-b801-7a7241e113c5",
+    "6a5ea5a4-4773-50ba-bc27-ee549551b4ae"
+  ],
+  "heavyOwners": [
+    "d85b8456-6894-5509-b734-8487f6253a61"
+  ],
+  "searchTerms": {
+    "unique": [
+      {
+        "term": "zyqvorth",
+        "expected": 1
+      }
+    ],
+    "common": [
+      {
+        "term": "smith",
+        "expected": 40
+      }
+    ],
+    "prefix": [
+      {
+        "term": "and",
+        "expected": 12
+      }
+    ],
+    "noHit": [
+      {
+        "term": "qqxxnohit",
+        "expected": 0
+      }
+    ]
+  },
+  "emailPrefixes": [
+    "anna",
+    "piotr",
+    "jan"
+  ],
+  "dictionaries": {
+    "statuses": [
+      "active",
+      "inactive"
+    ],
+    "lifecycleStages": [
+      "lead",
+      "customer"
+    ],
+    "sources": [
+      "web",
+      "referral"
+    ]
+  }
+}

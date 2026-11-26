@@ -1,0 +1,14 @@
+{
+	admin 0.0.0.0:2019
+	http_port 8080
+	https_port 8443
+	auto_https disable_redirects
+	skip_install_trust
+	default_sni {$PERF_TLS_HOST:127.0.0.1}
+	metrics
+}
+
+https://localhost, https://tls, https://{$PERF_TLS_HOST:127.0.0.1} {
+	tls internal
+	reverse_proxy app:3000
+}

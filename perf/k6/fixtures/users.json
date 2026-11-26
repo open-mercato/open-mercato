@@ -1,0 +1,44 @@
+[
+  {
+    "email": "perf-user-000@perf.example.test",
+    "password": "fixture-not-a-real-password",
+    "role": "admin",
+    "userId": "d85b8456-6894-5509-b734-8487f6253a61",
+    "staffMemberId": null
+  },
+  {
+    "email": "perf-user-001@perf.example.test",
+    "password": "fixture-not-a-real-password",
+    "role": "admin",
+    "userId": "de00cd12-508e-5d26-b2ea-bd4b94a9acf3",
+    "staffMemberId": null
+  },
+  {
+    "email": "perf-user-002@perf.example.test",
+    "password": "fixture-not-a-real-password",
+    "role": "employee",
+    "userId": "39a8fe78-ae1f-5846-b801-7a7241e113c5",
+    "staffMemberId": null
+  },
+  {
+    "email": "perf-user-003@perf.example.test",
+    "password": "fixture-not-a-real-password",
+    "role": "employee",
+    "userId": "6a5ea5a4-4773-50ba-bc27-ee549551b4ae",
+    "staffMemberId": null
+  },
+  {
+    "email": "perf-user-004@perf.example.test",
+    "password": "fixture-not-a-real-password",
+    "role": "employee",
+    "userId": "3c63f73f-d947-597b-b169-66285addedf6",
+    "staffMemberId": null
+  },
+  {
+    "email": "perf-user-005@perf.example.test",
+    "password": "fixture-not-a-real-password",
+    "role": "employee",
+    "userId": "04cb769b-2315-539c-ba04-cd98107d3e5d",
+    "staffMemberId": null
+  }
+]

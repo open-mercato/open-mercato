@@ -208,3 +208,9 @@ packages/ui/.storybook/generated/
 .ai/qa/credentials.json
 .ai/meta/
 .ai/runs/merge-buddy/
+
+# Performance harness (perf/): secrets, state, datasets and raw run output stay local
+perf/config/*.local.env
+perf/.state/
+perf/data/
+perf/results/**/raw/
