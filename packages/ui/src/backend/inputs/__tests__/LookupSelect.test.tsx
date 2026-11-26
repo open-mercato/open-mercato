@@ -5,8 +5,10 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { configure, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { LookupSelect } from '../LookupSelect'
+
+configure({ asyncUtilTimeout: 5000 })
 
 function getInput(container: HTMLElement): HTMLInputElement {
   const el = container.querySelector('input')

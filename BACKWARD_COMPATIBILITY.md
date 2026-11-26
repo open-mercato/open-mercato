@@ -705,3 +705,7 @@ STABLE API and query behavior. Relation options require authorized target reads 
 ## 2026-11-24 — Relation options for record-protected targets (#9106)
 
 The STABLE generic relation options route requires an owning record policy for protected targets. Current clients can use the owning Staff APIs for time projects, tasks, and reports. Preserving generic reads for these targets would retain the authorization bypass. Named maintainer acknowledgment remains required. [Migration](UPGRADE_NOTES.md#relation-options-and-explicit-global-query-scope-9106).
+
+## 2026-11-25 — Empty organization scope (#10503)
+
+STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
