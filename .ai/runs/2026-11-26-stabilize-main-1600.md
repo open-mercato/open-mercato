@@ -40,9 +40,11 @@ No speculative fixes, weakened checks, production dependencies, architecture cha
 - Earlier main full CI run 45841370066 succeeded at `7e0208138a23b6f7ed548eaeb2ef0e015d3b5269`, including 15/15 integration shards. New main run 45860878083 was in progress at branch creation.
 - Historical main run 45823776157 failed during core typecheck with exit 129; the later full run succeeded. Do not infer a deterministic source defect from the exit alone.
 - Diagnosis child `d6842c87-e4db-4396-b52d-cdab1390e730` failed before a model turn: cockpit Codex tool-policy enforcement rejected restricted grants. It produced no evidence. Omit unsupported tool restrictions from the final review task.
+- Runner: local (no running compose app). Docs-only gate: manual reread and `git diff --check` passed; no configured Markdown linter found.
 - Local CI routing/concurrency/coverage regression checks: 45/45 on unchanged retry. No code changes yet; docs-only local gate applies unless reproduced defects require source changes.
 
 ## Progress
+PR: #10794
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
