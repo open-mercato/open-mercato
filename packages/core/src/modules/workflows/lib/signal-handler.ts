@@ -483,6 +483,7 @@ export async function sendSignal(
 
   // Find valid transitions
   const transitionContext = {
+    container,
     workflowContext: instance.context,
     userId,
   }
