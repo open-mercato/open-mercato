@@ -12,6 +12,10 @@ describe('checkout transaction-expiry worker', () => {
   const mockCommandBus = {
     execute: jest.fn().mockResolvedValue({ ok: true }),
   }
+  const mockPaymentGatewayService = {
+    getPaymentStatus: jest.fn().mockResolvedValue({ status: 'cancelled' }),
+    cancelPayment: jest.fn().mockResolvedValue({ status: 'cancelled' }),
+  }
 
   type MockEntityManager = {
     fork: () => MockEntityManager
@@ -24,6 +28,7 @@ describe('checkout transaction-expiry worker', () => {
   const resolve = <ResolvedValue = unknown>(name: string): ResolvedValue => {
     if (name === 'em') return mockEm as ResolvedValue
     if (name === 'commandBus') return mockCommandBus as ResolvedValue
+    if (name === 'paymentGatewayService') return mockPaymentGatewayService as ResolvedValue
     throw new Error(`[internal] Missing dependency: ${name}`)
   }
 
@@ -41,6 +46,8 @@ describe('checkout transaction-expiry worker', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockPaymentGatewayService.getPaymentStatus.mockResolvedValue({ status: 'cancelled' })
+    mockPaymentGatewayService.cancelPayment.mockResolvedValue({ status: 'cancelled' })
   })
 
   it('throws an error if tenantId or organizationId is missing', async () => {
@@ -120,5 +127,99 @@ describe('checkout transaction-expiry worker', () => {
         },
       }),
     )
+  })
+
+  it('cancels the gateway session before expiring the checkout reservation', async () => {
+    const { default: handle } = await import('../transaction-expiry.worker')
+    mockPaymentGatewayService.getPaymentStatus.mockResolvedValueOnce({ status: 'pending' })
+    findWithDecryption.mockResolvedValueOnce([{
+      id: 'txn-with-gateway',
+      gatewayTransactionId: 'gateway-txn-1',
+      organizationId: 'org-123',
+      tenantId: 'tenant-456',
+    }])
+
+    await handle({
+      ...baseJob,
+      payload: { tenantId: 'tenant-456', organizationId: 'org-123' },
+    } as QueuedJob<CheckoutExpiryJob>, mockContext)
+
+    expect(mockPaymentGatewayService.getPaymentStatus).toHaveBeenCalledWith('gateway-txn-1', {
+      organizationId: 'org-123', tenantId: 'tenant-456',
+    })
+    expect(mockPaymentGatewayService.cancelPayment).toHaveBeenCalledWith(
+      'gateway-txn-1',
+      'Checkout transaction expired',
+      { organizationId: 'org-123', tenantId: 'tenant-456' },
+      'checkout-expiry-job-1-txn-with-gateway',
+    )
+    expect(mockCommandBus.execute).toHaveBeenCalledWith('checkout.transaction.updateStatus', expect.objectContaining({
+      input: expect.objectContaining({ id: 'txn-with-gateway', status: 'expired' }),
+    }))
+  })
+
+  it('completes a captured gateway payment instead of expiring it', async () => {
+    const { default: handle } = await import('../transaction-expiry.worker')
+    mockPaymentGatewayService.getPaymentStatus.mockResolvedValueOnce({ status: 'captured' })
+    findWithDecryption.mockResolvedValueOnce([{
+      id: 'txn-captured',
+      gatewayTransactionId: 'gateway-txn-captured',
+      organizationId: 'org-123',
+      tenantId: 'tenant-456',
+    }])
+
+    await handle({
+      ...baseJob,
+      payload: { tenantId: 'tenant-456', organizationId: 'org-123' },
+    } as QueuedJob<CheckoutExpiryJob>, mockContext)
+
+    expect(mockPaymentGatewayService.cancelPayment).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).toHaveBeenCalledWith('checkout.transaction.updateStatus', expect.objectContaining({
+      input: expect.objectContaining({
+        id: 'txn-captured', status: 'completed', paymentStatus: 'captured',
+      }),
+    }))
+  })
+
+  it('completes a payment captured while the gateway cancellation was in flight', async () => {
+    const { default: handle } = await import('../transaction-expiry.worker')
+    mockPaymentGatewayService.getPaymentStatus.mockResolvedValueOnce({ status: 'pending' })
+    mockPaymentGatewayService.cancelPayment.mockResolvedValueOnce({ status: 'captured' })
+    findWithDecryption.mockResolvedValueOnce([{
+      id: 'txn-raced-capture',
+      gatewayTransactionId: 'gateway-txn-raced',
+      organizationId: 'org-123',
+      tenantId: 'tenant-456',
+    }])
+
+    await handle({
+      ...baseJob,
+      payload: { tenantId: 'tenant-456', organizationId: 'org-123' },
+    } as QueuedJob<CheckoutExpiryJob>, mockContext)
+
+    expect(mockCommandBus.execute).toHaveBeenCalledWith('checkout.transaction.updateStatus', expect.objectContaining({
+      input: expect.objectContaining({
+        id: 'txn-raced-capture', status: 'completed', paymentStatus: 'captured',
+      }),
+    }))
+  })
+
+  it('keeps the reservation when the gateway does not confirm cancellation', async () => {
+    const { default: handle } = await import('../transaction-expiry.worker')
+    mockPaymentGatewayService.getPaymentStatus.mockResolvedValueOnce({ status: 'pending' })
+    mockPaymentGatewayService.cancelPayment.mockResolvedValueOnce({ status: 'pending' })
+    findWithDecryption.mockResolvedValueOnce([{
+      id: 'txn-not-cancelled',
+      gatewayTransactionId: 'gateway-txn-pending',
+      organizationId: 'org-123',
+      tenantId: 'tenant-456',
+    }])
+
+    await handle({
+      ...baseJob,
+      payload: { tenantId: 'tenant-456', organizationId: 'org-123' },
+    } as QueuedJob<CheckoutExpiryJob>, mockContext)
+
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 })
