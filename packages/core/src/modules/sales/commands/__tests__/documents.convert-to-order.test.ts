@@ -4,6 +4,7 @@ import { LockMode } from '@mikro-orm/core'
 import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
+import { deferAfterTransactionCommit } from '@open-mercato/shared/lib/db/afterCommit'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -43,6 +44,10 @@ jest.mock('#generated/entities.ids.generated', () => ({
       sales_quote_adjustment: 'sales.sales_quote_adjustment',
     },
   },
+}))
+
+jest.mock('@open-mercato/shared/lib/db/afterCommit', () => ({
+  deferAfterTransactionCommit: jest.fn(),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -216,9 +221,11 @@ describe('sales.quotes.convert_to_order', () => {
       return []
     })
 
+    const markOrmEntityChange = jest.fn()
     const container = createContainer({ injectionMode: InjectionMode.PROXY })
     container.register({
       em: asValue(em),
+      dataEngine: asValue({ markOrmEntityChange }),
       salesDocumentNumberGenerator: asValue({
         generate: jest.fn(async () => ({ number: `SO-${createdOrderIds.length + 1}` })),
       }),
@@ -257,6 +264,17 @@ describe('sales.quotes.convert_to_order', () => {
     expect(rejected[0].reason).toBeInstanceOf(CrudHttpError)
     expect((rejected[0].reason as CrudHttpError).status).toBe(404)
     expect(createdOrderIds).toEqual(['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'])
+    expect(markOrmEntityChange).toHaveBeenCalledTimes(1)
+    expect(markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'created',
+      entity: expect.objectContaining({ orderNumber: expect.any(String) }),
+      indexer: { entityType: 'sales.sales_order' },
+      identifiers: {
+        id: fulfilled[0].value.orderId,
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+      },
+    }))
     expect(lockOptions).toContainEqual({ lockMode: LockMode.PESSIMISTIC_WRITE })
   })
 
@@ -317,9 +335,11 @@ describe('sales.quotes.convert_to_order', () => {
       return []
     })
 
+    const dataEngine = { markOrmEntityChange: jest.fn(), flushOrmEntityChanges: jest.fn() }
     const container = createContainer({ injectionMode: InjectionMode.PROXY })
     container.register({
       em: asValue(containerEm),
+      dataEngine: asValue(dataEngine),
       salesDocumentNumberGenerator: asValue({
         generate: jest.fn(async () => ({ number: 'SO-TX-1' })),
       }),
@@ -344,6 +364,17 @@ describe('sales.quotes.convert_to_order', () => {
     expect(providedEm.persist).toHaveBeenCalled()
     expect(providedEm.remove).toHaveBeenCalledWith(quote)
     expect(providedEm.flush).toHaveBeenCalled()
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    expect(deferAfterTransactionCommit).toHaveBeenCalledWith(providedEm, expect.any(Function))
+    const [, indexAfterCommit] = jest.mocked(deferAfterTransactionCommit).mock.calls[0]
+    await indexAfterCommit()
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'created',
+      entity: expect.objectContaining({ orderNumber: 'SO-TX-1' }),
+      indexer: { entityType: 'sales.sales_order' },
+      identifiers: { id: result.orderId, tenantId: quote.tenantId, organizationId: quote.organizationId },
+    }))
+    expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
     expect(lockOptions).toContainEqual({ lockMode: LockMode.PESSIMISTIC_WRITE })
   })
 })
@@ -420,6 +451,7 @@ describe('sales.quotes.convert_to_order — shipping and surcharge totals', () =
     const container = createContainer({ injectionMode: InjectionMode.PROXY })
     container.register({
       em: asValue({ fork: jest.fn() }),
+      dataEngine: asValue({ markOrmEntityChange: jest.fn() }),
       salesDocumentNumberGenerator: asValue({ generate: jest.fn(async () => ({ number: 'SO-FEES-1' })) }),
     })
     const ctx: CommandRuntimeContext = {

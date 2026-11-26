@@ -529,6 +529,8 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
       fields: (query: ListQuery) => resolveListFields(query),
       sortFieldMap: buildSortMap(numberColumn),
       buildFilters: async (query: any) => buildFilters(query, numberColumn, binding.kind),
+      cacheScope: ({ search }: Pick<ListQuery, 'search'>) =>
+        binding.kind === 'order' && search?.trim() ? null : undefined,
       decorateCustomFields: { entityIds: [binding.entityId] },
       joins: [
         {

@@ -10,11 +10,13 @@ import {
   buildChanges,
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
+  flushCrudSideEffects,
   requireId,
   type CrudEventsConfig,
 } from "@open-mercato/shared/lib/commands/helpers";
 import { LockMode } from "@mikro-orm/core";
 import type { EntityManager } from "@mikro-orm/postgresql";
+import { deferAfterTransactionCommit } from "@open-mercato/shared/lib/db/afterCommit";
 import type { EventBus } from "@open-mercato/events";
 import type { DataEngine } from "@open-mercato/shared/lib/data/engine";
 import { CrudHttpError, notFound } from "@open-mercato/shared/lib/crud/errors";
@@ -7363,6 +7365,26 @@ const quoteConvertToOrderSchema = z.object({
   orderNumber: z.string().trim().max(191).optional(),
 });
 
+async function queueConvertedOrderIndex(
+  ctx: CommandRuntimeContext,
+  action: "created" | "deleted",
+  order: SalesOrder,
+): Promise<DataEngine> {
+  const dataEngine = ctx.container.resolve<DataEngine>("dataEngine");
+  await emitCrudSideEffects({
+    dataEngine,
+    action,
+    entity: order,
+    identifiers: {
+      id: order.id,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+    },
+    indexer: { entityType: E.sales.sales_order },
+  });
+  return dataEngine;
+}
+
 const convertQuoteToOrderCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string }
@@ -7733,16 +7755,21 @@ const convertQuoteToOrderCommand: CommandHandler<
       em.remove(quote);
       await em.flush();
 
-      return { orderId: order.id };
+      return order;
     };
     if (callerEm) {
-      // Already inside the caller's transaction — run directly so the whole flow
-      // stays a single transaction (no nested savepoint).
-      return runConversion(callerEm);
+      const order = await runConversion(callerEm);
+      await deferAfterTransactionCommit(callerEm, async () => {
+        const dataEngine = await queueConvertedOrderIndex(ctx, "created", order);
+        await flushCrudSideEffects(dataEngine, ctx.bulkImport);
+      });
+      return { orderId: order.id };
     }
-    return typeof transactionalEm.transactional === "function"
-      ? transactionalEm.transactional((trx) => runConversion(trx))
-      : runConversion(rootEm);
+    const order = typeof transactionalEm.transactional === "function"
+      ? await transactionalEm.transactional(runConversion)
+      : await runConversion(rootEm);
+    await queueConvertedOrderIndex(ctx, "created", order);
+    return { orderId: order.id };
   },
   captureAfter: async (_input, result, ctx) => {
     // Prefer the caller's transactional EM so the just-created (still
@@ -7786,6 +7813,7 @@ const convertQuoteToOrderCommand: CommandHandler<
       quoteSnapshot.quote.organizationId,
       quoteSnapshot.quote.tenantId,
     );
+    let removedOrder: SalesOrder | undefined;
     const revertConversion = async (em: EntityManager, orderExists: boolean) => {
       if (orderSnapshot) {
         const orderId = orderSnapshot.order.id;
@@ -7815,6 +7843,7 @@ const convertQuoteToOrderCommand: CommandHandler<
           await em.nativeDelete(SalesOrderAdjustment, { order: orderId });
           await em.nativeDelete(SalesOrderLine, { order: orderId });
           em.remove(existingOrder);
+          removedOrder = existingOrder;
         }
         await em.nativeDelete(CustomFieldValue, {
           entityId: E.sales.sales_order,
@@ -7845,6 +7874,7 @@ const convertQuoteToOrderCommand: CommandHandler<
         },
         revertConversion,
       );
+      if (removedOrder) await queueConvertedOrderIndex(ctx, "deleted", removedOrder);
       return;
     }
     const em = (ctx.container.resolve("em") as EntityManager).fork();

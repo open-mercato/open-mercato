@@ -54,6 +54,16 @@ describe('buildDocumentCrudOptions', () => {
       viewFeature: 'sales.quotes.view',
     }
 
+    it('bypasses the list cache for order number searches while tokens are indexed asynchronously', () => {
+      const orders = buildDocumentCrudOptions(orderBinding)
+      const quotes = buildDocumentCrudOptions(quoteBinding)
+
+      expect(orders.list.cacheScope({ search: 'ORD-123' })).toBeNull()
+      expect(orders.list.cacheScope({ search: '   ' })).toBeUndefined()
+      expect(orders.list.cacheScope({})).toBeUndefined()
+      expect(quotes.list.cacheScope({ search: 'QUO-456' })).toBeUndefined()
+    })
+
     it('should filter orders by order_number when search is provided', async () => {
       const options = buildDocumentCrudOptions(orderBinding)
       const filters = await options.list.buildFilters({ search: 'ORD-123' })
