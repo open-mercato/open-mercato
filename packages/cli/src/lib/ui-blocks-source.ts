@@ -29,13 +29,17 @@ export type BlockSource = {
   files: BlockSourceFile[]
 }
 
+export function compareCanonical(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 export function hashContent(content: string): string {
   return `sha256-${crypto.createHash('sha256').update(content).digest('hex')}`
 }
 
 export function hashFiles(files: ReadonlyArray<{ path: string; hash: string }>): string {
   const lines = [...files]
-    .sort((left, right) => left.path.localeCompare(right.path))
+    .sort((left, right) => compareCanonical(left.path, right.path))
     .map((file) => `${file.path}\n${file.hash}\n`)
   return hashContent(lines.join(''))
 }
@@ -61,7 +65,7 @@ function collectFiles(dir: string, base: string): string[] {
     if (DEMO_FILES.has(entry.name)) continue
     files.push(toPosix(path.relative(base, fullPath)))
   }
-  return files.sort()
+  return files.sort(compareCanonical)
 }
 
 function rewriteSpecifier(blockId: string, filePath: string, specifier: string): string {
@@ -89,7 +93,7 @@ export function listBlockIds(uiPackageRoot: string): string[] {
     .filter((entry) => entry.isDirectory() && !NON_BLOCK_DIRS.has(entry.name) && isValidBlockId(entry.name))
     .filter((entry) => fs.existsSync(path.join(blocksRoot, entry.name, 'index.ts')))
     .map((entry) => entry.name)
-    .sort()
+    .sort(compareCanonical)
 }
 
 function readPackageManifest(uiPackageRoot: string): { name: string; version: string } {

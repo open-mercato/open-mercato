@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   BLOCK_TARGET_DIR,
+  compareCanonical,
   hashContent,
   listBlockIds,
   readBlockSource,
@@ -113,10 +114,10 @@ function writeBlocksLock(moduleDir: string, lock: BlocksLock): string {
   const lockPath = path.join(moduleDir, BLOCKS_LOCK_FILE)
   const sortedBlocks = Object.fromEntries(
     Object.entries(lock.blocks)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareCanonical(left, right))
       .map(([blockId, entry]) => [
         blockId,
-        { ...entry, files: Object.fromEntries(Object.entries(entry.files).sort(([left], [right]) => left.localeCompare(right))) },
+        { ...entry, files: Object.fromEntries(Object.entries(entry.files).sort(([left], [right]) => compareCanonical(left, right))) },
       ]),
   )
   fs.writeFileSync(lockPath, `${JSON.stringify({ version: lock.version, blocks: sortedBlocks }, null, 2)}\n`)
@@ -134,7 +135,7 @@ function listLocalFiles(dir: string, base: string = dir): string[] {
     }
     files.push(path.relative(base, fullPath).split(path.sep).join('/'))
   }
-  return files.sort()
+  return files.sort(compareCanonical)
 }
 
 function readLocalFile(targetDir: string, filePath: string): string | null {
@@ -151,7 +152,7 @@ export function findLocalEdits(targetDir: string, lockEntry: BlockLockEntry): st
   for (const filePath of listLocalFiles(targetDir)) {
     if (!(filePath in lockEntry.files)) edits.add(filePath)
   }
-  return Array.from(edits).sort()
+  return Array.from(edits).sort(compareCanonical)
 }
 
 function isSameLockEntry(left: BlockLockEntry, right: BlockLockEntry): boolean {
@@ -356,7 +357,7 @@ export function diffBlock(context: UiBlocksContext, blockId: string, moduleId: s
 
   const registryByPath = new Map(source.files.map((file) => [file.path, file.content]))
   const files: BlockFileDiff[] = []
-  for (const filePath of Array.from(new Set([...registryByPath.keys(), ...localFiles])).sort()) {
+  for (const filePath of Array.from(new Set([...registryByPath.keys(), ...localFiles])).sort(compareCanonical)) {
     const registryContent = registryByPath.get(filePath)
     const localContent = readLocalFile(targetDir, filePath)
     if (registryContent === localContent) continue
@@ -379,5 +380,5 @@ export function diffBlock(context: UiBlocksContext, blockId: string, moduleId: s
 }
 
 export function listInstalledBlockIds(context: UiBlocksContext, moduleId: string): string[] {
-  return Object.keys(readBlocksLock(resolveModuleDir(context, moduleId)).blocks).sort()
+  return Object.keys(readBlocksLock(resolveModuleDir(context, moduleId)).blocks).sort(compareCanonical)
 }
