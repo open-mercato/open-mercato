@@ -17,6 +17,7 @@ let backendChromePayload: { grantedFeatures: string[] } | null = {
   grantedFeatures: [],
 }
 let backendChromeReady = true
+let portalContextValue: { auth: { resolvedFeatures: string[]; loading: boolean } } | null = null
 
 jest.mock('@open-mercato/shared/modules/widgets/injection-loader', () => ({
   getInjectionRegistryVersion: () => 0,
@@ -36,6 +37,10 @@ jest.mock('../../BackendChromeProvider', () => ({
   }),
 }))
 
+jest.mock('../../../portal/PortalContext', () => ({
+  useOptionalPortalContext: () => portalContextValue,
+}))
+
 jest.mock('../WidgetSharedState', () => ({
   getWidgetSharedState: () => ({}),
 }))
@@ -53,6 +58,19 @@ function setGrantedFeatures(features: string[]) {
 function setBackendChromeLoading() {
   backendChromePayload = null
   backendChromeReady = false
+}
+
+// Mirrors `useBackendChrome()`'s default outside a `BackendChromeProvider` — e.g. every
+// customer-portal page, which never mounts one. `isReady` is hardcoded `true` there, unlike
+// the "still loading" case above where `isReady` is `false`.
+function setNoBackendChromeProvider() {
+  backendChromePayload = null
+  backendChromeReady = true
+}
+
+function setPortalSession(resolvedFeatures: string[], loading = false) {
+  setNoBackendChromeProvider()
+  portalContextValue = { auth: { resolvedFeatures, loading } }
 }
 
 function visualWidget(
@@ -113,6 +131,7 @@ function dataWidget(id: string, features?: string[]): LoadedInjectionDataWidget 
 describe('Injection widget feature gating', () => {
   beforeEach(() => {
     setGrantedFeatures([])
+    portalContextValue = null
     loadInjectionWidgetsForSpotMock.mockReset()
     loadInjectionDataWidgetsForSpotMock.mockReset()
     onLoadVisibleMock.mockReset()
@@ -264,6 +283,131 @@ describe('Injection widget feature gating', () => {
     expect(beforeSaveResult).toEqual({ ok: true })
     expect(onBeforeSaveHiddenMock).not.toHaveBeenCalled()
     expect(result.current.widgets).toEqual([])
+  })
+
+  it('excludes feature-gated lifecycle widgets outside a BackendChromeProvider (e.g. the portal), but still runs unguarded ones', async () => {
+    const onBeforeSaveStaffOnlyMock = jest.fn()
+    const onBeforeSaveUnguardedMock = jest.fn()
+    setNoBackendChromeProvider()
+    // Hoisted outside the hook callback so re-renders see stable widget/module identities —
+    // constructing these inline would hand `useInjectionSpotEvents` a new `prefetchedWidgets`
+    // array (and new widget objects) on every render, defeating its reference-equality bailout
+    // and causing an infinite re-render loop.
+    const prefetched = [
+      loadedSpotWidget(lifecycleWidget('staff-only-lifecycle-widget', ['record_locks.view'], onBeforeSaveStaffOnlyMock)),
+      loadedSpotWidget(lifecycleWidget('unguarded-lifecycle-widget', undefined, onBeforeSaveUnguardedMock)),
+    ]
+
+    const { result } = renderHook(() =>
+      useInjectionSpotEvents<Record<string, unknown>, Record<string, unknown>>(SPOT_ID, prefetched)
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    await result.current.triggerEvent('onBeforeSave', {}, {})
+
+    expect(onBeforeSaveStaffOnlyMock).not.toHaveBeenCalled()
+    expect(onBeforeSaveUnguardedMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('excludes feature-gated data widgets outside a BackendChromeProvider, but keeps unguarded ones', async () => {
+    loadInjectionDataWidgetsForSpotMock.mockResolvedValueOnce([
+      dataWidget('always-visible'),
+      dataWidget('staff-only-data-widget', ['record_locks.view']),
+    ])
+    setNoBackendChromeProvider()
+
+    const { result } = renderHook(() => useInjectionDataWidgets(SPOT_ID))
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.widgets.map((widget) => widget.metadata.id)).toEqual(['always-visible'])
+  })
+
+  it('renders portal-feature-gated component widgets for a portal session holding the grant, but never staff-gated ones', async () => {
+    loadInjectionWidgetsForSpotMock.mockResolvedValueOnce([
+      visualWidget('portal-granted-widget', ['portal.account.manage'], onLoadVisibleMock),
+      visualWidget('staff-only-widget', ['record_locks.view'], onLoadHiddenMock),
+    ])
+    setPortalSession(['portal.account.manage'])
+
+    const { findByTestId, queryByTestId } = render(
+      <InjectionSpot spotId={SPOT_ID} context={{}} />,
+    )
+
+    await findByTestId('portal-granted-widget')
+    expect(queryByTestId('staff-only-widget')).toBeNull()
+    expect(onLoadVisibleMock).toHaveBeenCalledTimes(1)
+    expect(onLoadHiddenMock).not.toHaveBeenCalled()
+  })
+
+  it('excludes portal-feature-gated component widgets for a portal session without the grant', async () => {
+    loadInjectionWidgetsForSpotMock.mockResolvedValueOnce([
+      visualWidget('unguarded-widget', undefined, onLoadVisibleMock),
+      visualWidget('portal-gated-widget', ['portal.account.manage'], onLoadHiddenMock),
+    ])
+    setPortalSession(['portal.orders.view'])
+
+    const { findByTestId, queryByTestId } = render(
+      <InjectionSpot spotId={SPOT_ID} context={{}} />,
+    )
+
+    await findByTestId('unguarded-widget')
+    expect(queryByTestId('portal-gated-widget')).toBeNull()
+    expect(onLoadHiddenMock).not.toHaveBeenCalled()
+  })
+
+  it('honours portal wildcard grants but never lets a bare "*" portal grant satisfy a staff feature', async () => {
+    loadInjectionDataWidgetsForSpotMock.mockResolvedValueOnce([
+      dataWidget('portal-wildcard-data-widget', ['portal.account.manage']),
+      dataWidget('staff-only-data-widget', ['record_locks.view']),
+    ])
+    setPortalSession(['portal.*', '*'])
+
+    const { result } = renderHook(() => useInjectionDataWidgets(SPOT_ID))
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.widgets.map((widget) => widget.metadata.id)).toEqual(['portal-wildcard-data-widget'])
+  })
+
+  it('excludes staff-gated lifecycle widgets inside a portal session', async () => {
+    const onBeforeSaveStaffOnlyMock = jest.fn()
+    const onBeforeSavePortalMock = jest.fn()
+    setPortalSession(['portal.account.manage'])
+    const prefetched = [
+      loadedSpotWidget(lifecycleWidget('staff-only-lifecycle-widget', ['record_locks.view'], onBeforeSaveStaffOnlyMock)),
+      loadedSpotWidget(lifecycleWidget('portal-lifecycle-widget', ['portal.account.manage'], onBeforeSavePortalMock)),
+    ]
+
+    const { result } = renderHook(() =>
+      useInjectionSpotEvents<Record<string, unknown>, Record<string, unknown>>(SPOT_ID, prefetched)
+    )
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    await result.current.triggerEvent('onBeforeSave', {}, {})
+
+    expect(onBeforeSaveStaffOnlyMock).not.toHaveBeenCalled()
+    expect(onBeforeSavePortalMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds portal-gated data widgets while the portal session is still loading', async () => {
+    loadInjectionDataWidgetsForSpotMock.mockResolvedValue([dataWidget('portal-data-widget', ['portal.account.manage'])])
+    setPortalSession([], true)
+
+    const { result, rerender } = renderHook(() => useInjectionDataWidgets(SPOT_ID))
+
+    expect(result.current.isLoading).toBe(true)
+    expect(loadInjectionDataWidgetsForSpotMock).not.toHaveBeenCalled()
+
+    setPortalSession(['portal.account.manage'])
+    rerender()
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.widgets.map((widget) => widget.metadata.id)).toEqual(['portal-data-widget'])
   })
 })
 

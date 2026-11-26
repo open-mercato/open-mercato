@@ -11,7 +11,7 @@ import {
   type LoadedInjectionDataWidget,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
-import { useBackendChrome } from '../BackendChromeProvider'
+import { useWidgetFeatureGrants } from './useWidgetFeatureGrants'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('ui').child({ component: 'useInjectionDataWidgets' })
@@ -25,12 +25,11 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
   const [widgets, setWidgets] = React.useState<LoadedInjectionDataWidget[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const { payload, isReady: backendChromeReady } = useBackendChrome()
-  const grantedFeatureList = React.useMemo(
-    () => payload?.grantedFeatures ?? [],
-    [payload?.grantedFeatures],
-  )
-  const hasBackendChromePayload = payload !== null
+  const {
+    grantedFeatures: grantedFeatureList,
+    hasAclSource,
+    isReady: featureGrantsReady,
+  } = useWidgetFeatureGrants()
   const disabled = spotId.startsWith('__disabled__:')
   const registryReady = isInjectionRegistryReady()
   const registryError = getInjectionRegistryError()
@@ -56,7 +55,7 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
       setError(registryError)
       return
     }
-    if (!backendChromeReady || !registryReady) {
+    if (!featureGrantsReady || !registryReady) {
       setIsLoading(true)
       setError(null)
       return
@@ -70,9 +69,12 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
         if (!mounted) return
         setWidgets(
           loaded.filter((widget) => {
-            if (!hasBackendChromePayload) return true
             const features = widget.metadata.features ?? []
-            return features.length === 0 || hasAllFeatures(grantedFeatureList, features)
+            if (features.length === 0) return true
+            // With neither a BackendChromeProvider payload nor a portal session there is no
+            // ACL to check, so a feature-gated widget must be excluded, not allowed through.
+            if (!hasAclSource) return false
+            return hasAllFeatures(grantedFeatureList, features)
           })
         )
       } catch (loadError) {
@@ -88,11 +90,11 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
     return () => {
       mounted = false
     }
-  }, [spotId, registryVersion, backendChromeReady, registryReady, registryError, disabled, grantedFeatureList, hasBackendChromePayload])
+  }, [spotId, registryVersion, featureGrantsReady, registryReady, registryError, disabled, grantedFeatureList, hasAclSource])
 
   return disabled
     ? { widgets: EMPTY_WIDGETS, isLoading: false, error: null }
     : registryError
       ? { widgets: EMPTY_WIDGETS, isLoading: false, error: registryError }
-      : { widgets, isLoading: isLoading || !backendChromeReady || !registryReady, error }
+      : { widgets, isLoading: isLoading || !featureGrantsReady || !registryReady, error }
 }

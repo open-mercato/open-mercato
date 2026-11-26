@@ -43,6 +43,10 @@ export function usePortalContext(): PortalContextValue {
   return ctx
 }
 
+export function useOptionalPortalContext(): PortalContextValue | null {
+  return useContext(PortalCtx)
+}
+
 /* ------------------------------------------------------------------ */
 /*  Provider                                                           */
 /* ------------------------------------------------------------------ */

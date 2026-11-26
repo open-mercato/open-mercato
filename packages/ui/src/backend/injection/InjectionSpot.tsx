@@ -18,7 +18,7 @@ import {
   type LoadedInjectionWidget,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
-import { useBackendChrome } from '../BackendChromeProvider'
+import { useWidgetFeatureGrants } from './useWidgetFeatureGrants'
 import { getWidgetSharedState } from './WidgetSharedState'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -73,19 +73,22 @@ function toLoadedWidget(widget: LoadedInjectionWidget): LoadedWidget {
 function hasGrantedWidgetFeatures(
   widget: { module: { metadata: InjectionWidgetMetadata } },
   grantedFeatures: string[],
-  hasBackendChromePayload: boolean,
+  hasAclSource: boolean,
 ): boolean {
-  if (!hasBackendChromePayload) return true
   const features = widget.module.metadata.features ?? []
-  return features.length === 0 || hasAllFeatures(grantedFeatures, features)
+  if (features.length === 0) return true
+  // With neither a BackendChromeProvider payload nor a portal session there is no ACL to
+  // check against, so a feature-gated widget must be excluded rather than run unchecked.
+  if (!hasAclSource) return false
+  return hasAllFeatures(grantedFeatures, features)
 }
 
 function filterWidgetsByGrantedFeatures<TWidget extends { module: { metadata: InjectionWidgetMetadata } }>(
   widgets: TWidget[],
   grantedFeatures: string[],
-  hasBackendChromePayload: boolean,
+  hasAclSource: boolean,
 ): TWidget[] {
-  return widgets.filter((widget) => hasGrantedWidgetFeatures(widget, grantedFeatures, hasBackendChromePayload))
+  return widgets.filter((widget) => hasGrantedWidgetFeatures(widget, grantedFeatures, hasAclSource))
 }
 
 function areSameLoadedWidgets<TWidget extends { widgetId: string; moduleId: string; key: string; module: object }>(current: TWidget[], next: TWidget[]): boolean {
@@ -139,12 +142,11 @@ export function useInjectionWidgets<TContext = unknown>(
   const contextRef = React.useRef(options?.context)
   const triggerOnLoadRef = React.useRef(options?.triggerOnLoad)
   const onEventRef = React.useRef(options?.onEvent)
-  const { payload, isReady: backendChromeReady } = useBackendChrome()
-  const grantedFeatureList = React.useMemo(
-    () => payload?.grantedFeatures ?? [],
-    [payload?.grantedFeatures],
-  )
-  const hasBackendChromePayload = payload !== null
+  const {
+    grantedFeatures: grantedFeatureList,
+    hasAclSource,
+    isReady: featureGrantsReady,
+  } = useWidgetFeatureGrants()
   React.useEffect(() => {
     contextRef.current = options?.context
     triggerOnLoadRef.current = options?.triggerOnLoad
@@ -164,7 +166,7 @@ export function useInjectionWidgets<TContext = unknown>(
       setError(null)
       return
     }
-    if (!backendChromeReady) {
+    if (!featureGrantsReady) {
       setLoading(true)
       setError(null)
       return
@@ -179,7 +181,7 @@ export function useInjectionWidgets<TContext = unknown>(
         const widgetList = filterWidgetsByGrantedFeatures(
           loaded.map(toLoadedWidget),
           grantedFeatureList,
-          hasBackendChromePayload,
+          hasAclSource,
         )
         setWidgets(widgetList)
 
@@ -213,7 +215,7 @@ export function useInjectionWidgets<TContext = unknown>(
     }
     // context/triggerOnLoad/onEvent are read from refs so only a real registry-version bump reloads the spot
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spotId, registryVersion, backendChromeReady, grantedFeatureList, hasBackendChromePayload])
+  }, [spotId, registryVersion, featureGrantsReady, grantedFeatureList, hasAclSource])
 
   return { widgets, loading, error }
 }
@@ -243,12 +245,11 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
     triggerOnLoad: !hasWidgetsOverride,
     onEvent: stableOnEvent,
   })
-  const { payload: overrideFeaturePayload, isReady: overrideBackendChromeReady } = useBackendChrome()
-  const overrideGrantedFeatureList = React.useMemo(
-    () => overrideFeaturePayload?.grantedFeatures ?? [],
-    [overrideFeaturePayload?.grantedFeatures],
-  )
-  const overrideHasBackendChromePayload = overrideFeaturePayload !== null
+  const {
+    grantedFeatures: overrideGrantedFeatureList,
+    hasAclSource: overrideHasAclSource,
+    isReady: overrideFeatureGrantsReady,
+  } = useWidgetFeatureGrants()
   const filteredWidgetsOverride = React.useMemo(
     () =>
       widgetsOverride === undefined
@@ -256,14 +257,14 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
         : filterWidgetsByGrantedFeatures(
             widgetsOverride,
             overrideGrantedFeatureList,
-            overrideHasBackendChromePayload,
+            overrideHasAclSource,
           ),
-    [widgetsOverride, overrideGrantedFeatureList, overrideHasBackendChromePayload],
+    [widgetsOverride, overrideGrantedFeatureList, overrideHasAclSource],
   )
   const effectiveWidgets = hasWidgetsOverride
-    ? (overrideBackendChromeReady ? filteredWidgetsOverride ?? [] : [])
+    ? (overrideFeatureGrantsReady ? filteredWidgetsOverride ?? [] : [])
     : widgets
-  const effectiveLoading = hasWidgetsOverride ? !overrideBackendChromeReady : loading
+  const effectiveLoading = hasWidgetsOverride ? !overrideFeatureGrantsReady : loading
   const effectiveError = hasWidgetsOverride ? null : error
 
   if (effectiveLoading && effectiveWidgets.length === 0) {
@@ -314,20 +315,19 @@ export function useInjectionSpotEvents<
   const loadContextRef = React.useRef(options?.context)
   const loadQueueRef = React.useRef<Promise<void>>(Promise.resolve())
   const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
-  const { payload, isReady: backendChromeReady } = useBackendChrome()
-  const grantedFeatureList = React.useMemo(
-    () => payload?.grantedFeatures ?? [],
-    [payload?.grantedFeatures],
-  )
-  const hasBackendChromePayload = payload !== null
+  const {
+    grantedFeatures: grantedFeatureList,
+    hasAclSource,
+    isReady: featureGrantsReady,
+  } = useWidgetFeatureGrants()
   const prefetchedEventWidgets = React.useMemo(() => {
-    if (prefetchedWidgets === undefined || !backendChromeReady) return []
+    if (prefetchedWidgets === undefined || !featureGrantsReady) return []
     return filterWidgetsByGrantedFeatures(
       prefetchedWidgets,
       grantedFeatureList,
-      hasBackendChromePayload,
+      hasAclSource,
     )
-  }, [backendChromeReady, grantedFeatureList, hasBackendChromePayload, prefetchedWidgets])
+  }, [featureGrantsReady, grantedFeatureList, hasAclSource, prefetchedWidgets])
   const eventWidgetSource = prefetchedWidgets === undefined
     ? widgets as unknown as TWidget[]
     : prefetchedEventWidgets
@@ -340,14 +340,14 @@ export function useInjectionSpotEvents<
   React.useLayoutEffect(() => {
     latestAutoLoadRef.current = {
       participants: eventWidgets,
-      enabled: Boolean(options?.triggerOnLoad && backendChromeReady),
+      enabled: Boolean(options?.triggerOnLoad && featureGrantsReady),
     }
     loadContextRef.current = options?.context
     return () => { latestAutoLoadRef.current.enabled = false }
-  }, [backendChromeReady, eventWidgets, options?.context, options?.triggerOnLoad])
+  }, [featureGrantsReady, eventWidgets, options?.context, options?.triggerOnLoad])
 
   React.useEffect(() => {
-    if (!options?.triggerOnLoad || !backendChromeReady) return
+    if (!options?.triggerOnLoad || !featureGrantsReady) return
     let cancelled = false
     const loadParticipants = async () => {
       for (const queuedWidget of eventWidgets) {
@@ -371,7 +371,7 @@ export function useInjectionSpotEvents<
     }
     loadQueueRef.current = loadQueueRef.current.then(loadParticipants, loadParticipants)
     return () => { cancelled = true }
-  }, [backendChromeReady, eventWidgets, options?.triggerOnLoad])
+  }, [featureGrantsReady, eventWidgets, options?.triggerOnLoad])
 
   React.useEffect(() => {
     return subscribeToInjectionRegistryChanges(() => {
@@ -380,7 +380,7 @@ export function useInjectionSpotEvents<
   }, [])
 
   React.useEffect(() => {
-    if (!backendChromeReady) {
+    if (!featureGrantsReady) {
       setWidgetsIfChanged(setWidgets, [])
       return
     }
@@ -395,7 +395,7 @@ export function useInjectionSpotEvents<
           filterWidgetsByGrantedFeatures(
             loaded.map(toLoadedWidget),
             grantedFeatureList,
-            hasBackendChromePayload,
+            hasAclSource,
           )
         )
       } catch (err) {
@@ -406,7 +406,7 @@ export function useInjectionSpotEvents<
     return () => {
       mounted = false
     }
-  }, [spotId, prefetchedWidgets, registryVersion, backendChromeReady, grantedFeatureList, hasBackendChromePayload])
+  }, [spotId, prefetchedWidgets, registryVersion, featureGrantsReady, grantedFeatureList, hasAclSource])
 
   const triggerEvent = React.useCallback(
     async (
