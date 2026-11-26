@@ -85,7 +85,9 @@ on:
       - 'release/v*'
       - feat/wms
   pull_request:
-    types: [opened, synchronize, reopened]
+    # Draft PRs get no CI: `audit-scope` (cheap, required) reports the draft and every other job
+    # skips. `ready_for_review` starts the full run the moment the PR is marked ready.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
       - 'release/v*'
@@ -113,6 +115,8 @@ jobs:
   #                      skipped for CI/docs-only PRs to save ~2 min.
   prepare:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: audit-scope
+    if: needs.audit-scope.outputs.draft != 'true'
     outputs:
       skip_integration: ${{ steps.integration-scope.outputs.skip }}
       affected_modules: ${{ steps.integration-scope.outputs.modules }}
@@ -283,12 +287,43 @@ jobs:
   # ── Audit scope ─────────────────────────────────────────────────────────────
   # Determines whether dependency audit needs to run. Package manifests and
   # lockfiles are the only inputs that can change the dependency graph.
+  #
+  # Also the draft gate: it is the one job that runs on a draft PR, and it is a
+  # required check, so it stays pending on a fresh run and blocks a merge while
+  # the skipped results of an earlier draft run are still the latest ones. The
+  # draft state is read live, so re-running an old draft run after the PR was
+  # marked ready runs the suite instead of re-publishing skipped checks.
   audit-scope:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       should_run: ${{ steps.dependency-files.outputs.should_run }}
+      draft: ${{ steps.draft.outputs.draft }}
     steps:
+      - name: Detect draft pull request
+        id: draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          DRAFT=false
+          if [ "${EVENT_DRAFT}" = "true" ]; then
+            DRAFT=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.draft' 2>/dev/null || echo false)
+          fi
+          if [ "${DRAFT}" = "true" ]; then
+            echo "Draft pull request: CI skipped. Mark it ready for review to run the checks." >> "$GITHUB_STEP_SUMMARY"
+          else
+            DRAFT=false
+          fi
+          echo "draft=${DRAFT}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
+        if: steps.draft.outputs.draft != 'true'
         uses: actions/checkout@v6
         with:
           # A pull_request checkout is GitHub's merge commit; its first parent is
@@ -297,6 +332,7 @@ jobs:
           fetch-depth: 2
 
       - name: Detect dependency file changes
+        if: steps.draft.outputs.draft != 'true'
         id: dependency-files
         shell: bash
         run: |
@@ -450,6 +486,8 @@ jobs:
   # no-op job (issue #4472).
   lint:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: audit-scope
+    if: needs.audit-scope.outputs.draft != 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -520,6 +558,8 @@ jobs:
   # redirected to `typescript-js`.
   ds-lint:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: audit-scope
+    if: needs.audit-scope.outputs.draft != 'true'
     permissions:
       contents: read
       pull-requests: write   # sticky comment; no-op on fork PRs (read-only token)
