@@ -742,4 +742,4 @@ STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver
 
 ## 2026-11-24 — Relation options for record-protected targets (#9106)
 
-The STABLE generic relation options route requires an owning record policy for protected targets. Current clients can use the owning Staff APIs for time projects, tasks, and reports. Preserving generic reads for these targets would retain the authorization bypass. Named maintainer acknowledgment remains required. [Migration](UPGRADE_NOTES.md#relation-options-and-explicit-global-query-scope-9106).
+STABLE relation options require owning record policies. A bridge retains the authorization bypass. Use Staff APIs for time projects, tasks, and reports. Named maintainer waiver pending. [Migration](UPGRADE_NOTES.md#relation-options-and-explicit-global-query-scope-9106).
