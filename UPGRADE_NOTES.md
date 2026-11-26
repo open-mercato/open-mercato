@@ -6867,3 +6867,7 @@ incomplete payment statuses from the gateway provider and resubmit necessary ind
 work through the index API or CLI. Custom server-side event producers for these jobs
 must pass trusted scope in emit options. An all-tenant reindex requires
 `tenantId: null` and `allowAllTenants: true` in those options.
+
+## MCP Code Mode execution requires explicit direct mode
+
+MCP hides Code Mode `execute` when the mutation mode is unset, including reads through that tool. Code Mode discovery and typed tools retain their existing exposure rules. Clients can switch to typed read or write tools, including the approval workflow when configured. Operators who intentionally permit direct Code Mode execution can set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. The full-app Compose manifests forward the variable from the project environment to both the app and the MCP sidecar. Hosts supplying an exposure configuration programmatically must set `explicitDirectMode: true` together with `mutationMode: 'direct'`.

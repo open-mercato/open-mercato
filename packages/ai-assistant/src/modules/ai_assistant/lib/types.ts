@@ -249,6 +249,7 @@ export interface AiToolMcpOptions {
    * because an approved execution could not reproduce it meaningfully.
    */
   approvalMode?: 'queue' | 'refuse'
+  explicitDirectOnly?: boolean
   /** Optional output schema advertised as MCP `outputSchema`. */
   outputSchema?: z.ZodTypeAny
 }
