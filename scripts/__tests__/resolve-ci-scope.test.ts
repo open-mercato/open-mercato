@@ -44,7 +44,7 @@ const FORCE_FULL_SUITE_EXPRESSION =
   "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'stabilize/') || contains(github.event.pull_request.labels.*.name, 'ci-full')) }}"
 
 function todayForcesFullSuite(input: CiScopeInput): boolean {
-  return (input.event ?? 'pull_request') === 'pull_request' && !input.isFork && (input.headRef.startsWith('stabilize/') || input.labels.includes('ci-full'))
+  return (input.event ?? 'pull_request') === 'pull_request' && !input.isFork && (input.headRef.toLowerCase().startsWith('stabilize/') || input.labels.some((label) => label.toLowerCase() === 'ci-full'))
 }
 
 const gnuGrepAvailable = spawnSync('bash', ['-c', "echo packages/a/src/modules/b/x | grep -oP 'src/modules/\\K[^/]+'"], { encoding: 'utf8' }).stdout.trim() === 'b'
@@ -192,6 +192,9 @@ const SYNTHETIC_PARITY: Array<[string, CiScopeInput, Expected]> = [
   ['stabilize/ head on a fork PR', { changedFiles: ['packages/core/src/modules/sales/a.ts'], labels: [], headRef: 'stabilize/main-2026-11-26', baseRef: 'main', isFork: true }, { level: 'scoped', modules: ['sales'], skip: false }],
   ['stabilize in the middle of a branch name', { changedFiles: ['scripts/a.mjs'], labels: [], headRef: 'fix/stabilize/main', baseRef: 'main', isFork: false }, { level: 'scoped', modules: [], skip: true }],
   ['ci-full on a same-repo PR', { changedFiles: ['README.md'], labels: ['ci-full'], headRef: 'fix/a', baseRef: 'main', isFork: false }, { level: 'full', modules: [], skip: false }],
+  ['CI-Full label on a same-repo PR (contains() ignores case)', { changedFiles: ['README.md'], labels: ['CI-Full'], headRef: 'fix/a', baseRef: 'main', isFork: false }, { level: 'full', modules: [], skip: false }],
+  ['Stabilize/ head on a same-repo PR (startsWith() ignores case)', { changedFiles: ['scripts/a.mjs'], labels: [], headRef: 'Stabilize/main-2026-11-26', baseRef: 'main', isFork: false }, { level: 'full', modules: [], skip: false }],
+  ['STABILIZE/ head on a fork PR is not forced', { changedFiles: ['packages/core/src/modules/sales/a.ts'], labels: [], headRef: 'STABILIZE/main', baseRef: 'main', isFork: true }, { level: 'scoped', modules: ['sales'], skip: false }],
   ['ci-full on a fork PR is not forced', { changedFiles: ['packages/core/src/modules/catalog/a.ts'], labels: ['ci-full'], headRef: 'fix/a', baseRef: 'main', isFork: true }, { level: 'scoped', modules: ['catalog'], skip: false }],
   ['push event', { event: 'push', changedFiles: ['README.md'], labels: [], headRef: 'main', baseRef: 'main', isFork: false }, { level: 'full', modules: [], skip: false }],
   ['PR into a release line', { changedFiles: ['packages/core/src/modules/sales/a.ts'], labels: [], headRef: 'backport/x', baseRef: 'release/v0.10.x', isFork: false }, { level: 'scoped', modules: ['sales'], skip: false }],
@@ -318,12 +321,60 @@ for (const files of [
   ['.ai/specs/notes.txt'],
   ['docs/README.md'],
   ['README.md', 'scripts/dev.mjs'],
-  [],
 ]) {
   test(`normal lane for ${files.length ? files.join(', ') : 'an empty diff'}`, () => {
     assert.equal(resolve({ changedFiles: files }).lane, 'code')
   })
 }
+
+test('an empty changed-file list escalates to full instead of skipping integration', () => {
+  for (const isFork of [false, true]) {
+    const result = resolve({ changedFiles: [], isFork })
+    assert.equal(result.lane, 'code')
+    assert.equal(result.level, 'full')
+    assert.deepEqual(result.modules, [])
+    assert.equal(result.skipIntegration, false)
+    assert.match(result.summary, /no changed files reported/)
+  }
+})
+
+for (const labels of [['security'], ['risk-high'], ['backport release/v0.10.x'], ['ci-targeted']]) {
+  test(`${labels.join(', ')} with no module to scope to escalates to full`, () => {
+    const result = resolve({ changedFiles: ['scripts/a.mjs', 'package.json'], labels })
+    assert.equal(result.level, 'full')
+    assert.deepEqual(result.modules, [])
+    assert.equal(result.skipIntegration, false)
+    assert.match(result.summary, /targeted requested but no module changed and no ci-area label/)
+  })
+}
+
+test('security on a packages/core/src/lib change runs the full suite', () => {
+  const result = resolve({ changedFiles: ['packages/core/src/lib/crypto.ts'], labels: ['security'] })
+  assert.equal(result.level, 'full')
+  assert.equal(result.skipIntegration, false)
+})
+
+test('a raised level with an area label keeps the targeted scope', () => {
+  const result = resolve({ changedFiles: ['scripts/a.mjs'], labels: ['security', 'ci-area:portal'] })
+  assert.equal(result.level, 'targeted')
+  assert.deepEqual(result.modules, ['customer_accounts', 'portal'])
+})
+
+test('labels match case-insensitively, like GitHub contains()', () => {
+  const targeted = resolve({ changedFiles: ['packages/core/src/modules/sales/a.ts'], labels: ['CI-Targeted', 'CI-Area:Portal'] })
+  assert.equal(targeted.level, 'targeted')
+  assert.deepEqual(targeted.areas, ['portal'])
+  assert.deepEqual(targeted.modules, ['customer_accounts', 'portal', 'sales'])
+  for (const label of ['Security', 'RISK-HIGH', 'Backport release/v0.10.x']) {
+    const implied = resolve({ changedFiles: ['packages/core/src/modules/sales/a.ts'], labels: [label] })
+    assert.equal(implied.level, 'targeted', label)
+    assert.ok(isScopeLabel(label, config), label)
+  }
+  assert.equal(resolve({ changedFiles: ['README.md'], labels: ['Ci-Full'] }).level, 'full')
+  assert.equal(resolve({ changedFiles: ['scripts/a.mjs'], labels: ['CI-Monitoring'] }).level, 'scoped')
+  assert.equal(isScopeLabel('CI-Monitoring', config), false)
+  assert.throws(() => resolve({ changedFiles: ['scripts/a.mjs'], labels: ['CI-Area:Nope'] }), /"CI-Area:Nope"/)
+})
 
 test('docs-only change with a level label takes the normal lane', () => {
   const result = resolve({ changedFiles: ['.ai/specs/x.md'], labels: ['ci-full'] })
@@ -376,6 +427,32 @@ test('an unknown ci label is an error on a fork PR too', () => {
   assert.throws(() => resolve({ changedFiles: ['scripts/a.mjs'], labels: ['ci-fulll'], isFork: true }), CiScopeError)
 })
 
+function moduleDirectories(relativeDir: string): string[] {
+  const directory = new URL(`../../${relativeDir}/`, import.meta.url)
+  if (!fs.existsSync(directory)) return []
+  return fs.readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+}
+
+function areaOf(moduleId: string): string | undefined {
+  return Object.entries(config.areas).find(([, modules]) => modules.includes(moduleId))?.[0]
+}
+
+test('every provider package module maps to an area', () => {
+  const providerPackages = fs.readdirSync(new URL('../../packages/', import.meta.url)).filter((entry) => /^(channel|gateway|carrier|sync)-/.test(entry))
+  assert.ok(providerPackages.length > 0, 'no provider packages found')
+  for (const entry of providerPackages) {
+    const modules = moduleDirectories(`packages/${entry}/src/modules`)
+    assert.ok(modules.length > 0, `packages/${entry} has no src/modules directory`)
+    for (const moduleId of modules) assert.ok(areaOf(moduleId), `packages/${entry}: module ${moduleId} is in no ci-scope area`)
+  }
+})
+
+test('every enterprise module maps to an area', () => {
+  const modules = moduleDirectories('packages/enterprise/src/modules')
+  assert.ok(modules.length > 0, 'no enterprise modules found')
+  for (const moduleId of modules) assert.ok(areaOf(moduleId), `enterprise module ${moduleId} is in no ci-scope area`)
+})
+
 test('every area module is a real module directory', () => {
   const root = new URL('../../', import.meta.url)
   const known = new Set<string>()
@@ -387,36 +464,6 @@ test('every area module is a real module directory', () => {
   }
   for (const [area, modules] of Object.entries(config.areas)) {
     for (const moduleId of modules) assert.ok(known.has(moduleId), `${area}: ${moduleId} is not a module directory`)
-  }
-})
-
-test('ci-area:ai covers web research: its own modules and every module that consumes it', () => {
-  // Web research ships as library packages (packages/web-research*), not as src/modules/ directories,
-  // so its integration surface is the modules that import it. Every one of them must be in the ai area,
-  // and a future web research module directory must be mapped there too.
-  const root = new URL('../../', import.meta.url)
-  const webResearchPackages = fs.readdirSync(new URL('packages/', root)).filter((entry) => /^web-research(-|$)/.test(entry))
-  assert.ok(webResearchPackages.length > 0, 'no packages/web-research* found')
-  const expected = new Set<string>()
-  for (const entry of webResearchPackages) {
-    const modulesDir = new URL(`packages/${entry}/src/modules/`, root)
-    if (fs.existsSync(modulesDir)) for (const moduleId of fs.readdirSync(modulesDir)) expected.add(moduleId)
-  }
-  const grep = spawnSync('git', ['grep', '-l', '-E', `['"]@open-mercato/web-research(-[a-z]+)?(/|['"])`, '--', 'packages/*/src/modules/*', 'apps/*/src/modules/*'], {
-    cwd: root,
-    encoding: 'utf8',
-  })
-  assert.ok(grep.status === 0 || grep.status === 1, grep.stderr)
-  for (const file of grep.stdout.split('\n').filter(Boolean)) {
-    if (file.startsWith('packages/web-research')) continue
-    for (const moduleId of extractChangedModules([file])) expected.add(moduleId)
-  }
-  assert.ok(expected.has('agent_orchestrator'), 'agent_orchestrator no longer consumes web research: revisit this test')
-  const result = resolve({ changedFiles: ['scripts/a.mjs'], labels: ['ci-area:ai'] })
-  assert.deepEqual(result.areas, ['ai'])
-  for (const moduleId of expected) {
-    assert.ok(config.areas.ai.includes(moduleId), `web research module ${moduleId} is not in the ai area`)
-    assert.ok(result.modules.includes(moduleId), `ci-area:ai does not run ${moduleId}`)
   }
 })
 

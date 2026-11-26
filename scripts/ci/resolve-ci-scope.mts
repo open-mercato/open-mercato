@@ -147,8 +147,12 @@ export function globToRegExp(glob: string): RegExp {
 }
 
 function labelPatternMatches(pattern: string, label: string): boolean {
-  if (!pattern.includes('*')) return pattern === label
-  return new RegExp(`^${pattern.split('*').map(escapeRegExp).join('.*')}$`).test(label)
+  if (!pattern.includes('*')) return pattern.toLowerCase() === label.toLowerCase()
+  return new RegExp(`^${pattern.split('*').map(escapeRegExp).join('.*')}$`, 'i').test(label)
+}
+
+function isIgnoredLabel(label: string, config: CiScopeConfig): boolean {
+  return config.ignoredLabels.some((ignored) => ignored.toLowerCase() === label)
 }
 
 export function extractChangedModules(changedFiles: readonly string[]): string[] {
@@ -164,9 +168,10 @@ export function fullSuitePattern(config: CiScopeConfig): RegExp {
 }
 
 export function validateCiLabels(labels: readonly string[], config: CiScopeConfig): void {
-  const unknown = labels.filter((label) => {
+  const unknown = labels.filter((original) => {
+    const label = original.toLowerCase()
     if (!label.startsWith(CI_LABEL_PREFIX)) return false
-    if (config.levels.includes(label) || config.ignoredLabels.includes(label)) return false
+    if (config.levels.includes(label) || isIgnoredLabel(label, config)) return false
     if (label.startsWith(AREA_LABEL_PREFIX)) return !Object.hasOwn(config.areas, label.slice(AREA_LABEL_PREFIX.length))
     return true
   })
@@ -178,8 +183,9 @@ export function validateCiLabels(labels: readonly string[], config: CiScopeConfi
   )
 }
 
-export function isScopeLabel(label: string, config: CiScopeConfig): boolean {
-  if (config.ignoredLabels.includes(label)) return false
+export function isScopeLabel(original: string, config: CiScopeConfig): boolean {
+  const label = original.toLowerCase()
+  if (isIgnoredLabel(label, config)) return false
   if (label.startsWith(CI_LABEL_PREFIX)) return true
   return Object.keys(config.implies).some((pattern) => labelPatternMatches(pattern, label))
 }
@@ -206,6 +212,8 @@ export function resolveCiScope(input: CiScopeInput, config: CiScopeConfig): CiSc
 
   if (event !== 'pull_request') raise(fullLevel, `${event} event`)
 
+  if (input.changedFiles.length === 0) raise(fullLevel, 'no changed files reported (an empty or failed diff cannot be scoped)')
+
   const controlFiles = input.changedFiles.filter((file) => SCOPE_CONTROL_PATHS.includes(file))
   if (controlFiles.length > 0) raise(fullLevel, `CI scope files changed (${controlFiles.join(', ')})`)
 
@@ -215,8 +223,9 @@ export function resolveCiScope(input: CiScopeInput, config: CiScopeConfig): CiSc
 
   const areas: string[] = []
   if (event === 'pull_request' && !input.isFork) {
-    if (input.headRef.startsWith('stabilize/')) raise(fullLevel, `stabilization branch ${input.headRef}`)
-    for (const label of input.labels) {
+    if (input.headRef.toLowerCase().startsWith('stabilize/')) raise(fullLevel, `stabilization branch ${input.headRef}`)
+    for (const original of input.labels) {
+      const label = original.toLowerCase()
       if (config.levels.includes(label)) raise(levelName(label), `label ${label}`)
       else if (label.startsWith(AREA_LABEL_PREFIX)) {
         const area = label.slice(AREA_LABEL_PREFIX.length)
@@ -236,7 +245,11 @@ export function resolveCiScope(input: CiScopeInput, config: CiScopeConfig): CiSc
   areas.sort()
 
   const areaModules = areas.flatMap((area) => config.areas[area])
-  const modules = level === fullLevel ? [] : [...new Set([...changedModules, ...areaModules])].sort()
+  const scopedModules = [...new Set([...changedModules, ...areaModules])].sort()
+  if (level !== DEFAULT_LEVEL && level !== fullLevel && scopedModules.length === 0) {
+    raise(fullLevel, `${level} requested but no module changed and no ci-area label`)
+  }
+  const modules = level === fullLevel ? [] : scopedModules
   const skipIntegration = level !== fullLevel && modules.length === 0
 
   const docsPatterns = config.docsOnly.map(globToRegExp)
