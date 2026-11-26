@@ -143,6 +143,58 @@ for (const change of ['owner changed', 'member joined']) {
   })
 }
 
+for (const owned of [true, false]) {
+  test(`native Windows recovery ${owned ? 'stops the owned session' : 'leaves an unrelated recorded PID alive'}`, {
+    skip: process.platform !== 'win32', timeout: 60_000,
+  }, async (context) => {
+    const workspaceRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om windows recovery ü ')))
+    const unrelatedRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om unrelated ')))
+    const children = []
+    let session
+    context.after(async () => {
+      session?.release()
+      await Promise.all(children.map((child) => new Promise((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) return resolve()
+        child.once('exit', resolve)
+        child.kill('SIGKILL')
+      })))
+      fs.rmSync(workspaceRoot, { recursive: true, force: true })
+      fs.rmSync(unrelatedRoot, { recursive: true, force: true })
+    })
+    const start = async (cwd) => {
+      const child = spawn(process.execPath, ['-e', "process.send('ready'); setInterval(() => {}, 1000)"], {
+        cwd, stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      })
+      children.push(child)
+      await new Promise((resolve, reject) => {
+        child.once('message', resolve)
+        child.once('error', reject)
+      })
+      return child
+    }
+    const unrelated = await start(unrelatedRoot)
+    const recorded = owned ? await start(workspaceRoot) : unrelated
+    const lockDirectory = path.join(workspaceRoot, '.mercato', 'dev-session.lock')
+    fs.mkdirSync(path.join(lockDirectory, 'members'), { recursive: true })
+    fs.writeFileSync(path.join(lockDirectory, 'owner.json'), JSON.stringify({
+      token: randomUUID(), pid: recorded.pid, role: 'dev-runner', workspaceRoot,
+      startedAt: new Date().toISOString(), mode: 'dev:direct:compact',
+    }))
+    let prompts = 0
+    session = await acquireDevSessionWithRecovery({ workspaceRoot, token: null }, {
+      interactive: true, endpointAvailable: async () => true, output: { write() {} }, graceMs: 0,
+      confirm: async (description) => {
+        prompts++
+        assert.match(description, owned ? /still running in this workspace/ : /unrelated process/)
+        return true
+      },
+    })
+    assert.equal(prompts, 1)
+    assert.doesNotThrow(() => process.kill(unrelated.pid, 0), 'unrelated PID was killed')
+    if (owned) assert.throws(() => process.kill(recorded.pid, 0), 'owned Windows process survived recovery')
+  })
+}
+
 test('recovery retains a late descendant after its TERM-handling parent exits', async (context) => {
   const fixture = await createOrphanFixture(context, true)
   if (!fixture) return
