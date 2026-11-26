@@ -1,41 +1,72 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { ModuleConfig } from '@open-mercato/core/modules/configs/data/entities'
+import type { AwilixContainer } from 'awilix'
+import type { InstanceConfigInitializer } from '@open-mercato/core/modules/configs/lib/instance-config-initializer'
 import { setup } from '../setup'
-import { DEFAULT_RECORD_LOCK_SETTINGS } from '../lib/config'
+import { DEFAULT_RECORD_LOCK_SETTINGS, normalizeRecordLockSettings } from '../lib/config'
 
-function buildEm(hasModuleConfig: boolean) {
-  const em = {
-    getMetadata: jest.fn(() => ({ find: (entity: unknown) => (entity === ModuleConfig ? hasModuleConfig : true) })),
-    findOne: jest.fn().mockResolvedValue(null),
-    create: jest.fn((_entity: unknown, data: unknown) => data),
-    persist: jest.fn(),
-    flush: jest.fn().mockResolvedValue(undefined),
-  }
-  return em
+type InitializationInput = Parameters<InstanceConfigInitializer['initialize']>[1]
+
+const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+const em = {} as EntityManager
+const onTenantCreated = setup.onTenantCreated!
+
+function makeContainer(initialize?: InstanceConfigInitializer['initialize']) {
+  const resolve = jest.fn(() => initialize ? { initialize } : undefined)
+  return { container: { resolve } as unknown as AwilixContainer, resolve }
 }
 
-describe('record_locks onTenantCreated (#9205)', () => {
-  test('skips the settings seed without touching the ORM when configs is disabled', async () => {
-    const em = buildEm(false)
+describe('Record Locks settings tenant setup', () => {
+  test('skips with no Configs capability', async () => {
+    const { container, resolve } = makeContainer()
 
-    await expect(
-      setup.onTenantCreated?.({ em: em as unknown as EntityManager, tenantId: 'tenant-1', organizationId: 'org-1' }),
-    ).resolves.toBeUndefined()
-
-    expect(em.findOne).not.toHaveBeenCalled()
-    expect(em.create).not.toHaveBeenCalled()
-    expect(em.flush).not.toHaveBeenCalled()
+    await expect(onTenantCreated({ em, ...scope })).resolves.toBeUndefined()
+    await expect(onTenantCreated({ em, ...scope, container })).resolves.toBeUndefined()
+    expect(resolve).toHaveBeenCalledWith('instanceConfigInitializer', { allowUnregistered: true })
   })
 
-  test('seeds the default settings row when configs is enabled', async () => {
-    const em = buildEm(true)
+  test('honors the effective module set instead of resolving Configs from a broader container', async () => {
+    const initialize = jest.fn<ReturnType<InstanceConfigInitializer['initialize']>, [EntityManager, InitializationInput]>()
+    const { container, resolve } = makeContainer(initialize)
 
-    await setup.onTenantCreated?.({ em: em as unknown as EntityManager, tenantId: 'tenant-1', organizationId: 'org-1' })
+    await onTenantCreated({ em, ...scope, container, enabledModuleIds: new Set(['record_locks']) })
 
-    expect(em.create).toHaveBeenCalledWith(
-      ModuleConfig,
-      expect.objectContaining({ valueJson: DEFAULT_RECORD_LOCK_SETTINGS }),
-    )
-    expect(em.flush).toHaveBeenCalled()
+    expect(resolve).not.toHaveBeenCalled()
+    expect(initialize).not.toHaveBeenCalled()
+  })
+
+  test('uses Configs to seed defaults and merge legacy settings without rewriting custom resource lists', async () => {
+    const initialize = jest.fn(async (_manager: EntityManager, _input: InitializationInput) => {})
+    const { container } = makeContainer(initialize)
+
+    await onTenantCreated({ em, ...scope, container, enabledModuleIds: new Set(['record_locks', 'configs']) })
+
+    const [manager, input] = initialize.mock.calls[0]!
+    expect(manager).toBe(em)
+    expect(input).toMatchObject({ moduleId: 'record_locks', name: 'settings', initialValue: DEFAULT_RECORD_LOCK_SETTINGS })
+    expect(input.merge({ enabledResources: ['', '  example.documents '], timeoutSeconds: 450 })).toBeUndefined()
+
+    for (const enabledResources of [undefined, null, [], ['', '   '], [null, false], 'legacy']) {
+      const merged = input.merge({ enabledResources, timeoutSeconds: 450, allowIncomingOverride: false })
+      expect(merged).toEqual({
+        value: {
+          enabledResources: DEFAULT_RECORD_LOCK_SETTINGS.enabledResources,
+          timeoutSeconds: 450,
+          allowIncomingOverride: false,
+        },
+      })
+      expect(normalizeRecordLockSettings(merged?.value)).toMatchObject({
+        enabledResources: DEFAULT_RECORD_LOCK_SETTINGS.enabledResources,
+        timeoutSeconds: 450,
+        allowIncomingOverride: false,
+      })
+      expect(input.merge(merged?.value)).toBeUndefined()
+    }
+  })
+
+  test('propagates a registered provider failure', async () => {
+    const failure = new Error('[internal] Configs persistence failed')
+    const { container } = makeContainer(jest.fn().mockRejectedValue(failure))
+
+    await expect(onTenantCreated({ em, ...scope, container })).rejects.toBe(failure)
   })
 })

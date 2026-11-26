@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
-import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -26,7 +25,6 @@ export default function PortalSignupPage({ params }: Props) {
 
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [success, setSuccess] = useState(false)
@@ -48,7 +46,7 @@ export default function PortalSignupPage({ params }: Props) {
         const result = await apiCall<SignupResponse>('/api/customer_accounts/signup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, displayName, organizationId: tenant.organizationId }),
+          body: JSON.stringify({ email, displayName, organizationId: tenant.organizationId }),
         })
 
         if (result.status === 202 && result.result?.ok) {
@@ -69,8 +67,6 @@ export default function PortalSignupPage({ params }: Props) {
               mapped.displayName = t('portal.signup.error.displayName.required', 'Full name is required.')
             } else if (fieldKey === 'email') {
               mapped.email = t('portal.signup.error.email.invalid', 'Please enter a valid email address.')
-            } else if (fieldKey === 'password') {
-              mapped.password = t('portal.signup.error.password.minLength', 'Password must be at least 8 characters.')
             }
           }
           const hasUnmappedField = detailEntries.some(([fieldKey]) => !(fieldKey in mapped))
@@ -87,7 +83,7 @@ export default function PortalSignupPage({ params }: Props) {
         setSubmitting(false)
       }
     },
-    [displayName, email, password, tenant.organizationId, t],
+    [displayName, email, tenant.organizationId, t],
   )
 
   const injectionContext = useMemo(
@@ -156,12 +152,6 @@ export default function PortalSignupPage({ params }: Props) {
           <Label htmlFor="signup-email" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.email', 'Email')}</Label>
           <EmailInput id="signup-email" required placeholder={t('portal.signup.email.placeholder', 'you@example.com')} value={email} onChange={(e) => setEmail(e.target.value)} disabled={submitting} aria-invalid={fieldErrors.email ? true : undefined} aria-describedby={fieldErrors.email ? 'signup-email-error' : undefined} className="rounded-lg" />
           {fieldErrors.email && <p id="signup-email-error" role="alert" className="text-sm text-destructive">{fieldErrors.email}</p>}
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="signup-password" className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/70">{t('portal.signup.password', 'Password')}</Label>
-          <PasswordInput id="signup-password" autoComplete="new-password" required placeholder={t('portal.signup.password.placeholder', '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022')} value={password} onChange={(e) => setPassword(e.target.value)} disabled={submitting} aria-invalid={fieldErrors.password ? true : undefined} aria-describedby={fieldErrors.password ? 'signup-password-error' : undefined} className="rounded-lg" />
-          {fieldErrors.password && <p id="signup-password-error" role="alert" className="text-sm text-destructive">{fieldErrors.password}</p>}
         </div>
 
         <Button type="submit" disabled={submitting} className="mt-1 w-full rounded-lg">

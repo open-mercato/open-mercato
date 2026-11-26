@@ -11,9 +11,11 @@ import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimisti
 import { canonicalizeResourceTag } from '@open-mercato/shared/lib/crud/cache'
 import {
   readRecordLockHeaders,
+  RecordLockHistoryUnavailableError,
   type ParsedRecordLockHeaders,
   type RecordLockService,
 } from './recordLockService'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { isRecordLockingEnabledForResource } from './config'
 
 export type RecordLockCrudMutationGuardService = {
@@ -89,8 +91,8 @@ export type CreateRecordLockCrudMutationGuardServiceOptions = {
  *      settings, the enterprise `validateMutation` enrichment runs (pessimistic
  *      lock + action-log diff). It can only ADD a 409, never relax the floor.
  *
- * Fail-closed (H3): if the enterprise enrichment throws, the decorator degrades
- * to the floor result (floor-pass ⇒ allow), never to "skip the guard".
+ * Unexpected enrichment errors fall back to the floor (H3). When history is
+ * required for the legacy lock decision, its unavailability rejects the write.
  */
 export function createRecordLockCrudMutationGuardService(
   recordLockService: RecordLockService,
@@ -123,12 +125,12 @@ export function createRecordLockCrudMutationGuardService(
         return { ok: true, shouldRunAfterSuccess: false, metadata: null }
       }
 
-      // 3. Fail-closed: a throwing enrichment degrades to the (passed) floor.
       let enrichmentResult: Awaited<ReturnType<RecordLockService['validateMutation']>>
       try {
         enrichmentResult = await recordLockService.validateMutation({
           tenantId: input.tenantId,
           organizationId: input.organizationId ?? null,
+          ...(input.organizationScope !== undefined ? { organizationScope: input.organizationScope } : {}),
           userId: input.userId,
           resourceKind: input.resourceKind,
           resourceId: input.resourceId,
@@ -139,7 +141,14 @@ export function createRecordLockCrudMutationGuardService(
           }),
           mutationPayload: input.mutationPayload ?? null,
         })
-      } catch {
+      } catch (error) {
+        if (error instanceof RecordLockHistoryUnavailableError) {
+          return { ok: false, status: error.status, body: error.body }
+        }
+        getTelemetryRuntime()?.reportError(error, {
+          module: 'record_locks',
+          code: 'record_locks.mutation_enrichment_failed',
+        })
         return { ok: true, shouldRunAfterSuccess: false, metadata: null }
       }
 
@@ -180,10 +189,11 @@ export function createRecordLockCrudMutationGuardService(
         reason: 'saved',
       })
 
-      await Promise.allSettled([
+      const [incomingChanges] = await Promise.allSettled([
         recordLockService.emitIncomingChangesNotificationAfterMutation({
           tenantId: input.tenantId,
           organizationId: input.organizationId ?? null,
+          ...(input.organizationScope !== undefined ? { organizationScope: input.organizationScope } : {}),
           userId: input.userId,
           resourceKind: input.resourceKind,
           resourceId: input.resourceId,
@@ -198,6 +208,12 @@ export function createRecordLockCrudMutationGuardService(
           method,
         }),
       ])
+      if (incomingChanges.status === 'rejected') {
+        getTelemetryRuntime()?.reportError(incomingChanges.reason, {
+          module: 'record_locks',
+          code: 'record_locks.incoming_changes_notification_failed',
+        })
+      }
     },
   }
 }

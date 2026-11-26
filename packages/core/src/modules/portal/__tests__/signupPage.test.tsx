@@ -35,7 +35,6 @@ describe('PortalSignupPage', () => {
   function fillForm(getByLabelText: (matcher: RegExp) => HTMLElement) {
     fireEvent.change(getByLabelText(/full name/i), { target: { value: 'Jane Smith' } })
     fireEvent.change(getByLabelText(/email/i), { target: { value: 'jane@example.com' } })
-    fireEvent.change(getByLabelText(/^password$/i), { target: { value: 'pw12345' } })
   }
 
   it('submits the signup payload with organization scope on 202 success', async () => {
@@ -56,7 +55,6 @@ describe('PortalSignupPage', () => {
         method: 'POST',
         body: JSON.stringify({
           email: 'jane@example.com',
-          password: 'pw12345',
           displayName: 'Jane Smith',
           organizationId: 'o-1',
         }),
@@ -119,7 +117,7 @@ describe('PortalSignupPage', () => {
       result: {
         ok: false,
         error: 'Validation failed',
-        details: { password: ['Too small: expected string to have >=8 characters'] },
+        details: { displayName: ['Too small: expected string to have >=1 characters'] },
       },
     })
 
@@ -132,7 +130,7 @@ describe('PortalSignupPage', () => {
     })
 
     // Shows the translated, user-friendly field-level message
-    await findByText(/password must be at least 8 characters/i)
+    await findByText(/full name is required/i)
     // Does NOT show the generic "Validation failed" banner
     expect(queryByText(/validation failed/i)).toBeNull()
     // Does NOT show raw Zod message text
@@ -162,7 +160,7 @@ describe('PortalSignupPage', () => {
     apiCallMock.mockResolvedValueOnce({
       ok: false,
       status: 400,
-      result: { ok: false, error: 'Validation failed', details: { password: [] } },
+      result: { ok: false, error: 'Validation failed', details: { displayName: [] } },
     })
 
     const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
@@ -175,7 +173,7 @@ describe('PortalSignupPage', () => {
 
     await findByText(/signup failed/i)
     expect(queryByText(/validation failed/i)).toBeNull()
-    expect(queryByText(/password must be at least 8 characters/i)).toBeNull()
+    expect(queryByText(/full name is required/i)).toBeNull()
   })
 
   it('falls back to the banner for unmapped detail field keys instead of dropping them', async () => {
