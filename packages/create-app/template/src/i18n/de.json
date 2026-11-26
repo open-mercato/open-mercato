@@ -1010,6 +1010,7 @@
   "ui.forms.unsavedChangesDiscard": "Änderungen verwerfen",
   "ui.forms.unsavedChangesKeep": "Weiter bearbeiten",
   "ui.forms.unsavedChangesTitle": "Ungespeicherte Änderungen verwerfen?",
+  "ui.helpTip.ariaLabel": "Was ist das?",
   "ui.inputs.amountInput.currencyLabel": "Währung",
   "ui.inputs.amountInput.placeholder": "0,00",
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",
