@@ -119,6 +119,10 @@ Use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFiel
 
 `acl.ts`, `ce.ts`, `di.ts`, `events.ts`, `index.ts`, `notifications.ts`, `search.ts`, `setup.ts`, `analytics.ts`, `vector.ts`
 
+## CLI Commands
+
+- `mercato customers seed-perf` — deterministic perf-test dataset seeder (`lib/perfSeed/`; contract in `perf/docs/contracts.md`). It bulk-inserts encrypted rows via `TenantDataEncryptionService` and never reindexes, so run `mercato search reindex --tenant --org --force` afterwards.
+
 ## AI Agents in This Module
 
 This module is the reference implementation for the AI framework. Copy `ai-agents.ts` + `ai-tools.ts` when adding AI agents to other modules. See `/framework/ai-assistant/agents` for the full guide.

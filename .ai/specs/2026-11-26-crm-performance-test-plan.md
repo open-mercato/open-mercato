@@ -113,7 +113,7 @@ The customer 360 card has **no order-history tab**. `sales` is reached only thro
 | **Exactly the default module set** | Agreed scope: measure what installs out of the box. |
 | **Queue `async` (BullMQ)**, workers and scheduler as **separate containers** | The production recommendation (`packages/queue/AGENTS.md`). The local file queue takes a global lock on every enqueue and would distort write latency. |
 | **Prometheus + Grafana** as a compose overlay, plus a **Markdown report per run** | Grafana is for watching a run live. The report is for comparing runs and is generated without the UI. |
-| **TLS on the SUT** through the existing Traefik overlay (`docker-compose.fullapp.traefik.yml`), with a self-signed certificate or one from Let's Encrypt | In production mode the login cookies are `Secure` (`packages/core/src/modules/auth/api/login.ts:317`), so Chromium drops them on a non-localhost `http://` origin and browser VUs could not log in. Browser VUs use `ignoreHTTPSErrors` with a self-signed certificate. Protocol VUs authenticate with `Authorization: Bearer <token>` (`packages/shared/src/lib/auth/server.ts:438-441`), not cookies. |
+| **TLS on the SUT** through a small Caddy service (`tls`) in `perf/sut/compose.perf.yml`: `tls internal` (self-signed) by default, or a real domain through `PERF_TLS_DOMAIN`. The stock Traefik overlay is not used. It requires Let's Encrypt, and it adds a customer-domain forward-auth request per request on its catch-all router. | In production mode the login cookies are `Secure` (`packages/core/src/modules/auth/api/login.ts:317`), so Chromium drops them on a non-localhost `http://` origin and browser VUs could not log in. Browser VUs use `ignoreHTTPSErrors` with a self-signed certificate. Protocol VUs authenticate with `Authorization: Bearer <token>` (`packages/shared/src/lib/auth/server.ts:438-441`), not cookies. |
 | **Reference thresholds are non-failing.** Only safety aborts stop a run. | Exploratory program. Safety aborts: error rate > 20% for 2 min, or p95 > 30 s. |
 | Findings go into a **ranked report**, not issues | Agreed: issues and fix PRs only on human request. |
 
@@ -125,7 +125,7 @@ The customer 360 card has **no order-history tab**. `sales` is reached only thro
 | Seeding only through the HTTP API | Most faithful write path, but 6–14 h per 1M entities. API writes are still measured: the write journeys keep creating real history during every run. |
 | Plain SQL seeding with encryption off | Fastest, but it measures a configuration no default install uses. |
 | A seeder script in `perf/` with a derived image | Keeps product code untouched, but bootstrapping the app's generated registries and DI outside the CLI is fragile. A module CLI command is the established pattern. |
-| A reverse proxy for server-side timing | Unnecessary once the generator sits in the same datacenter (sub-millisecond RTT). The app does not emit `Server-Timing`. Traefik is present only for TLS. |
+| A reverse proxy for server-side timing | Unnecessary once the generator sits in the same datacenter (sub-millisecond RTT). The app does not emit `Server-Timing`. Caddy is present only for TLS. |
 | `xk6-sse` for SSE connections in protocol VUs | Needs a custom k6 build. The plan keeps the stock pinned image, and browser VUs hold real SSE connections instead. |
 | Extending `seed-stresstest` in place | Its users and its plaintext/legacy semantics would change. A new command is additive and leaves `seed-stresstest` alone. |
 
@@ -141,7 +141,7 @@ flowchart LR
     CTL[perf/bin/perf]
   end
   subgraph SUT["SUT VPS (new)"]
-    TR[Traefik TLS<br/>existing overlay]
+    TR[Caddy TLS proxy<br/>perf overlay]
     APP[app: mercato server start<br/>next start, 1 replica]
     WRK[worker: queue worker --all]
     SCH[scheduler]
@@ -167,7 +167,7 @@ flowchart LR
   EXP --> PROM --> GRAF
 ```
 
-Takeaway: the system under test is the stock `docker-compose.fullapp.yml` stack plus the existing Traefik overlay and two new overlays (`perf/sut`, `perf/monitoring`). All load comes from a separate machine. `perf/bin/perf` runs on the generator and drives SUT-side actions (up, seed, snapshot, restore, metrics) over SSH, using `SUT_SSH` from `target.local.env`. Prometheus is the single sink for k6, host, container, Postgres, Redis and app runtime metrics, and the report generator reads from it.
+Takeaway: the system under test is the stock `docker-compose.fullapp.yml` stack plus two new overlays (`perf/sut` with the Caddy TLS proxy, worker, scheduler and Mailpit; `perf/monitoring`). All load comes from a separate machine. `perf/bin/perf` runs on the generator and drives SUT-side actions (up, seed, snapshot, restore, metrics) over SSH, using `SUT_SSH` from `target.local.env`. Prometheus is the single sink for k6, host, container, Postgres, Redis and app runtime metrics, and the report generator reads from it.
 
 ### `perf/` layout
 
@@ -544,7 +544,7 @@ The plan authors run this phase together before any VPS work. There is no separa
 1. Provision both machines per Phase 0, and apply the firewall rules (see Network exposure). Clone the repo at the chosen commit, then build the app image on the SUT:
 
    ```
-   docker compose -f docker-compose.fullapp.yml -f docker-compose.fullapp.traefik.yml -f perf/sut/compose.perf.yml build
+   docker compose -p om-perf -f docker-compose.fullapp.yml -f perf/sut/compose.perf.yml build app
    ```
 
    `perf/bin/perf up` uses the same file list.
@@ -673,7 +673,7 @@ Each experiment is a single-variable change against the round-1 snapshot, report
 - **2026-11-26 (review round)** — applied the fresh-context review:
   - The Meilisearch fulltext index is built through `POST /api/search/reindex` plus the worker; there is no CLI path.
   - Network exposure is enforced outside `ufw` (Docker bypasses it), default secrets are mandatory overrides, and remote write goes over an SSH tunnel.
-  - TLS through the Traefik overlay, so browser VUs keep their `Secure` cookies. Protocol VUs use Bearer auth.
+  - TLS on the SUT, so browser VUs keep their `Secure` cookies (later switched from the stock Traefik overlay to a Caddy service in the perf overlay). Protocol VUs use Bearer auth.
   - Corrected the encryption variables to `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` and `LOOKUP_HASH_PEPPER`, and made the keys part of the snapshot.
   - Dataset anchor date and age guard for time-relative endpoints; migration head recorded in `run.json`.
   - Restore mechanics: `STRATEGY FILE_COPY`, stopped services, warmup excluded.
