@@ -2,12 +2,22 @@ import { randomUUID } from 'crypto'
 import { UniqueConstraintViolationException, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
+import type { AwilixContainer } from 'awilix'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
-import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import type {
+  ActionLogHistoryService,
+  ActionLogService,
+  AuditHistoryEntry,
+  AuditHistoryOrganizationScope,
+} from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
+import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
+import { getCachedDictionary } from '@open-mercato/shared/lib/i18n/dictionary-cache'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { emitRecordLocksEvent } from '../events'
 import {
   RecordLock,
@@ -64,7 +74,11 @@ export type RecordLockResource = {
   resourceId: string
 }
 
-export type RecordLockAcquireInput = RecordLockScope & RecordLockResource & {
+type RecordLockAuditScope = Pick<RecordLockScope, 'tenantId' | 'organizationId'>
+  & RecordLockResource
+  & { organizationScope?: OrganizationScope | null }
+
+export type RecordLockAcquireInput = RecordLockScope & RecordLockAuditScope & {
   lockedByIp?: string | null
 }
 
@@ -81,7 +95,7 @@ export type RecordLockForceReleaseInput = RecordLockScope & RecordLockResource &
   reason?: string | null
 }
 
-export type RecordLockMutationValidationInput = RecordLockScope & RecordLockResource & {
+export type RecordLockMutationValidationInput = RecordLockScope & RecordLockAuditScope & {
   method: 'PUT' | 'DELETE'
   headers: Partial<RecordLockMutationHeaders>
   mutationPayload?: Record<string, unknown> | null
@@ -192,7 +206,22 @@ export type RecordLockServiceDeps = {
   em: EntityManager
   moduleConfigService?: ModuleConfigService | null
   actionLogService?: ActionLogService | null
+  resolveAuditHistory?: () => ActionLogHistoryService | undefined
   rbacService?: RbacService | null
+}
+
+export class RecordLockHistoryUnavailableError extends CrudHttpError {
+  constructor() {
+    const translate = createFallbackTranslator(getCachedDictionary(defaultLocale) ?? {})
+    super(503, { error: translate('api.errors.internal', 'Internal server error') })
+  }
+}
+
+function reportHistoryLookupFailure() {
+  getTelemetryRuntime()?.reportError(new Error('[internal] Record lock audit history lookup failed'), {
+    module: 'record_locks',
+    code: 'record_locks.audit_history_lookup_failed',
+  })
 }
 
 export type ParsedRecordLockHeaders = Partial<RecordLockMutationHeaders>
@@ -296,29 +325,6 @@ function shouldSkipConflictField(path: string): boolean {
 
 const MISSING_CONFLICT_VALUE = Symbol('record_lock_conflict_missing_value')
 
-function parseDecryptedJsonLike(value: unknown): unknown {
-  return typeof value === 'string' ? parseDecryptedFieldValue(value) : value
-}
-
-function readJsonRecordValue(value: unknown): Record<string, unknown> | null {
-  const parsed = parseDecryptedJsonLike(value)
-  return isRecordValue(parsed) ? parsed : null
-}
-
-function readActionLogChangesJson(log: ActionLog | null): Record<string, unknown> | null {
-  return readJsonRecordValue(log?.changesJson ?? null)
-}
-
-function normalizeActionLogPayload(log: ActionLog | null): ActionLog | null {
-  if (!log) return null
-  log.changesJson = readJsonRecordValue(log.changesJson)
-  log.snapshotBefore = parseDecryptedJsonLike(log.snapshotBefore)
-  log.snapshotAfter = parseDecryptedJsonLike(log.snapshotAfter)
-  log.contextJson = readJsonRecordValue(log.contextJson)
-  log.commandPayload = parseDecryptedJsonLike(log.commandPayload)
-  return log
-}
-
 function readPathValue(source: unknown, path: string): unknown | typeof MISSING_CONFLICT_VALUE {
   if (!path.trim().length || !isRecordValue(source)) return MISSING_CONFLICT_VALUE
   if (Object.prototype.hasOwnProperty.call(source, path)) return source[path]
@@ -412,14 +418,25 @@ export class RecordLockService {
 
   private readonly moduleConfigService: ModuleConfigService | null
 
-  private readonly actionLogService: ActionLogService | null
+  private readonly resolveAuditHistory: () => ActionLogHistoryService | undefined
 
   private readonly rbacService: RbacService | null
 
   constructor(deps: RecordLockServiceDeps) {
     this.em = deps.em
     this.moduleConfigService = deps.moduleConfigService ?? null
-    this.actionLogService = deps.actionLogService ?? null
+    this.resolveAuditHistory = deps.resolveAuditHistory ?? (() => {
+      const provider = deps.actionLogService
+      if (
+        typeof provider?.findLatestResourceHistory === 'function'
+        && typeof provider.findLatestActorHistory === 'function'
+        && typeof provider.findResourceHistoryById === 'function'
+      ) return provider
+
+      const scope = getRequestScopeContainer() as Pick<AwilixContainer, 'hasRegistration' | 'resolve'> | null
+      if (!scope?.hasRegistration?.('actionLogHistoryService')) return undefined
+      return scope.resolve<ActionLogHistoryService>('actionLogHistoryService')
+    })
     this.rbacService = deps.rbacService ?? null
   }
 
@@ -471,10 +488,10 @@ export class RecordLockService {
   async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockAcquireFailure> {
     this.scheduleCleanup(input.tenantId)
     const settings = await this.getSettings()
-    const latest = await this.findLatestActionLogWithScopeFallback(input)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
 
     if (!resourceEnabled) {
+      const latest = await this.findLatestActionLogForGuard(input, false)
       return {
         ok: true,
         enabled: settings.enabled,
@@ -522,6 +539,8 @@ export class RecordLockService {
         lock: lockView,
       }
     }
+
+    const latest = await this.findLatestActionLogForGuard(input, !ownedActiveLock)
 
     if (ownedActiveLock) {
       ownedActiveLock.strategy = settings.strategy
@@ -979,7 +998,7 @@ export class RecordLockService {
 
     if (!(await this.canUserOverrideIncoming(input, settings))) return false
 
-    const latest = await this.findLatestActionLogWithScopeFallback(input)
+    const latest = await this.findLatestActionLog(input)
     if (!latest || latest.id !== conflict.incomingActionLogId) return false
     if (!(latest.createdAt instanceof Date)) return false
     return currentVersionMs <= latest.createdAt.getTime()
@@ -1012,7 +1031,6 @@ export class RecordLockService {
     const activeLocks = await this.findActiveLocks(input, now)
     const ownedActiveLock = activeLocks.find((lock) => lock.lockedByUserId === input.userId) ?? null
     const competingLock = activeLocks.find((lock) => lock.lockedByUserId !== input.userId) ?? null
-    const latest = await this.findLatestActionLogWithScopeFallback(input)
     const shouldReleaseOnSuccess = Boolean(
       ownedActiveLock
       && (!parsedHeaders.token || ownedActiveLock.token === parsedHeaders.token),
@@ -1041,6 +1059,7 @@ export class RecordLockService {
         }
       }
 
+      const latest = await this.findLatestActionLogForGuard(input, false)
       return {
         ok: true,
         enabled: settings.enabled,
@@ -1072,7 +1091,7 @@ export class RecordLockService {
             error: 'Record conflict requires resolution before saving',
             code: 'record_lock_conflict',
             lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
-            conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
+            conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming, input),
           }
         }
         if (!canOverrideIncoming) {
@@ -1082,7 +1101,7 @@ export class RecordLockService {
             error: 'Record conflict requires resolution before saving',
             code: 'record_lock_conflict',
             lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
-            conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
+            conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming, input),
           }
         }
         if (canResolveExistingConflict) {
@@ -1095,15 +1114,15 @@ export class RecordLockService {
           error: 'Record conflict requires resolution before saving',
           code: 'record_lock_conflict',
           lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
-          conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
+          conflict: await this.toConflictPayload(existingConflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming, input),
         }
       }
     }
 
+    const baseActionLogId = parsedHeaders.baseLogId ?? ownedActiveLock?.baseActionLogId ?? null
+    const requiresHistory = !existingConflict && Boolean(baseActionLogId || ownedActiveLock)
+    const latest = await this.findLatestActionLogForGuard(input, requiresHistory)
     if (!existingConflict) {
-      const baseActionLogId = parsedHeaders.baseLogId
-        ?? (ownedActiveLock ? ownedActiveLock.baseActionLogId : null)
-
       const hasConflictingBaseLog = Boolean(
         latest?.id
         && baseActionLogId
@@ -1156,7 +1175,7 @@ export class RecordLockService {
           error: 'Record conflict detected',
           code: 'record_lock_conflict',
           lock: ownedActiveLock ? this.toLockView(ownedActiveLock, false, activeLocks) : null,
-          conflict: await this.toConflictPayload(conflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming),
+          conflict: await this.toConflictPayload(conflict, input.mutationPayload ?? null, settings.allowIncomingOverride, canOverrideIncoming, input),
         }
       }
     }
@@ -1180,12 +1199,7 @@ export class RecordLockService {
     if (!releaseResult.released) return
   }
 
-  async emitIncomingChangesNotificationAfterMutation(input: {
-    tenantId: string
-    organizationId?: string | null
-    userId: string
-    resourceKind: string
-    resourceId: string
+  async emitIncomingChangesNotificationAfterMutation(input: RecordLockScope & RecordLockAuditScope & {
     method: 'PUT' | 'DELETE'
   }): Promise<void> {
     if (input.method !== 'PUT') return
@@ -1231,24 +1245,10 @@ export class RecordLockService {
     }
     if (!recipientUserIds.size) return
 
-    let latest = await this.findLatestActionLog(input)
-    if (!latest) {
-      latest = await this.findLatestActionLog({
-        tenantId: input.tenantId,
-        resourceKind: input.resourceKind,
-        resourceId: input.resourceId,
-      })
-    }
-    let actorLog = latest?.actorUserId === input.userId
+    const latest = await this.findLatestActionLog(input)
+    const actorLog = latest?.actorUserId === input.userId
       ? latest
       : await this.findLatestActionLogByActor(input, input.userId)
-    if (!actorLog) {
-      actorLog = await this.findLatestActionLogByActor({
-        tenantId: input.tenantId,
-        resourceKind: input.resourceKind,
-        resourceId: input.resourceId,
-      }, input.userId)
-    }
     const incomingLog = actorLog ?? latest
 
     const changedFields = incomingLog
@@ -1689,72 +1689,101 @@ export class RecordLockService {
     lock.updatedAt = params.now
   }
 
-  private async findLatestActionLog(
-    input: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
-  ): Promise<ActionLog | null> {
-    const where: FilterQuery<ActionLog> = {
-      tenantId: input.tenantId,
-      resourceKind: input.resourceKind,
-      resourceId: input.resourceId,
-      deletedAt: null,
+  private exactAuditOrganization(
+    input: RecordLockAuditScope,
+  ): Extract<AuditHistoryOrganizationScope, { mode: 'exact' }> | null {
+    const { organizationId, organizationScope, tenantId } = input
+    if (organizationId === undefined || organizationScope === null) return null
+    const exactOrganizationId = normalizeScopeOrganization(organizationId)
+    if (organizationId !== null && !exactOrganizationId) return null
+    if (organizationScope) {
+      const { allowedIds, filterIds, selectedId } = organizationScope
+      if (organizationScope.tenantId !== tenantId || organizationScope.selectionRejected) return null
+      if (exactOrganizationId) {
+        if ([allowedIds, filterIds].some((ids) => ids && !ids.includes(exactOrganizationId))) return null
+      } else if (selectedId !== null || allowedIds?.length === 0 || filterIds?.length === 0) {
+        return null
+      }
     }
-
-    if (input.organizationId !== undefined) {
-      where.organizationId = normalizeScopeOrganization(input.organizationId)
-    }
-
-    return normalizeActionLogPayload(await findOneWithDecryption(
-      this.em,
-      ActionLog,
-      where,
-      { orderBy: { createdAt: 'desc' } },
-      { tenantId: input.tenantId, organizationId: normalizeScopeOrganization(input.organizationId) },
-    ))
+    return { mode: 'exact', organizationId: exactOrganizationId }
   }
 
-  private async findLatestActionLogWithScopeFallback(
-    input: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
-  ): Promise<ActionLog | null> {
-    const scoped = await this.findLatestActionLog(input)
+  private async tenantLevelAuditOrganization(
+    input: RecordLockScope & RecordLockAuditScope,
+  ): Promise<Extract<AuditHistoryOrganizationScope, { mode: 'tenant-level-fallback' }> | null> {
+    const { organizationScope, tenantId } = input
+    if (
+      input.organizationId !== null
+      || !organizationScope
+      || organizationScope.selectedId !== null
+      || organizationScope.tenantId !== tenantId
+      || organizationScope.selectionRejected
+    ) return null
+
+    const { allowedIds, filterIds } = organizationScope
+    const organizationIds = filterIds?.filter((id) => allowedIds === null || allowedIds.includes(id)) ?? allowedIds
+    if (organizationIds) {
+      return organizationIds.length ? { mode: 'tenant-level-fallback', organizationIds } : null
+    }
+
+    const acl = await this.rbacService?.loadAcl(input.userId, { tenantId, organizationId: null })
+    return acl && (acl.isSuperAdmin || (acl.organizations === null && acl.features.length > 0))
+      ? { mode: 'tenant-level-fallback', organizationIds: 'all-authorized' }
+      : null
+  }
+
+  private async readLatestAuditHistory(
+    input: RecordLockScope & RecordLockAuditScope,
+    actorUserId?: string,
+  ): Promise<AuditHistoryEntry | null> {
+    const organization = this.exactAuditOrganization(input)
+    if (!organization) return null
+    const provider = this.resolveAuditHistory()
+    if (!provider) return null
+
+    const { tenantId, resourceKind, resourceId } = input
+    const find = (scope: AuditHistoryOrganizationScope) => {
+      const query = { tenantId, resourceKind, resourceId, organization: scope }
+      return actorUserId === undefined
+        ? provider.findLatestResourceHistory(query)
+        : provider.findLatestActorHistory(query, actorUserId)
+    }
+
+    const scoped = await find(organization)
     if (scoped) return scoped
-    if (input.organizationId !== null) return null
 
-    return this.findLatestActionLog({
-      tenantId: input.tenantId,
-      resourceKind: input.resourceKind,
-      resourceId: input.resourceId,
-    })
+    const fallback = await this.tenantLevelAuditOrganization(input)
+    return fallback ? find(fallback) : null
   }
 
-  private async findLatestActionLogByActor(
-    input: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
+  private findLatestActionLog(input: RecordLockScope & RecordLockAuditScope): Promise<AuditHistoryEntry | null> {
+    return this.readLatestAuditHistory(input)
+  }
+
+  private async findLatestActionLogForGuard(
+    input: RecordLockScope & RecordLockAuditScope,
+    required: boolean,
+  ): Promise<AuditHistoryEntry | null> {
+    try {
+      return await this.findLatestActionLog(input)
+    } catch {
+      reportHistoryLookupFailure()
+      if (!required) return null
+      throw new RecordLockHistoryUnavailableError()
+    }
+  }
+
+  private findLatestActionLogByActor(
+    input: RecordLockScope & RecordLockAuditScope,
     actorUserId: string,
-  ): Promise<ActionLog | null> {
-    const where: FilterQuery<ActionLog> = {
-      tenantId: input.tenantId,
-      resourceKind: input.resourceKind,
-      resourceId: input.resourceId,
-      actorUserId,
-      deletedAt: null,
-    }
-
-    if (input.organizationId !== undefined) {
-      where.organizationId = normalizeScopeOrganization(input.organizationId)
-    }
-
-    return normalizeActionLogPayload(await findOneWithDecryption(
-      this.em,
-      ActionLog,
-      where,
-      { orderBy: { createdAt: 'desc' } },
-      { tenantId: input.tenantId, organizationId: normalizeScopeOrganization(input.organizationId) },
-    ))
+  ): Promise<AuditHistoryEntry | null> {
+    return this.readLatestAuditHistory(input, actorUserId)
   }
 
-  private summarizeChangedFieldsFromActionLog(log: ActionLog | null): string {
+  private summarizeChangedFieldsFromActionLog(log: AuditHistoryEntry | null): string {
     if (!log) return ''
 
-    const changesJson = readActionLogChangesJson(log)
+    const changesJson = log?.changesJson
     if (changesJson) {
       const fromChanges = Object.keys(changesJson)
         .filter((field) => !shouldSkipConflictField(field))
@@ -1764,8 +1793,8 @@ export class RecordLockService {
       if (fromChanges) return fromChanges
     }
 
-    const before = readJsonRecordValue(log.snapshotBefore)
-    const after = readJsonRecordValue(log.snapshotAfter)
+    const before = log.snapshotBefore
+    const after = log.snapshotAfter
     if (!before || !after) return ''
 
     const diffPaths = new Set<string>()
@@ -1779,12 +1808,12 @@ export class RecordLockService {
       .join(', ')
   }
 
-  private buildIncomingChangeRowsFromActionLog(log: ActionLog | null): Array<{
+  private buildIncomingChangeRowsFromActionLog(log: AuditHistoryEntry | null): Array<{
     field: string
     incoming: string
     current: string
   }> {
-    const changesJson = readActionLogChangesJson(log)
+    const changesJson = log?.changesJson
     if (!changesJson) return []
 
     const rows: Array<{ field: string; incoming: string; current: string }> = []
@@ -2010,37 +2039,21 @@ export class RecordLockService {
 
   private async findActionLogById(
     logId: string | null,
-    scope: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
-  ): Promise<ActionLog | null> {
+    scope: RecordLockAuditScope,
+  ): Promise<AuditHistoryEntry | null> {
     if (!logId) return null
+    const organization = this.exactAuditOrganization(scope)
+    if (!organization) return null
 
-    let resolved = this.actionLogService
-      ? await this.actionLogService.findById(logId)
-      : null
-    if (!resolved) {
-      resolved = await findOneWithDecryption(
-        this.em,
-        ActionLog,
-        { id: logId, deletedAt: null },
-        undefined,
-        { tenantId: scope.tenantId, organizationId: normalizeScopeOrganization(scope.organizationId) },
-      )
-    }
-    resolved = normalizeActionLogPayload(resolved)
-    if (!resolved || resolved.deletedAt) return null
-
-    if (resolved.tenantId !== scope.tenantId) return null
-
-    if (scope.organizationId !== undefined) {
-      const expectedOrganizationId = normalizeScopeOrganization(scope.organizationId)
-      if (normalizeScopeOrganization(resolved.organizationId) !== expectedOrganizationId) return null
-    }
-
-    if (resolved.resourceKind !== scope.resourceKind || resolved.resourceId !== scope.resourceId) {
+    const { tenantId, resourceKind, resourceId } = scope
+    try {
+      return await this.resolveAuditHistory()?.findResourceHistoryById({
+        tenantId, resourceKind, resourceId, organization,
+      }, logId) ?? null
+    } catch {
+      reportHistoryLookupFailure()
       return null
     }
-
-    return resolved
   }
 
   private collectSnapshotDiffPaths(
@@ -2079,10 +2092,12 @@ export class RecordLockService {
   private async buildConflictChanges(
     conflict: RecordLockConflict,
     mutationPayload: Record<string, unknown> | null,
+    requestScope: RecordLockAuditScope,
   ): Promise<RecordLockConflictChange[]> {
     const scope = {
       tenantId: conflict.tenantId,
-      organizationId: conflict.organizationId,
+      organizationId: requestScope.organizationId === conflict.organizationId ? conflict.organizationId : undefined,
+      organizationScope: requestScope.organizationScope,
       resourceKind: conflict.resourceKind,
       resourceId: conflict.resourceId,
     }
@@ -2090,14 +2105,14 @@ export class RecordLockService {
     const baseLog = await this.findActionLogById(conflict.baseActionLogId, scope)
     const incomingLog = await this.findActionLogById(conflict.incomingActionLogId, scope)
 
-    const baseSnapshot = readJsonRecordValue(baseLog?.snapshotAfter ?? null)
-    const incomingBeforeSnapshot = readJsonRecordValue(incomingLog?.snapshotBefore ?? null)
-    const incomingAfterSnapshot = readJsonRecordValue(incomingLog?.snapshotAfter ?? null)
+    const baseSnapshot = baseLog?.snapshotAfter ?? null
+    const incomingBeforeSnapshot = incomingLog?.snapshotBefore ?? null
+    const incomingAfterSnapshot = incomingLog?.snapshotAfter ?? null
     const fallbackBaseSnapshot = baseSnapshot ?? incomingBeforeSnapshot
 
     const changeMap = new Map<string, { baseValue: unknown; incomingValue: unknown }>()
 
-    const incomingChanges = readActionLogChangesJson(incomingLog)
+    const incomingChanges = incomingLog?.changesJson
     if (incomingChanges) {
       for (const [fieldPathRaw, rawChange] of Object.entries(incomingChanges)) {
         const fieldPath = fieldPathRaw.trim()
@@ -2192,8 +2207,9 @@ export class RecordLockService {
     mutationPayload: Record<string, unknown> | null,
     allowIncomingOverride: boolean,
     canOverrideIncoming: boolean,
+    requestScope: RecordLockAuditScope,
   ): Promise<RecordLockConflictPayload> {
-    const changes = await this.buildConflictChanges(conflict, mutationPayload)
+    const changes = await this.buildConflictChanges(conflict, mutationPayload, requestScope)
     return {
       id: conflict.id,
       resourceKind: conflict.resourceKind,

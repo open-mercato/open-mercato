@@ -1158,9 +1158,9 @@ Request → Check x-api-key header → Validate against the api_keys table (find
 | **Delivery to OpenCode** | `MCP_SERVER_API_KEY` env var when set (wins); otherwise the file at `MCP_SERVER_API_KEY_FILE` — the containerized stacks' `mcp` service provisions it idempotently via `mercato ai_assistant mcp:ensure-api-key` into the shared `mcp_shared` volume |
 | **Configured In** | Generated into `opencode.jsonc` by `docker/opencode/entrypoint.sh` |
 | **Validation** | Prefix-indexed lookup + bcrypt verification (`findApiKeyBySecret`) |
-| **Result** | Grants access to call MCP endpoints; header-only calls resolve ACL context via the key's `createdBy` user |
+| **Result** | Grants transport access only; tool calls fail closed (`UNAUTHORIZED`) without `_sessionToken` — no fallback (#5173) |
 
-**Code reference**: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts:370-391`
+**Code reference**: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts:734-749`
 
 ### Tier 2: User-Level Authentication (Session Tokens)
 
@@ -1456,6 +1456,10 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 ---
 
 ## Changelog
+
+### 2026-11-12 - HTTP MCP server requires a per-user session token, no fallback (#5173)
+
+`createMcpServerForRequest`'s tool handler returns `UNAUTHORIZED` without `_sessionToken` — no fallback; `McpServerConfig`/`mcp:serve-http` carry no such field/flag. Operator access uses stdio `mcp:serve` (`OPEN_MERCATO_API_KEY`/`--user <id>`; `--allow-unauthenticated-superadmin`=DEV/TEST ONLY), not chat. See `BACKWARD_COMPATIBILITY.md`, `UPGRADE_NOTES.md`, spec `2026-11-14-mcp-http-session-required-no-fallback.md`. Tests: `lib/__tests__/http-server-auth-boundary.test.ts`.
 
 ### 2026-07-07 - Containerized MCP server + file-based key delivery
 
