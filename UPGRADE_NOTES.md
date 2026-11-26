@@ -1,29 +1,10 @@
 # Upgrade Notes
 
-## Staff authorization and credential changes
+## Overdue staff MFA enrollment denies business API requests (#9152)
 
-Organization-limited administrator grants provide elevated features only inside the granted organizations. Platform-wide administration requires an unrestricted grant. Review automated clients and API keys that rely on a scoped staff grant, and assign each the tenant and organization permissions it needs.
+When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.
 
-Changing a staff account's sign-in email or password via `PUT /api/auth/profile` requires the existing `currentPassword` field. The update revokes prior access and refresh sessions and clears the browser's authentication cookies. After success, the user must sign in again with the updated credentials. An email change also revokes unused password-reset links. For accounts managed solely by a single sign-on provider, use the operator-managed identity update flow.
-
-New staff passwords default to a minimum of 12 characters and accept at most 72 UTF-8 bytes. Existing passwords still work. Align `OM_PASSWORD_MIN_LENGTH` and `NEXT_PUBLIC_OM_PASSWORD_MIN_LENGTH` if you customize the minimum. Consumers that exhaustively match `PasswordRequirementId` should handle `maxBytes`. Keep staff login forms within 16 KiB and handle HTTP 413 if the form exceeds this limit.
-
-See [Staff identity boundaries](.ai/specs/2026-11-24-staff-identity-boundaries.md) for compatibility and rollout details.
-
-## Scoped resource administration and execution limits
-
-Authorization and vector request shapes and the vector driver signature remain stable. Unsafe delegation, writes, and index resizing are rejected.
-
-- Attachment partition administration follows the caller's organization and limits edits of shared partitions to platform administrators. Staff invitation flows must use roles in their own tenant and organization. Callers that invite users with roles reserved for administrators need an authorized staff identity with `customer_accounts.roles.manage`. Reissue outstanding privileged invitations from an active staff user with the grant.
-- HTTP MCP tool calls require a per-user session token. To delegate to the session, authenticate the transport with the configured `MCP_SERVER_API_KEY` or its file-backed equivalent, or use the session's own ephemeral API key. Managed API key listings omit ephemeral chat credentials.
-- Grouped analytics returns up to 100 groups by default, or 366 for calendar grouping over the matching date-range field. If an implicit cap is exceeded, `value` is the full aggregate and `metadata.truncated` is true. Explicit limits retain the top-bucket behavior. Analytics interceptors can narrow filters for the requested entity.
-- The PostgreSQL vector runtime leaves the shared index intact on dimension changes. Operators should provision and validate a replacement index, then switch settings and reindex in a controlled migration.
-
-## Organization and attachment partition ownership
-
-Organization options, management, and tree responses follow the caller's organization grant. Clients that need an organization outside that grant must use a principal authorized for that organization.
-
-Attachment partition codes are unique within their owning scope. Clients and integrations that query partitions directly should resolve by code and attachment owner, with tenant-wide and platform-wide partitions as fallbacks. Existing codes, IDs, and storage paths are preserved. Apply the attachment partition migration and update all partition readers before reopening writes during rollout. Rolling back after different owners have reused a code requires resolving those duplicates before restoring the previous unique constraint.
+Operators using a custom API catch-all should adopt the request-scoped interceptor invocation from the updated create-app template. The framework dispatcher already includes it. This change requires no database migration or credential reissue.
 
 ## Encrypted tenant custom-field writes require a usable key
 
@@ -66,6 +47,31 @@ see no organization. Grant the intended organizations in the user's or role's ac
 for such a principal must also handle `403`.
 
 The [maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change.
+
+## Staff authorization and credential changes
+
+Organization-limited administrator grants provide elevated features only inside the granted organizations. Platform-wide administration requires an unrestricted grant. Review automated clients and API keys that rely on a scoped staff grant, and assign each the tenant and organization permissions it needs.
+
+Changing a staff account's sign-in email or password via `PUT /api/auth/profile` requires the existing `currentPassword` field. The update revokes prior access and refresh sessions and clears the browser's authentication cookies. After success, the user must sign in again with the updated credentials. An email change also revokes unused password-reset links. For accounts managed solely by a single sign-on provider, use the operator-managed identity update flow.
+
+New staff passwords default to a minimum of 12 characters and accept at most 72 UTF-8 bytes. Existing passwords still work. Align `OM_PASSWORD_MIN_LENGTH` and `NEXT_PUBLIC_OM_PASSWORD_MIN_LENGTH` if you customize the minimum. Consumers that exhaustively match `PasswordRequirementId` should handle `maxBytes`. Keep staff login forms within 16 KiB and handle HTTP 413 if the form exceeds this limit.
+
+See [Staff identity boundaries](.ai/specs/2026-11-24-staff-identity-boundaries.md) for compatibility and rollout details.
+
+## Scoped resource administration and execution limits
+
+Authorization and vector request shapes and the vector driver signature remain stable. Unsafe delegation, writes, and index resizing are rejected.
+
+- Attachment partition administration follows the caller's organization and limits edits of shared partitions to platform administrators. Staff invitation flows must use roles in their own tenant and organization. Callers that invite users with roles reserved for administrators need an authorized staff identity with `customer_accounts.roles.manage`. Reissue outstanding privileged invitations from an active staff user with the grant.
+- HTTP MCP tool calls require a per-user session token. To delegate to the session, authenticate the transport with the configured `MCP_SERVER_API_KEY` or its file-backed equivalent, or use the session's own ephemeral API key. Managed API key listings omit ephemeral chat credentials.
+- Grouped analytics returns up to 100 groups by default, or 366 for calendar grouping over the matching date-range field. If an implicit cap is exceeded, `value` is the full aggregate and `metadata.truncated` is true. Explicit limits retain the top-bucket behavior. Analytics interceptors can narrow filters for the requested entity.
+- The PostgreSQL vector runtime leaves the shared index intact on dimension changes. Operators should provision and validate a replacement index, then switch settings and reindex in a controlled migration.
+
+## Organization and attachment partition ownership
+
+Organization options, management, and tree responses follow the caller's organization grant. Clients that need an organization outside that grant must use a principal authorized for that organization.
+
+Attachment partition codes are unique within their owning scope. Clients and integrations that query partitions directly should resolve by code and attachment owner, with tenant-wide and platform-wide partitions as fallbacks. Existing codes, IDs, and storage paths are preserved. Apply the attachment partition migration and update all partition readers before reopening writes during rollout. Rolling back after different owners have reused a code requires resolving those duplicates before restoring the previous unique constraint.
 
 ## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
 
