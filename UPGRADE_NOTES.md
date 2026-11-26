@@ -6872,7 +6872,7 @@ must pass trusted scope in emit options. An all-tenant reindex requires
 
 MCP hides Code Mode `execute` when the mutation mode is unset, including reads through that tool. Code Mode discovery and typed tools retain their existing exposure rules. Clients can switch to typed read or write tools, including the approval workflow when configured. Operators who intentionally permit direct Code Mode execution can set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. The full-app Compose manifests forward the variable from the project environment to both the app and the MCP sidecar. Hosts supplying an exposure configuration programmatically must set `explicitDirectMode: true` together with `mutationMode: 'direct'`.
 
-## Workflow task completion accepts only declared fields (#9142)
+## Task fields (#9142)
 
 Staff and portal task completion (`POST /api/workflows/tasks/:id/complete`, `POST /api/workflows/portal/tasks/:id/complete`) now refuse, with HTTP 400, any `formData` key the task's form schema does not declare, and every engine-reserved key (`__`-prefixed keys, `_pendingAsyncActivities`). Previously every submitted key was merged into the run context, so an assignee could overwrite values later steps act on. A task without a form schema now accepts only empty `formData`. The built-in task page, portal task page and order-approval widget already send only declared fields and need no change.
 
