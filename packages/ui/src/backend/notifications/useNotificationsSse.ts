@@ -8,7 +8,7 @@ import {
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
-import { useAppEvent } from '../injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '../injection/useAppEvent'
 import {
   dispatchNotificationHandlers,
   getRequiredNotificationHandlerFeatures,
@@ -197,7 +197,7 @@ export function useNotificationsSse(): UseNotificationsSseResult {
     [fetchNotifications],
   )
 
-  useAppEvent('om:bridge:reconnected', () => {
+  useAppEvent(BRIDGE_RECONNECTED_EVENT_ID, () => {
     void fetchNotifications()
   }, [fetchNotifications])
 

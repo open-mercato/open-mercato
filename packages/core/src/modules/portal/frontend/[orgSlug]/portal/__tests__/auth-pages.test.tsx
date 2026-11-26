@@ -67,7 +67,7 @@ describe('portal auth pages', () => {
 
     fireEvent.change(screen.getByLabelText('Full Name'), { target: { value: 'Jane Smith' } })
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new@example.com' } })
-    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret123' } })
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Create Account' }))
 
     await waitFor(() => {
