@@ -747,3 +747,7 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 ## 2026-11-25 — MCP Code Mode
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## 2026-11-26 — Vector-index entity authorization (#10693)
+
+STABLE API behavior. `GET /api/search/index` omits rows outside the caller's entity view permissions and organization scope. Keeping the old listing reachable would preserve access to those rows. [Migration](UPGRADE_NOTES.md#vector-index-entity-authorization-10693) · [Spec](.ai/specs/2026-11-26-vector-index-entity-authorization.md). Named maintainer waiver pending.

@@ -1,16 +1,21 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { SearchIndexer } from '../../../../indexer/search-indexer'
 import type { SearchService } from '../../../../service'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { VectorSearchStrategy } from '../../../../strategies/vector.strategy'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { searchDebugWarn, searchError } from '../../../../lib/debug'
 import { indexOpenApi } from '../openapi'
+import { resolveReadableEntityTypes, type SearchEntityConfigLookup } from '../../lib/entity-access'
+
+const ACL_LOOKUP_CONCURRENCY = 8
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -39,12 +44,40 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url)
-  const entityIdParam = url.searchParams.get('entityId')
+  const entityIdParam = url.searchParams.get('entityId') || undefined
   const limit = parseLimit(url.searchParams.get('limit'))
   const offset = parseOffset(url.searchParams.get('offset'))
 
   const container = await createRequestContainer()
   try {
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    const emptyPage = { entries: [], limit, offset }
+    if (scope.filterIds?.length === 0) return NextResponse.json(emptyPage)
+
+    if (!container.hasRegistration('rbacService') || !container.hasRegistration('searchIndexer')) {
+      return NextResponse.json(
+        { error: t('search.api.errors.serviceUnavailable', 'Search service unavailable') },
+        { status: 503 },
+      )
+    }
+    const rbac = container.resolve<Pick<RbacService, 'loadAcl'>>('rbacService')
+    const searchIndexer = container.resolve<SearchEntityConfigLookup>('searchIndexer')
+    const tenantId = scope.tenantId ?? auth.tenantId
+    const selectedOrganizationId = scope.selectedId?.trim() || null
+    const organizationIds = selectedOrganizationId ? [selectedOrganizationId] : scope.filterIds
+    const requestedEntityTypes = entityIdParam ? [entityIdParam] : undefined
+    const entityAccess = await mapWithConcurrency(organizationIds ?? [null], ACL_LOOKUP_CONCURRENCY, async (organizationId) => {
+      const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId })
+      const entityIds = resolveReadableEntityTypes(
+        searchIndexer,
+        { grantedFeatures: acl.features, isSuperAdmin: acl.isSuperAdmin },
+        requestedEntityTypes,
+      )
+      return { organizationId, entityIds: entityIds ?? null }
+    })
+    const readableScopes = entityAccess.filter(({ entityIds }) => entityIds === null || entityIds.length > 0)
+    if (readableScopes.length === 0) return NextResponse.json(emptyPage)
+
     // Get the vector strategy from search service
     let searchService: SearchService
     try {
@@ -75,27 +108,21 @@ export async function GET(req: Request) {
       )
     }
 
-    // List vector entries via the strategy
-    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    if (Array.isArray(scope.filterIds) && scope.filterIds.length === 0) {
-      return NextResponse.json({ entries: [], limit, offset })
-    }
-    const selectedOrganizationId =
-      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : null
-    const organizationIds = selectedOrganizationId
-      ? [selectedOrganizationId]
-      : Array.isArray(scope.filterIds) ? scope.filterIds : null
     const listedEntries = await vectorStrategy.listEntries({
-      tenantId: auth.tenantId,
+      tenantId,
       organizationId: selectedOrganizationId ?? undefined,
       organizationIds: organizationIds ?? undefined,
-      entityId: entityIdParam ?? undefined,
+      entityId: entityIdParam,
+      entityAccess: readableScopes,
       limit,
       offset,
     })
-    const entries = organizationIds
-      ? listedEntries.filter((entry) => typeof entry.organizationId === 'string' && organizationIds.includes(entry.organizationId))
-      : listedEntries
+    const entries = listedEntries.filter((entry) =>
+      entry.tenantId === tenantId && readableScopes.some(({ organizationId, entityIds }) =>
+        (organizationId === null || organizationId === entry.organizationId)
+        && (entityIds === null || entityIds.includes(entry.entityId)),
+      ),
+    )
 
     return NextResponse.json({ entries, limit, offset })
   } catch (error: unknown) {
