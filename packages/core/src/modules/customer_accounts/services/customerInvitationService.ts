@@ -5,12 +5,14 @@ import {
   CustomerUser,
   CustomerUserInvitation,
   CustomerUserRole,
+  CustomerUserSession,
   CustomerRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
+import { pendingSignup } from '../lib/pendingSignup'
 
 const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
@@ -270,7 +272,20 @@ export class CustomerInvitationService {
           scope,
         )
         if (existingActiveUser) {
-          throw new CustomerInvitationEmailConflictError(invitation.email)
+          if (existingActiveUser.organizationId !== scope.organizationId
+            || !existingActiveUser.isActive || existingActiveUser.emailVerifiedAt || existingActiveUser.lastLoginAt) {
+            throw new CustomerInvitationEmailConflictError(invitation.email)
+          }
+          const retired = await transactionEm.nativeUpdate(CustomerUser, {
+            id: existingActiveUser.id,
+            ...scope,
+            ...pendingSignup,
+          }, { deletedAt: acceptedAt, isActive: false, passwordHash: null, sessionsRevokedAt: acceptedAt })
+          if (retired !== 1) throw new CustomerInvitationEmailConflictError(invitation.email)
+          await transactionEm.nativeUpdate(CustomerUserSession, {
+            user: existingActiveUser.id,
+            deletedAt: null,
+          }, { deletedAt: acceptedAt })
         }
 
         const user = transactionEm.create(CustomerUser, {

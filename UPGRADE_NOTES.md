@@ -22,6 +22,69 @@ The new Enterprise `maintenance` module turns on with `OM_ENABLE_ENTERPRISE_MODU
 
   Dry runs and OSS installs are unchanged. Unattended rotation scripts fail closed until they are updated.
 
+## Encrypted tenant custom-field writes require a usable key
+
+With tenant data encryption enabled, saving a non-null value to an encrypted tenant custom field requires a usable tenant key. Affected CRUD requests return HTTP 503 with code `ENCRYPTION_UNAVAILABLE` when the key cannot be read or created. Restore key access before retrying the field write. Custom routes that commit the base record and custom fields separately should check whether the base record already exists before retrying a create.
+
+Use earlier `Custom field configured as encrypted was stored as plaintext` warnings to find affected values, then re-save those values after restoring key access. Existing plaintext values remain readable. The explicit global encryption disable setting and clearing a custom field retain their existing behavior.
+
+## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
+
+When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.
+
+Clients that treated this 500 as a server fault can retry on `structured_output_invalid`. The request contract and response fields are unchanged. No database migration or configuration change is required.
+
+## An empty organization scope is stopped at the feature guard (#10503)
+
+A non-super-admin principal whose organization scope resolves to **no organization** is now denied
+by the feature guard itself. That covers a user or role whose organization visibility list is
+explicitly empty, and a list whose organizations no longer resolve (for example, the one
+organization a user was restricted to was deleted).
+
+- Every feature-gated API route answers `403`. Previously list routes answered `200` with an empty
+  page and detail routes answered their own `404`. This supersedes the "CRUD list routes return an
+  empty page" statement in "An explicitly empty organization scope now denies access everywhere"
+  below. The `403` is issued before any record lookup, so an existing, a foreign and an unknown id
+  still get the same response.
+- `rbacService.userHasAllFeatures`, `userHasAllFeaturesWithEntityManager`, `getGrantedFeatures`,
+  `getGrantedFeaturesWithEntityManager` and `getEffectiveFeatures` deny an explicitly empty list when
+  called without an organization, as they already did when an organization was given.
+- `GET` and `POST /api/entities/encryption` answer `403` for an explicitly empty scope. This
+  includes an unrestricted user whose home organization was deleted and who has no organization
+  selected; selecting an organization restores access.
+
+Unchanged: an absent list (`null`), `['__all__']`, a list with at least one resolving organization,
+and super-admins.
+
+**Action for operators:** a user who sees "access denied" on backend pages and `403` on API calls after the upgrade can
+see no organization. Grant the intended organizations in the user's or role's access settings.
+
+**Action for integrators:** a client that treated an empty list or a `404` as "nothing visible"
+for such a principal must also handle `403`.
+
+## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
+
+An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
+
+Callers that send `callSettings` to such an agent must drop them, or the agent author must allow runtime overrides. The agent's own `modelSettings` still apply, an empty `callSettings` object is treated as absent, and agents without the flag (the default, permissive) are unaffected. No first-party agent sets the flag to `false`. No database migration or configuration change is required.
+
+## Production fullapp LocalStack binds to loopback (#10342)
+
+The production fullapp `storage-s3` profile now publishes LocalStack on
+`127.0.0.1` by default. `LOCALSTACK_PORT` still controls the host port, and
+containers on the Compose network can still connect to `localstack:4566`.
+Operators who intentionally use remote tooling must set `INFRA_BIND_HOST`
+to the specific host interface they want to expose, then recreate LocalStack
+with the updated Compose file.
+
+## Agent trace ingest signing and workflow references
+
+Each trace-ingest adapter now needs a signing key provisioned for its tenant and organization. Provision separate scoped keys server-side with `traceIngestSecret(tenantId, organizationId)` and distribute only the derived key to each adapter. The Standard Webhooks header names, signed body format, and five-minute timestamp tolerance still apply. Adapters using the server-side signing helper pass `organizationId` as its second argument.
+
+Operators should pause trace delivery during the server and adapter cutover, replace the old signing keys, and retry queued deliveries with fresh timestamps and signatures. Previously issued tenant-wide signatures return HTTP 401. The webhook no longer establishes workflow attribution. Use the external run ID of the workflow-created agent invocation or send a standalone trace under its own run ID. Review previously ingested workflow links that lack a server-recorded invocation before relying on their process rollups. There is no schema migration.
+
+[Implementation spec](.ai/specs/enterprise/agent-orchestrator/2026-11-24-trace-ingest-scope.md)
+
 ## CRUD factory security and query correctness bundle
 
 These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
@@ -139,6 +202,26 @@ Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibilit
 
 All published ports in these dev stacks now bind to `127.0.0.1` by default. Operators who deliberately need remote access must set `INFRA_BIND_HOST` explicitly and control access to every published development service. This change does not alter production or hybrid startup.
 
+## MCP HTTP tool calls require a per-user session token, no fallback (#5173)
+
+The production MCP HTTP server (`mcp:serve-http` — the transport web chat and Code Mode go through) now requires a valid `_sessionToken` on every tool call. A call that omits it receives `UNAUTHORIZED`; one that supplies an invalid or expired token receives `SESSION_EXPIRED`. There is no fallback to the transport `x-api-key`'s ACL and no opt-in to restore one: `McpServerConfig.allowApiKeyFallback` and `mcp:serve-http --allow-api-key-fallback` do not exist (neither shipped in a prior release — both were introduced and removed again within this same change, after review).
+
+**What stops working:** a deployment that calls `mcp:serve-http` with only an `x-api-key` header and no `_sessionToken` — previously authorized against the transport key's (typically superadmin) ACL — now gets `UNAUTHORIZED` on every tool call, unconditionally.
+
+**Client migration (chat-facing callers):** none for the normal path — the web chat and Code Mode flows already mint and pass a per-user `_sessionToken` on every tool call; this change only removes a fallback those flows never relied on. One edge case needs attention: a session token is minted only when a chat turn starts a brand-new session; if that minting fails (a transient DB error), the turn continues without one and no later turn on that same session retries it. A chat session stuck in that state now gets `UNAUTHORIZED` on every tool call instead of silently running under the old transport-key fallback. **Recovery:** there is no in-place repair for an already-established session — start a new chat session, which mints a fresh token on its first turn. No stored credential or data needs cleanup.
+
+**Operator migration (header-only / automation callers):** switch to the stdio transport, which already supports header-only / unattended access deliberately and is never reachable from a chat turn. Authenticate it the same way any other automation caller would — with an API key scoped to that caller's own account, or an explicit user context — not with a superadmin bypass:
+
+```bash
+OPEN_MERCATO_API_KEY=omk_xxxx.yyyy... mercato ai_assistant mcp:serve
+# or, with a manually supplied tenant/user context instead of an API key:
+mercato ai_assistant mcp:serve --tenant <id> --user <id>
+```
+
+`mcp:serve --allow-unauthenticated-superadmin` also exists, but it is **DEV/TEST ONLY** — it runs with no per-user ACL and must never be used in production.
+
+No database, event-id, route, or ACL-feature change. No stored credential or data becomes unusable — this only changes which auth path an HTTP tool call is allowed to take. See [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md#mcp-http-session-token-no-fallback-2026-11-14-5173) and spec [`2026-11-14-mcp-http-session-required-no-fallback.md`](.ai/specs/2026-11-14-mcp-http-session-required-no-fallback.md).
+
 ## Query index metadata cached across requests (#2967)
 
 The query index engine no longer re-reads table metadata and custom-field definitions
@@ -159,6 +242,58 @@ on every request:
   multi-instance deployments, or lower the TTL, to converge sooner.
 
 No configuration, database, route, event or DI-key change is required.
+
+## Kernel modules keep working when optional modules are disabled (#10129)
+
+Several modules used to fail when an optional peer was removed from `src/modules.ts`. They now
+degrade instead. With every module enabled, behavior is unchanged. No migration or new
+configuration is required. What changes when a peer is disabled:
+
+- **scheduler** — module-authored schedules whose `source_module` is no longer enabled are skipped
+  (`scheduler.job.skipped` is emitted and `nextRunAt` still advances) instead of failing on every
+  tick. `mercato scheduler list` marks them. Re-enabling the module resumes them.
+- **record_locks** (enterprise) — works without `configs` (built-in default settings apply) and
+  without `audit_logs`. The OSS `updated_at` optimistic-lock floor is always enforced. Without
+  `audit_logs`, the extra conflict detection based on action-log history is not available.
+- **workflows** — bulk replay runs without `progress` (`progressJobId: null`). A `CALL_API` step
+  fails with a translated error without `api_keys`. Without `business_rules`, guard-rule seeds are
+  skipped and a workflow with a *required* start pre-condition refuses to start with
+  `RULE_ENGINE_UNAVAILABLE`. `workflows` still declares `requires: ['business_rules']` (#9217).
+- **messages** — works without `attachments` (attachment counts are 0, and the attachments route
+  answers 404) and without `notifications` (email delivery still runs).
+- **configs** — upgrade actions declare the module they need. Actions for disabled modules are not
+  offered and are rejected with `UPGRADE_ACTION_NOT_AVAILABLE`.
+- **Translate actions** on dictionary entries and custom-field definitions appear only when the
+  `translations` module is enabled and the user holds `translations.manage`.
+
+## File-agent attachment inputs enforce read permissions (#9117)
+
+OpenCode file-agent runs with nonempty `__files.attachments` now require the
+execution principal to hold `attachments.view` and pass each attachment owner's
+existing read policy. All inputs are authorized before storage reads, sandbox
+writes, cached OCR disclosure, or billable OCR. Previously accepted runs that
+lacked these permissions now fail. Empty envelopes retain their behavior.
+
+**Clients and custom runtimes:** submit only files the execution principal may
+read. Custom callers of `stageAttachments` must supply that principal as `userId`
+for nonempty envelopes. A direct run uses its authenticated subject; workflow
+runs use the resolved workflow principal: the configured execution grant, or
+otherwise the initiating user and then the definition creator. Audit-only `runAs`
+does not replace that principal. A denial fails the run before the model is prompted; do not retry
+it with a more privileged identity.
+
+**Operators:** review existing file-agent and workflow grants for
+`attachments.view` and the protected owner's read requirements. Grant only
+intended access through existing permissions and record sharing. No environment,
+startup, dependency, or database migration is required. Already staged files,
+model input, and cached OCR from earlier unauthorized runs are not revoked or
+erased by this change; assess affected run artifacts and retention using your
+existing incident process. Rolling back restores the authorization bypass.
+
+Maintainer @pkarw explicitly acknowledged the steps 1–3 security exception on
+2026-11-13 in the task conversation; [the acknowledgment is recorded on the PR](https://github.com/open-mercato/open-mercato/pull/9127#issuecomment-6852864115).
+QA sign-off remains separate. See the
+[migration and compatibility specification](.ai/specs/enterprise/agent-orchestrator/next/2026-06-26-agent-attachments-and-artifacts.md#migration--backward-compatibility).
 
 ## Optional process DI root (#8989)
 
@@ -4495,13 +4630,45 @@ invitation — with no failure at boot to warn you. Add the dependency and the e
 ```
 
 ```ts
-// src/modules.ts — alongside the other channel_* entries
+// src/modules.ts — the hub and its dependencies first, then the provider entries
+{ id: 'progress', from: '@open-mercato/core' },
+{ id: 'integrations', from: '@open-mercato/core' },
+{ id: 'communication_channels', from: '@open-mercato/core' },
 { id: 'channel_resend', from: '@open-mercato/channel-resend' },
 { id: 'channel_ses', from: '@open-mercato/channel-ses' },
 ```
 
 Enable the package matching `SYSTEM_EMAIL_PROVIDER` (default `resend`); the other is optional.
 The monorepo app (`apps/mercato`) and newly scaffolded apps already carry both.
+
+**The provider module alone is not enough — `communication_channels` MUST be enabled too
+(#6278).** The provider package's `di.ts` only registers its channel adapter and its system-email
+config resolver; the outbound email transport itself (`registerEmailTransport()`) is registered
+by `communication_channels/di.ts` and nowhere else. An app that adds `channel_resend` /
+`channel_ses` but not `communication_channels` typechecks, passes tests that mock `sendEmail`,
+and then throws `EMAIL_TRANSPORT_NOT_CONFIGURED: enable an outbound email provider module` on the
+first real send. `communication_channels` in turn needs `integrations` (the provider credentials)
+and `progress` (its import-history worker, see "`communication_channels` now requires `progress`"
+below). From 0.9.0 the provider modules declare `requires: ['communication_channels',
+'integrations']`, so `yarn generate` fails fast instead (see "`yarn generate` now enforces a
+module's declared `requires` dependencies" in the 0.8.0 → 0.9.0 section).
+
+**`yarn generate` also expects `@open-mercato/web-research` to be installed.** The generated
+`.mercato/generated/web-research-adapters.generated.ts` always contains
+`import type { AdapterRegistryEntry } from '@open-mercato/web-research'`, even when no installed
+package declares a web-research adapter and the registry is empty. An app that does not depend on
+`@open-mercato/web-research` (directly or through `@open-mercato/enterprise`) fails its typecheck
+with `TS2307: Cannot find module '@open-mercato/web-research'`. Add it to `package.json` at the
+same version as your other `@open-mercato/*` packages:
+
+```jsonc
+"@open-mercato/web-research": "0.8.0",
+```
+
+From the release that ships #10129 the generator declares the `AdapterRegistryEntry` type inline,
+so the generated registry no longer imports `@open-mercato/web-research`. After upgrading the CLI
+and re-running `yarn generate`, the dependency above is only needed if the app actually uses
+web research.
 
 Only the **selected** provider's env preset seeds anything. Enabling both packages is therefore
 safe: with `SYSTEM_EMAIL_PROVIDER` unset or `resend`, the SES preset stores no credentials, creates
@@ -6701,3 +6868,24 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 **Operator migration:** no database or startup changes are needed. Existing authors and audit history are not rewritten; review earlier attribution changes against independent evidence because prior unrestricted edits may have made stored attribution unreliable. API keys remain usable for ordinary edits but cannot perform attribution corrections.
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
+
+### MFA method encryption (#3854)
+
+With tenant encryption enabled, Security now encrypts MFA method secrets and provider metadata, including legacy TOTP seeds. Apply the additive `secret_hash` migration before deploying the new writes; regenerate module registries. In-flight plaintext pending setups remain compatible and new setups use the lookup hash. The MFA methods list returns public provider metadata without the private legacy TOTP seed. Do not roll back to code that cannot decrypt these fields.
+
+The SQL migration registers existing enabled scopes; it cannot encrypt historical seeds. During the established encryption maintenance window, preview `mercato entities rotate-encryption-key --tenant <tenant UUID> --dry-run`, then run without `--dry-run` and without an old key for every affected tenant, following the existing maintenance safety gates. Restart replicas and verify no plaintext remains. Disabled encryption/maps remain unchanged. This does not erase old backups or log snapshots; suspected exposure requires re-enrollment. See [the rollout spec](.ai/specs/enterprise/2026-11-07-mfa-secret-encryption.md).
+
+## Workflow event emission requires module opt-in (#9134)
+
+Review stored `EMIT_EVENT` activities before rollout. For a custom business signal,
+declare its exact event ID with `workflowEmittable: true` after checking that its
+subscribers accept tenant-authored data. Route privileged state changes through the
+owning module's authorized operation. The instance supplies tenant and organization
+scope on every workflow emission.
+
+Upgrade application and event worker processes together. Gateway status and index
+jobs created before this change may lack trusted scope and will fail closed. Reconcile
+incomplete payment statuses from the gateway provider and resubmit necessary index
+work through the index API or CLI. Custom server-side event producers for these jobs
+must pass trusted scope in emit options. An all-tenant reindex requires
+`tenantId: null` and `allowAllTenants: true` in those options.

@@ -18,6 +18,7 @@ import {
   sanitizeSchedulerTargetPayload,
   validateSchedulerTargetPayload,
 } from '../lib/safeQueueTargets'
+import { describeDisabledSourceModule, isScheduleSourceModuleDisabled } from '../lib/sourceModuleAvailability'
 
 const logger = createLogger('scheduler').child({ component: 'local' })
 
@@ -172,6 +173,21 @@ export class LocalSchedulerService {
     const scheduleLogger = logger.child({ scheduleId: schedule.id, scheduleName: schedule.name })
 
     const { acquired } = await this.lockStrategy.runWithLock(lockKey, async () => {
+      if (isScheduleSourceModuleDisabled(schedule)) {
+        scheduleLogger.info('Schedule skipped: source module is not enabled', { sourceModule: schedule.sourceModule })
+        await emitSchedulerEvent('scheduler.job.skipped', {
+          id: schedule.id,
+          tenantId: schedule.tenantId,
+          organizationId: schedule.organizationId,
+          scheduleName: schedule.name,
+          scopeType: schedule.scopeType,
+          reason: describeDisabledSourceModule(schedule),
+          skippedAt: new Date(),
+        })
+        await this.updateNextRun(schedule)
+        return
+      }
+
       scheduleLogger.info('Executing schedule')
 
       // Emit started event

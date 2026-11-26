@@ -535,6 +535,7 @@ const setupApp: ModuleCli = {
     try {
       const modules = getCliModules()
       const result = await setupInitialTenant(em, {
+        container,
         orgName,
         orgSlug,
         roleNames,
