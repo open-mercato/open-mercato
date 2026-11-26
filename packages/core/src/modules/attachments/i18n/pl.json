@@ -6,6 +6,7 @@
   "attachments.dealMerge.participantLabel": "Załączniki",
   "attachments.errors.activeContentBlocked": "Przesyłanie treści aktywnych nie jest dozwolone.",
   "attachments.errors.dangerousExecutable": "Pliki wykonywalne nie są dozwolone jako załączniki.",
+  "attachments.errors.dealNotFound": "Nie znaleziono szansy.",
   "attachments.errors.maxUploadSize": "Załącznik przekracza maksymalny dopuszczalny rozmiar przesyłania.",
   "attachments.errors.partitionUnavailable": "Partycja załączników nie jest dostępna w tym zakresie.",
   "attachments.errors.persistenceFailed": "Nie udało się zapisać załącznika.",

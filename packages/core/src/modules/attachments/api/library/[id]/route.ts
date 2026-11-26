@@ -32,6 +32,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '../../../lib/crud'
 import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../../lib/assignmentDetails'
+import { collectAttachmentDealIds, lockAttachmentDealReferences, lockLiveAttachmentDealReferences } from '../../../lib/dealReferenceGuard'
 import {
   attachmentsTag,
   attachmentDetailResponseSchema,
@@ -174,7 +175,13 @@ async function updateAttachment(req: NextRequest, ctx: RouteContext) {
     organizationId: auth.orgId,
   }
   const accessContext = createAttachmentAccessContext(container)
+  const dealScope = { tenantId: auth.tenantId, organizationId: auth.orgId }
   const outcome = await em.transactional(async (tx) => {
+    await lockAttachmentDealReferences(
+      tx,
+      collectAttachmentDealIds({ assignments: normalizeAttachmentAssignments(parsed.data.assignments ?? []) }),
+      dealScope,
+    )
     const record = await findOneWithDecryption(tx, Attachment, patchFilter, {
       lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
     }, { tenantId: auth.tenantId, organizationId: auth.orgId })
@@ -190,6 +197,17 @@ async function updateAttachment(req: NextRequest, ctx: RouteContext) {
     if (effectiveParsed.data.tags) patch.tags = normalizeAttachmentTags(effectiveParsed.data.tags)
     if (effectiveParsed.data.assignments) patch.assignments = normalizeAttachmentAssignments(effectiveParsed.data.assignments)
     const nextMetadata = mergeAttachmentMetadata(record.storageMetadata, patch)
+    const currentDealIds = new Set(collectAttachmentDealIds({
+      entityId: record.entityId,
+      recordId: record.recordId,
+      assignments: readAttachmentMetadata(record.storageMetadata).assignments,
+    }))
+    await lockLiveAttachmentDealReferences(
+      tx,
+      collectAttachmentDealIds({ assignments: readAttachmentMetadata(nextMetadata).assignments })
+        .filter((dealId) => !currentDealIds.has(dealId)),
+      dealScope,
+    )
     await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: record, action: 'reassign', persistProtection: true })
     await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: { ...record, storageMetadata: nextMetadata }, action: 'reassign' })
     await assertAttachmentOwnerAccess({ em: tx, context: accessContext, auth, attachment: { ...record, storageMetadata: nextMetadata }, action: 'metadata' })

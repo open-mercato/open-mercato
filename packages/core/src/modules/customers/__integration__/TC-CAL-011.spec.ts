@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
-import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
+import { createDealFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
 import { INTERACTIONS_PATH, localTimeAt } from './helpers/calendarFixtures';
 
 /**
@@ -31,6 +31,7 @@ test.describe('TC-CAL-011: Calendar event resource links', () => {
     let adminToken: string | null = null;
     let personId: string | null = null;
     let interactionId: string | null = null;
+    let dealId: string | null = null;
 
     try {
       adminToken = await getAuthToken(request, 'admin');
@@ -43,7 +44,7 @@ test.describe('TC-CAL-011: Calendar event resource links', () => {
       });
 
       const resourceId = randomUUID();
-      const dealId = randomUUID();
+      dealId = await createDealFixture(request, adminToken, { title: `QA Cal Resource Deal ${stamp}`, personIds: [personId] });
       const resourceLabel = `QA Room ${stamp}`;
       const dealLabel = `QA Deal ${stamp}`;
       const scheduledAt = localTimeAt(1, 11, 0);
@@ -105,8 +106,22 @@ test.describe('TC-CAL-011: Calendar event resource links', () => {
         },
       });
       expect(rejectedResponse.status(), 'POST with an unknown link type should be rejected with 400').toBe(400);
+
+      const missingDealResponse = await apiRequest(request, 'POST', INTERACTIONS_PATH, {
+        token: adminToken,
+        data: {
+          entityId: personId,
+          interactionType: 'meeting',
+          title: `QA Cal Missing Deal Link ${stamp}`,
+          status: 'planned',
+          scheduledAt: scheduledAt.toISOString(),
+          linkedEntities: [{ id: randomUUID(), type: 'deal', label: 'Missing deal' }],
+        },
+      });
+      expect(missingDealResponse.status(), 'POST with a deal link to a missing deal should be rejected with 400').toBe(400);
     } finally {
       await deleteEntityIfExists(request, adminToken, INTERACTIONS_PATH, interactionId);
+      await deleteEntityIfExists(request, adminToken, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId);
     }
   });

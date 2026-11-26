@@ -1,12 +1,14 @@
 import type { EntityManager, EntityName, FilterQuery } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
-import { CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, badRequest, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { loadEntityRecordScope } from '@open-mercato/shared/lib/db/recordScope'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { lockEntityReferences } from '@open-mercato/shared/lib/entities/reference-lock'
 import type { EventBus } from '@open-mercato/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CacheStrategy } from '@open-mercato/cache'
@@ -269,6 +271,81 @@ export async function requireDealInScope(
   if (!deal) throw new CrudHttpError(400, { error: 'Deal not found' })
   ensureSameScope(deal, organizationId, tenantId)
   return deal
+}
+
+export function linkedDealIds(entries: unknown): string[] {
+  if (!Array.isArray(entries)) return []
+  const ids = new Set<string>()
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') continue
+    const candidate = entry as { id?: unknown; type?: unknown }
+    if (candidate.type === 'deal' && typeof candidate.id === 'string') ids.add(candidate.id.toLowerCase())
+  }
+  return [...ids]
+}
+
+type StoredInteractionDealReferences = { dealId: string | null; chipIds: Set<string> }
+
+async function loadStoredInteractionDealReferences(
+  em: EntityManager,
+  interactionId: string | null | undefined,
+  tenantId: string,
+  organizationId: string,
+): Promise<StoredInteractionDealReferences> {
+  if (!interactionId) return { dealId: null, chipIds: new Set() }
+  const rows = await em.execute<Array<{ deal_id: string | null; linked_entities: unknown }>>(
+    'select deal_id, linked_entities from customer_interactions where id = ? and tenant_id = ? and organization_id = ?',
+    [interactionId, tenantId, organizationId],
+  )
+  const row = Array.isArray(rows) && rows.length ? rows[0] : null
+  const raw = row?.linked_entities ?? null
+  return {
+    dealId: row?.deal_id ?? null,
+    chipIds: new Set(linkedDealIds(typeof raw === 'string' ? JSON.parse(raw) : raw)),
+  }
+}
+
+export async function lockInteractionDealReferences(
+  em: EntityManager,
+  input: {
+    dealId?: string | null
+    linkedEntities?: unknown
+    interactionId?: string | null
+    tenantId: string
+    organizationId: string
+    restore?: boolean
+  },
+): Promise<void> {
+  const chipIds = input.linkedEntities === undefined ? [] : linkedDealIds(input.linkedEntities)
+  const referencedIds = [...new Set([...(input.dealId ? [input.dealId] : []), ...chipIds])]
+  if (!referencedIds.length) return
+  await lockEntityReferences(em, referencedIds.map((recordId) => ({
+    entityId: 'customers:customer_deal',
+    recordId,
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
+  })))
+  const needsStored = input.restore === true || chipIds.length > 0
+  const stored = needsStored
+    ? await loadStoredInteractionDealReferences(em, input.interactionId, input.tenantId, input.organizationId)
+    : { dealId: null, chipIds: new Set<string>() }
+  const restoresStoredDealId = input.restore === true
+    && Boolean(input.dealId)
+    && stored.dealId?.toLowerCase() === input.dealId?.toLowerCase()
+  const checkDealId = input.dealId && !restoresStoredDealId
+  if (checkDealId) await requireDealInScope(em, input.dealId, input.tenantId, input.organizationId)
+  const addedChipIds = chipIds.filter((id) => !stored.chipIds.has(id))
+  if (!addedChipIds.length) return
+  const liveDeals = await findWithDecryption(
+    em,
+    CustomerDeal,
+    { id: { $in: addedChipIds }, deletedAt: null, tenantId: input.tenantId, organizationId: input.organizationId },
+    undefined,
+    { tenantId: input.tenantId, organizationId: input.organizationId },
+  )
+  if (liveDeals.length === addedChipIds.length) return
+  const { translate } = await resolveTranslations()
+  throw badRequest(translate('customers.errors.deal_not_found', 'Deal not found'))
 }
 
 const DICTIONARY_KINDS = new Set([

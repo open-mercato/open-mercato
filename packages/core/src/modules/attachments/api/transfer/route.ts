@@ -13,6 +13,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { mergeAttachmentMetadata, readAttachmentMetadata } from '../../lib/metadata'
+import { collectAttachmentDealIds, lockLiveAttachmentDealReferences } from '../../lib/dealReferenceGuard'
 import {
   attachmentsTag,
   transferAttachmentsRequestSchema,
@@ -53,7 +54,13 @@ async function transferAttachments(req: Request) {
     ...(fromRecordId ? { recordId: fromRecordId } : {}),
   }
   const accessContext = createAttachmentAccessContext(container)
+  const dealScope = { tenantId: auth.tenantId, organizationId: auth.orgId }
   const outcome = await em.transactional(async (tx) => {
+    await lockLiveAttachmentDealReferences(
+      tx,
+      collectAttachmentDealIds({ entityId, recordId: effective.data.toRecordId }),
+      dealScope,
+    )
     const records = await findWithDecryption(tx, Attachment, filters, {
       orderBy: { id: 'asc' }, lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
     }, { tenantId: auth.tenantId, organizationId: auth.orgId })
@@ -73,6 +80,11 @@ async function transferAttachments(req: Request) {
         return throwAttachmentAccessError(403)
       }
       const destinationId = recordEffective.data.toRecordId
+      await lockLiveAttachmentDealReferences(
+        tx,
+        collectAttachmentDealIds({ entityId: record.entityId, recordId: destinationId }),
+        dealScope,
+      )
       const metadata = readAttachmentMetadata(record.storageMetadata)
       const assignments = metadata.assignments?.map((assignment) => (
         assignment.type === entityId && assignment.id === (fromRecordId ?? record.recordId)

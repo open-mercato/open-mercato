@@ -6,6 +6,7 @@
   "attachments.dealMerge.participantLabel": "첨부 파일",
   "attachments.errors.activeContentBlocked": "활성 콘텐츠 업로드는 허용되지 않습니다.",
   "attachments.errors.dangerousExecutable": "실행 파일 형식은 첨부 파일로 허용되지 않습니다.",
+  "attachments.errors.dealNotFound": "거래를 찾을 수 없습니다.",
   "attachments.errors.maxUploadSize": "첨부 파일이 최대 업로드 크기를 초과합니다.",
   "attachments.errors.partitionUnavailable": "이 범위에서는 첨부 파일 파티션을 사용할 수 없습니다.",
   "attachments.errors.persistenceFailed": "첨부 파일을 저장하지 못했습니다.",

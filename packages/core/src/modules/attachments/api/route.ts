@@ -27,6 +27,8 @@ import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from
 import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from '../lib/documentStructure/purge'
 import { assertAttachmentScopeInvariant } from '../lib/access'
 import { resolveAttachmentRequestScope } from '../lib/requestScope'
+import { collectAttachmentDealIds, lockLiveAttachmentDealReferences } from '../lib/dealReferenceGuard'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   mergeAttachmentMetadata,
   normalizeAttachmentAssignments,
@@ -624,6 +626,11 @@ async function uploadAttachment(req: Request) {
   // custom-field failure cannot leave behind a committed orphan attachment.
   try {
     await em.transactional(async (tx) => {
+      await lockLiveAttachmentDealReferences(
+        tx,
+        collectAttachmentDealIds({ entityId, recordId, assignments }),
+        { tenantId: auth.tenantId!, organizationId: orgId },
+      )
       await tx.persist(att).flush()
       if (dataEngine) {
         await setCustomFieldsIfAny({
@@ -650,6 +657,7 @@ async function uploadAttachment(req: Request) {
     } catch (cleanupError) {
       logger.error('Failed to compensate attachment persistence', { err: cleanupError })
     }
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
     return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
   }
 

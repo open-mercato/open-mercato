@@ -17,6 +17,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -44,6 +45,7 @@ const DEAL_ENTITY_ID = 'customers:customer_deal'
 const ACTIVITY_ENTITY_ID = 'customers:customer_activity'
 const COMMENT_ENTITY_ID = 'customers:customer_comment'
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
+const MOVED_SIDE_EFFECT_CONCURRENCY = 8
 const outputSchema = z.object({ survivorId: z.string().uuid(), sourceId: z.string().uuid() })
 
 const dealIndexer: CrudIndexerConfig<CustomerDeal> = { entityType: DEAL_ENTITY_ID }
@@ -150,6 +152,17 @@ export function resolveDealMergeClosure(values: {
 
 type LinkedEntityEntry = { id: string; type: string; label: string }
 
+function sameRecordId(left: string, right: string): boolean {
+  return left.toLowerCase() === right.toLowerCase()
+}
+
+function dealChipContainments(dealId: string): [string, string] {
+  return [
+    JSON.stringify([{ type: 'deal', id: dealId.toLowerCase() }]),
+    JSON.stringify([{ type: 'deal', id: dealId.toUpperCase() }]),
+  ]
+}
+
 export function rewriteDealLinkedEntities(
   entries: unknown,
   sourceId: string,
@@ -162,13 +175,13 @@ export function rewriteDealLinkedEntities(
     && typeof (entry as LinkedEntityEntry).id === 'string'
     && typeof (entry as LinkedEntityEntry).type === 'string'
   ))
-  if (!typed.some((entry) => entry.type === 'deal' && entry.id === sourceId)) return null
-  const hasSurvivor = typed.some((entry) => entry.type === 'deal' && entry.id === survivor.id)
+  if (!typed.some((entry) => entry.type === 'deal' && sameRecordId(entry.id, sourceId))) return null
+  const hasSurvivor = typed.some((entry) => entry.type === 'deal' && sameRecordId(entry.id, survivor.id))
   const result: LinkedEntityEntry[] = []
   let survivorAdded = hasSurvivor
   for (const entry of entries as unknown[]) {
     const candidate = entry as LinkedEntityEntry
-    const isSourceDeal = typed.includes(candidate) && candidate.type === 'deal' && candidate.id === sourceId
+    const isSourceDeal = typed.includes(candidate) && candidate.type === 'deal' && sameRecordId(candidate.id, sourceId)
     if (!isSourceDeal) {
       result.push(candidate)
       continue
@@ -405,6 +418,11 @@ async function collectMovedRecords(
   survivorId: string,
   scope: MergeScope,
 ): Promise<{ activities: MovedRecord[]; comments: MovedRecord[]; interactions: MovedRecord[] }> {
+  const [lowerChip, upperChip] = dealChipContainments(sourceId)
+  await em.execute(
+    'select id from customer_interactions where tenant_id = ? and organization_id = ? and (deal_id = ? or linked_entities @> ?::jsonb or linked_entities @> ?::jsonb) order by id for update',
+    [scope.tenantId, scope.organizationId, sourceId, lowerChip, upperChip],
+  )
   const params = [sourceId, scope.tenantId, scope.organizationId]
   const [activities, comments, interactions] = [
     await selectMovedRows(em,
@@ -439,19 +457,17 @@ async function rewriteInteractionLinkedEntities(
   survivor: CustomerDeal,
   scope: MergeScope,
 ): Promise<MovedRecord[]> {
-  const containment = JSON.stringify([{ type: 'deal', id: source.id }])
+  const [lowerChip, upperChip] = dealChipContainments(source.id)
   const rows = await selectMovedRows(em,
-    'select id, entity_id, interaction_type, status, source, deal_id, linked_entities, deleted_at from customer_interactions where tenant_id = ? and organization_id = ? and linked_entities @> ?::jsonb',
-    [scope.tenantId, scope.organizationId, containment])
+    'select id, entity_id, interaction_type, status, source, deal_id, linked_entities, deleted_at from customer_interactions where tenant_id = ? and organization_id = ? and (linked_entities @> ?::jsonb or linked_entities @> ?::jsonb) order by id for update',
+    [scope.tenantId, scope.organizationId, lowerChip, upperChip])
+  const rewrites: Array<{ id: string; linked_entities: LinkedEntityEntry[] }> = []
   const touched: MovedRecord[] = []
   for (const row of rows) {
     const raw = typeof row.linked_entities === 'string' ? JSON.parse(row.linked_entities) : row.linked_entities
     const rewritten = rewriteDealLinkedEntities(raw, source.id, { id: survivor.id, title: survivor.title })
     if (!rewritten) continue
-    await em.execute(
-      'update customer_interactions set linked_entities = ?::jsonb, updated_at = now() where id = ? and tenant_id = ? and organization_id = ?',
-      [JSON.stringify(rewritten), row.id, scope.tenantId, scope.organizationId],
-    )
+    rewrites.push({ id: row.id, linked_entities: rewritten })
     if (row.deleted_at) continue
     touched.push({
       id: row.id,
@@ -463,6 +479,12 @@ async function rewriteInteractionLinkedEntities(
         dealId: row.deal_id ?? null,
       },
     })
+  }
+  if (rewrites.length > 0) {
+    await em.execute(
+      'update customer_interactions as ci set linked_entities = v.linked_entities, updated_at = now() from jsonb_to_recordset(?::jsonb) as v(id uuid, linked_entities jsonb) where ci.id = v.id and ci.tenant_id = ? and ci.organization_id = ?',
+      [JSON.stringify(rewrites), scope.tenantId, scope.organizationId],
+    )
   }
   return touched
 }
@@ -721,18 +743,15 @@ export const mergeDealsCommand: CommandHandler<DealMergeRequest, MergeResult> = 
       { indexer: { entityType: COMMENT_ENTITY_ID }, events: movedRecordEvents('comment'), records: moved.comments },
       { indexer: { entityType: INTERACTION_ENTITY_ID }, events: movedRecordEvents('interaction'), records: moved.interactions },
     ]
-    for (const group of movedGroups) {
-      for (const record of group.records) {
-        await emitCrudSideEffects({
-          dataEngine,
-          action: 'updated',
-          entity: { id: record.id, ...record.payload },
-          identifiers: { id: record.id, ...scope },
-          indexer: group.indexer,
-          events: group.events,
-        })
-      }
-    }
+    const movedSideEffects = movedGroups.flatMap((group) => group.records.map((record) => ({ group, record })))
+    await mapWithConcurrency(movedSideEffects, MOVED_SIDE_EFFECT_CONCURRENCY, ({ group, record }) => emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: { id: record.id, ...record.payload },
+      identifiers: { id: record.id, ...scope },
+      indexer: group.indexer,
+      events: group.events,
+    }))
     if (closure.closureOutcome && closure.closureOutcome !== previousOutcome) {
       await emitClosureEvent(closure.closureOutcome, survivor, scope)
     }

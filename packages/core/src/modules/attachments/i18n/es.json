@@ -6,6 +6,7 @@
   "attachments.dealMerge.participantLabel": "Adjuntos",
   "attachments.errors.activeContentBlocked": "No se permite la carga de contenido activo.",
   "attachments.errors.dangerousExecutable": "No se permiten archivos ejecutables como adjuntos.",
+  "attachments.errors.dealNotFound": "No se encontró el deal.",
   "attachments.errors.maxUploadSize": "El archivo adjunto supera el tamaño máximo de carga permitido.",
   "attachments.errors.partitionUnavailable": "La partición de adjuntos no está disponible para este ámbito.",
   "attachments.errors.persistenceFailed": "No se pudo guardar el archivo adjunto.",

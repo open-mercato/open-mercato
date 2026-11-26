@@ -6,6 +6,7 @@
   "attachments.dealMerge.participantLabel": "Anhänge",
   "attachments.errors.activeContentBlocked": "Das Hochladen aktiver Inhalte ist nicht erlaubt.",
   "attachments.errors.dangerousExecutable": "Ausführbare Dateitypen sind als Anhänge nicht erlaubt.",
+  "attachments.errors.dealNotFound": "Deal nicht gefunden.",
   "attachments.errors.maxUploadSize": "Der Anhang überschreitet die maximal zulässige Upload-Größe.",
   "attachments.errors.partitionUnavailable": "Die Anhang-Partition ist für diesen Bereich nicht verfügbar.",
   "attachments.errors.persistenceFailed": "Der Anhang konnte nicht gespeichert werden.",

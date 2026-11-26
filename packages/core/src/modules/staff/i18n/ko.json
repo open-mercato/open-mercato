@@ -2094,6 +2094,7 @@
   "staff.timesheets.errors.capacityForbidden": "이 사람의 목표를 볼 수 없습니다.",
   "staff.timesheets.errors.copyDaySameDate": "원본 날짜와 대상 날짜는 서로 달라야 합니다.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "대상 날짜에 이미 근무 시간 항목이 있습니다. 먼저 확인하거나 그래도 복사본을 추가하려면 확인하세요.",
+  "staff.timesheets.errors.dealNotFound": "거래를 찾을 수 없습니다.",
   "staff.timesheets.errors.defaultAssigneeNotMember": "기본 담당자는 이 프로젝트의 활성 구성원이어야 합니다.",
   "staff.timesheets.errors.entryNotFound": "근무 시간 항목을 찾을 수 없거나, 삭제되었거나, 본인 소유가 아닙니다.",
   "staff.timesheets.errors.invalidBody": "잘못된 요청 본문입니다.",

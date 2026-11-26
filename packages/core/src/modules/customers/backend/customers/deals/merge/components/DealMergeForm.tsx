@@ -3,7 +3,9 @@
 import * as React from 'react'
 import { ExternalLink, GitMerge, RefreshCw } from 'lucide-react'
 import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { decimalToString, isNegativeDecimal, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
@@ -210,9 +212,15 @@ function parseOptionalNumber(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function parseOptionalDecimal(value: string): string | null {
+  const parsed = parseDecimal(value.trim())
+  return parsed && !isNegativeDecimal(parsed) ? decimalToString(parsed) : null
+}
+
 function scalarCustomResult(field: string, raw: string): unknown {
   const trimmed = raw.trim()
-  if (field === 'valueAmount' || field === 'probability') return parseOptionalNumber(raw)
+  if (field === 'valueAmount') return parseOptionalDecimal(raw)
+  if (field === 'probability') return parseOptionalNumber(raw)
   if (field === 'valueCurrency') return trimmed ? trimmed.toUpperCase() : null
   if (field === 'title') return trimmed
   if (field === 'description') return raw.length ? raw : null
@@ -226,18 +234,9 @@ function seedScalarCustomValue(field: string, value: unknown): string {
 }
 
 function formatAmount(value: unknown, currency: unknown, locale: string | undefined): string | null {
-  if (value === null || value === undefined || value === '') return null
-  const amount = Number(value)
-  if (!Number.isFinite(amount)) return String(value)
-  const code = typeof currency === 'string' && currency.length === 3 ? currency : null
-  if (code) {
-    try {
-      return new Intl.NumberFormat(locale, { style: 'currency', currency: code }).format(amount)
-    } catch {
-      return `${amount.toLocaleString(locale)} ${code}`
-    }
-  }
-  return amount.toLocaleString(locale)
+  if (typeof value !== 'string' && typeof value !== 'number') return null
+  const code = typeof currency === 'string' ? currency : null
+  return formatCurrency(value, code, locale, null, { showAllDigits: true })
 }
 
 export function DealMergeForm({
@@ -519,6 +518,9 @@ export function DealMergeForm({
       if (differs && choiceFor(field) === 'custom') {
         values[field] = scalarCustomResult(field, asText(customValues[field]))
         if (field === 'title' && !values[field]) errors[field] = requiredMessage
+        if (field === 'valueAmount' && values[field] === null && asText(customValues[field]).trim()) {
+          errors[field] = t('customers.deals.merge.errors.invalid_amount', 'Enter a valid amount of zero or more.')
+        }
       } else {
         values[field] = resolveSide(field, preview.left.fields[field], preview.right.fields[field])
       }

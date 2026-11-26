@@ -41,8 +41,10 @@ jest.mock('../../../../lib/interactionRequestContext', () => ({
   resolveAuthActorId: jest.fn(() => 'user-1'),
 }))
 
+const registryGuards: unknown[] = []
+
 jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
-  getAllMutationGuardInstances: () => [],
+  getAllMutationGuardInstances: () => registryGuards,
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -100,6 +102,7 @@ function postRequest(body: unknown) {
 describe('customers Deal merge route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    registryGuards.length = 0
     validateMutation.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { lock: true } })
     afterMutationSuccess.mockResolvedValue(undefined)
     commandExecute.mockResolvedValue({ result: { survivorId, sourceId } })
@@ -174,6 +177,64 @@ describe('customers Deal merge route', () => {
     expect(validateMutation.mock.calls[1][0].resourceId).toBe(sourceId)
     expect(commandExecute).not.toHaveBeenCalled()
     expect(afterMutationSuccess).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['survivorId', { survivorId: '55555555-5555-4555-8555-555555555555' }],
+    ['sourceId', { sourceId: '55555555-5555-4555-8555-555555555555' }],
+    ['both ids swapped', { survivorId: sourceId, sourceId: survivorId }],
+  ])('rejects a guard rewrite of %s and never runs the command', async (_label, rewrite) => {
+    const guardValidate = jest.fn(async () => ({ ok: true, modifiedPayload: rewrite }))
+    registryGuards.push({
+      id: 'test.retarget',
+      targetEntity: 'customers.deal',
+      operations: ['update', 'delete'],
+      validate: guardValidate,
+    })
+    const response = await POST(postRequest(validBody))
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'customers.deals.merge.errors.guard_retarget',
+      code: 'guard_retarget_rejected',
+    })
+    expect(guardValidate).toHaveBeenCalledTimes(1)
+    expect(commandExecute).not.toHaveBeenCalled()
+    expect(afterMutationSuccess).not.toHaveBeenCalled()
+  })
+
+  it('applies a guard rewrite that keeps both Deal ids and executes with the evaluated ids', async () => {
+    registryGuards.push({
+      id: 'test.title',
+      targetEntity: 'customers.deal',
+      operations: ['update', 'delete'],
+      validate: async () => ({
+        ok: true,
+        modifiedPayload: { survivorId, sourceId, values: { ...validBody.values, title: 'Guarded title' } },
+      }),
+    })
+    const response = await POST(postRequest(validBody))
+
+    expect(response.status).toBe(200)
+    expect(commandExecute).toHaveBeenCalledTimes(1)
+    expect(commandExecute).toHaveBeenCalledWith('customers.deals.merge', {
+      input: expect.objectContaining({
+        survivorId,
+        sourceId,
+        values: expect.objectContaining({ title: 'Guarded title' }),
+      }),
+      ctx: context.commandContext,
+    })
+  })
+
+  it('normalizes an exact amount string without float conversion before dispatch', async () => {
+    const response = await POST(postRequest({
+      ...validBody,
+      values: { ...validBody.values, valueAmount: '12345678901234567.89' },
+    }))
+
+    expect(response.status).toBe(200)
+    expect(commandExecute.mock.calls[0][1].input.values.valueAmount).toBe('12345678901234567.89')
   })
 
   it('returns the structured optimistic-lock conflict when the command reports a gone source', async () => {
@@ -273,6 +334,20 @@ describe('customers Deal merge route', () => {
       const body = await response.json()
       expect(body.participants.map((entry: { participantId: string }) => entry.participantId))
         .toEqual(['gated.records', 'open.records'])
+    })
+
+    it('returns the stored amount as an exact decimal string', async () => {
+      userHasAllFeatures.mockResolvedValue(true)
+      findWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) =>
+        entity === CustomerDeal
+          ? [{ ...dealRow(survivorId), valueAmount: '12345678901234567.89' }, dealRow(sourceId)]
+          : [])
+      const response = await GET(getRequest())
+
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.left.fields.valueAmount).toBe('12345678901234567.89')
+      expect(body.right.fields.valueAmount).toBeNull()
     })
 
     it('returns 404 when one Deal is outside the selected scope', async () => {

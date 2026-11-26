@@ -47,7 +47,7 @@ jest.mock('../shared', () => ({
   ensureOrganizationScope: jest.fn(),
   ensureTenantScope: jest.fn(),
   requireTimelineParentEntity: jest.fn(async () => ({ id: ENTITY, tenantId: TENANT, organizationId: ORG, kind: 'person' })),
-  requireDealInScope: jest.fn(),
+  lockInteractionDealReferences: jest.fn(async () => undefined),
   extractUndoPayload: jest.fn(),
   emitQueryIndexUpsertEvents: jest.fn(),
   resolveParentResourceKind: jest.fn(),

@@ -31,7 +31,7 @@ import {
   requireTimelineParentEntity,
   extractUndoPayload,
   emitQueryIndexUpsertEvents,
-  requireDealInScope,
+  lockInteractionDealReferences,
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -54,7 +54,6 @@ import { canChangeEmailVisibility, isEmailHiddenFrom } from '../lib/visibilityFi
 import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { loadCustomFieldDefinitionIndex } from '@open-mercato/shared/lib/crud/custom-fields'
-import { lockEntityReferences } from '@open-mercato/shared/lib/entities/reference-lock'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from '../lib/calendar/eventTypeResolver'
 import { clearInapplicableCoreFields, findInapplicableCoreFields, omitHiddenCoreClears, preserveHiddenCoreValuesOnSameTypeEdit } from '../lib/calendar/interactionApplicability'
@@ -220,6 +219,20 @@ async function ensureInteractionRestoreAccess(
     const { translate } = await resolveTranslations()
     throw badRequest(translate('auth.users.form.errors.notFound', 'User not found'))
   }
+}
+
+function lockRestoredInteractionDealReferences(
+  em: EntityManager,
+  restored: InteractionSnapshot['interaction'],
+): Promise<void> {
+  return lockInteractionDealReferences(em, {
+    dealId: restored.dealId,
+    linkedEntities: restored.linkedEntities,
+    interactionId: restored.id,
+    tenantId: restored.tenantId,
+    organizationId: restored.organizationId,
+    restore: true,
+  })
 }
 
 async function loadInteractionSnapshot(em: EntityManager, id: string, ctx?: CommandRuntimeContext): Promise<InteractionSnapshot | null> {
@@ -601,15 +614,12 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
           ? defaultAuthor
           : null
 
-      if (parsed.dealId) {
-        await lockEntityReferences(trx, [{
-          entityId: 'customers:customer_deal',
-          recordId: parsed.dealId,
-          tenantId: entity.tenantId,
-          organizationId: entity.organizationId,
-        }])
-        await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
-      }
+      await lockInteractionDealReferences(trx, {
+        dealId: parsed.dealId,
+        linkedEntities: parsed.linkedEntities ?? undefined,
+        tenantId: entity.tenantId,
+        organizationId: entity.organizationId,
+      })
 
       const enforceSelectableType = requestsSelectableTypeEnforcement(rawInput)
       const { behavior, organizationIds } = await resolveInteractionTypeBehavior(
@@ -761,6 +771,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       const entity = await requireTimelineParentEntity(trx, after.interaction.entityId, { tenantId: after.interaction.tenantId, organizationId: after.interaction.organizationId })
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: after.interaction.id })
       await ensureInteractionRestoreAccess(ctx, trx, interaction, after.interaction)
+      await lockRestoredInteractionDealReferences(trx, after.interaction)
       if (!interaction) {
         interaction = buildInteractionGraph(trx, {
           id: after.interaction.id,
@@ -1001,18 +1012,17 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
             })
           : null
 
-      if (parsed.dealId !== undefined) {
-        if (parsed.dealId) {
-          await lockEntityReferences(trx, [{
-            entityId: 'customers:customer_deal',
-            recordId: parsed.dealId,
-            tenantId: interaction.tenantId,
-            organizationId: interaction.organizationId,
-          }])
-          await requireDealInScope(trx, parsed.dealId, interaction.tenantId, interaction.organizationId)
-        }
-        interaction.dealId = parsed.dealId ?? null
-      }
+      const nextLinkedEntities = 'linkedEntities' in clearedCore
+        ? clearedCore.linkedEntities
+        : sameTypeFields.linkedEntities
+      await lockInteractionDealReferences(trx, {
+        dealId: parsed.dealId,
+        linkedEntities: nextLinkedEntities,
+        interactionId: interaction.id,
+        tenantId: interaction.tenantId,
+        organizationId: interaction.organizationId,
+      })
+      if (parsed.dealId !== undefined) interaction.dealId = parsed.dealId ?? null
       if (nextEntity) interaction.entity = nextEntity
       if (parsed.interactionType !== undefined) interaction.interactionType = parsed.interactionType
       if (parsed.title !== undefined) interaction.title = parsed.title ?? null
@@ -1134,6 +1144,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const { interaction, projections } = await runInTransaction(em, async (trx) => {
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       await ensureInteractionRestoreAccess(ctx, trx, interaction, before.interaction)
+      await lockRestoredInteractionDealReferences(trx, before.interaction)
       const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
 
       if (!interaction) {
@@ -1624,6 +1635,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
         let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
         await ensureInteractionRestoreAccess(ctx, trx, interaction, before.interaction)
+        await lockRestoredInteractionDealReferences(trx, before.interaction)
         if (!interaction) {
           interaction = trx.create(CustomerInteraction, {
             id: before.interaction.id,

@@ -10,6 +10,10 @@ import { mergeAttachmentMetadata, upsertAssignment } from './metadata'
 import { assertAttachmentScopeInvariant } from './access'
 import { attachmentCrudEvents, attachmentCrudIndexer } from './crud'
 import { ensureAttachmentPartitionProtection } from './access-protection'
+import { collectAttachmentDealIds, lockLiveAttachmentDealReferences } from './dealReferenceGuard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments').child({ component: 'createFromBuffer' })
 
 /** DataEngine handle whose exact type is derived from `emitCrudSideEffects` (no `any`). */
 type CrudDataEngine = Parameters<typeof emitCrudSideEffects>[0]['dataEngine']
@@ -96,9 +100,23 @@ export async function createAttachmentFromBuffer(input: CreateAttachmentFromBuff
     content: null,
     storageMetadata: metadata,
   })
-  await em.transactional(async (tx) => {
-    await tx.persist(attachment).flush()
-  })
+  try {
+    await em.transactional(async (tx) => {
+      await lockLiveAttachmentDealReferences(
+        tx,
+        collectAttachmentDealIds({ entityId: input.entityId, recordId: input.recordId }),
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
+      await tx.persist(attachment).flush()
+    })
+  } catch (error) {
+    try {
+      await (driver.deleteStrict?.(partition.code, stored.storagePath) ?? driver.delete(partition.code, stored.storagePath))
+    } catch (cleanupError) {
+      logger.error('Failed to compensate attachment storage', { err: cleanupError })
+    }
+    throw error
+  }
 
   if (input.dataEngine) {
     await emitCrudSideEffects({

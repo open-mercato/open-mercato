@@ -60,6 +60,7 @@ import {
   CustomerDealPersonLink,
   CustomerDealStageTransition,
   CustomerEntity,
+  CustomerInteraction,
   CustomerPipeline,
   CustomerPipelineStage,
 } from '../../data/entities'
@@ -549,11 +550,14 @@ describe('customers.deals.merge execute', () => {
 
     const update = harness.executeCalls.find((call) => call.sql.startsWith('update customer_interactions'))
     expect(update).toBeDefined()
-    expect(JSON.parse(update!.params[0] as string)).toEqual([
-      { id: survivorId, type: 'deal', label: 'Kept' },
-      { id: personA, type: 'person', label: 'Ann' },
-    ])
-    expect(update!.params.slice(1)).toEqual(['int-2', tenantId, organizationId])
+    expect(JSON.parse(update!.params[0] as string)).toEqual([{
+      id: 'int-2',
+      linked_entities: [
+        { id: survivorId, type: 'deal', label: 'Kept' },
+        { id: personA, type: 'person', label: 'Ann' },
+      ],
+    }])
+    expect(update!.params.slice(1)).toEqual([tenantId, organizationId])
     const reindexed = harness.markOrmEntityChange.mock.calls.map(([entry]) => [entry.indexer?.entityType, entry.identifiers.id])
     expect(reindexed).toEqual(expect.arrayContaining([
       ['customers:customer_activity', 'act-1'],
@@ -564,6 +568,80 @@ describe('customers.deals.merge execute', () => {
     expect(harness.nativeUpdates).toHaveLength(3)
     for (const { where } of harness.nativeUpdates) {
       expect(where).toEqual(expect.objectContaining({ tenantId, organizationId }))
+    }
+  })
+
+  it('locks every interaction that references the source Deal in id order before moving any of them', async () => {
+    const harness = createHarness()
+    await mergeDealsCommand.execute(buildInput(), harness.ctx)
+
+    const interactionStatements = harness.executeCalls.filter((call) => call.sql.includes('customer_interactions'))
+    expect(interactionStatements[0].sql).toBe(
+      'select id from customer_interactions where tenant_id = ? and organization_id = ? and (deal_id = ? or linked_entities @> ?::jsonb or linked_entities @> ?::jsonb) order by id for update',
+    )
+    expect(interactionStatements[0].params).toEqual([
+      tenantId,
+      organizationId,
+      sourceId,
+      JSON.stringify([{ type: 'deal', id: sourceId.toLowerCase() }]),
+      JSON.stringify([{ type: 'deal', id: sourceId.toUpperCase() }]),
+    ])
+    const execute = harness.em.execute as jest.Mock
+    const nativeUpdate = harness.em.nativeUpdate as jest.Mock
+    const lockIndex = execute.mock.calls.findIndex(([sql]) => sql === interactionStatements[0].sql)
+    const moveIndex = nativeUpdate.mock.calls.findIndex(([entity]) => entity === CustomerInteraction)
+    expect(moveIndex).toBeGreaterThanOrEqual(0)
+    expect(nativeUpdate.mock.invocationCallOrder[moveIndex]).toBeGreaterThan(execute.mock.invocationCallOrder[lockIndex])
+  })
+
+  it('keeps the database statement count constant in the number of moved and relinked rows', async () => {
+    const statementsFor = async (rowCount: number) => {
+      const ids = Array.from({ length: rowCount }, (_, index) => `row-${index}`)
+      const harness = createHarness({
+        activityRows: ids.map((id) => ({ id: `act-${id}`, entity_id: personA })),
+        commentRows: ids.map((id) => ({ id: `com-${id}`, entity_id: personA })),
+        interactionRows: ids.map((id) => ({ id: `int-${id}`, entity_id: personA, interaction_type: 'call', status: 'done', source: null })),
+        linkedRows: ids.map((id) => ({
+          id: `linked-${id}`,
+          entity_id: personA,
+          interaction_type: 'call',
+          status: 'done',
+          source: null,
+          deal_id: null,
+          deleted_at: null,
+          linked_entities: [{ id: sourceId, type: 'deal', label: 'Old' }],
+        })),
+      })
+      await mergeDealsCommand.execute(buildInput(), harness.ctx)
+      const updates = harness.executeCalls.filter((call) => call.sql.startsWith('update customer_interactions'))
+      expect(updates).toHaveLength(1)
+      expect(JSON.parse(updates[0].params[0] as string)).toHaveLength(rowCount)
+      expect(harness.markOrmEntityChange.mock.calls.length).toBeGreaterThanOrEqual(rowCount * 4)
+      const em = harness.em as Record<string, jest.Mock>
+      return ['find', 'findOne', 'execute', 'nativeUpdate', 'nativeDelete', 'flush']
+        .reduce((total, method) => total + em[method].mock.calls.length, 0)
+    }
+
+    const small = await statementsFor(1)
+    const large = await statementsFor(250)
+    expect(large).toBe(small)
+  })
+
+  it('round-trips an amount beyond float precision through the validator and command unchanged', async () => {
+    const harness = createHarness()
+    await mergeDealsCommand.execute(buildInput({}, { valueAmount: '12345678901234567.89' }), harness.ctx)
+    expect(harness.survivor.valueAmount).toBe('12345678901234567.89')
+
+    const numericHarness = createHarness()
+    await mergeDealsCommand.execute(buildInput({}, { valueAmount: 1500.5 }), numericHarness.ctx)
+    expect(numericHarness.survivor.valueAmount).toBe('1500.5')
+  })
+
+  it('rejects a negative or malformed merge amount before any write', async () => {
+    for (const valueAmount of ['-1', 'abc', '1e400']) {
+      const harness = createHarness()
+      await expect(mergeDealsCommand.execute(buildInput({}, { valueAmount }), harness.ctx)).rejects.toThrow()
+      expect(harness.em.find).not.toHaveBeenCalled()
     }
   })
 

@@ -1655,6 +1655,8 @@
   "customers.deals.merge.differs": "Diferente",
   "customers.deals.merge.emptyValue": "Vacío",
   "customers.deals.merge.errors.distinct_records": "Elige dos oportunidades diferentes para fusionar.",
+  "customers.deals.merge.errors.guard_retarget": "La fusión se bloqueó porque una comprobación de seguridad cambió las oportunidades que se fusionan.",
+  "customers.deals.merge.errors.invalid_amount": "Introduce un importe válido igual o mayor que cero.",
   "customers.deals.merge.errors.invalid_companies": "Las empresas seleccionadas no están disponibles.",
   "customers.deals.merge.errors.invalid_loss_reason": "El motivo de pérdida seleccionado no está disponible.",
   "customers.deals.merge.errors.invalid_owner": "El responsable seleccionado no está disponible.",

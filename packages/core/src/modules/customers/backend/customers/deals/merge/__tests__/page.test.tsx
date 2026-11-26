@@ -197,7 +197,7 @@ function buildPreview(overrides?: { rightTitle?: string }): DealMergePreview {
         pipelineId: 'pipeline-sales',
         pipelineStageId: 'stage-qualification',
         pipelineStage: 'sales_qualified_lead',
-        valueAmount: 10,
+        valueAmount: '10',
         valueCurrency: 'USD',
         ownerUserId: 'aaaaaaaa-0000-4000-8000-000000000001',
         source: 'web',
@@ -220,7 +220,7 @@ function buildPreview(overrides?: { rightTitle?: string }): DealMergePreview {
         pipelineId: 'pipeline-sales',
         pipelineStageId: 'stage-closed',
         pipelineStage: 'negotiations',
-        valueAmount: 20,
+        valueAmount: '20',
         valueCurrency: 'USD',
         ownerUserId: 'aaaaaaaa-0000-4000-8000-000000000002',
         source: 'web',
@@ -293,7 +293,7 @@ describe('DealMergeForm', () => {
         lossReasonId: null,
         pipelineId: 'pipeline-sales',
         pipelineStageId: 'stage-qualification',
-        valueAmount: 10,
+        valueAmount: '10',
       }),
       customFields: { cf_note: 'left note' },
       personIds: ['person-left', 'person-right'],
@@ -481,6 +481,45 @@ describe('DealMergeForm', () => {
     })))
   })
 
+  it('keeps a stored amount beyond float precision exact when that side is chosen', async () => {
+    const preview = buildPreview()
+    preview.right.fields.valueAmount = '12345678901234567.89'
+    const { onSubmit } = renderForm({ preview })
+
+    expect(row('valueAmount').textContent).toContain('12,345,678,901,234,567.89')
+    fireEvent.click(within(row('valueAmount')).getByRole('button', { name: 'Right' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Merge deals' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      values: expect.objectContaining({ valueAmount: '12345678901234567.89' }),
+    })))
+  })
+
+  it('submits a typed custom amount as an exact decimal string', async () => {
+    const { onSubmit } = renderForm()
+    const amountRow = row('valueAmount')
+
+    fireEvent.click(within(amountRow).getByRole('button', { name: 'New value' }))
+    fireEvent.change(within(amountRow).getByRole('textbox'), { target: { value: '98765432109876543.21' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Merge deals' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      values: expect.objectContaining({ valueAmount: '98765432109876543.21' }),
+    })))
+  })
+
+  it('refuses an unparseable custom amount instead of clearing the stored amount', async () => {
+    const { onSubmit } = renderForm()
+    const amountRow = row('valueAmount')
+
+    fireEvent.click(within(amountRow).getByRole('button', { name: 'New value' }))
+    fireEvent.change(within(amountRow).getByRole('textbox'), { target: { value: '9'.repeat(301) } })
+    fireEvent.click(screen.getByRole('button', { name: 'Merge deals' }))
+
+    expect(await within(row('valueAmount')).findByText('Enter a valid amount of zero or more.')).toBeTruthy()
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
   it('keeps field choices when the preview is refreshed and drops only resolved differences', () => {
     const props = {
       customFieldDefinitions: [],
@@ -496,7 +535,7 @@ describe('DealMergeForm', () => {
     fireEvent.click(within(row('valueAmount')).getByRole('button', { name: 'Right' }))
 
     const refreshed = buildPreview({ rightTitle: 'Right renamed' })
-    refreshed.right.fields.valueAmount = 10
+    refreshed.right.fields.valueAmount = '10'
     rerender(<DealMergeForm preview={refreshed} {...props} />)
 
     expect(row('title').getAttribute('data-choice')).toBe('right')

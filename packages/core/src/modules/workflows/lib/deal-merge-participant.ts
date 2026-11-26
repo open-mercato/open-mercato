@@ -99,22 +99,45 @@ export async function mergeWorkflowDealTaskBindings(
   const tasks = await loadTasks(input)
   let moved = 0
   let deduplicated = 0
+  const rewrites: Array<{ id: string; entityBindings: string | null; entityTypes: string | null }> = []
   for (const task of tasks) {
     if (!bindsDeal(task, input.sourceId)) continue
     const rewritten = rewriteBindings(task.entityBindings ?? [], input)
-    await input.em.nativeUpdate(UserTask, {
+    const entityTypes = collectEntityTypes(rewritten.bindings)
+    rewrites.push({
       id: task.id,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    }, {
-      entityBindings: rewritten.bindings.length ? rewritten.bindings : null,
-      entityTypes: collectEntityTypes(rewritten.bindings),
-      updatedAt: new Date(),
+      entityBindings: rewritten.bindings.length ? JSON.stringify(rewritten.bindings) : null,
+      entityTypes: entityTypes ? JSON.stringify(entityTypes) : null,
     })
     if (rewritten.deduplicated) deduplicated += 1
     else moved += 1
   }
+  const updatedAt = new Date()
+  for (let offset = 0; offset < rewrites.length; offset += WORKFLOW_REWRITE_CHUNK_SIZE) {
+    const chunk = rewrites.slice(offset, offset + WORKFLOW_REWRITE_CHUNK_SIZE)
+    await input.em.execute(buildTaskBindingRewriteSql(chunk.length), [
+      updatedAt,
+      ...chunk.flatMap((rewrite) => [rewrite.id, rewrite.entityBindings, rewrite.entityTypes]),
+      input.tenantId,
+      input.organizationId,
+    ])
+  }
   return { moved, deduplicated }
+}
+
+export const WORKFLOW_REWRITE_CHUNK_SIZE = 500
+
+function buildTaskBindingRewriteSql(rowCount: number): string {
+  const values = Array.from({ length: rowCount }, () => '(?::uuid, ?::jsonb, ?::jsonb)').join(', ')
+  return [
+    'update user_tasks as t',
+    'set entity_bindings = v.entity_bindings,',
+    'entity_types = case when v.entity_types is null then null',
+    'else array(select jsonb_array_elements_text(v.entity_types)) end,',
+    'updated_at = ?',
+    `from (values ${values}) as v(id, entity_bindings, entity_types)`,
+    'where t.id = v.id and t.tenant_id = ? and t.organization_id = ?',
+  ].join(' ')
 }
 
 export function registerWorkflowDealMergeParticipant(): () => void {

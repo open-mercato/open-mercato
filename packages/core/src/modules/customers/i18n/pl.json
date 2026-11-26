@@ -1655,6 +1655,8 @@
   "customers.deals.merge.differs": "Różni się",
   "customers.deals.merge.emptyValue": "Brak",
   "customers.deals.merge.errors.distinct_records": "Wybierz dwa różne Deale do scalenia.",
+  "customers.deals.merge.errors.guard_retarget": "Scalenie zostało zablokowane, ponieważ kontrola bezpieczeństwa zmieniła scalane Deale.",
+  "customers.deals.merge.errors.invalid_amount": "Wpisz poprawną kwotę równą zero lub większą.",
   "customers.deals.merge.errors.invalid_companies": "Wybrane firmy są niedostępne.",
   "customers.deals.merge.errors.invalid_loss_reason": "Wybrany powód utraty jest niedostępny.",
   "customers.deals.merge.errors.invalid_owner": "Wybrany właściciel jest niedostępny.",

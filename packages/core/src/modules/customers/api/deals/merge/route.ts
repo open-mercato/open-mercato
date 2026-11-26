@@ -17,6 +17,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { decimalToString } from '@open-mercato/shared/lib/decimal'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -116,6 +117,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid merge result', schema: dealMergeErrorSchema },
         { status: 404, description: 'Deal pair not found in scope', schema: dealMergeErrorSchema },
         { status: 409, description: 'One of the Deals changed or was deleted', schema: dealMergeErrorSchema },
+        { status: 422, description: 'Blocked by a mutation guard, including a guard that tried to change survivorId or sourceId', schema: dealMergeErrorSchema },
         { status: 500, description: 'Deal merge failed', schema: dealMergeErrorSchema },
       ],
     },
@@ -167,7 +169,7 @@ async function loadPreviewRecord(
       pipelineStage: deal.pipelineStage ?? null,
       pipelineId: deal.pipelineId ?? null,
       pipelineStageId: deal.pipelineStageId ?? null,
-      valueAmount: deal.valueAmount == null ? null : Number(deal.valueAmount),
+      valueAmount: deal.valueAmount == null ? null : decimalToString(deal.valueAmount),
       valueCurrency: deal.valueCurrency ?? null,
       probability: deal.probability ?? null,
       expectedCloseAt: deal.expectedCloseAt?.toISOString() ?? null,
@@ -282,10 +284,11 @@ export async function POST(request: Request): Promise<Response> {
       organizationId: context.selectedOrganizationId,
       userId: resolveAuthActorId(context.auth),
     }
+    const { survivorId, sourceId } = input
     const afterSuccess: Array<() => Promise<void>> = []
     const guardTargets: Array<{ resourceId: string; operation: RouteMutationGuardOperation }> = [
-      { resourceId: input.survivorId, operation: 'custom' },
-      { resourceId: input.sourceId, operation: 'delete' },
+      { resourceId: survivorId, operation: 'custom' },
+      { resourceId: sourceId, operation: 'delete' },
     ]
     for (const { resourceId, operation } of guardTargets) {
       const guarded = await runRouteMutationGuards({
@@ -300,19 +303,32 @@ export async function POST(request: Request): Promise<Response> {
         },
       })
       if (!guarded.ok) return guarded.response
-      if (guarded.modifiedPayload) input = dealMergeRequestSchema.parse(guarded.modifiedPayload)
+      if (guarded.modifiedPayload) {
+        const rewritten = dealMergeRequestSchema.parse({ ...input, ...guarded.modifiedPayload })
+        if (rewritten.survivorId !== survivorId || rewritten.sourceId !== sourceId) {
+          logger.warn('Mutation guard tried to retarget a Deal merge', { survivorId, sourceId, resourceId, operation })
+          return NextResponse.json({
+            error: translate(
+              'customers.deals.merge.errors.guard_retarget',
+              'The merge was blocked because a safety check changed which deals are merged.',
+            ),
+            code: 'guard_retarget_rejected',
+          }, { status: 422 })
+        }
+        input = rewritten
+      }
       afterSuccess.push(guarded.runAfterSuccess)
     }
     const commandBus = context.container.resolve('commandBus') as CommandBus
     await commandBus.execute('customers.deals.merge', {
-      input,
+      input: { ...input, survivorId, sourceId },
       ctx: context.commandContext,
     })
     for (const runAfterSuccess of afterSuccess) await runAfterSuccess()
     return NextResponse.json(dealMergeResponseSchema.parse({
       ok: true,
-      survivorId: input.survivorId,
-      sourceId: input.sourceId,
+      survivorId,
+      sourceId,
     }), { status: 200 })
   } catch (error) {
     const interceptorRejection = getCommandInterceptorHttpRejection(error)

@@ -61,33 +61,41 @@ export async function mergeDocumentDealLinks(
   const sourceLinks = links
     .filter((link) => link.dealId === input.sourceId)
     .sort((left, right) => Number(Boolean(left.deletedAt)) - Number(Boolean(right.deletedAt)))
-  let moved = 0
-  let deduplicated = 0
+  const duplicateIds: string[] = []
+  const moving: DocumentEntityLink[] = []
   for (const link of sourceLinks) {
     const active = !link.deletedAt
     const occupied = active
       ? survivorActiveDocuments.has(link.documentId)
       : survivorAnyDocuments.has(link.documentId)
     if (occupied) {
-      await input.em.nativeDelete(DocumentEntityLink, {
-        id: link.id,
-        tenantId: input.tenantId,
-        organizationId: input.organizationId,
-      })
-      deduplicated += 1
+      duplicateIds.push(link.id)
       continue
     }
+    moving.push(link)
+    if (active) survivorActiveDocuments.add(link.documentId)
+    survivorAnyDocuments.add(link.documentId)
+  }
+  if (duplicateIds.length > 0) {
+    await input.em.nativeDelete(DocumentEntityLink, {
+      id: { $in: duplicateIds },
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    })
+  }
+  if (moving.length > 0) {
+    const newestVersion = moving.reduce(
+      (latest, link) => (link.updatedAt.getTime() > latest.getTime() ? link.updatedAt : latest),
+      moving[0].updatedAt,
+    )
     await input.em.nativeUpdate(DocumentEntityLink, {
-      id: link.id,
+      id: { $in: moving.map((link) => link.id) },
       tenantId: input.tenantId,
       organizationId: input.organizationId,
       dealId: input.sourceId,
-    }, { dealId: input.survivorId, updatedAt: nextDocumentVersion(link.updatedAt) })
-    if (active) survivorActiveDocuments.add(link.documentId)
-    survivorAnyDocuments.add(link.documentId)
-    moved += 1
+    }, { dealId: input.survivorId, updatedAt: nextDocumentVersion(newestVersion) })
   }
-  return { moved, deduplicated }
+  return { moved: moving.length, deduplicated: duplicateIds.length }
 }
 
 export function registerDocumentDealMergeParticipant(): () => void {

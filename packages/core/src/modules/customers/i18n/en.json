@@ -1655,6 +1655,8 @@
   "customers.deals.merge.differs": "Different",
   "customers.deals.merge.emptyValue": "Empty",
   "customers.deals.merge.errors.distinct_records": "Choose two different deals to merge.",
+  "customers.deals.merge.errors.guard_retarget": "The merge was blocked because a safety check changed which deals are merged.",
+  "customers.deals.merge.errors.invalid_amount": "Enter a valid amount of zero or more.",
   "customers.deals.merge.errors.invalid_companies": "The selected companies are not available.",
   "customers.deals.merge.errors.invalid_loss_reason": "The selected loss reason is not available.",
   "customers.deals.merge.errors.invalid_owner": "The selected owner is not available.",

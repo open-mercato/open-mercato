@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
-import { withDecimalCaps } from '@open-mercato/shared/lib/decimal'
+import { nonNegativeDecimalStringSchema, withDecimalCaps } from '@open-mercato/shared/lib/decimal'
 import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
@@ -232,6 +232,11 @@ export const dealMergeQuerySchema = z.object({
   path: ['right'],
 })
 
+const dealMergeAmountSchema = z.preprocess(
+  (value) => (typeof value === 'string' && value.trim().length === 0 ? null : value),
+  nonNegativeDecimalStringSchema.nullable(),
+)
+
 export const dealMergeScalarSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(DEAL_DESCRIPTION_MAX_LENGTH).nullable(),
@@ -239,7 +244,7 @@ export const dealMergeScalarSchema = z.object({
   pipelineStage: z.string().max(100).nullable(),
   pipelineId: uuid().nullable(),
   pipelineStageId: uuid().nullable(),
-  valueAmount: moneyInputSchema(z.coerce.number().min(0)).nullable(),
+  valueAmount: dealMergeAmountSchema,
   valueCurrency: z.string().length(3).nullable(),
   probability: z.number().min(0).max(100).nullable(),
   expectedCloseAt: z.coerce.date().nullable(),

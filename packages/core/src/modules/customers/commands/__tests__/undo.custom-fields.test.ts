@@ -750,6 +750,7 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      execute: jest.fn(async () => [{ deal_id: deal.id, linked_entities: null }]),
       transactional: jest.fn(async (fn: any) => fn(em)),
       begin: jest.fn().mockResolvedValue(undefined),
       commit: jest.fn().mockResolvedValue(undefined),

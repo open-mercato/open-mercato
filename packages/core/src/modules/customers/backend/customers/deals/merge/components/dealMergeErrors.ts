@@ -32,4 +32,3 @@ export function describeDealMergeError(error: unknown, t: Translate, fallback: s
       : ''
   return translateServerMessage(primary, t) || fallback
 }
-

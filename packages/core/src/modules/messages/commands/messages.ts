@@ -31,6 +31,7 @@ import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { assertExternalEmailBudget } from '../lib/externalEmailBudget'
 import { buildForwardBodyFromLegacyInput, buildForwardPreviewFromThreadSlice, buildForwardThreadSlice } from '../lib/forwarding'
+import { collectMessageDealIds, lockLiveMessageDealReferences, lockMessageDealReferences } from '../lib/dealReferenceGuard'
 import {
   assertOrganizationAccess,
   loadMessageAggregateSnapshot,
@@ -322,6 +323,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
     let responseExternalEmail: string | null = null
 
     const composeTx = em.transactional(async (trx) => {
+      await lockLiveMessageDealReferences(trx, collectMessageDealIds(input.objects), scope)
       const threadId = input.parentMessageId
         ? (
           await findOneWithDecryption(
@@ -606,6 +608,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
     // between a scalar mutation and the terminal flush on the same EntityManager
     // silently drops the pending changeset, so keeping the scalar edits in their
     // own phase guarantees subject/body/etc. are persisted (SPEC-018 Problem 1).
+    const dealScope = { tenantId: input.tenantId, organizationId: input.organizationId }
     await withAtomicFlush(em, [() => {
       if (input.type !== undefined) message.type = input.type
       if (input.visibility !== undefined) message.visibility = input.visibility
@@ -633,6 +636,18 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
 
       if (input.objects) {
+        const requestedDealIds = collectMessageDealIds(input.objects)
+        if (requestedDealIds.length > 0) {
+          await lockMessageDealReferences(em, requestedDealIds, dealScope)
+          const currentDealIds = new Set(collectMessageDealIds(
+            await em.find(MessageObject, { messageId: message.id }, { refresh: true }),
+          ))
+          await lockLiveMessageDealReferences(
+            em,
+            requestedDealIds.filter((dealId) => !currentDealIds.has(dealId)),
+            dealScope,
+          )
+        }
         await em.nativeDelete(MessageObject, { messageId: message.id })
         for (const object of input.objects) {
           em.persist(em.create(MessageObject, {
@@ -1024,7 +1039,15 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
     }
     let newMessageId = ''
     let responseExternalEmail: string | null = null
+    const forwardDealScope = { tenantId: input.tenantId, organizationId: input.organizationId }
     await em.transactional(async (trx) => {
+      const originalDealIds = collectMessageDealIds(originalObjects)
+      let forwardedObjects = originalObjects
+      if (originalDealIds.length > 0) {
+        await lockMessageDealReferences(trx, originalDealIds, forwardDealScope)
+        forwardedObjects = await trx.find(MessageObject, { messageId: input.messageId }, { refresh: true })
+        await lockMessageDealReferences(trx, collectMessageDealIds(forwardedObjects), forwardDealScope)
+      }
       const newMessage = trx.create(Message, {
         type: original.type,
         visibility: keepsExternalCorrespondent ? original.visibility ?? null : 'internal',
@@ -1055,7 +1078,7 @@ const forwardMessageCommand: CommandHandler<unknown, { id: string; externalEmail
           status: 'unread',
         }))
       }
-      for (const obj of originalObjects) {
+      for (const obj of forwardedObjects) {
         trx.persist(trx.create(MessageObject, {
           messageId: newMessage.id,
           entityModule: obj.entityModule,

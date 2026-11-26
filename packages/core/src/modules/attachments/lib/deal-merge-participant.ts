@@ -37,8 +37,12 @@ function referencesDeal(attachment: Attachment, assignments: AttachmentAssignmen
   return assignments.some((assignment) => assignment.type === DEAL_ENTITY_ID && assignment.id === dealId)
 }
 
-async function loadReferences(input: EntityMergeParticipantInput): Promise<AttachmentReference[]> {
-  const rows = await input.em.execute(REFERENCING_ATTACHMENT_IDS_SQL, [
+async function loadReferences(
+  input: EntityMergeParticipantInput,
+  options: { lockRows: boolean },
+): Promise<AttachmentReference[]> {
+  const sql = options.lockRows ? `${REFERENCING_ATTACHMENT_IDS_SQL} order by id for update` : REFERENCING_ATTACHMENT_IDS_SQL
+  const rows = await input.em.execute(sql, [
     input.tenantId,
     input.organizationId,
     DEAL_ENTITY_ID,
@@ -72,7 +76,7 @@ async function loadReferences(input: EntityMergeParticipantInput): Promise<Attac
 export async function previewAttachmentDealRecords(
   input: EntityMergeParticipantInput,
 ): Promise<EntityMergeParticipantPreview> {
-  const references = await loadReferences(input)
+  const references = await loadReferences(input, { lockRows: false })
   return {
     participantId: PARTICIPANT_ID,
     label: ATTACHMENT_DEAL_MERGE_PARTICIPANT_LABEL,
@@ -85,31 +89,48 @@ export async function previewAttachmentDealRecords(
 export async function mergeAttachmentDealRecords(
   input: EntityMergeParticipantInput,
 ): Promise<EntityMergeParticipantResult> {
-  const references = await loadReferences(input)
+  const references = await loadReferences(input, { lockRows: true })
   let moved = 0
   let deduplicated = 0
+  const rewrites: Array<{ id: string; storageMetadata: string }> = []
   for (const reference of references) {
     if (!reference.referencesSource) continue
     const { attachment } = reference
-    const ownedBySource = attachment.entityId === DEAL_ENTITY_ID && attachment.recordId === input.sourceId
     const assignments = reference.assignments.map((assignment) => (
       assignment.type === DEAL_ENTITY_ID && assignment.id === input.sourceId
         ? { ...assignment, id: input.survivorId }
         : assignment
     ))
     const storageMetadata = mergeAttachmentMetadata(attachment.storageMetadata, { assignments })
-    await input.em.nativeUpdate(Attachment, {
-      id: attachment.id,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    }, {
-      ...(ownedBySource ? { recordId: input.survivorId } : {}),
-      storageMetadata,
-    })
+    rewrites.push({ id: attachment.id, storageMetadata: JSON.stringify(storageMetadata) })
     if (reference.referencesSurvivor) deduplicated += 1
     else moved += 1
   }
+  for (let offset = 0; offset < rewrites.length; offset += ATTACHMENT_REWRITE_CHUNK_SIZE) {
+    const chunk = rewrites.slice(offset, offset + ATTACHMENT_REWRITE_CHUNK_SIZE)
+    await input.em.execute(buildAttachmentRewriteSql(chunk.length), [
+      DEAL_ENTITY_ID,
+      input.sourceId,
+      input.survivorId,
+      ...chunk.flatMap((rewrite) => [rewrite.id, rewrite.storageMetadata]),
+      input.tenantId,
+      input.organizationId,
+    ])
+  }
   return { moved, deduplicated }
+}
+
+export const ATTACHMENT_REWRITE_CHUNK_SIZE = 500
+
+function buildAttachmentRewriteSql(rowCount: number): string {
+  const values = Array.from({ length: rowCount }, () => '(?::uuid, ?::jsonb)').join(', ')
+  return [
+    'update attachments as a',
+    'set storage_metadata = v.storage_metadata,',
+    'record_id = case when a.entity_id = ? and a.record_id = ? then ? else a.record_id end',
+    `from (values ${values}) as v(id, storage_metadata)`,
+    'where a.id = v.id and a.tenant_id = ? and a.organization_id = ?',
+  ].join(' ')
 }
 
 export function registerAttachmentDealMergeParticipant(): () => void {

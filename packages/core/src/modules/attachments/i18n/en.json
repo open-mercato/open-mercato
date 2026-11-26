@@ -6,6 +6,7 @@
   "attachments.dealMerge.participantLabel": "Attachments",
   "attachments.errors.activeContentBlocked": "Active content uploads are not allowed.",
   "attachments.errors.dangerousExecutable": "Executable file types are not allowed as attachments.",
+  "attachments.errors.dealNotFound": "Deal not found.",
   "attachments.errors.maxUploadSize": "Attachment exceeds the maximum upload size.",
   "attachments.errors.partitionUnavailable": "Attachment partition is not available for this scope.",
   "attachments.errors.persistenceFailed": "Failed to persist attachment.",

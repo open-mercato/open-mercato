@@ -27,6 +27,7 @@ import {
   sanitizeAttachmentDisplayName,
   sanitizeUploadedFileName,
 } from './security'
+import { collectAttachmentDealIds, lockLiveAttachmentDealReferences } from './dealReferenceGuard'
 import { resolveAttachmentMaxBytes } from './upload-limits'
 import type { AttachmentQuotaService } from './quota-service'
 
@@ -236,6 +237,11 @@ export class ScopedAttachmentUploadService {
 
     try {
       await em.transactional(async (tx) => {
+        await lockLiveAttachmentDealReferences(
+          tx,
+          collectAttachmentDealIds({ entityId: input.entityId, recordId: input.recordId, assignments }),
+          { tenantId: input.tenantId, organizationId: input.organizationId },
+        )
         attachment = tx.create(Attachment, {
           id: attachmentId,
           entityId: input.entityId,

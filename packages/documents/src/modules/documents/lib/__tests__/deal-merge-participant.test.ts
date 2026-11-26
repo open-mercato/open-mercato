@@ -101,21 +101,54 @@ describe('documents Deal merge participant', () => {
       organizationId: scope.organizationId,
       dealId: { $in: [scope.survivorId, scope.sourceId] },
     }, { disableIdentityMap: true, filters: false }, { tenantId: scope.tenantId, organizationId: scope.organizationId })
-    const deletedIds = manager.nativeDelete.mock.calls.map((call) => call[1].id).sort()
-    expect(deletedIds).toEqual(['link-2', 'link-5', 'link-7'])
-    for (const call of manager.nativeDelete.mock.calls) {
-      expect(call[1]).toMatchObject({ tenantId: scope.tenantId, organizationId: scope.organizationId })
-    }
-    const movedIds = manager.nativeUpdate.mock.calls.map((call) => call[1].id).sort()
-    expect(movedIds).toEqual(['link-3', 'link-4'])
+    expect(manager.nativeDelete).toHaveBeenCalledTimes(1)
+    expect(manager.nativeDelete).toHaveBeenCalledWith(DocumentEntityLink, {
+      id: { $in: ['link-2', 'link-5', 'link-7'] },
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+    expect(manager.nativeUpdate).toHaveBeenCalledTimes(1)
     expect(manager.nativeUpdate).toHaveBeenCalledWith(DocumentEntityLink, {
-      id: 'link-4',
+      id: { $in: ['link-3', 'link-4'] },
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       dealId: scope.sourceId,
     }, { dealId: scope.survivorId, updatedAt: expect.any(Date) })
     const updateValues = manager.nativeUpdate.mock.calls[0][2] as { updatedAt: Date }
     expect(updateValues.updatedAt.getTime()).toBeGreaterThan(baseVersion.getTime())
+  })
+
+  it('bumps moved links past the newest moved version', async () => {
+    const newer = new Date('2099-01-01T00:00:00.000Z')
+    const manager = createEntityManager([
+      { id: 'link-1', documentId: 'document-a', dealId: scope.sourceId },
+      { id: 'link-2', documentId: 'document-b', dealId: scope.sourceId, updatedAt: newer },
+    ])
+    await mergeDocumentDealLinks({ ...scope, em: manager.em })
+    const updateValues = manager.nativeUpdate.mock.calls[0][2] as { updatedAt: Date }
+    expect(updateValues.updatedAt.getTime()).toBe(newer.getTime() + 1)
+  })
+
+  it('issues a constant number of statements regardless of how many links move', async () => {
+    const statementsFor = async (count: number) => {
+      jest.clearAllMocks()
+      const links: LinkRow[] = []
+      for (let index = 0; index < count; index += 1) {
+        links.push({ id: `survivor-${index}`, documentId: `shared-${index}`, dealId: scope.survivorId })
+        links.push({ id: `overlap-${index}`, documentId: `shared-${index}`, dealId: scope.sourceId })
+        links.push({ id: `move-${index}`, documentId: `only-${index}`, dealId: scope.sourceId })
+      }
+      const manager = createEntityManager(links)
+      await expect(mergeDocumentDealLinks({ ...scope, em: manager.em }))
+        .resolves.toEqual({ moved: count, deduplicated: count })
+      await previewDocumentDealLinks({ ...scope, em: manager.em })
+      return mockFindWithDecryption.mock.calls.length
+        + manager.nativeDelete.mock.calls.length
+        + manager.nativeUpdate.mock.calls.length
+    }
+    const single = await statementsFor(1)
+    expect(single).toBe(4)
+    expect(await statementsFor(50)).toBe(single)
   })
 
   it('registers once per participant id for the Deal entity', () => {

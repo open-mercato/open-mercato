@@ -2094,6 +2094,7 @@
   "staff.timesheets.errors.capacityForbidden": "Sie dürfen das Soll dieser Person nicht einsehen.",
   "staff.timesheets.errors.copyDaySameDate": "Quell- und Zieltag müssen unterschiedlich sein.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "Der Zieltag enthält bereits Zeiteinträge. Prüfen Sie diese zuerst oder bestätigen Sie, um die Kopien trotzdem hinzuzufügen.",
+  "staff.timesheets.errors.dealNotFound": "Deal nicht gefunden.",
   "staff.timesheets.errors.defaultAssigneeNotMember": "Der Standard-Bearbeiter muss ein aktives Mitglied dieses Projekts sein.",
   "staff.timesheets.errors.entryNotFound": "Zeiteintrag nicht gefunden, gelöscht oder Ihnen nicht zugeordnet.",
   "staff.timesheets.errors.invalidBody": "Ungültiger Anfragetext.",

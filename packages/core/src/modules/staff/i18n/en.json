@@ -2094,6 +2094,7 @@
   "staff.timesheets.errors.capacityForbidden": "You cannot view this person’s target.",
   "staff.timesheets.errors.copyDaySameDate": "The source and target day must be different.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "The target day already has time entries. Review them first, or confirm to add these copies anyway.",
+  "staff.timesheets.errors.dealNotFound": "Deal not found.",
   "staff.timesheets.errors.defaultAssigneeNotMember": "The default assignee must be an active member of this project.",
   "staff.timesheets.errors.entryNotFound": "Time entry not found, deleted, or not owned by you.",
   "staff.timesheets.errors.invalidBody": "Invalid request body.",

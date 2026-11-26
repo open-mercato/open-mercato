@@ -1655,6 +1655,8 @@
   "customers.deals.merge.differs": "Unterschiedlich",
   "customers.deals.merge.emptyValue": "Leer",
   "customers.deals.merge.errors.distinct_records": "Wählen Sie zwei verschiedene Deals zum Zusammenführen.",
+  "customers.deals.merge.errors.guard_retarget": "Die Zusammenführung wurde blockiert, weil eine Sicherheitsprüfung die zusammenzuführenden Deals geändert hat.",
+  "customers.deals.merge.errors.invalid_amount": "Geben Sie einen gültigen Betrag von null oder mehr ein.",
   "customers.deals.merge.errors.invalid_companies": "Die ausgewählten Unternehmen sind nicht verfügbar.",
   "customers.deals.merge.errors.invalid_loss_reason": "Der ausgewählte Verlustgrund ist nicht verfügbar.",
   "customers.deals.merge.errors.invalid_owner": "Der ausgewählte Verantwortliche ist nicht verfügbar.",

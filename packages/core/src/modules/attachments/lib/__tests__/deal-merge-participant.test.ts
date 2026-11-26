@@ -75,14 +75,43 @@ describe('attachments Deal merge participant', () => {
   it('moves owned attachments and deduplicates assignments in scope', async () => {
     const manager = harness(rows)
     await expect(mergeAttachmentDealRecords({ ...scope, em: manager.em })).resolves.toEqual({ moved: 1, deduplicated: 1 })
-    expect(manager.nativeUpdate).toHaveBeenCalledTimes(2)
-    const [ownedWhere, ownedValues] = manager.nativeUpdate.mock.calls[0].slice(1)
-    expect(ownedWhere).toEqual({ id: 'att-1', tenantId: scope.tenantId, organizationId: scope.organizationId })
-    expect(ownedValues.recordId).toBe(scope.survivorId)
-    expect(ownedValues.storageMetadata.assignments).toEqual([{ type: DEAL, id: scope.survivorId }])
-    const [, assignedValues] = manager.nativeUpdate.mock.calls[1].slice(1)
-    expect(assignedValues.recordId).toBeUndefined()
-    expect(assignedValues.storageMetadata.assignments).toEqual([{ type: DEAL, id: scope.survivorId }])
+    expect(manager.nativeUpdate).not.toHaveBeenCalled()
+    expect(manager.execute).toHaveBeenCalledTimes(2)
+    expect(manager.execute.mock.calls[0][0]).toMatch(/order by id for update$/)
+    const [sql, params] = manager.execute.mock.calls[1] as [string, string[]]
+    expect(sql).toContain('update attachments as a')
+    expect(sql).toContain('record_id = case when a.entity_id = ? and a.record_id = ? then ? else a.record_id end')
+    expect(sql).toContain('where a.id = v.id and a.tenant_id = ? and a.organization_id = ?')
+    expect(params.slice(0, 3)).toEqual([DEAL, scope.sourceId, scope.survivorId])
+    expect(params.slice(-2)).toEqual([scope.tenantId, scope.organizationId])
+    const rewritten = params.slice(3, -2)
+    expect(rewritten.filter((_value, index) => index % 2 === 0)).toEqual(['att-1', 'att-2'])
+    for (const metadata of rewritten.filter((_value, index) => index % 2 === 1)) {
+      expect(JSON.parse(metadata).assignments).toEqual([{ type: DEAL, id: scope.survivorId }])
+    }
+  })
+
+  it('issues a constant number of statements regardless of how many attachments move', async () => {
+    const statementsFor = async (count: number) => {
+      jest.clearAllMocks()
+      const many: Row[] = Array.from({ length: count }, (_value, index) => ({
+        id: `att-${index}`,
+        entityId: DEAL,
+        recordId: scope.sourceId,
+        storageMetadata: { assignments: [{ type: DEAL, id: scope.sourceId }] },
+      }))
+      const manager = harness(many)
+      await expect(mergeAttachmentDealRecords({ ...scope, em: manager.em }))
+        .resolves.toEqual({ moved: count, deduplicated: 0 })
+      await previewAttachmentDealRecords({ ...scope, em: manager.em })
+      expect(manager.execute.mock.calls.at(-1)?.[0]).not.toContain('for update')
+      return manager.execute.mock.calls.length
+        + manager.nativeUpdate.mock.calls.length
+        + mockFindWithDecryption.mock.calls.length
+    }
+    const single = await statementsFor(1)
+    expect(single).toBe(5)
+    expect(await statementsFor(50)).toBe(single)
   })
 
   it('skips the decrypting read when nothing references either Deal', async () => {

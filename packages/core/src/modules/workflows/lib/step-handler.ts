@@ -10,6 +10,9 @@
  */
 
 import { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as SqlEntityManager } from '@mikro-orm/postgresql'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { collectTaskDealIds, lockLiveTaskDealBindings } from './dealReferenceGuard'
 import {
   WorkflowInstance,
   WorkflowBranchInstance,
@@ -1062,7 +1065,29 @@ async function handleUserTaskStep(
     updatedAt: now,
   })
 
-  await em.persist(userTask).flush()
+  let taskBindings = bindings
+  const bindsDeal = collectTaskDealIds(bindings).length > 0
+  const sqlEm = em as unknown as SqlEntityManager
+  await withAtomicFlush(sqlEm, [async () => {
+    if (bindsDeal) {
+      const live = await lockLiveTaskDealBindings(sqlEm, bindings, {
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+      })
+      if (live.droppedDealIds.length) {
+        logger.warn('Task entity bindings skipped because their Deal no longer exists', {
+          component: 'step-handler',
+          stepId: stepDef.stepId,
+          workflowInstanceId: instance.id,
+          droppedDealIds: live.droppedDealIds,
+        })
+        taskBindings = live.bindings
+        userTask.entityBindings = taskBindings.length ? taskBindings : null
+        userTask.entityTypes = taskBindings.length ? collectResolvedEntityTypes(taskBindings) : null
+      }
+    }
+    em.persist(userTask)
+  }], { transaction: bindsDeal, label: 'workflows.user_task.create' })
 
   // Log USER_TASK_CREATED event
   await logStepEvent(em, {
@@ -1075,7 +1100,7 @@ async function handleUserTaskStep(
       taskName: userTask.taskName,
       assignedTo: userTask.assignedTo,
       assignedToRoles: userTask.assignedToRoles,
-      ...(bindings.length ? { entityBindings: bindings } : {}),
+      ...(taskBindings.length ? { entityBindings: taskBindings } : {}),
       ...(userTask.priority ? { priority: userTask.priority } : {}),
       ...(decisions.length ? { decisions } : {}),
       ...(assignment.fellBackToRoles ? { assignmentFallback: 'roles' } : {}),

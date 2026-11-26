@@ -2094,6 +2094,7 @@
   "staff.timesheets.errors.capacityForbidden": "Nie możesz zobaczyć celu tej osoby.",
   "staff.timesheets.errors.copyDaySameDate": "Dzień źródłowy i docelowy muszą być różne.",
   "staff.timesheets.errors.copyDayTargetNotEmpty": "Dzień docelowy zawiera już wpisy czasu. Przejrzyj je najpierw lub potwierdź, aby mimo to dodać kopie.",
+  "staff.timesheets.errors.dealNotFound": "Nie znaleziono szansy.",
   "staff.timesheets.errors.defaultAssigneeNotMember": "Domyślny wykonawca musi być aktywnym członkiem tego projektu.",
   "staff.timesheets.errors.entryNotFound": "Wpis czasu nie istnieje, został usunięty lub nie należy do Ciebie.",
   "staff.timesheets.errors.invalidBody": "Nieprawidłowe ciało żądania.",

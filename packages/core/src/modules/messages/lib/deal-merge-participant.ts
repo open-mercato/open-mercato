@@ -81,24 +81,39 @@ export async function mergeMessageDealObjects(
   const groups = groupByMessage(await loadScopedObjects(input), input)
   let moved = 0
   let deduplicated = 0
+  const deleteIds: string[] = []
+  const moveIds: string[] = []
+  const touchedMessageIds = new Set<string>()
   for (const group of groups.values()) {
     if (group.source.length === 0) continue
     const candidates = [...group.survivor, ...group.source]
     const keeper = candidates.find((object) => object.actionRequired) ?? candidates[0]
     for (const object of candidates) {
       if (object.id === keeper.id) continue
-      await input.em.nativeDelete(MessageObject, { id: object.id, messageId: object.messageId })
+      deleteIds.push(object.id)
+      touchedMessageIds.add(object.messageId)
       if (object.entityId === input.sourceId) deduplicated += 1
     }
     if (keeper.entityId === input.sourceId) {
-      await input.em.nativeUpdate(MessageObject, {
-        id: keeper.id,
-        messageId: keeper.messageId,
-        entityId: input.sourceId,
-      }, { entityId: input.survivorId })
+      moveIds.push(keeper.id)
+      touchedMessageIds.add(keeper.messageId)
       if (group.survivor.length) deduplicated += 1
       else moved += 1
     }
+  }
+  const messageIds = [...touchedMessageIds]
+  if (deleteIds.length > 0) {
+    await input.em.nativeDelete(MessageObject, {
+      id: { $in: deleteIds },
+      messageId: { $in: messageIds },
+    })
+  }
+  if (moveIds.length > 0) {
+    await input.em.nativeUpdate(MessageObject, {
+      id: { $in: moveIds },
+      messageId: { $in: messageIds },
+      entityId: input.sourceId,
+    }, { entityId: input.survivorId })
   }
   return { moved, deduplicated }
 }

@@ -1655,6 +1655,8 @@
   "customers.deals.merge.differs": "다름",
   "customers.deals.merge.emptyValue": "비어 있음",
   "customers.deals.merge.errors.distinct_records": "병합할 서로 다른 거래 두 개를 선택하세요.",
+  "customers.deals.merge.errors.guard_retarget": "안전 검사가 병합할 거래를 변경하여 병합이 차단되었습니다.",
+  "customers.deals.merge.errors.invalid_amount": "0 이상의 올바른 금액을 입력하세요.",
   "customers.deals.merge.errors.invalid_companies": "선택한 회사를 사용할 수 없습니다.",
   "customers.deals.merge.errors.invalid_loss_reason": "선택한 실패 사유를 사용할 수 없습니다.",
   "customers.deals.merge.errors.invalid_owner": "선택한 담당자를 사용할 수 없습니다.",

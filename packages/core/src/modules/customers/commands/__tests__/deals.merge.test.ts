@@ -124,6 +124,15 @@ describe('rewriteDealLinkedEntities', () => {
     ])
   })
 
+  it('matches the source and survivor chips regardless of letter case', () => {
+    expect(rewriteDealLinkedEntities([
+      { id: survivorId.toUpperCase(), type: 'deal', label: 'Kept' },
+      { id: sourceId.toUpperCase(), type: 'deal', label: 'Source' },
+    ], sourceId, survivor)).toEqual([{ id: survivorId.toUpperCase(), type: 'deal', label: 'Kept' }])
+    expect(rewriteDealLinkedEntities([{ id: sourceId.toUpperCase(), type: 'deal', label: 'Source' }], sourceId, survivor))
+      .toEqual([{ id: survivorId, type: 'deal', label: 'Survivor' }])
+  })
+
   it('deduplicates when the survivor is already linked', () => {
     expect(rewriteDealLinkedEntities([
       { id: survivorId, type: 'deal', label: 'Kept' },
