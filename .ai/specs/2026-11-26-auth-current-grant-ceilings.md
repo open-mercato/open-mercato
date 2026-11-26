@@ -28,7 +28,8 @@ compatibility contract.
 
 ## Integration coverage
 
-`TC-AUTH-current-grant-ceilings.spec.ts` exercises user update and delete, role
-ACL replacement and user ACL replacement with an actor below the target's
-privileges. It also verifies that a user update and role ACL replacement succeed
-within the actor's grant ceiling.
+`TC-AUTH-current-grant-ceilings.spec.ts` exercises staff update and delete against
+both role and direct grants, plus role and user ACL replacement with an actor
+below the target's privileges. It verifies updates and role ACL replacement
+within the actor's ceiling and uses a separately created tenant to confirm that
+a denied cross-tenant update and delete leave the target record intact.
