@@ -64,6 +64,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockEm.transactional.mockImplementation(async (operation: (tx: typeof mockEm) => Promise<unknown>) => operation(mockEm))
   mockGetBoolConfig.mockResolvedValue({ ok: true, value: false })
   const user = { id: 'user-id', tenantId, organizationId, isActive: true }
   mockEm.findOne.mockResolvedValue({
@@ -112,7 +113,8 @@ describe('disabled portal auth routes (#9162)', () => {
     expect(mockFindByEmail).not.toHaveBeenCalled()
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
     expect(mockEm.getKysely).not.toHaveBeenCalled()
-    expect(mockEm.transactional).not.toHaveBeenCalled()
+    const tokenVerification = ['magic-link/verify', 'email/verify', 'password/reset-confirm'].includes(name)
+    expect(mockEm.transactional).toHaveBeenCalledTimes(tokenVerification ? 1 : 0)
     expect(mockEm.persist).not.toHaveBeenCalled()
     expect(mockCreateSession).not.toHaveBeenCalled()
     expect(mockSendEmail).not.toHaveBeenCalled()

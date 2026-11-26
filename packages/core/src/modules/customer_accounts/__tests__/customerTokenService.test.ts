@@ -41,13 +41,14 @@ describe('CustomerTokenService – atomic token consumption', () => {
       user: { id: 'user-1', tenantId: 'tenant-1' },
     }
 
-    it('checks the stored tenant before consuming an email token (#9162)', async () => {
-      const { em, db } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
+    it('checks the stored tenant before consuming an email token in the supplied transaction (#9162)', async () => {
+      const { em } = createEm({ knexUpdateResult: 0 })
+      const { em: transaction, db } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
       const service = new CustomerTokenService(em)
       const unavailable = new Error('portal disabled')
       const guard = jest.fn(async () => { throw unavailable })
 
-      await expect(service.verifyEmailToken('abc', 'email_verification', undefined, guard)).rejects.toBe(unavailable)
+      await expect(service.verifyEmailToken('abc', 'email_verification', undefined, transaction, guard)).rejects.toBe(unavailable)
       expect(guard).toHaveBeenCalledWith('tenant-1')
       expect(db.updateTable).not.toHaveBeenCalled()
     })
@@ -123,13 +124,14 @@ describe('CustomerTokenService – atomic token consumption', () => {
       user: { id: 'user-2', tenantId: 'tenant-2' },
     }
 
-    it('checks the stored tenant before consuming a password reset token (#9162)', async () => {
-      const { em, db } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
+    it('checks the stored tenant before consuming a password reset token in the supplied transaction (#9162)', async () => {
+      const { em } = createEm({ knexUpdateResult: 0 })
+      const { em: transaction, db } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
       const service = new CustomerTokenService(em)
       const unavailable = new Error('portal disabled')
       const guard = jest.fn(async () => { throw unavailable })
 
-      await expect(service.verifyPasswordResetToken('xyz', undefined, guard)).rejects.toBe(unavailable)
+      await expect(service.verifyPasswordResetToken('xyz', undefined, transaction, guard)).rejects.toBe(unavailable)
       expect(guard).toHaveBeenCalledWith('tenant-2')
       expect(db.updateTable).not.toHaveBeenCalled()
     })

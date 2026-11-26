@@ -153,7 +153,7 @@ beforeEach(() => {
   mockCreateSession.mockResolvedValue({ rawToken: 'raw-token', jwt: 'jwt', session })
   mockResolve.mockImplementation((name: string) => {
     if (name === 'featureTogglesService') return { getBoolConfig: mockGetBoolConfig }
-    if (name === 'em') return em
+    if (name === 'em') return { ...em, transactional: (operation: (tx: EntityManager) => unknown) => operation(em) }
     if (name === 'customerUserService') return {
       findByEmail: async () => user,
       checkLockout: () => false,

@@ -141,7 +141,7 @@ test('yarn setup --no-infra makes zero docker calls and forwards the opt-out to 
     assert.equal(run.code, 0, run.output)
     assert.deepEqual(run.dockerCalls, [])
     assert.deepEqual(run.devArgs, ['--setup', '--no-infra'])
-    assert.match(run.output, /--no-infra: skipping Docker Compose/)
+    assert.match(run.output, /^⚙️ --no-infra: skipping Docker Compose, using the services configured in \.env$/m)
   } finally {
     fs.rmSync(app.appDir, { recursive: true, force: true })
   }
@@ -153,6 +153,7 @@ test('yarn setup creates .env from .env.example only when it is missing', { skip
     fs.writeFileSync(path.join(app.appDir, '.env.example'), 'DATABASE_URL=postgres://postgres:postgres@localhost:5432/example\n')
     const first = await runScript(app, 'setup.mjs', ['--no-infra'])
     assert.equal(first.code, 0, first.output)
+    assert.match(first.output, /^📄 Copied \.env\.example to \.env /m)
     assert.match(fs.readFileSync(path.join(app.appDir, '.env'), 'utf8'), /localhost:5432\/example/)
 
     fs.writeFileSync(path.join(app.appDir, '.env'), 'DATABASE_URL=postgres://me:pw@db.example.com:5432/custom\n')
@@ -402,6 +403,7 @@ test('ephemeral cleanup failures print manual recovery instructions and fail set
     `)
     const run = await runScript(app, 'setup.mjs', ['--ephemeral'])
     assert.equal(run.code, 1, run.output)
+    assert.match(run.output, /^⚙️ --no-infra: skipping Docker Compose, using the ephemeral Testcontainers services$/m)
     assert.match(run.output, /Could not fully restore/)
     assert.match(run.output, /Manual setup:[\s\S]*yarn dev --no-infra/)
     assert.deepEqual(run.devArgs, ['--setup', '--no-infra'])

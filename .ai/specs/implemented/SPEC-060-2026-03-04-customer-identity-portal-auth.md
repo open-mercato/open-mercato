@@ -365,8 +365,9 @@ Auto-link by email match (subscriber: customer_accounts.user.created):
 
 | Subscriber | Event | Persistent | ID | Purpose |
 |------------|-------|------------|-----|---------|
-| `autoLinkCrm.ts` | `customer_accounts.user.created` | `true` | `customer_accounts:auto-link-crm` | Find `CustomerEntity` (kind='person') by email match → set `person_entity_id`, derive `customer_entity_id` from person's company |
-| `autoLinkCrmReverse.ts` | `customers.person.created` | `true` | `customer_accounts:auto-link-crm-reverse` | Find `CustomerUser` by email match when new CRM person created → set `person_entity_id` |
+| `autoLinkCrm.ts` | `customer_accounts.user.created` | `true` | `customer_accounts:auto-link-crm` | Link an active, verified account to an in-organization CRM person and fill a missing company link |
+| `autoLinkCrmOnVerification.ts` | `customer_accounts.email.verified` | `true` | `customer_accounts:auto-link-crm-on-verification` | Run CRM auto-linking after a pending signup is verified |
+| `autoLinkCrmReverse.ts` | `customers.person.created` | `true` | `customer_accounts:auto-link-crm-reverse` | Link only active, verified accounts to a new CRM person in the same organization |
 | `notifyStaffOnSignup.ts` | `customer_accounts.user.created` | `true` | `customer_accounts:notify-staff-signup` | Notify CRM entity owner (if linked) or org admins about new customer signup |
 
 All subscribers are persistent and idempotent: they check current state before mutating.
@@ -644,27 +645,10 @@ These are standard staff RBAC features controlling access to the admin interface
 ### Public Routes (no auth required)
 
 #### Signup
-- `POST /api/customer-accounts/signup`
-- Rate limit: 5 requests / email / hour + 20 requests / IP / hour
-- Request:
-```json
-{
-  "email": "customer@example.com",
-  "password": "SecureP@ss1",
-  "displayName": "Jane Doe",
-  "tenantId": "uuid"
-}
-```
-- Success `201`:
-```json
-{
-  "ok": true,
-  "data": { "id": "uuid", "email": "customer@example.com", "emailVerified": false }
-}
-```
-- Assigns `is_default: true` role automatically (the `buyer` role).
-- Error `409`: Generic message — `{ "ok": false, "error": "Unable to create account. Please try logging in or resetting your password." }` (prevents email enumeration)
-- Side effects: Sends verification email. Emits `customer_accounts.user.created`.
+- `POST /api/customer_accounts/signup` accepts email, display name, and optional tenant and organization routing hints. A legacy password field is accepted and discarded.
+- A new account has no password or CRM association. It gets the default role and a one-time email verification link with a 24-hour lifetime.
+- Fresh and duplicate requests both return `202 { "ok": true }`. New registrations emit `customer_accounts.user.created` for staff notification.
+- An active, unverified account that has never signed in expires after 24 hours. Expired registrations are eligible for retirement on the next signup attempt or when the token cleanup worker runs.
 
 #### Login
 - `POST /api/customer-accounts/login`
@@ -728,15 +712,10 @@ These are standard staff RBAC features controlling access to the admin interface
 - Error `401`: `"Invalid or expired link"`.
 
 #### Email Verify
-- `POST /api/customer-accounts/email/verify`
-- Request:
-```json
-{
-  "token": "base64url-encoded-token"
-}
-```
-- Success `200`: `{ "ok": true, "data": { "emailVerified": true } }`
-- Error `401`: `"Invalid or expired verification token"`.
+- `POST /api/customer_accounts/email/verify` accepts a one-time token and an optional new password. The portal prompts for the password before submitting the token.
+- First verification and session revocation commit together. When a password is supplied, verification sets it. A token-only request verifies the account and clears any pending password. The customer can then use password reset or magic-link sign-in.
+- A valid request returns `200 { "ok": true }`. An invalid or expired request returns `400`.
+- First verification through magic link or staff action also clears the pending password and revokes old sessions. Password reset installs the new password and emits the verification event when it first verifies the account.
 
 #### Password Reset Request
 - `POST /api/customer-accounts/password/reset-request`
@@ -1276,7 +1255,7 @@ Consuming modules (storefront, PRM) integrate by:
 5. Build `CompanyUsersCard` UMES widget for CRM company detail page (spot: `crud-form:customers_company:fields`).
 6. Register widgets in `widgets/injection-table.ts`.
 7. Implement `subscribers/notifyStaffOnSignup.ts`.
-8. Integration tests: auto-link on signup, auto-link on person creation, widget rendering, ambiguous email handling.
+8. Integration tests: no signup auto-link before verification, same-organization linking after verification or person creation, widget rendering, ambiguous email handling.
 
 ### Phase 6: Cleanup Workers, Notifications, Polish
 **Effort**: 1-2 days
@@ -1680,7 +1659,17 @@ See UPGRADE_NOTES.md. The security exception still requires named human maintain
   fixtures exercise HTTP 403 across auth routes and existing sessions, verify unused
   tokens/unaccepted invitations/no signup, and prove a second enabled tenant still works.
 
+## Signup verification compatibility
+
+Signup and verification keep their existing response shapes, routes, and event IDs. The signup password becomes optional. The verification route accepts an optional new password. Integrations using token-only verification can send the customer to the existing password-reset or magic-link path. No schema migration is required.
+
+Invitation acceptance can retire an active, unverified registration that has never signed in within the invitation's organization. Acceptance creates a separate verified identity with the invitation's roles and scope. Verified, previously used, inactive, and other-organization accounts still conflict. Previously verified accounts retain their existing credentials.
+
 ## Changelog
+
+### 2026-11-21 — Verified signup credentials (#9107)
+
+- Set the signup password through the verification link. Revoke previous sessions on first verification, defer CRM linking until verification, and let staff invitations replace pending registrations in their organization.
 
 ### 2026-11-15
 - Enforce the existing portal availability setting at customer API/auth boundaries (#9162).
