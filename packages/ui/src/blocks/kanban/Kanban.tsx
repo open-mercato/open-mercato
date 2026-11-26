@@ -57,6 +57,10 @@ type MoveTarget = { id: string; title: string; rejection: KanbanMoveRejection | 
 
 const CARD_ACTION_ATTRIBUTE = 'data-kanban-card-action'
 
+function isColumnReady(column: KanbanColumn): boolean {
+  return (column.status ?? 'ready') === 'ready'
+}
+
 function rejectionOf(
   canMove: KanbanProps['canMove'],
   cardId: string,
@@ -260,7 +264,7 @@ function ColumnView({
   const columnStatus = column.status ?? 'ready'
   const { setNodeRef } = useDroppable({
     id: `${KANBAN_COLUMN_DROPPABLE_PREFIX}${column.id}`,
-    disabled: columnStatus !== 'ready',
+    disabled: !isColumnReady(column),
   })
   const isDropTarget = dropIndicator?.columnId === column.id && dropAllowed
   const restCards = activeCardId ? column.cards.filter((card) => card.id !== activeCardId) : column.cards
@@ -287,7 +291,7 @@ function ColumnView({
         {column.cards.map((card) => {
           const pending = pendingCardIds.has(card.id)
           const moveTargets: MoveTarget[] = columns
-            .filter((target) => target.id !== column.id)
+            .filter((target) => target.id !== column.id && isColumnReady(target))
             .map((target) => ({
               id: target.id,
               title: target.title,
@@ -449,6 +453,8 @@ export function Kanban(props: KanbanProps) {
   const startMove = React.useCallback(
     async (cardId: string, toColumnId: string, toIndex: number, source: 'drag' | 'menu') => {
       if (pendingCardIds.has(cardId)) return
+      const destination = columnsRef.current.find((column) => column.id === toColumnId)
+      if (!destination || !isColumnReady(destination)) return
       const rejection = rejectionOf(canMove, cardId, toColumnId)
       if (rejection) {
         setMessage(

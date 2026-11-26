@@ -206,6 +206,25 @@ describe('Kanban', () => {
     expect(screen.getByRole('option', { name: /Lost/ }).getAttribute('aria-disabled')).not.toBe('true')
   })
 
+  it('offers only ready columns as move targets so a card cannot vanish into a loading or failed column', async () => {
+    const onMove = jest.fn(async () => undefined)
+    const { container } = renderBoard({
+      onMove,
+      columns: [
+        baseColumns[0],
+        { id: 'won', title: 'Won', status: 'loading', cards: [] },
+        { id: 'lost', title: 'Lost', status: 'error', errorMessage: 'Could not load lost deals', cards: [] },
+        { id: 'parked', title: 'Parked', cards: [] },
+      ],
+    })
+    await openMoveMenu(container, 'd-1')
+    expect(screen.queryByRole('option', { name: /Won/ })).toBeNull()
+    expect(screen.queryByRole('option', { name: /Lost/ })).toBeNull()
+    fireEvent.click(screen.getByRole('option', { name: /Parked/ }))
+    await waitFor(() => expect(onMove).toHaveBeenCalledWith('d-1', 'parked', 0))
+    expect(cardIdsIn(container, 'parked')).toEqual(['d-1'])
+  })
+
   it('opens the card on click, Enter and Space but not from the move button', () => {
     const onCardOpen = jest.fn()
     const { container } = renderBoard({ onCardOpen })
