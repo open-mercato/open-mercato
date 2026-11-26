@@ -19,6 +19,7 @@ export type ProgressJobDto = {
   totalCount?: number | null
   etaSeconds?: number | null
   cancellable: boolean
+  canCancel?: boolean
   startedAt?: string | null
   finishedAt?: string | null
   errorMessage?: string | null
