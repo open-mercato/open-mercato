@@ -7,6 +7,7 @@ export const wizardStepSchema = z.object({
   description: z.string().optional(),
   optional: z.boolean().optional(),
   state: z.enum(['complete', 'error', 'upcoming']).optional(),
+  errorMessage: z.string().min(1).optional(),
 })
 export type WizardStep = z.infer<typeof wizardStepSchema>
 

@@ -45,6 +45,13 @@ describe('Wizard contract', () => {
     expect(wizardPropsSchema.safeParse({ steps, activeStepId: 'items', ...rest }).success).toBe(false)
   })
 
+  it('accepts an optional per-step errorMessage and rejects an empty one', () => {
+    const withMessage = [{ id: 'a', title: 'A', state: 'error', errorMessage: 'Price is required' }]
+    expect(wizardPropsSchema.safeParse({ steps: withMessage, activeStepId: 'a', ...handlers }).success).toBe(true)
+    const emptyMessage = [{ id: 'a', title: 'A', state: 'error', errorMessage: '' }]
+    expect(wizardPropsSchema.safeParse({ steps: emptyMessage, activeStepId: 'a', ...handlers }).success).toBe(false)
+  })
+
   it('rejects unknown step states', () => {
     expect(
       wizardPropsSchema.safeParse({ steps: [{ id: 'a', title: 'A', state: 'skipped' }], activeStepId: 'a', ...handlers })

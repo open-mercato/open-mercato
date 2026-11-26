@@ -21,9 +21,41 @@ function StackSamples({ count }: { count: number }) {
   return (
     <>
       {Array.from({ length: count }, (_, index) => (
-        <div key={index} className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
+        <div
+          key={index}
+          className="min-w-10 rounded-md border border-border bg-muted px-3 py-2 text-center text-sm tabular-nums text-muted-foreground"
+        >
           {index + 1}
         </div>
+      ))}
+    </>
+  )
+}
+
+const STACK_TAG_SAMPLES = [
+  { label: 'Enterprise', size: 'px-2 py-1 text-xs' },
+  { label: 'Key account', size: 'px-4 py-3 text-base' },
+  { label: 'EMEA', size: 'px-3 py-2 text-sm' },
+  { label: 'Renewal due this quarter', size: 'px-2 py-1 text-xs' },
+  { label: 'Partner referral', size: 'px-4 py-3 text-lg' },
+  { label: 'VIP', size: 'px-3 py-2 text-sm' },
+  { label: 'Requires legal review', size: 'px-4 py-3 text-base' },
+  { label: 'Newsletter', size: 'px-2 py-1 text-xs' },
+  { label: 'Onboarding in progress', size: 'px-3 py-2 text-sm' },
+  { label: 'Wholesale', size: 'px-4 py-3 text-lg' },
+  { label: 'Net 30', size: 'px-2 py-1 text-xs' },
+  { label: 'Multi-location retailer', size: 'px-3 py-2 text-sm' },
+  { label: 'Priority support', size: 'px-4 py-3 text-base' },
+  { label: 'Trial', size: 'px-2 py-1 text-xs' },
+]
+
+function StackTagSamples() {
+  return (
+    <>
+      {STACK_TAG_SAMPLES.map((tag) => (
+        <span key={tag.label} className={`rounded-md border border-border bg-muted text-muted-foreground ${tag.size}`}>
+          {tag.label}
+        </span>
       ))}
     </>
   )
@@ -86,14 +118,20 @@ const stackEntry: GalleryEntry = {
       id: 'centered',
       title: 'Centered',
       render: () => (
-        <Stack {...stackFixtures.centered}>
+        <Stack {...stackFixtures.centered} className="min-h-80 rounded-md border border-dashed border-border p-4">
           <StackSamples count={3} />
         </Stack>
       ),
       code: `import { Stack } from '@open-mercato/ui/blocks/stack'
 
-<Stack gap={4} align="center" justify="center">
+<Stack
+  gap={4}
+  align="center"
+  justify="center"
+  className="min-h-80 rounded-md border border-dashed border-border p-4"
+>
   <Icon />
+  <Title />
   <Message />
 </Stack>`,
     },
@@ -117,7 +155,7 @@ const stackEntry: GalleryEntry = {
       title: 'Wrapping',
       render: () => (
         <Inline {...stackFixtures.wrapping}>
-          <StackSamples count={8} />
+          <StackTagSamples />
         </Inline>
       ),
       code: `import { Inline } from '@open-mercato/ui/blocks/stack'
@@ -132,13 +170,19 @@ const stackEntry: GalleryEntry = {
       id: 'roomy',
       title: 'Roomy',
       render: () => (
-        <Stack {...stackFixtures.roomy}>
+        <Stack {...stackFixtures.roomy} className="min-h-80 rounded-md border border-dashed border-border p-4">
           <StackSamples count={3} />
         </Stack>
       ),
       code: `import { Stack } from '@open-mercato/ui/blocks/stack'
 
-<Stack gap={12} align="stretch" justify="end">
+<Stack
+  gap={12}
+  align="stretch"
+  justify="end"
+  className="min-h-80 rounded-md border border-dashed border-border p-4"
+>
+  <Section />
   <Section />
   <Section />
 </Stack>`,
@@ -220,7 +264,8 @@ const entityHeaderEntry: GalleryEntry = {
       render: () => <EntityHeader {...entityHeaderFixtures.error} />,
       code: entityHeaderCode(`  title="Acme Corporation"
   status="error"
-  errorMessage={t(loadErrorKey)}`),
+  errorMessage={t(loadErrorKey)}
+  onRetry={reload}`),
     },
     {
       id: 'with-slots',
@@ -318,6 +363,14 @@ const keyValueEntry: GalleryEntry = {
   items={items}`),
     },
     {
+      id: 'bordered-odd',
+      title: 'Bordered, odd item count',
+      render: () => <KeyValue {...keyValueFixtures.borderedOdd} />,
+      code: keyValueCode(`  bordered
+  columns={2}
+  items={items.slice(0, 3)}`),
+    },
+    {
       id: 'with-icons',
       title: 'With icons',
       render: () => <KeyValue {...keyValueFixtures.withIcons} />,
@@ -325,6 +378,22 @@ const keyValueEntry: GalleryEntry = {
     { key: 'owner', label: 'Owner', icon: <UserRound />, value: 'Anna Kowalska' },
     { key: 'email', label: 'Email', icon: <Mail />, value: 'anna@example.com' },
   ]}`),
+    },
+    {
+      id: 'long-content',
+      title: 'Long label and value',
+      render: () => <KeyValue {...keyValueFixtures.longContent} />,
+      code: keyValueCode(`  items={[
+    { key: 'billing', label: longLabel, value: longAddress, hint: longHint },
+    { key: 'reference', label: 'Reference', value: unbrokenReference },
+  ]}`),
+    },
+    {
+      id: 'with-footer',
+      title: 'With footer',
+      render: () => <KeyValue {...keyValueFixtures.withFooter} />,
+      code: keyValueCode(`  items={items}
+  footer={<p className="text-xs text-muted-foreground">{t(syncedFromKey)}</p>}`),
     },
     {
       id: 'editable',
@@ -335,6 +404,38 @@ const keyValueEntry: GalleryEntry = {
     await saveField(key, value)
     setItems((current) => current.map((item) => item.key === key ? { ...item, value } : item))
   }}
+  items={items}`),
+    },
+    {
+      id: 'editing-text',
+      title: 'Editing, text',
+      render: () => <KeyValue {...keyValueFixtures.editingText} />,
+      code: keyValueCode(`  defaultEditingKey="name"
+  onEdit={handleEdit}
+  items={items}`),
+    },
+    {
+      id: 'editing-textarea',
+      title: 'Editing, textarea',
+      render: () => <KeyValue {...keyValueFixtures.editingTextarea} />,
+      code: keyValueCode(`  defaultEditingKey="notes"
+  onEdit={handleEdit}
+  items={items}`),
+    },
+    {
+      id: 'editing-select',
+      title: 'Editing, select',
+      render: () => <KeyValue {...keyValueFixtures.editingSelect} />,
+      code: keyValueCode(`  defaultEditingKey="stage"
+  onEdit={handleEdit}
+  items={items}`),
+    },
+    {
+      id: 'editing-date',
+      title: 'Editing, date',
+      render: () => <KeyValue {...keyValueFixtures.editingDate} />,
+      code: keyValueCode(`  defaultEditingKey="renewal"
+  onEdit={handleEdit}
   items={items}`),
     },
     {
@@ -359,7 +460,8 @@ const keyValueEntry: GalleryEntry = {
       render: () => <KeyValue {...keyValueFixtures.error} />,
       code: keyValueCode(`  items={[]}
   status="error"
-  errorMessage={t(loadErrorKey)}`),
+  errorMessage={t(loadErrorKey)}
+  onRetry={reload}`),
     },
     {
       id: 'empty',
@@ -454,8 +556,8 @@ const timelineEntry: GalleryEntry = {
       code: timelineCode(`  items={items}
   order="desc"
   filters={[
-    { key: 'all', label: 'All', count: 12 },
-    { key: 'notes', label: 'Notes', count: 5 },
+    { key: 'all', label: 'All', count: 3 },
+    { key: 'notes', label: 'Notes', count: 1 },
   ]}
   activeFilterKey={filterKey}
   onFilterChange={setFilterKey}`),
@@ -501,7 +603,8 @@ const timelineEntry: GalleryEntry = {
       code: timelineCode(`  items={[]}
   order="desc"
   status="error"
-  errorMessage={t(loadErrorKey)}`),
+  errorMessage={t(loadErrorKey)}
+  onRetry={refetch}`),
     },
     {
       id: 'empty',
@@ -619,6 +722,7 @@ const kanbanEntry: GalleryEntry = {
       title: 'Pending move',
       render: () => <Kanban {...kanbanFixtures.pending} />,
       code: kanbanCode(`  columns={columns}
+  pendingCardIds={savingTaskIds}
   onMove={(taskId, statusId) => saveStatus(taskId, statusId)}
   renderCard={(task, { pending }) => <TaskCard task={task} muted={pending} />}`),
     },
@@ -633,6 +737,7 @@ const kanbanEntry: GalleryEntry = {
     errorMessage: stage.error ? t(loadErrorKey) : undefined,
     cards: stage.deals,
   }))}
+  onRetryColumn={(stageId) => reloadStage(stageId)}
   onMove={moveDeal}
   renderCard={(deal) => <DealCard deal={deal} />}`),
     },
@@ -662,6 +767,7 @@ const kanbanEntry: GalleryEntry = {
       code: kanbanCode(`  columns={[]}
   status="error"
   errorMessage={t(loadErrorKey)}
+  onRetry={reloadBoard}
   onMove={moveDeal}
   renderCard={(deal) => <DealCard deal={deal} />}`),
     },
@@ -752,7 +858,7 @@ const wizardEntry: GalleryEntry = {
   onBack={goBack}
   onFinish={submit}`, `[
     { id: 'details', title: 'Details', state: 'complete' },
-    { id: 'pricing', title: 'Pricing', state: 'error' },
+    { id: 'pricing', title: 'Pricing', state: 'error', errorMessage: 'Net price is required' },
     { id: 'review', title: 'Review' },
   ]`),
     },
@@ -765,6 +871,16 @@ const wizardEntry: GalleryEntry = {
   onNext={async () => true}
   onBack={goBack}
   onFinish={submit}`),
+    },
+    {
+      id: 'many-steps',
+      title: 'Many steps',
+      render: () => <Wizard {...wizardFixtures.manySteps} />,
+      code: wizardCode(`  activeStepId="shipping-and-fulfilment"
+  onStepSelect={setActiveStepId}
+  onNext={async () => true}
+  onBack={goBack}
+  onFinish={submit}`, 'longSteps'),
     },
     {
       id: 'loading',
@@ -793,6 +909,7 @@ const wizardEntry: GalleryEntry = {
       code: wizardCode(`  activeStepId="details"
   status="error"
   errorMessage={t(loadErrorKey)}
+  onRetry={reload}
   onNext={async () => true}
   onBack={goBack}
   onFinish={submit}`),

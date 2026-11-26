@@ -127,10 +127,10 @@ const noop = (): void => undefined
 const noopAsync = async (): Promise<void> => undefined
 
 const filters = [
-  { key: 'all', label: 'All', count: 12 },
-  { key: 'notes', label: 'Notes', count: 5 },
-  { key: 'emails', label: 'Emails', count: 4 },
-  { key: 'files', label: 'Files', count: 3 },
+  { key: 'all', label: 'All', count: 3 },
+  { key: 'notes', label: 'Notes', count: 1 },
+  { key: 'updates', label: 'Updates', count: 1 },
+  { key: 'files', label: 'Files', count: 1 },
 ]
 
 export const timelineFixtures = {
@@ -175,7 +175,7 @@ export const timelineFixtures = {
         occurredAt: at(2),
         kind: 'quote',
         icon: 'file-text',
-        title: 'Quote Q-1042 sent',
+        title: 'sent quote Q-1042',
         author: { name: 'Anna Nowak' },
       },
     ],
@@ -188,7 +188,7 @@ export const timelineFixtures = {
     order: 'desc',
   },
   loading: { items: [], order: 'desc', status: 'loading' },
-  error: { items: [], order: 'desc', status: 'error', errorMessage: 'Could not load activity' },
+  error: { items: [], order: 'desc', status: 'error', errorMessage: 'Could not load activity', onRetry: noop },
   empty: { items: [], order: 'desc', status: 'empty' },
 } satisfies Record<string, TimelineProps>
 

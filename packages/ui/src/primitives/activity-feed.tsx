@@ -166,11 +166,13 @@ export type ActivityFeedFileChipProps = Omit<React.HTMLAttributes<HTMLDivElement
   onDownload?: () => void
   /** Accessible label for the download button. Default `"Download"`. */
   downloadAriaLabel?: string
+  /** Weight of the filename. `'regular'` leaves hierarchy to size and color. @default 'medium' */
+  nameWeight?: 'medium' | 'regular'
 }
 
 const ActivityFeedFileChip = React.forwardRef<HTMLDivElement, ActivityFeedFileChipProps>(
   (
-    { className, name, size, onDownload, downloadAriaLabel = 'Download', ...props },
+    { className, name, size, onDownload, downloadAriaLabel = 'Download', nameWeight = 'medium', ...props },
     ref,
   ) => (
     <div
@@ -183,7 +185,7 @@ const ActivityFeedFileChip = React.forwardRef<HTMLDivElement, ActivityFeedFileCh
       {...props}
     >
       <Paperclip aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-      <span className="truncate font-medium">{name}</span>
+      <span className={cn('truncate', nameWeight === 'regular' ? 'font-normal' : 'font-medium')}>{name}</span>
       {size ? (
         <span data-slot="activity-feed-file-chip-size" className="text-muted-foreground">
           ({size})

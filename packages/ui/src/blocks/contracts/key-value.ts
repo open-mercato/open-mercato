@@ -7,6 +7,9 @@ export type KeyValueEditor = z.infer<typeof keyValueEditorSchema>
 export const keyValueLayoutSchema = z.enum(['horizontal', 'vertical'])
 export type KeyValueLayout = z.infer<typeof keyValueLayoutSchema>
 
+export const keyValueFormatSchema = z.enum(['text', 'date', 'datetime'])
+export type KeyValueFormat = z.infer<typeof keyValueFormatSchema>
+
 export const keyValueItemSchema = z
   .object({
     key: z.string().min(1),
@@ -14,6 +17,7 @@ export const keyValueItemSchema = z
     icon: slotSchema.optional(),
     value: slotSchema,
     hint: z.string().optional(),
+    format: keyValueFormatSchema.optional(),
     editable: z.boolean().optional(),
     editor: keyValueEditorSchema.optional(),
     options: z.array(z.object({ value: z.string(), label: z.string().min(1) })).optional(),
@@ -39,6 +43,7 @@ export const keyValuePropsSchema = blockBasePropsSchema
     layout: keyValueLayoutSchema.optional(),
     bordered: z.boolean().optional(),
     onEdit: callbackSchema<(key: string, nextValue: string) => Promise<void>>().optional(),
+    defaultEditingKey: z.string().min(1).optional(),
     footer: slotSchema.optional(),
   })
   .refine((props) => hasUniqueKeys(props.items), { message: 'Item keys must be unique', path: ['items'] })
@@ -46,4 +51,10 @@ export const keyValuePropsSchema = blockBasePropsSchema
     message: 'Editable items require onEdit',
     path: ['onEdit'],
   })
+  .refine(
+    (props) =>
+      props.defaultEditingKey === undefined ||
+      props.items.some((item) => item.key === props.defaultEditingKey && item.editable === true),
+    { message: 'defaultEditingKey must match an editable item', path: ['defaultEditingKey'] },
+  )
 export type KeyValueProps = z.infer<typeof keyValuePropsSchema>

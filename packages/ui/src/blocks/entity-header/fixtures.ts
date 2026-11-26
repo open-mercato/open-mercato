@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { Building2 } from 'lucide-react'
 import type { EntityHeaderProps } from '../contracts/entity-header'
 
 const noop = () => undefined
@@ -35,11 +36,15 @@ export const entityHeaderFixtures: Record<string, EntityHeaderProps> = {
   },
   minimal: { title: 'Acme Corporation' },
   loading: { title: 'Acme Corporation', status: 'loading' },
-  error: { title: 'Acme Corporation', status: 'error', errorMessage: 'The record could not be loaded' },
+  error: { title: 'Acme Corporation', status: 'error', errorMessage: 'The record could not be loaded', onRetry: noop },
   withSlots: {
     title: 'Acme Corporation',
     subtitle: 'Customer since March 2021',
-    leading: React.createElement('div', { className: 'size-12 rounded-full bg-muted' }),
+    leading: React.createElement(
+      'div',
+      { className: 'flex size-12 items-center justify-center rounded-md bg-muted text-muted-foreground' },
+      React.createElement(Building2, { 'aria-hidden': true, className: 'size-6' }),
+    ),
     trailing: React.createElement('span', { className: 'text-sm text-muted-foreground' }, 'Synced'),
     below: React.createElement('p', { className: 'text-sm text-muted-foreground' }, 'Last contact two days ago'),
     actions: [{ key: 'edit', label: 'Edit' }],

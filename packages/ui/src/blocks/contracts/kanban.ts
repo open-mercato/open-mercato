@@ -31,9 +31,11 @@ export const kanbanPropsSchema = blockBasePropsSchema
   .extend({
     columns: z.array(kanbanColumnSchema),
     reorderable: z.boolean().optional(),
+    pendingCardIds: z.array(z.string().min(1)).optional(),
     onMove: callbackSchema<(cardId: string, toColumnId: string, toIndex: number) => Promise<void>>(),
     canMove: callbackSchema<(cardId: string, toColumnId: string) => true | KanbanMoveRejection>().optional(),
     onLoadMoreColumn: callbackSchema<(columnId: string) => Promise<void>>().optional(),
+    onRetryColumn: callbackSchema<(columnId: string) => void>().optional(),
     onCardOpen: callbackSchema<(cardId: string) => void>().optional(),
     renderCard: callbackSchema<(card: KanbanCard, state: KanbanCardRenderState) => React.ReactNode>(),
     renderDragPreview: callbackSchema<(card: KanbanCard, state: KanbanDragPreviewState) => React.ReactNode>().optional(),

@@ -44,6 +44,7 @@ export function callbackSchema<TCallback extends (...args: never[]) => unknown>(
 export const blockBasePropsSchema = z.object({
   status: blockStatusSchema.optional(),
   errorMessage: z.string().optional(),
+  onRetry: callbackSchema<() => void>().optional(),
   emptyState: slotSchema.optional(),
   className: z.string().optional(),
 })

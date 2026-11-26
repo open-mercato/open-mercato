@@ -106,6 +106,14 @@ describe('ActivityFeed', () => {
     expect(container.querySelector('[data-slot="activity-feed-item-content"]')).toBeNull()
   })
 
+  it('keeps the FileChip filename medium by default and regular on request', () => {
+    const { getByText, rerender } = render(<ActivityFeedFileChip name="a.pdf" />)
+    expect(getByText('a.pdf').className).toContain('font-medium')
+    rerender(<ActivityFeedFileChip name="a.pdf" nameWeight="regular" />)
+    expect(getByText('a.pdf').className).toContain('font-normal')
+    expect(getByText('a.pdf').className).not.toContain('font-medium')
+  })
+
   it('renders the FileChip download button only when `onDownload` is provided', () => {
     const onDownload = jest.fn()
     const { container, rerender } = render(

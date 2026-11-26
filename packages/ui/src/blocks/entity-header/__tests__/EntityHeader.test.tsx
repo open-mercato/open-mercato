@@ -12,6 +12,7 @@ const dict = {
         moreActions: 'More actions',
         loading: 'Loading',
         error: 'Something went wrong',
+        retry: 'Try again',
       },
     },
   },
@@ -197,9 +198,66 @@ describe('EntityHeader', () => {
     expect(screen.queryByRole('heading')).not.toBeInTheDocument()
   })
 
+  it('renders a skeleton shaped like the header while loading', () => {
+    renderHeader(entityHeaderFixtures.loading)
+    const root = document.querySelector('[data-slot="entity-header"]') as HTMLElement
+    expect(root).toHaveAttribute('aria-busy', 'true')
+    expect(root.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThanOrEqual(6)
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
   it('renders the error state with the error message', () => {
     renderHeader(entityHeaderFixtures.error)
     expect(screen.getByRole('alert')).toHaveTextContent('The record could not be loaded')
+  })
+
+  it('keeps the title and avatar in the error state and offers retry', () => {
+    const onRetry = jest.fn()
+    renderHeader({ ...entityHeaderFixtures.error, avatar: { initials: 'AC' }, onRetry })
+    expect(screen.getByRole('heading', { level: 1, name: 'Acme Corporation' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'AC' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders no retry button in the error state without onRetry', () => {
+    renderHeader({ title: 'Acme Corporation', status: 'error' })
+    expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong')
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('shows the disabled reason as visible helper text outside the tooltip', () => {
+    renderHeader(entityHeaderFixtures.disabledAction)
+    const reason = document.querySelector('[data-slot="entity-header-action-reason"]') as HTMLElement
+    expect(reason).toHaveTextContent('Another user is editing this record')
+    expect(reason.className).toContain('md:sr-only')
+    expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute('aria-describedby', reason.id)
+  })
+
+  it('keeps the trailing slot apart from the action buttons', () => {
+    renderHeader(entityHeaderFixtures.withSlots)
+    const trailing = document.querySelector('[data-slot="entity-header-trailing"]') as HTMLElement
+    const buttons = document.querySelector('[data-slot="entity-header-buttons"]') as HTMLElement
+    expect(trailing).toHaveTextContent('Synced')
+    expect(buttons).not.toHaveTextContent('Synced')
+    expect(document.querySelector('[data-slot="entity-header-actions"]')).toContainElement(trailing)
+  })
+
+  it('gives the overflow trigger the same height classes as the action buttons', () => {
+    renderHeader(entityHeaderFixtures.default)
+    const edit = screen.getByRole('button', { name: 'Edit' })
+    const more = screen.getByRole('button', { name: 'More actions' })
+    expect(edit.className).toContain('h-10')
+    expect(edit.className).toContain('sm:h-8')
+    expect(more.className).toContain('size-10')
+    expect(more.className).toContain('sm:size-8')
+  })
+
+  it('renders avatar initials without heavy weight', () => {
+    renderHeader(entityHeaderFixtures.default)
+    const avatar = screen.getByRole('img', { name: 'AC' })
+    expect(avatar.className).toContain('font-normal')
+    expect(avatar.className).not.toContain('font-semibold')
   })
 
   it('renders an icon for an action with a resolvable icon name', () => {

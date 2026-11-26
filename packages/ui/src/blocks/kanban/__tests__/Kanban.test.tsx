@@ -9,7 +9,10 @@ import { Kanban } from '../Kanban'
 import { kanbanFixtures } from '../fixtures'
 
 const dict = {
+  'ui.blocks.kanban.boardLabel': 'Board columns',
   'ui.blocks.kanban.cardCount': '{count} cards',
+  'ui.blocks.kanban.emptyDescription': 'Add a column to start organizing cards on this board.',
+  'ui.blocks.kanban.retry': 'Try again',
   'ui.blocks.kanban.columnError': 'Could not load cards',
   'ui.blocks.kanban.columnLoading': 'Loading cards',
   'ui.blocks.kanban.dnd.cancelled': 'Moving the card was cancelled.',
@@ -124,7 +127,8 @@ describe('Kanban', () => {
     await waitFor(() => expect(cardIdsIn(container, 'won')).toEqual(['d-1']))
     expect(cardIdsIn(container, 'lead')).toEqual(['d-2'])
     const card = container.querySelector('[data-kanban-card-id="d-1"]') as HTMLElement
-    expect(card.className).toContain('opacity-60')
+    expect(card.className).not.toContain('opacity-60')
+    expect(card.querySelector('[data-slot="kanban-card-content"]')?.className).toContain('opacity-60')
     expect(card.getAttribute('aria-busy')).toBe('true')
     expect(screen.getByTestId('card-d-1').getAttribute('data-pending')).toBe('true')
     expect(within(card).queryByRole('button', { name: 'Move card' })).toBeNull()
@@ -244,7 +248,138 @@ describe('Kanban', () => {
     expect(card.getAttribute('tabindex')).toBe('0')
     expect(card.getAttribute('aria-roledescription')).toBeTruthy()
     expect(card.className).toContain('focus-visible:shadow-focus')
-    expect(moveButtonOf(container, 'd-1').className).toContain('[@media(hover:none)]:opacity-100')
+    const actions = card.querySelector('[data-slot="kanban-card-actions"]') as HTMLElement
+    expect(actions.className).toContain('[@media(hover:none)]:opacity-100')
+    expect(actions.className).toContain('group-focus-within:opacity-100')
+    expect(actions.className).toContain('absolute')
+    expect(actions.contains(moveButtonOf(container, 'd-1'))).toBe(true)
+    expect(moveButtonOf(container, 'd-1').className).toContain('size-8')
+  })
+
+  it('renders cards listed in pendingCardIds as pending without a user move', () => {
+    const { container } = renderBoard({ pendingCardIds: ['d-2'] })
+    const pendingCard = container.querySelector('[data-kanban-card-id="d-2"]') as HTMLElement
+    const idleCard = container.querySelector('[data-kanban-card-id="d-1"]') as HTMLElement
+    expect(pendingCard.getAttribute('data-pending')).toBe('true')
+    expect(pendingCard.getAttribute('aria-busy')).toBe('true')
+    expect(pendingCard.getAttribute('aria-disabled')).toBe('true')
+    expect(pendingCard.querySelector('[data-slot="kanban-card-pending"]')).not.toBeNull()
+    expect(within(pendingCard).queryByRole('button', { name: 'Move card' })).toBeNull()
+    expect(screen.getByTestId('card-d-2').getAttribute('data-pending')).toBe('true')
+    expect(idleCard.getAttribute('data-pending')).toBeNull()
+    expect(idleCard.getAttribute('aria-disabled')).toBe('false')
+    expect(within(idleCard).getByRole('button', { name: 'Move card' })).toBeTruthy()
+  })
+
+  it('merges pendingCardIds with cards that are pending after a move', async () => {
+    const onMove = jest.fn(() => new Promise<void>(() => undefined))
+    const { container } = renderBoard({ onMove, pendingCardIds: ['d-2'] })
+    await openMoveMenu(container, 'd-1')
+    fireEvent.click(screen.getByRole('option', { name: /Won/ }))
+    await waitFor(() => expect(cardIdsIn(container, 'won')).toEqual(['d-1']))
+    expect(container.querySelectorAll('[data-slot="kanban-card"][data-pending="true"]')).toHaveLength(2)
+  })
+
+  it('shows the grip only on reorderable boards and never on a pending card', () => {
+    const plain = renderBoard()
+    expect(plain.container.querySelector('[data-slot="kanban-card-grip"]')).toBeNull()
+    plain.unmount()
+    const { container } = renderBoard({ reorderable: true, pendingCardIds: ['d-2'] })
+    const grip = container.querySelector('[data-kanban-card-id="d-1"] [data-slot="kanban-card-grip"]') as HTMLElement
+    expect(grip.getAttribute('aria-hidden')).toBe('true')
+    expect(grip.className).toContain('absolute')
+    expect(grip.className).toContain('[@media(hover:none)]:opacity-100')
+    expect(container.querySelector('[data-kanban-card-id="d-2"] [data-slot="kanban-card-grip"]')).toBeNull()
+  })
+
+  it('labels the scroll region and marks the overflowing edge', () => {
+    const { container } = renderBoard()
+    const board = container.querySelector('[data-slot="kanban-board"]') as HTMLElement
+    expect(screen.getByRole('group', { name: 'Board columns' })).toBe(board)
+    expect(board.getAttribute('tabindex')).toBeNull()
+    const fadeEnd = container.querySelector('[data-slot="kanban-scroll-fade-end"]') as HTMLElement
+    const fadeStart = container.querySelector('[data-slot="kanban-scroll-fade-start"]') as HTMLElement
+    expect(fadeEnd.className).toContain('opacity-0')
+    Object.defineProperty(board, 'clientWidth', { configurable: true, value: 300 })
+    Object.defineProperty(board, 'scrollWidth', { configurable: true, value: 900 })
+    fireEvent.scroll(board)
+    expect(board.getAttribute('tabindex')).toBe('0')
+    expect(board.getAttribute('data-overflow-end')).toBe('true')
+    expect(fadeEnd.className).toContain('opacity-100')
+    expect(fadeStart.className).toContain('opacity-0')
+    board.scrollLeft = 600
+    fireEvent.scroll(board)
+    expect(board.getAttribute('data-overflow-end')).toBeNull()
+    expect(fadeEnd.className).toContain('opacity-0')
+    expect(fadeStart.className).toContain('opacity-100')
+  })
+
+  it('hides the count badge for a zero count and for columns that are not ready', () => {
+    const { container } = renderBoard({
+      columns: [
+        baseColumns[0],
+        baseColumns[1],
+        { id: 'lost', title: 'Lost', count: 7, status: 'error', cards: [] },
+        { id: 'parked', title: 'Parked', count: 4, status: 'loading', cards: [] },
+      ],
+    })
+    expect(columnEl(container, 'lead').querySelector('[data-slot="kanban-column-count"]')).not.toBeNull()
+    expect(columnEl(container, 'won').querySelector('[data-slot="kanban-column-count"]')).toBeNull()
+    expect(columnEl(container, 'lost').querySelector('[data-slot="kanban-column-count"]')).toBeNull()
+    expect(columnEl(container, 'parked').querySelector('[data-slot="kanban-column-count"]')).toBeNull()
+  })
+
+  it('offers a retry action on a failed column only when onRetryColumn is passed', () => {
+    const failed: KanbanColumn[] = [baseColumns[0], { id: 'won', title: 'Won', status: 'error', cards: [] }]
+    const first = renderBoard({ columns: failed })
+    expect(screen.getByText('Could not load cards')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    first.unmount()
+    const onRetryColumn = jest.fn()
+    const { container } = renderBoard({ columns: failed, onRetryColumn })
+    fireEvent.click(within(columnEl(container, 'won')).getByRole('button', { name: 'Try again' }))
+    expect(onRetryColumn).toHaveBeenCalledWith('won')
+  })
+
+  it('renders skeleton cards for a loading column', () => {
+    const { container } = renderBoard({
+      columns: [baseColumns[0], { id: 'won', title: 'Won', status: 'loading', cards: [] }],
+    })
+    const loading = columnEl(container, 'won').querySelector('[data-slot="kanban-column-loading"]') as HTMLElement
+    expect(loading.getAttribute('aria-busy')).toBe('true')
+    expect(loading.querySelectorAll('[data-slot="kanban-skeleton-card"]').length).toBeGreaterThan(0)
+  })
+
+  it('renders the board loading state as skeleton columns', () => {
+    const { container } = renderBoard({ status: 'loading' })
+    const root = container.querySelector('[data-slot="kanban"]') as HTMLElement
+    expect(root.getAttribute('aria-busy')).toBe('true')
+    expect(root.querySelectorAll('[data-slot="kanban-skeleton-column"]').length).toBeGreaterThan(1)
+    expect(root.querySelectorAll('[data-slot="kanban-skeleton-card"]').length).toBeGreaterThan(1)
+  })
+
+  it('offers a board retry when onRetry is passed and describes the empty board', () => {
+    const onRetry = jest.fn()
+    const failed = renderBoard({ status: 'error', onRetry })
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    failed.unmount()
+    const plain = renderBoard({ status: 'error' })
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    plain.unmount()
+    renderBoard({ status: 'empty' })
+    expect(screen.getByText('Add a column to start organizing cards on this board.')).toBeTruthy()
+  })
+
+  it('keeps fixture counts equal to the visible cards unless the column pages', () => {
+    Object.entries(kanbanFixtures).forEach(([, fixture]) => {
+      ;(fixture as KanbanProps).columns.forEach((column) => {
+        if (column.hasMore || column.count === undefined) return
+        expect(column.count).toBe(column.cards.length)
+      })
+    })
+    expect(kanbanFixtures.showMore.columns.some((column) => column.hasMore)).toBe(true)
+    expect(kanbanFixtures.pending.pendingCardIds.length).toBeGreaterThan(0)
   })
 
   it.each([

@@ -114,7 +114,7 @@ const dotVariants = cva(
         default: 'size-5',
       },
       status: {
-        pending: 'border border-muted-foreground/30 bg-background',
+        pending: 'border border-muted-foreground/60 bg-background',
         current: 'bg-accent-indigo text-accent-indigo-foreground',
         complete:
           'bg-status-success-icon text-status-success-bg',
@@ -129,9 +129,9 @@ const labelVariants = cva('text-sm leading-tight', {
   variants: {
     status: {
       pending: 'text-muted-foreground',
-      current: 'text-foreground font-medium',
+      current: 'text-foreground',
       complete: 'text-muted-foreground',
-      error: 'text-status-error-text font-medium',
+      error: 'text-status-error-text',
     },
   },
   defaultVariants: { status: 'pending' },
@@ -147,6 +147,10 @@ export type StepIndicatorProps = React.HTMLAttributes<HTMLOListElement> &
     /** Optional restriction on which statuses are clickable. Defaults to
      * `['complete', 'current']` — past + present only. */
     clickableStatuses?: StepIndicatorStatus[]
+    /** Horizontal only. When true, a label that cannot fit its row is cut
+     * with an ellipsis instead of overflowing; the full label stays in the
+     * DOM and is exposed as a tooltip. Defaults to `false`. */
+    truncateLabels?: boolean
   }
 
 const DEFAULT_CLICKABLE: StepIndicatorStatus[] = ['complete', 'current']
@@ -167,6 +171,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
       showNumbers = false,
       onStepClick,
       clickableStatuses = DEFAULT_CLICKABLE,
+      truncateLabels = false,
       ...props
     },
     ref,
@@ -174,6 +179,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
     const t = useT()
     const isVertical = orientation === 'vertical'
     const interactive = typeof onStepClick === 'function'
+    const truncate = truncateLabels && !isVertical
 
     return (
       <ol
@@ -200,7 +206,17 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
 
           const labelNode = (
             <div className="min-w-0">
-              <span className={cn(labelVariants({ status: step.status }))}>{step.label}</span>
+              <span
+                title={truncate ? step.label : undefined}
+                className={cn(
+                  labelVariants({ status: step.status }),
+                  truncate && 'block truncate',
+                  canClick && !isVertical && 'underline-offset-4 group-hover:underline group-focus-visible:underline',
+                  canClick && !isVertical && step.status === 'complete' && 'group-hover:text-foreground',
+                )}
+              >
+                {step.label}
+              </span>
               {step.description && isVertical ? (
                 <span className="mt-1 block text-xs text-muted-foreground leading-tight">
                   {step.description}
@@ -232,7 +248,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
               {verticalTrailingChevron}
             </span>
           ) : (
-            <span className={cn(horizontalItemVariants({ status: step.status }))}>
+            <span className={cn(horizontalItemVariants({ status: step.status }), truncate && 'min-w-0 max-w-full')}>
               {dotNode}
               {labelNode}
             </span>
@@ -245,6 +261,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
               data-status={step.status}
               className={cn(
                 isVertical ? 'list-none' : 'flex items-center gap-4 list-none',
+                truncate && 'min-w-0 max-w-full',
               )}
             >
               {canClick ? (
@@ -254,7 +271,10 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
                   aria-label={t('ui.stepIndicator.goToStep.ariaLabel', 'Go to step: {label}', { label: step.label })}
                   className={cn(
                     'inline-flex items-center gap-2',
-                    isVertical && 'w-full',
+                    isVertical
+                      ? 'w-full'
+                      : 'group relative cursor-pointer after:absolute after:inset-x-0 after:-inset-y-1.5',
+                    truncate && 'min-w-0 max-w-full',
                     'rounded-md outline-none focus-visible:shadow-focus text-left',
                   )}
                 >
@@ -269,7 +289,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
                 <ChevronRight
                   aria-hidden="true"
                   data-slot="step-indicator-connector"
-                  className="size-4 shrink-0 text-muted-foreground/50"
+                  className="size-4 shrink-0 text-muted-foreground"
                 />
               ) : null}
             </li>
@@ -285,10 +305,13 @@ export type StepperDotsProps = React.HTMLAttributes<HTMLDivElement> & {
   count: number
   activeStep: number
   size?: 'sm' | 'xs'
+  /** Zero-based indexes of steps that need attention. They render with the
+   * status-error colour and `data-state="error"`. */
+  errorSteps?: number[]
 }
 
 export const StepperDots = React.forwardRef<HTMLDivElement, StepperDotsProps>(
-  ({ count, activeStep, size = 'sm', className, ...props }, ref) => {
+  ({ count, activeStep, size = 'sm', errorSteps, className, ...props }, ref) => {
     const t = useT()
     const stepCount = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0
     const currentStep = Number.isFinite(activeStep)
@@ -310,19 +333,27 @@ export const StepperDots = React.forwardRef<HTMLDivElement, StepperDotsProps>(
         className={cn('inline-flex items-center', size === 'xs' ? 'gap-1' : 'gap-2', className)}
         {...props}
       >
-        {Array.from({ length: stepCount }, (_, index) => (
-          <span
-            key={index}
-            aria-hidden="true"
-            data-slot="stepper-dot"
-            data-state={index === currentStep ? 'active' : 'inactive'}
-            className={cn(
-              'shrink-0 rounded-full',
-              size === 'xs' ? 'size-1' : 'size-2',
-              index === currentStep ? 'bg-accent-indigo' : 'bg-border',
-            )}
-          />
-        ))}
+        {Array.from({ length: stepCount }, (_, index) => {
+          const hasError = errorSteps?.includes(index) ?? false
+          const state = hasError ? 'error' : index === currentStep ? 'active' : 'inactive'
+          return (
+            <span
+              key={index}
+              aria-hidden="true"
+              data-slot="stepper-dot"
+              data-state={state}
+              data-current={hasError && index === currentStep ? 'true' : undefined}
+              className={cn(
+                'shrink-0 rounded-full',
+                size === 'xs' ? 'size-1' : 'size-2',
+                state === 'error' && 'bg-status-error-icon',
+                state === 'active' && 'bg-accent-indigo',
+                state === 'inactive' && 'bg-muted-foreground/60',
+                hasError && index === currentStep && 'ring-2 ring-status-error-border ring-offset-2 ring-offset-background',
+              )}
+            />
+          )
+        })}
       </div>
     )
   },

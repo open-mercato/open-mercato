@@ -8,6 +8,7 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { Skeleton } from '@open-mercato/ui/primitives/skeleton'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import {
@@ -19,7 +20,6 @@ import {
 } from '@open-mercato/ui/primitives/dropdown'
 import { resolveRegisteredLucideIcon } from '@open-mercato/ui/backend/icons/lucideRegistryRuntime'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail/LoadingMessage'
 import type { BlockAction } from '../contracts/shared'
 import type { EntityHeaderProps } from '../contracts/entity-header'
 
@@ -53,12 +53,16 @@ type ActionButtonProps = {
   action: BlockAction
   variant: 'default' | 'outline'
   pending: boolean
+  reasonId: string
   onRun: (key: string) => void
 }
 
-function ActionButton({ action, variant, pending, onRun }: ActionButtonProps) {
-  const reasonId = React.useId()
-  const hasReason = action.disabled === true && Boolean(action.disabledReason)
+function hasDisabledReason(action: BlockAction): boolean {
+  return action.disabled === true && Boolean(action.disabledReason)
+}
+
+function ActionButton({ action, variant, pending, reasonId, onRun }: ActionButtonProps) {
+  const hasReason = hasDisabledReason(action)
   const ariaDisabled = hasReason && !pending
   const button = (
     <Button
@@ -71,7 +75,8 @@ function ActionButton({ action, variant, pending, onRun }: ActionButtonProps) {
       aria-busy={pending || undefined}
       aria-describedby={hasReason ? reasonId : undefined}
       className={cn(
-        'max-w-full',
+        'h-10 max-w-full sm:h-8',
+        variant === 'default' && 'flex-1 sm:flex-none',
         ariaDisabled &&
           'cursor-not-allowed border-border-disabled bg-bg-disabled text-text-disabled shadow-none hover:bg-bg-disabled hover:text-text-disabled',
       )}
@@ -85,14 +90,7 @@ function ActionButton({ action, variant, pending, onRun }: ActionButtonProps) {
     </Button>
   )
   if (!hasReason) return button
-  return (
-    <>
-      <SimpleTooltip content={action.disabledReason}>{button}</SimpleTooltip>
-      <span id={reasonId} className="sr-only">
-        {action.disabledReason}
-      </span>
-    </>
-  )
+  return <SimpleTooltip content={action.disabledReason}>{button}</SimpleTooltip>
 }
 
 type OverflowMenuProps = {
@@ -111,7 +109,7 @@ function OverflowMenu({ actions, pendingKeys, onRun }: OverflowMenuProps) {
         <IconButton
           type="button"
           variant="outline"
-          size="sm"
+          className="size-10 sm:size-8"
           disabled={anyPending}
           aria-busy={anyPending || undefined}
           aria-label={t('ui.blocks.entityHeader.moreActions', 'More actions')}
@@ -147,6 +145,36 @@ function OverflowMenu({ actions, pendingKeys, onRun }: OverflowMenuProps) {
   )
 }
 
+function EntityHeaderSkeleton({ label, className }: { label: string; className: string | undefined }) {
+  return (
+    <div data-slot="entity-header" aria-busy="true" className={cn('flex flex-col gap-3', className)}>
+      <span className="sr-only">{label}</span>
+      <div aria-hidden="true" className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 flex-1 items-start gap-4">
+          <Skeleton shape="circle" className="size-12 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <Skeleton className="h-6 w-48 max-w-full sm:h-7" />
+            <Skeleton className="mt-2 h-4 w-40 max-w-full" />
+            <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 sm:flex sm:flex-wrap">
+              {[0, 1, 2].map((index) => (
+                <div key={index} className="flex flex-col gap-1 sm:flex-row sm:gap-2">
+                  <Skeleton className="h-4 w-12" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-10 w-16 sm:h-8" />
+          <Skeleton className="h-10 flex-1 sm:h-8 sm:w-20 sm:flex-none" />
+          <Skeleton className="size-10 sm:size-8" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function EntityHeader(props: EntityHeaderProps) {
   const t = useT()
   const {
@@ -159,12 +187,14 @@ export function EntityHeader(props: EntityHeaderProps) {
     actions,
     primaryActionKey,
     onAction,
+    onRetry,
     leading,
     trailing,
     below,
     errorMessage,
     className,
   } = props
+  const reasonIdBase = React.useId()
   const [pendingKeys, setPendingKeys] = React.useState<ReadonlySet<string>>(() => new Set())
 
   const runAction = React.useCallback(
@@ -186,38 +216,66 @@ export function EntityHeader(props: EntityHeaderProps) {
   const split = React.useMemo(() => splitActions(actions ?? [], primaryActionKey), [actions, primaryActionKey])
 
   if (status === 'loading') {
-    return <LoadingMessage label={t('ui.blocks.entityHeader.loading', 'Loading')} className={className} />
+    return <EntityHeaderSkeleton label={t('ui.blocks.entityHeader.loading', 'Loading')} className={className} />
   }
+
+  const hasLeading = Boolean(leading) || Boolean(avatar)
+  const leadingNode = leading ? (
+    <div data-slot="entity-header-leading" className="flex shrink-0">
+      {leading}
+    </div>
+  ) : avatar ? (
+    <Avatar label={avatar.initials} src={avatar.src} size="lg" className="font-normal" />
+  ) : null
+  const titleNode = (
+    <h1 className="min-w-0 break-words text-xl font-normal leading-tight text-foreground sm:text-2xl">{title}</h1>
+  )
+
   if (status === 'error') {
     return (
-      <ErrorMessage
-        label={errorMessage ?? t('ui.blocks.entityHeader.error', 'Something went wrong')}
-        className={className}
-      />
+      <div data-slot="entity-header" className={cn('flex items-start gap-4', className)}>
+        {leadingNode}
+        <div className="min-w-0 flex-1">
+          {titleNode}
+          <ErrorMessage
+            label={errorMessage ?? t('ui.blocks.entityHeader.error', 'Something went wrong')}
+            className="mt-3 max-w-xl rounded-md"
+            action={
+              onRetry ? (
+                <Button type="button" size="sm" variant="outline" className="h-10 text-foreground sm:h-8" onClick={onRetry}>
+                  {t('ui.blocks.entityHeader.retry', 'Try again')}
+                </Button>
+              ) : undefined
+            }
+          />
+        </div>
+      </div>
     )
   }
+
+  const reasonIdFor = (action: BlockAction) => `${reasonIdBase}-${action.key}`
+  const visibleActions = split.primary ? [...split.secondary, split.primary] : split.secondary
+  const actionsWithReason = visibleActions.filter(hasDisabledReason)
+  const hasButtons = visibleActions.length > 0 || split.overflow.length > 0
 
   return (
     <div data-slot="entity-header" className={cn('flex flex-col gap-3', className)}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-4">
-          {leading ? (
-            <div data-slot="entity-header-leading" className="flex shrink-0">
-              {leading}
-            </div>
-          ) : avatar ? (
-            <Avatar label={avatar.initials} src={avatar.src} size="lg" />
-          ) : null}
+          {leadingNode}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="min-w-0 break-words text-xl font-normal leading-tight text-foreground sm:text-2xl">{title}</h1>
+              {titleNode}
               {badge ? <StatusBadge variant={badge.tone}>{badge.label}</StatusBadge> : null}
             </div>
             {subtitle ? <p className="mt-1 text-sm leading-5 text-muted-foreground">{subtitle}</p> : null}
             {meta && meta.length > 0 ? (
-              <dl data-slot="entity-header-meta" className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <dl
+                data-slot="entity-header-meta"
+                className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:flex sm:flex-wrap sm:gap-y-1"
+              >
                 {meta.map((item) => (
-                  <div key={item.key} className="flex min-w-0 items-baseline gap-1">
+                  <div key={item.key} className="flex min-w-0 flex-col sm:flex-row sm:items-baseline sm:gap-2">
                     <dt className="min-w-0 break-words text-muted-foreground">{item.label}</dt>
                     <dd className="min-w-0 break-words text-foreground">{item.value}</dd>
                   </div>
@@ -226,33 +284,62 @@ export function EntityHeader(props: EntityHeaderProps) {
             ) : null}
           </div>
         </div>
-        {split.primary || split.secondary.length > 0 || split.overflow.length > 0 || trailing ? (
-          <div data-slot="entity-header-actions" className="flex flex-wrap items-center gap-2">
-            {trailing}
-            {split.secondary.map((action) => (
-              <ActionButton
+        {hasButtons || trailing ? (
+          <div data-slot="entity-header-actions" className="flex min-w-0 flex-col gap-2 sm:items-end">
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              {trailing ? (
+                <div
+                  data-slot="entity-header-trailing"
+                  className={cn('flex min-w-0 items-center', hasLeading && 'pl-16 sm:pl-0')}
+                >
+                  {trailing}
+                </div>
+              ) : null}
+              {hasButtons ? (
+                <div data-slot="entity-header-buttons" className="flex min-w-0 flex-wrap items-center gap-2">
+                  {split.secondary.map((action) => (
+                    <ActionButton
+                      key={action.key}
+                      action={action}
+                      variant="outline"
+                      pending={pendingKeys.has(action.key)}
+                      reasonId={reasonIdFor(action)}
+                      onRun={runAction}
+                    />
+                  ))}
+                  {split.primary ? (
+                    <ActionButton
+                      action={split.primary}
+                      variant="default"
+                      pending={pendingKeys.has(split.primary.key)}
+                      reasonId={reasonIdFor(split.primary)}
+                      onRun={runAction}
+                    />
+                  ) : null}
+                  {split.overflow.length > 0 ? (
+                    <OverflowMenu actions={split.overflow} pendingKeys={pendingKeys} onRun={runAction} />
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            {actionsWithReason.map((action) => (
+              <p
                 key={action.key}
-                action={action}
-                variant="outline"
-                pending={pendingKeys.has(action.key)}
-                onRun={runAction}
-              />
+                id={reasonIdFor(action)}
+                data-slot="entity-header-action-reason"
+                className="text-xs leading-5 text-muted-foreground md:sr-only"
+              >
+                {action.disabledReason}
+              </p>
             ))}
-            {split.primary ? (
-              <ActionButton
-                action={split.primary}
-                variant="default"
-                pending={pendingKeys.has(split.primary.key)}
-                onRun={runAction}
-              />
-            ) : null}
-            {split.overflow.length > 0 ? (
-              <OverflowMenu actions={split.overflow} pendingKeys={pendingKeys} onRun={runAction} />
-            ) : null}
           </div>
         ) : null}
       </div>
-      {below ? <div data-slot="entity-header-below">{below}</div> : null}
+      {below ? (
+        <div data-slot="entity-header-below" className={cn(hasLeading && 'md:pl-16')}>
+          {below}
+        </div>
+      ) : null}
     </div>
   )
 }

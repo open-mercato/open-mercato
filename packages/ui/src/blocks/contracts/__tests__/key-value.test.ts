@@ -78,4 +78,35 @@ describe('KeyValue contract', () => {
     expect(keyValuePropsSchema.safeParse({ items: [readOnlyItems[0], readOnlyItems[0]] }).success).toBe(false)
     expect(keyValuePropsSchema.safeParse({ items: readOnlyItems, columns: 3 }).success).toBe(false)
   })
+
+  it('accepts a display format on any item and rejects unknown formats', () => {
+    expect(
+      keyValuePropsSchema.safeParse({
+        items: [
+          { key: 'created', label: 'Created', value: '2026-03-14', format: 'date' },
+          { key: 'seen', label: 'Last seen', value: '2026-03-14T10:00:00Z', format: 'datetime' },
+          { key: 'code', label: 'Code', value: '2026-03-14', format: 'text' },
+        ],
+      }).success,
+    ).toBe(true)
+    expect(
+      keyValuePropsSchema.safeParse({ items: [{ key: 'created', label: 'Created', value: '2026-03-14', format: 'relative' }] })
+        .success,
+    ).toBe(false)
+  })
+
+  it('accepts defaultEditingKey for an editable item only', () => {
+    const items = [
+      { key: 'name', label: 'Name', value: 'Jan', editable: true, editor: 'text' },
+      { key: 'id', label: 'Record ID', value: 'REC-1' },
+    ]
+    const onEdit = async () => undefined
+    expect(keyValuePropsSchema.safeParse({ items, onEdit, defaultEditingKey: 'name' }).success).toBe(true)
+    expect(keyValuePropsSchema.safeParse({ items, onEdit, defaultEditingKey: 'id' }).success).toBe(false)
+    expect(keyValuePropsSchema.safeParse({ items, onEdit, defaultEditingKey: 'missing' }).success).toBe(false)
+  })
+
+  it('accepts onRetry from the base props', () => {
+    expect(keyValuePropsSchema.safeParse({ items: [], status: 'error', onRetry: () => undefined }).success).toBe(true)
+  })
 })

@@ -42,9 +42,23 @@ const baseSteps: WizardStep[] = [
   { id: 'review', title: 'Review', description: 'Confirm and publish' },
 ]
 
+const longSteps: WizardStep[] = [
+  { id: 'product-details', title: 'Product details and identification', state: 'complete' },
+  { id: 'pricing-and-taxes', title: 'Pricing, discounts and tax rates', state: 'complete' },
+  { id: 'inventory', title: 'Inventory and warehouse locations', state: 'complete' },
+  {
+    id: 'shipping-and-fulfilment',
+    title: 'Shipping and fulfilment options',
+    description: 'Carriers, package sizes and delivery times',
+  },
+  { id: 'sales-channels', title: 'Sales channels and visibility' },
+  { id: 'review-and-publish', title: 'Review and publish' },
+]
+
 const noopAdvance = async (): Promise<boolean> => true
 const noopFinish = async (): Promise<void> => undefined
 const noopBack = (): void => undefined
+const noopRetry = (): void => undefined
 const noopSelect = (stepId: string): void => {
   void stepId
 }
@@ -82,7 +96,7 @@ export const wizardFixtures = {
     children: React.createElement(StepContent, { stepId: 'review' }),
     steps: [
       { ...baseSteps[0], state: 'complete' },
-      { ...baseSteps[1], state: 'error' },
+      { ...baseSteps[1], state: 'error', errorMessage: 'Net price is required' },
       baseSteps[2],
     ],
   },
@@ -97,9 +111,16 @@ export const wizardFixtures = {
       baseSteps[2],
     ],
   },
+  manySteps: {
+    ...base,
+    activeStepId: 'shipping-and-fulfilment',
+    children: React.createElement(StepContent, { stepId: 'pricing' }),
+    onStepSelect: noopSelect,
+    steps: longSteps,
+  },
   loading: { ...base, status: 'loading' },
   empty: { ...base, status: 'empty' },
-  error: { ...base, status: 'error', errorMessage: 'The wizard could not be loaded.' },
+  error: { ...base, status: 'error', errorMessage: 'The wizard could not be loaded.', onRetry: noopRetry },
 } satisfies Record<string, WizardProps>
 
 export type WizardFixtureName = keyof typeof wizardFixtures

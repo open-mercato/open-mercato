@@ -98,7 +98,22 @@ describe('Kanban contract', () => {
     expect(result.success).toBe(true)
   })
 
+  it('accepts pendingCardIds and onRetryColumn and keeps both optional', () => {
+    expect(kanbanPropsSchema.safeParse({ columns, ...handlers }).success).toBe(true)
+    const result = kanbanPropsSchema.safeParse({
+      columns,
+      ...handlers,
+      pendingCardIds: ['d-1'],
+      onRetryColumn: () => undefined,
+      onRetry: () => undefined,
+    })
+    expect(result.success).toBe(true)
+  })
+
   it.each([
+    ['pendingCardIds', { pendingCardIds: 'd-1' }],
+    ['pendingCardIds entry', { pendingCardIds: [''] }],
+    ['onRetryColumn', { onRetryColumn: 'retry' }],
     ['reorderable', { reorderable: 'yes' }],
     ['renderDragPreview', { renderDragPreview: 'preview' }],
     ['columnFooter', { columnFooter: {} }],

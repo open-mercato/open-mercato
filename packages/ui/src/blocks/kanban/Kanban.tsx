@@ -19,11 +19,10 @@ import {
   type ScreenReaderInstructions,
   type UniqueIdentifier,
 } from '@dnd-kit/core'
-import { Move } from 'lucide-react'
+import { Columns3, GripVertical, Move } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail/LoadingMessage'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
@@ -36,6 +35,7 @@ import {
 } from '@open-mercato/ui/primitives/dropdown'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Skeleton } from '@open-mercato/ui/primitives/skeleton'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import type { KanbanCard, KanbanColumn, KanbanMoveRejection, KanbanProps } from '../contracts/kanban'
 import {
@@ -56,6 +56,46 @@ type DropIndicator = { columnId: string; toIndex: number }
 type MoveTarget = { id: string; title: string; rejection: KanbanMoveRejection | null }
 
 const CARD_ACTION_ATTRIBUTE = 'data-kanban-card-action'
+
+const COLUMN_CLASS =
+  'flex min-w-72 max-w-sm flex-1 basis-0 snap-start sm:min-w-64 flex-col gap-3 rounded-card border-2 border-transparent bg-muted/40 p-3'
+
+const CARD_SURFACE_CLASS = 'rounded-card border border-border bg-card p-3 shadow-sm'
+
+const CARD_CORNER_CLASS =
+  'absolute right-0 top-0 flex items-start rounded-card bg-linear-to-l from-card from-70% to-transparent py-1 pl-5 pr-1'
+
+const SKELETON_BOARD_COLUMNS = [3, 2, 2, 1]
+
+type ScrollEdges = { start: boolean; end: boolean }
+
+function SkeletonCard() {
+  return (
+    <li data-slot="kanban-skeleton-card" className={cn('flex flex-col gap-3', CARD_SURFACE_CLASS)}>
+      <div className="flex flex-col gap-2">
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-3 w-1/2" />
+      </div>
+      <div className="flex min-h-7 items-center justify-between gap-2">
+        <Skeleton className="h-4 w-16" />
+        <Skeleton shape="circle" className="size-7" />
+      </div>
+    </li>
+  )
+}
+
+function SkeletonCards({ count, label }: { count: number; label: string }) {
+  return (
+    <div data-slot="kanban-column-loading" aria-busy="true">
+      <span className="sr-only">{label}</span>
+      <ul role="list" aria-hidden="true" className="flex flex-col gap-2">
+        {Array.from({ length: count }, (_unused, index) => (
+          <SkeletonCard key={index} />
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 function isColumnReady(column: KanbanColumn): boolean {
   return (column.status ?? 'ready') === 'ready'
@@ -92,6 +132,15 @@ function InsertionLine() {
   return <li aria-hidden="true" data-slot="kanban-insertion-line" className="h-0.5 rounded-full bg-primary" />
 }
 
+function focusMenuList(event: Event) {
+  const content = event.currentTarget
+  if (!(content instanceof HTMLElement)) return
+  const list = content.querySelector<HTMLElement>('[cmdk-root]')
+  if (!list) return
+  event.preventDefault()
+  list.focus()
+}
+
 type MoveMenuProps = {
   targets: MoveTarget[]
   disabled: boolean
@@ -106,16 +155,14 @@ function MoveMenu({ targets, disabled, onSelect, t }: MoveMenuProps) {
       <DropdownTrigger asChild>
         <IconButton
           variant="ghost"
-          size="sm"
           disabled={disabled}
           aria-label={t('ui.blocks.kanban.moveCard', 'Move card')}
           data-slot="kanban-card-move"
-          className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100"
         >
           <Move aria-hidden="true" />
         </IconButton>
       </DropdownTrigger>
-      <DropdownContent align="end" className="w-72">
+      <DropdownContent align="end" className="w-72" onOpenAutoFocus={focusMenuList}>
         <DropdownCaption>{t('ui.blocks.kanban.moveTo', 'Move to')}</DropdownCaption>
         <DropdownList>
           {targets.map((target) => (
@@ -207,18 +254,43 @@ function CardShell({
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       className={cn(
-        'group relative flex items-start gap-2 rounded-card border border-border bg-card p-3 text-left text-sm text-foreground shadow-xs outline-none transition-opacity focus-visible:shadow-focus',
-        pending ? 'cursor-progress opacity-60' : 'cursor-grab active:cursor-grabbing',
+        'group relative text-left text-sm text-foreground outline-none transition-opacity focus-visible:shadow-focus',
+        CARD_SURFACE_CLASS,
+        pending ? 'cursor-progress' : 'cursor-grab active:cursor-grabbing',
         dragging && 'opacity-50',
       )}
     >
-      <div className="min-w-0 flex-1">{renderCard(card, { pending, dragging })}</div>
+      {reorderable && !pending ? (
+        <span
+          aria-hidden="true"
+          data-slot="kanban-card-grip"
+          className="pointer-events-none absolute inset-y-0 left-0 flex w-3 items-center justify-center text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
+        >
+          <GripVertical className="size-3" />
+        </span>
+      ) : null}
+      <div
+        data-slot="kanban-card-content"
+        className={cn('min-w-0 transition-opacity [@media(hover:none)]:pr-7', pending && 'opacity-60')}
+      >
+        {renderCard(card, { pending, dragging })}
+      </div>
       {pending ? (
-        <span data-slot="kanban-card-pending" className="inline-flex size-7 shrink-0 items-center justify-center">
-          <Spinner size="sm" />
+        <span data-slot="kanban-card-pending" className={CARD_CORNER_CLASS}>
+          <span className="inline-flex size-8 items-center justify-center">
+            <Spinner size="sm" />
+          </span>
         </span>
       ) : moveTargets.length > 0 ? (
-        <div {...{ [CARD_ACTION_ATTRIBUTE]: '' }} className="shrink-0" onPointerDown={stopPointerDown}>
+        <div
+          {...{ [CARD_ACTION_ATTRIBUTE]: '' }}
+          data-slot="kanban-card-actions"
+          className={cn(
+            CARD_CORNER_CLASS,
+            'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 has-[[data-state=open]]:opacity-100 [@media(hover:none)]:opacity-100',
+          )}
+          onPointerDown={stopPointerDown}
+        >
           <MoveMenu
             targets={moveTargets}
             disabled={pending}
@@ -273,15 +345,31 @@ function ColumnView({
   const insertAtEnd = isDropTarget && reorderable && dropIndicator !== null && insertBeforeId === null
 
   let body: React.ReactNode
+  const onRetryColumn = props.onRetryColumn
   if (columnStatus === 'loading') {
-    body = <LoadingMessage label={t('ui.blocks.kanban.columnLoading', 'Loading cards')} />
+    body = <SkeletonCards count={2} label={t('ui.blocks.kanban.columnLoading', 'Loading cards')} />
   } else if (columnStatus === 'error') {
-    body = <ErrorMessage label={column.errorMessage ?? t('ui.blocks.kanban.columnError', 'Could not load cards')} />
+    body = (
+      <div data-slot="kanban-column-error">
+        <ErrorMessage
+          className="rounded-card border-status-error-border bg-status-error-bg p-3 text-status-error-text"
+          iconClassName="text-status-error-icon"
+          label={column.errorMessage ?? t('ui.blocks.kanban.columnError', 'Could not load cards')}
+          action={
+            onRetryColumn ? (
+              <Button type="button" size="sm" variant="outline" className="text-foreground" onClick={() => onRetryColumn(column.id)}>
+                {t('ui.blocks.kanban.retry', 'Try again')}
+              </Button>
+            ) : undefined
+          }
+        />
+      </div>
+    )
   } else if (column.cards.length === 0) {
     body = props.emptyColumn ? (
       props.emptyColumn(column)
     ) : (
-      <p data-slot="kanban-empty-column" className="px-1 py-2 text-sm text-muted-foreground">
+      <p data-slot="kanban-empty-column" className="mx-px px-3 py-2 text-sm text-muted-foreground">
         {t('ui.blocks.kanban.emptyColumn', 'No cards')}
       </p>
     )
@@ -335,10 +423,7 @@ function ColumnView({
       data-slot="kanban-column"
       data-kanban-column-id={column.id}
       data-drop-target={isDropTarget ? 'true' : undefined}
-      className={cn(
-        'flex w-72 shrink-0 snap-start flex-col gap-3 rounded-card border-2 border-transparent bg-muted p-3',
-        isDropTarget && 'border-dashed border-primary',
-      )}
+      className={cn(COLUMN_CLASS, isDropTarget && 'border-dashed border-primary')}
     >
       {props.columnHeader ? (
         <div data-slot="kanban-column-header">
@@ -348,12 +433,12 @@ function ColumnView({
           {props.columnHeader(column)}
         </div>
       ) : (
-        <header data-slot="kanban-column-header" className="flex flex-col gap-1 px-1">
-          <div className="flex items-center justify-between gap-2">
-            <h3 id={titleId} className="min-w-0 truncate text-sm text-foreground">
+        <header data-slot="kanban-column-header" className="mx-px flex flex-col gap-1 px-3 pt-1">
+          <div className="flex min-h-6 items-center justify-between gap-2">
+            <h3 id={titleId} className="min-w-0 truncate text-base text-foreground">
               {column.title}
             </h3>
-            {column.count !== undefined ? (
+            {columnStatus === 'ready' && column.count !== undefined && column.count > 0 ? (
               <Badge variant="neutral" size={20} data-slot="kanban-column-count">
                 <span aria-hidden="true">{column.count}</span>
                 <span className="sr-only">
@@ -401,6 +486,7 @@ export function Kanban(props: KanbanProps) {
     trailing,
     status,
     errorMessage,
+    onRetry,
     emptyState,
     className,
   } = props
@@ -413,6 +499,8 @@ export function Kanban(props: KanbanProps) {
   const [focusCardId, setFocusCardId] = React.useState<string | null>(null)
   const mountedRef = React.useRef(true)
   const boardRef = React.useRef<HTMLDivElement>(null)
+  const scrollerRef = React.useRef<HTMLDivElement>(null)
+  const [scrollEdges, setScrollEdges] = React.useState<ScrollEdges>({ start: false, end: false })
 
   React.useEffect(() => {
     mountedRef.current = true
@@ -425,10 +513,36 @@ export function Kanban(props: KanbanProps) {
   const columnsRef = React.useRef(displayColumns)
   columnsRef.current = displayColumns
 
+  const externalPendingCardIds = props.pendingCardIds
   const pendingCardIds = React.useMemo(
-    () => new Set(moves.filter((move) => !move.settled).map((move) => move.cardId)),
-    [moves],
+    () =>
+      new Set([
+        ...(externalPendingCardIds ?? []),
+        ...moves.filter((move) => !move.settled).map((move) => move.cardId),
+      ]),
+    [externalPendingCardIds, moves],
   )
+
+  const measureScrollEdges = React.useCallback(() => {
+    const node = scrollerRef.current
+    if (!node) return
+    const start = node.scrollLeft > 1
+    const end = node.scrollLeft + node.clientWidth < node.scrollWidth - 1
+    setScrollEdges((current) => (current.start === start && current.end === end ? current : { start, end }))
+  }, [])
+
+  const boardVisible = status !== 'loading' && status !== 'error' && status !== 'empty' && columns.length > 0
+
+  React.useEffect(() => {
+    if (!boardVisible) return
+    measureScrollEdges()
+    const node = scrollerRef.current
+    if (!node || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measureScrollEdges)
+    observer.observe(node)
+    Array.from(node.children).forEach((child) => observer.observe(child))
+    return () => observer.disconnect()
+  }, [boardVisible, displayColumns, measureScrollEdges, trailing])
 
   React.useEffect(() => {
     setMoves((current) => (current.some((move) => move.settled) ? current.filter((move) => !move.settled) : current))
@@ -620,15 +734,54 @@ export function Kanban(props: KanbanProps) {
   )
 
   if (status === 'loading') {
-    return <LoadingMessage className={className} label={t('ui.blocks.kanban.loading', 'Loading board')} />
+    return (
+      <div data-slot="kanban" aria-busy="true" className={cn('min-w-0', className)}>
+        <span className="sr-only">{t('ui.blocks.kanban.loading', 'Loading board')}</span>
+        <div aria-hidden="true" className="flex items-start gap-4 overflow-hidden pb-2">
+          {SKELETON_BOARD_COLUMNS.map((cardCount, index) => (
+            <div key={index} data-slot="kanban-skeleton-column" className={COLUMN_CLASS}>
+              <div className="mx-px flex min-h-6 items-center justify-between gap-2 px-3 pt-1">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-6" />
+              </div>
+              <ul role="list" className="flex flex-col gap-2">
+                {Array.from({ length: cardCount }, (_unused, cardIndex) => (
+                  <SkeletonCard key={cardIndex} />
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
   }
   if (status === 'error') {
     return (
-      <ErrorMessage className={className} label={errorMessage ?? t('ui.blocks.kanban.error', 'Could not load the board')} />
+      <ErrorMessage
+        className={cn('max-w-xl rounded-md', className)}
+        label={errorMessage ?? t('ui.blocks.kanban.error', 'Could not load the board')}
+        action={
+          onRetry ? (
+            <Button type="button" size="sm" variant="outline" className="text-foreground" onClick={onRetry}>
+              {t('ui.blocks.kanban.retry', 'Try again')}
+            </Button>
+          ) : undefined
+        }
+      />
     )
   }
   if (status === 'empty' || columns.length === 0) {
-    return emptyState ?? <EmptyState className={className} title={t('ui.blocks.kanban.empty', 'No columns to show')} />
+    return (
+      emptyState ?? (
+        <EmptyState
+          size="sm"
+          className={cn('items-start px-0 text-left', className)}
+          icon={<Columns3 aria-hidden="true" />}
+          title={t('ui.blocks.kanban.empty', 'No columns to show')}
+          description={t('ui.blocks.kanban.emptyDescription', 'Add a column to start organizing cards on this board.')}
+        />
+      )
+    )
   }
 
   const activeCard = activeCardId
@@ -649,34 +802,59 @@ export function Kanban(props: KanbanProps) {
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div
-          data-slot="kanban-board"
-          className="relative flex snap-x snap-mandatory items-start gap-4 overflow-x-auto pb-2 md:snap-none"
-        >
-          {displayColumns.map((column) => (
-            <ColumnView
-              key={column.id}
-              column={column}
-              columns={displayColumns}
-              pendingCardIds={pendingCardIds}
-              activeCardId={activeCardId}
-              dropIndicator={dropIndicator}
-              dropAllowed={dropAllowed}
-              reorderable={reorderable}
-              loadingMore={loadingColumns.has(column.id)}
-              props={props}
-              onMoveSelect={handleMenuMove}
-              onLoadMore={(columnId) => {
-                void handleLoadMore(columnId)
-              }}
-              t={t}
-            />
-          ))}
-          {trailing !== undefined && trailing !== null ? (
-            <div data-slot="kanban-trailing" className="shrink-0 snap-start">
-              {trailing}
-            </div>
-          ) : null}
+        <div data-slot="kanban-viewport" className="relative">
+          <div
+            ref={scrollerRef}
+            role="group"
+            aria-label={t('ui.blocks.kanban.boardLabel', 'Board columns')}
+            tabIndex={scrollEdges.start || scrollEdges.end ? 0 : undefined}
+            onScroll={measureScrollEdges}
+            data-slot="kanban-board"
+            data-overflow-start={scrollEdges.start ? 'true' : undefined}
+            data-overflow-end={scrollEdges.end ? 'true' : undefined}
+            className="relative flex snap-x snap-mandatory items-start gap-4 overflow-x-auto rounded-card pb-2 outline-none focus-visible:shadow-focus md:snap-none"
+          >
+            {displayColumns.map((column) => (
+              <ColumnView
+                key={column.id}
+                column={column}
+                columns={displayColumns}
+                pendingCardIds={pendingCardIds}
+                activeCardId={activeCardId}
+                dropIndicator={dropIndicator}
+                dropAllowed={dropAllowed}
+                reorderable={reorderable}
+                loadingMore={loadingColumns.has(column.id)}
+                props={props}
+                onMoveSelect={handleMenuMove}
+                onLoadMore={(columnId) => {
+                  void handleLoadMore(columnId)
+                }}
+                t={t}
+              />
+            ))}
+            {trailing !== undefined && trailing !== null ? (
+              <div data-slot="kanban-trailing" className="shrink-0 snap-start">
+                {trailing}
+              </div>
+            ) : null}
+          </div>
+          <div
+            aria-hidden="true"
+            data-slot="kanban-scroll-fade-start"
+            className={cn(
+              'pointer-events-none absolute bottom-2 left-0 top-0 w-12 bg-linear-to-r from-background to-transparent transition-opacity',
+              scrollEdges.start ? 'opacity-100' : 'opacity-0',
+            )}
+          />
+          <div
+            aria-hidden="true"
+            data-slot="kanban-scroll-fade-end"
+            className={cn(
+              'pointer-events-none absolute bottom-2 right-0 top-0 w-12 bg-linear-to-l from-background to-transparent transition-opacity',
+              scrollEdges.end ? 'opacity-100' : 'opacity-0',
+            )}
+          />
         </div>
         <DragOverlay>
           {activeCard ? (

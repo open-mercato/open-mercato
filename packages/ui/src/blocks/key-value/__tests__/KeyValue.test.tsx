@@ -13,6 +13,9 @@ const dict = {
   'ui.blocks.keyValue.loading': 'Loading details',
   'ui.blocks.keyValue.error': 'Something went wrong',
   'ui.blocks.keyValue.empty': 'Nothing to show',
+  'ui.blocks.keyValue.emptyDescription': 'Details will appear here once they are added.',
+  'ui.blocks.keyValue.retry': 'Try again',
+  'ui.blocks.keyValue.saveError': 'Could not save. Try again.',
 }
 
 function renderBlock(props: KeyValueProps) {
@@ -74,7 +77,7 @@ describe('KeyValue', () => {
 
   it('draws cell borders and spans the last cell of an odd two-column list', () => {
     const { container } = renderBlock({ ...keyValueFixtures.twoColumns, items: keyValueFixtures.readOnly.items.slice(0, 3), bordered: true })
-    expect(container.querySelector('dl')?.className).toContain('bg-border')
+    expect(container.querySelector('dl')?.className).toContain('bg-input')
     const rows = container.querySelectorAll('[data-slot="key-value-row"]')
     expect(rows[2].className).toContain('md:col-span-2')
     expect(rows[0].className).not.toContain('md:col-span-2')
@@ -175,6 +178,9 @@ describe('KeyValue', () => {
     await waitFor(() => expect(onEdit).toHaveBeenCalled())
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled())
     expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Typed')
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not save. Try again.')
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name' }), { key: 'Escape' })
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('cancels on Escape', () => {
@@ -229,22 +235,142 @@ describe('KeyValue', () => {
     expect(parentKeyDown).not.toHaveBeenCalled()
   })
 
-  it('renders the loading state', () => {
-    renderBlock(keyValueFixtures.loading)
-    expect(screen.getByText('Loading details')).toBeInTheDocument()
+  it('renders a skeleton shaped like the list while loading', () => {
+    const { container } = renderBlock({ ...keyValueFixtures.loading, columns: 2, bordered: true })
+    expect(screen.getByText('Loading details')).toHaveClass('sr-only')
+    const root = container.querySelector('[data-slot="key-value"]') as HTMLElement
+    expect(root).toHaveAttribute('aria-busy', 'true')
+    expect(container.querySelectorAll('[data-slot="key-value-skeleton-row"]')).toHaveLength(4)
+    const list = root.querySelector('[data-layout="horizontal"]') as HTMLElement
+    expect(list.className).toContain('md:grid-cols-2')
+    expect(list.className).toContain('bg-input')
   })
 
-  it('renders the error state with the provided message', () => {
-    renderBlock(keyValueFixtures.error)
+  it('matches the skeleton row count to known items', () => {
+    const { container } = renderBlock({ items: keyValueFixtures.readOnly.items.slice(0, 2), status: 'loading' })
+    expect(container.querySelectorAll('[data-slot="key-value-skeleton-row"]')).toHaveLength(2)
+  })
+
+  it('renders the error state with the provided message and a retry action', () => {
+    const onRetry = jest.fn()
+    renderBlock({ ...keyValueFixtures.error, onRetry })
     expect(screen.getByRole('alert')).toHaveTextContent('Could not load details.')
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('omits the retry action without onRetry', () => {
+    renderBlock({ items: [], status: 'error' })
+    expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong')
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
   })
 
   it('renders the empty state and a custom empty slot', () => {
     const { unmount } = renderBlock(keyValueFixtures.empty)
     expect(screen.getByText('Nothing to show')).toBeInTheDocument()
+    expect(screen.getByText('Details will appear here once they are added.')).toBeInTheDocument()
     unmount()
     renderBlock({ items: [], status: 'empty', emptyState: <p>Custom empty</p> })
     expect(screen.getByText('Custom empty')).toBeInTheDocument()
+    expect(screen.queryByText('Nothing to show')).toBeNull()
+  })
+
+  it('formats dates through the display format independently of the editor', () => {
+    const mediumDate = new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(2026, 2, 14))
+    renderBlock({
+      items: [
+        { key: 'created', label: 'Created', value: '2026-03-14', format: 'date' },
+        { key: 'raw', label: 'Raw', value: '2026-03-15', editable: true, editor: 'date', format: 'text' },
+        { key: 'seen', label: 'Last seen', value: '2026-03-16T10:30:00', format: 'datetime' },
+        { key: 'free', label: 'Free text', value: 'not a date', format: 'date' },
+      ],
+      onEdit: jest.fn().mockResolvedValue(undefined),
+    })
+    expect(screen.getByText(mediumDate)).toBeInTheDocument()
+    expect(screen.getByText('2026-03-15')).toBeInTheDocument()
+    expect(
+      screen.getByText(new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date('2026-03-16T10:30:00'))),
+    ).toBeInTheDocument()
+    expect(screen.getByText('not a date')).toBeInTheDocument()
+  })
+
+  it('formats the created date in read-only fixtures', () => {
+    renderBlock(keyValueFixtures.readOnly)
+    expect(screen.queryByText('2026-03-14')).toBeNull()
+  })
+
+  it.each([
+    ['editingText', 'textbox', 'Name'],
+    ['editingTextarea', 'textbox', 'Notes'],
+    ['editingSelect', 'combobox', 'Stage'],
+    ['editingDate', 'button', 'Renewal date'],
+  ] as const)('opens %s in edit mode through defaultEditingKey without moving focus', (fixture, role, name) => {
+    renderBlock(keyValueFixtures[fixture])
+    const editor = screen.getByRole(role, { name })
+    expect(editor).toBeInTheDocument()
+    expect(editor).not.toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+  })
+
+  it('prefills the draft from defaultEditingKey and saves it', async () => {
+    const onEdit = jest.fn().mockResolvedValue(undefined)
+    renderBlock({ items: editableItems, onEdit, defaultEditingKey: 'name' })
+    expect(screen.getByRole('textbox', { name: 'Name' })).toHaveValue('Acme')
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name' }), { key: 'Enter', metaKey: true })
+    await waitFor(() => expect(onEdit).toHaveBeenCalledWith('name', 'Acme'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Edit Name' })).toHaveFocus())
+  })
+
+  it('ignores a defaultEditingKey that is not an editable item', () => {
+    renderBlock({ items: editableItems, onEdit: jest.fn().mockResolvedValue(undefined), defaultEditingKey: 'id' })
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+
+  it('keeps the edit button visible with a 32px target that does not stretch the row', () => {
+    renderBlock({ items: editableItems, onEdit: jest.fn().mockResolvedValue(undefined) })
+    const button = screen.getByRole('button', { name: 'Edit Name' })
+    expect(button.className).toContain('size-8')
+    expect(button.className).toContain('-my-2')
+    expect(button.className).not.toContain('opacity-0')
+  })
+
+  it('caps the width of a single-column list only and lets className override it', () => {
+    const single = renderBlock(keyValueFixtures.readOnly)
+    expect(single.container.querySelector('[data-slot="key-value"]')?.className).toContain('max-w-2xl')
+    single.unmount()
+    const double = renderBlock(keyValueFixtures.twoColumns)
+    expect(double.container.querySelector('[data-slot="key-value"]')?.className).not.toContain('max-w-2xl')
+    double.unmount()
+    const overridden = renderBlock({ ...keyValueFixtures.readOnly, className: 'max-w-none' })
+    const className = overridden.container.querySelector('[data-slot="key-value"]')?.className ?? ''
+    expect(className).toContain('max-w-none')
+    expect(className).not.toContain('max-w-2xl')
+  })
+
+  it('indents the stacked value under the label text when the item has an icon', () => {
+    const { container } = renderBlock(keyValueFixtures.withIcons)
+    expect(container.querySelector('dd')?.className).toContain('max-sm:pl-6')
+    const plain = renderBlock(keyValueFixtures.readOnly)
+    expect(plain.container.querySelector('dd')?.className).not.toContain('pl-6')
+  })
+
+  it('keeps bordered rows side by side with a tinted label cell at every width', () => {
+    const { container } = renderBlock(keyValueFixtures.bordered)
+    const row = container.querySelector('[data-slot="key-value-row"]') as HTMLElement
+    expect(row.className).toContain('flex-row')
+    expect(row.querySelector('dt')?.className).toContain('bg-muted/60')
+  })
+
+  it('styles the hint smaller than the label', () => {
+    renderBlock({ ...keyValueFixtures.readOnly, layout: 'vertical' })
+    expect(screen.getByText('Email').closest('dt')?.className).toContain('text-sm')
+    expect(screen.getByText('Primary contact').className).toContain('text-xs')
+  })
+
+  it('renders the footer slot and wraps long content', () => {
+    renderBlock({ ...keyValueFixtures.longContent, footer: <p>Footer note</p> })
+    expect(screen.getByText('Footer note').closest('[data-slot="key-value-footer"]')).not.toBeNull()
+    expect(screen.getByText(/^PO-2026/).className).toContain('break-words')
   })
 
   it.each(Object.entries(keyValueFixtures))('fixture %s parses against the contract', (_name, props) => {

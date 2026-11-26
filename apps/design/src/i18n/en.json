@@ -163,7 +163,7 @@
   "design.home.news.spacing.body": "Named spacing for fields, cards, dialogs and pages, with a compact density.",
   "design.home.news.spacing.title": "Spacing roles",
   "design.home.news.timeline.body": "Event icons on a rail, field changes and period grouping for record histories.",
-  "design.home.news.timeline.title": "Timeline in the Attio style",
+  "design.home.news.timeline.title": "Timeline with field changes",
   "design.home.panel.alertBody": "Send the revised quote before the contract ends.",
   "design.home.panel.alertTitle": "Renewal in 14 days",
   "design.home.panel.autoAssign": "Assign new leads automatically",

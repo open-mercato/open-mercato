@@ -29,13 +29,13 @@ function renderDeal(card: KanbanCard, _state: KanbanCardRenderState): React.Reac
     { className: 'flex flex-col gap-2' },
     React.createElement(
       'div',
-      { className: 'flex flex-col gap-0.5' },
+      { className: 'flex flex-col gap-1' },
       React.createElement('span', { className: 'text-sm text-foreground' }, textField(card, 'title')),
       React.createElement('span', { className: 'text-xs text-muted-foreground' }, textField(card, 'company')),
     ),
     React.createElement(
       'div',
-      { className: 'flex items-center justify-between gap-2' },
+      { className: 'flex min-h-7 items-center justify-between gap-2' },
       React.createElement('span', { className: 'text-sm tabular-nums text-foreground' }, formatAmount(numberField(card, 'amount'))),
       React.createElement(
         'span',
@@ -43,7 +43,7 @@ function renderDeal(card: KanbanCard, _state: KanbanCardRenderState): React.Reac
         closeDate
           ? React.createElement('span', { className: 'text-xs text-muted-foreground' }, closeDate)
           : null,
-        owner ? React.createElement(Avatar, { size: 'sm', label: owner }) : null,
+        owner ? React.createElement(Avatar, { size: 'sm', label: owner, className: 'font-normal' }) : null,
       ),
     ),
   )
@@ -66,7 +66,7 @@ function renderTask(card: KanbanCard, _state: KanbanCardRenderState): React.Reac
     React.createElement('span', { className: 'text-sm text-foreground' }, textField(card, 'title')),
     React.createElement(
       'div',
-      { className: 'flex items-center justify-between gap-2' },
+      { className: 'flex min-h-7 items-center justify-between gap-2' },
       React.createElement(
         Badge,
         { variant: priorityVariant[priority], size: 20 },
@@ -76,7 +76,7 @@ function renderTask(card: KanbanCard, _state: KanbanCardRenderState): React.Reac
         'span',
         { className: 'flex items-center gap-2 text-xs text-muted-foreground' },
         textField(card, 'estimate'),
-        assignee ? React.createElement(Avatar, { size: 'sm', label: assignee }) : null,
+        assignee ? React.createElement(Avatar, { size: 'sm', label: assignee, className: 'font-normal' }) : null,
       ),
     ),
   )
@@ -94,6 +94,7 @@ const dealsByStage: Record<string, KanbanCard[]> = {
   ],
   proposal: [
     { id: 'deal-301', title: 'Multi-warehouse upgrade', company: 'Atlas Parts', amount: 67000, owner: 'Jan Kowalski', closeDate: 'Dec 20' },
+    { id: 'deal-302', title: 'Loyalty programme setup', company: 'Mira Cosmetics', amount: 21300, owner: 'Anna Nowak' },
   ],
   negotiation: [
     { id: 'deal-401', title: 'Subscription billing module', company: 'Lumen Studio', amount: 31500, owner: 'Maria Wisniewska', closeDate: 'Nov 30' },
@@ -101,6 +102,7 @@ const dealsByStage: Record<string, KanbanCard[]> = {
   ],
   won: [
     { id: 'deal-501', title: 'Returns portal', company: 'Fjord Outdoor', amount: 12700, owner: 'Anna Nowak', closeDate: 'Nov 18' },
+    { id: 'deal-502', title: 'Price list automation', company: 'Tern Bikes', amount: 8400, owner: 'Piotr Zielinski', closeDate: 'Nov 21' },
   ],
 }
 
@@ -112,20 +114,32 @@ const stageTitles: Record<string, string> = {
   won: 'Won',
 }
 
-const stageTotals: Record<string, number> = { lead: 24, qualified: 8, proposal: 5, negotiation: 3, won: 12 }
+const pagedStageTotals: Record<string, { count: number; amount: number }> = {
+  lead: { count: 24, amount: 412600 },
+  qualified: { count: 8, amount: 196400 },
+  proposal: { count: 5, amount: 143800 },
+  negotiation: { count: 6, amount: 171200 },
+  won: { count: 12, amount: 238500 },
+}
 
 function sumOf(cards: KanbanCard[]): number {
   return cards.reduce((total, card) => total + numberField(card, 'amount'), 0)
 }
 
-function pipelineColumns(options: { summaries?: boolean } = {}): KanbanColumn[] {
-  return Object.keys(stageTitles).map((stageId) => ({
-    id: stageId,
-    title: stageTitles[stageId],
-    count: stageTotals[stageId],
-    summary: options.summaries ? formatAmount(sumOf(dealsByStage[stageId])) : undefined,
-    cards: dealsByStage[stageId],
-  }))
+function pipelineColumns(options: { summaries?: boolean; paged?: boolean } = {}): KanbanColumn[] {
+  return Object.keys(stageTitles).map((stageId) => {
+    const cards = dealsByStage[stageId]
+    const count = options.paged ? pagedStageTotals[stageId].count : cards.length
+    const amount = options.paged ? pagedStageTotals[stageId].amount : sumOf(cards)
+    return {
+      id: stageId,
+      title: stageTitles[stageId],
+      count,
+      summary: options.summaries ? formatAmount(amount) : undefined,
+      cards,
+      ...(options.paged ? { hasMore: count > cards.length, remaining: count - cards.length } : {}),
+    }
+  })
 }
 
 function dealCanMove(cardId: string, toColumnId: string): true | { reason: string } {
@@ -169,7 +183,7 @@ const taskColumns: KanbanColumn[] = [
   {
     id: 'done',
     title: 'Done',
-    count: 9,
+    count: 1,
     cards: [
       { id: 'task-8', title: 'Set up returns workflow', assignee: 'Maria Wisniewska', priority: 'low', priorityLabel: 'Low', estimate: '4h' },
     ],
@@ -206,7 +220,7 @@ function addCardFooter(label: string) {
 
 const addStageColumn = React.createElement(
   'div',
-  { className: 'flex w-72 items-center justify-center rounded-card border-2 border-dashed border-border p-3' },
+  { className: 'flex w-64 items-center justify-center rounded-card border-2 border-dashed border-border p-3' },
   React.createElement(
     Button,
     { type: 'button', variant: 'ghost', size: 'sm' },
@@ -231,35 +245,33 @@ export const kanbanFixtures = {
   },
   emptyColumn: {
     ...tasksBase,
-    columns: taskColumns.map((column) => (column.id === 'review' ? { ...column, count: 0, cards: [] } : column)),
-    emptyColumn: (column: KanbanColumn) =>
+    columns: taskColumns.map((column) => (column.id === 'todo' ? { ...column, count: 0, cards: [] } : column)),
+    emptyColumn: () =>
       React.createElement(
         'p',
         { className: 'rounded-card border-2 border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground' },
-        `Nothing in ${column.title} yet`,
+        'No tasks yet',
       ),
   },
   showMore: {
     ...pipelineBase,
-    columns: pipelineColumns({ summaries: true }).map((column) => ({
-      ...column,
-      hasMore: (column.count ?? 0) > column.cards.length,
-      remaining: Math.max(0, (column.count ?? 0) - column.cards.length),
-    })),
+    columns: pipelineColumns({ summaries: true, paged: true }),
     onLoadMoreColumn: slowLoad,
   },
   pending: {
     ...tasksBase,
     columns: taskColumns,
+    pendingCardIds: ['task-2', 'task-5'],
     onMove: neverSettles,
   },
   columnError: {
     ...pipelineBase,
     columns: pipelineColumns().map((column) => {
-      if (column.id === 'proposal') return { ...column, status: 'error' as const, errorMessage: 'Could not load deals in Proposal', cards: [] }
-      if (column.id === 'negotiation') return { ...column, status: 'loading' as const, cards: [] }
+      if (column.id === 'lead') return { ...column, status: 'error' as const, errorMessage: 'Could not load deals', count: undefined, cards: [] }
+      if (column.id === 'qualified') return { ...column, status: 'loading' as const, count: undefined, cards: [] }
       return column
     }),
+    onRetryColumn: noop,
   },
   withTrailingAndFooter: {
     ...pipelineBase,
@@ -268,7 +280,7 @@ export const kanbanFixtures = {
     trailing: addStageColumn,
   },
   loading: { ...pipelineBase, columns: [], status: 'loading' },
-  error: { ...pipelineBase, columns: [], status: 'error', errorMessage: 'Could not load the pipeline' },
+  error: { ...pipelineBase, columns: [], status: 'error', errorMessage: 'Could not load the pipeline', onRetry: noop },
   empty: { ...pipelineBase, columns: [], status: 'empty' },
 } satisfies Record<string, KanbanProps>
 
