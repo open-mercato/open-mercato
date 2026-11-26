@@ -78,7 +78,12 @@ test('a People viewer can browse without unauthorized controls or related reques
     await page.goto(`/backend/customers/people-v2/${personId}?tab=files`)
     await emailsLoaded
     await expect(page.getByRole('heading', { name: displayName })).toBeVisible()
-    await expect(page.getByRole('textbox', { name: 'First name' })).toBeDisabled()
+    const firstName = page.getByRole('textbox', { name: /first name/i })
+    if (!(await firstName.isVisible())) {
+      await page.getByRole('button', { name: 'Expand form panel' }).click()
+    }
+    await expect(firstName).toHaveValue('Permission')
+    await expect(firstName).toBeDisabled()
     await expect(page.getByRole('tab', { name: 'Emails', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('tab', { name: 'Files', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /^(Save|Delete|Edit tags|Send message|Manage fields)$/i })).toHaveCount(0)
