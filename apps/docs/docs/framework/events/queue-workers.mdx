@@ -473,6 +473,14 @@ EVENTS_STRATEGY=local
 EVENTS_STRATEGY=redis
 ```
 
+### Planned npm queue providers
+
+The [npm queue provider proposal](https://github.com/open-mercato/open-mercato/pull/10510) extends the existing queue strategies. Use `local` or `async` in current releases.
+
+The proposed app convention puts a typed `queueProviders` registry in `src/providers/queue.ts`, alongside the cache and KMS registries. In the Open Mercato monorepo, the same directory is `apps/mercato/src/providers/`. Applications would install each driver as its own npm package and register it with a lazy import. The web app, workers, and queue-aware CLI commands would resolve the same registration during early bootstrap.
+
+The proposed `QUEUE_STRATEGY=npm:<package-name>` selects a registered driver. An explicit `QUEUE_ROUTES` map chooses the queues that use it and sets `local` or `async` as the baseline for the remaining queues. The proposal requires Enterprise activation for commercial drivers and a verified drain, routing, and readiness check before cutover.
+
 ### Multi-Instance Safety Guard
 
 `mercato server start` runs a boot-time guard that catches single-instance
