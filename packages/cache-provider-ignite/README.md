@@ -21,9 +21,9 @@ yarn add @open-mercato/cache-provider-ignite
 
 **Also pin the client's transitive dependencies in your app.** `apache-ignite-client` declares `long` and `decimal.js` as `latest`. Add the `overrides` (npm) or `resolutions` (yarn) entries from [Supply-chain notes](#supply-chain-notes) to your app's `package.json`.
 
-## Register the provider (`mercato.cache.ts`)
+## Register the provider
 
-Add the registration to `<app root>/mercato.cache.ts` (next to `package.json`), then run `yarn generate`.
+Add the registration to the app's `src/providers/cache.ts`, then run `yarn generate`.
 
 ```ts
 import { readFileSync } from 'node:fs'

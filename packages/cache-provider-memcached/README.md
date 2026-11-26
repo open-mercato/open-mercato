@@ -13,7 +13,7 @@ Memcached has no tags, no key enumeration and no server-side sets, so this provi
 yarn add @open-mercato/cache-provider-memcached
 ```
 
-Register it in the app's `mercato.cache.ts`, which lives next to `package.json`, not under `src/`:
+Add the registration to the app's `src/providers/cache.ts`, then run `yarn generate`.
 
 ```ts
 import type { CacheProviderRegistration } from '@open-mercato/cache/provider'

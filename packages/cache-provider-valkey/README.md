@@ -1,6 +1,6 @@
 # @open-mercato/cache-provider-valkey
 
-Open Mercato cache provider (`open-mercato/valkey`) for **Valkey**, built on the shared RESP strategy in [`@open-mercato/cache-redis-protocol`](../cache-redis-protocol/README.md). Server-only; selected with `CACHE_PROVIDER=open-mercato/valkey` through the app-owned `mercato.cache.ts` registration (v1 provider API, `@open-mercato/cache/provider`).
+Open Mercato's server-only **Valkey** cache provider (`open-mercato/valkey`) uses the shared RESP strategy in [`@open-mercato/cache-redis-protocol`](../cache-redis-protocol/README.md) and the v1 provider API in `@open-mercato/cache/provider`.
 
 ## Install
 
@@ -12,7 +12,7 @@ Peer dependency: `@open-mercato/cache` (>= 0.11.0). Runtime dependency: `@open-m
 
 ## Register and select
 
-`mercato.cache.ts` in the app root:
+Add the registration to the app's `src/providers/cache.ts`, then run `yarn generate`.
 
 ```ts
 import { readFileSync } from 'node:fs'

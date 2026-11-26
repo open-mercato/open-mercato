@@ -8,7 +8,7 @@ Ship individually installable npm providers for Valkey, Redis, Memcached, KeyDB,
 
 ## Overview
 
-This document defines the OSS delivery catalog for the [v1 provider extension](2026-11-24-pluggable-cache-providers.md). Each adapter depends on the v1 extension and its own qualification. An operator installs the adapter for their chosen engine and configures it through the app-owned registration. Hosted Enterprise providers have a separate [delivery spec](enterprise/2026-11-24-managed-cloud-cache-providers.md).
+This document defines the OSS delivery catalog for the [v1 provider extension](2026-11-24-pluggable-cache-providers.md). Each adapter depends on the v1 extension and its own qualification. An operator installs the adapter for their chosen engine, adds a literal lazy npm import to the `cacheProviders` registry in `src/providers/cache.ts`, runs `yarn generate`, and selects the registration with `CACHE_PROVIDER`. Hosted Enterprise providers have a separate [delivery spec](enterprise/2026-11-24-managed-cloud-cache-providers.md).
 
 ## Problem Statement
 
@@ -80,7 +80,7 @@ All packages are explicit opt-ins. Follow the shared coordinated cutover and rol
 
 - Run the shared v1 conformance kit and the row-specific tests against pinned engine container images with isolated namespaces. Use Testcontainers or the repo's Docker harness. Required tests cannot pass by skipping or substituting an emulator. Capture version, topology, auth/transport profile, suite results and cleanup.
 - Exercise two processes, tenant/global/foreign namespace isolation, TTL and overrides, current-tag union, batch limits, retagging and concurrent invalidation, process failover/reconnect, logical enumeration, cleanup and corrupt values. Check the exact readiness and authenticated cache stats/purge APIs and the existing cache-management page through the v1 app smoke. Verify a committed CRUD write invalidates another process's cached list.
-- Pack and install each provider into a fresh standalone app without sibling adapters. Verify types, selection, startup and a basic cache workflow. Run the package build, tests and template parity checks where applicable.
+- Pack and install each provider into a fresh standalone app without sibling adapters. Verify that the package types support the `cacheProviders` registration in `src/providers/cache.ts`. Verify selection, startup and a basic cache workflow. Run the package build, tests and template parity checks where applicable.
 - Record supported key cardinality, payload sizes, operation p50/p95, command counts, errors and cleanup under steady traffic and tag churn. Compare to stock Redis as a reference. Define the accepted operating envelope and latency budget per profile before promotion.
 
 ## Phasing
@@ -114,3 +114,4 @@ All packages are explicit opt-ins. Follow the shared coordinated cutover and rol
 
 - 2026-11-24 · Extracted independent OSS package work items and Docker gates from the extension spec after scope review.
 - 2026-11-24 · Review fixes: Infinispan layout `v2` stops indexing the host tenant scope tag (scope invalidation by bounded prefix scan, 5k-entry concurrent load test); RESP tag sets get a TTL bounded by their longest-lived member; Ignite and Memcached drop the previous copy before refusing an oversize write; container evidence is labelled as manual runs, with a root `test:cache-providers:containers` script and a proposed CI job awaiting maintainer approval.
+- 2026-11-26 · Aligned the app registration and packed typecheck with the shared `src/providers/cache.ts` convention.

@@ -57,7 +57,9 @@ export function createPackedInstall(providerDirName: string): PackedInstall {
       return exec(process.execPath, [file], appDir, 120_000, env)
     },
     typecheck(source) {
-      writeFileSync(path.join(appDir, 'mercato.cache.ts'), source)
+      const registryPath = 'src/providers/cache.ts'
+      mkdirSync(path.join(appDir, path.dirname(registryPath)), { recursive: true })
+      writeFileSync(path.join(appDir, registryPath), source)
       writeFileSync(path.join(appDir, 'tsconfig.json'), JSON.stringify({
         compilerOptions: {
           target: 'ES2022',
@@ -68,7 +70,7 @@ export function createPackedInstall(providerDirName: string): PackedInstall {
           skipLibCheck: true,
           types: ['node'],
         },
-        include: ['mercato.cache.ts'],
+        include: [registryPath],
       }))
       return exec(process.execPath, [tsc, '-p', 'tsconfig.json'], appDir, 180_000)
     },
