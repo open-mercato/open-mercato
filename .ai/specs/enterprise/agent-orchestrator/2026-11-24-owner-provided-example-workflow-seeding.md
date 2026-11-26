@@ -69,3 +69,4 @@ The design keeps fixtures in their source module and scopes writes in the data o
 ## Changelog
 
 - 2026-11-24 — Proposed a Workflows-owned example fixture creation boundary for #10476.
+- 2026-11-24 — Added Workflows-owned example authoring and a fallback for legacy DI overrides. Covered concurrent inserts, scoped conflicts, and setup transaction visibility in PostgreSQL tests.

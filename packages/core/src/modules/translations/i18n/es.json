@@ -20,6 +20,7 @@
   "translations.manager.errors.loadEntities": "Error al cargar las entidades",
   "translations.manager.errors.loadTranslation": "Error al cargar las traducciones",
   "translations.manager.errors.nothingToSave": "Nada que guardar — introduce primero una traducción",
+  "translations.manager.errors.organizationChanged": "La organización seleccionada ha cambiado. Cierra y vuelve a abrir el editor de traducciones para continuar.",
   "translations.manager.errors.save": "Error al guardar las traducciones",
   "translations.manager.errors.selectRecord": "Selecciona una entidad y un registro antes de guardar",
   "translations.manager.fields.baseValue": "Valor base",

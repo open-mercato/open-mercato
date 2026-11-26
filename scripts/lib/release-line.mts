@@ -182,6 +182,155 @@ export function dropUnreleased(changelog: string): string {
   return [...lines.slice(0, first), ...lines.slice(end)].join('\n').replace(/^\n+/, '')
 }
 
+const GREEN_TAG = /^green\/(\d{4})-(\d{2})-(\d{2})$/
+
+// A green tag names the day a daily batch passed the full suite and QA: `green/YYYY-MM-DD`.
+export function isGreenTag(name: string): boolean {
+  const match = GREEN_TAG.exec(String(name ?? '').trim())
+  if (!match) return false
+  const date = new Date(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === `${match[1]}-${match[2]}-${match[3]}`
+}
+
+export type CommitPullRequest = {
+  number: number
+  state: string
+  merged_at: string | null
+  head: { ref: string; sha: string }
+  base: { ref: string }
+}
+
+export type BatchVerdict = { ok: true; number: number; branch: string } | { ok: false; error: string }
+
+// A line is cut only at a green tag in the history of a `stabilize/` batch PR that was merged into
+// the trunk: normally its head, or an earlier commit when the trunk was merged into the batch after
+// tagging to resolve a conflict. The batch is squash-merged, so the tagged commit is never an
+// ancestor of the trunk: the merged PR is the only proof the tested commit is what the trunk
+// received. `inHistoryOf(headSha)` says whether the tagged commit is an ancestor of (or is) a head.
+export function batchPullRequest(
+  pulls: readonly CommitPullRequest[],
+  sha: string,
+  trunk: string,
+  inHistoryOf: (headSha: string) => boolean = (headSha) => headSha === sha,
+): BatchVerdict {
+  const batches = pulls.filter(
+    (pr) => pr.head.ref.startsWith('stabilize/') && pr.base.ref === trunk && (pr.head.sha === sha || inHistoryOf(pr.head.sha)),
+  )
+  const merged = batches.find((pr) => Boolean(pr.merged_at))
+  if (merged) return { ok: true, number: merged.number, branch: merged.head.ref }
+  const open = batches.find((pr) => pr.state === 'open')
+  if (open) return { ok: false, error: `it is on #${open.number} (${open.head.ref}), which is still open — merge the batch into ${trunk} first` }
+  if (batches.length > 0) {
+    return { ok: false, error: `it is on #${batches[0].number} (${batches[0].head.ref}), which was closed without merging into ${trunk}` }
+  }
+  return { ok: false, error: `${sha.slice(0, 12)} is not in the history of a stabilize/ PR merged into ${trunk}` }
+}
+
+const SUBJECT_PR = /\(#(\d+)\)\s*$/
+const MERGE_PR = /^Merge pull request #(\d+)\b/
+
+// The PRs a ref contains, read from the subjects of every commit reachable from it: a squash
+// merge ends its subject with `(#N)`, a merge commit starts with `Merge pull request #N`.
+export function pullRequestsInSubjects(subjects: readonly string[]): Set<number> {
+  const numbers = new Set<number>()
+  for (const subject of subjects) {
+    const match = SUBJECT_PR.exec(subject) ?? MERGE_PR.exec(subject)
+    if (match) numbers.add(Number(match[1]))
+  }
+  return numbers
+}
+
+// The PR a changelog entry is about: a generated entry links `/pull/N`; a curated one ends with
+// `(#N)` after any issue references, so the last `#N` is the PR.
+export function entryPullRequest(entry: string): number | null {
+  const linked = [...entry.matchAll(/\/pull\/(\d+)/g)].at(-1)
+  if (linked) return Number(linked[1])
+  const referenced = [...entry.matchAll(/#(\d+)\b/g)].at(-1)
+  return referenced ? Number(referenced[1]) : null
+}
+
+type UnreleasedBlock =
+  | { kind: 'heading'; level: number; lines: string[] }
+  | { kind: 'spacer'; lines: string[] }
+  | { kind: 'entry'; lines: string[] }
+
+const SUB_HEADING = /^(#{2,6})\s/
+const LIST_ITEM = /^\s{0,3}(?:[-*+]|\d+[.)])\s/
+const RULE = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/
+
+function unreleasedBlocks(lines: readonly string[]): UnreleasedBlock[] {
+  const blocks: UnreleasedBlock[] = []
+  for (const line of lines) {
+    const current = blocks.at(-1)
+    const heading = SUB_HEADING.exec(line)
+    if (heading) blocks.push({ kind: 'heading', level: heading[1].length, lines: [line] })
+    else if (!line.trim() || RULE.test(line)) blocks.push({ kind: 'spacer', lines: [line] })
+    else if (current && current.kind === 'entry' && !LIST_ITEM.test(line)) current.lines.push(line)
+    else blocks.push({ kind: 'entry', lines: [line] })
+  }
+  return blocks
+}
+
+function keptBody(blocks: readonly UnreleasedBlock[], keep: ReadonlySet<UnreleasedBlock>): string {
+  const output: string[] = []
+  blocks.forEach((block, index) => {
+    if (block.kind === 'entry' && !keep.has(block)) return
+    if (block.kind === 'spacer') {
+      if (!RULE.test(block.lines[0])) output.push('')
+      return
+    }
+    if (block.kind === 'heading') {
+      const end = blocks.findIndex((next, at) => at > index && next.kind === 'heading' && next.level <= block.level)
+      const scope = blocks.slice(index + 1, end < 0 ? blocks.length : end)
+      if (!scope.some((next) => next.kind === 'entry' && keep.has(next))) return
+    }
+    output.push(...block.lines)
+  })
+  return output.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
+export type UnreleasedSplit = { line: string; trunk: string; untraced: string[] }
+
+// A cut at a green tag hands the line only what the tag contains. Entries of the trunk's leading
+// `# Unreleased` whose PR the cut ref contains go to the line; entries for PRs merged after it
+// stay on the trunk for the next minor. An entry naming no PR cannot be traced, so it stays on
+// the trunk and is reported for the release owner to place by hand. Sub-headings follow their
+// entries to both sides. Null when the changelog has no leading `# Unreleased`.
+export function splitUnreleased(changelog: string, contains: (pr: number) => boolean): UnreleasedSplit | null {
+  const lines = changelog.split('\n')
+  const first = lines.findIndex((line) => HEADING.test(line))
+  if (first < 0 || !UNRELEASED.test(lines[first])) return null
+  const blocks = unreleasedBlocks(lines.slice(first + 1, sectionEnd(lines, first)))
+  const toLine = new Set<UnreleasedBlock>()
+  const toTrunk = new Set<UnreleasedBlock>()
+  const untraced: string[] = []
+  for (const block of blocks) {
+    if (block.kind !== 'entry') continue
+    const pr = entryPullRequest(block.lines.join('\n'))
+    if (pr !== null && contains(pr)) toLine.add(block)
+    else toTrunk.add(block)
+    if (pr === null) untraced.push(block.lines.join('\n'))
+  }
+  return { line: keptBody(blocks, toLine), trunk: keptBody(blocks, toTrunk), untraced }
+}
+
+// Replace the body of the leading `# Unreleased` section (or add one on top); an empty body
+// removes the section.
+export function withUnreleased(changelog: string, body: string): string {
+  const trimmed = body.trim()
+  if (!trimmed) return dropUnreleased(changelog)
+  const lines = changelog.split('\n')
+  const first = lines.findIndex((line) => HEADING.test(line))
+  if (first >= 0 && UNRELEASED.test(lines[first])) {
+    const end = sectionEnd(lines, first)
+    const separated = lines.slice(first + 1, end).join('\n').trim().endsWith('---')
+    const section = [lines[first], '', trimmed, ...(separated ? ['', '---'] : []), '']
+    const rest = lines.slice(end)
+    return [...lines.slice(0, first), ...section, ...(rest.length > 0 ? rest : [''])].join('\n').replace(/\n+$/, '\n')
+  }
+  return `# Unreleased\n\n${trimmed}\n\n${changelog.replace(/^\n+/, '')}`
+}
+
 export function changelogSection(changelog: string, version: string): ChangelogSection | null {
   const lines = changelog.split('\n')
   const start = lines.findIndex((line) => HEADING.exec(line)?.[1] === version)
