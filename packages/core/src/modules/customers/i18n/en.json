@@ -627,6 +627,8 @@
   "customers.companies.detail.entityType": "Company",
   "customers.companies.detail.error.load": "Failed to load company.",
   "customers.companies.detail.error.notFound": "Company not found.",
+  "customers.companies.detail.error.refresh": "Could not refresh company details. The displayed information may be out of date.",
+  "customers.companies.detail.error.retry": "Retry",
   "customers.companies.detail.fields.annualRevenue": "Annual revenue",
   "customers.companies.detail.fields.annualRevenuePlaceholder": "Enter amount",
   "customers.companies.detail.fields.brandName": "Brand name",

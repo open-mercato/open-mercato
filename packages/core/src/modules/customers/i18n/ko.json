@@ -627,6 +627,8 @@
   "customers.companies.detail.entityType": "회사",
   "customers.companies.detail.error.load": "회사 정보를 불러오지 못했습니다.",
   "customers.companies.detail.error.notFound": "회사를 찾을 수 없습니다.",
+  "customers.companies.detail.error.refresh": "회사 정보를 새로 고치지 못했습니다. 표시된 정보가 최신 상태가 아닐 수 있습니다.",
+  "customers.companies.detail.error.retry": "다시 시도",
   "customers.companies.detail.fields.annualRevenue": "연 매출",
   "customers.companies.detail.fields.annualRevenuePlaceholder": "금액을 입력하세요",
   "customers.companies.detail.fields.brandName": "브랜드명",

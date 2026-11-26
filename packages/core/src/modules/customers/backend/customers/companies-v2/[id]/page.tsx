@@ -68,6 +68,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const [data, setData] = React.useState<CompanyOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [refreshStatus, setRefreshStatus] = React.useState<'idle' | 'failed' | 'retrying'>('idle')
   const [isNotFound, setIsNotFound] = React.useState(false)
 
   // Tab state
@@ -145,6 +146,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     if (!id) {
       loadedCompanyIdRef.current = null
       setData(null)
+      setRefreshStatus('idle')
       setIsNotFound(true)
       setIsLoading(false)
       return
@@ -154,7 +156,10 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     if (isInitialLoad) {
       setIsLoading(true)
       setError(null)
+      setRefreshStatus('idle')
       setIsNotFound(false)
+    } else {
+      setRefreshStatus((current) => current === 'failed' ? 'retrying' : current)
     }
     try {
       const payload = await readApiResultOrThrow<CompanyOverview>(
@@ -165,11 +170,13 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       if (!isCurrentRequest()) return
       loadedCompanyIdRef.current = id
       setData(payload)
+      setRefreshStatus('idle')
     } catch (err) {
       if (!isCurrentRequest()) return
       if (isDetailNotFoundStatus((err as { status?: number } | null)?.status)) {
         loadedCompanyIdRef.current = null
         setData(null)
+        setRefreshStatus('idle')
         setIsNotFound(true)
       } else if (isInitialLoad) {
         const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
@@ -177,6 +184,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
         setData(null)
         setError(message)
       } else {
+        setRefreshStatus('failed')
         reportTelemetryError(err, {
           module: 'customers',
           code: 'customers.company_overview_refresh_failed',
@@ -197,8 +205,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setDealCount(data?.counts?.deals ?? 0)
   }, [data?.counts?.deals])
 
-  const reloadAfterActivityChange = React.useCallback(() => {
-    loadData().catch((err) => logger.warn('reload after activity failed', { component: 'companies-v2', err }))
+  const refreshCompany = React.useCallback(() => {
+    loadData().catch((err) => logger.warn('Company overview refresh failed', { component: 'companies-v2', err }))
   }, [loadData])
 
   // Injection context for UMES
@@ -238,7 +246,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     scope: { entityId: currentCompanyId ?? id ?? '' },
     runMutationWithContext,
     logContext: 'customers.companies-v2',
-    onAfterChange: reloadAfterActivityChange,
+    onAfterChange: refreshCompany,
   })
 
   const isActivityTabActive = activeTab === 'activity-log'
@@ -496,8 +504,19 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             onDelete={handleDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'companies-v2', err })) }}
+            onDataReload={refreshCompany}
           />
+
+          {refreshStatus !== 'idle' ? (
+            <ErrorMessage
+              label={t('customers.companies.detail.error.refresh', 'Could not refresh company details. The displayed information may be out of date.')}
+              action={(
+                <Button type="button" variant="outline" size="sm" onClick={refreshCompany} disabled={refreshStatus === 'retrying'}>
+                  {t('customers.companies.detail.error.retry', 'Retry')}
+                </Button>
+              )}
+            />
+          ) : null}
 
           {/* KPI bar — always visible above zones */}
           <CompanyKpiBar data={data} canViewDeals={typeof data.kpis?.activeDealsCount === 'number'} />

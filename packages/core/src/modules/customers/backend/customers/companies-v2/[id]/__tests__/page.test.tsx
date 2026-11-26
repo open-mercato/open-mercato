@@ -10,6 +10,7 @@ import CompanyDetailV2Page from '../page'
 const readApiResultOrThrowMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const mockReportTelemetryError = jest.fn()
+const mockEndEmployment = jest.fn()
 const scopedDeleteHeaderCalls: Array<Record<string, string>> = []
 const companyDetailTabsPropsCapture: {
   current: { injectedTabs?: Array<{ id: string; label: string; priority?: number }> } | null
@@ -50,7 +51,7 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
       {entityId}:{recordId}:{title}:{description}
     </div>
   ),
-  ErrorMessage: ({ label }: { label: string }) => <div data-testid="error-message">{label}</div>,
+  ErrorMessage: ({ label, action }: { label: string; action?: React.ReactNode }) => <div role="alert" data-testid="error-message">{label}{action}</div>,
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
   RecordNotFoundState: ({ label }: { label: string }) => <div data-testid="record-not-found">{label}</div>,
 }))
@@ -220,7 +221,17 @@ jest.mock('../../../../../components/detail/DealsSection', () => ({
 jest.mock('../../../../../components/detail/CompanyPeopleSection', () => ({
   CompanyPeopleSection: ({ onDataRefresh }: { onDataRefresh?: () => Promise<void> | void }) => {
     mockPeopleRefresh = onDataRefresh
-    return <div>people</div>
+    return (
+      <div>
+        <span>people</span>
+        <button type="button" onClick={async () => {
+          await mockEndEmployment()
+          await onDataRefresh?.()
+        }}>
+          End employment
+        </button>
+      </div>
+    )
   },
 }))
 
@@ -239,6 +250,7 @@ describe('CompanyDetailV2Page', () => {
     companyDetailTabsPropsCapture.current = null
     mockReportTelemetryError.mockReset()
     mockPeopleRefresh = undefined
+    mockEndEmployment.mockReset().mockResolvedValue({ ok: true })
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue({
       company: {
@@ -497,22 +509,30 @@ describe('CompanyDetailV2Page', () => {
       expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2)
     })
 
-    it('keeps the mounted People tab when a background refresh fails', async () => {
+    it('retries a failed overview refresh after a successful departure without repeating the write', async () => {
       const failure = Object.assign(new Error('[internal] refresh failed'), { status: 500 })
       readApiResultOrThrowMock
         .mockResolvedValueOnce(overview('company-123', 3))
         .mockRejectedValueOnce(failure)
+        .mockResolvedValueOnce(overview('company-123', 2))
       renderWithProviders(<CompanyDetailV2Page params={{ id: 'company-123' }} />)
       expect(await screen.findByTestId('company-people-count')).toHaveTextContent('3')
 
-      await act(async () => { await mockPeopleRefresh!() })
+      fireEvent.click(screen.getByRole('button', { name: 'End employment' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('Could not refresh company details.')
+      expect(mockEndEmployment).toHaveBeenCalledTimes(1)
       expect(screen.getByTestId('company-people-count')).toHaveTextContent('3')
       expect(screen.getByText('people')).toBeInTheDocument()
-      expect(screen.queryByTestId('error-message')).not.toBeInTheDocument()
       expect(mockReportTelemetryError).toHaveBeenCalledWith(failure, expect.objectContaining({
         module: 'customers',
         code: 'customers.company_overview_refresh_failed',
       }))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      await waitFor(() => expect(screen.getByTestId('company-people-count')).toHaveTextContent('2'))
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.getByText('people')).toBeInTheDocument()
+      expect(mockEndEmployment).toHaveBeenCalledTimes(1)
     })
   })
 })

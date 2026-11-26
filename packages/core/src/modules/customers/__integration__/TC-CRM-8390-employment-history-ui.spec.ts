@@ -9,7 +9,7 @@ export const integrationMeta = { dependsOnModules: ['auth', 'customers'] }
 
 test.use({ locale: 'en-US', timezoneId: 'America/Los_Angeles' })
 
-test('TC-CRM-8390 UI: ends employment, reloads company history, and links the person again', async ({ page, request }, testInfo) => {
+test('TC-CRM-8390 UI: ends employment, retries the overview refresh, and links the person again', async ({ page, request }, testInfo) => {
   const token = await getAuthToken(request, 'admin')
   const stamp = randomUUID().slice(0, 8)
   const companyName = `Employment company ${stamp}`
@@ -69,17 +69,39 @@ test('TC-CRM-8390 UI: ends employment, reloads company history, and links the pe
     await calendarDay.click()
     await expect(calendarDay).toBeHidden()
     await testInfo.attach('end-employment-dialog', { body: await endDialog.screenshot({ animations: 'disabled' }), contentType: 'image/png' })
+    const overviewPath = `/api/customers/companies/${companyId}`
+    let allowOverviewRefresh = false
+    await page.route((url) => url.pathname === overviewPath, async (route) => {
+      if (allowOverviewRefresh || route.request().method() !== 'GET') {
+        await route.continue()
+      } else {
+        await route.fulfill({ status: 503, json: { error: 'Temporary overview refresh failure' } })
+      }
+    })
     const endPath = `/api/customers/people/${personId}/companies/${companyId}/end`
-    const endWrite = page.waitForRequest((submitted) => submitted.method() === 'POST' && new URL(submitted.url()).pathname === endPath)
+    const endWrite = page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === endPath)
     await departureDate.press('Control+Enter')
-    const submitted = await endWrite
+    const writeResponse = await endWrite
+    expect(writeResponse.ok()).toBeTruthy()
+    const submitted = writeResponse.request()
     expect(submitted.headers()[OPTIMISTIC_LOCK_HEADER_NAME]).toBeTruthy()
-    expect(submitted.postDataJSON()).toEqual({ endedOn })
+    expect(submitted.postDataJSON()).toEqual({ endedOn, timezone: 'America/Los_Angeles' })
     await expect(endDialog).toBeHidden()
     await expect(activeActions).toBeHidden()
     await expect(formerPerson).toBeVisible()
     await expect(formerPerson).toHaveAttribute('href', new RegExp(`/backend/customers/people(?:-v2)?/${personId}(?:\\?.*)?$`))
     await expect(history.getByRole('cell', { name: expectedDate, exact: true })).toBeVisible()
+
+    const refreshError = page.getByRole('alert').filter({ hasText: 'Could not refresh company details.' })
+    await expect(refreshError).toBeVisible()
+    await expect(peopleTab).toHaveAttribute('aria-selected', 'true')
+    await expect(peopleTab).toHaveText(/People\s*1/)
+    allowOverviewRefresh = true
+    await refreshError.getByRole('button', { name: 'Retry', exact: true }).click()
+    await expect(refreshError).toBeHidden()
+    await expect(peopleTab).toHaveText('People')
+    await expect(formerPerson).toBeVisible()
+
 
     await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(formerPerson).toBeVisible()

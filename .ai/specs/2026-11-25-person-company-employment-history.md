@@ -87,6 +87,8 @@ The active People table adds End employment to its row menu for users with manag
 | --- | --- | --- |
 | Company detail People tab | Existing `CompanyPeopleSection` hosts the row action. Narrow dialog and history components own local form and pagination state. | Existing company-people API and the scoped end command. |
 
+If the company overview fails to refresh after a successful People mutation, keep the loaded record visible and offer a retry for the overview request.
+
 The budget is zero new page roots, providers, or heavy dependencies. Verify route hydration and the dialog interaction in Playwright and run the client-boundary check.
 
 ## Migration & Backward Compatibility
@@ -123,3 +125,4 @@ The design uses the existing scoped link model, permissions, lock/version infras
 - 2026-11-25 · Proposed departure recording and a Former employees section for CRM company detail.
 
 - 2026-11-26 · Aligned the departure date picker and API limit with the CRM calendar time zone and covered both sides of UTC midnight.
+- 2026-11-26 · Added a retryable company overview refresh error after People mutations, with browser coverage.

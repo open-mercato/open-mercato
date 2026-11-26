@@ -1224,6 +1224,7 @@ async function endEmployment(
   ensureTenantScope(ctx, scope.tenantId)
   ensureOrganizationScope(ctx, scope.organizationId)
 
+  // A standalone write uses a fresh identity map for the rows checked under lock.
   const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
   let person!: CustomerEntity
   let profile!: CustomerPersonProfile
@@ -1346,6 +1347,7 @@ const endEmploymentCommand: CommandHandler<
     const scope = { tenantId: after.tenantId, organizationId: after.organizationId }
     ensureTenantScope(ctx, scope.tenantId)
     ensureOrganizationScope(ctx, scope.organizationId)
+    // A standalone undo reads current row versions without reusing request entities.
     const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager).fork()
     let link!: CustomerPersonCompanyLink
     await withAtomicFlush(em, [async () => {

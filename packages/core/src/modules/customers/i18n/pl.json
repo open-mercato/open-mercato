@@ -627,6 +627,8 @@
   "customers.companies.detail.entityType": "Firma",
   "customers.companies.detail.error.load": "Nie udało się załadować firmy.",
   "customers.companies.detail.error.notFound": "Nie znaleziono firmy.",
+  "customers.companies.detail.error.refresh": "Nie udało się odświeżyć danych firmy. Wyświetlane informacje mogą być nieaktualne.",
+  "customers.companies.detail.error.retry": "Spróbuj ponownie",
   "customers.companies.detail.fields.annualRevenue": "Roczne przychody",
   "customers.companies.detail.fields.annualRevenuePlaceholder": "Wprowadź kwotę",
   "customers.companies.detail.fields.brandName": "Nazwa marki",
