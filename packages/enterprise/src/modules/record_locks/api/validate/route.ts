@@ -115,6 +115,7 @@ export async function POST(req: Request) {
   const result = await ctxOrResponse.recordLockService.validateMutation({
     tenantId: ctxOrResponse.auth.tenantId,
     organizationId: ctxOrResponse.organizationId,
+    organizationScope: ctxOrResponse.organizationScope,
     userId: ctxOrResponse.auth.sub,
     resourceKind: parsed.data.resourceKind,
     resourceId: parsed.data.resourceId,

@@ -144,8 +144,9 @@
   "portal.verify.error.backToLogin": "Wróć do logowania",
   "portal.verify.error.generic": "Weryfikacja adresu e-mail nie powiodła się. Spróbuj ponownie.",
   "portal.verify.error.invalidToken": "Brakuje tokenu weryfikacyjnego.",
+  "portal.verify.submit": "Zweryfikuj adres e-mail i ustaw hasło",
   "portal.verify.success.description": "Twój adres e-mail został zweryfikowany. Możesz teraz zalogować się do portalu.",
   "portal.verify.success.loginLink": "Zaloguj się",
   "portal.verify.success.title": "Adres e-mail zweryfikowany",
-  "portal.verify.title": "Weryfikowanie adresu e-mail"
+  "portal.verify.title": "Zweryfikuj adres e-mail"
 }

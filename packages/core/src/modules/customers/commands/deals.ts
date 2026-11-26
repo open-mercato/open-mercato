@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { TransactionContext } from '@mikro-orm/core'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -299,23 +298,6 @@ function removeDeal(em: EntityManager, deal: CustomerDeal): Promise<void> {
     })
     em.remove(deal)
   }], { transaction: true })
-}
-
-function writeDealCustomFields(
-  em: EntityManager,
-  dataEngine: DataEngine,
-  deal: CustomerDeal,
-  values: Record<string, unknown>,
-): Promise<void> {
-  return TransactionContext.create(em, () => setCustomFieldsIfAny({
-    dataEngine,
-    entityId: DEAL_ENTITY_ID,
-    recordId: deal.id,
-    organizationId: deal.organizationId,
-    tenantId: deal.tenantId,
-    values,
-    notify: false,
-  }))
 }
 
 async function restoreDealStageTransitions(
@@ -630,7 +612,6 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
     let deal!: CustomerDeal
     let stageSnapshot: PipelineStageSnapshot | null = null
@@ -641,6 +622,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     let resolvedPipelineStageLabel: string | null = null
     let stageDefaultProbability: number | null = null
     const createdDictionaryKinds = new Set<string>()
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
     await withAtomicFlush(em, [
       async () => {
         stageSnapshot = parsed.pipelineStageId
@@ -706,7 +688,16 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       },
       () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId, { stampLockToken: false }),
       () => syncDealCompanies(em, deal, parsed.companyIds ?? [], { stampLockToken: false }),
-      () => writeDealCustomFields(em, de, deal, custom),
+      () => setCustomFieldsIfAny({
+        dataEngine: de,
+        transactionalEm: em,
+        entityId: DEAL_ENTITY_ID,
+        recordId: deal.id,
+        organizationId: deal.organizationId,
+        tenantId: deal.tenantId,
+        values: custom,
+        notify: false,
+      }),
     ], { transaction: true })
     await invalidateDictionaryKindCaches(ctx, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, createdDictionaryKinds)
 
@@ -875,13 +866,14 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     let requestedClosureOutcome: DealClosureOutcome | null = null
     const createdDictionaryKinds = new Set<string>()
 
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
     await runCrudCommandWrite({
       ctx,
+      dataEngine: de,
       em,
       entityId: DEAL_ENTITY_ID,
       action: 'updated',
       scope: { tenantId: record.tenantId, organizationId: record.organizationId },
-      customFields: custom,
       events: dealCrudEvents,
       indexer: dealCrudIndexer,
       sideEffect: () => ({
@@ -1031,6 +1023,15 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         },
         () => syncDealPeople(em, record, parsed.personIds, parsed.primaryPersonEntityId),
         () => syncDealCompanies(em, record, parsed.companyIds),
+        () => setCustomFieldsIfAny({
+          dataEngine: de,
+          transactionalEm: em,
+          entityId: DEAL_ENTITY_ID,
+          recordId: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+          values: custom,
+        }),
       ],
     })
     await invalidateDictionaryKindCaches(ctx, record, createdDictionaryKinds)
@@ -1311,7 +1312,16 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         () => syncDealCompanies(em, deal, before.companies),
         () => deleteDealStageTransitions(em, deal),
         () => restoreDealStageTransitions(em, deal, before.transitions),
-        () => writeDealCustomFields(em, de, deal, resetValues),
+        () => setCustomFieldsIfAny({
+          dataEngine: de,
+          transactionalEm: em,
+          entityId: DEAL_ENTITY_ID,
+          recordId: deal.id,
+          organizationId: deal.organizationId,
+          tenantId: deal.tenantId,
+          values: resetValues,
+          notify: false,
+        }),
       ], { transaction: true })
 
       await emitCrudUndoSideEffects({
