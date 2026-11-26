@@ -83,6 +83,7 @@ export type VectorDriverQueryResult = {
 export type VectorDriverListParams = {
   tenantId: string
   organizationId?: string | null
+  organizationIds?: string[] | null
   entityId?: EntityId
   limit?: number
   offset?: number

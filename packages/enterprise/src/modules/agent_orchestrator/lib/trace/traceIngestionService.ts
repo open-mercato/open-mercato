@@ -37,6 +37,8 @@ import {
 export type IngestScope = { tenantId: string; organizationId: string }
 
 export type IngestTraceOptions = {
+  /** Authorization check for the row selected by the upsert, before any writes. */
+  assertRunScope?: (run: AgentRun | null) => Promise<void>
   /**
    * When supplied, payloads exceeding the inline cap are offloaded to encrypted
    * storage and the returned key is stamped on the row's artifact-key column
@@ -238,6 +240,7 @@ export async function ingestTrace(
     runtime: payload.runtime,
     externalRunId: payload.externalRunId,
   })
+  await options.assertRunScope?.(run)
   const created = !run
   if (!run) {
     run = em.create(AgentRun, {
