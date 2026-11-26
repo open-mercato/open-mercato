@@ -169,14 +169,11 @@ Published event IDs (declared in any module's `events.ts`) are consumed by subsc
 
 ### 6. Widget Injection Spot IDs (FROZEN)
 
-Spot IDs are the addresses where external modules inject UI. Renaming or removing a spot ID silently breaks all modules targeting it.
+External modules inject UI by spot ID, such as `crud-form:catalog.product`, `sales.document.detail.order:tabs`, or `backend:record:current`.
 
-- MUST NOT rename an existing spot ID (e.g., `crud-form:catalog.product`, `sales.document.detail.order:tabs`, `backend:record:current`)
-- MUST NOT remove an existing spot ID from a page
-- MUST NOT change the context/data type passed to widgets at existing spots
-- MAY add new spot IDs to new or existing pages
-- MAY add new optional context fields to existing spots
-- Wildcard spots (`crud-form:*`, `data-table:*`) MUST continue to match as documented
+- MUST keep existing IDs on their pages and preserve widget context/data types
+- MAY add spot IDs on any page and optional context fields
+- MUST preserve documented wildcard matches (`crud-form:*`, `data-table:*`)
 
 ### 7. API Route URLs (STABLE)
 
@@ -706,7 +703,7 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 
 ## 2026-11 — CRUD security (#3827, #9154, #9106)
 
-STABLE API: restrict sort keys, deleted-row reads, relation labels and global reads. Legacy behavior keeps leaks open. Named waiver pending. [Migration](UPGRADE_NOTES.md#crud-factory-security-and-query-correctness-bundle).
+STABLE API limits sorts, deleted rows, labels and global reads. 2026-11-24: relation options need owner policies. Bridges leak data. Use Staff timesheet APIs. Named waiver pending. [Upgrade](UPGRADE_NOTES.md).
 
 ## 2026-11-19 — Entity translation authorization (#9139)
 
@@ -739,6 +736,14 @@ STABLE feature-gated APIs return `403` before lookup when organization scope res
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
 
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+
+## Workflow events (2026-11-20, #9134)
+
+STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
+
+## 2026-11-25 — MCP Code Mode
+
+STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
 
 ## #6490
 
