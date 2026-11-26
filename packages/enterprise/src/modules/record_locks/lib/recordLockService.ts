@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { ModuleConfig } from '@open-mercato/core/modules/configs/data/entities'
 import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -196,6 +197,15 @@ export type RecordLockServiceDeps = {
 }
 
 export type ParsedRecordLockHeaders = Partial<RecordLockMutationHeaders>
+
+export type RecordLockSettingsRecord = {
+  settings: RecordLockSettings
+  updatedAt: string | null
+}
+
+export type SaveRecordLockSettingsOptions = {
+  assertCurrent?: (currentUpdatedAt: string | null) => void
+}
 
 function normalizeDate(value: Date): string {
   return value.toISOString()
@@ -427,24 +437,95 @@ export class RecordLockService {
     return Boolean(this.em.getMetadata().find(ActionLog))
   }
 
-  async getSettings(): Promise<RecordLockSettings> {
+  async getSettings(tenantId?: string): Promise<RecordLockSettings> {
     if (!this.moduleConfigService) return DEFAULT_RECORD_LOCK_SETTINGS
 
     const value = await this.moduleConfigService.getValue<RecordLockSettings>(
       RECORD_LOCKS_MODULE_ID,
       RECORD_LOCKS_SETTINGS_NAME,
-      { defaultValue: DEFAULT_RECORD_LOCK_SETTINGS },
+      { defaultValue: DEFAULT_RECORD_LOCK_SETTINGS, scope: { tenantId } },
     )
 
     return normalizeRecordLockSettings(value ?? DEFAULT_RECORD_LOCK_SETTINGS)
   }
 
-  async saveSettings(input: RecordLockSettingsInput): Promise<RecordLockSettings> {
-    const settings = normalizeRecordLockSettings(input)
-    if (!this.moduleConfigService) return settings
+  async getSettingsRecord(tenantId?: string): Promise<RecordLockSettingsRecord> {
+    if (!this.moduleConfigService) return { settings: DEFAULT_RECORD_LOCK_SETTINGS, updatedAt: null }
 
-    await this.moduleConfigService.setValue(RECORD_LOCKS_MODULE_ID, RECORD_LOCKS_SETTINGS_NAME, settings)
-    return settings // NOSONAR — both paths return settings by design; the branch controls persistence
+    const record = await this.moduleConfigService.getRecord(
+      RECORD_LOCKS_MODULE_ID,
+      RECORD_LOCKS_SETTINGS_NAME,
+      { tenantId },
+    )
+    return {
+      settings: normalizeRecordLockSettings(record?.value ?? DEFAULT_RECORD_LOCK_SETTINGS),
+      updatedAt: record?.updatedAt ?? null,
+    }
+  }
+
+  async saveSettings(input: RecordLockSettingsInput, tenantId: string): Promise<RecordLockSettings> {
+    const { settings } = await this.saveSettingsRecord(input, tenantId)
+    return settings
+  }
+
+  async saveSettingsRecord(
+    input: RecordLockSettingsInput,
+    tenantId: string,
+    options?: SaveRecordLockSettingsOptions,
+  ): Promise<RecordLockSettingsRecord> {
+    if (!tenantId?.trim()) throw new Error('[internal] Record-lock settings require a tenant')
+    const settings = normalizeRecordLockSettings(input)
+    if (!this.moduleConfigService) return { settings, updatedAt: null }
+    if (options?.assertCurrent) {
+      return this.saveSettingsRecordAtomically(settings, tenantId, options.assertCurrent)
+    }
+
+    const record = await this.moduleConfigService.setValue(
+      RECORD_LOCKS_MODULE_ID,
+      RECORD_LOCKS_SETTINGS_NAME,
+      settings,
+      { tenantId },
+    )
+    return { settings, updatedAt: record?.updatedAt ?? null }
+  }
+
+  private async saveSettingsRecordAtomically(
+    settings: RecordLockSettings,
+    tenantId: string,
+    assertCurrent: (currentUpdatedAt: string | null) => void,
+  ): Promise<RecordLockSettingsRecord> {
+    const key = { moduleId: RECORD_LOCKS_MODULE_ID, name: RECORD_LOCKS_SETTINGS_NAME }
+    const updatedAt = await this.em.transactional(async (tx) => {
+      const lockKey = ['record_locks', 'settings', tenantId].join(':')
+      await tx.execute('select pg_advisory_xact_lock(hashtext(?))', [lockKey])
+
+      const tenantRow = await tx.findOne(ModuleConfig, { ...key, tenantId }, { refresh: true })
+      const effectiveRow = tenantRow ?? await tx.findOne(ModuleConfig, { ...key, tenantId: null }, { refresh: true })
+      assertCurrent(effectiveRow ? normalizeDate(effectiveRow.updatedAt) : null)
+
+      const now = new Date()
+      let saved: ModuleConfig
+      if (tenantRow) {
+        tenantRow.valueJson = settings
+        tenantRow.organizationId = null
+        tenantRow.updatedAt = now
+        saved = tenantRow
+      } else {
+        saved = tx.create(ModuleConfig, {
+          ...key,
+          valueJson: settings,
+          tenantId,
+          organizationId: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        tx.persist(saved)
+      }
+      await tx.flush()
+      return normalizeDate(saved.updatedAt)
+    })
+    await this.moduleConfigService?.invalidate(RECORD_LOCKS_MODULE_ID, RECORD_LOCKS_SETTINGS_NAME, { tenantId })
+    return { settings, updatedAt }
   }
 
   /**
@@ -474,7 +555,7 @@ export class RecordLockService {
 
   async acquire(input: RecordLockAcquireInput): Promise<RecordLockAcquireResult | RecordLockAcquireFailure> {
     this.scheduleCleanup(input.tenantId)
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const latest = await this.findLatestActionLogWithScopeFallback(input)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
 
@@ -819,7 +900,7 @@ export class RecordLockService {
   }
 
   async heartbeat(input: RecordLockHeartbeatInput): Promise<RecordLockHeartbeatResult> {
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     if (!resourceEnabled) return { ok: true, expiresAt: null }
 
@@ -845,7 +926,7 @@ export class RecordLockService {
   }
 
   async release(input: RecordLockReleaseInput): Promise<RecordLockReleaseResult> {
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     if (!resourceEnabled) return { ok: true, released: false, conflictResolved: false }
 
@@ -908,7 +989,7 @@ export class RecordLockService {
   }
 
   async forceRelease(input: RecordLockForceReleaseInput): Promise<RecordLockForceReleaseResult> {
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     const canForceRelease = await this.canUserForceRelease(input, settings)
     if (!resourceEnabled || !settings.allowForceUnlock || !canForceRelease) {
@@ -946,7 +1027,7 @@ export class RecordLockService {
 
   async validateMutation(input: RecordLockMutationValidationInput): Promise<RecordLockValidationResult> {
     this.scheduleCleanup(input.tenantId)
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const resourceEnabled = isRecordLockingEnabledForResource(settings, input.resourceKind)
     const canOverrideIncoming = await this.canUserOverrideIncoming(input, settings)
 
@@ -1148,7 +1229,7 @@ export class RecordLockService {
     method: 'PUT' | 'DELETE'
   }): Promise<void> {
     if (input.method !== 'PUT') return
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     if (!settings.notifyOnConflict || !isRecordLockingEnabledForResource(settings, input.resourceKind)) return
 
     const now = new Date()
@@ -1238,7 +1319,7 @@ export class RecordLockService {
     method: 'PUT' | 'DELETE'
   }): Promise<void> {
     if (input.method !== 'DELETE') return
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     if (!isRecordLockingEnabledForResource(settings, input.resourceKind)) return
 
     const now = new Date()
@@ -1298,7 +1379,7 @@ export class RecordLockService {
     userId: string
     resolution: 'accept_incoming' | 'accept_mine' | 'merged'
   }): Promise<boolean> {
-    const settings = await this.getSettings()
+    const settings = await this.getSettings(input.tenantId)
     const canOverrideIncoming = await this.canUserOverrideIncoming(input, settings)
     const conflict = await this.em.findOne(RecordLockConflict, {
       id: input.conflictId,

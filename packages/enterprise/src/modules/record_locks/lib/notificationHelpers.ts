@@ -39,14 +39,15 @@ export function resolveRecordLockNotificationType(type: string) {
 
 export async function isConflictNotificationEnabled(
   ctx: ResolverContext,
-  _scope?: NotificationScope,
+  scope?: NotificationScope,
 ): Promise<boolean> {
   try {
     const em = (ctx.resolve('em') as EntityManager).fork()
-    const row = await em.findOne(ModuleConfig, {
-      moduleId: RECORD_LOCKS_MODULE_ID,
-      name: RECORD_LOCKS_SETTINGS_NAME,
-    })
+    const key = { moduleId: RECORD_LOCKS_MODULE_ID, name: RECORD_LOCKS_SETTINGS_NAME }
+    const tenantRow = scope?.tenantId
+      ? await em.findOne(ModuleConfig, { ...key, tenantId: scope.tenantId })
+      : null
+    const row = tenantRow ?? await em.findOne(ModuleConfig, { ...key, tenantId: null })
     const settings = normalizeRecordLockSettings(row?.valueJson ?? DEFAULT_RECORD_LOCK_SETTINGS)
     return settings.notifyOnConflict
   } catch {

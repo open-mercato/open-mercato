@@ -81,6 +81,8 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'Exempt — OTel export settings update writes one tenant-scoped module_configs row guarded on its updated_at; a single-admin settings form, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
   'packages/enterprise/src/modules/agent_orchestrator/api/agents/[id]/settings/route.ts':
     'Exempt — per-agent icon setting write guards the AgentSetting row on its own updated_at only when a row already exists (first write has nothing to conflict with); a single-admin cosmetic config surface, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
+  'packages/enterprise/src/modules/record_locks/api/settings/route.ts':
+    'Exempt — record-lock settings write one tenant-scoped module_configs row guarded on its updated_at inside the per-tenant save transaction (#3889); a single-admin settings form, and engaging the record_locks guard on record_locks\' own configuration would be self-referential, so the sync floor covers the stale-form race.',
   'packages/core/src/modules/devices/api/deviceOps.ts':
     'OSS-only — user-device rename/deactivate mutates a per-owner device row (devices.user_device), not a shared collaborative-edit surface; the OSS floor covers the same-user two-tab race. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/notifications/api/types/route.ts':

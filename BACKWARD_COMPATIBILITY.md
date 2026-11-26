@@ -306,7 +306,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ## Per-User Integration Credentials (2026-05-26)
 
-`.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row. **All changes are additive** and pass the contract-surface checks above:
+`.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -320,7 +320,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ## Spec C — Provider Push Delivery (2026-05-27)
 
-`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md` extends the communication-channels module with provider push delivery. **All changes are additive** and pass the contract-surface checks above:
+`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md` extends the communication-channels module with provider push delivery.
 
 > **Update (2026-06-02):** the Microsoft Graph push surfaces (the two `/webhooks/microsoft/*` routes, the `…-microsoft-delta-sync` / `…-microsoft-renew-subscriptions` queues, and `OM_MICROSOFT_WEBHOOK_BASE_URL` / `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS`) were removed together with the `@open-mercato/channel-microsoft` provider — they never shipped in a release, so the removal is not a breaking change. The rows below reflect the Gmail-only surfaces that remain. The `client_state_encrypted` column — proposed solely for Microsoft Graph's anti-tampering nonce — was dropped from scope together with the provider before this branch's migrations were finalized; it appears in no committed migration or snapshot, so there is no schema change to reconcile.
 
@@ -342,7 +342,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ## Command Interceptor HTTP Status (2026-08-06)
 
-`.ai/specs/2026-08-06-command-interceptor-http-status.md` lets a command interceptor's deliberate rejection carry an HTTP status and body, so a business block surfaces as (for example) `422` instead of a generic `500`. **All changes are additive** and pass the contract-surface checks above:
+`.ai/specs/2026-08-06-command-interceptor-http-status.md` lets a command interceptor's deliberate rejection carry an HTTP status and body, so a business block surfaces as (for example) `422` instead of a generic `500`.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -384,7 +384,7 @@ authored route constant directly to the interceptor runner.
 
 ## CRUD Foreign-Key Violations Answer 409 (2026-09-07)
 
-Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503). **All changes are additive** and pass the contract-surface checks above:
+Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503).
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -416,7 +416,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 ## Module Registry Registration Listeners (2026-08-12)
 
-[Registry listener spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
+[Registry listener spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)).
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -464,7 +464,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 
 ## Data Sync Start Control Applicability (2026-09-02)
 
-[Start-control spec](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
+[Start-control spec](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -500,7 +500,7 @@ Spec: [Error-reporting spec](.ai/specs/2026-09-08-error-reporting-policy.md). Ev
 
 ## Data Sync Retry, Resume and Run Again (2026-09-16)
 
-[Retry/resume spec](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
+[Retry/resume spec](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume.
 
 ADDITIVE (§2/§4): `data_sync/lib/resume-point.ts` exports `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint` (`none` / `noCommittedBatch` / `resumes`) and `ResumePointRun`. Nothing is renamed, moved or re-exported. All other contract categories are unchanged, including database schema, snapshots and the vestigial `paused` status.
 
@@ -727,3 +727,7 @@ STABLE API: legacy signatures leave organization unverified. Rotate scoped keys 
 ## 2026-11-25 — Empty organization scope (#10503)
 
 STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+
+## Record-lock settings (2026-11-21, #3889)
+
+STABLE service: `saveSettings` requires a trusted tenant ID to prevent writes across tenants. Emergency exception pending named approval. [Migration](UPGRADE_NOTES.md#record-lock-settings-are-scoped-per-tenant-3889) and [spec](.ai/specs/enterprise/implemented/SPEC-ENT-003-2026-01-23-record-locking-module.md#migration--backward-compatibility).

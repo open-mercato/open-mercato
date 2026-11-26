@@ -218,6 +218,34 @@ configuration is required. What changes when a peer is disabled:
 - **Translate actions** on dictionary entries and custom-field definitions appear only when the
   `translations` module is enabled and the user holds `translations.manage`.
 
+## Record-lock settings are scoped per tenant (#3889)
+
+Record-locking settings (`record_locks` / `settings` in `module_configs`) are now stored per tenant.
+`GET /api/record_locks/settings` returns the caller's tenant row, or the instance row when the tenant
+has not saved its own settings yet. `POST` writes only the caller's tenant row, and lock enforcement,
+heartbeats, releases and conflict notifications read the settings of the operation's tenant.
+
+- `RecordLockService.saveSettings(input, tenantId)` now **requires** the tenant id for a tenant
+  settings write. Integrations must pass the id from trusted operation context. To manage instance
+  defaults, use the existing administrator-controlled `moduleConfigService.restoreDefaults` path.
+  The module setup continues to seed the instance defaults.
+- `RecordLockService.getSettings(tenantId?)` accepts an optional tenant id; without it the instance
+  row is used, as before.
+- Additive: `RecordLockService.getSettingsRecord(tenantId?)` and `saveSettingsRecord(input, tenantId)`
+  return the settings together with their `updatedAt` version.
+- Additive: the settings `GET` and `POST` responses include `updatedAt`. `POST` honours the
+  `x-om-ext-optimistic-lock-expected-updated-at` header and returns the standard
+  `409 optimistic_lock_conflict` body when the settings changed since they were loaded. Clients that
+  do not send the header are not affected. The backend settings page sends it and shows the conflict
+  bar on a stale save. The version check and the write run in one transaction under a per-tenant
+  lock, so of two concurrent saves carrying the same version exactly one succeeds and the other
+  gets the 409. `saveSettingsRecord` accepts an optional third argument
+  `{ assertCurrent(currentUpdatedAt) }` that runs this check inside the transaction.
+
+No database migration is required: `module_configs` already has a `tenant_id` column and `updated_at`.
+The existing instance row remains the fallback. Before rolling back, record any tenant overrides
+that need to be reapplied because older versions read and write only the instance row.
+
 ## Optional process DI root (#8989)
 
 `OM_PROCESS_CONTAINER_ROOT=on` enables generation-owned registration/bootstrap with isolated caller scopes. It defaults to off pending workload qualification. Existing `createRequestContainer()` calls retain separate EntityManagers and mutation boundaries. No schema migration is required.
