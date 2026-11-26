@@ -79,6 +79,13 @@ function isAclData(value: unknown): value is AclData {
   return true
 }
 
+function aclAllowsOrganizationScope(acl: AclData, organizationId: string | null): boolean {
+  if (acl.isSuperAdmin || !acl.organizations) return true
+  if (acl.organizations.includes('__all__')) return true
+  if (!organizationId) return acl.organizations.length > 0
+  return acl.organizations.includes(organizationId)
+}
+
 function isRestrictedRoleAcl(acl: Pick<RoleAcl, 'organizationsJson'>): boolean {
   return !roleAclHasGlobalOrganizationScope(acl)
 }
@@ -920,15 +927,10 @@ export class RbacService {
   ): Promise<boolean> {
     if (!required.length) return true
     const acl = await this.loadAclWithEntityManager(em, userId, scope)
-    const organizationAllowed = acl.isSuperAdmin
-      || !acl.organizations
-      || !scope.organizationId
-      || acl.organizations.includes(scope.organizationId)
-      || acl.organizations.includes('__all__')
     return authorizeFeatures(required, {
       grantedFeatures: acl.features,
       unrestricted: acl.isSuperAdmin,
-      scopeAllowed: organizationAllowed,
+      scopeAllowed: aclAllowsOrganizationScope(acl, scope.organizationId),
     })
   }
 
@@ -939,14 +941,7 @@ export class RbacService {
   ): Promise<string[]> {
     const acl = await this.loadAclWithEntityManager(em, userId, scope)
     if (acl.isSuperAdmin) return filterGrantsByEnabledModules(['*'])
-    if (
-      acl.organizations
-      && scope.organizationId
-      && !acl.organizations.includes(scope.organizationId)
-      && !acl.organizations.includes('__all__')
-    ) {
-      return []
-    }
+    if (!aclAllowsOrganizationScope(acl, scope.organizationId)) return []
     return filterGrantsByEnabledModules(acl.features)
   }
 
@@ -1024,15 +1019,10 @@ export class RbacService {
   async userHasAllFeatures(userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean> {
     if (!required.length) return true
     const acl = await this.loadAcl(userId, scope)
-    const organizationAllowed = acl.isSuperAdmin
-      || !acl.organizations
-      || !scope.organizationId
-      || acl.organizations.includes(scope.organizationId)
-      || acl.organizations.includes('__all__')
     return authorizeFeatures(required, {
       grantedFeatures: acl.features,
       unrestricted: acl.isSuperAdmin,
-      scopeAllowed: organizationAllowed,
+      scopeAllowed: aclAllowsOrganizationScope(acl, scope.organizationId),
     })
   }
 
@@ -1285,14 +1275,7 @@ export class RbacService {
   ): Promise<string[]> {
     const acl = await this.loadAcl(userId, scope)
     if (acl.isSuperAdmin) return filterGrantsByEnabledModules(['*'])
-    if (
-      acl.organizations &&
-      scope.organizationId &&
-      !acl.organizations.includes(scope.organizationId) &&
-      !acl.organizations.includes('__all__')
-    ) {
-      return []
-    }
+    if (!aclAllowsOrganizationScope(acl, scope.organizationId)) return []
     return filterGrantsByEnabledModules(acl.features)
   }
 
@@ -1302,12 +1285,7 @@ export class RbacService {
     scope: { tenantId: string | null; organizationId: string | null },
   ): Promise<string[]> {
     const acl = await this.loadAcl(userId, scope)
-    const organizationAllowed = acl.isSuperAdmin
-      || !acl.organizations
-      || !scope.organizationId
-      || acl.organizations.includes(scope.organizationId)
-      || acl.organizations.includes('__all__')
-    if (!organizationAllowed) return []
+    if (!aclAllowsOrganizationScope(acl, scope.organizationId)) return []
     return resolveEffectiveFeatures(acl.isSuperAdmin ? ['*'] : acl.features)
   }
 }

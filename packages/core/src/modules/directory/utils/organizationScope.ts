@@ -598,7 +598,7 @@ export async function resolveFeatureCheckContext({
   let scope = boundFeatureScope
     ? boundFeatureScope.scope
     : await resolveOrganizationScopeForRequest({ container, auth, request, selectedId, tenantId })
-  const organizationId = boundFeatureScope
+  let organizationId = boundFeatureScope
     ? boundFeatureScope.organizationId
     : resolveFeatureCheckOrganizationId(scope, auth)
   if (
@@ -636,7 +636,7 @@ export async function resolveFeatureCheckContext({
       )
       const approvedOrganizationIds = Array.from(new Set(
         featureOrganizationIds.filter((featureOrganizationId) => candidateOrganizationIds.has(featureOrganizationId)),
-      ))
+      )).sort((left, right) => left.localeCompare(right))
       scope = {
         ...scope,
         selectedId: null,
@@ -644,6 +644,7 @@ export async function resolveFeatureCheckContext({
         allowedIds: approvedOrganizationIds,
         tenantId: scope.tenantId,
       }
+      if (!organizationId) organizationId = resolveFeatureCheckOrganizationId(scope, auth)
     }
     bindFeatureScopeToRequest(request, { userId: auth.sub, scope, organizationId })
   }

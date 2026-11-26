@@ -22,11 +22,11 @@ export class CustomerUserService {
 
   async createUser(
     email: string,
-    password: string,
+    password: string | null,
     displayName: string,
     scope: { tenantId: string; organizationId: string },
   ): Promise<CustomerUser> {
-    const passwordHash = await hash(password, BCRYPT_COST)
+    const passwordHash = password === null ? null : await hash(password, BCRYPT_COST)
     const emailHash = hashForLookup(email)
     const user = this.em.create(CustomerUser, {
       email: email.toLowerCase().trim(),

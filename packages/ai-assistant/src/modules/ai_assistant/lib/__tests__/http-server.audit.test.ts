@@ -174,14 +174,15 @@ describe('MCP HTTP server — tools/call audit', () => {
   })
 
   it('writes one ok row with the header correlation id and echoes it in _meta', async () => {
+    aclBySubject.set(`api_key:${SESSION_KEY_ID}`, { features: ['customers.people.view'], isSuperAdmin: false })
     mockExecuteTool.mockResolvedValue({ success: true, result: { items: [] } })
     const baseUrl = await startHandler()
 
     const body = await callTool(
       baseUrl,
       'customers.list_people',
-      { id: SECRET_ARG_VALUE },
-      { 'x-correlation-id': 'corr-http-1' },
+      { id: SECRET_ARG_VALUE, _sessionToken: SESSION_TOKEN },
+      { 'x-correlation-id': 'corr-http-1', 'x-om-session-token': SESSION_TOKEN },
     )
 
     expect(body.result?.isError).toBeUndefined()
@@ -192,15 +193,15 @@ describe('MCP HTTP server — tools/call audit', () => {
     expect(entry).toMatchObject({
       tenantId: 'tenant-1',
       organizationId: 'org-1',
-      actorUserId: 'user-1',
+      actorUserId: 'user-2',
       resourceKind: MCP_AUDIT_RESOURCE_KIND,
       resourceId: 'customers.list_people',
       context: {
         channel: 'mcp',
         mcpServer: 'http',
         apiKeyId: SERVER_KEY_ID,
-        sessionKeyId: null,
-        principal: 'api_key',
+        sessionKeyId: SESSION_KEY_ID,
+        principal: 'session',
         outcome: 'ok',
         errorCode: null,
         isMutation: false,
@@ -220,6 +221,7 @@ describe('MCP HTTP server — tools/call audit', () => {
       approvalPath: '/backend/config/ai-assistant/pending-actions/pa-1',
       summary: { toolName: 'customers.update_person', targetEntityType: null, targetRecordId: null, recordCount: 1 },
     }
+    aclBySubject.set(`api_key:${SESSION_KEY_ID}`, { features: ['customers.people.manage'], isSuperAdmin: false })
     mockExecuteTool.mockResolvedValue({
       success: true,
       pendingApproval: { pendingActionId: 'pa-1', expiresAt: '2026-10-23T00:00:00.000Z' },
@@ -227,14 +229,19 @@ describe('MCP HTTP server — tools/call audit', () => {
     })
     const baseUrl = await startHandler()
 
-    const body = await callTool(baseUrl, 'customers.update_person', { id: 'p-1' }, { 'x-correlation-id': 'corr-http-pa' })
+    const body = await callTool(
+      baseUrl,
+      'customers.update_person',
+      { id: 'p-1', _sessionToken: SESSION_TOKEN },
+      { 'x-correlation-id': 'corr-http-pa', 'x-om-session-token': SESSION_TOKEN },
+    )
 
     expect(body.result?.isError).toBe(false)
     expect(body.result?.structuredContent).toEqual(pendingResult)
     expect(JSON.parse(body.result?.content?.[0]?.text ?? '{}')).toEqual(pendingResult)
     expect(body.result?._meta).toEqual({ correlationId: 'corr-http-pa' })
     expect(mockExecuteTool.mock.calls[0][3]).toMatchObject({
-      requester: { userId: 'user-1', apiKeyId: SERVER_KEY_ID },
+      requester: { userId: 'user-2', apiKeyId: null },
       correlationId: 'corr-http-pa',
     })
     expect(accessLogEntries).toHaveLength(1)
@@ -311,6 +318,7 @@ describe('MCP HTTP server — tools/call audit', () => {
   })
 
   it('still executes the tool once when the observer throws', async () => {
+    aclBySubject.set(`api_key:${SESSION_KEY_ID}`, { features: ['customers.people.view'], isSuperAdmin: false })
     toolExecutionObserver = {
       wrap: async () => {
         throw new Error('observer unavailable')
@@ -319,7 +327,12 @@ describe('MCP HTTP server — tools/call audit', () => {
     mockExecuteTool.mockResolvedValue({ success: true, result: { items: [] } })
     const baseUrl = await startHandler()
 
-    const body = await callTool(baseUrl, 'customers.list_people', {})
+    const body = await callTool(
+      baseUrl,
+      'customers.list_people',
+      { _sessionToken: SESSION_TOKEN },
+      { 'x-om-session-token': SESSION_TOKEN },
+    )
 
     expect(body.result?.isError).toBeUndefined()
     expect(mockExecuteTool).toHaveBeenCalledTimes(1)
@@ -393,11 +406,17 @@ describe('MCP HTTP server — tools/call audit', () => {
     })
 
     it('returns structuredContent with the run ids and records them in the audit row', async () => {
+      aclBySubject.set(`api_key:${SESSION_KEY_ID}`, { features: ['customers.people.view'], isSuperAdmin: false })
       const payload = { result: { summary: 'ok' }, agentId: 'customers.summary_agent', runId: 'run-1', agentRunId: null }
       mockExecuteTool.mockResolvedValue({ success: true, result: payload })
       const baseUrl = await startHandler()
 
-      const body = await callTool(baseUrl, 'customers.summary_agent.run', { id: SECRET_ARG_VALUE }, { 'x-correlation-id': 'corr-agent' })
+      const body = await callTool(
+        baseUrl,
+        'customers.summary_agent.run',
+        { id: SECRET_ARG_VALUE, _sessionToken: SESSION_TOKEN },
+        { 'x-correlation-id': 'corr-agent', 'x-om-session-token': SESSION_TOKEN },
+      )
 
       expect(body.result?.isError).toBeUndefined()
       expect(body.result?.structuredContent).toEqual(payload)
@@ -416,6 +435,7 @@ describe('MCP HTTP server — tools/call audit', () => {
     })
 
     it('surfaces AGENT_DISPATCHER_UNAVAILABLE as an error result with the code', async () => {
+      aclBySubject.set(`api_key:${SESSION_KEY_ID}`, { features: ['customers.people.view'], isSuperAdmin: false })
       mockExecuteTool.mockResolvedValue({
         success: false,
         error: 'Tool "customers.summary_agent.run" cannot run: its agent is not available',
@@ -423,7 +443,12 @@ describe('MCP HTTP server — tools/call audit', () => {
       })
       const baseUrl = await startHandler()
 
-      const body = await callTool(baseUrl, 'customers.summary_agent.run', {})
+      const body = await callTool(
+        baseUrl,
+        'customers.summary_agent.run',
+        { _sessionToken: SESSION_TOKEN },
+        { 'x-om-session-token': SESSION_TOKEN },
+      )
 
       expect(body.result?.isError).toBe(true)
       expect(body.result?.structuredContent).toBeUndefined()
@@ -438,21 +463,34 @@ describe('MCP HTTP server — tools/call audit', () => {
     })
 
     it('leaves non-agent tool rows without agent ids', async () => {
+      aclBySubject.set(`api_key:${SESSION_KEY_ID}`, { features: ['customers.people.view'], isSuperAdmin: false })
       mockExecuteTool.mockResolvedValue({ success: true, result: { items: [] } })
       const baseUrl = await startHandler()
 
-      const body = await callTool(baseUrl, 'customers.list_people', {})
+      const body = await callTool(
+        baseUrl,
+        'customers.list_people',
+        { _sessionToken: SESSION_TOKEN },
+        { 'x-om-session-token': SESSION_TOKEN },
+      )
 
+      expect(body.result?.isError).toBeUndefined()
       expect(body.result?.structuredContent).toBeUndefined()
       expect(accessLogEntries[0].context).toMatchObject({ agentId: null, aiAgentRunId: null, agentRunId: null })
     })
   })
 
   it('records error when the tool throws and replaces an invalid correlation header', async () => {
+    aclBySubject.set(`api_key:${SESSION_KEY_ID}`, { features: ['customers.people.view'], isSuperAdmin: false })
     mockExecuteTool.mockRejectedValue(new Error('boom'))
     const baseUrl = await startHandler()
 
-    const body = await callTool(baseUrl, 'customers.list_people', {}, { 'x-correlation-id': 'bad id with spaces' })
+    const body = await callTool(
+      baseUrl,
+      'customers.list_people',
+      { _sessionToken: SESSION_TOKEN },
+      { 'x-correlation-id': 'bad id with spaces', 'x-om-session-token': SESSION_TOKEN },
+    )
 
     expect(JSON.parse(body.result?.content?.[0]?.text ?? '{}')).toEqual({ error: 'boom', code: 'EXCEPTION' })
     const correlationId = body.result?._meta?.correlationId
@@ -593,10 +631,16 @@ describe('MCP HTTP server — tools/call audit', () => {
     })
 
     it('writes exactly one row for a call the tool handler handled', async () => {
+      aclBySubject.set(`api_key:${SESSION_KEY_ID}`, { features: ['customers.people.view'], isSuperAdmin: false })
       mockExecuteTool.mockResolvedValue({ success: false, error: 'bad input', errorCode: 'VALIDATION_ERROR' })
       const baseUrl = await startHandler()
 
-      await callTool(baseUrl, 'customers.list_people', { id: 'p-1' })
+      await callTool(
+        baseUrl,
+        'customers.list_people',
+        { id: 'p-1', _sessionToken: SESSION_TOKEN },
+        { 'x-om-session-token': SESSION_TOKEN },
+      )
 
       expect(accessLogEntries).toHaveLength(1)
       expect(accessLogEntries[0].context).toMatchObject({ outcome: 'invalid_input', errorCode: 'VALIDATION_ERROR' })
