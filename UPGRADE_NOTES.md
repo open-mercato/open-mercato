@@ -4,6 +4,7 @@
 
 Staff user changes that affect credentials, activation or membership, user
 deletion, and ACL replacements now check the target's current privileges.
+Undo of a sensitive staff update or user creation also checks that ceiling.
 Clients should handle HTTP 403 by directing the request to an authorized
 administrator. Operators should review the target's current role and direct
 grants before delegating these administrative changes. No schema migration is

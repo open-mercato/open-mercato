@@ -730,11 +730,11 @@ STABLE API: legacy signatures leave organization unverified. Rotate scoped keys 
 
 ## 2026-11-25 — Encrypted custom field writes
 
-STABLE API behavior changes for writes of tenant-scoped encrypted custom fields when the data key is unavailable. Preserving success during the outage would persist unencrypted values. Clients handle HTTP 503 and retry after key access recovers. Operators restore key access and review historical records. [Migration](UPGRADE_NOTES.md) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
+STABLE encrypted custom-field writes return 503 without a tenant key to prevent plaintext writes. [Upgrade](UPGRADE_NOTES.md) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
 
 ## 2026-11-25 — Empty organization scope (#10503)
 
-STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+STABLE feature-gated APIs return 403 for empty organization scope. Restoring unscoped checks reopens the authorization gap. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named waiver pending.
 
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
 
@@ -748,13 +748,6 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
 
-## Current staff and ACL grants (2026-11-26, #10598 and #10687)
+## Staff and ACL grant ceilings (2026-11-26)
 
-STABLE HTTP authorization behavior changes for staff identity changes and ACL
-replacements. Both reject writes outside the actor's
-grant ceiling on the existing target. The previous authorization behavior would
-keep the unauthorized write reachable throughout a bridge release. Path,
-request and authorized success contracts remain stable. Named maintainer
-acknowledgment is pending. See the
-[upgrade notes](UPGRADE_NOTES.md#staff-and-acl-changes-respect-current-target-privileges)
-and the [staff authorization spec](.ai/specs/2026-11-26-auth-current-grant-ceilings.md#migration--backward-compatibility).
+STABLE HTTP staff and ACL writes enforce the target grant ceiling. A bridge retains unauthorized writes. [Upgrade](UPGRADE_NOTES.md#staff-and-acl-changes-respect-current-target-privileges). Named waiver pending.

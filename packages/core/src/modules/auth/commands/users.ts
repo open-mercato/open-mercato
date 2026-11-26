@@ -480,6 +480,11 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
           logEntry,
         })
         const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+        if (current) {
+          await assertCommandActorCanManageCurrentUser(
+            ctx, em, { id: userId, deletedAt: null }, { requireBoundRbac: true },
+          )
+        }
         const floorTenantId = current?.tenantId ? String(current.tenantId) : (snapshot?.tenantId ?? null)
 
         // Undoing a create hard-deletes the user, so it can strip a tenant's last active
@@ -1032,6 +1037,16 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           logEntry,
         })
         const current = await findOneWithDecryption(em, User, { id: userId, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+        if (current && (
+          'email' in replayInput
+          || 'isConfirmed' in replayInput
+          || 'organizationId' in replayInput
+          || Array.isArray(replayInput.roles)
+        )) {
+          await assertCommandActorCanManageCurrentUser(
+            ctx, em, { id: userId, deletedAt: null }, { requireBoundRbac: true },
+          )
+        }
         const currentTenantId = current?.tenantId ? String(current.tenantId) : null
 
         await enforceProtectedRoleFloor(
@@ -1816,6 +1831,7 @@ async function assertCommandActorCanManageCurrentUser(
   ctx: CommandRuntimeContext,
   em: EntityManager,
   where: FilterQuery<User>,
+  options?: { requireBoundRbac: boolean },
 ): Promise<void> {
   if (!ctx.auth || ctx.systemActor === true) return
   const target = await findOneWithDecryption(
@@ -1836,6 +1852,7 @@ async function assertCommandActorCanManageCurrentUser(
     actorUserId: ctx.auth.sub,
     tenantId,
     organizationId,
+    requireBoundRbac: options?.requireBoundRbac,
   }
   const roles = await resolveUserDestinationRoles({
     em,

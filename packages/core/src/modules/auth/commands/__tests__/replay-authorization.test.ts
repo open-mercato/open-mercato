@@ -869,6 +869,31 @@ describe('auth command replay authorization', () => {
     expect(harness.actionLogService.log).not.toHaveBeenCalled()
   })
 
+  it('keeps staff email undo within the current direct grant ceiling', async () => {
+    const before = userSnapshot({ email: 'before@example.com' })
+    const after = userSnapshot({ email: 'after@example.com' })
+    const harness = makeHarness({
+      user: { ...after },
+      userAcls: [{ tenantId: tenantA, featuresJson: ['example.manage'] }],
+    })
+    harness.actionLogService.findByUndoToken.mockResolvedValue({
+      id: 'staff-email-log',
+      commandId: 'auth.users.update',
+      resourceId: userId,
+      commandPayload: {
+        __redoInput: { id: userId, email: after.email },
+        undo: { before, after },
+      },
+    })
+
+    await expect(new CommandBus().undo('staff-email-token', harness.ctx))
+      .rejects.toMatchObject<Partial<CrudHttpError>>({ status: 403 })
+
+    expect(harness.state.user).toEqual(after)
+    expect(harness.updateOrmEntity).not.toHaveBeenCalled()
+    expect(harness.actionLogService.markUndone).not.toHaveBeenCalled()
+  })
+
   it('allows a fresh self-service email undo and preserves normal side effects', async () => {
     const harness = makeHarness({
       user: userSnapshot({ id: actorId, email: 'after@example.com' }),

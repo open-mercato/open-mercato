@@ -9,7 +9,8 @@ administrators modify account authority or replace a role or user ACL.
 
 - The staff user command checks the current roles and direct ACLs after the
   existing authorization-state locks. This applies to credential and email
-  changes, activation changes, membership changes and deletion.
+  changes, activation changes, membership changes and deletion. Sensitive update
+  undo and account-removing create undo use the same ceiling under replay locks.
 - The role and user ACL commands check the stored ACL after taking the existing
   write lock and before persisting a replacement. The routes retain their
   existing checks on requested privileges.
@@ -33,3 +34,5 @@ both role and direct grants, plus role and user ACL replacement with an actor
 below the target's privileges. It verifies updates and role ACL replacement
 within the actor's ceiling and uses a separately created tenant to confirm that
 a denied cross-tenant update and delete leave the target record intact.
+
+The command replay authorization suite covers the ceiling on sensitive user undo.
