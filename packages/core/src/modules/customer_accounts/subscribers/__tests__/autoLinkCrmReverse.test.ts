@@ -68,7 +68,7 @@ function setup() {
     Object.assign(row, updates)
     return 1
   })
-  const em = { findOne, nativeUpdate }
+  const em = { findOne, nativeUpdate, getMetadata: () => ({ find: (entity: unknown) => ({ class: entity }) }) }
   mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => findOne(entity, where))
   const ctx = { resolve: <T = unknown>() => em as unknown as T }
   const payload = { id: person.id, tenantId, organizationId }
