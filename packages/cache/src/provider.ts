@@ -490,7 +490,15 @@ type CacheProviderSelectionMemo = CacheProviderSelectionKey & {
   failure: CacheProviderError | null
 }
 
+type CacheProviderManifest = { cacheProviders?: unknown }
+type CacheProviderManifestLoader = () => Promise<CacheProviderManifest>
+
 type CacheProviderSelectionState = {
+  manifest: {
+    load: CacheProviderManifestLoader
+    pending?: Promise<void>
+    loaded?: boolean
+  } | null
   registrations: ReadonlyArray<CacheProviderRegistration>
   memo: CacheProviderSelectionMemo | null
 }
@@ -500,7 +508,7 @@ type GlobalWithSelectionState = typeof globalThis & {
 }
 
 function createSelectionState(): CacheProviderSelectionState {
-  return { registrations: [], memo: null }
+  return { manifest: null, registrations: [], memo: null }
 }
 
 function selectionState(): CacheProviderSelectionState {
@@ -534,8 +542,28 @@ function matchesSelectionKey(memo: CacheProviderSelectionMemo, key: CacheProvide
  */
 export function setCacheProviderRegistrations(registrations: ReadonlyArray<CacheProviderRegistration>): void {
   const state = selectionState()
+  state.manifest = null
   state.registrations = Array.isArray(registrations) ? [...registrations] : registrations
   state.memo = null
+}
+
+/** The web bootstrap supplies a bundler-visible import without evaluating app config. */
+export function setCacheProviderManifestLoader(load: CacheProviderManifestLoader): void {
+  const state = selectionState()
+  if (state.manifest && (state.manifest.load === load || process.env.NODE_ENV === 'production')) return
+  state.manifest = { load }
+  state.registrations = []
+  state.memo = null
+}
+
+export function readCacheProviderManifest(manifest: CacheProviderManifest): CacheProviderRegistration[] {
+  if (!Array.isArray(manifest.cacheProviders)) {
+    throw new CacheProviderError(
+      'invalid_registration',
+      'The cache provider manifest must export a cacheProviders array. Run yarn generate and check src/providers/cache.ts.',
+    )
+  }
+  return manifest.cacheProviders as CacheProviderRegistration[]
 }
 
 export function getCacheProviderRegistrations(): ReadonlyArray<CacheProviderRegistration> {
@@ -551,6 +579,20 @@ export function getCacheProviderRegistrations(): ReadonlyArray<CacheProviderRegi
 export function prepareCacheProviderSelection(options: { env?: CacheProviderEnv } = {}): Promise<ResolvedCacheProvider | null> {
   const state = selectionState()
   const env = options.env ?? process.env
+  const manifest = state.manifest
+  if (manifest && !manifest.loaded && readSelectedCacheProviderId(env)) {
+    manifest.pending ??= Promise.resolve().then(manifest.load).then((loaded) => {
+      if (state.manifest !== manifest) return
+      state.registrations = [...readCacheProviderManifest(loaded)]
+      state.memo = null
+      manifest.loaded = true
+    }).catch((error: unknown) => {
+      throw toSanitizedCacheProviderError(error, {
+        message: 'The cache provider manifest could not be loaded. Check src/providers/cache.ts.',
+      })
+    })
+    return manifest.pending.then(() => prepareCacheProviderSelection(options))
+  }
   const key = readSelectionKey(state, env)
   if (state.memo && matchesSelectionKey(state.memo, key)) return state.memo.pending
   const memo: CacheProviderSelectionMemo = {

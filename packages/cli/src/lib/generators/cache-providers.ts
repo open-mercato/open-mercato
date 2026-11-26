@@ -6,8 +6,8 @@ import { calculateStructureChecksum, createGeneratorResult, type GeneratorResult
 /**
  * App cache-provider manifest generator.
  *
- * An app opts into third-party cache providers with `<app root>/mercato.cache.ts`
- * (or `mercato.cache.js`) — next to `package.json`, NOT under `src/`. The file must
+ * An app opts into third-party cache providers with `<app root>/src/providers/cache.ts`
+ * (or `src/providers/cache.js`). The file must
  * export a named array:
  *
  * ```ts
@@ -26,7 +26,7 @@ import { calculateStructureChecksum, createGeneratorResult, type GeneratorResult
 
 export const CACHE_PROVIDERS_GENERATED_FILE = 'cache-providers.generated.ts'
 export const CACHE_PROVIDERS_CHECKSUM_FILE = 'cache-providers.generated.checksum'
-export const CACHE_MANIFEST_BASENAME = 'mercato.cache'
+const CACHE_MANIFEST_BASENAME = 'src/providers/cache'
 
 const SUPPORTED_MANIFEST_EXTENSIONS = ['.ts', '.js'] as const
 const UNSUPPORTED_MANIFEST_EXTENSIONS = ['.tsx', '.mts', '.cts', '.mjs', '.cjs'] as const
@@ -46,14 +46,14 @@ export function findCacheProviderManifest(appDir: string): string | null {
   const unsupported = manifestCandidates(appDir, UNSUPPORTED_MANIFEST_EXTENSIONS)
   if (unsupported.length > 0) {
     throw new Error(
-      `[internal] Unsupported cache provider manifest ${unsupported.map((file) => path.basename(file)).join(', ')}: ` +
+      `[internal] Unsupported cache provider manifest ${unsupported.map((file) => path.relative(appDir, file)).join(', ')}: ` +
         `rename it to ${CACHE_MANIFEST_BASENAME}.ts (or ${CACHE_MANIFEST_BASENAME}.js).`,
     )
   }
   const supported = manifestCandidates(appDir, SUPPORTED_MANIFEST_EXTENSIONS)
   if (supported.length > 1) {
     throw new Error(
-      `[internal] Multiple cache provider manifests found (${supported.map((file) => path.basename(file)).join(', ')}): keep exactly one.`,
+      `[internal] Multiple cache provider manifests found (${supported.map((file) => path.relative(appDir, file)).join(', ')}): keep exactly one.`,
     )
   }
   return supported[0] ?? null

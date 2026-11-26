@@ -8723,11 +8723,75 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@open-mercato/cache-provider-jsonfile@workspace:*, @open-mercato/cache-provider-jsonfile@workspace:packages/cache-provider-jsonfile":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/cache-provider-jsonfile@workspace:packages/cache-provider-jsonfile"
+  dependencies:
+    "@open-mercato/cache-provider-kit": "workspace:*"
+    "@types/node": "npm:^26.4.0"
+    typescript: "npm:7.0.2"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/cache-provider-kit@workspace:*, @open-mercato/cache-provider-kit@workspace:packages/cache-provider-kit":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/cache-provider-kit@workspace:packages/cache-provider-kit"
+  dependencies:
+    "@types/node": "npm:^26.4.0"
+    typescript: "npm:7.0.2"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/cache-provider-memory@workspace:*, @open-mercato/cache-provider-memory@workspace:packages/cache-provider-memory":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/cache-provider-memory@workspace:packages/cache-provider-memory"
+  dependencies:
+    "@open-mercato/cache-provider-kit": "workspace:*"
+    "@types/node": "npm:^26.4.0"
+    typescript: "npm:7.0.2"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/cache-provider-redis-legacy@workspace:*, @open-mercato/cache-provider-redis-legacy@workspace:packages/cache-provider-redis-legacy":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/cache-provider-redis-legacy@workspace:packages/cache-provider-redis-legacy"
+  dependencies:
+    "@open-mercato/cache-provider-kit": "workspace:*"
+    "@types/node": "npm:^26.4.0"
+    typescript: "npm:7.0.2"
+  peerDependencies:
+    ioredis: ^5.0.0 || ^6.0.0
+  peerDependenciesMeta:
+    ioredis:
+      optional: true
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/cache-provider-sqlite@workspace:*, @open-mercato/cache-provider-sqlite@workspace:packages/cache-provider-sqlite":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/cache-provider-sqlite@workspace:packages/cache-provider-sqlite"
+  dependencies:
+    "@open-mercato/cache-provider-kit": "workspace:*"
+    "@types/better-sqlite3": "npm:^7.6.13"
+    "@types/node": "npm:^26.4.0"
+    typescript: "npm:7.0.2"
+  peerDependencies:
+    better-sqlite3: ">=9.0.0"
+  peerDependenciesMeta:
+    better-sqlite3:
+      optional: true
+  languageName: unknown
+  linkType: soft
+
 "@open-mercato/cache@workspace:*, @open-mercato/cache@workspace:packages/cache":
   version: 0.0.0-use.local
   resolution: "@open-mercato/cache@workspace:packages/cache"
   dependencies:
-    "@types/better-sqlite3": "npm:^7.6.13"
+    "@open-mercato/cache-provider-jsonfile": "workspace:*"
+    "@open-mercato/cache-provider-kit": "workspace:*"
+    "@open-mercato/cache-provider-memory": "workspace:*"
+    "@open-mercato/cache-provider-redis-legacy": "workspace:*"
+    "@open-mercato/cache-provider-sqlite": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.4.0"
     jest: "npm:^30.4.2"

@@ -4,7 +4,7 @@ Deployment operators can select an explicitly registered npm cache provider with
 
 ## Requirement: App-owned npm provider selection
 
-The platform SHALL select an explicitly registered npm cache provider using deployment configuration and the provider's validated settings.
+The platform SHALL select an explicitly registered npm cache provider using deployment configuration and the provider's validated settings. The app declares registrations in `src/providers/cache.ts`. Web, worker, scheduler and maintenance paths initialize the selected provider before use.
 
 ### Scenario: Provider unknown to platform source
 

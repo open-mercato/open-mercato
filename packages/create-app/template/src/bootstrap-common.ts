@@ -30,8 +30,7 @@ import { registerNotificationTypes } from '@open-mercato/core/modules/notificati
 import { runBootstrapRegistrations } from '@/.mercato/generated/bootstrap-registrations.generated'
 import { allCodeWorkflows } from '@/.mercato/generated/workflows.generated'
 import { registerCodeWorkflows } from '@open-mercato/core/modules/workflows/lib/code-registry'
-import { cacheProviders } from '@/.mercato/generated/cache-providers.generated'
-import { setCacheProviderRegistrations } from '@open-mercato/shared/lib/cache/providers'
+import { setCacheProviderManifestLoader } from '@open-mercato/shared/lib/cache/providers'
 
 applyModuleOverridesFromEnabledModules(enabledModules)
 registerEventModuleConfigs(eventModuleConfigs)
@@ -39,7 +38,7 @@ registerMessageTypes(messageTypes, { replace: true })
 registerMessageObjectTypes(messageObjectTypes, { replace: true })
 registerNotificationTypes(notificationTypes, { replace: true })
 registerCodeWorkflows(allCodeWorkflows)
-setCacheProviderRegistrations(cacheProviders)
+setCacheProviderManifestLoader(() => import('@/.mercato/generated/cache-providers.generated'))
 runBootstrapRegistrations()
 
 type ServerFoundationBootstrapData = Omit<

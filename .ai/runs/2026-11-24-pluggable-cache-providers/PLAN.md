@@ -40,7 +40,7 @@ Let a deployment select an explicitly registered npm cache provider (`CACHE_PROV
 ## Scope
 
 - `packages/cache`: new server-only `@open-mercato/cache/provider` entry (contract, registration, resolution, errors), `CacheServiceOptions.provider`, lazy provider strategy handle, effective-selection descriptor, `@open-mercato/cache/testing` conformance kit, packed fixture provider under `packages/cache/fixtures/`.
-- `packages/cli`: `cache-providers` generator for `<app root>/mercato.cache.ts`, manifest loader for CLI/worker/scheduler, post-generate purge, single-instance guard input.
+- `packages/cli`: `cache-providers` generator for `<app root>/src/providers/cache.ts`, manifest loader for CLI/worker/scheduler, post-generate purge, single-instance guard input.
 - `packages/core`: bootstrap provider failure path (no memory substitution), OAuth warning.
 - `packages/shared`: request container optional-bootstrap catch must not swallow provider selection errors; maintenance re-export.
 - `apps/mercato`: healthz probe uses effective selection; bootstrap-common registers manifest; `.env.example` (+ create-app template sync).
@@ -101,8 +101,8 @@ export class CacheProviderError extends Error { code: CacheProviderErrorCode; pr
 
 ### Manifest
 
-- App file `<app root>/mercato.cache.ts` (apps/mercato/mercato.cache.ts — app root, NOT src/) exports `cacheProviders: CacheProviderRegistration[]`.
-- Generator `packages/cli/src/lib/generators/cache-providers.ts` writes `cache-providers.generated.ts` into the generated output dir: either `export { cacheProviders } from '<relative path to mercato.cache>'` or `export const cacheProviders = []`, plus checksum. It never evaluates the file. Hook into `yarn generate` alongside `generateWebResearchAdapters`.
+- App file `<app root>/src/providers/cache.ts` (apps/mercato/src/providers/cache.ts) exports `cacheProviders: CacheProviderRegistration[]`.
+- Generator `packages/cli/src/lib/generators/cache-providers.ts` writes `cache-providers.generated.ts` into the generated output dir: either `export { cacheProviders } from '<relative path to src/providers/cache>'` or `export const cacheProviders = []`, plus checksum. It never evaluates the file. Hook into `yarn generate` alongside `generateWebResearchAdapters`.
 - `apps/mercato/src/bootstrap-common.ts` calls `setCacheProviderRegistrations(cacheProviders)` from the generated file. CLI/worker/scheduler: a narrow `loadCacheProviderManifest(appDir)` that imports the generated file the same way the CLI already loads other generated registries.
 
 ### Runtime boundaries
@@ -115,7 +115,7 @@ export class CacheProviderError extends Error { code: CacheProviderErrorCode; pr
 ## Risks
 
 - Bootstrap error propagation could take down request paths for misconfigured deployments — intended by spec (no silent memory), but stock paths must be byte-for-byte unchanged when `CACHE_PROVIDER` unset (characterization tests in 1.1 guard this).
-- Next/Turbopack bundling of the app-root `mercato.cache.ts` — prove with `yarn build:app`.
+- Next/Turbopack bundling of the `src/providers/cache.ts` — prove with `yarn build:app`.
 
 ## Implementation Plan
 
