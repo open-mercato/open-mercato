@@ -215,13 +215,8 @@
   "resolutions": {
     "@xmldom/xmldom": "0.8.15",
     "tmp": "0.2.7",
-<<<<<<< HEAD
-    "@hono/node-server": "1.19.14",
-    "hono": "4.13.14",
-=======
     "@hono/node-server": "2.1.6",
-    "hono": "4.13.16",
->>>>>>> e615240a3e (fix(deps): patch Hono adapter and selector parser vulnerabilities (#8946))
+    "hono": "4.13.14",
     "pg": "8.23.0",
     "zod": "4.6.6",
     "lodash": "4.18.1",
