@@ -527,20 +527,56 @@ function formatValueForColumn(prop: any, value: unknown): unknown {
   return JSON.stringify(value)
 }
 
+type EncryptionColumns = Map<string, 'json' | 'jsonb' | null>
+
+function resolveEncryptionColumns(
+  meta: unknown,
+  primaryKey: string,
+  fields: EncryptionMapMeta['fields'],
+): EncryptionColumns {
+  const columns: EncryptionColumns = new Map([[primaryKey, null]])
+  for (const field of fields.flatMap(({ field, hashField }) => hashField ? [field, hashField] : [field])) {
+    const { columnName, prop } = resolveProperty(meta, field)
+    if (!columnName) continue
+    const type = String(prop?.columnTypes?.[0] ?? prop?.type ?? '').toLowerCase()
+    columns.set(columnName, type === 'json' || type === 'jsonb' ? type : null)
+  }
+  return columns
+}
+
+function selectEncryptionColumns(columns: EncryptionColumns): string {
+  return Array.from(columns, ([column, type]) => type ? `"${column}"::text AS "${column}"` : `"${column}"`).join(', ')
+}
+
+function decodeEncryptionRow(originalRow: Record<string, unknown>, columns: EncryptionColumns): Record<string, unknown> {
+  const row = { ...originalRow }
+  for (const [column, type] of columns) {
+    const original = originalRow[column]
+    if (type && typeof original === 'string') row[column] = JSON.parse(original)
+  }
+  return row
+}
+
 async function updateEncryptionColumns(
   connection: { execute: (query: string, parameters: unknown[]) => Promise<unknown> },
   table: string,
   primaryKey: string,
-  row: Record<string, unknown>,
+  originalRow: Record<string, unknown>,
+  columnTypes: EncryptionColumns,
   updates: Record<string, unknown>,
   scope: { tenantId: string; organizationId: string | null },
 ): Promise<void> {
   const columns = Object.keys(updates)
   const assignments = columns.map((column) => `"${column}" = ?`).join(', ')
-  const unchanged = columns.map((column) => `"${column}" IS NOT DISTINCT FROM ?`).join(' AND ')
+  const unchanged = columns.map((column) => {
+    const type = columnTypes.get(column)
+    const originalColumn = type === 'json' ? `"${column}"::text` : `"${column}"`
+    const originalValue = type === 'jsonb' ? '?::jsonb' : '?'
+    return `${originalColumn} IS NOT DISTINCT FROM ${originalValue}`
+  }).join(' AND ')
   const result = await connection.execute(
     `UPDATE ${table} SET ${assignments} WHERE "${primaryKey}" = ? AND tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? AND ${unchanged} RETURNING "${primaryKey}"`,
-    [...Object.values(updates), row[primaryKey], scope.tenantId, scope.organizationId, ...columns.map((column) => row[column])],
+    [...Object.values(updates), originalRow[primaryKey], scope.tenantId, scope.organizationId, ...columns.map((column) => originalRow[column])],
   )
   if (!Array.isArray(result) || result.length !== 1) {
     failCli('[internal] A row changed concurrently during encryption maintenance. No stale values were written; retry after stopping writers.')
@@ -680,23 +716,12 @@ const rotateEncryptionKey: ModuleCli = {
       scope: { tenantId: string; organizationId: string | null },
     ): Promise<number> => {
       const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
-      const columns = new Set<string>()
-      columns.add(pk)
-      for (const rule of fields) {
-        const resolved = resolveProperty(meta, rule.field)
-        if (resolved?.columnName) columns.add(resolved.columnName)
-        if (rule.hashField) {
-          const resolvedHash = resolveProperty(meta, rule.hashField)
-          if (resolvedHash?.columnName) columns.add(resolvedHash.columnName)
-        }
-      }
-      const columnList = Array.from(columns)
-      if (!columnList.length) return 0
+      const columns = resolveEncryptionColumns(meta, pk, fields)
       const tableName = meta?.tableName
       if (!tableName) return 0
       const schema = meta?.schema
       const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
-      const selectSql = `select ${columnList.map((c) => `"${c}"`).join(', ')} from ${qualifiedTable} where tenant_id = ? and organization_id is not distinct from ?`
+      const selectSql = `select ${selectEncryptionColumns(columns)} from ${qualifiedTable} where tenant_id = ? and organization_id is not distinct from ?`
       const rows = await conn.execute(selectSql, [scope.tenantId, scope.organizationId])
       const list = Array.isArray(rows) ? rows : []
       if (!list.length) return 0
@@ -704,7 +729,8 @@ const rotateEncryptionKey: ModuleCli = {
       // The scope pins one tenant, so the current DEK is the same for every row here.
       const currentDek = rotate && oldKms ? await encryptionService.getDek(scope.tenantId) : null
       let updated = 0
-      for (const row of list) {
+      for (const originalRow of list) {
+        const row = decodeEncryptionRow(originalRow, columns)
         const payload: Record<string, unknown> = {}
         for (const rule of fields) {
           const resolved = resolveProperty(meta, rule.field)
@@ -800,7 +826,7 @@ const rotateEncryptionKey: ModuleCli = {
         }
         if (!Object.keys(updates).length) continue
         if (!dryRun) {
-          await updateEncryptionColumns(conn, qualifiedTable, pk, row, updates, scope)
+          await updateEncryptionColumns(conn, qualifiedTable, pk, originalRow, columns, updates, scope)
         }
         updated += 1
       }
@@ -1067,11 +1093,8 @@ const decryptDatabase: ModuleCli = {
       const tableName = meta.tableName
       const schema = meta?.schema
       const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
-      const fieldCols = fields.flatMap((field) => [
-        resolveProperty(meta, field.field).columnName,
-        field.hashField ? resolveProperty(meta, field.hashField).columnName : null,
-      ].filter((column): column is string => Boolean(column)))
-      const colList = Array.from(new Set([pk, ...fieldCols]))
+      const columns = resolveEncryptionColumns(meta, pk, fields)
+      const selectList = selectEncryptionColumns(columns)
       totalEntitiesProcessed++
 
       const scopes = [scope]
@@ -1081,7 +1104,7 @@ const decryptDatabase: ModuleCli = {
         let scopeMalformedCount = 0
 
         while (true) {
-          let selectSql = `SELECT ${colList.map((c: string) => `"${c}"`).join(', ')} FROM ${qualifiedTable} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?`
+          let selectSql = `SELECT ${selectList} FROM ${qualifiedTable} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?`
           const selectParams: unknown[] = [scope.tenantId, scope.organizationId]
           if (lastId !== null) {
             selectSql += ` AND "${pk}" > ?`
@@ -1101,7 +1124,8 @@ const decryptDatabase: ModuleCli = {
           await conn.execute('BEGIN')
           let batchCommitted = false
           try {
-            for (const row of batch) {
+            for (const originalRow of batch) {
+              const row = decodeEncryptionRow(originalRow, columns)
               const updates: Record<string, unknown> = {}
               let rowDecrypted = false
 
@@ -1160,7 +1184,7 @@ const decryptDatabase: ModuleCli = {
 
               if (Object.keys(updates).length > 0) {
                 if (!dryRun) {
-                  await updateEncryptionColumns(conn, qualifiedTable, pk, row, updates, scope)
+                  await updateEncryptionColumns(conn, qualifiedTable, pk, originalRow, columns, updates, scope)
                 }
                 totalRowsUpdated++
               }

@@ -140,7 +140,7 @@ describe('entities rotate-encryption-key CLI', () => {
     singleMapFixture()
 
     execute.mockResolvedValueOnce([
-      { id: 'row-1', resource_id: encryptedValue, context_json: encryptedValue },
+      { id: 'row-1', resource_id: encryptedValue, context_json: JSON.stringify(encryptedValue) },
     ])
     ;(decryptWithAesGcm as jest.Mock)
       .mockReturnValueOnce('resource-value')
@@ -152,11 +152,16 @@ describe('entities rotate-encryption-key CLI', () => {
     expect(execute).toHaveBeenCalledTimes(2)
     const updateCall = execute.mock.calls[1]
     expect(updateCall[0]).toMatch(/UPDATE\s+"access_logs"/)
-    expect(updateCall[1]).toEqual(expect.arrayContaining([
+    expect(updateCall[0]).toContain('"context_json" IS NOT DISTINCT FROM ?::jsonb')
+    expect(updateCall[1]).toEqual([
       'enc:resource-value',
       '"enc:{\\"note\\":\\"hello\\"}"',
       'row-1',
-    ]))
+      'tenant-1',
+      'org-1',
+      encryptedValue,
+      JSON.stringify(encryptedValue),
+    ])
   })
 
   // Regression for #5951: a row sealed under neither --old-key nor the current tenant key
@@ -248,7 +253,7 @@ describe('entities rotate-encryption-key CLI', () => {
     singleMapFixture()
     const foreignDekEnvelope = shapeValidCiphertext('cipher')
     execute.mockResolvedValueOnce([
-      { id: 'row-1', resource_id: foreignDekEnvelope, context_json: 'plain text' },
+      { id: 'row-1', resource_id: foreignDekEnvelope, context_json: JSON.stringify('plain text') },
     ])
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
