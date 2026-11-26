@@ -253,7 +253,11 @@ async function notifyRoleChanges(
     if (assignedRoles.length) {
       const assignedType = notificationTypes.find((type) => type.type === 'auth.role.assigned')
       if (assignedType) {
-        const notificationInput = buildNotificationFromType(assignedType, {
+        const notificationInput = buildNotificationFromType({
+          ...assignedType,
+          bodyKey: 'auth.notifications.role.assigned.bodyWithRoles',
+        }, {
+          bodyVariables: { roles: assignedRoles.join(', ') },
           recipientUserId: String(user.id),
           sourceEntityType: 'auth:user',
           sourceEntityId: String(user.id),
@@ -265,7 +269,11 @@ async function notifyRoleChanges(
     if (revokedRoles.length) {
       const revokedType = notificationTypes.find((type) => type.type === 'auth.role.revoked')
       if (revokedType) {
-        const notificationInput = buildNotificationFromType(revokedType, {
+        const notificationInput = buildNotificationFromType({
+          ...revokedType,
+          bodyKey: 'auth.notifications.role.revoked.bodyWithRoles',
+        }, {
+          bodyVariables: { roles: revokedRoles.join(', ') },
           recipientUserId: String(user.id),
           sourceEntityType: 'auth:user',
           sourceEntityId: String(user.id),

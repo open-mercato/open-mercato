@@ -67,3 +67,4 @@ Reviewed the layered guard, explicit scope before decryption, bounded reads and 
 
 - 2026-11-24 — Proposed an Audit Logs-owned conflict history boundary for #10476.
 - 2026-11-24 — Specified the scope and regression cases for active-editor notification enrichment.
+- 2026-11-24 — Added Audit Logs-owned history lookups for conflict comparisons and notification enrichment. Record Locks passes the authorized organization scope into the lookups and retains the optimistic-lock floor.

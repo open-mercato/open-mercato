@@ -267,7 +267,8 @@ describe('workflow-level error handler — execution', () => {
         }),
         tenantId: testTenantId,
         organizationId: testOrgId,
-      })
+      }),
+      container,
     )
     expect(executeWorkflowSpy).toHaveBeenCalledWith(em, container, handlerInstanceId)
     expect(createdEvents(em).map((event) => event.eventType)).toContain('ERROR_HANDLER_STARTED')

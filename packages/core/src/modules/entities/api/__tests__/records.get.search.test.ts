@@ -27,6 +27,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: (
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
   resolveOrganizationScope: async () => ({ selectedId: 'org', filterIds: ['org'] }),
+  resolveOrganizationScopeForRequest: async () => ({ selectedId: 'org', filterIds: ['org'] }),
   getSelectedOrganizationFromRequest: () => 'org',
 }))
 

@@ -129,12 +129,24 @@ describe('auth.users.update role notifications', () => {
     mockCreateNotification.mockClear()
   })
 
-  it('preserves immediate notification delivery for ordinary committed updates', async () => {
+  it('identifies the assigned and revoked roles in the notifications sent after a committed update', async () => {
     const { ctx } = buildHarness()
 
     await handler.execute({ id: userId, roles: [newRoleId] }, ctx)
 
     expect(mockCreateNotification).toHaveBeenCalledTimes(2)
+    expect(mockCreateNotification).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      type: 'auth.role.assigned',
+      bodyKey: 'auth.notifications.role.assigned.bodyWithRoles',
+      bodyVariables: { roles: 'new-role' },
+      recipientUserId: userId,
+    }), { tenantId, organizationId })
+    expect(mockCreateNotification).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      type: 'auth.role.revoked',
+      bodyKey: 'auth.notifications.role.revoked.bodyWithRoles',
+      bodyVariables: { roles: 'old-role' },
+      recipientUserId: userId,
+    }), { tenantId, organizationId })
   })
 
   it('defers role notifications to the owning transaction commit', async () => {

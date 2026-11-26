@@ -8,6 +8,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -74,6 +75,7 @@ export function EntitySettingsManager(): React.ReactElement {
             )
 
             if (res.ok && res.result) {
+              setSaveError(null)
               setUpdatedAt(res.result.updatedAt)
               flash(t('entities.settings.flash.saved', 'Settings saved'), 'success')
             }
@@ -90,8 +92,12 @@ export function EntitySettingsManager(): React.ReactElement {
         setLoading(true)
         await loadSettings()
       } else {
+        reportTelemetryError(err, { module: 'entities', code: 'entities.settings_save_failed' })
         const fallback = t('entities.settings.errors.saveFailed', 'Failed to save settings')
-        setSaveError(err instanceof Error && 'status' in err && err.status === 503 ? err.message || fallback : fallback)
+        const serviceMessage = err instanceof Error && 'status' in err && err.status === 503
+          ? err.message.trim()
+          : ''
+        setSaveError(serviceMessage || fallback)
       }
     } finally {
       setSaving(false)
@@ -152,7 +158,6 @@ export function EntitySettingsManager(): React.ReactElement {
       </div>
 
       {saveError ? <ErrorMessage label={saveError} /> : null}
-
       <div className="flex items-center justify-end gap-3 border-t pt-4">
         <Button type="submit" disabled={saving}>
           {saving ? <Spinner className="mr-2 h-4 w-4" /> : null}
