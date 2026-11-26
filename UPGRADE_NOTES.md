@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Encrypted tenant custom-field writes require a usable key
+
+With tenant data encryption enabled, saving a non-null value to an encrypted tenant custom field requires a usable tenant key. Affected CRUD requests return HTTP 503 with code `ENCRYPTION_UNAVAILABLE` when the key cannot be read or created. Restore key access before retrying the field write. Custom routes that commit the base record and custom fields separately should check whether the base record already exists before retrying a create.
+
+Use earlier `Custom field configured as encrypted was stored as plaintext` warnings to find affected values, then re-save those values after restoring key access. Existing plaintext values remain readable. The explicit global encryption disable setting and clearing a custom field retain their existing behavior.
+
 ## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
 
 When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.
