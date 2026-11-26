@@ -236,7 +236,8 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
           version: 1,
           tenantId: testTenantId,
           organizationId: testOrgId,
-        })
+        }),
+        mockContainer,
       )
       expect(executeWorkflowSpy).toHaveBeenCalledWith(mockEm, mockContainer, childInstanceId, expect.any(Object))
       expect(result.status).toBe('COMPLETED')
