@@ -11,11 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { readThemeTokens, type ThemeTokens } from './themeTokens'
 import { contrastRatio, normalizeHex } from './colorPreview'
-import { createColorStudio, exportColorStudio, type ColorStudio, type ColorStop, type Harmony, type NeutralTone, type Shade } from './colorStudio'
+import { DEFAULT_SEED, createColorStudio, exportColorStudio, type ColorStudio, type ColorStop, type Harmony, type NeutralTone, type Shade } from './colorStudio'
 import { ColorStudioSpecimen } from './ColorStudioSpecimen'
 import { ColorStudioCompositions } from './ColorStudioCompositions'
 
-const INITIAL_COLOR = '#F4700D'
+const INITIAL_COLOR = DEFAULT_SEED
 const PRESETS = ['#BC9AFF', INITIAL_COLOR, '#2563EB', '#0F766E', '#BE185D']
 const THEMES = ['light', 'dark'] as const
 const ROLE_ICONS = { action: Paintbrush, selection: MousePointer2, surface: Layers, status: CircleCheck }

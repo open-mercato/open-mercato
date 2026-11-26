@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DEFAULT_SEED, isBrownHue } from '@open-mercato/core/modules/design_system/gallery/components/colorStudio'
 
 export const SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950] as const
 export type PresetShade = (typeof SHADES)[number]
@@ -22,14 +23,14 @@ export const themePresetSchema = z.object({
 export type ThemePreset = z.infer<typeof themePresetSchema>
 
 export const NAMED_PRESETS: Record<string, ThemePreset> = {
-  mercato: { v: 1, primary: '#F4700D', harmony: 'triadic', neutral: 'neutral', light: 600, dark: 400, shape: 'default', density: 'default' },
+  mercato: { v: 1, primary: '#171717', harmony: 'triadic', secondary: '#B4F372', tertiary: '#BC9AFF', neutral: 'neutral', light: 900, dark: 200, shape: 'default', density: 'default' },
   mono: { v: 1, primary: '#3F3F46', harmony: 'analogous', neutral: 'neutral', light: 900, dark: 200, shape: 'sharp', density: 'compact' },
-  clay: { v: 1, primary: '#B4532A', harmony: 'analogous', neutral: 'warm', light: 600, dark: 400, shape: 'round', density: 'default' },
-  indigo: { v: 1, primary: '#4F46E5', harmony: 'split', neutral: 'warm', light: 600, dark: 400, shape: 'default', density: 'default' },
-  sage: { v: 1, primary: '#5F7A61', harmony: 'analogous', neutral: 'warm', light: 700, dark: 300, shape: 'round', density: 'default' },
+  indigo: { v: 1, primary: '#4F46E5', harmony: 'split', neutral: 'cool', light: 600, dark: 400, shape: 'default', density: 'default' },
+  sage: { v: 1, primary: '#5F7A61', harmony: 'analogous', neutral: 'neutral', light: 700, dark: 300, shape: 'round', density: 'default' },
   ocean: { v: 1, primary: '#2563EB', harmony: 'analogous', neutral: 'cool', light: 600, dark: 400, shape: 'round', density: 'default' },
   mauve: { v: 1, primary: '#7C5C9C', harmony: 'triadic', neutral: 'cool', light: 600, dark: 300, shape: 'round', density: 'default' },
-  ochre: { v: 1, primary: '#B7791F', harmony: 'split', neutral: 'warm', light: 700, dark: 400, shape: 'default', density: 'default' },
+  forest: { v: 1, primary: '#15803D', harmony: 'analogous', neutral: 'neutral', light: 700, dark: 400, shape: 'default', density: 'default' },
+  magenta: { v: 1, primary: '#C026D3', harmony: 'split', neutral: 'cool', light: 600, dark: 400, shape: 'round', density: 'default' },
   cyan: { v: 1, primary: '#0891B2', harmony: 'analogous', neutral: 'cool', light: 700, dark: 400, shape: 'sharp', density: 'compact' },
 }
 
@@ -66,6 +67,8 @@ export function decodePreset(value: string | null | undefined): ThemePreset | nu
   }
 }
 
+const SHUFFLE_ATTEMPTS = 24
+
 function hslToHex(hue: number, saturation: number, lightness: number): string {
   const s = saturation / 100
   const l = lightness / 100
@@ -77,11 +80,15 @@ function hslToHex(hue: number, saturation: number, lightness: number): string {
 
 export function shufflePreset(random: () => number = Math.random): ThemePreset {
   const pick = <T,>(values: readonly T[]): T => values[Math.floor(random() * values.length) % values.length]
+  const candidate = () => hslToHex(Math.floor(random() * 360), 55 + Math.floor(random() * 30), 38 + Math.floor(random() * 14))
+  let primary = candidate()
+  for (let attempt = 0; attempt < SHUFFLE_ATTEMPTS && isBrownHue(primary); attempt += 1) primary = candidate()
+  if (isBrownHue(primary)) primary = DEFAULT_SEED
   return {
     v: 1,
-    primary: hslToHex(Math.floor(random() * 360), 55 + Math.floor(random() * 30), 38 + Math.floor(random() * 14)),
+    primary,
     harmony: pick(['analogous', 'triadic', 'split'] as const),
-    neutral: pick(['neutral', 'warm', 'cool'] as const),
+    neutral: pick(['neutral', 'cool'] as const),
     light: pick([600, 700] as const),
     dark: pick([300, 400] as const),
     shape: pick(['default', 'round', 'sharp'] as const),

@@ -40,7 +40,7 @@ describe('designer palette scale', () => {
 
   it('normalizes input and uses a deterministic fallback', () => {
     expect(createColorStudio(' abc ', 'cool')).toEqual(createColorStudio('#AABBCC', 'cool'))
-    expect(createColorStudio('invalid', 'warm')).toEqual(createColorStudio('#F4700D', 'warm'))
+    expect(createColorStudio('invalid', 'warm')).toEqual(createColorStudio('#7C3AED', 'warm'))
   })
 
   it.each<NeutralTone>(['neutral', 'warm', 'cool'])('builds a descending %s neutral scale independent of the accent', (neutral) => {

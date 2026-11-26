@@ -205,15 +205,43 @@ function themeFor(scale: ColorStop[], neutrals: ColorStop[], dark: boolean, acti
   }
 }
 
+export const DEFAULT_SEED = '#7C3AED'
+
+const BROWN_HUE_START = 10
+const BROWN_HUE_END = 130
+const BROWN_MIN_CHROMA = 0.04
+const BROWN_STEER_BELOW = -10
+const BROWN_STEER_ABOVE = 145
+
+function hueDegrees(hue: number): number {
+  return ((hue * 180 / Math.PI) % 360 + 360) % 360
+}
+
+export function isBrownHue(hex: string): boolean {
+  const normalized = normalizeHex(hex)
+  if (!normalized) return false
+  const color = toOklch(normalized)
+  if (color.chroma < BROWN_MIN_CHROMA) return false
+  const degrees = hueDegrees(color.hue)
+  return degrees > BROWN_HUE_START && degrees < BROWN_HUE_END
+}
+
+function steerFromBrown(hue: number): number {
+  const degrees = hueDegrees(hue)
+  if (degrees <= BROWN_HUE_START || degrees >= BROWN_HUE_END) return hue
+  const target = degrees - BROWN_STEER_BELOW < BROWN_STEER_ABOVE - degrees ? BROWN_STEER_BELOW : BROWN_STEER_ABOVE
+  return target * Math.PI / 180
+}
+
 export function createHarmonySeeds(seed: string, harmony: Harmony): { secondary: string; tertiary: string } {
-  const color = toOklch(normalizeHex(seed) ?? '#F4700D')
+  const color = toOklch(normalizeHex(seed) ?? DEFAULT_SEED)
   const offset = ({ analogous: 30, triadic: 120, split: 150 }[harmony]) * Math.PI / 180
   const lightness = Math.max(0.55, Math.min(0.72, color.lightness))
   const chroma = Math.max(0.1, Math.min(0.18, color.chroma))
   const hue = color.chroma < 0.00001 ? 0 : color.hue
   return {
-    secondary: toHex({ lightness, chroma, hue: hue + offset }),
-    tertiary: toHex({ lightness, chroma, hue: hue - offset }),
+    secondary: toHex({ lightness, chroma, hue: steerFromBrown(hue + offset) }),
+    tertiary: toHex({ lightness, chroma, hue: steerFromBrown(hue - offset) }),
   }
 }
 
@@ -223,7 +251,7 @@ export function createColorStudio(
   actionShades: { light?: Shade; dark?: Shade } = {},
   colors: { secondary?: string; tertiary?: string; harmony?: Harmony } = {},
 ): ColorStudio {
-  const primary = normalizeHex(seed) ?? '#F4700D'
+  const primary = normalizeHex(seed) ?? DEFAULT_SEED
   const derived = createHarmonySeeds(primary, colors.harmony ?? 'triadic')
   const seeds = {
     primary,

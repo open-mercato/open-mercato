@@ -13,7 +13,7 @@
   "design_system.colorPreview.error": "오류",
   "design_system.colorPreview.hex": "HEX 색상",
   "design_system.colorPreview.hover": "마우스를 올렸을 때",
-  "design_system.colorPreview.invalid": "#F4700D와 같은 올바른 HEX 색상을 입력하세요.",
+  "design_system.colorPreview.invalid": "#7C3AED와 같은 올바른 HEX 색상을 입력하세요.",
   "design_system.colorPreview.light": "라이트",
   "design_system.colorPreview.name": "작업 공간 이름",
   "design_system.colorPreview.nameValue": "디자인 스튜디오",

@@ -96,7 +96,7 @@ it('keeps the last valid colors on invalid input and resets the complete configu
   await choose('Light theme action', /^800 ·/)
   await act(async () => { fireEvent.click(screen.getByRole('radio', { name: 'Dark', exact: true })) })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reset', exact: true })) })
-  expect(hex).toHaveValue('#F4700D')
+  expect(hex).toHaveValue('#7C3AED')
   expect(screen.queryByRole('alert')).toBeNull()
   expect(screen.getByRole('radio', { name: 'Compare', exact: true })).toBeChecked()
   expect(screen.getByRole('textbox', { name: 'Secondary HEX' })).toHaveValue(initialSecondary)
@@ -138,7 +138,7 @@ it('derives harmonies, accepts supporting colors and restores automatic colors',
   fireEvent.change(secondary, { target: { value: '#123456' } })
   fireEvent.change(tertiary, { target: { value: '#AA3366' } })
   expect(screen.getByText(english['design_system.colorStudio.harmonyManual'])).toBeVisible()
-  fireEvent.change(hex, { target: { value: '#F4700D' } })
+  fireEvent.change(hex, { target: { value: '#7C3AED' } })
   expect(secondary).toHaveValue('#123456')
   expect(tertiary).toHaveValue('#AA3366')
   fireEvent.change(hex, { target: { value: '#2563EB' } })
@@ -159,7 +159,7 @@ it('exports all palettes and both theme mappings without exporting inherited sta
   fireEvent.click(screen.getByRole('button', { name: 'Copy JSON' }))
   await waitFor(() => expect(screen.getByText('Palette copied')).toBeVisible())
   const copied = JSON.parse(writeText.mock.calls[0][0])
-  expect(copied.seeds).toEqual({ primary: '#F4700D', secondary: '#123456', tertiary: '#AA3366' })
+  expect(copied.seeds).toEqual({ primary: '#7C3AED', secondary: '#123456', tertiary: '#AA3366' })
   expect(Object.keys(copied.scales)).toEqual(['accent', 'secondary', 'tertiary', 'neutral'])
   expect(Object.values(copied.scales.secondary)).toContain('#123456')
   expect(Object.values(copied.scales.tertiary)).toContain('#AA3366')
@@ -185,10 +185,10 @@ it('reports clipboard failure without changing the preview', async () => {
 })
 
 it.each([
-  ['Move right: Primary', ['#00D66E', '#F4700D', '#8A48E7']],
-  ['Move left: Secondary', ['#00D66E', '#F4700D', '#8A48E7']],
-  ['Move right: Secondary', ['#F4700D', '#8A48E7', '#00D66E']],
-  ['Move left: Tertiary', ['#F4700D', '#8A48E7', '#00D66E']],
+  ['Move right: Primary', ['#00D66E', '#7C3AED', '#8A48E7']],
+  ['Move left: Secondary', ['#00D66E', '#7C3AED', '#8A48E7']],
+  ['Move right: Secondary', ['#7C3AED', '#8A48E7', '#00D66E']],
+  ['Move left: Tertiary', ['#7C3AED', '#8A48E7', '#00D66E']],
 ])('swaps immediately with %s and reverses without losing seeds', async (label, expected) => {
   const { hex } = await setup()
   const secondary = screen.getByRole('textbox', { name: 'Secondary HEX' })
@@ -199,7 +199,7 @@ it.each([
   ;[hex, secondary, tertiary].forEach((input, index) => expect(input).toHaveValue(expected[index]))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: label, exact: true }))
-  ;[hex, secondary, tertiary].forEach((input, index) => expect(input).toHaveValue(['#F4700D', '#00D66E', '#8A48E7'][index]))
+  ;[hex, secondary, tertiary].forEach((input, index) => expect(input).toHaveValue(['#7C3AED', '#00D66E', '#8A48E7'][index]))
 })
 
 it('disables outer arrows and guards incomplete drafts', async () => {
@@ -222,5 +222,5 @@ it('drags a color directly to a non-adjacent role', async () => {
   fireEvent.dragOver(destination, { dataTransfer })
   fireEvent.drop(destination, { dataTransfer })
   expect(hex).toHaveValue('#8A48E7')
-  expect(tertiary).toHaveValue('#F4700D')
+  expect(tertiary).toHaveValue('#7C3AED')
 })

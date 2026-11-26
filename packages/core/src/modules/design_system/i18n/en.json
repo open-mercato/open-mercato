@@ -13,7 +13,7 @@
   "design_system.colorPreview.error": "Error",
   "design_system.colorPreview.hex": "HEX color",
   "design_system.colorPreview.hover": "Hover",
-  "design_system.colorPreview.invalid": "Enter a valid HEX color, such as #F4700D.",
+  "design_system.colorPreview.invalid": "Enter a valid HEX color, such as #7C3AED.",
   "design_system.colorPreview.light": "Light",
   "design_system.colorPreview.name": "Workspace name",
   "design_system.colorPreview.nameValue": "Design studio",

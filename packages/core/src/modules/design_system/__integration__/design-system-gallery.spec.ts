@@ -131,7 +131,7 @@ test.describe('design_system gallery', () => {
     await expect(dark).toBeVisible()
     expect(await page.locator('html').getAttribute('class')).toBe(rootTheme)
     await playground.getByRole('button', { name: 'Reset', exact: true }).click()
-    await expect(hex).toHaveValue('#F4700D')
+    await expect(hex).toHaveValue('#7C3AED')
     await expect(playground.getByRole('radio', { name: 'Light', exact: true })).toBeChecked()
     await playground.getByRole('radio', { name: 'Compare', exact: true }).click()
     await expect(light).toBeVisible()
