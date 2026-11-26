@@ -10,13 +10,9 @@ type SubscriberContext = {
   resolve: <T = unknown>(name: string) => T
 }
 
-type SalesDocumentTotalsPayload = {
-  documentKind?: string | null
-  documentId?: string | null
-  tenantId?: string | null
-  organizationId?: string | null
-}
-
-export default async function handle(payload: SalesDocumentTotalsPayload, ctx: SubscriberContext) {
+export default async function handle(
+  payload: Parameters<typeof reconcileInventoryForUpdatedOrder>[0],
+  ctx: SubscriberContext,
+) {
   await reconcileInventoryForUpdatedOrder(payload, ctx)
 }

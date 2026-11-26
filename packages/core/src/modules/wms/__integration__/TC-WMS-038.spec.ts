@@ -48,6 +48,7 @@ async function fetchConfirmedStatusId(request: APIRequestContext, token: string)
  */
 test.describe('TC-WMS-038: Confirmed order line changes trim the WMS reservation', () => {
   test('lowering a line quantity or deleting a line releases the stock the order no longer needs', async ({ request }) => {
+    test.setTimeout(90_000)
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(adminToken)

@@ -614,27 +614,29 @@ export async function reconcileInventoryForUpdatedOrder(
   }
   if (trimmedVariantIds.size === 0) return
 
-  for (const reservation of activeReservations) {
-    if (!trimmedVariantIds.has(reservation.catalogVariantId)) continue
-    if (isAllocatedReservation(reservation)) continue
-    try {
-      await commandBus.execute('wms.inventory.release', {
-        input: {
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          reservationId: reservation.id,
-          reason: 'sales.order.lines_changed',
-          metadata: {
-            automation: 'sales.document.totals.calculated',
-            orderId,
+  try {
+    for (const reservation of activeReservations) {
+      if (!trimmedVariantIds.has(reservation.catalogVariantId)) continue
+      if (isAllocatedReservation(reservation)) continue
+      try {
+        await commandBus.execute('wms.inventory.release', {
+          input: {
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            reservationId: reservation.id,
+            reason: 'sales.order.lines_changed',
+            metadata: {
+              automation: 'sales.document.totals.calculated',
+              orderId,
+            },
           },
-        },
-        ctx: commandCtx,
-      })
-    } catch (error) {
-      if (!isInvalidReservationStateError(error)) throw error
+          ctx: commandCtx,
+        })
+      } catch (error) {
+        if (!isInvalidReservationStateError(error)) throw error
+      }
     }
+  } finally {
+    await reserveInventoryForConfirmedOrder({ orderId, ...scope }, ctx, trimmedVariantIds)
   }
-
-  await reserveInventoryForConfirmedOrder({ orderId, ...scope }, ctx, trimmedVariantIds)
 }

@@ -518,6 +518,28 @@ describe('reconcileInventoryForUpdatedOrder', () => {
     ])
   })
 
+  it('still re-reserves what the order needs when a release fails part-way', async () => {
+    reservations = [
+      { id: 'reservation-8', catalogVariantId: 'variant-1', quantity: '8', status: 'active' },
+      { id: 'reservation-2', catalogVariantId: 'variant-1', quantity: '2', status: 'active' },
+    ]
+    const releaseFailure = new CrudHttpError(409, { error: 'balance_integrity_violation' })
+    const defaultImplementation = execute.getMockImplementation()!
+    execute.mockImplementation(async (commandId, call) => {
+      if (call.input.reservationId === 'reservation-2') throw releaseFailure
+      return defaultImplementation(commandId, call)
+    })
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '4' }])
+
+    await expect(reconcileInventoryForUpdatedOrder(payload, ctx)).rejects.toBe(releaseFailure)
+
+    expect(execute.mock.calls.map(([commandId, call]) => [commandId, call.input.reservationId ?? call.input.quantity])).toEqual([
+      ['wms.inventory.release', 'reservation-8'],
+      ['wms.inventory.release', 'reservation-2'],
+      ['wms.inventory.reserve', 2],
+    ])
+  })
+
   it('never releases an allocated reservation', async () => {
     reservations = [
       { id: 'reservation-allocated', catalogVariantId: 'variant-1', quantity: '3', status: 'active', metadata: { allocationState: 'allocated' } },
