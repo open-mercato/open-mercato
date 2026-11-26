@@ -61,7 +61,6 @@ test.describe('TC-PORTAL-021: portal signup and invite-accept errors are transla
     await page.goto(`/${orgSlug}/portal/signup`)
     await page.locator('#signup-name').fill(`QA Portal 021 ${stamp}`)
     await page.locator('#signup-email').fill(`qa-portal-021-${stamp}@test.invalid`)
-    await page.locator('#signup-password').fill(`Password-${stamp}!`)
 
     const responsePromise = page.waitForResponse((response) => response.url().includes('/api/customer_accounts/signup'))
     await page.locator('button[type="submit"]').click()
