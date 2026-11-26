@@ -662,7 +662,7 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 ## Encrypted search contexts (#7872)
 
-STABLE: encrypted custom fields are omitted; missing/failing resolver excludes all. A bridge preserves disclosure; human exception approval is pending. [Contract/migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
+STABLE: omit encrypted custom fields. Missing/failing resolver excludes all. A bridge leaks fields. Named waiver pending. [Migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
 
 ## Compose encryption (2026-11-01, #7231)
 
@@ -689,16 +689,7 @@ STABLE: nonempty inputs require principal/owner read access; bridges retain disc
 
 ## 2026-11-07 — Private next-interaction subjects (#8888)
 
-Surface: stable customer projection response behavior. Private email subjects and
-unresolved historical linked names now become NULL in shared projections; response
-keys/types, scheduling, manual names and authorized interaction readers remain
-unchanged. Continuing to serve the private subject as a bridge retains the privacy
-bypass. Clients use unnamed-interaction fallbacks and authorized interaction reads.
-Operators apply the idempotent data repair, complete the declared query-index
-rebuilds and rebuild configured search providers before reopening affected reads.
-See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES.
-Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
-2026-11-13: [human approval](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966).
+STABLE shared projections return NULL for private email subjects and unresolved historical linked names. Keys, types, scheduling, manual names and authorized readers stay. A bridge leaks subjects. Clients use unnamed fallbacks and authorized reads. Apply the idempotent repair and rebuild declared query indexes and configured search providers before reopening reads. See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES. [@pkarw waived steps 1–3](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966) on 2026-11-13.
 
 ## Comment authors (2026-11-12, #8759)
 
@@ -750,4 +741,4 @@ STABLE `execute`: set direct or use typed tools. A bridge preserves implicit wri
 
 ## 2026-11-26 — Vector-index entity authorization (#10693)
 
-STABLE API behavior. `GET /api/search/index` omits rows outside the caller's entity view permissions and organization scope. Keeping the old listing reachable would preserve access to those rows. [Migration](UPGRADE_NOTES.md#vector-index-entity-authorization-10693) · [Spec](.ai/specs/2026-11-26-vector-index-entity-authorization.md). Named maintainer waiver pending.
+STABLE `GET /api/search/index` enforces entity view and org scope. A bridge leaks rows. [Migration](UPGRADE_NOTES.md#vector-index-entity-authorization-10693) · [Spec](.ai/specs/2026-11-26-vector-index-entity-authorization.md). Named waiver pending.
