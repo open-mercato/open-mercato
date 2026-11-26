@@ -255,7 +255,7 @@ The rerun passed 100% of checks.
 4. Disk ≥ 200 GB if tier M is in scope (P1-3).
 
 **Decisions taken (2026-11-26):**
-- The disk stays at 80 GB, so full M (250k) does not fit. The M scope is to be redefined; ~100k entities is the largest that fits.
+- The disk stays at 80 GB. Tier M is reduced to 100k customer entities (2 background tenants, ≈ 70 GB peak with the snapshot), and S and M run one after the other. **Tier L cannot run on this VPS** (≈ 540 GB). The L-only risks (bind-parameter limit in P1-1 and P2-3) therefore stay unverified.
 - The deployment is tested as shipped: one app process, no replica experiment. VPS reports must state that the knee reflects a single Next.js process (P1-2).
 
 **Recommended before the VPS rounds:**

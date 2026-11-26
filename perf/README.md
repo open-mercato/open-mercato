@@ -97,14 +97,16 @@ is generated; seed, snapshot and restore durations are copied into `config/hardw
    PROM_QUERY_URL=http://127.0.0.1:19090
    ```
 5. `perf/bin/perf init-secrets` on the generator generates the secrets and pushes `sut.local.env` to the SUT.
-   Then edit `sut.local.env` with the `vps-8c32g` column of `hardware.md`, set `PERF_TLS_BIND` and
+   Then edit `sut.local.env` with the `vps-6c16g` column of `hardware.md` (the decided SUT), set `PERF_TLS_BIND` and
    `PERF_TLS_HOST` to the SUT private IP and `APP_URL=https://<sut-private-ip>:8443`, and run `init-secrets` again to push it.
 6. Open the tunnel the generator keeps for the whole session (remote write and report queries):
    `ssh -N -L 19090:127.0.0.1:9090 -L 13300:127.0.0.1:3300 perf@<sut-host>`.
    The operator reaches Grafana with `ssh -L 3300:127.0.0.1:3300 perf@<sut-host>`.
-7. Same sequence as Phase 2 with `--tier M`, then `--tier L` (`build`, `up --yes-this-is-a-perf-target`, `tenant`, `users`, `seed --background`, `seed`, `snapshot`).
-   L seeding takes hours; run it inside `tmux`.
-8. Verify a restore round trip: `restore --tier L`, then compare row counts (`seed-perf` manifest) and the catalog.
+7. Same sequence as Phase 2 with `--tier S` (`build`, `up --yes-this-is-a-perf-target`, `tenant`, `users`, `seed --background --tier S`, `seed --tier S`, `snapshot --tier S`).
+   **Only one tier fits on the 80 GB `vps-6c16g` disk at a time.** After the S runs, switch to M:
+   `perf/bin/perf down --volumes --purge-secrets`, `docker volume rm meili_s_template`, then repeat the sequence with `--tier M`.
+   M seeding takes about an hour; run it inside `tmux`. **Tier L cannot run on `vps-6c16g`** (≈ 540 GB of disk; see `perf/config/hardware.md`).
+8. Verify a restore round trip: `restore --tier <T>`, then compare row counts (`seed-perf` manifest) and the catalog.
 9. Port probe from a third host: `nmap -Pn -p- <sut-public-ip>` reaches nothing but SSH; from the generator only `PERF_TLS_PORT`.
 
 ## Phases 4–9 — measurement runs
@@ -113,12 +115,12 @@ Every phase is `restore` then `run`. Phases never overlap.
 
 | Phase | Command | Duration | Exit criteria |
 |---|---|---|---|
-| 4 smoke | `perf/bin/perf restore --tier L && perf/bin/perf run smoke --tier L` | ~10 min | 0 unexpected errors; every journey and tag has samples |
-| 5 baseline | `perf/bin/perf restore --tier L && perf/bin/perf run baseline --tier L --label r1` (twice; also M) | 30–60 min | ≥ 50 samples per tag after warmup; p50 of the two runs within 10% (`compare`) |
-| 6 step | `perf/bin/perf restore --tier L && perf/bin/perf run step --tier L` | ~65 min | saturation step identified, or 200 VUs reached |
-| 7 interference | `perf/bin/perf restore --tier L && perf/bin/perf run interference --tier L --knee <VUs>` | ~35 min | read p95 delta vs control, bulk completion time, queue backlog reported |
-| 8 stress | `perf/bin/perf restore --tier L && perf/bin/perf run stress --tier L --knee <VUs>` | ~35 min | recovery to the Phase 6 25-VU values within 5 min, or the failure mode documented |
-| 9 soak | `perf/bin/perf restore --tier L && perf/bin/perf run soak --tier L --knee <VUs>` | 4–8 h | heap, RSS, connections, queue depth, Redis memory flat or the leak quantified |
+| 4 smoke | `perf/bin/perf restore --tier M && perf/bin/perf run smoke --tier M` | ~10 min | 0 unexpected errors; every journey and tag has samples |
+| 5 baseline | `perf/bin/perf restore --tier M && perf/bin/perf run baseline --tier M --label r1` (twice; also S, before switching tiers) | 30–60 min | ≥ 50 samples per tag after warmup; p50 of the two runs within 10% (`compare`) |
+| 6 step | `perf/bin/perf restore --tier M && perf/bin/perf run step --tier M` | ~65 min | saturation step identified, or 200 VUs reached |
+| 7 interference | `perf/bin/perf restore --tier M && perf/bin/perf run interference --tier M --knee <VUs>` | ~35 min | read p95 delta vs control, bulk completion time, queue backlog reported |
+| 8 stress | `perf/bin/perf restore --tier M && perf/bin/perf run stress --tier M --knee <VUs>` | ~35 min | recovery to the Phase 6 25-VU values within 5 min, or the failure mode documented |
+| 9 soak | `perf/bin/perf restore --tier M && perf/bin/perf run soak --tier M --knee <VUs>` | 4–8 h | heap, RSS, connections, queue depth, Redis memory flat or the leak quantified |
 
 `--knee` is the saturation VU count from the Phase 6 report (omit it when no knee was found; the profiles fall back to 300/400/600 and 50 VUs).
 Each run writes `perf/results/<date>-<tier>-<scenario>-<label>/` with `run.json`, `report.md`, `report.json` and `raw/`.

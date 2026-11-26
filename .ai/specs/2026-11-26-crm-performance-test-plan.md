@@ -107,7 +107,7 @@ The customer 360 card has **no order-history tab**. `sales` is reached only thro
 | **k6** for protocol load, **k6 browser** (`k6/browser`) for page-level Web Vitals | One tool, one Docker image (`grafana/k6:<pinned>-with-browser`), one metrics pipeline. The browser API mirrors Playwright (`page.goto`, `page.locator`), so the team's Playwright knowledge carries over. Playwright itself cannot generate realistic concurrent load. |
 | **Generator on a dedicated VPS in the same datacenter/region** as the system under test. The laptop only drives it over SSH. | Removes home-network RTT and jitter from every sample, and keeps runs from different testers comparable. Every run still records generator RTT, measured as calibration requests to `/api/healthz`. |
 | **Hybrid seeding** through a new additive CLI command, `mercato customers seed-perf` | Ships in the production image and has the full DI container. It encrypts each row with `TenantDataEncryptionService.encryptEntityPayload` (`packages/shared/src/lib/encryption/tenantDataEncryptionService.ts:613`) before Kysely bulk inserts, then builds indexes through the existing `query_index reindex` and `search reindex` commands. It takes minutes to hours where the API path takes days, and it follows the `seed-stresstest` precedent. |
-| **Dataset tiers S / M / L** (50k / 250k / 1M customer entities) | S runs locally for validation. M and L run on the VPS, so the report shows how latency scales with volume. The 2026-08 run suggested the knee does not depend on volume, and this re-tests that claim. |
+| **Dataset tiers S / M / L** (50k / 100k / 1M customer entities; M reduced from 250k on 2026-11-26 to fit the 80 GB SUT disk) | S runs locally for validation. S and M run on the VPS, so the report shows how latency scales with volume. **L cannot run on the `vps-6c16g` SUT** (it needs ~540 GB of disk); it stays defined for a larger SUT. The 2026-08 run suggested the knee does not depend on volume, and this re-tests that claim. |
 | **Snapshot via a Postgres template database**, restored before every load phase | Test writes mutate data, so every run must start from an identical state. `CREATE DATABASE … TEMPLATE … STRATEGY FILE_COPY` is much faster than `pg_restore` at the L tier. The default strategy on PG15+ is `WAL_LOG`, so `FILE_COPY` must be named explicitly. The Meilisearch data volume is copied alongside while Meilisearch is stopped, and Redis is flushed. See [Snapshot and restore](#snapshot-and-restore). |
 | **Encryption ON** (production default) | Exercises the decrypt-on-read and encrypted-sort paths. An encryption-off comparison is an optional experiment. |
 | **Exactly the default module set** | Agreed scope: measure what installs out of the box. |
@@ -281,17 +281,17 @@ There are no application schema changes.
 
 | Item | S | M | L | Shape |
 |---|---|---|---|---|
-| Customer entities | 50k | 250k | 1M | 75% people / 25% companies, ~3 people per company, ~10% of people without a company |
-| Interactions (`customer_interactions`) | ~500k | ~2.5M | ~10M | Power law per entity: 60% have 1–5, 30% have 6–20, 9% have 21–100, 1% have 100–1000. Types: call/email/meeting/note/task. ~70% done, ~30% planned (dates spread across −3 y … +3 months). |
-| Deals | ~25k | ~125k | ~500k | ~0.5 per entity. 2 pipelines × 6 stages. Status open/win/lost per stage, values in 3 currencies, owners from the staff pool, ~3 stage transitions each (`customer_deal_stage_transitions`), ~15% "stuck" (no transition beyond the threshold). |
-| Deal comments | ~50k | ~250k | ~1M | ~2 per deal |
+| Customer entities | 50k | 100k | 1M | 75% people / 25% companies, ~3 people per company, ~10% of people without a company |
+| Interactions (`customer_interactions`) | ~500k | ~1M | ~10M | Power law per entity: 60% have 1–5, 30% have 6–20, 9% have 21–100, 1% have 100–1000. Types: call/email/meeting/note/task. ~70% done, ~30% planned (dates spread across −3 y … +3 months). |
+| Deals | ~25k | ~50k | ~500k | ~0.5 per entity. 2 pipelines × 6 stages. Status open/win/lost per stage, values in 3 currencies, owners from the staff pool, ~3 stage transitions each (`customer_deal_stage_transitions`), ~15% "stuck" (no transition beyond the threshold). |
+| Deal comments | ~50k | ~100k | ~1M | ~2 per deal |
 | Addresses | ~20k | ~100k | ~400k | 1 per company, 0.3 per person, ~60% geocoded (feeds `deals/map`) |
 | Tags | 50 tags | 50 | 50 | 0–3 per entity (Zipf over tags) |
 | Person–company links and roles | — | — | — | From the company assignment; ~5% of people have multiple companies |
 | Custom field values | — | — | — | All `customFieldDefaults.ts` fields, ~60% fill rate |
 | Dictionaries | — | — | — | status / lifecycle / source / temperature values with a realistic skew |
 | Owners | 200 staff users | 200 | 200 | Every entity and deal has an owner |
-| Background tenants | 2 × 5% | 4 × 5% | 4 × 5% | Separate tenants and orgs, so indexes and planner statistics see multi-tenant data |
+| Background tenants | 2 × 5% | 2 × 5% | 4 × 5% | Separate tenants and orgs, so indexes and planner statistics see multi-tenant data |
 
 - All dates are generated relative to an **anchor date** (`--anchor`, default today), which is recorded in the manifest.
 - Shape constants live in `perf/config/tiers.json`. Changing them requires a new profile name (`perf-v2`), never an edit to `perf-v1`.
@@ -352,7 +352,7 @@ Known limitation: seeded records have **no `action_logs` history**, so the chang
 
 `run` reads this marker over SSH and refuses to start if a load phase has run since the last restore.
 
-Restore durations per tier are measured in Phase 2 (S) and Phase 3 (M, L), then recorded in `perf/config/hardware.md`.
+Restore durations per tier are measured in Phase 2 (S, local) and Phase 3 (S and M on the VPS), then recorded in `perf/config/hardware.md`.
 
 ## API Contracts
 
@@ -411,13 +411,13 @@ There are no new or changed HTTP APIs. The one contract addition is the CLI comm
 | 0 | Prerequisites and hardware confirmation | — | Hardware profile confirmed and the derived-settings table filled in |
 | 1 | Build the tooling | repo | All Phase 1 steps merged on the branch with unit tests green |
 | 2 | **Local validation** (tier S, run by the plan authors) | laptop | Smoke, mini-baseline and a mini step test (10→25 VUs) run end to end. Dashboards show data. A report is generated. Runbook fixes applied. |
-| 3 | VPS provisioning and datasets M, L + template snapshots | VPS | Seeder verification passes. Snapshots restore in under the documented time. |
+| 3 | VPS provisioning and datasets S, M + template snapshots (one tier on disk at a time on `vps-6c16g`) | VPS | Seeder verification passes. Snapshots restore in under the documented time. |
 | 4 | Smoke on VPS | VPS | 2 VUs × 5 min. 0 unexpected errors. Every journey and tag produces samples. |
-| 5 | Baseline: single operations, no concurrency | VPS, M and L | ≥ 50 samples per tag after warmup at 1 VU, zero think time. pg top-N and EXPLAIN captured. Runs twice, and the p50 of the two runs differs by ≤ 10%. |
-| 6 | Step load: 10 → 25 → 50 → 100 → 200 VUs, 2 min ramp + 10 min hold each | VPS, L (M optional) | Saturation point identified, or 200 VUs reached without it |
-| 7 | Heavy-operation interference | VPS, L | 50 VUs mixed load **with the heavy group removed** for 30 min (or 50% of the knee VUs, if the knee is below 50):<br>• a 10 min control window,<br>• 10 min with a `constant-arrival-rate` heavy injector,<br>• 10 min recovery.<br><br>Injector rate: 6 heavy ops/min, rotating summary + needsAttention, deals.map, encrypted-sort list and calendar month, plus one `bulk-update-owner` on 1000 deals at minute 0 and minute 5, polled to completion.<br><br>Reported: read-group p95 delta against the control window, bulk completion time and queue backlog. |
-| 8 | Stress and recovery | VPS, L | Ramp past saturation: ×1.5, ×2 and ×3 of the knee VUs, 5 min each. If Phase 6 found no knee, use 300 → 400 → 600 VUs. Then return to 25 VUs for 10 min.<br><br>Reported: whether latency and error rate return to the Phase 6 25-VU values within 5 min, plus any crash, OOM or pool exhaustion. Safety aborts still apply. |
-| 9 | Soak (later stage) | VPS, L | 4–8 h at ~50% of the saturation VUs. Heap/RSS, connection count, queue depth and Redis memory trends are flat, or the leak is quantified. |
+| 5 | Baseline: single operations, no concurrency | VPS, S and M | ≥ 50 samples per tag after warmup at 1 VU, zero think time. pg top-N and EXPLAIN captured. Runs twice, and the p50 of the two runs differs by ≤ 10%. |
+| 6 | Step load: 10 → 25 → 50 → 100 → 200 VUs, 2 min ramp + 10 min hold each | VPS, M (S optional) | Saturation point identified, or 200 VUs reached without it |
+| 7 | Heavy-operation interference | VPS, M | 50 VUs mixed load **with the heavy group removed** for 30 min (or 50% of the knee VUs, if the knee is below 50):<br>• a 10 min control window,<br>• 10 min with a `constant-arrival-rate` heavy injector,<br>• 10 min recovery.<br><br>Injector rate: 6 heavy ops/min, rotating summary + needsAttention, deals.map, encrypted-sort list and calendar month, plus one `bulk-update-owner` on 1000 deals at minute 0 and minute 5, polled to completion.<br><br>Reported: read-group p95 delta against the control window, bulk completion time and queue backlog. |
+| 8 | Stress and recovery | VPS, M | Ramp past saturation: ×1.5, ×2 and ×3 of the knee VUs, 5 min each. If Phase 6 found no knee, use 300 → 400 → 600 VUs. Then return to 25 VUs for 10 min.<br><br>Reported: whether latency and error rate return to the Phase 6 25-VU values within 5 min, plus any crash, OOM or pool exhaustion. Safety aborts still apply. |
+| 9 | Soak (later stage) | VPS, M | 4–8 h at ~50% of the saturation VUs. Heap/RSS, connection count, queue depth and Redis memory trends are flat, or the leak is quantified. |
 | 10 | Round analysis | repo | Round report committed, with ranked bottlenecks and recommendations. Fix PRs (separate) are re-measured with phases 5–7 on the same snapshot. |
 
 Phases 4–9 always restore the snapshot first and never run concurrently with each other. Only one load phase may run against a SUT at a time.
@@ -549,13 +549,13 @@ The plan authors run this phase together before any VPS work. There is no separa
 
    `perf/bin/perf up` uses the same file list.
 2. `perf/bin/perf up`. The measured tenant and org come from `mercato auth setup` followed by `mercato seed:defaults`. Background tenants are created by `perf/bin/perf seed --background`.
-3. Run `users`, then `seed --tier M`, then `snapshot --tier M`, then the same for L. Record the seeding duration and dataset size in the report.
+3. Run `users`, then `seed --tier S`, then `snapshot --tier S`. After the S phases, switch to M (only one tier fits on the 80 GB disk): `perf/bin/perf down --volumes --purge-secrets`, `docker volume rm meili_s_template`, then `up`, `tenant`, `users`, `seed --background --tier M`, `seed --tier M`, `snapshot --tier M`. Record the seeding duration and dataset size in the report. L is not run on `vps-6c16g`.
 4. Verify that a snapshot restore round trip leaves row counts and the catalog unchanged. Record the restore durations in `hardware.md`.
 5. Run the network exposure check: from a third host (or the operator laptop), a port scan of the SUT reaches nothing. From the generator, only HTTPS is reachable. Grafana and Prometheus are reachable only through SSH tunnels.
 
 ### Phases 4–9 — Measurement runs
 
-Each phase is a single `perf/bin/perf run <phase> [--tier L]` after a `restore`. Parameters live in `workload.json`. Exit criteria are in the [Phasing](#phasing) table. Every run produces a result folder and a report.
+Each phase is a single `perf/bin/perf run <phase> --tier M` after a `restore` (Phase 5 also on S). Parameters live in `workload.json`. Exit criteria are in the [Phasing](#phasing) table. Every run produces a result folder and a report.
 
 ### Phase 10 — Round analysis
 
@@ -606,7 +606,7 @@ These are hypotheses from static analysis. Each one is tied to the journey that 
 | # | Hypothesis | Evidence | Exercised by |
 |---|---|---|---|
 | H1 | Sorting by an encrypted column fetches and decrypts every matching row (no cap unless `OM_ENCRYPTED_SORT_MAX_ROWS` is set) | `packages/shared/src/lib/query/encrypted-sort.ts:39`, `packages/core/src/modules/query_index/lib/engine.ts:1588-1620` | heavy: encrypted-sort list |
-| H2 | `isStuck`/`needsAttention` and `deals/summary` collect deal ids into `id IN (…)`. Above 65,535 ids this hits the Postgres bind-parameter limit, which is likely at tier L. | `packages/core/src/modules/customers/lib/stuckDeals.ts:41-87`, `api/deals/route.ts:180-200`, `lib/dealsSummaryQueries.ts:86-240` | heavy: deals.summary + needsAttention |
+| H2 | `isStuck`/`needsAttention` and `deals/summary` collect deal ids into `id IN (…)`. Above 65,535 ids this hits the Postgres bind-parameter limit, which is likely at tier L. Not reachable on `vps-6c16g`: M has ~50k deals, below the limit, so only the load sensitivity is measured there. | `packages/core/src/modules/customers/lib/stuckDeals.ts:41-87`, `api/deals/route.ts:180-200`, `lib/dealsSummaryQueries.ts:86-240` | heavy: deals.summary + needsAttention |
 | H3 | `deals/map` loads all geocoded addresses and their deal links without a limit | `api/deals/map/route.ts:266-300` | heavy: deals.map |
 | H4 | When search tokens find no match, search falls back to `ILIKE '%x%'` without a trigram index | `api/people/route.ts:137-194` | search.list (no-hit term) |
 | H5 | The 360 detail runs ~15 queries per view, loads deals per entity unbounded, and runs a serial enricher chain across 4+ modules | `api/people/[id]/route.ts:784-795`, `packages/shared/src/lib/crud/enricher-runner.ts:341` | person.360 / company.360 (extreme bucket) |
@@ -687,6 +687,6 @@ Each experiment is a single-variable change against the round-1 snapshot, report
   - The seeder makes its first perf pipeline the tenant's default, so the kanban opens on the seeded pipeline rather than the empty "Default Pipeline" that `seed:defaults` creates.
   - The Meilisearch settle check ignores BullMQ repeatable jobs that are not yet due.
 - **2026-11-26 (decisions after Phase 2)**:
-  - The SUT is `vps-6c16g` (6 vCPU / 16 GB / 80 GB). The disk cannot be increased, so full tier M (250k) does not fit; the M scope is to be redefined (see `perf/config/hardware.md` → Disk budget).
+  - The SUT is `vps-6c16g` (6 vCPU / 16 GB / 80 GB). The disk cannot be increased, so tier M is reduced from 250k to **100k** customer entities with 2 background tenants (≈ 70 GB peak with the template snapshot). M had never been seeded, so `perf-v1` is edited in place instead of creating `perf-v2`. **L cannot run on this VPS** (≈ 540 GB); it stays defined for a larger SUT. Only one tier fits on disk at a time, so S and M run one after the other.
   - The deployment is tested **as shipped**: a single app process. No multi-replica experiment. Reports state that the knee reflects one Next.js process (Phase 2 finding P1-2).
   - Phase 2 results and the prioritized findings are in `perf/results/2026-11-26-phase2-local/report.md`.

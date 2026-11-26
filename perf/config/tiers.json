@@ -5,7 +5,7 @@
       "tiers": {
         "XS": { "customerEntities": 2000, "backgroundTenants": 0, "backgroundScale": 0.05 },
         "S": { "customerEntities": 50000, "backgroundTenants": 2, "backgroundScale": 0.05 },
-        "M": { "customerEntities": 250000, "backgroundTenants": 4, "backgroundScale": 0.05 },
+        "M": { "customerEntities": 100000, "backgroundTenants": 2, "backgroundScale": 0.05 },
         "L": { "customerEntities": 1000000, "backgroundTenants": 4, "backgroundScale": 0.05 }
       },
       "shape": {

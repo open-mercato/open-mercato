@@ -16,7 +16,7 @@ test('tiers.json defines perf-v1 tiers and shape shares that sum to 1', () => {
   const tiers = readJson('perf/config/tiers.json')
   const profile = tiers.profiles['perf-v1']
   assert.deepEqual(Object.keys(profile.tiers), ['XS', 'S', 'M', 'L'])
-  assert.deepEqual(Object.values(profile.tiers).map((tier) => tier.customerEntities), [2000, 50000, 250000, 1000000])
+  assert.deepEqual(Object.values(profile.tiers).map((tier) => tier.customerEntities), [2000, 50000, 100000, 1000000])
   for (const tier of Object.values(profile.tiers)) {
     assert.ok(Number.isInteger(tier.backgroundTenants) && tier.backgroundTenants >= 0)
     assert.ok(tier.backgroundScale > 0 && tier.backgroundScale < 1)

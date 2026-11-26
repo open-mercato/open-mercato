@@ -62,7 +62,7 @@ export type PerfProfile = {
 
 export const PERF_V1: PerfProfile = {
   id: 'perf-v1',
-  tierEntities: { XS: 2_000, S: 50_000, M: 250_000, L: 1_000_000 },
+  tierEntities: { XS: 2_000, S: 50_000, M: 100_000, L: 1_000_000 },
   companyEvery: 4,
   companyWindow: 50,
   personWithoutCompanyRate: 0.1,
