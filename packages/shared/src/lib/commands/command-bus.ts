@@ -44,6 +44,10 @@ import { CrudHttpError } from '../crud/errors'
 import { getAmbientAuditCorrelation } from './auditCorrelationScope'
 import { getTelemetryRuntime, reportTelemetryError } from '../telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { HttpMethod } from '@open-mercato/shared/modules/registry'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getMatchedApiRoutePath } from '@open-mercato/shared/lib/modules/api-route-identity'
+import { findApiRouteManifestMatch, getApiRouteManifests } from '@open-mercato/shared/modules/registry'
 import {
   getTransactionLifetime,
   onTransactionLifetimeComplete,
@@ -68,6 +72,8 @@ type AtomicReplayTransaction = {
   em: EntityManager
   joinsAmbient: boolean
 }
+
+type ReplayFeatureRequirements = { record: boolean; features: string[] }
 
 function isInTransaction(em: EntityManager): boolean {
   const probe = (em as { isInTransaction?: () => boolean }).isInTransaction
@@ -400,6 +406,12 @@ export class CommandBus {
     if (replayLogEntry && readCrudFormSectionSinkSnapshots(replayLogEntry).length) {
       throw new CrudHttpError(409, { error: 'extension_policy_mismatch', code: 'extension_policy_mismatch' })
     }
+const replayFeatureRequirements = this.isUndoable(handler)
+      ? replayLogEntry
+        ? this.resolveReplayFeatureRequirementsFromLog(handler, replayLogEntry)
+        : await this.resolveReplayFeatureRequirements(handler, options.ctx)
+      : null
+
     const isAtomicReplay = replayLogEntry !== null && handler.atomicReplay === true
     const allInterceptors = getAllCommandInterceptorInstances()
     let interceptorMetadata = new Map<string, Record<string, unknown>>()
@@ -454,6 +466,7 @@ export class CommandBus {
           logEntry: replayLogEntry,
         })
       }
+      await this.authorizeReplayFeatures(handler, options.ctx, replayLogEntry)
     }
 
     if (!isAtomicReplay) {
@@ -529,12 +542,20 @@ export class CommandBus {
       }
       const baseContext = asRecord(executionOptions.metadata?.context) ?? {}
       const logMetaContext = asRecord(logMeta?.context) ?? {}
-      if (Object.keys(interceptorContextMerged).length > 0 || Object.keys(baseContext).length > 0 || Object.keys(logMetaContext).length > 0) {
+      if (
+        Object.keys(interceptorContextMerged).length > 0
+        || Object.keys(baseContext).length > 0
+        || Object.keys(logMetaContext).length > 0
+        || replayFeatureRequirements?.record
+      ) {
         mergedMeta = mergedMeta ?? {}
         mergedMeta.context = {
           ...baseContext,
           ...interceptorContextMerged,
           ...logMetaContext,
+          ...(replayFeatureRequirements?.record
+            ? { requiredFeatures: replayFeatureRequirements.features }
+            : {}),
         }
       }
       const undoable = this.isUndoable(handler)
@@ -621,6 +642,7 @@ export class CommandBus {
             logEntry: atomicSourceLog,
           })
         }
+        await this.authorizeReplayFeatures(handler, effectiveOptions.ctx, atomicSourceLog, replayEm)
         const claimed = await service.claimForRedo(atomicSourceLog.id, replayEm)
         if (!claimed) throw new Error('[internal] Redo source already consumed')
         coreResult = await executeCore(effectiveOptions)
@@ -785,6 +807,7 @@ export class CommandBus {
           logEntry: log,
         })
       }
+      await this.authorizeReplayFeatures(handler, ctx, log)
     }
 
     const claimUndo = async (replayEm?: EntityManager) => {
@@ -858,6 +881,8 @@ export class CommandBus {
           })
           sinkUndo = [work, context]
         }
+await this.authorizeReplayFeatures(handler, replayCtx, log, replayEm)
+
         await claimUndo(replayEm)
         await finishUndo(replayCtx, replayEm, sinkUndo)
       }], {
@@ -1004,6 +1029,107 @@ export class CommandBus {
       // query has already aborted the transaction.
     }
     return []
+  }
+
+  private async resolveReplayFeatureRequirements(
+    handler: CommandHandler,
+    ctx: CommandRuntimeContext,
+  ): Promise<ReplayFeatureRequirements> {
+    const features = new Set<string>(handler.requiredFeatures ?? [])
+    let record = handler.requiredFeatures !== undefined
+    const request = ctx.request
+    if (!request) return { record, features: [...features] }
+
+    const routePath = getMatchedApiRoutePath(request)
+      ?? new URL(request.url).pathname.replace(/^\/api(?=\/|$)/, '')
+    const method = request.method.toUpperCase() as HttpMethod
+    const match = findApiRouteManifestMatch(getApiRouteManifests(), method, routePath, request)
+    if (!match) return { record, features: [...features] }
+
+    const routeModule = await match.route.load()
+    const routeRecord = asRecord(routeModule)
+    const metadata = asRecord(routeRecord?.metadata)
+    const methodMetadata = asRecord(metadata?.[method])
+    const routeFeatures = methodMetadata?.requireFeatures ?? routeRecord?.requireFeatures
+    if (Array.isArray(routeFeatures)) {
+      record = true
+      for (const feature of routeFeatures) {
+        if (typeof feature === 'string' && feature.length > 0) features.add(feature)
+      }
+    }
+    return { record, features: [...features] }
+  }
+
+  private resolveReplayFeatureRequirementsFromLog(
+    handler: CommandHandler,
+    logEntry: CommandUndoLogEntry,
+  ): ReplayFeatureRequirements {
+    const features = new Set<string>(handler.requiredFeatures ?? [])
+    const storedFeatures = asRecord(logEntry.contextJson)?.requiredFeatures
+    const record = handler.requiredFeatures !== undefined || Array.isArray(storedFeatures)
+    if (Array.isArray(storedFeatures)) {
+      for (const feature of storedFeatures) {
+        if (typeof feature === 'string' && feature.length > 0) features.add(feature)
+      }
+    }
+    return { record, features: [...features] }
+  }
+
+  private async authorizeReplayFeatures(
+    handler: CommandHandler,
+    ctx: CommandRuntimeContext,
+    logEntry: CommandUndoLogEntry,
+    transactionalEm?: EntityManager,
+  ): Promise<void> {
+    const context = asRecord(logEntry.contextJson)
+    const storedFeatures = context?.requiredFeatures
+    const features = new Set<string>(handler.requiredFeatures ?? [])
+    if (Array.isArray(storedFeatures)) {
+      for (const feature of storedFeatures) {
+        if (typeof feature === 'string' && feature.length > 0) features.add(feature)
+      }
+    }
+    if (features.size === 0) return
+    if (!ctx.auth?.sub) {
+      throw new CrudHttpError(403, { error: 'Forbidden', requiredFeatures: [...features] })
+    }
+
+    type ReplayRbac = {
+      userHasAllFeatures: (
+        userId: string,
+        features: string[],
+        scope: { tenantId: string | null; organizationId: string | null },
+      ) => Promise<boolean>
+      userHasAllFeaturesWithEntityManager?: (
+        em: EntityManager,
+        userId: string,
+        features: string[],
+        scope: { tenantId: string | null; organizationId: string | null },
+      ) => Promise<boolean>
+    }
+    let rbac: ReplayRbac | undefined
+    try {
+      rbac = ctx.container.resolve('rbacService') as ReplayRbac
+    } catch {
+      // A replay with persisted feature requirements must fail closed without RBAC.
+    }
+    const scope = {
+      tenantId: logEntry.tenantId !== undefined ? logEntry.tenantId : ctx.auth.tenantId ?? null,
+      organizationId: logEntry.organizationId !== undefined
+        ? logEntry.organizationId
+        : ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
+    }
+    const allowed = transactionalEm
+      ? await rbac?.userHasAllFeaturesWithEntityManager?.(
+          transactionalEm,
+          ctx.auth.sub,
+          [...features],
+          scope,
+        ) ?? false
+      : await rbac?.userHasAllFeatures(ctx.auth.sub, [...features], scope) ?? false
+    if (!allowed) {
+      throw new CrudHttpError(403, { error: 'Forbidden', requiredFeatures: [...features] })
+    }
   }
 
   private async runReplayTransactionGuard(

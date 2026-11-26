@@ -95,6 +95,86 @@ describe('CommandBus', () => {
     expect(markUndone).not.toHaveBeenCalled()
   })
 
+  it('rechecks the command feature before claiming an undo log', async () => {
+    const undo = jest.fn(async () => undefined)
+    const claimForUndo = jest.fn(async () => true)
+    const logEntry = {
+      id: 'log-feature-guarded',
+      commandId: 'test.command.feature-guarded',
+      commandPayload: { __redoInput: { id: 'record-1' } },
+      contextJson: { requiredFeatures: ['customers.people.manage'] },
+      tenantId: 'tenant-1',
+      organizationId: null,
+    }
+    registerCommand({ id: 'test.command.feature-guarded', execute: jest.fn(), undo })
+    const userHasAllFeatures = jest.fn(async () => false)
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({
+        findByUndoToken: jest.fn(async () => logEntry),
+        claimForUndo,
+        markUndone: jest.fn(),
+      }),
+      rbacService: asValue({ userHasAllFeatures }),
+    })
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await expect(new CommandBus().undo('undo-token', ctx)).rejects.toMatchObject({ status: 403 })
+
+    expect(userHasAllFeatures).toHaveBeenCalledWith(
+      'user-1',
+      ['customers.people.manage'],
+      { tenantId: 'tenant-1', organizationId: null },
+    )
+    expect(claimForUndo).not.toHaveBeenCalled()
+    expect(undo).not.toHaveBeenCalled()
+  })
+
+  it('rechecks the command feature before claiming or executing a redo', async () => {
+    const execute = jest.fn(async () => ({ ok: true }))
+    const claimForRedo = jest.fn(async () => true)
+    registerCommand({
+      id: 'test.command.redo-feature-guarded',
+      requiredFeatures: ['customers.people.manage'],
+      execute,
+      undo: jest.fn(),
+    })
+    const userHasAllFeatures = jest.fn(async () => false)
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({ claimForRedo, log: jest.fn() }),
+      rbacService: asValue({ userHasAllFeatures }),
+    })
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await expect(new CommandBus().execute('test.command.redo-feature-guarded', {
+      input: { id: 'record-1' },
+      ctx,
+      redoLogEntry: {
+        id: 'source-log',
+        commandId: 'test.command.redo-feature-guarded',
+        contextJson: { requiredFeatures: ['customers.people.manage'] },
+        tenantId: 'tenant-1',
+        organizationId: null,
+      },
+    })).rejects.toMatchObject({ status: 403 })
+
+    expect(claimForRedo).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
   it('authorizes redo before snapshots, mutations, or log writes', async () => {
     const authorizeReplay = jest.fn(async () => {
       throw new Error('redo denied')
