@@ -25,7 +25,12 @@ import {
  *      label and the right edge of the trigger — enough room for a 14-16px chevron icon.
  */
 test.describe('TC-CRM-057: Activity history date-range chevron padding (#1811)', () => {
-  test('Date-range trigger has DS chevron spacing and no label/icon overlap', async ({ page, request }) => {
+  // Superseded by #7494: the company Activity log now mounts the shared
+  // `ActivitiesSection` (deal layout), whose date range lives in the "More
+  // filters" popover as two date inputs. The legacy `ActivityHistorySection`
+  // 7d/30d/90d select this scenario measured is no longer rendered by any page;
+  // its chevron spacing stays covered by the component's Jest suite.
+  test.skip('Date-range trigger has DS chevron spacing and no label/icon overlap', async ({ page, request }) => {
     test.slow()
     test.setTimeout(120_000)
 

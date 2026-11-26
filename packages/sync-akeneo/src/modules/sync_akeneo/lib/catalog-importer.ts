@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -61,6 +62,7 @@ import {
 import { isAkeneoResponseTooLargeError, type AkeneoClient } from './client'
 import { inferAkeneoProductMapping } from './inference'
 import { normalizeMarkdownText } from './markdown'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 type ImportScope = {
   organizationId: string
@@ -113,7 +115,7 @@ type DesiredPrice = {
   priceKindId: string
   channelId: string
   currencyCode: string
-  amount: number
+  amount: string
   variantId: string
 }
 
@@ -487,17 +489,17 @@ function resolvePriceVariantId(price: Pick<CatalogProductPrice, 'variant'>): str
   return price.variant?.id ?? null
 }
 
-function parsePriceCollection(value: unknown): Array<{ currencyCode: string; amount: number }> {
+function parsePriceCollection(value: unknown): Array<{ currencyCode: string; amount: string }> {
   if (!Array.isArray(value)) return []
   return value
     .map((entry) => {
       const record = safeRecord(entry)
       const currencyCode = typeof record?.currency === 'string' ? record.currency.trim().toUpperCase() : ''
-      const amount = coerceNumber(record?.amount)
+      const amount = parseDecimal(record?.amount)
       if (!currencyCode || amount === null) return null
-      return { currencyCode, amount }
+      return { currencyCode, amount: decimalToString(amount) }
     })
-    .filter((entry): entry is { currencyCode: string; amount: number } => Boolean(entry))
+    .filter((entry): entry is { currencyCode: string; amount: string } => Boolean(entry))
 }
 
 function collectMediaReferences(value: unknown): MediaReference[] {
@@ -549,6 +551,10 @@ export function resolveAkeneoMediaTarget(params: {
     return 'variant'
   }
   return params.mappingTarget
+}
+
+function isEmptyCustomFieldValue(value: unknown): boolean {
+  return value === null || value === undefined || (Array.isArray(value) && value.length === 0)
 }
 
 function resolveCustomFieldValue(value: unknown, attribute: AkeneoAttribute, kind: AkeneoCustomFieldKind): unknown {
@@ -807,6 +813,8 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   const preferredPriceKindCodeCache = new Map<string, Promise<string | null>>()
   const attributeOptionLabelCache = new Map<string, Promise<Map<string, string>>>()
   const defaultProductSettings = buildDefaultAkeneoMapping('products').settings?.products
+  const salesChannelsAvailable = em.getMetadata().has(SalesChannel)
+  let salesChannelsUnavailableReported = false
 
   function buildCommandContext(): CommandRuntimeContext {
     return {
@@ -970,7 +978,20 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     return categoryCache.get(code) ?? null
   }
 
+  async function reportSalesChannelsUnavailable(): Promise<void> {
+    if (salesChannelsUnavailableReported) return
+    salesChannelsUnavailableReported = true
+    const integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
+    await integrationLogService.write({
+      integrationId: 'sync_akeneo',
+      level: 'warn',
+      code: 'sync_akeneo.sales_channels_unavailable',
+      message: 'The sales module is disabled, so Akeneo channel-bound offers and prices were skipped.',
+    }, scope)
+  }
+
   async function resolveChannel(code: string, options?: { createIfMissing?: boolean; label?: string | null }): Promise<{ id: string; code: string } | null> {
+    if (!salesChannelsAvailable) return null
     const normalizedCode = code.trim().toLowerCase()
     if (!normalizedCode) return null
     const cacheKey = `${normalizedCode}:${options?.createIfMissing ? 'create' : 'read'}:${options?.label ?? ''}`
@@ -1032,6 +1053,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
   }
 
   async function resolvePreferredLocalChannelCode(): Promise<string | null> {
+    if (!salesChannelsAvailable) return null
     const cacheKey = 'preferred'
     if (!preferredChannelCodeCache.has(cacheKey)) {
       preferredChannelCodeCache.set(cacheKey, (async () => {
@@ -1828,6 +1850,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     settings: AkeneoProductMappingSettings
     priceAttributeCodes: string[]
   }): Promise<AkeneoProductMappingSettings['priceMappings']> {
+    if (!salesChannelsAvailable) {
+      if (params.priceAttributeCodes.length > 0) await reportSalesChannelsUnavailable()
+      return []
+    }
     const fallbackChannelCode = await resolvePreferredLocalChannelCode()
 
     const mappings: AkeneoProductMappingSettings['priceMappings'] = []
@@ -2022,6 +2048,23 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     }
   }
 
+  async function omitClearsOfEmptyFields(
+    entityId: string,
+    recordId: string,
+    values: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (!Object.values(values).some((value) => value === null)) return values
+    const current = await loadCustomFieldSnapshot(em, {
+      entityId,
+      recordId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    })
+    return Object.fromEntries(
+      Object.entries(values).filter(([key, value]) => value !== null || !isEmptyCustomFieldValue(current[key])),
+    )
+  }
+
   async function applyCustomFieldMappings(params: {
     mapping: AkeneoDataMapping
     hierarchy: ResolvedHierarchy
@@ -2048,8 +2091,8 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         ? [params.hierarchy.rootValues, params.hierarchy.mergedValues]
         : [params.product.values ?? {}, params.hierarchy.mergedValues]
       const rawValue = readLayeredAkeneoValue(sourceLayers, fieldMapping.attributeCode, settings.locale, settings.channel ?? null)
-      const value = resolveCustomFieldValue(rawValue, attribute, kind)
-      if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) continue
+      const resolved = resolveCustomFieldValue(rawValue, attribute, kind)
+      const value = isEmptyCustomFieldValue(resolved) ? null : resolved
       if (fieldMapping.target === 'product') {
         productCustomFields[normalizeFieldKey(fieldMapping.fieldKey)] = value
       } else {
@@ -2057,24 +2100,24 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       }
     }
 
-    await Promise.all([
-      setCustomFieldsIfAny({
-        dataEngine,
-        entityId: PRODUCT_ENTITY_ID,
-        recordId: params.localProductId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        values: productCustomFields,
-      }),
-      setCustomFieldsIfAny({
-        dataEngine,
-        entityId: VARIANT_ENTITY_ID,
-        recordId: params.localVariantId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        values: variantCustomFields,
-      }),
-    ])
+    const productValues = await omitClearsOfEmptyFields(PRODUCT_ENTITY_ID, params.localProductId, productCustomFields)
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: PRODUCT_ENTITY_ID,
+      recordId: params.localProductId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      values: productValues,
+    })
+    const variantValues = await omitClearsOfEmptyFields(VARIANT_ENTITY_ID, params.localVariantId, variantCustomFields)
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: VARIANT_ENTITY_ID,
+      recordId: params.localVariantId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      values: variantValues,
+    })
 
     await Promise.all([
       params.fieldsetPlan?.product?.code
@@ -2091,7 +2134,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
         : Promise.resolve(),
     ])
 
-    if (Object.keys(productCustomFields).length > 0) {
+    if (Object.keys(productValues).length > 0) {
       await emitCatalogQueryIndexEvent(buildCommandContext(), {
         entityType: PRODUCT_ENTITY_ID,
         recordId: params.localProductId,
@@ -2101,7 +2144,7 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
       })
     }
 
-    if (Object.keys(variantCustomFields).length > 0) {
+    if (Object.keys(variantValues).length > 0) {
       await emitCatalogQueryIndexEvent(buildCommandContext(), {
         entityType: VARIANT_ENTITY_ID,
         recordId: params.localVariantId,
@@ -2122,6 +2165,10 @@ export async function createAkeneoImporter(client: AkeneoClient, scope: ImportSc
     resolvedProductDescription: string | null
     variantExternalId: string
   }): Promise<void> {
+    if (!salesChannelsAvailable) {
+      if (params.settings.priceMappings.length > 0) await reportSalesChannelsUnavailable()
+      return
+    }
     const desiredOffers = new Map<string, DesiredOffer>()
     for (const priceMapping of params.settings.priceMappings) {
       const channel = await resolveChannel(priceMapping.localChannelCode, {

@@ -13,6 +13,8 @@ import { officialModuleEntries } from './official-modules.generated'
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
+  locator?: string
+  packageName?: string
   overrides?: ModuleOverrides
 }
 
@@ -222,8 +224,11 @@ export const enabledModules: ModuleEntry[] = [
       },
     },
   },
-  { id: 'ratelimit_probe', from: '@app' },
 ]
+
+if (parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)) {
+  enabledModules.push({ id: 'ratelimit_probe', from: '@app' })
+}
 
 // Official modules activated via official-modules.json / official-modules.local.json
 // (managed by `yarn official-modules`; backed by the external/official-modules submodule).

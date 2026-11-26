@@ -129,6 +129,11 @@ function stageApp(): string {
     path.join(root, 'src', 'app', 'globals.css'),
   )
   for (const [packageName, relativePaths] of Object.entries({
+    cli: [
+      'src/lib/module-install.ts',
+      'src/lib/module-identity.ts',
+      'src/lib/eject.ts',
+    ],
     core: [
       'src/modules/design_system/gallery/entries/buttons.tsx',
       'src/modules/customers/backend/customers/people-v2/[id]/page.tsx',
@@ -136,7 +141,7 @@ function stageApp(): string {
       'src/modules/customers/components/calendar/CalendarEventEditor.tsx',
       'src/modules/customers/lib/calendar/eventTypeResolver.ts',
     ],
-    ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx'],
+    ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx', 'src/backend/inputs/MarkdownField.tsx', 'src/backend/markdown/codeBlockLanguages.ts'],
     shared: [
       'src/lib/commands/types.ts',
       'src/lib/commands/registry.ts',
@@ -209,17 +214,20 @@ function storedReviewResults(root: string): StoredReviewResult[] {
 test('fake runner starts in its admitted directory while controller reads and writes stay denied', { skip: !targetSandboxAvailable }, async () => {
   const controller = stageApp()
   const target = stageWritableTarget(controller)
+  const admittedRunnerRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'om-admitted-runner-'))
   const secretPath = path.join(controller, 'controller-secret.txt')
   const deniedWritePath = path.join(controller, 'controller-write.txt')
   try {
     fs.writeFileSync(secretPath, 'controller secret')
-    const bin = installFakeRunner(controller, 'codex', `
+    const bin = installFakeRunner(admittedRunnerRoot, 'codex', `
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 for (const readPath of ${JSON.stringify([path.join(controller, 'package.json'), secretPath])}) {
   assert.throws(() => fs.readFileSync(readPath), { code: /^(EPERM|EACCES|ENOENT)$/ })
 }
-assert.throws(() => fs.writeFileSync(${JSON.stringify(deniedWritePath)}, 'escaped'), { code: /^(EPERM|EACCES|ENOENT|EROFS)$/ })
+for (const writePath of ${JSON.stringify([deniedWritePath, path.join(os.tmpdir(), 'om-harness-unadmitted-write'), '/om-harness-unadmitted-write'])}) {
+  assert.throws(() => fs.writeFileSync(writePath, 'escaped'), { code: /^(EPERM|EACCES|ENOENT|EROFS)$/ })
+}
 fs.writeFileSync('target-edit.txt', 'contained')
 console.log('fixture boundary verified')
 `)
@@ -241,6 +249,7 @@ console.log('fixture boundary verified')
     assert.equal(fs.readFileSync(path.join(target, 'target-edit.txt'), 'utf8'), 'contained')
     assert.equal(fs.existsSync(deniedWritePath), false)
   } finally {
+    fs.rmSync(admittedRunnerRoot, { recursive: true, force: true })
     fs.rmSync(controller, { recursive: true, force: true })
     fs.rmSync(target, { recursive: true, force: true })
   }
@@ -436,7 +445,7 @@ test('the catalog count and release coverage are derived from the validator regi
   assert.deepEqual(validators.catalog.compatibilityRequiredCaseIds, [
     'OMH-007', 'OMH-022', 'OMH-030', 'OMH-048', 'OMH-057', 'OMH-064', 'OMH-072', 'OMH-074',
     'OMH-082', 'OMH-087', 'OMH-088', 'OMH-089', 'OMH-105', 'OMH-108', 'OMH-118', 'OMH-130', 'OMH-131', 'OMH-147', 'OMH-150',
-    'OMH-182',
+    'OMH-182', 'OMH-243',
   ])
   assert.deepEqual(validators.catalog.compatibilityExcludedCaseIds, [
     'OMH-006', 'OMH-011', 'OMH-012', 'OMH-014', 'OMH-018', 'OMH-026',
@@ -717,12 +726,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-241', () => {
+test('deterministic evaluation enforces the case schema through OMH-243', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-241')
+    assert.equal(cases.at(-1)?.id, 'OMH-243')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -3971,7 +3980,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 241)
+  assert.equal(cases.length, 243)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)

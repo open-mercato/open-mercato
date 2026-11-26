@@ -2,9 +2,17 @@
 // real DB. We capture the createSessionApiKey input to assert scope (caller, not
 // superadmin). findWithDecryption is stubbed to return the caller's roles.
 import { captureLogs } from './support/captureLogs'
+import * as attachmentStager from '../lib/runtime/attachmentStager'
 
 const createSessionApiKeyMock = jest.fn()
 const deleteSessionApiKeyMock = jest.fn()
+jest.mock('../lib/guardrails/guardrailService', () => {
+  const actual = jest.requireActual('../lib/guardrails/guardrailService')
+  return {
+    ...actual,
+    persistVerdict: async (_ctx: unknown, _scope: unknown, args: { verdict: { checks: unknown[] } }) => args.verdict.checks,
+  }
+})
 jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   generateSessionToken: () => 'sess_runner_test_token',
   createSessionApiKey: (...args: unknown[]) => {
@@ -20,6 +28,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: () => Promise.resolve([{ role: { id: 'role-caller' } }]),
 }))
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({ UserRole: class UserRole {} }))
+jest.mock('../lib/sdk/defineAgent', () => ({
+  ...jest.requireActual<typeof import('../lib/sdk/defineAgent')>('../lib/sdk/defineAgent'),
+  ensureAgentsLoaded: jest.fn(async () => undefined),
+}))
 
 import { OpenCodeAgentRunner, type OpenCodeRunnerClient } from '../lib/runtime/openCodeAgentRunner'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
@@ -113,7 +125,7 @@ function makeHarness() {
   const rbacService = {
     loadAcl: async () => ({ isSuperAdmin: false, features: ['agent_orchestrator.agents.run'] }),
   }
-  const em = {}
+  const em = { fork: () => ({}) }
   // Shared cross-process correlation store — the runner opens a row, the fake
   // client's submit_outcome (resolving the SAME store from the container)
   // completes it, and the runner polls it back.
@@ -196,6 +208,43 @@ const validOutcome = {
 
 describe('OpenCodeAgentRunner (integration, fake client)', () => {
   const runCtx = { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' }
+
+  it.each([false, true])('passes the execution principal to staging and fails before prompting on denial (workflow=%s)', async (workflow) => {
+    const { calls, commandBus, container } = makeHarness()
+    const workspace = { inDir: '/sandbox/in', outDir: '/sandbox/out', release: jest.fn(async () => undefined) }
+    container.register({
+      em: { fork: () => ({}) },
+      agentWorkspaceManager: { acquire: async () => workspace },
+    })
+    const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef: { value: '' }, agentSentRef: { value: undefined }, container })
+    const sendMessage = jest.spyOn(client, 'sendMessage')
+    const stage = jest.spyOn(attachmentStager, 'stageAttachments').mockRejectedValue(new Error('[internal] attachment access denied'))
+    const previousFilesEnabled = process.env.OM_OPENCODE_FILES_ENABLED
+    process.env.OM_OPENCODE_FILES_ENABLED = 'true'
+    try {
+      const runner = new OpenCodeAgentRunner({ container: container as never, commandBus: commandBus as never, openCodeClient: client })
+      const ctx = workflow ? {
+        ...runCtx, userId: 'workflow-execution-principal', workflowInstanceId: 'workflow-1', stepId: 'step-1',
+        runAs: { agentUserId: 'audit-agent', onBehalfOfUserId: 'invoking-human' },
+      } : runCtx
+      await expect(runner.run({ ...registerExampleFileAgent(), files: { enabled: true } }, {
+        __files: { attachments: [{ attachmentId: '11111111-1111-4111-8111-111111111111', ocrText: true }] },
+      }, ctx)).rejects.toThrow('attachment staging failed')
+      expect(stage).toHaveBeenCalledWith(expect.objectContaining({
+        userId: ctx.userId, tenantId: ctx.tenantId, organizationId: ctx.organizationId,
+      }))
+      expect(sendMessage).not.toHaveBeenCalled()
+      expect(calls.find((call) => call.id === 'agent_orchestrator.runs.fail')?.input.errorMessage).toContain('attachment access denied')
+      expect(calls.some((call) => call.id === 'agent_orchestrator.runs.complete')).toBe(false)
+      expect(workspace.release).toHaveBeenCalledTimes(1)
+    } finally {
+      stage.mockRestore()
+      createSessionApiKeyMock.mockClear()
+      deleteSessionApiKeyMock.mockClear()
+      if (previousFilesEnabled === undefined) delete process.env.OM_OPENCODE_FILES_ENABLED
+      else process.env.OM_OPENCODE_FILES_ENABLED = previousFilesEnabled
+    }
+  })
 
   it('runs the example file agent end-to-end: mints a caller-scoped token, sends the agent field, captures the outcome, persists run + proposal', async () => {
     const entry = registerExampleFileAgent()
@@ -286,9 +335,10 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     // Spans are derived 1:1 from tool calls, so this run produced none — and a
     // run with no span is unauditable, which `dispositionService` reads as
     // `trace_incomplete` and holds for a human however confident the agent was.
-    expect(payload.spans).toHaveLength(1)
-    expect(payload.spans![0].kind).toBe('llm')
-    expect(Date.parse(payload.spans![0].startedAt)).not.toBeNaN()
+    const stepSpans = (payload.spans ?? []).filter((span) => span.kind !== 'system')
+    expect(stepSpans).toHaveLength(1)
+    expect(stepSpans[0].kind).toBe('llm')
+    expect(Date.parse(stepSpans[0].startedAt)).not.toBeNaN()
   })
 
   it('stamps the declared model (alongside runtime) on runs.create so the cockpit can show/filter runs by model', async () => {
