@@ -25,6 +25,7 @@ jest.mock('@open-mercato/queue', () => ({
 import { GET as listFailureQueue, FAILURE_GROUP_SCAN_LIMIT } from '../instances/failure-queue/route'
 import { POST as startBulkReplay } from '../instances/bulk-replay/route'
 import { WorkflowInstance } from '../../data/entities'
+import { createTiedTimestampOrdering, type TiedTimestampOrderOptions } from './helpers/tiedTimestampOrdering'
 
 const tenantId = 'tenant-1'
 const orgId = 'org-1'
@@ -169,6 +170,38 @@ describe('GET /api/workflows/instances/failure-queue', () => {
 
     expect(body.data.length).toBe(100)
     expect(body.pagination.limit).toBe(100)
+  })
+
+  test('scans in createdAt order with an id tiebreak so the in-memory pages are a total order', async () => {
+    await listFailureQueue(new NextRequest('http://localhost/api/workflows/instances/failure-queue?limit=2&offset=2'))
+
+    expect(mockEm.find.mock.calls[0][2]).toEqual({
+      orderBy: { createdAt: 'DESC', id: 'DESC' },
+      limit: FAILURE_GROUP_SCAN_LIMIT,
+    })
+  })
+
+  test('walks every failure exactly once when instances share a createdAt', async () => {
+    const createdAt = new Date('2026-11-01T10:00:00.000Z')
+    const instances = ['a', 'b', 'c', 'd', 'e'].map((suffix) =>
+      row({ id: `00000000-0000-4000-8000-00000000000${suffix}`, createdAt, errorMessage: 'Gateway timeout' })
+    )
+    const orderPage = createTiedTimestampOrdering(instances)
+    mockEm.find.mockImplementation(async (_entity: unknown, _where: unknown, options: TiedTimestampOrderOptions) =>
+      orderPage(options)
+    )
+    mockEm.count.mockResolvedValue(instances.length)
+
+    const seen: string[] = []
+    for (const offset of [0, 2, 4]) {
+      const response = await listFailureQueue(
+        new NextRequest(`http://localhost/api/workflows/instances/failure-queue?limit=2&offset=${offset}`)
+      )
+      const body = await response.json()
+      seen.push(...body.data.map((instance: { id: string }) => instance.id.slice(-1)))
+    }
+
+    expect(seen).toEqual(['e', 'd', 'c', 'b', 'a'])
   })
 
   test('401s an unauthenticated caller', async () => {
