@@ -1,10 +1,6 @@
 # Lessons
 
-<<<<<<< HEAD
 This catalog indexes 149 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
-=======
-This catalog indexes 198 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
->>>>>>> 2a0fb15d03 (fix(deps): patch Hono middleware bypass vulnerabilities (#9471))
 
 ## How to use this catalog
 
@@ -22,27 +18,6 @@ This catalog indexes 198 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
-<<<<<<< HEAD
-=======
-- [Inspect all test reporters before classifying a truncated run](lessons/inspect-all-test-reporters-before-classifying-truncation.md) — area:testing,debugging; module:create_app; topic:validation-evidence,test-reporters,timeouts,test-prerequisites
-
-- [Preserve peer resolution when copying test dependencies](lessons/preserve-peer-resolution-when-copying-test-dependencies.md) — area:testing,debugging; module:platform; topic:package-runtime,worktrees,peer-dependencies,lockfile
-
-- [Queue triage stops do not complete a fix quota](lessons/queue-triage-stops-do-not-complete-a-fix-quota.md) — area:ai-workflow; module:platform; topic:autofix,triage,completion
-
-- [Redact URL authority credentials before telemetry export](lessons/redact-url-authority-credentials-before-telemetry-export.md) — area:architecture,testing; module:telemetry; topic:network-security,telemetry,testing
-
-- [Replay covers SDK preprocessing and trial state](lessons/replay-covers-sdk-preprocessing-and-trial-state.md) — area:ai-workflow,testing; module:agent_orchestrator,ai_assistant; topic:offline-replay,fixtures,sdk-preprocessing,file-io
-
-- [Request-path work runs per call, not per request](lessons/request-path-work-runs-per-call.md) — area:architecture,module-data; module:shared,core,query_index,customers,auth; topic:performance,dependency-injection,auth-context,service-lifetimes,resource-disposal,request-lifecycle
-
-- [Stabilization CI must not follow label churn](lessons/stabilization-ci-must-not-follow-label-churn.md) — area:ai-workflow,testing; module:platform; topic:ci-scheduling,stabilization,required-checks,regression-testing
-
-- [Workflow environment changes must preserve credential guards](lessons/workflow-environment-changes-must-preserve-credential-guards.md) — area:ai-workflow,testing; module:platform; topic:ci-workflows,credential-isolation,regression-testing
-
-- [Archive rotated context as one batch](lessons/archive-rotated-context-as-one-batch.md) — area:ai-workflow,testing; module:platform; topic:context-budget,archival,file-count,regression-testing
-
->>>>>>> 2a0fb15d03 (fix(deps): patch Hono middleware bypass vulnerabilities (#9471))
 - [Enforce loopback for anonymous development services](lessons/enforce-loopback-for-anonymous-development-services.md) — area:architecture,testing; module:create_app,starter; topic:docker-compose,network-security,local-development,registry
 
 - [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
