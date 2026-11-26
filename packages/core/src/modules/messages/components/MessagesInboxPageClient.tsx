@@ -90,6 +90,7 @@ export function MessagesInboxPageClient() {
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
   const { payload: chrome } = useBackendChrome()
+  const canUseMessageActions = hasFeature(chrome?.grantedFeatures, 'messages.view')
   const canCompose = hasFeature(chrome?.grantedFeatures, 'messages.compose')
   const canListUsers = hasFeature(chrome?.grantedFeatures, 'auth.users.list')
 
@@ -158,6 +159,7 @@ export function MessagesInboxPageClient() {
 
   const messageTypesQuery = useQuery({
     queryKey: ['messages', 'types', scopeVersion],
+    enabled: canUseMessageActions,
     queryFn: async () => {
       const call = await apiCall<{ items?: MessageTypeItem[] }>('/api/messages/types')
       if (!call.ok) {
@@ -181,14 +183,14 @@ export function MessagesInboxPageClient() {
   }, [listQuery.error, t])
 
   React.useEffect(() => {
-    if (!messageTypesQuery.error) return
+    if (!canUseMessageActions || !messageTypesQuery.error) return
     flash(
       messageTypesQuery.error instanceof Error
         ? messageTypesQuery.error.message
         : t('messages.errors.loadTypesFailed', 'Failed to load message types.'),
       'error',
     )
-  }, [messageTypesQuery.error, t])
+  }, [canUseMessageActions, messageTypesQuery.error, t])
 
   const messageTypeLabelMap = React.useMemo(() => {
     const map: Record<string, string> = {}
@@ -376,7 +378,7 @@ export function MessagesInboxPageClient() {
         extensionTableId={extensionPoints.hosts.inboxTable.tableId}
         columns={columns}
         data={rows}
-        bulkActions={bulkActions}
+        bulkActions={canUseMessageActions ? bulkActions : undefined}
         selectionScopeKey={selectionScopeKey}
         searchValue={search}
         onSearchChange={(value) => {

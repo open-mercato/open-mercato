@@ -27,9 +27,10 @@ const restrictedRequests = [
   '/api/attachments',
   '/api/audit_logs/audit-logs/actions',
   '/api/communication_channels/me/channels',
+  '/api/messages/types',
 ]
 
-test('a People viewer can browse without unauthorized controls or related requests', async ({ page, request }) => {
+test('a People viewer can browse without unauthorized controls or related requests', async ({ page, request }, testInfo) => {
   const adminToken = await getAuthToken(request, 'admin')
   const { tenantId, organizationId } = getTokenScope(adminToken)
   const marker = randomUUID()
@@ -70,7 +71,6 @@ test('a People viewer can browse without unauthorized controls or related reques
     await expect(page.getByRole('link', { name: 'New Person' })).toHaveCount(0)
     await expect(page.getByRole('checkbox', { name: 'Select row', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Set normal priority', exact: true })).toHaveCount(0)
-    await expect(page.getByTestId('sidebar').getByRole('link', { name: 'Messages', exact: true })).toHaveCount(0)
 
     const emailsLoaded = page.waitForResponse((response) =>
       new URL(response.url()).pathname === `/api/customers/people/${personId}/email-threads` && response.ok(),
@@ -84,6 +84,16 @@ test('a People viewer can browse without unauthorized controls or related reques
     await expect(page.getByRole('button', { name: /^(Save|Delete|Edit tags|Send message|Manage fields)$/i })).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'Connect your mailbox' })).toHaveCount(0)
     await expect(page.getByText(companyName, { exact: true })).toHaveCount(0)
+    if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+      await page.screenshot({ path: testInfo.outputPath('person-view-only.png') })
+    }
+
+    const inboxLoaded = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/api/messages' && response.ok(),
+    )
+    await page.getByTestId('sidebar').getByRole('link', { name: 'Messages', exact: true }).click()
+    await inboxLoaded
+    await expect(page.getByRole('link', { name: 'Compose message', exact: true })).toHaveCount(0)
     expect(unauthorizedRequests).toEqual([])
   } finally {
     await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)

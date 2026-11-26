@@ -1,6 +1,5 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['messages.view'],
   pageTitle: 'Messages',
   pageTitleKey: 'messages.nav.inbox',
   pageGroup: 'Messages',

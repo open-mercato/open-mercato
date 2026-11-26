@@ -3,8 +3,6 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { extensionPoints } from '@open-mercato/core/modules/messages/extension-points'
-import { hasFeature } from '@open-mercato/shared/security/features'
-import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { MessageComposer } from '@open-mercato/ui/backend/messages'
 import type { MessageSenderOption } from '@open-mercato/ui/backend/messages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -16,8 +14,6 @@ import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 
 export function ComposeMessagePageClient() {
   const router = useRouter()
-  const { payload: chrome } = useBackendChrome()
-  const returnPath = hasFeature(chrome?.grantedFeatures, 'messages.view') ? '/backend/messages' : '/backend'
   const [senderOptions, setSenderOptions] = React.useState<MessageSenderOption[]>([])
 
   // `communication_channels` is optional, so its endpoint may be absent or
@@ -62,10 +58,10 @@ export function ComposeMessagePageClient() {
         variant="compose"
         senderOptions={senderOptions}
         onCancel={() => {
-          router.push(returnPath)
+          router.push('/backend/messages')
         }}
         onSuccess={() => {
-          router.push(returnPath)
+          router.push('/backend/messages')
         }}
       />
     </div>
