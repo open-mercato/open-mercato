@@ -180,6 +180,7 @@ Priority: **P1** = blocks meaningful VPS results or is a likely production incid
   - `.mercato` and `.ai` (16 GB) are not in `.dockerignore`.
   - A fresh clone (VPS) is much smaller, but laptop-built images are 14 GB to ship.
 - **Recommendation:** dockerignore `apps/mercato/.mercato` and `.ai`.
+- **Fixed on this branch (2026-11-26).** `.dockerignore` now excludes `apps/mercato/.mercato`, `.ai`, `.claude` and the perf local state. The measured build context fell from 19.5 GB to 0.27 GB, and the image from 14.3 GB to 8.0 GB (the `.mercato/next` layer from 6.1 GB to 2.3 GB).
 
 ### P3-5 — Smaller items seen while building the journeys
 
