@@ -204,3 +204,107 @@ describe('GET /api/audit_logs/audit-logs/access', () => {
     expect(mockAccess.list).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'tenant-1' }))
   })
 })
+
+describe('GET /api/audit_logs/audit-logs/access actor scope and organization scoping', () => {
+  const viewerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const otherActorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const orgA = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  const orgB = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+  const tenantAuth = { sub: viewerId, tenantId: 'tenant-1', orgId: null }
+
+  async function arrange(options: {
+    auth?: Record<string, unknown>
+    canViewTenant: boolean
+    organizationId: string | null
+    allowedIds: string[] | null
+  }) {
+    jest.clearAllMocks()
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue(options.auth ?? tenantAuth)
+    const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+    ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
+      organizationId: options.organizationId,
+      scope: { allowedIds: options.allowedIds },
+    })
+    const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    mockRbac.userHasAllFeatures.mockResolvedValue(options.canViewTenant)
+    mockAccess.list.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 })
+  }
+
+  function listQuery(): Record<string, unknown> {
+    return mockAccess.list.mock.calls[0][0] as Record<string, unknown>
+  }
+
+  it('keeps the caller-only default when actorScope is omitted, even for tenant auditors', async () => {
+    await arrange({ canViewTenant: true, organizationId: orgA, allowedIds: null })
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access'))
+    expect(res.status).toBe(200)
+    expect(listQuery().actorUserId).toBe(viewerId)
+  })
+
+  it('ignores actorScope=all for callers without audit_logs.view_tenant', async () => {
+    await arrange({ canViewTenant: false, organizationId: orgA, allowedIds: [orgA] })
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access?actorScope=all'))
+    expect(res.status).toBe(200)
+    expect(listQuery().actorUserId).toBe(viewerId)
+    expect(listQuery().organizationIds).toBeUndefined()
+  })
+
+  it('lists every actor within the tenant and organization for tenant auditors with actorScope=all', async () => {
+    await arrange({ canViewTenant: true, organizationId: orgA, allowedIds: [orgA, orgB] })
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access?actorScope=all'))
+    expect(res.status).toBe(200)
+    expect(listQuery()).toEqual(expect.objectContaining({ tenantId: 'tenant-1', organizationId: orgA, actorUserId: undefined }))
+  })
+
+  it('restricts a widened read to the visible organizations when no organization is selected', async () => {
+    await arrange({ canViewTenant: true, organizationId: null, allowedIds: [orgA, orgB] })
+    await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access?actorScope=all'))
+    expect(listQuery()).toEqual(expect.objectContaining({ organizationId: undefined, organizationIds: [orgA, orgB], actorUserId: undefined }))
+  })
+
+  it('passes an empty organization set (fail closed) when a restricted auditor sees no organizations', async () => {
+    await arrange({ canViewTenant: true, organizationId: null, allowedIds: [] })
+    await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access?actorScope=all'))
+    expect(listQuery().organizationIds).toEqual([])
+  })
+
+  it('applies the same organization restriction to an explicit foreign actorUserId', async () => {
+    await arrange({ canViewTenant: true, organizationId: null, allowedIds: [] })
+    await GET(makeRequest(`http://localhost/api/audit_logs/audit-logs/access?actorUserId=${otherActorId}`))
+    expect(listQuery()).toEqual(expect.objectContaining({ actorUserId: otherActorId, organizationIds: [] }))
+  })
+
+  it('leaves an own-entries read unrestricted by organization set, as before', async () => {
+    await arrange({ canViewTenant: true, organizationId: null, allowedIds: [orgA] })
+    await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access'))
+    expect(listQuery().organizationIds).toBeUndefined()
+    expect(listQuery().actorUserId).toBe(viewerId)
+  })
+
+  it('checks audit_logs.view_tenant against the organization actually queried', async () => {
+    await arrange({ canViewTenant: false, organizationId: orgA, allowedIds: [orgA, orgB] })
+    await GET(makeRequest(`http://localhost/api/audit_logs/audit-logs/access?organizationId=${orgB}&actorScope=all`))
+    expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith(
+      viewerId,
+      ['audit_logs.view_tenant'],
+      { tenantId: 'tenant-1', organizationId: orgB },
+    )
+    expect(listQuery()).toEqual(expect.objectContaining({ organizationId: orgB, actorUserId: viewerId }))
+  })
+
+  it('does not let actorScope=all bypass the tenant-scope guard', async () => {
+    await arrange({ auth: { sub: viewerId, tenantId: null, orgId: null }, canViewTenant: true, organizationId: null, allowedIds: null })
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access?actorScope=all'))
+    expect(res.status).toBe(403)
+    expect(mockAccess.list).not.toHaveBeenCalled()
+  })
+
+  it('keeps the intentional cross-tenant, all-actor read for a tenant-less superadmin that opts in', async () => {
+    await arrange({ auth: { sub: viewerId, tenantId: null, orgId: null, isSuperAdmin: true }, canViewTenant: true, organizationId: null, allowedIds: null })
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access?actorScope=all'))
+    expect(res.status).toBe(200)
+    expect(listQuery()).toEqual(expect.objectContaining({ tenantId: undefined, actorUserId: undefined, organizationIds: undefined }))
+  })
+})

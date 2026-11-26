@@ -2,7 +2,9 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import polishTranslations from '../../i18n/pl.json'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
 import { TranslationManager, LocaleManager } from '../TranslationManager'
@@ -29,7 +31,14 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/utils/optimisticLock'),
   buildOptimisticLockHeader: (...args: [string | undefined]) => buildOptimisticLockHeaderMock(...args),
+}))
+
+const surfaceRecordConflictMock = jest.fn((..._args: unknown[]) => false)
+
+jest.mock('@open-mercato/ui/backend/conflicts', () => ({
+  surfaceRecordConflict: (...args: unknown[]) => surfaceRecordConflictMock(...args),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -137,6 +146,122 @@ describe('TranslationManager guarded mutations (#3316)', () => {
     // flash behavior preserved
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Translations saved', 'success'))
   })
+
+  function renderEmbeddedProductEditor() {
+    renderWithProviders(
+      <TranslationManager
+        mode="embedded"
+        entityType="catalog:product"
+        recordId="rec-1"
+        baseValues={{ name: 'Base name' }}
+        translatableFields={['name']}
+      />,
+    )
+  }
+
+  function failTranslationSaveWith(status: number, body: Record<string, unknown>) {
+    const defaultImplementation = apiCallMock.getMockImplementation()
+    apiCallMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'PUT' && url.startsWith('/api/translations/catalog')) {
+        return { ok: false, status, result: body, response: new Response(JSON.stringify(body), { status }) }
+      }
+      return defaultImplementation?.(url, init)
+    })
+  }
+
+  it('hands a 409 optimistic-lock conflict to the shared conflict surface', async () => {
+    surfaceRecordConflictMock.mockReturnValueOnce(true)
+    failTranslationSaveWith(409, {
+      error: 'Record modified',
+      code: 'optimistic_lock_conflict',
+      currentUpdatedAt: '2026-01-03T00:00:00Z',
+      expectedUpdatedAt: '2026-01-02T00:00:00Z',
+    })
+    renderEmbeddedProductEditor()
+
+    fireEvent.change(await screen.findByRole('textbox'), { target: { value: 'Nazwa testowa' } })
+    fireEvent.click(screen.getByTestId('translations-save'))
+
+    await waitFor(() => expect(surfaceRecordConflictMock).toHaveBeenCalledTimes(1))
+    const [error] = surfaceRecordConflictMock.mock.calls[0] as [Record<string, unknown>]
+    expect(error).toMatchObject({ status: 409, code: 'optimistic_lock_conflict' })
+    expect(flashMock).not.toHaveBeenCalledWith(expect.anything(), 'error')
+  })
+
+  it('shows the server rejection message instead of a generic save failure', async () => {
+    failTranslationSaveWith(400, { error: 'Invalid payload.', code: 'unregistered_translation_field' })
+    renderEmbeddedProductEditor()
+
+    fireEvent.change(await screen.findByRole('textbox'), { target: { value: 'Nazwa testowa' } })
+    fireEvent.click(screen.getByTestId('translations-save'))
+
+    await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Invalid payload.', 'error'))
+  })
+
+  it('serializes same-tick Save clicks and keyboard submission until the saved version reloads', async () => {
+    const original = apiCallMock.getMockImplementation()
+    let releaseWrite: (() => void) | undefined
+    const write = new Promise<void>((resolve) => { releaseWrite = resolve })
+    apiCallMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'PUT') {
+        await write
+        return { ok: true, result: {} }
+      }
+      return original?.(url, init)
+    })
+    renderEmbeddedProductEditor()
+    fireEvent.change(await screen.findByRole('textbox'), { target: { value: 'Translated name' } })
+    const save = screen.getByTestId('translations-save')
+    act(() => {
+      fireEvent.click(save)
+      fireEvent.click(save)
+      fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
+    })
+    await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(1))
+    await act(async () => { releaseWrite?.() })
+    await waitFor(() => expect(save).toHaveTextContent('Save translations'))
+    expect(save).toBeDisabled()
+    fireEvent.click(save)
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
+    expect(runMutationMock).toHaveBeenCalledTimes(1)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Another translation' } })
+    fireEvent.click(save)
+    await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('blocks writes after a failed translation load and recovers through Retry', async () => {
+    const original = apiCallMock.getMockImplementation()
+    let loadFails = true
+    apiCallMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (!init?.method && url.startsWith('/api/translations/catalog') && loadFails) {
+        return { ok: false, response: new Response('{}', { status: 503 }) }
+      }
+      return original?.(url, init)
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    renderWithProviders(<TranslationManager mode="embedded" entityType="catalog:product" recordId="rec-1" translatableFields={['name']} />, { queryClient })
+    expect(await screen.findByText('Failed to load translations')).toBeVisible()
+    expect(screen.getByTestId('translations-save')).toBeDisabled()
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
+    expect(runMutationMock).not.toHaveBeenCalled()
+    loadFails = false
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByRole('textbox')).toBeVisible()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Recovered translation' } })
+    await waitFor(() => expect(screen.getByTestId('translations-save')).not.toBeDisabled())
+  })
+
+  it('localizes built-in property captions in Polish without translating stored values', async () => {
+    renderWithProviders(
+      <TranslationManager mode="embedded" entityType="entities:custom_field_def" recordId="field-1" baseValues={{ label: 'Custom caption', description: 'Custom help' }} translatableFields={['label', 'description']} />,
+      { locale: 'pl', dict: polishTranslations },
+    )
+    expect(await screen.findByRole('cell', { name: 'Etykieta', exact: true })).toBeVisible()
+    expect(screen.getByRole('cell', { name: 'Opis', exact: true })).toBeVisible()
+    expect(screen.getByText('Custom caption')).toBeVisible()
+    expect(screen.getByText('Custom help')).toBeVisible()
+  })
+
 })
 
 describe('LocaleManager guarded mutations (#3316)', () => {

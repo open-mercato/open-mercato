@@ -9,6 +9,7 @@ import type {
   SearchResultLink,
 } from '../types'
 import type { FullTextSearchStrategy } from '../strategies/fulltext.strategy'
+import { VECTOR_SOURCE_EXCLUDED } from '../strategies/vector.strategy'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { Queue } from '@open-mercato/queue'
@@ -358,29 +359,53 @@ export class SearchIndexer {
   }
 
   /**
-   * Index a record in the search service.
+   * Evaluate the entity's `shouldIndex` gate. Entities without the hook always pass;
+   * a hook that throws counts as a rejection (fail closed).
    */
-  async indexRecord(params: IndexRecordParams): Promise<void> {
-    await this.indexRecordWithExclusions(params, this.createCustomFieldExclusionLookup())
+  private async passesIndexGate(
+    config: SearchEntityConfig,
+    buildContext: SearchBuildContext,
+    entityId: EntityId,
+    recordId: string,
+  ): Promise<boolean> {
+    if (!config.shouldIndex) return true
+    try {
+      return (await config.shouldIndex(buildContext)) === true
+    } catch (error) {
+      searchDebugWarn('SearchIndexer', 'shouldIndex failed, excluding record', {
+        entityId,
+        recordId,
+        error: error instanceof Error ? error.message : error,
+      })
+      return false
+    }
   }
 
-  private async indexRecordWithExclusions(
+  /**
+   * Index a record in the search service.
+   * Records rejected by the entity's `shouldIndex` gate are removed from every strategy instead.
+   */
+  async indexRecord(params: IndexRecordParams): Promise<void> {
+    await this.indexRecordThroughGate(params, this.createCustomFieldExclusionLookup())
+  }
+
+  private async indexRecordThroughGate(
     params: IndexRecordParams,
     exclusions: CustomFieldExclusionLookup,
-  ): Promise<void> {
-    const indexableRecord = await this.buildIndexableRecord(params, exclusions)
-    if (indexableRecord) {
-      await this.searchService.index(indexableRecord)
-    }
+  ): Promise<'indexed' | 'excluded' | 'unconfigured'> {
+    const built = await this.buildIndexableRecord(params, exclusions)
+    if (built === 'unconfigured' || built === 'excluded') return built
+    await this.searchService.index(built)
+    return 'indexed'
   }
 
   private async buildIndexableRecord(
     params: IndexRecordParams,
     exclusions: CustomFieldExclusionLookup = this.createCustomFieldExclusionLookup(),
-  ): Promise<IndexableRecord | null> {
+  ): Promise<IndexableRecord | 'unconfigured' | 'excluded'> {
     const config = this.entityConfigMap.get(params.entityId)
     if (!config || config.enabled === false) {
-      return null
+      return 'unconfigured'
     }
 
     const exclusion = await exclusions(params.entityId, params.tenantId)
@@ -392,16 +417,23 @@ export class SearchIndexer {
       queryEngine: this.createBuildQueryEngine(exclusions),
     }
 
+    if (!(await this.passesIndexGate(config, buildContext, params.entityId, params.recordId))) {
+      await this.searchService.delete(params.entityId, params.recordId, params.tenantId)
+      return 'excluded'
+    }
+
     // Try buildSource first (provides text, presenter, links, checksumSource)
     let text: string | string[] | undefined = config.buildSource ? [] : undefined
     let presenter: SearchResultPresenter | undefined
     let url: string | undefined
     let links: SearchResultLink[] | undefined
     let checksumSource: unknown | undefined
+    let vectorSourceExcluded = false
 
     if (config.buildSource) {
       try {
         const source = await config.buildSource(buildContext)
+        vectorSourceExcluded = source === null
         if (source) {
           text = source.text ?? []
           if (source.presenter) presenter = source.presenter
@@ -473,6 +505,7 @@ export class SearchIndexer {
       links,
       text,
       checksumSource,
+      ...(vectorSourceExcluded ? { [VECTOR_SOURCE_EXCLUDED]: true } : {}),
     }
   }
 
@@ -526,7 +559,7 @@ export class SearchIndexer {
         }
       }
 
-      await this.indexRecordWithExclusions({
+      const outcome = await this.indexRecordThroughGate({
         entityId: params.entityId,
         recordId: params.recordId,
         tenantId: params.tenantId,
@@ -535,6 +568,9 @@ export class SearchIndexer {
         customFields,
       }, exclusions)
 
+      if (outcome === 'excluded') {
+        return { action: 'skipped', reason: 'excluded by shouldIndex' }
+      }
       return { action: 'indexed' }
     } catch (error) {
       searchError('SearchIndexer', 'Failed to load record for indexing', {
@@ -595,7 +631,7 @@ export class SearchIndexer {
             continue
           }
 
-          const { records: built, dropped } = await this.buildIndexableRecords(
+          const { records: built, dropped, excluded } = await this.buildIndexableRecords(
             entityId,
             tenantId,
             organizationId ?? null,
@@ -603,7 +639,7 @@ export class SearchIndexer {
             config,
             exclusions,
           )
-          skipped += dropped
+          skipped += dropped + excluded
           allRecords.push(...built)
         } catch (error) {
           skipped++
@@ -723,6 +759,14 @@ export class SearchIndexer {
             await this.searchService.bulkIndex(records)
             result.recordsIndexed += records.length
           } catch (error) {
+            if (result.success) {
+              result.success = false
+              result.errors.push({
+                entityId: params.entityId,
+                error: error instanceof Error ? error.message : String(error),
+              })
+            }
+            reportSearchError('SearchIndexer', error, 'search.reindex_write_failed', { entityId: params.entityId })
             searchDebugWarn('SearchIndexer', 'Failed to bulk index records', {
               entityId: params.entityId,
               recordCount: records.length,
@@ -791,9 +835,9 @@ export class SearchIndexer {
     const exclusions = this.createCustomFieldExclusionLookup()
 
     for (const param of params) {
-      const indexableRecord = await this.buildIndexableRecord(param, exclusions)
-      if (indexableRecord) {
-        indexableRecords.push(indexableRecord)
+      const built = await this.buildIndexableRecord(param, exclusions)
+      if (built !== 'unconfigured' && built !== 'excluded') {
+        indexableRecords.push(built)
       }
     }
 
@@ -1200,6 +1244,14 @@ export class SearchIndexer {
                 }, exclusions)
                 totalProcessed++
               } catch (error) {
+                if (result.success) {
+                  result.success = false
+                  result.errors.push({
+                    entityId,
+                    error: error instanceof Error ? error.message : String(error),
+                  })
+                }
+                reportSearchError('SearchIndexer', error, 'search.reindex_write_failed', { entityId, strategy: 'vector' })
                 searchDebugWarn('SearchIndexer', 'Failed to index record to vector', {
                   entityId,
                   recordId,
@@ -1297,9 +1349,10 @@ export class SearchIndexer {
     items: Record<string, unknown>[],
     config: SearchEntityConfig,
     exclusions: CustomFieldExclusionLookup = this.createCustomFieldExclusionLookup(),
-  ): Promise<{ records: IndexableRecord[]; dropped: number }> {
+  ): Promise<{ records: IndexableRecord[]; dropped: number; excluded: number }> {
     const records: IndexableRecord[] = []
     let dropped = 0
+    let excluded = 0
     const exclusion = await exclusions(entityId, tenantId)
     const plaintextExcludedCustomFields = toPlaintextExcludedCustomFields(exclusion)
     const buildQueryEngine = this.createBuildQueryEngine(exclusions)
@@ -1329,12 +1382,21 @@ export class SearchIndexer {
         }
       }
 
+      const recordOrganizationId = typeof item.organization_id === 'string' || item.organization_id === null
+        ? item.organization_id
+        : organizationId
       const buildContext: SearchBuildContext = {
         record: withoutExcludedRecordCustomFields(item, exclusion),
         customFields: withoutExcludedCustomFields(customFields, exclusion),
-        organizationId,
+        organizationId: recordOrganizationId,
         tenantId,
         queryEngine: buildQueryEngine,
+      }
+
+      if (!(await this.passesIndexGate(config, buildContext, entityId, recordId))) {
+        await this.searchService.delete(entityId, recordId, tenantId)
+        excluded++
+        continue
       }
 
       // Try buildSource first (provides text, presenter, links, checksumSource)
@@ -1343,10 +1405,12 @@ export class SearchIndexer {
       let url: string | undefined
       let links: SearchResultLink[] | undefined
       let checksumSource: unknown | undefined
+      let vectorSourceExcluded = false
 
       if (config.buildSource) {
         try {
           const source = await config.buildSource(buildContext)
+          vectorSourceExcluded = source === null
           if (source) {
             text = source.text ?? []
             if (source.presenter) presenter = source.presenter
@@ -1398,7 +1462,7 @@ export class SearchIndexer {
         entityId,
         recordId,
         tenantId,
-        organizationId,
+        organizationId: recordOrganizationId,
         fields: item,
         plaintextExcludedCustomFields,
         presenter,
@@ -1406,6 +1470,7 @@ export class SearchIndexer {
         links,
         text,
         checksumSource,
+        ...(vectorSourceExcluded ? { [VECTOR_SOURCE_EXCLUDED]: true } : {}),
       })
     }
 
@@ -1414,8 +1479,9 @@ export class SearchIndexer {
       inputCount: items.length,
       outputCount: records.length,
       dropped,
+      excluded,
     })
 
-    return { records, dropped }
+    return { records, dropped, excluded }
   }
 }

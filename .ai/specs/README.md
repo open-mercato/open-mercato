@@ -151,6 +151,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Tax Providers Roadmap](2026-10-03-tax-providers-roadmap.md) | 2026-10-03 | Tax Providers — Roadmap & Boundaries | Umbrella for pluggable sales tax: a provider-backed tax phase in the `sales` totals pipeline, organization-level provider selection with provenance on documents, one built-in default state and one built-in table provider, a tax gateway module; twelve ADRs with rejected alternatives; child specs 1, 1b, 2, 3, 4a, 4b, 5 and 6a–6c with phased gates; status proposed |
 | [Sales Tax Provider Contract](2026-10-03-sales-tax-provider-contract.md) | 2026-10-03 | Sales Tax Provider Contract | Spec 1 of the tax providers roadmap: the `TaxProvider` contract and registry, a fixed tax phase inside the provider totals calculator, Resolve and Apply steps before the write transaction, one nullable `sales_settings` column for the provider, `product-rate` as the byte-identical default state and server-written provenance in `tax_strategy_key` / `tax_info`; status proposed |
 | [Product Configurator](2026-10-23-product-configurator-module.md) | 2026-10-23 | Product Configurator (CPQ) Module | Opt-in `product_configurator` package: versioned rule-based product models authored in a studio, a deterministic evaluator priced from catalog SKUs through a new additive `catalogPriceRowService`, configuration sessions launched from a quote, and finalisation into a quote line with an immutable snapshot that follows the line to the order; no `sales` change (spec-only, decisions requested) |
+| [General Ledger — Account Balances & Trial Balance (ZSiO)](2026-09-09-general-ledger-account-balances.md) | 2026-09-09 | General Ledger — Account Balances & Trial Balance (ZSiO) | Ledger owner approved the account-create retry migration and selected a single-organization, account-type pilot on top of #5663. Currency-owner agreement on the base-currency fence, verified per-scope cutover and statutory accounting sign-off remain release gates. Parent accounts and full historical authorities are Phase 2. |
 
 ### Implemented Specifications
 
@@ -246,6 +247,7 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [Checkout Pay Links](implemented/2026-03-19-checkout-pay-links.md) | 2026-03-19 | Checkout Pay Links | Pay link generation and checkout flow (Phase A) |
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
 | [CRM Conversation Shared Visibility](2026-08-25-crm-channel-shared-visibility.md) | 2026-08-25 | CRM Conversation Shared Visibility | Owner-controlled sharing of personal-mailbox email: per-Person conversation grants and a whole-channel team-mailbox flag, both read-time derived so un-sharing is lossless |
+| [Atlas Cloud AI Provider](implemented/2026-09-11-atlas-cloud-ai-provider.md) | 2026-09-11 | Atlas Cloud AI Provider | Optional OpenAI-compatible Atlas Cloud preset for the AI Assistant |
 
 ## Specification Structure
 

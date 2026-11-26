@@ -1,12 +1,13 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { executeCallApi } from '../activity-executor'
+import { executeActivity, executeCallApi } from '../activity-executor'
 import type { WorkflowInstance } from '../../data/entities'
 import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { invalidateDictionaryCache } from '@open-mercato/shared/lib/i18n/server'
 import workflowsPl from '../../i18n/pl.json'
+import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(async (em: any, Entity: any, query: any) => em.findOne(Entity, query)),
@@ -406,6 +407,44 @@ describe('executeCallApi', () => {
     expect(headers['X-Tenant-Id']).toBe('tenant-456')
   })
 
+  describe('when the api_keys module is disabled (#9217)', () => {
+    let previousEntityIds: EntityIds
+
+    beforeEach(() => {
+      previousEntityIds = getEntityIds(false)
+      registerEntityIds({ workflows: { workflow_instance: 'workflows:workflow_instance' } })
+    })
+
+    afterEach(() => {
+      registerEntityIds(previousEntityIds)
+    })
+
+    it('refuses with a readable error before minting a key or sending the request', async () => {
+      const config = { endpoint: '/api/sales/orders', method: 'POST', body: {} }
+
+      await expect(executeCallApi(mockEm, config, mockContext, mockContainer))
+        .rejects.toThrow('CALL_API needs the api_keys module to authenticate internal calls')
+      expect(createdApiKeys).toHaveLength(0)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('still calls the API when api_keys is registered', async () => {
+      registerEntityIds({ api_keys: { api_key: 'api_keys:api_key' } })
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Map([['content-type', 'application/json']]),
+        json: async () => ({ ok: true }),
+      } as any)
+
+      const result = await executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, mockContainer)
+
+      expect(result.status).toBe(200)
+      expect(createdApiKeys).toHaveLength(1)
+    })
+  })
+
   it('should throw error if endpoint is missing', async () => {
     // Arrange
     const config = {
@@ -611,6 +650,83 @@ describe('executeCallApi', () => {
     afterEach(() => {
       if (originalAppUrl === undefined) delete process.env.APP_URL
       else process.env.APP_URL = originalAppUrl
+    })
+
+    const executeWithRetries = (endpoint: string) => executeActivity(mockEm, mockContainer, {
+      activityId: 'call-api-refusal-retry',
+      activityType: 'CALL_API',
+      config: { endpoint },
+      retryPolicy: {
+        maxAttempts: 3,
+        initialIntervalMs: 1,
+        backoffCoefficient: 1,
+        maxIntervalMs: 1,
+      },
+    }, mockContext)
+
+    it.each([
+      'https://untrusted.example/api/sales/orders',
+      'https://user:password@shop.example.com/api/sales/orders',
+      '/backend/login',
+      'invalid endpoint',
+    ])('does not retry the refused endpoint %s or mint a key', async (endpoint) => {
+      const result = await executeWithRetries(endpoint)
+
+      expect(result.success).toBe(false)
+      expect(result.retryCount).toBe(1)
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(createdApiKeys).toHaveLength(0)
+    })
+
+    it.each([
+      'https://untrusted.example/api/sales/orders',
+      '/backend/login',
+      null,
+    ])('does not retry the refused redirect %s and cleans up its only key', async (location) => {
+      mockFetch.mockResolvedValue(redirectTo(302, location))
+
+      const result = await executeWithRetries('/api/sales/orders')
+
+      expect(result.success).toBe(false)
+      expect(result.retryCount).toBe(1)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(createdApiKeys).toHaveLength(1)
+      expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+    })
+
+    it('does not restart a refused redirect chain after reaching its limit', async () => {
+      mockFetch.mockResolvedValue(redirectTo(308, '/api/sales/orders'))
+
+      const result = await executeWithRetries('/api/sales/orders')
+
+      expect(result.success).toBe(false)
+      expect(result.retryCount).toBe(1)
+      expect(mockFetch).toHaveBeenCalledTimes(4)
+      expect(createdApiKeys).toHaveLength(1)
+      expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+    })
+
+    it.each(['network', 'server'])('still retries a transient %s failure and cleans up both keys', async (failure) => {
+      if (failure === 'network') {
+        mockFetch.mockRejectedValueOnce(new Error('[internal] connection reset'))
+      } else {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: new Map([['content-type', 'application/json']]),
+          json: async () => ({ error: 'temporarily unavailable' }),
+        } as Response)
+      }
+      mockFetch.mockResolvedValueOnce(okJson())
+
+      const result = await executeWithRetries('/api/sales/orders')
+
+      expect(result.success).toBe(true)
+      expect(result.retryCount).toBe(1)
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(createdApiKeys).toHaveLength(2)
+      expect(createdApiKeys.every((record) => record.deletedAt instanceof Date)).toBe(true)
     })
 
     it('rejects a same-host http:// endpoint when APP_URL is https, before minting a key or sending', async () => {

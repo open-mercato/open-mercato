@@ -192,6 +192,46 @@ describe('EmbeddingService Cohere inputType', () => {
   })
 })
 
+describe('EmbeddingService Google taskType', () => {
+  const originalEnv = { ...process.env }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    process.env = { ...originalEnv, GOOGLE_GENERATIVE_AI_API_KEY: 'test-key' }
+    mockedEmbed.mockResolvedValue({ embedding: [0.1, 0.2] } as Awaited<ReturnType<typeof embed>>)
+  })
+
+  afterAll(() => {
+    process.env = originalEnv
+  })
+
+  const build = (dimension?: number) =>
+    new EmbeddingService({
+      config: {
+        providerId: 'google',
+        model: 'gemini-embedding-001',
+        dimension: 768,
+        outputDimensionality: dimension,
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+  const sentGoogleOptions = () =>
+    (mockedEmbed.mock.calls[0][0] as { providerOptions?: { google?: { taskType?: string; outputDimensionality?: number } } })
+      .providerOptions?.google
+
+  it.each([undefined, 768])('embeds documents with RETRIEVAL_DOCUMENT (outputDimensionality=%s)', async (dim) => {
+    await build(dim).createEmbedding('some document')
+    expect(sentGoogleOptions()?.taskType).toBe('RETRIEVAL_DOCUMENT')
+    expect(sentGoogleOptions()?.outputDimensionality).toBe(dim)
+  })
+
+  it.each([undefined, 768])('embeds queries with RETRIEVAL_QUERY (outputDimensionality=%s)', async (dim) => {
+    await build(dim).createEmbedding('what is a query', { purpose: 'query' })
+    expect(sentGoogleOptions()?.taskType).toBe('RETRIEVAL_QUERY')
+  })
+})
+
 describe('EmbeddingService bedrock credentials', () => {
   const originalEnv = { ...process.env }
   const bedrockConfig = {

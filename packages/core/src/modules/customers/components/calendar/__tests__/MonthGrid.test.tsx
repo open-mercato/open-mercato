@@ -100,7 +100,7 @@ describe('MonthGrid — shared time-range formatting (#5275)', () => {
       const pillLabel = eventPillLabelByTitle(view.container, item.title)
       view.unmount()
 
-      expect(pillLabel).toBe(`${item.title} · ${formatTimeRange(locale, item.start, item.end)}`)
+      expect(pillLabel).toBe(`${item.title}, ${formatTimeRange(locale, item.start, item.end)}`)
     },
   )
 })
