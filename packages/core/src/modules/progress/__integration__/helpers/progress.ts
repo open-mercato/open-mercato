@@ -150,19 +150,24 @@ export async function createProgressUserWithFeatures(
   const slug = labelPrefix.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
   const roleId = await createRoleFixture(request, adminToken, { name: `qa-progress ${labelPrefix} ${suffix}` })
-  await setRoleAclFeatures(request, adminToken, { roleId, features })
+  let userId: string | null = null
+  try {
+    await setRoleAclFeatures(request, adminToken, { roleId, features })
+    const email = `qa-progress-${slug}-${suffix}@qa.example.com`
+    userId = await createUserFixture(request, adminToken, {
+      email,
+      password: RESTRICTED_USER_PASSWORD,
+      organizationId,
+      roles: [roleId],
+      name: `QA Progress ${labelPrefix} ${suffix}`,
+    })
 
-  const email = `qa-progress-${slug}-${suffix}@qa.example.com`
-  const userId = await createUserFixture(request, adminToken, {
-    email,
-    password: RESTRICTED_USER_PASSWORD,
-    organizationId,
-    roles: [roleId],
-    name: `QA Progress ${labelPrefix} ${suffix}`,
-  })
-
-  const token = await getAuthToken(request, email, RESTRICTED_USER_PASSWORD)
-  return { token, userId, roleId, email }
+    const token = await getAuthToken(request, email, RESTRICTED_USER_PASSWORD)
+    return { token, userId, roleId, email }
+  } catch (error) {
+    await deleteProgressUser(request, adminToken, { userId, roleId })
+    throw error
+  }
 }
 
 /** Tear down a user created by {@link createProgressUserWithFeatures}; user first, then its role. */
