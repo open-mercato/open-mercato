@@ -73,6 +73,19 @@ One intentional behavior change: a tenant-less non-superadmin holding `audit_log
 
 `resolveOrganizationScope` still returns `filterIds/allowedIds: null` for a null tenant, which is the shared root cause behind this class of finding. Hardening it requires auditing 268 call sites and warrants its own spec.
 
+## Organization-bound actor visibility (#10788)
+
+Action-log lists, CSV export and access-log lists resolve `audit_logs.view_tenant` against the organization selected for the read. Tenant-wide reads require an unrestricted grant. A caller without the applicable grant receives its own rows. Authorization still uses the existing role inheritance, user-override and API-key scope rules.
+
+### Migration & Backward Compatibility
+
+Clients with organization-limited grants should pass the intended `organizationId` for list or export operations that need other actors' rows. Operators can grant tenant-wide visibility through an unrestricted role when the principal needs that access. Access-log lists report malformed organization identifiers as HTTP 400. Read paths, response fields and storage remain stable. See the [upgrade notes](../../UPGRADE_NOTES.md#audit-log-scope-10788).
+
+Keeping the former actor-visibility behavior as a bridge would preserve reads of other actors' rows outside the assigned grant. The Emergency Security Exception requires a named maintainer's acceptance of this scope change. That decision is pending.
+
+`TC-AUD-022` covers list, access and export with restricted, unrestricted and mismatched organization scope. Unit tests verify the read organization passed to the permission check and malformed-identifier handling.
+
 ## Changelog
 
 - **2026-07-28** — Initial spec + implementation: `requireResolvedTenantScope` guard applied to the action-log list, CSV export and access-log routes; `403` documented in each route's `openApi.errors`; regression tests parameterized over null, omitted and empty-string tenant scope. Closes #3817 and #3818.
+- **2026-11-27** — Document organization-bound actor visibility, client migration and integration coverage for #10788.

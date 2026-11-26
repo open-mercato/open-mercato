@@ -689,16 +689,7 @@ STABLE: nonempty inputs require principal/owner read access; bridges retain disc
 
 ## 2026-11-07 — Private next-interaction subjects (#8888)
 
-Surface: stable customer projection response behavior. Private email subjects and
-unresolved historical linked names now become NULL in shared projections; response
-keys/types, scheduling, manual names and authorized interaction readers remain
-unchanged. Continuing to serve the private subject as a bridge retains the privacy
-bypass. Clients use unnamed-interaction fallbacks and authorized interaction reads.
-Operators apply the idempotent data repair, complete the declared query-index
-rebuilds and rebuild configured search providers before reopening affected reads.
-See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES.
-Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
-2026-11-13: [human approval](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966).
+STABLE shared projections return NULL for private email subjects and unresolved historical linked names. Keys, types, scheduling, manual names and authorized readers stay. A bridge leaks subjects. Clients use unnamed fallbacks and authorized reads. Apply the idempotent repair and rebuild declared query indexes and configured search providers before reopening reads. See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES. [@pkarw waived steps 1–3](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966) on 2026-11-13.
 
 ## Comment authors (2026-11-12, #8759)
 
@@ -734,7 +725,7 @@ STABLE API behavior changes for writes of tenant-scoped encrypted custom fields 
 
 ## 2026-11-25 — Empty organization scope (#10503)
 
-STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+STABLE feature APIs return `403` before lookup for explicit empty org scope. A bridge reopens access. Correct grants; handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Maintainer accepted the status change](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527). Named waiver pending.
 
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
 
@@ -750,4 +741,4 @@ STABLE `execute`: set direct or use typed tools. A bridge preserves implicit wri
 
 ## 2026-11-26 — Audit-log actor visibility (#10788)
 
-STABLE audit-log read routes: `audit_logs.view_tenant` is checked for the organization being read; a read without an organization needs a grant that is not organization-restricted. Otherwise the caller gets its own rows; status codes and fields are unchanged. No bridge: one would keep other actors' rows visible outside the grant. Named confirmation of the emergency exception is pending. [Upgrade](UPGRADE_NOTES.md#audit-log-reads-check-audit_logsview_tenant-for-the-organization-being-read-10788).
+STABLE audit reads enforce org scope for other actors' rows. A bridge leaks rows. Named waiver pending. [Upgrade](UPGRADE_NOTES.md#audit-log-scope-10788) · [Spec](.ai/specs/2026-07-28-audit-log-read-tenant-scope-fail-closed.md).

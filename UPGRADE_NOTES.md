@@ -12,7 +12,7 @@ When the model's answer does not match an object-mode agent's `output` schema, o
 
 Clients that treated this 500 as a server fault can retry on `structured_output_invalid`. The request contract and response fields are unchanged. No database migration or configuration change is required.
 
-## Audit-log reads check `audit_logs.view_tenant` for the organization being read (#10788)
+## Audit-log scope (#10788)
 
 `GET /api/audit_logs/audit-logs/actions`, `/actions/export` and `/access` show rows of other actors only when the caller holds `audit_logs.view_tenant` for the organization the request reads. `actions` and `actions/export` used to check the caller's default organization and then read the one named in `?organizationId=`. A read without an organization covers the whole tenant, so it now needs a `view_tenant` grant that is not limited to particular organizations.
 
