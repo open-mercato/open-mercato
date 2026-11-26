@@ -77,6 +77,7 @@ services:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
     environment:
       <<: *tenant-encryption-environment
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       # The image is a production build installed with `yarn workspaces focus --production`. The
       # Next server child is insulated (the CLI forces NODE_ENV=production for it), but pinning
       # `development` here still leaked into `mercato init`, migrations, workers, and the scheduler.

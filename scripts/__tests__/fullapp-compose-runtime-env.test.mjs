@@ -78,10 +78,12 @@ for (const relPath of [
   'starters/docker/compose.fullapp.yml',
   'starters/docker/compose.fullapp.dev.yml',
 ]) {
-  test(`${relPath} forwards explicit mutation mode to the MCP service with a blank default`, () => {
+  test(`${relPath} forwards the same mutation mode to the app and MCP services with a blank default`, () => {
     const content = fs.readFileSync(path.resolve(ROOT, relPath), 'utf8')
-    const mcpService = content.match(/^  mcp:\n(?:[^\n]*\n)*?(?=^  [a-z][a-z0-9_-]*:|^volumes:|^networks:)/m)?.[0]
-    assert.ok(mcpService, `${relPath} must define the MCP service`)
-    assert.match(mcpService, /^      OM_MCP_MUTATION_MODE: \$\{OM_MCP_MUTATION_MODE:-\}$/m)
+    for (const serviceName of ['app', 'mcp']) {
+      const service = content.split(new RegExp(`^  ${serviceName}:\\n`, 'm'))[1]?.split(/^(?:  \w[\w-]*|\w[\w-]*):/m)[0]
+      assert.ok(service, `${relPath} must define the ${serviceName} service`)
+      assert.match(service, /^      OM_MCP_MUTATION_MODE: \$\{OM_MCP_MUTATION_MODE:-\}$/m, `${relPath} must forward the mode to ${serviceName}`)
+    }
   })
 }

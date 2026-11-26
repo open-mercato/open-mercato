@@ -5,7 +5,7 @@ description: Connect Claude Code or any MCP client to Open Mercato's tools — s
 
 # MCP Server
 
-Open Mercato ships an **MCP (Model Context Protocol) server** that exposes your tenant's tools to an external AI client — [Claude Code](https://claude.com/claude-code), the MCP Inspector, or any MCP-compatible client — over HTTP. Point the client at a running Open Mercato server and it can discover and call your tools, scoped to an API key's permissions.
+Open Mercato ships an **MCP (Model Context Protocol) server** that exposes your tenant's tools to an external AI client — [Claude Code](https://claude.com/claude-code), the MCP Inspector, or any MCP-compatible client — over HTTP. Point the client at a running Open Mercato server and it can discover and call tools in its authorized scope.
 
 :::note Two complementary AI surfaces
 This is the **client-facing** MCP entry point. It is distinct from the in-app **AI Framework** (typed agents, mutation approvals, `<AiChat>`) documented in [AI Framework Overview](./overview.mdx). The MCP server serves **tools**; agents are a separate in-app surface (see the "Tools vs agents" note below).
@@ -27,7 +27,7 @@ The server runs in one of two modes depending on how you intend to use it:
 | Bind address | **`127.0.0.1`** (loopback) — override with `MCP_DEV_HOST` | **`127.0.0.1`** (loopback) — override with `MCP_HTTP_HOST` env var or `--host` flag |
 | Endpoint | `http://localhost:3001/mcp` | — |
 | Health | `http://localhost:3001/health` | — |
-| Auth | A single API key, read **once** at startup | Two-tier: server key + per-user session tokens, checked per tool call |
+| Auth | A single API key, read **once** at startup | Server API key for the connection and a required per-user session token on every tool call |
 | Key source | `.mcp.json` → `mcpServers.open-mercato.headers.x-api-key` (no env fallback) | `MCP_SERVER_API_KEY` env var + session tokens |
 
 :::caution Loopback by default — think before widening it
@@ -111,7 +111,7 @@ Every server lists only the tools the caller may call. The dev server filters by
 **Zero-features pitfall:** if your API key has no roles or features, the server starts fine but exposes **only** `context_whoami` — every other tool silently disappears. If Claude Code sees just one tool, your key is missing grants. Bind it to a role such as `admin` (or a role with the relevant `<module>.*` wildcard grants) and reconnect.
 :::
 
-## Stdio server authentication (`mercato ai_assistant mcp:serve`)
+## Stdio server authentication (`mercato ai_assistant mcp:serve`) {#stdio-server-authentication-mercato-ai_assistant-mcpserve}
 
 The `mercato ai_assistant mcp:serve` command runs the MCP server over **stdio** (one process per client, used by some local MCP clients). It is a distinct command from the HTTP servers above — note that the `yarn mcp:serve` script is aliased to `mcp:serve-http`, so this stdio command is reached by invoking the `mercato` CLI directly.
 
@@ -411,16 +411,24 @@ yarn mercato ai_assistant mcp:list-tools --as-api-key "$MCP_KEY"
 
 The servers log the resolved config at startup. When the mode is `direct` and at least one mutation tool is exposed, they log a warning that lists those tools.
 
+### Production HTTP tool authentication
+
+The production MCP HTTP server (`mcp:serve-http`) authenticates the connection with the server's `x-api-key`. Every `tools/call` also requires a valid per-user `_sessionToken` in the tool arguments. The server runs the tool with that user's permissions. A missing token returns `UNAUTHORIZED`, and an invalid or expired token returns `SESSION_EXPIRED`.
+
+Web chat and Code Mode supply the token automatically. If tool calls fail because a token could not be created for the current chat, start a new chat so the first turn can create one.
+
+For unattended automation that uses an API key without a user session, migrate to [the stdio server](#stdio-server-authentication-mercato-ai_assistant-mcpserve). Configure `OPEN_MERCATO_API_KEY` with a key scoped to the automation account, or run `mcp:serve` with an explicit tenant and user context.
+
 ### Filtered `tools/list` on `mcp:serve-http` {#filtered-toolslist-on-mcpserve-http}
 
-`mcp:serve-http` registers, per request, only the tools that pass the exposure config **and** the list principal's ACL, so `tools/list` and `tools/call` see the same set. Per-call ACL checks still run on every `tools/call`.
+`mcp:serve-http` registers, per request, only the tools that pass the exposure config **and** the list principal's ACL, which determines both what `tools/list` exposes and which tools are registered for `tools/call`. Each tool call also checks the ACL of the user identified by `_sessionToken`.
 
 The list principal is:
 
 - the session user, when the request carries an `x-om-session-token: sess_…` header (the same session token that tool calls pass as `_sessionToken`). An invalid or expired header returns `401`;
 - otherwise the server API key's own ACL (its roles and features).
 
-Without the header, a server key that carries no features lists only `context_whoami`. Custom clients that act for a user can send the header so the list matches what that user can call.
+Without the header, a server key that carries no features lists only `context_whoami`. Custom clients that act for a user can send the header to filter discovery by that user’s ACL. Include `_sessionToken` separately in each tool call.
 
 OpenCode (the web chat and command palette) does **not** send the header: its MCP config is static and carries only `x-api-key`, so its tool list is the server key's own ACL. That key must therefore carry roles. The key that `mercato ai_assistant mcp:ensure-api-key` provisions copies its owner's roles, so the default setup works. If you set `MCP_SERVER_API_KEY` by hand, give that key the roles the web chat needs; a key with no roles lists only `context_whoami` and the chat cannot call any other tool.
 
@@ -478,7 +486,7 @@ In `approval` mode:
 - The Code Mode `execute` tool is **not available** in `approval` mode. Its code runs arbitrary `api.request()` calls with the caller's credentials, which an approved execution does not have, so it cannot be queued meaningfully. It is hidden from `tools/list`, and a call on MCP or `/tools/execute` returns `MUTATION_REQUIRES_APPROVAL` with the message that `execute` is not available in approval mode. Tool authors mark such tools with `mcp: { approvalMode: 'refuse' }`. Use typed module tools (which queue normally) for writes, or `search` plus a read-only flow.
 - Agent tools on MCP keep their agent's own `mutationPolicy` in `approval` mode, but every write is queued, including the non-destructive writes of a `destructive-confirm-required` agent (the tool result lists the `pendingActionIds`). In `direct` and `deny` modes agent tools are downgraded to read-only.
 
-Code Mode discovery and typed tools remain available when the mutation mode is unset. On deployments that intentionally allow direct Code Mode execution, set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. The full-app Compose manifests forward the variable from the project environment to the MCP sidecar.
+Code Mode discovery and typed tools remain available when the mutation mode is unset. On deployments that intentionally allow direct Code Mode execution, set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. For full-app Compose, set the environment variable so the app's exposure view and the MCP sidecar use the same mode.
 
 ### Approving pending actions
 

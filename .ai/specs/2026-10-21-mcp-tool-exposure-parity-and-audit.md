@@ -527,7 +527,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 
 ### Code Mode exposure
 
-MCP Code Mode execution requires an explicit direct setting. Discovery and typed tools keep their existing policies. Existing Code Mode users can migrate to typed tools or configure direct mode deliberately. An implicit compatibility bridge would retain unapproved writes. See [upgrade guidance](../../UPGRADE_NOTES.md#mcp-code-mode-execution-requires-explicit-direct-mode). Maintainer acknowledgment is pending.
+MCP Code Mode execution requires an explicit direct setting. Discovery and typed tools keep their existing policies. Existing Code Mode users can migrate to typed tools or configure direct mode deliberately. A bridge that retained implicit direct mode would keep granting Code Mode write authority without an operator choosing it. Full-app Compose forwards the same setting to the app and MCP sidecar so both report the same exposure. See [upgrade guidance](../../UPGRADE_NOTES.md#mcp-code-mode-execution-requires-explicit-direct-mode). Maintainer acknowledgment is pending.
 
 ## Implementation Plan
 
