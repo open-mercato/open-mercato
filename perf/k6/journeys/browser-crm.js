@@ -30,6 +30,15 @@ async function runStep(name, action) {
   }
 }
 
+async function waitForUrlMatch(page, pattern, timeoutMs = STEP_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (pattern.test(page.url())) return
+    await page.waitForTimeout(250)
+  }
+  throw new Error(`[internal] url did not match ${pattern} within ${timeoutMs} ms (at ${page.url()})`)
+}
+
 async function navigate(page, path) {
   await page.goto(url(path), { waitUntil: 'load', timeout: STEP_TIMEOUT_MS })
 }
@@ -39,11 +48,8 @@ async function login(page) {
   await navigate(page, '/login')
   await page.locator('#email').fill(user.email)
   await page.locator('#password').fill(user.password)
-  await Promise.all([
-    page.waitForNavigation({ timeout: STEP_TIMEOUT_MS }),
-    page.locator('button[type="submit"]').click(),
-  ])
-  if (!page.url().includes('/backend')) throw new Error('[internal] login did not reach /backend')
+  await page.locator('button[type="submit"]').click()
+  await waitForUrlMatch(page, /\/backend(\/|$|\?)/)
 }
 
 async function peopleList(page) {
@@ -68,7 +74,7 @@ async function personDetail(page) {
 async function typeInSearch(page) {
   await navigate(page, '/backend/customers/people')
   const entry = sampleSearchTerm('common') || sampleSearchTerm('prefix') || { term: 'perf' }
-  const input = page.locator('input[type="search"]')
+  const input = page.locator('main input[type="search"]')
   await input.click()
   await input.type(entry.term, { delay: 120 })
   await page.waitForTimeout(2000)
@@ -78,10 +84,8 @@ async function typeInSearch(page) {
 async function pipelineCard(page) {
   await navigate(page, '/backend/customers/deals/pipeline')
   await page.waitForSelector('[aria-roledescription]', { timeout: STEP_TIMEOUT_MS })
-  await Promise.all([
-    page.waitForNavigation({ timeout: STEP_TIMEOUT_MS }),
-    page.locator('[aria-roledescription]').first().click(),
-  ])
+  await page.locator('[aria-roledescription]').first().click()
+  await waitForUrlMatch(page, /\/backend\/customers\/deals\/[0-9a-f-]{36}/)
 }
 
 async function dashboardPage(page) {

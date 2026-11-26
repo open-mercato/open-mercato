@@ -15,7 +15,7 @@
 | [`2026-11-26-S-smoke-local`](../2026-11-26-S-smoke-local/report.md) | smoke | 2 | 1,060 | 0.28% | 85 ms / 6.5 s / 9.3 s | Errors: 1× `deals/map` 500 (DB pool connect timeout) + 2× shell 503 at the same moment |
 | [`2026-11-26-S-baseline-local`](../2026-11-26-S-baseline-local/report.md) | baseline (20 samples) | 1 | 3,874 | **0%** | 75 ms / 1.5 s / 9.0 s | All checks pass |
 | [`2026-11-26-S-step-local`](../2026-11-26-S-step-local/report.md) | step `mini` (10 → 25) | 12 → 26 | 7,054 | 0.04% | 84 ms / 2.6 s / 9.6 s | Saturation at step 2: read p95 241 ms → 2,261 ms. 3× 502 = proxy keep-alive race (fixed after the run) |
-| `2026-11-26-S-browser-local` | browser | 2 | _see §5_ | | | Web Vitals |
+| [`2026-11-26-S-browser-local`](../2026-11-26-S-browser-local/report.md) | browser (k6 browser, Chromium) | 2 | 77 journeys, 462 checks | **0%** | journey 15.5 s / 16.7 s / 20.4 s | LCP p95 1.0 s; CLS p95 0.64 (poor) |
 
 Setup timings on `local-mac` (tier S) are in `perf/config/hardware.md`:
 - seed-perf 79 s (≈ 630 entities/s),
@@ -85,6 +85,28 @@ Priority: **P1** = blocks meaningful VPS results or is a likely production incid
   - Exclude ids, URLs and enumerations from tokenization, and check whether `search_text` duplicates per-field tokens.
   - In the meantime, provision ≥ 200 GB for M (`perf/config/hardware.md` → Disk budget).
   - Changing tokenization changes the dataset, so it needs a new profile (`perf-v2`). Results across the change are not comparable.
+
+### P1-4 — A stale `server-start.lock` keeps a restarted container from ever starting (production availability)
+
+- **Evidence:**
+  - After the app was killed without a graceful shutdown, `.mercato/server-start.lock` kept `{"pid":88}`.
+  - On restart, container PIDs start from 1 again, and pid 88 belonged to a different live process. So `isProcessAlive(88)` was true.
+  - Every start then failed with `Another Open Mercato production server is already running … (pid 88 on port 3000)` and the healthcheck never passed.
+- **Code:** `packages/cli/src/lib/server-start-lock.ts:32-75`. Liveness is checked by PID only, and the lock lives in the container filesystem.
+- **Impact:** any SIGKILL leaves a container that never recovers, even with `restart: unless-stopped`. Causes include OOM-kill, a `docker stop` timeout and a node crash.
+- **Recommendation:**
+  - Treat a lock whose PID is the current process's ancestor or any non-server process as stale.
+  - Or store the lock on tmpfs / `/tmp`, or tie it to a boot id or container start time.
+  - Or skip the lock when `OM_MULTI_INSTANCE`/container mode is set.
+- **Harness workaround:** `restore` recreates the app containers (`--force-recreate`).
+
+### P2-0 — Every app restart after a restore logs "database writes are blocked" (to investigate)
+
+- **Evidence:**
+  - Each app start after a snapshot restore logs: `[setup] Encryption compatibility could not be verified; database writes are blocked. Restore the original TENANT_DATA_ENCRYPTION settings…`
+  - All later writes in smoke, baseline and step succeeded.
+  - The keys are the original ones (`perf/.state/snapshots/S.keys.env`).
+- **Question:** either the preflight cannot verify a database restored from a template, or the message is wrong about blocking writes. Both are worth knowing before a real restore-from-backup incident.
 
 ### P2-1 — Search with no token hit falls back to `ILIKE` over encrypted columns (H4 confirmed)
 
@@ -189,11 +211,38 @@ All of these are pushed to PR #10747.
 | Report noise: monitoring rows, duplicated single-step rows, "s ms" | grouped / deduplicated / fixed |
 | Grafana error-rate and conflict panels empty (`rate()` misses counters born at 1) | cumulative panels |
 | 502s from the proxy keep-alive race | Caddy upstream `keepalive 4s` |
+| App never became healthy after a restore (stale `server-start.lock`, P1-4) | `restore` recreates app/worker/scheduler containers |
 | Report escaping (CodeQL) | backslashes escaped |
+| Browser: search selector matched two inputs; login redirect missed | `main input[type="search"]`; URL polling |
+| k6 summary printed CLS in ms and empty groups | unitless CLS; empty groups skipped |
 
 ## 5. Browser journeys and Web Vitals
 
-_Filled in from `2026-11-26-S-browser-local`._
+Each browser journey covers:
+- login,
+- the people list,
+- a person's 360 view with two tabs,
+- typing into the people search,
+- the pipeline kanban, then opening a deal card,
+- the dashboard.
+
+The first browser run failed 16.5% of its checks, all of them harness bugs:
+- **Search selector:** `input[type="search"]` also matched the sidebar navigation search, so strict mode refused it. The journey now uses `main input[type="search"]`.
+- **Missed login redirect:** `waitForNavigation` missed the client-side `router.replace` after login 18 times. It is replaced by polling the URL.
+
+The rerun passed 100% of checks.
+
+| Vital | p50 | p95 | p99 | Samples | Rating |
+|---|---|---|---|---|---|
+| LCP | 524 ms | 1,011 ms | 1,313 ms | 385 | good (< 2.5 s) |
+| CLS | 0.49 | 0.64 | 0.66 | 77 | **poor** (> 0.25) |
+| INP | – | – | – | 0 | not captured (see below) |
+
+- **P3-6 — CLS is poor.**
+  - CLS is reported once per journey, when the page closes. The last page of the journey is the dashboard (`/backend`), so the dashboard's widget loading is the main suspect.
+  - k6 does not tag Web Vitals with the URL, so a per-page run is needed to attribute it before filing anything.
+- **INP is not captured.** k6 browser only reports INP when an interaction is followed by a page-visibility change. The journeys navigate with `page.goto`, so add an explicit `page.close()` after an interaction if INP is wanted.
+- **Journey duration** (~15.5 s) is dominated by the fixed waits in the script (tab clicks 2 × 1 s, typing at 120 ms/char, 2 s settle). It is a pacing number, not user-perceived latency.
 
 ## 6. Readiness for the VPS
 

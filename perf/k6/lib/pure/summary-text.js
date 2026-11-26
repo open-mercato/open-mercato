@@ -4,7 +4,9 @@ function formatNumber(value, digits = 1) {
 }
 
 function trendLine(name, values) {
-  return `${name}: p50=${formatNumber(values.med)}ms p95=${formatNumber(values['p(95)'])}ms p99=${formatNumber(values['p(99)'])}ms max=${formatNumber(values.max)}ms n=${values.count ?? '-'}`
+  const unit = /cls/i.test(name) ? '' : 'ms'
+  const digits = unit ? undefined : 3
+  return `${name}: p50=${formatNumber(values.med, digits)}${unit} p95=${formatNumber(values['p(95)'], digits)}${unit} p99=${formatNumber(values['p(99)'], digits)}${unit} max=${formatNumber(values.max, digits)}${unit} n=${values.count ?? '-'}`
 }
 
 function metricLine(name, metric) {
@@ -79,7 +81,10 @@ export function renderTextSummary(data, { title = 'k6 run', reference } = {}) {
   const groupMetrics = Object.keys(metrics).filter((name) => name.startsWith('http_req_duration{group:')).sort()
   if (groupMetrics.length) {
     lines.push('-- by group --')
-    for (const name of groupMetrics) lines.push(metricLine(name, metrics[name]))
+    for (const name of groupMetrics) {
+      if ((metrics[name].values ?? {}).count === 0) continue
+      lines.push(metricLine(name, metrics[name]))
+    }
   }
   const referenceLines = evaluateReference(metrics, reference)
   if (referenceLines.length) {

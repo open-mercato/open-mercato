@@ -208,7 +208,7 @@ async function stopAppServices(sut) {
 }
 
 async function startAppServices(sut, target) {
-  await sut.compose(['up', '-d', ...APP_SERVICES], { capture: false })
+  await sut.compose(['up', '-d', '--force-recreate', ...APP_SERVICES], { capture: false })
   await waitForHealth(target.CONTROL_BASE_URL, { log })
 }
 
