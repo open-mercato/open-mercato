@@ -66,3 +66,4 @@ Reviewed Configs storage ownership, instance scope, initialization timing, cache
 
 - 2026-11-24 — Proposed Configs-owned initialization for #10476.
 - 2026-11-24 — Clarified legacy resource-list repair and the settings GET regression case.
+- 2026-11-24 — Added the Configs initializer and passed the active container through CLI and Onboarding setup. Added PostgreSQL coverage for concurrent writes and post-commit cache refresh.

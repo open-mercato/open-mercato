@@ -90,13 +90,14 @@ describe('process-execution-starter without the workflows module (#9188)', () =>
       startWorkflow: jest.fn().mockResolvedValue({ id: 'instance-1', version: 3 }),
       executeWorkflow: jest.fn().mockResolvedValue(undefined),
     }
-    const { execution } = buildHarness({ workflowExecutor })
+    const { execution, container } = buildHarness({ workflowExecutor })
 
     await handle(job, ctx)
 
     expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ workflowId: 'wf-1', correlationKey: 'process_execution:exec-1' }),
+      container,
     )
     expect(workflowExecutor.executeWorkflow).toHaveBeenCalled()
     expect(execution.workflowInstanceId).toBe('instance-1')

@@ -706,7 +706,7 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 
 ## 2026-11 — CRUD security (#3827, #9154, #9106)
 
-STABLE API: restrict sort keys, deleted-row reads, relation labels and global reads. Legacy behavior keeps leaks open. Named waiver pending. [Migration](UPGRADE_NOTES.md#crud-factory-security-and-query-correctness-bundle).
+STABLE API limits sorts, deleted rows, labels and global reads. 2026-11-24: relation options need owner policies. Bridges leak data. Use Staff timesheet APIs. Named waiver pending. [Upgrade](UPGRADE_NOTES.md).
 
 ## 2026-11-19 — Entity translation authorization (#9139)
 
@@ -734,11 +734,19 @@ STABLE API behavior changes for writes of tenant-scoped encrypted custom fields 
 
 ## 2026-11-25 — Empty organization scope (#10503)
 
-STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+STABLE gated APIs return `403` before lookup for empty scope. An unscoped bridge reopens the gap. Grant scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md) · [Maintainer accepted status](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527). Named waiver pending.
 
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
 
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+
+## Workflow events (2026-11-20, #9134)
+
+STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
+
+## 2026-11-25 — MCP Code Mode
+
+STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
 
 ## #10338 (2026-11-25)
 
