@@ -527,6 +527,18 @@ function formatValueForColumn(prop: any, value: unknown): unknown {
   return JSON.stringify(value)
 }
 
+function formatDecryptedValueForColumn(decrypted: string, isJson: boolean): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(decrypted)
+  } catch {
+    return isJson ? JSON.stringify(decrypted) : decrypted
+  }
+  if (typeof parsed === 'string') return isJson ? JSON.stringify(parsed) : parsed
+  if (isJson && (parsed === null || typeof parsed !== 'object')) return JSON.stringify(decrypted)
+  return decrypted
+}
+
 type EncryptionColumns = Map<string, 'json' | 'jsonb' | null>
 
 function resolveEncryptionColumns(
@@ -1137,16 +1149,7 @@ const decryptDatabase: ModuleCli = {
                 if (rawValue === null || rawValue === undefined) continue
                 try {
                   const decrypted = decryptWithAesGcmStrict(String(rawValue), dek.key)
-                  let valueToWrite: string
-                  try {
-                    const parsed = JSON.parse(decrypted)
-                    valueToWrite = typeof parsed === 'string' ? parsed : decrypted
-                  } catch {
-                    valueToWrite = decrypted
-                  }
-                  updates[col] = columns.get(col)
-                    ? formatValueForColumn(resolved.prop, parseDecryptedFieldValue(valueToWrite))
-                    : valueToWrite
+                  updates[col] = formatDecryptedValueForColumn(decrypted, Boolean(columns.get(col)))
                   rowDecrypted = true
                 } catch (error: unknown) {
                   if (error instanceof TenantDataEncryptionError) {
