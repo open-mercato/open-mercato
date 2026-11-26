@@ -14,6 +14,8 @@ import {
   promotionUpdateSchema,
   promotionCodeCreateSchema,
   promotionCodeUpdateSchema,
+  MAX_DYNAMIC_CODE_POOL_AMOUNT,
+  validateCodeUpdateAgainstStored,
   clearableEndOfDayDateSchema,
   benefitInputSchema,
   ruleInputSchema,
@@ -133,6 +135,26 @@ describe('promotion code create schema', () => {
     })
 
     expect(parsed.active).toBe(true)
+  })
+
+  it('caps dynamic code pools on create and update', () => {
+    const base = { name: 'Bounded pool', type: 'dynamic', usage: 'unlimited' }
+    expect(promotionCodeCreateSchema.parse({ ...base, amount: MAX_DYNAMIC_CODE_POOL_AMOUNT }).amount)
+      .toBe(MAX_DYNAMIC_CODE_POOL_AMOUNT)
+    expect(promotionCodeUpdateSchema.parse({
+      id: CODE_ID,
+      type: 'dynamic',
+      usage: 'unlimited',
+      amount: MAX_DYNAMIC_CODE_POOL_AMOUNT,
+    }).amount)
+      .toBe(MAX_DYNAMIC_CODE_POOL_AMOUNT)
+
+    expect(promotionCodeCreateSchema.safeParse({ ...base, amount: MAX_DYNAMIC_CODE_POOL_AMOUNT + 1 }).success).toBe(false)
+    const update = promotionCodeUpdateSchema.parse({ id: CODE_ID, amount: MAX_DYNAMIC_CODE_POOL_AMOUNT + 1 })
+    expect(() => validateCodeUpdateAgainstStored(
+      { type: 'dynamic', amount: 1, usage: 'unlimited' },
+      update,
+    )).toThrow()
   })
 })
 

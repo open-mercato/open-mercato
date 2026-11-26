@@ -6,6 +6,7 @@
 
 import { randomUUID } from 'crypto'
 import { Code, GeneratedCode, type PromotionCodeType } from '../../data/entities'
+import { MAX_DYNAMIC_CODE_POOL_AMOUNT } from '../../data/validators'
 import handle from '../code-generation.worker'
 
 jest.mock('../../events', () => ({ emitPromotionsEvent: jest.fn(async () => {}) }))
@@ -40,17 +41,23 @@ type FakeEm = {
   create: (entity: Function, data: Row) => Row
   persist: (row: Row) => void
   flush: () => Promise<void>
+  clear: () => void
   fork: () => FakeEm
   transactional: <T>(work: (em: FakeEm) => Promise<T>) => Promise<T>
 }
 
-function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
+function createFakeEm(): {
+  em: FakeEm
+  tables: Map<Function, Row[]>
+  stats: { transactionCount: number; clearCount: number }
+} {
   const tables = new Map<Function, Row[]>()
+  const stats = { transactionCount: 0, clearCount: 0 }
   let pendingCreates: Array<{ entity: Function; row: Row }> = []
   // Serializes concurrent `transactional(...)` calls on this fake, one at a time, in
   // call order — a stand-in for the real PESSIMISTIC_WRITE row lock the worker takes on
-  // `Code` for the whole run: two queue-concurrency-2 jobs racing the same `codeId`
-  // (review major #3) must never see each other's in-flight `remaining` computation.
+  // `Code` for every batch: two queue-concurrency-2 jobs racing the same `codeId` must
+  // re-count after each lock and never overfill the pool.
   // Not per-row (this fake only ever contends on one row per test), but accurate enough
   // to prove the worker's own lock usage prevents the overfill it's meant to prevent.
   let lockQueue: Promise<void> = Promise.resolve()
@@ -78,8 +85,12 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
       pendingCreates = []
       for (const { entity, row } of toApply) tableFor(entity).push(row)
     },
+    clear: () => {
+      stats.clearCount += 1
+    },
     fork: () => em,
     transactional: async (work) => {
+      stats.transactionCount += 1
       const previous = lockQueue
       let release: () => void = () => {}
       lockQueue = new Promise((resolve) => {
@@ -93,7 +104,7 @@ function createFakeEm(): { em: FakeEm; tables: Map<Function, Row[]> } {
       }
     },
   }
-  return { em, tables }
+  return { em, tables, stats }
 }
 
 function seedCode(
@@ -202,6 +213,28 @@ describe('promotions:code-generation worker', () => {
       expect.objectContaining({ codeId: code.id, generated: 5, amount: 5 }),
       { persistent: true },
     )
+  })
+
+  it('commits large pools in bounded batches and clears the entity manager between them', async () => {
+    const { em, tables, stats } = createFakeEm()
+    const code = seedCode(tables, { amount: 1001, length: 6 })
+
+    await handle(makeJob({ codeId: code.id as string, tenantId: TENANT, organizationId: ORG }), fakeCtx(em) as any)
+
+    const rows = (tables.get(GeneratedCode) ?? []).filter((row) => row.codeId === code.id)
+    expect(rows).toHaveLength(1001)
+    expect(code.generated).toBe(1001)
+    expect(stats.transactionCount).toBe(3)
+    expect(stats.clearCount).toBe(3)
+  })
+
+  it('skips oversized legacy pools instead of continuing unbounded generation', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { amount: MAX_DYNAMIC_CODE_POOL_AMOUNT + 1 })
+
+    await handle(makeJob({ codeId: code.id as string, tenantId: TENANT, organizationId: ORG }), fakeCtx(em) as any)
+
+    expect(tables.get(GeneratedCode) ?? []).toHaveLength(0)
   })
 
   it('is idempotent on restart: tops up to amount without duplicating existing rows, and never trusts a stale Code.generated counter', async () => {

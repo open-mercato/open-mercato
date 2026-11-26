@@ -6,6 +6,7 @@ import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { Code, GeneratedCode } from '../data/entities'
+import { MAX_DYNAMIC_CODE_POOL_AMOUNT } from '../data/validators'
 import { resolveCodeByString, type PromotionsCodeScope } from '../lib/code-service'
 import { PROMOTIONS_CODE_GENERATE_QUEUE } from '../lib/queues'
 import { emitPromotionsEvent } from '../events'
@@ -81,7 +82,7 @@ async function mintUniqueCandidate(
 
 type HandlerContext = JobContext & { resolve: <T = unknown>(name: string) => T }
 
-type GenerationRunResult = { code: Code; actualCountAfter: number }
+type GenerationRunResult = { codeId: string; amount: number; actualCountAfter: number; complete: boolean }
 
 export default async function handle(
   job: QueuedJob<CodeGenerationJobPayload>,
@@ -97,51 +98,47 @@ export default async function handle(
   const em = (ctx.resolve('em') as EntityManager).fork()
   const scope: PromotionsCodeScope = { tenantId, organizationId }
 
-  // The whole read-count-mint-reconcile run happens under one row lock, held for the
-  // duration of the transaction: the queue runs this worker with concurrency 2
-  // (`lib/queues.ts`), and two concurrent generation jobs for the same pool (e.g. a
-  // manual "Generate" click racing the auto-trigger) would otherwise both read the same
-  // unlocked `remaining` and each insert a full batch, overfilling the pool to 2x `amount`.
-  //
-  // The result is returned from the transactional callback rather than assigned to an
-  // outer `let` — TypeScript's control-flow narrowing cannot see an assignment made
-  // inside a nested closure, so `if (!code) return` below would otherwise narrow `code`
-  // to `never` for the rest of the function (a real TS2339 the CI build caught).
-  const run = await em.transactional(async (tem): Promise<GenerationRunResult | null> => {
-    const lockedCode = await tem.findOne(
-      Code,
-      { id: codeId, tenantId, organizationId, deletedAt: null },
-      { lockMode: LockMode.PESSIMISTIC_WRITE },
-    )
-    if (!lockedCode) {
-      logger.warn('promotions:code-generation code not found (deleted or wrong tenant/org)', { codeId, tenantId, organizationId })
-      return null
-    }
-    if (lockedCode.type !== 'dynamic' || !lockedCode.amount) {
-      logger.warn('promotions:code-generation code is not a dynamic pool with a target amount — nothing to generate', {
-        codeId,
-        type: lockedCode.type,
-        amount: lockedCode.amount,
-      })
-      return null
-    }
+  let completedRun: GenerationRunResult | null = null
+  while (!completedRun) {
+    // Each batch has a short transaction and its own row lock. A concurrent job
+    // re-counts after acquiring that lock, so it cannot overfill the same pool.
+    const run = await em.transactional(async (tem): Promise<GenerationRunResult | null> => {
+      const lockedCode = await tem.findOne(
+        Code,
+        { id: codeId, tenantId, organizationId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+      )
+      if (!lockedCode) {
+        logger.warn('promotions:code-generation code not found (deleted or wrong tenant/org)', { codeId, tenantId, organizationId })
+        return null
+      }
+      if (lockedCode.type !== 'dynamic' || !lockedCode.amount) {
+        logger.warn('promotions:code-generation code is not a dynamic pool with a target amount — nothing to generate', {
+          codeId,
+          type: lockedCode.type,
+          amount: lockedCode.amount,
+        })
+        return null
+      }
+      if (lockedCode.amount > MAX_DYNAMIC_CODE_POOL_AMOUNT) {
+        logger.warn('promotions:code-generation pool exceeds the configured maximum — nothing to generate', {
+          codeId,
+          amount: lockedCode.amount,
+          maximum: MAX_DYNAMIC_CODE_POOL_AMOUNT,
+        })
+        return null
+      }
 
-    // §Operational Risks "Dynamic Code Generation Stall": idempotent on restart — the
-    // authoritative generated count is a fresh COUNT(*) against
-    // `promotion_generated_codes`, never the possibly-stale `Code.generated` counter. This
-    // also makes an at-least-once queue redelivery of an already-finished job a safe no-op.
-    const actualCountBefore = await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
-    let remaining = Math.max(0, lockedCode.amount - actualCountBefore)
-
-    if (remaining > 0) {
+      // The generated-code rows, not Code.generated, are authoritative after a
+      // restart or a partially completed prior job.
+      const actualCountBefore = await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
+      const batchSize = Math.min(BATCH_SIZE, Math.max(0, lockedCode.amount - actualCountBefore))
       const localGenerated = new Set<string>()
-      let batch: GeneratedCode[] = []
 
-      while (remaining > 0) {
+      for (let index = 0; index < batchSize; index += 1) {
         const candidate = await mintUniqueCandidate(tem, lockedCode, scope, localGenerated)
         localGenerated.add(candidate)
-
-        batch.push(
+        tem.persist(
           tem.create(GeneratedCode, {
             codeId: lockedCode.id,
             organizationId,
@@ -150,28 +147,29 @@ export default async function handle(
             active: true,
           }),
         )
-        remaining -= 1
-
-        if (batch.length >= BATCH_SIZE || remaining === 0) {
-          for (const generated of batch) tem.persist(generated)
-          await tem.flush()
-          batch = []
-        }
       }
-    }
 
-    // `Code.generated` is reconciled to the ACTUAL count on completion, never incremented
-    // speculatively per insert (§Operational Risks) — re-counted fresh here too, so a
-    // concurrent writer touching the same code between the loop and this point still
-    // leaves the counter correct.
-    const actualCountAfter = await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
-    lockedCode.generated = actualCountAfter
-    await tem.flush()
-    return { code: lockedCode, actualCountAfter }
-  })
+      if (batchSize > 0) await tem.flush()
+      const actualCountAfter = batchSize > 0
+        ? await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
+        : actualCountBefore
+      lockedCode.generated = actualCountAfter
+      await tem.flush()
+      return {
+        codeId: lockedCode.id,
+        amount: lockedCode.amount,
+        actualCountAfter,
+        complete: actualCountAfter >= lockedCode.amount,
+      }
+    })
 
-  if (!run) return
-  const { code, actualCountAfter } = run
+    if (!run) return
+    // Discard managed rows between batches. Each prior batch and its counter
+    // reconciliation have already committed before the next transaction begins.
+    em.clear()
+    if (run.complete) completedRun = run
+  }
+  const { codeId: completedCodeId, amount, actualCountAfter } = completedRun
 
   // The CRUD list cache (ENABLE_CRUD_API_CACHE) never invalidates on its own for a
   // worker-side write — without this the admin UI's generated-codes counter can stay
@@ -181,7 +179,7 @@ export default async function handle(
   await invalidateCrudCache(
     cacheContainer,
     'promotions.code',
-    { id: code.id, organizationId, tenantId },
+    { id: completedCodeId, organizationId, tenantId },
     tenantId,
     'promotions.code.generated.reconcile',
   )
@@ -189,7 +187,7 @@ export default async function handle(
   try {
     await emitPromotionsEvent(
       'promotions.generated_code.created',
-      { codeId: code.id, tenantId, organizationId, generated: actualCountAfter, amount: code.amount },
+      { codeId: completedCodeId, tenantId, organizationId, generated: actualCountAfter, amount },
       { persistent: true },
     )
   } catch (err) {

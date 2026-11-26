@@ -836,6 +836,7 @@ export const promotionCodeTypeSchema = z.enum(promotionCodeTypeValues)
 
 export const promotionCodeUsageModeValues = ['single', 'multiple', 'unlimited'] as const
 export const promotionCodeUsageModeSchema = z.enum(promotionCodeUsageModeValues)
+export const MAX_DYNAMIC_CODE_POOL_AMOUNT = 100_000
 
 // Default-free field set shared by the create and update schemas; see the identical
 // note above `promotionBaseShape` for why `active` must not carry a default here.
@@ -866,8 +867,16 @@ const codeShapeRefine = (
   if (value.type === 'static' && !value.code) {
     ctx.addIssue({ code: 'custom', message: 'code is required for a static code', path: ['code'] })
   }
-  if (value.type === 'dynamic' && !value.amount) {
-    ctx.addIssue({ code: 'custom', message: 'amount is required for a dynamic code pool', path: ['amount'] })
+  if (value.type === 'dynamic') {
+    if (!value.amount) {
+      ctx.addIssue({ code: 'custom', message: 'amount is required for a dynamic code pool', path: ['amount'] })
+    } else if (value.amount > MAX_DYNAMIC_CODE_POOL_AMOUNT) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `amount cannot exceed ${MAX_DYNAMIC_CODE_POOL_AMOUNT} for a dynamic code pool`,
+        path: ['amount'],
+      })
+    }
   }
   if (value.usage === 'multiple' && value.usageAmount == null) {
     ctx.addIssue({
