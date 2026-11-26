@@ -111,6 +111,27 @@ Set `OM_KMS_DRIVER=example/key-store` at runtime. Packages can be scoped or unsc
 - Keep the existing Vault key addresses, mount, DEK encoding, compare-and-set winner and cache invalidation behavior. Keep the published `HashicorpVaultKmsService` constructor available at its existing import path as a compatibility facade to the extracted client. The facade loads the client only when called. The packaging change requires no data rewrite, key rotation or Vault permission change. Preserve standalone upgrades by carrying forward the pinned Vault default package and registration and testing existing deployment environments after regeneration.
 - Distinguish a proven absent key from a transport failure, forbidden read or invalid response. The explicit driver returns `null` only for proven absence and permits creation only under its provisioning policy. Preserve the implicit profile's existing behavior through the host policy.
 
+The shipped `src/providers/kms.ts` includes the following registration. The package validates settings after selection. Keep the legacy `secret/data` mount, 1,000 ms request timeout and 30,000 ms recovery cooldown defaults.
+
+```ts
+import { defineKmsDriverRegistration } from '@open-mercato/shared/lib/encryption/kms-driver'
+
+export const kmsDrivers = [
+  defineKmsDriverRegistration({
+    id: 'open-mercato/vault',
+    edition: 'oss',
+    load: () => import('@open-mercato/kms-driver-vault').then((module) => module.kmsDriver),
+    settings: () => ({
+      vaultAddr: process.env.VAULT_ADDR,
+      vaultToken: process.env.VAULT_TOKEN,
+      mountPath: process.env.VAULT_KV_PATH,
+      requestTimeoutMs: process.env.VAULT_REQUEST_TIMEOUT_MS,
+      recoveryCooldownMs: process.env.VAULT_RECOVERY_COOLDOWN_MS,
+    }),
+  }),
+]
+```
+
 ### Write safety and diagnostics
 
 The host owns strict handling for explicitly selected npm drivers. Implement on the shared [KMS unavailability enforcement](https://github.com/open-mercato/open-mercato/pull/10648) or a reviewed equivalent that covers the same entry points. Verify the prerequisite before enabling npm drivers. The selected driver supplies the only keys for serving, even when legacy Vault or derived-key environment settings are present. Audit guards that interpret `isHealthy() === false` as disabled, including subscriber, raw/custom-field and index writers. Sanitize failures at existing error boundaries, reuse `KMS_UNAVAILABLE` for dependency failure, and preserve authorization-before-key-resolution. A verified missing slot can be created only under the selected driver's provisioning policy. A dry run cannot create a slot. Failure while reading never counts as proven absence. Any successful protected read must authenticate existing ciphertext with the correct key. External DEK storage and key custody remain the driver's responsibility.
@@ -154,9 +175,9 @@ Update the [encryption guide](../../apps/docs/docs/user-guide/encryption.mdx) an
 
 ## Phasing
 
-1. Ship the OSS contract, deterministic registry and lifecycle needed by a packed OSS fixture.
+1. Ship the OSS contract, deterministic registry and lifecycle needed by a packed OSS fixture after the shared cache provider bootstrap lands.
 2. Connect normal operational entry points and enforce explicit-provider safety before declaring the extension supported.
-3. Extract and ship the Vault package with a default registration in both app layouts, then prove compatibility with a previously deployed Vault configuration.
+3. Ship the Vault extraction as a dedicated OSS follow-up. Publish the default package and activate its registration in both app layouts after the host lands. Prove compatibility with a previously deployed Vault configuration before release. Enterprise providers can build on the OSS host without changing this stock installation path.
 
 ## Final Compliance Report — 2026-11-25
 
