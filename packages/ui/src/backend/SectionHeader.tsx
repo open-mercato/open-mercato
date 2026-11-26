@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Badge } from '../primitives/badge'
+import { HelpTip } from './HelpTip'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -13,6 +14,11 @@ export type SectionHeaderProps = {
   count?: number
   /** Action element(s) on the right — typically Button or IconButton */
   action?: React.ReactNode
+  /**
+   * Contextual help behind a "?" beside the title. Both strings must arrive translated — this
+   * component has no module dictionary to resolve a key against.
+   */
+  help?: { title: string; body: React.ReactNode }
   /** Additional className */
   className?: string
   /**
@@ -26,6 +32,7 @@ export function SectionHeader({
   title,
   count,
   action,
+  help,
   className,
   titleClassName,
 }: SectionHeaderProps) {
@@ -39,6 +46,7 @@ export function SectionHeader({
             {count}
           </Badge>
         )}
+        {help ? <HelpTip title={help.title} body={help.body} size="sm" /> : null}
       </div>
       {action ? (
         <div className="flex items-center gap-1">
@@ -54,6 +62,11 @@ export type CollapsibleSectionProps = {
   title: string
   count?: number
   action?: React.ReactNode
+  /**
+   * Contextual help behind a "?" beside the title. Both strings must arrive translated — this
+   * component has no module dictionary to resolve a key against.
+   */
+  help?: { title: string; body: React.ReactNode }
   /** Collapse behavior */
   defaultCollapsed?: boolean
   collapsed?: boolean
@@ -75,6 +88,7 @@ export function CollapsibleSection({
   title,
   count,
   action,
+  help,
   defaultCollapsed = false,
   collapsed: controlledCollapsed,
   onCollapsedChange,
@@ -104,6 +118,10 @@ export function CollapsibleSection({
   return (
     <div className={cn('space-y-3', className)}>
       <div className="flex items-center justify-between">
+        {/* The toggle and the help affordance share the left side: `justify-between` would otherwise
+            strand the "?" in the middle of the row. The help button stays OUTSIDE the toggle, because
+            a button may not nest inside a button and a click on it would also collapse the section. */}
+        <div className={cn('flex items-center gap-2', allowsTitleShrink && 'min-w-0')}>
         <button
           type="button"
           onClick={toggle}
@@ -125,6 +143,8 @@ export function CollapsibleSection({
             </Badge>
           )}
         </button>
+        {help ? <HelpTip title={help.title} body={help.body} size="sm" /> : null}
+        </div>
         {action ? (
           <div className="flex items-center gap-1">
             {action}
