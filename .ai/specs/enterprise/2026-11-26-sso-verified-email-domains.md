@@ -12,14 +12,14 @@ Refs [#10684](https://github.com/open-mercato/open-mercato/issues/10684)
 
 ## TLDR
 
-An organization administrator proves control of an email domain with a DNS TXT record before the domain can route users to the organization's identity provider. Staff can select SSO when a verified provider is available and can still use local sign-in when their server-side policy allows it. Operators verify existing configurations and test recovery before enforcement.
+An organization administrator proves control of an email domain with a DNS TXT record before the domain can route users to the organization's identity provider. Staff can select SSO when a verified provider is available. Password sign-in retains its current behavior. Operators verify existing configurations and test independent recovery before the first discovery cutover.
 
 ## Resolved assumptions (autonomous defaults)
 
 | Decision | Proposed default | Acceptance |
 | --- | --- | --- |
-| Existing active domains and recovery | Deploy additive proof-management controls, suspend unverified automatic discovery across tenants at the first security rollout, and verify active domains and supported recovery before applying checked initiation to remaining compatible entry points. A preparation period cannot re-enable unverified automatic discovery. Do not mark existing domains verified automatically. | ⚠ NEEDS HUMAN CONFIRMATION. Maintainers must agree on rollout order, recovery ownership, supported release lines, and which compatibility exception applies. |
-| Anonymous sign-in | Offer verified SSO as a separate action. Keep local controls available and leave local enforcement to the server. A tenant selection narrows candidates. It does not establish account membership or authorization. | Proposed for review. This avoids requiring an anonymous account-existence signal. |
+| Existing active domains and recovery | Ship additive proof management before changing discovery. Gate the first discovery and initiation cutover on verified domains, tested independent recovery and a documented legacy-client migration decision. Historical domains start unverified. | Human maintainer acceptance is required for the proposed compatibility exception and release scope. |
+| Anonymous sign-in | Offer verified SSO as a separate action. Keep local controls available and preserve current password authentication. A tenant selection narrows candidates. It does not establish account membership or authorization. | Proposed for review. This avoids requiring an anonymous account-existence signal. |
 | Outstanding claims | Pending challenges have no exclusivity. The first currently valid proof wins the verified claim. Handle disputes through an audited platform-operator process with fresh proof, rather than an organization-level override. | Proposed for review. A change in ownership requires a separately authorized, audited action. |
 
 ## Overview and scope
@@ -58,7 +58,7 @@ GitHub's organization verification demonstrates a practical DNS publication and 
 
 1. The existing SSO administration routes establish staff scope. The service rechecks configuration authority against the selected tenant and organization and fails closed when required scope is missing. Scope is resolved through the existing runtime helpers.
 2. A challenge is bound to deployment, configuration, tenant, organization, domain and current version. The configured DNS resolver queries a fixed TXT name derived from the normalized exact domain. Use a bounded deadline and result size. Permit one in-flight check per claim and use tenant and actor limits for mutations. Exact record matching must handle split TXT strings. Resolver errors never establish ownership. Keep the DNS await outside the commit transaction. Recheck challenge identity and scope within the commit transaction.
-3. Enforce one verified, unreleased claim per normalized domain per deployment, regardless of duplicate pending entries. Keep ownership and verification state consistent across configuration update, domain removal, verification, revocation and retry. Reuse the existing serialized domain mutation pattern and use a database constraint as the final cross-process authority.
+3. Enforce one verified, unreleased claim per normalized domain per deployment, regardless of duplicate pending entries. At cutover, replace the active `allowedDomains` exclusivity checks in `SsoConfigService.addDomain` and `activate` with verified ownership. Keep normalization and per-configuration duplicate validation. An active configuration can add a candidate that another configuration already lists. Activation requires at least one verified claim owned by the configuration, and pending overlaps do not affect activation. Deactivation stops routing and retains unreleased verified ownership. Reactivation reuses a retained claim after the normal provider and eligibility checks. Domain removal, configuration deletion and authorized revocation release ownership. A released domain requires fresh proof to route again. Keep these changes consistent across configuration update, domain removal, verification, revocation and retry. Reuse the existing serialized domain mutation pattern and use a database constraint as the final cross-process authority.
 4. Anonymous home realm discovery narrows to the tenant selected for the current login when one is supplied. Resolve that selector through the existing login scope rules and reject conflict with any server-established context. The selector is not proof of identity. A shared login with no tenant scope may offer a provider only for an unambiguous verified claim. Neither path discloses user membership or ownership of another tenant's pending claim.
 5. Initiation accepts a short-lived opaque or signed value bound to the eligible configuration, exact domain and resolved tenant context. It validates that binding and rechecks current eligibility before creating the existing OIDC state. Callback rechecks the same bound scope before applying existing account and identity checks. Expiry, changed tenant selection, revocation or stale browser responses cannot cause a redirect based on an old candidate.
 6. Separate local and SSO actions on the login page. Reuse the existing login injection spot and avoid repurposing the password handler. If additive extension metadata is required to support the separate action, retain current consumers' behavior and document the optional field.
@@ -98,14 +98,14 @@ erDiagram
 | Challenge and verify | Add identifier-scoped mutations under the existing Domains route family. Reuse the existing SSO feature guard and configuration authority checks. Return current proof state and version. Use optimistic locking on operator edits and present a reload/retry message when the row changed. |
 | Activation | Keep the endpoint. Return a localized, structured denial when no domain is eligible under enforcement. A working discovery document alone is insufficient. |
 | `POST /api/sso/hrd` | Keep method and response shape for existing callers. Parse the optional tenant selector. Add the optional initiation value when there is an eligible match. All unavailable cases use `hasSso: false`. |
-| `GET /api/sso/initiate` and callback | Keep paths and normal success redirects. Enforce eligibility and binding for new requests. Review the compatibility and security exception for legacy initiation at acceptance. |
+| `GET /api/sso/initiate` and callback | Keep paths and normal success redirects. Enforce eligibility and binding for new requests. Migrate configuration-ID-only callers to verified discovery and bound initiation. Disable configuration-ID-only initiation at cutover subject to the approved compatibility decision described below. |
 | Claim release | Use an audited support procedure gated by the platform's authoritative super-admin check with a fresh ownership review. Treat the exact operator interface as part of the rollout decision. Preserve existing SCIM token and identity contracts. |
 
 ## UI/UX
 
 Reuse SSO configuration's FormHeader and General, Domains, Roles, SCIM and Activity tabs. The Domains screen shows the status of each configured domain and provides challenge, verification and removal actions. The proof panel displays its record fields and expiry. A missing record or temporary failure leaves the administrator on that panel with a clear retry action. A verified row shows when proof was established. An active configuration with other pending domains keeps its currently eligible domains.
 
-The sign-in page uses two distinct actions. Email edits and tenant changes clear a stale SSO result. Password, recovery and remember-me controls remain available when the corresponding configured local sign-in path is available. Present generic unavailability to anonymous users. If a tenant relies on SSO and needs administrative help, direct the user to that tenant's support or documented operator recovery path without revealing an account lookup result.
+The sign-in page uses two distinct actions. Email edits and tenant changes clear a stale SSO result. Password, recovery and remember-me retain their current behavior. `POST /api/auth/login` continues to apply its existing credential and account checks. The stored `ssoRequired` setting does not enforce SSO-only access in that handler. Any deployment-specific restriction continues to apply at its existing enforcement point. Built-in SSO-only password enforcement is outside this proposal. Present generic unavailability to anonymous users. If a tenant relies on SSO and needs administrative help, direct the user to that tenant's support or documented operator recovery path without revealing an account lookup result.
 
 ### User stories and acceptance
 
@@ -116,6 +116,7 @@ The sign-in page uses two distinct actions. Email edits and tenant changes clear
 | SSO-D3 | An administrator needs to verify an existing active configuration before enforcement. | The Domains tab distinguishes proof status from configuration activation. The administrator can recover using the approved rollout path. Removing a verified domain is confirmed and immediately removes it from routing. |
 | SSO-D3a | An operator needs to prepare existing active configurations that have no domains or use a tenant-directed entry point. | A domainless active configuration remains visible in settings with actionable readiness status and has no anonymous discovery result. A tenant-directed entry point may start SSO only for a currently eligible verified configuration within its resolved scope. Confirm a supported recovery route before enforcing the changed initiation contract for installations with no verified domain. |
 | SSO-D4 | A staff user wants to choose the correct sign-in method. | Verified provider discovery offers an explicit SSO action with keyboard access. Pending, scope-mismatched or ambiguous results leave ordinary sign-in available to eligible users. Changing the identifier cannot leave an old provider action active. |
+| SSO-D4a | A staff user submits a password directly. | For otherwise equivalent accounts, a valid password has the same result with `ssoRequired` enabled or disabled. Invalid credentials keep the existing failure behavior. Exercise `POST /api/auth/login` directly, including when verified discovery yields no provider. |
 | SSO-D5 | A platform operator needs to recover a disputed domain. | The operator validates current ownership and records who released the earlier claim and why. The legitimate administrator completes the ordinary fresh verification flow after release. A scoped administrator cannot release another configuration's claim. |
 
 The [acceptance prototype](../assets/sso-verified-email-domains/prototype/README.md) covers SSO-D1 and SSO-D2 in the organization settings. It includes an activation prerequisite, propagation delay and recovery. The public login and operator workflows are described for implementation and acceptance testing.
@@ -131,9 +132,9 @@ The [acceptance prototype](../assets/sso-verified-email-domains/prototype/README
 
 ## Migration & Backward Compatibility
 
-Add proof records alongside the existing domain data. Preserve public paths, existing fields, feature IDs and widget spot IDs. Do not auto-verify historical domains. Provide a cutover checklist with an inventory of active configurations, a pre-upgrade verification window, a tested operator recovery path, and a readiness check per affected installation. Preparation provides migration controls and recovery through an operator-approved path while the security rollout suppresses unverified automatic discovery across tenants. Enforcement requires verified ownership on every discovered and tenant-directed initiation. Existing active rows without a domain are visible as blocked for routing and need configuration or recovery. Do not fall back from a refused tenant-directed entry to global discovery. Local sign-in remains governed by existing server-side policy. A failure to verify remains actionable in settings and does not grant implicit password access.
+Add proof records alongside the existing domain data. Preserve public paths, existing fields, feature IDs and widget spot IDs. Do not auto-verify historical domains. Provide a cutover checklist with an inventory of active configurations, a pre-upgrade verification window, a tested operator recovery path, and a readiness check per affected installation. Preparation adds proof management without changing existing discovery or initiation. Before enabling the first discovery cutover, the installation operator records at least one verified domain for each active configuration that must keep routing and demonstrates that an authorized operator can reach SSO settings and restore routing without the affected IdP or discovery path. Use an existing authorized local operator account where supported. Where local access is restricted, the installation owner must identify and exercise a supported independent recovery procedure. The release owner reviews the inventory, named recovery owner, exercise result and legacy-client migration for each rollout target. Missing evidence blocks cutover for that target. Once hardened routing is enabled, rollback uses the tested recovery path and retains verified routing. Enforcement requires verified ownership on every discovered and tenant-directed initiation. Existing active rows without a domain are visible as blocked for routing and need configuration or recovery. Do not fall back from a refused tenant-directed entry to global discovery. Local sign-in continues to apply the existing password authentication checks. Verification failures remain actionable in settings.
 
-The contract decision concerns legacy direct initiation by configuration ID and discovery for previously accepted domains. If the only bridge would retain routing without sufficient ownership and scope checks, require the documented Emergency Security Exception with named maintainer sign-off, an explicit dated compatibility entry and upgrade notes. Do not ship a switch that restores unsafe routing. A rollback should use recovery and a version that retains hardened routing. Release owners confirm equivalent behavior and compatibility separately for the v0.9 and v0.10 backport lines before scheduling rollout.
+The proposed compatibility decision is to retire configuration-ID-only initiation and omit unverified domains from discovery at the same gated cutover. A legacy bridge accepting the configuration ID alone cannot validate the domain or tenant binding. The implementation PR must justify this treatment under the Emergency Security Exception, obtain named human maintainer sign-off, add the dated compatibility entry and publish client and operator upgrade instructions before cutover. If that approval is withheld, cutover stays blocked pending a compatible design that enforces the same ownership and scope checks. Release owners confirm equivalent behavior and compatibility separately for the v0.9 and v0.10 backport lines before scheduling rollout.
 
 ## Risks & Impact Review
 
@@ -148,7 +149,7 @@ The contract decision concerns legacy direct initiation by configuration ID and 
 
 ## Phasing
 
-1. Preparation and authority-scoped verification.
+1. Preparation, authority-scoped verification and recovery readiness.
 2. Enforced discovery, initiation and cutover.
 3. Acceptance and backport readiness.
 
@@ -162,13 +163,17 @@ The contract decision concerns legacy direct initiation by configuration ID and 
 
 1.3 Add challenge and verification routes and the Domains acceptance flow. Use authorized API fixtures and cover validation, error recovery, first successful verification, release and revocation. Review the prototype before writing production UI.
 
+1.4 Publish the rollout checklist and run the independent recovery exercise before approving the first discovery cutover. Record the installation operator, release owner, evidence and legacy-client migration decision for each target.
+
 ### Phase 2 — Enforce and migrate
 
 2.1 Characterize existing anonymous HRD, IdP initiation and callback behavior, including stale responses and the explicit tenant login flow.
 
 2.2 Add verified eligibility and bound initiation, retain independent password submission, and add integration coverage for scoped discovery, unverified denial, eligible redirects, stale handoffs, and callback binding. Use a local fake identity provider and disposable fixtures.
 
-2.3 Document and test the migration and accepted operator recovery procedure. Add a rollout readiness check and backport notes. Confirm whether the compatibility exception applies before implementation PR approval.
+2.3 Replace configured-domain exclusivity at cutover in both add and activation paths. Through the active configuration API, show two configurations requesting proof for the same candidate while continuing to route on their own verified domains. Verify one wins and the other receives a generic conflict. Cover deactivation retaining ownership, reactivation reusing the retained claim, and release allowing a new claimant to verify.
+
+2.4 Apply the Phase 1 readiness gate before the first discovery or initiation behavior change. Obtain the compatibility decision and publish upgrade and backport notes. Test both a ready installation and an installation blocked by missing verification or independent recovery.
 
 ### Phase 3 — Acceptance
 
@@ -183,3 +188,5 @@ Design review covers scoped reads and writes, repository compatibility, additive
 ## Changelog
 
 - 2026-11-26 — Proposed DNS proof and safe login routing for Enterprise SSO email domains.
+
+- 2026-11-26 — Defined pre-cutover recovery and compatibility gates, verified ownership across activation and deactivation, and password-login acceptance.
