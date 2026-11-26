@@ -25,19 +25,23 @@ One independent read-only main CI investigation; one final independent review af
 ## Risks
 Full-suite CI is expensive and asynchronous. No application defect is established at the initial main head. Draft exception must remain restricted to same-repository stabilization heads. Local dependencies are initially absent; record any local environment blockers without treating them as passes. Main snapshot release is a separate workflow, initially still running.
 
+## Validation evidence
+Runner: local (no running compose app found). Immutable install completed with optional native-build warnings. Focused draft/full-scope/concurrency/merge-coverage/batch tests: 77 passed. Configured gate running in order.
+
 ## Run identity
 Claim-Run: f7e6e045-1806-46ec-a606-995a29704b04
 Branch: stabilize/main-2026-11-27 (explicit operator override of skill branch prefix)
 Engine: om-auto-create-pr (steps: 5, --loop: no)
 
 ## Progress
+PR: #10850
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Establish evidence and enable draft stabilization CI
 
 - [ ] 1.1 Inspect recent main workflows independently and record confirmed failures or green baseline.
-- [ ] 1.2 Add a narrow stabilization draft exception with executable regression coverage.
+- [x] 1.2 Add a narrow stabilization draft exception with executable regression coverage. — f0fb11f6f3
 
 ### Phase 2: Validate and repair
 
