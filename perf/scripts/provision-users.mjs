@@ -53,11 +53,11 @@ async function createUser(baseUrl, token, organizationId, planned) {
   throw new Error(`[perf] creating ${planned.email} failed (HTTP ${response.status}: ${JSON.stringify(response.data).slice(0, 300)})`)
 }
 
-async function createStaffMember(baseUrl, token, user) {
+async function createStaffMember(baseUrl, token, scope, user) {
   const response = await apiRequest(baseUrl, '/api/staff/team-members', {
     method: 'POST',
     token,
-    json: { displayName: user.name, userId: user.userId, isActive: true },
+    json: { displayName: user.name, userId: user.userId, isActive: true, organizationId: scope.organizationId, tenantId: scope.tenantId },
   })
   if (response.ok && response.data?.id) return String(response.data.id)
   throw new Error(`[perf] creating staff member for ${user.email} failed (HTTP ${response.status}: ${JSON.stringify(response.data).slice(0, 300)})`)
@@ -70,7 +70,7 @@ async function provisionOne(context, planned, existing) {
     current.userId = created.userId
     current.password = created.password
   }
-  if (!current.staffMemberId) current.staffMemberId = await createStaffMember(context.baseUrl, context.token, current)
+  if (!current.staffMemberId) current.staffMemberId = await createStaffMember(context.baseUrl, context.token, context, current)
   return { email: current.email, password: current.password, role: current.role, userId: current.userId, staffMemberId: current.staffMemberId }
 }
 
@@ -94,7 +94,7 @@ export async function provisionUsers({ baseUrl, tenant, total = DEFAULT_TOTAL, a
   const previous = existsSync(usersPath) ? readJsonFile(usersPath) : []
   const previousByEmail = new Map(previous.map((user) => [user.email, user]))
   const token = await login(baseUrl, { email: tenant.adminEmail, password: tenant.adminPassword, tenantId: tenant.tenantId })
-  const context = { baseUrl, token, organizationId: tenant.organizationId }
+  const context = { baseUrl, token, organizationId: tenant.organizationId, tenantId: tenant.tenantId }
   const planned = planUsers({ total, admins })
   const finished = new Map(previous.filter((user) => user.userId && user.staffMemberId).map((user) => [user.email, user]))
   let completed = finished.size

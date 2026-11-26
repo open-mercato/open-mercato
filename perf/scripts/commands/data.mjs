@@ -85,7 +85,7 @@ async function meiliStats(sut) {
   return { documents: indexes.reduce((total, index) => total + index.documents, 0), indexing: indexes.some((index) => index.indexing), indexes }
 }
 
-const QUEUE_BACKLOG_SCRIPT = "local total = 0 for _, pattern in ipairs(ARGV) do for _, key in ipairs(redis.call('KEYS', pattern)) do local kind = redis.call('TYPE', key).ok if kind == 'list' then total = total + redis.call('LLEN', key) elseif kind == 'zset' then total = total + redis.call('ZCARD', key) end end end return total"
+const QUEUE_BACKLOG_SCRIPT = "local clock = redis.call('TIME') local horizon = tonumber(clock[1]) * 1000 * 4096 local total = 0 for _, pattern in ipairs(ARGV) do for _, key in ipairs(redis.call('KEYS', pattern)) do local kind = redis.call('TYPE', key).ok if kind == 'list' then total = total + redis.call('LLEN', key) elseif kind == 'zset' then if string.sub(key, -8) == ':delayed' then total = total + redis.call('ZCOUNT', key, '-inf', horizon) else total = total + redis.call('ZCARD', key) end end end end return total"
 
 async function queueBacklog(sut) {
   const result = await sut.exec('redis', ['redis-cli', '--raw', 'EVAL', QUEUE_BACKLOG_SCRIPT, '0', 'bull:*:wait', 'bull:*:active', 'bull:*:delayed', 'bull:*:prioritized'], { allowFail: true })
@@ -148,7 +148,8 @@ async function seedMeasured(context, tier, flags) {
   const manifest = readJsonFile(join(dataDir, 'manifest.json'))
   const catalog = readJsonFile(join(dataDir, 'catalog.json'))
   log(`copied manifest and catalog to perf/data/${tier}/`)
-  await reindexQueryIndex(sut, scope, flags)
+  if (flags['skip-query-index']) log('skipping the query_index reindex (--skip-query-index)')
+  else await reindexQueryIndex(sut, scope, flags)
   const indexedAt = Date.now()
   const meili = flags['skip-fulltext'] ? null : await reindexFulltext(sut, target, scope)
   const fulltextAt = Date.now()

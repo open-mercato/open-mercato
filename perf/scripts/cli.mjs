@@ -4,7 +4,7 @@ import { build, down, initSecrets, lint, status, up } from './commands/stack.mjs
 import { restore, seed, snapshot, tenant, users } from './commands/data.mjs'
 import { compare, report, run } from './commands/run.mjs'
 
-const BOOLEAN_FLAGS = ['background', 'resume', 'force', 'volumes', 'purge-secrets', 'build', 'skip-fulltext', 'yes-this-is-a-perf-target']
+const BOOLEAN_FLAGS = ['background', 'resume', 'force', 'volumes', 'purge-secrets', 'build', 'skip-fulltext', 'skip-query-index', 'yes-this-is-a-perf-target']
 
 const USAGE = `Usage: perf/bin/perf <command> [options]
 
@@ -15,7 +15,7 @@ const USAGE = `Usage: perf/bin/perf <command> [options]
   status                           target, containers and state summary
   tenant [--email E]               create the measured tenant (mercato auth setup --json)
   users [--count 200 --admins 20]  provision staff users + team members through the API
-  seed --tier T [--background] [--seed N] [--anchor YYYY-MM-DD] [--resume] [--partitions N]
+  seed --tier T [--background] [--seed N] [--anchor YYYY-MM-DD] [--resume] [--partitions N] [--skip-query-index] [--skip-fulltext]
   snapshot --tier T                Postgres template + Meilisearch volume copy
   restore --tier T                 restore the snapshot before every load phase
   run <scenario> [--tier T] [--profile P] [--label L] [--samples N] [--knee N]

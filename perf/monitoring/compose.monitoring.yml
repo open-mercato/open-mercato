@@ -65,7 +65,7 @@ services:
       - --path.sysfs=/host/sys
       - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|run|var/lib/docker/.+)($$|/)
     volumes:
-      - /:/host:ro,rslave
+      - /:/host:${NODE_EXPORTER_ROOT_MOUNT_OPTS:-ro,rslave}
     networks:
       - mercato-network-fullapp
 

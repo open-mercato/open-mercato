@@ -151,7 +151,7 @@ findings (`file:line`, mechanism, P1/P2/P3). Issues and fix PRs only on human re
 | `init-secrets` | Generates missing secrets only; existing values are kept. Pushes the file to the SUT when `SUT_SSH` is set |
 | `up [--build]` | Refuses default/placeholder secrets; waits for `/api/healthz` through TLS; creates `pg_stat_statements` |
 | `down [--volumes] [--purge-secrets]` | `--purge-secrets` deletes the user pool and tenant credentials; keys stay (snapshots need them) |
-| `seed --tier T` | Requires `tenant` and `users`. Exit codes of `seed-perf`: 2 usage, 3 verification failed, 4 resumable (`--resume`) |
+| `seed --tier T` | Requires `tenant` and `users`. Exit codes of `seed-perf`: 2 usage, 3 verification failed, 4 resumable (`--resume`). If the seeder finished but a later step failed, re-run with `--resume --skip-query-index` (the seeder no-ops on a completed checkpoint) |
 | `snapshot --tier T` | Only after a verified seed (`.state/seed-<T>.json`); stops app/worker/scheduler; `CREATE DATABASE … STRATEGY FILE_COPY` |
 | `restore --tier T` | Refuses when the encryption-key fingerprint differs; flushes Redis; re-runs migrations via the app start |
 | `run <scenario>` | `smoke`, `baseline`, `step`, `stress`, `soak`, `interference`, `browser`; `--profile mini` for Phase 2 |
