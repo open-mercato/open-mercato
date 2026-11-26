@@ -26,17 +26,22 @@ function exec(command: string, args: string[], cwd: string, timeout = 240_000, e
 
 /**
  * Build and pack (`yarn pack`, which resolves `workspace:*` exactly like the
- * publish script) the cache host workspaces, the RESP protocol library and one
- * provider, then install only those tarballs (plus their registry dependencies)
- * into a fresh app outside the workspace.
+ * publish script) the cache host workspaces, the RESP protocol library, one
+ * provider and any extra bundled workspace dependencies. Install those tarballs
+ * and their registry dependencies into a fresh app outside the workspace.
  */
-export function createPackedInstall(providerDirName: string): PackedInstall {
+export function createPackedInstall(providerDirName: string, options: { withPackages?: string[] } = {}): PackedInstall {
   const workDir = mkdtempSync(path.join(os.tmpdir(), `om-packed-${providerDirName}-`))
   const packDir = path.join(workDir, 'pack')
   const appDir = path.join(workDir, 'app')
   mkdirSync(packDir, { recursive: true })
   mkdirSync(appDir, { recursive: true })
-  const tarballs = Object.values(packCacheWorkspaces(packDir, [...CACHE_HOST_WORKSPACES, 'cache-redis-protocol', providerDirName]))
+  const tarballs = Object.values(packCacheWorkspaces(packDir, [
+    ...CACHE_HOST_WORKSPACES,
+    'cache-redis-protocol',
+    ...(options.withPackages ?? []),
+    providerDirName,
+  ]))
   writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: 'om-cache-packed-app', private: true, version: '0.0.0', type: 'module' }))
   exec('npm', ['install', ...tarballs, '@types/node@^22', '--no-audit', '--no-fund', '--ignore-scripts', '--no-package-lock', '--loglevel=error'], appDir, 300_000)
   const scopeDir = path.join(appDir, 'node_modules', '@open-mercato')

@@ -48,14 +48,19 @@ function openssl(args: string[], cwd: string): void {
   execFileSync('openssl', args, { cwd, stdio: 'pipe', timeout: 60_000 })
 }
 
-/** Throwaway CA and a localhost server certificate (plus an unrelated CA for negative tests). */
+/**
+ * Throwaway CA and a localhost node certificate (plus an unrelated CA for
+ * negative tests). The certificate carries both serverAuth and clientAuth
+ * EKUs so it also works on a TLS cluster bus, where each node presents it as
+ * a client to its peers.
+ */
 export function generateTlsMaterial(): TlsMaterial {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'om-resp-tls-'))
   try {
     openssl(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'ca.key', '-out', 'ca.crt', '-days', '2', '-subj', '/CN=om-cache-test-ca'], dir)
     openssl(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'other.key', '-out', 'other.crt', '-days', '2', '-subj', '/CN=om-cache-other-ca'], dir)
     openssl(['req', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'server.key', '-out', 'server.csr', '-subj', '/CN=localhost'], dir)
-    writeFileSync(path.join(dir, 'ext.cnf'), 'subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n')
+    writeFileSync(path.join(dir, 'ext.cnf'), 'subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth,clientAuth\n')
     openssl(['x509', '-req', '-in', 'server.csr', '-CA', 'ca.crt', '-CAkey', 'ca.key', '-CAcreateserial', '-out', 'server.crt', '-days', '2', '-extfile', 'ext.cnf'], dir)
     const read = (name: string) => readFileSync(path.join(dir, name), 'utf8')
     return { ca: read('ca.crt'), cert: read('server.crt'), key: read('server.key'), otherCa: read('other.crt') }

@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["jest", "node"],
+    "paths": {
+      "@open-mercato/cache-redis-protocol/test-support/*": ["../cache-redis-protocol/test-support/*"],
+      "@open-mercato/cache-provider-managed-kit/testing": ["../cache-provider-managed-kit/test-support/index.ts"],
+      "@open-mercato/cache-provider-managed-kit/testing/*": ["../cache-provider-managed-kit/test-support/*"]
+    }
+  },
+  "include": ["src/**/*", "test-support/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
