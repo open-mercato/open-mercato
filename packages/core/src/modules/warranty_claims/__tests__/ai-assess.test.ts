@@ -79,10 +79,10 @@ jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory', (
   }
 })
 
-const resolveRequestApiKeyPrincipalMock = jest.fn()
+const resolveToolPrincipalIdsMock = jest.fn()
 
 jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/api-key-principal', () => ({
-  resolveRequestApiKeyPrincipal: (...args: unknown[]) => resolveRequestApiKeyPrincipalMock(...args),
+  resolveToolPrincipalIds: (...args: unknown[]) => resolveToolPrincipalIdsMock(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -410,8 +410,8 @@ describe('warranty claim AI assessment packet', () => {
     invalidateCrudCacheMock.mockReset()
     createRequestContainerMock.mockReset()
     getAuthFromRequestMock.mockReset()
-    resolveRequestApiKeyPrincipalMock.mockReset()
-    resolveRequestApiKeyPrincipalMock.mockResolvedValue({})
+    resolveToolPrincipalIdsMock.mockReset()
+    resolveToolPrincipalIdsMock.mockResolvedValue({})
     resolveOrganizationScopeForRequestMock.mockReset()
     runRouteMutationGuardsMock.mockReset()
     commandExecuteMock.mockReset()
@@ -513,7 +513,7 @@ describe('warranty claim AI assessment packet', () => {
     createRequestContainerMock.mockResolvedValue(container)
     const keyAuth = { sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: TENANT_ID, orgId: ORG_ID, isSuperAdmin: false }
     getAuthFromRequestMock.mockResolvedValue(keyAuth)
-    resolveRequestApiKeyPrincipalMock.mockResolvedValue({ principalApiKeyId: 'key-1', apiKeyUserId: USER_ID })
+    resolveToolPrincipalIdsMock.mockResolvedValue({ principalApiKeyId: 'key-1', apiKeyUserId: USER_ID })
     resolveOrganizationScopeForRequestMock.mockResolvedValue({ selectedId: ORG_ID, filterIds: [ORG_ID] })
     runRouteMutationGuardsMock.mockResolvedValue({ ok: true, modifiedPayload: null, runAfterSuccess: jest.fn() })
 
@@ -524,7 +524,7 @@ describe('warranty claim AI assessment packet', () => {
     }))
 
     expect(response.status).toBe(200)
-    expect(resolveRequestApiKeyPrincipalMock).toHaveBeenCalledWith(container, expect.objectContaining({ sub: 'api_key:key-1', keyId: 'key-1' }))
+    expect(resolveToolPrincipalIdsMock).toHaveBeenCalledWith(container, expect.objectContaining({ sub: 'api_key:key-1', keyId: 'key-1' }))
   })
 
   test('assess route rejects same-scope attachments not assigned to the claim or line', async () => {

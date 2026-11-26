@@ -35,10 +35,10 @@ jest.mock('../../../../lib/tool-executor', () => ({
   executeTool: (...args: unknown[]) => executeToolMock(...args),
 }))
 
-const resolveRequestApiKeyPrincipalMock = jest.fn()
+const resolveToolPrincipalIdsMock = jest.fn()
 
 jest.mock('../../../../lib/api-key-principal', () => ({
-  resolveRequestApiKeyPrincipal: (...args: unknown[]) => resolveRequestApiKeyPrincipalMock(...args),
+  resolveToolPrincipalIds: (...args: unknown[]) => resolveToolPrincipalIdsMock(...args),
 }))
 
 jest.mock('../../../../lib/tool-loader', () => ({
@@ -67,7 +67,7 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
     accessLogEntries.length = 0
     authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
     getToolMock.mockReturnValue({ name: 'customers.get_person', isMutation: false })
-    resolveRequestApiKeyPrincipalMock.mockResolvedValue({})
+    resolveToolPrincipalIdsMock.mockResolvedValue({})
   })
 
   it('writes one tools-api row with the header correlation id and keeps the response body', async () => {
@@ -106,13 +106,13 @@ describe('POST /api/ai_assistant/tools/execute — audit', () => {
   it('passes the key principal of a key-authenticated request to read tools', async () => {
     const keyAuth = { sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: 'tenant-1', orgId: 'org-1' }
     authMock.mockResolvedValue(keyAuth)
-    resolveRequestApiKeyPrincipalMock.mockResolvedValue({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+    resolveToolPrincipalIdsMock.mockResolvedValue({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
     executeToolMock.mockResolvedValue({ success: true, result: {} })
 
     const response = await POST(buildRequest({ toolName: 'customers.get_person', args: {} }))
 
     expect(response.status).toBe(200)
-    expect(resolveRequestApiKeyPrincipalMock).toHaveBeenCalledWith(expect.anything(), keyAuth)
+    expect(resolveToolPrincipalIdsMock).toHaveBeenCalledWith(expect.anything(), keyAuth)
     expect(executeToolMock.mock.calls[0][2]).toMatchObject({
       userId: 'api_key:key-1',
       principalApiKeyId: 'key-1',
@@ -256,7 +256,7 @@ describe('POST /api/ai_assistant/tools/execute — mutation tools', () => {
     accessLogEntries.length = 0
     authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
     getToolMock.mockReturnValue({ name: 'customers.update_person', isMutation: true })
-    resolveRequestApiKeyPrincipalMock.mockResolvedValue({})
+    resolveToolPrincipalIdsMock.mockResolvedValue({})
   })
 
   afterEach(() => {

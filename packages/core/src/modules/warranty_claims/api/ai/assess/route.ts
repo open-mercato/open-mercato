@@ -15,7 +15,7 @@ import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mer
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
-import { resolveRequestApiKeyPrincipal } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-key-principal'
+import { resolveToolPrincipalIds } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/api-key-principal'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { AttachmentTargetAccessService } from '@open-mercato/core/modules/attachments/lib/target-access-service'
 import { WarrantyClaimLine } from '../../../data/entities'
@@ -119,7 +119,7 @@ async function buildAuthContext(context: AssessRouteContext): Promise<AiChatRequ
     tenantId: context.tenantId,
     organizationId: context.organizationId,
     userId,
-    ...(await resolveRequestApiKeyPrincipal(context.container, context.ctx.auth ?? null)),
+    ...(await resolveToolPrincipalIds(context.container, context.ctx.auth ?? null)),
     features: [],
     isSuperAdmin: isSuperAdmin(context.ctx.auth),
   }

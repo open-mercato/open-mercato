@@ -18,7 +18,7 @@ import {
 import { AgentPolicyError } from '../../../lib/agent-tools'
 import type { AiAgentRunChannel } from '../../../lib/agent-call-contract'
 import { CORRELATION_ID_HEADER, resolveCorrelationId } from '../../../lib/mcp-audit'
-import { resolveRequestApiKeyPrincipal } from '../../../lib/api-key-principal'
+import { resolveToolPrincipalIds } from '../../../lib/api-key-principal'
 import { AiModerationBlockedError, AiModerationUnavailableError } from '../../../lib/moderation'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 import {
@@ -696,7 +696,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,
         userId: auth.sub,
-        ...(await resolveRequestApiKeyPrincipal(container, auth)),
+        ...(await resolveToolPrincipalIds(container, auth)),
         features: acl.features,
         isSuperAdmin: acl.isSuperAdmin,
       },

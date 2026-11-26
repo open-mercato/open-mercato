@@ -11,11 +11,11 @@ export type ApiKeyPrincipal = {
 }
 
 /**
- * Identifies the key behind a key-authenticated request and, for a session-bound key,
- * the verified user it acts for, so attachment owner access checks evaluate the same
- * principal API-key authentication produced. Cookie sessions return an empty principal.
+ * Returns the authenticated key ID and, for a session-bound key, its verified
+ * user ID. Attachment owner checks use these IDs to identify the same
+ * principal as authentication. Cookie sessions return an empty principal.
  */
-export async function resolveRequestApiKeyPrincipal(
+export async function resolveToolPrincipalIds(
   container: AwilixContainer,
   auth: AuthContext,
 ): Promise<ApiKeyPrincipal> {

@@ -17,10 +17,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
 }))
 
-const resolveRequestApiKeyPrincipalMock = jest.fn()
+const resolveToolPrincipalIdsMock = jest.fn()
 
 jest.mock('../../../../lib/api-key-principal', () => ({
-  resolveRequestApiKeyPrincipal: (...args: unknown[]) => resolveRequestApiKeyPrincipalMock(...args),
+  resolveToolPrincipalIds: (...args: unknown[]) => resolveToolPrincipalIdsMock(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -278,14 +278,14 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     ])
     const keyAuth = { sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: 'tenant-1', orgId: 'org-1' }
     authMock.mockResolvedValue(keyAuth)
-    resolveRequestApiKeyPrincipalMock.mockResolvedValue({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+    resolveToolPrincipalIdsMock.mockResolvedValue({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
 
     const response = await POST(
       buildRequest({ agent: 'catalog.extract', messages: [{ role: 'user', content: 'Title' }] }) as any,
     )
 
     expect(response.status).toBe(200)
-    expect(resolveRequestApiKeyPrincipalMock).toHaveBeenCalledWith(expect.anything(), keyAuth)
+    expect(resolveToolPrincipalIdsMock).toHaveBeenCalledWith(expect.anything(), keyAuth)
     expect(runAiAgentObjectMock.mock.calls[0][0].authContext).toMatchObject({ userId: 'api_key:key-1', principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
   })
 
