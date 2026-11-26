@@ -11,12 +11,13 @@ import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { formatDisplayDate, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -88,6 +89,7 @@ type SalesDocumentRow = {
   totalGross?: number | null
   currency?: string | null
   date?: string | null
+  dateIsPlacedAt: boolean
   updatedAt?: string | null
 }
 
@@ -167,6 +169,7 @@ function normalizeNumberInput(value: unknown): number | null {
 
 export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const t = useT()
+  const locale = useLocale()
   const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
@@ -551,6 +554,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         totalGross,
         currency: doc.currencyCode ?? null,
         date,
+        dateIsPlacedAt: placedAt !== null,
         updatedAt: doc.updatedAt ?? null,
       }, item)
     },
@@ -758,12 +762,15 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       id: 'createdAt',
       accessorKey: 'date',
       header: t('sales.documents.list.table.date', 'Date'),
-      cell: ({ row }) =>
-        row.original.date
-          ? <span className="text-xs text-muted-foreground">{new Date(row.original.date).toLocaleString()}</span>
-          : <span className="text-xs text-muted-foreground">—</span>,
+      cell: ({ row }) => {
+        const { date, dateIsPlacedAt } = row.original
+        const displayDate = dateIsPlacedAt
+          ? formatDisplayDate(toUtcDateInputValue(date), locale)
+          : date && new Date(date).toLocaleString()
+        return <span className="text-xs text-muted-foreground">{displayDate || '—'}</span>
+      },
     },
-  ], [channelsEnabled, kind, statusMap, t])
+  ], [channelsEnabled, kind, locale, statusMap, t])
 
   const emptyLabel = kind === 'order'
     ? t('sales.documents.list.table.emptyOrders', 'No orders yet.')
