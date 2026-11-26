@@ -1959,6 +1959,8 @@
   "customers.linking.primary.set": "Set primary",
   "customers.linking.primary.setAction": "Set primary",
   "customers.linking.resultsCount": "{{count}} results",
+  "customers.linking.retrySearch": "Retry",
+  "customers.linking.searchFailed": "Could not load search results.",
   "customers.linking.searchResults": "Search results",
   "customers.linking.searching": "Searching…",
   "customers.linking.selectEntity": "Select {{name}}",

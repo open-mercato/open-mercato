@@ -13,6 +13,7 @@ import {
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
@@ -26,7 +27,7 @@ import {
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { getTelemetryRuntime, reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customers')
 
@@ -253,6 +254,8 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
   const [searchTotal, setSearchTotal] = React.useState<number | null>(null)
   const [searchResults, setSearchResults] = React.useState<LinkEntityOption[]>([])
   const [searchLoading, setSearchLoading] = React.useState(false)
+  const [searchFailed, setSearchFailed] = React.useState(false)
+  const [searchAttempt, setSearchAttempt] = React.useState(0)
   const [draftIds, setDraftIds] = React.useState<string[]>(initialSelectedIds)
   const [draftPrimaryId, setDraftPrimaryId] = React.useState<string | null>(
     initialPrimaryId ?? null,
@@ -299,6 +302,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
     let cancelled = false
     const current = ++requestIdRef.current
     setSearchLoading(true)
+    setSearchFailed(false)
     const timeout = window.setTimeout(async () => {
       try {
         const result = await adapter.searchPage(query, searchPage, activeFilter)
@@ -307,11 +311,13 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
         setSearchTotalPages(Math.max(1, result.totalPages))
         setSearchTotal(typeof result.total === 'number' ? result.total : null)
         setOptionCache((prev) => mergeOptionMaps(prev, result.items))
-      } catch {
+      } catch (error) {
         if (cancelled || current !== requestIdRef.current) return
         setSearchResults([])
         setSearchTotalPages(1)
-        setSearchTotal(0)
+        setSearchTotal(null)
+        setSearchFailed(true)
+        reportTelemetryError(error, { module: 'customers', code: 'customers.link_search_failed' })
       } finally {
         if (!cancelled && current === requestIdRef.current) {
           setSearchLoading(false)
@@ -322,7 +328,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
       cancelled = true
       window.clearTimeout(timeout)
     }
-  }, [adapter, activeFilter, open, query, searchPage])
+  }, [adapter, activeFilter, open, query, searchPage, searchAttempt])
 
   React.useEffect(() => {
     if (!open) return
@@ -656,6 +662,20 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
                     <Loader2 className="size-4 animate-spin" />
                     {t('customers.linking.searching', 'Searching…')}
                   </div>
+                ) : searchFailed ? (
+                  <ErrorMessage
+                    label={t('customers.linking.searchFailed', 'Could not load search results.')}
+                    action={(
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSearchAttempt((attempt) => attempt + 1)}
+                      >
+                        {t('customers.linking.retrySearch', 'Retry')}
+                      </Button>
+                    )}
+                  />
                 ) : displayedResults.length === 0 ? (
                   <EmptyState
                     size="sm"

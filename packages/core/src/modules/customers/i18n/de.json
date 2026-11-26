@@ -1959,6 +1959,8 @@
   "customers.linking.primary.set": "Als primär festlegen",
   "customers.linking.primary.setAction": "Als primär festlegen",
   "customers.linking.resultsCount": "{{count}} Ergebnisse",
+  "customers.linking.retrySearch": "Erneut versuchen",
+  "customers.linking.searchFailed": "Die Suchergebnisse konnten nicht geladen werden.",
   "customers.linking.searchResults": "Suchergebnisse",
   "customers.linking.searching": "Suche läuft…",
   "customers.linking.selectEntity": "{{name}} auswählen",
