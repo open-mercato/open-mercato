@@ -1,13 +1,14 @@
 import { createServer, type Server } from 'node:http'
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 
 /**
  * Boundary coverage for issue #5173: proves the HTTP MCP transport's per-tool-call
  * auth decision over a *real* HTTP connection and the *real* MCP wire protocol.
- * Only the DB-backed lookups (`findApiKeyBySecret`, `findSessionApiKeyWithSecret`)
- * and the RBAC role-grant read (`rbacService.loadAcl`) are stubbed — this package
- * has no live-Postgres Jest lane (see `packages/core`'s `test:pg-integration` for
+ * Only the DB-backed key, confirmed user, and RBAC role-grant lookups are
+ * stubbed — this package has no live-Postgres Jest lane (see
+ * `packages/core`'s `test:pg-integration` for
  * the pattern this repo uses elsewhere; ai-assistant isn't wired into it).
  * Everything else — `McpServer`/`StreamableHTTPServerTransport` (real SDK),
  * `extractApiKeyFromHeaders` and `hasRequiredFeatures` (real `../auth`), the tool
@@ -52,6 +53,23 @@ const RESTRICTED_SESSION_RECORD = {
   },
   secret: 'sess_secret_for_restricted_employee',
 }
+
+const confirmedSessionUser = {
+  id: RESTRICTED_SESSION_RECORD.key.sessionUserId,
+  tenantId: RESTRICTED_SESSION_RECORD.key.tenantId,
+  organizationId: RESTRICTED_SESSION_RECORD.key.organizationId,
+  isConfirmed: true,
+  deletedAt: null,
+}
+const findOne = jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+  if (entity !== User) throw new Error('[internal] unexpected entity lookup')
+  const matches = where.id === confirmedSessionUser.id
+    && where.tenantId === confirmedSessionUser.tenantId
+    && where.organizationId === confirmedSessionUser.organizationId
+    && where.isConfirmed === true
+    && where.deletedAt === null
+  return matches ? confirmedSessionUser : null
+})
 
 const loadAcl = jest.fn(async (userId: string) => {
   if (userId === 'api_key:session-restricted-1') {
@@ -200,7 +218,7 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
 
     const container = {
       resolve: (name: string) => {
-        if (name === 'em') return {}
+        if (name === 'em') return { findOne }
         if (name === 'rbacService') return { loadAcl }
         throw new Error(`test container has no dependency "${name}"`)
       },
@@ -224,6 +242,7 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
     restrictedToolRuns = 0
     lastAllowedToolContext = null
     loadAcl.mockClear()
+    findOne.mockClear()
   })
 
   afterAll(async () => {
@@ -320,6 +339,7 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
     // The transport-level credential used to open the HTTP connection must
     // never reach the tool's consuming business logic.
     expect(lastAllowedToolContext!.apiKeySecret).not.toBe(TRANSPORT_KEY_SECRET)
+    expect(findOne).toHaveBeenCalledWith(User, confirmedSessionUser, { refresh: true })
   })
 
   it('allows a restricted session to read a record within its own organization/tenant scope', async () => {
