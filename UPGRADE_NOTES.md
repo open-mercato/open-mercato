@@ -6792,12 +6792,12 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
 
-## Message action href same-origin restriction (#3487)
+## Message-supplied action links (#3487)
 
-Message action `href` values (`actionData.actions[].href` on `POST /api/messages`, draft updates, and message-type/object-type default actions) must resolve to same-origin relative paths (`/absolute`, `./relative`, `../parent`, `?query`, `#hash`; `{placeholder}` templates are still substituted URL-encoded). Absolute scheme URIs (`https:`, `http:`, `mailto:`, `tel:`, …) and protocol-relative `//host` targets are rejected with a validation error at compose time and resolve to no redirect at execute time (`Action has an unsafe redirect target`), closing the open-redirect/phishing vector where any `messages.compose` holder could send a recipient to an attacker-controlled site. `sanitizeRichTextHref`'s shared contract and all API response shapes are unchanged.
+Message composers must use relative destinations for action links, such as `/backend/messages`, `./details`, or `#details`. Action placeholders remain supported, and their values are URL-encoded during execution. Modules can continue to declare their own message-type and object-type action links under the existing rules.
 
-**Client migration:** compose action hrefs as relative in-app paths. `mailto:`/`tel:` links belong in the message body (rich text), not in the action redirect target.
+**Client migration.** Replace off-origin links in message action data with relative destinations. Use the message body for external links that recipients should be able to open. Previously saved message actions with an off-origin destination fail when executed. Replace the destination in existing drafts before sending them.
 
-**Operator migration:** no database, migration, config, or startup changes. Pre-existing messages that already carry external action hrefs still render their action button but fail closed on execute instead of redirecting off-origin.
+**Operator migration.** This change requires no deployment settings or database migration. Previously sent messages remain stored. Send a replacement message if a recipient needs a corrected action.
 
-**Compatibility:** the compose/execute API shapes are unchanged; only the accepted `href` values are narrowed. No bridge can retain the unrestricted external redirect safely — the issue carries the `automerge-force` sanction from triage. See issue [#3487](https://github.com/open-mercato/open-mercato/issues/3487).
+**Compatibility.** The compose, draft, and execute API shapes stay the same. The Emergency Security Exception for narrowing accepted destinations requires named maintainer approval. See the [compatibility ledger](BACKWARD_COMPATIBILITY.md#2026-11-26--message-supplied-action-links-3487).

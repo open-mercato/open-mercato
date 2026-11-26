@@ -1,6 +1,7 @@
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import type { Message, MessageAction, MessageActionData, MessageObject } from '../data/entities'
+import { sanitizeMessageActionHref } from './action-href'
 import { getAllMessageObjectTypes, getMessageObjectType } from './message-objects-registry'
 import { getAllMessageTypes, getMessageType } from './message-types-registry'
 
@@ -216,22 +217,6 @@ function resolveTemplateString(
   })
 }
 
-// #3487: a composer-supplied action href may only navigate the recipient
-// inside this deployment. Any absolute URI (scheme-prefixed: http, https,
-// mailto, tel, …) and any protocol-relative `//host` target leaves the
-// origin, so only a relative path may resolve into `result.redirect`.
-// WHATWG URL parsing treats a leading backslash like a slash, so
-// `\\host`, `\/host` and `/\host` reach the authority exactly like `//host`.
-const ABSOLUTE_URI_PATTERN = /^[a-zA-Z][a-zA-Z0-9+.-]*:/
-const PROTOCOL_RELATIVE_SEPARATOR_PATTERN = /^[/\\]{2}/
-
-export function isSameOriginActionHref(value: string): boolean {
-  const trimmed = value.trim()
-  if (!trimmed) return false
-  if (PROTOCOL_RELATIVE_SEPARATOR_PATTERN.test(trimmed)) return false
-  return !ABSOLUTE_URI_PATTERN.test(trimmed)
-}
-
 export function resolveActionHref(
   action: ResolvedMessageAction,
   message: Message,
@@ -240,9 +225,10 @@ export function resolveActionHref(
   if (!action.href) return null
   const context = buildTemplateContext(message, resolutionContext, action.objectRef)
   const resolved = resolveTemplateString(action.href, context, encodeURIComponent)
-  const sanitized = sanitizeRichTextHref(resolved)
-  if (!sanitized || !isSameOriginActionHref(sanitized)) return null
-  return sanitized
+  if (action.source === 'type_default' || action.source === 'object') {
+    return sanitizeRichTextHref(resolved)
+  }
+  return sanitizeMessageActionHref(resolved)
 }
 
 function collectCommandId(target: Set<string>, commandId: unknown): void {

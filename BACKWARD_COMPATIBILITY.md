@@ -720,17 +720,6 @@ The STABLE attachment library API response and the enrichment helper signature r
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
 
-## 2026-11-23 — Message action href same-origin restriction (#3487)
-
-STABLE compose/execute API shapes are unchanged; message action `href` inputs and the resolved
-`result.redirect` target are narrowed to same-origin relative paths. Absolute scheme URIs
-(http, https, mailto, tel, …) and protocol-relative `//host` targets are rejected at compose
-validation and again at action resolution, so a `messages.compose` holder can no longer turn the
-action button into an open redirect to an attacker-controlled site. Composers use relative
-in-app paths; code-declared message-type/object-type actions are unaffected.
-[Upgrade](UPGRADE_NOTES.md#message-action-href-same-origin-restriction-3487);
-[issue](https://github.com/open-mercato/open-mercato/issues/3487).
-
 ## 2026-11-24 — Trace ingest
 
 STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
@@ -738,3 +727,7 @@ STABLE API: legacy signatures leave organization unverified. Rotate scoped keys 
 ## 2026-11-25 — Empty organization scope (#10503)
 
 STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+
+## 2026-11-26 — Message-supplied action links (#3487)
+
+STABLE Messages API (§7) and action validator (§1): compose and draft updates require relative destinations for message-supplied actions. Execution also checks the resolved destination for stored actions. Module-declared message-type and object-type actions keep their existing link policy. A compatibility bridge that accepts off-origin message-supplied redirects would keep the unsafe behavior available. Named maintainer approval of the Emergency Security Exception is pending. See [upgrade instructions](UPGRADE_NOTES.md#message-supplied-action-links-3487).
