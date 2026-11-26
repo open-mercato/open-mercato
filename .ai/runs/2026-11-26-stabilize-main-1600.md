@@ -46,6 +46,10 @@ No speculative fixes, weakened checks, production dependencies, architecture cha
 - Full PR CI [45863938854](https://github.com/open-mercato/open-mercato/actions/runs/45863938854) passed at `d019dbb0d085f9786861d1abc12e1c65790062ed`: all 15 integration shards, merged coverage, package/app/Docker builds, full typechecking/unit tests, generation, i18n checks, script tests, timezone and multi-instance tests. CodeQL and the scoped mutation/enterprise guard workflows passed. Ready promotion superseded an earlier same-head synchronize run; its cancellation is historical.
 - No source, workflow, dependency, API or database change was necessary. Final-head verification remains required after bookkeeping commits.
 
+- Independent final review task `95ad1b56-4601-41e5-84e7-7ae6d648298b` [APPROVED](https://github.com/open-mercato/open-mercato/pull/10794#pullrequestreview-6078999574) `6e42d2e3850acaef9fd126902a3bdd675fc39a1e` with zero findings. GitHub rejected the author App approval vote; the explicit verdict is a COMMENT review and supplies no required approving vote. No review gate is waived. No child changes were merged.
+- Reviewed-head full CI [45869549566](https://github.com/open-mercato/open-mercato/actions/runs/45869549566) passed all 15 shards and merged coverage. The parent verified the review, unchanged child branch, hosted results and another local 45/45 run. Required-check lookup returned 404; all reported checks and exact-head workflows must settle successfully or with expected scope skips.
+- This final bookkeeping commit records completion metadata only. Its new exact-head checks still gate the `automerge` label; the final outcome and claim release are published on the PR after verification. No future CI result is asserted here.
+
 ## Progress
 PR: #10794
 
@@ -57,5 +61,5 @@ PR: #10794
 
 ### Phase 2: Review and finish
 
-- [ ] 2.1 Complete final independent review
-- [ ] 2.2 Publish final evidence and conditionally request automerge
+- [x] 2.1 Complete final independent review — 6e42d2e385 (independent APPROVED verdict verified)
+- [x] 2.2 Publish final evidence and conditionally request automerge — 6e42d2e385 (reviewed-head evidence published; label withheld until final bookkeeping head passes)
