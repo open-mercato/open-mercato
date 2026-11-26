@@ -154,9 +154,6 @@ export async function readTimeTrackingSettings(
 ): Promise<TimeTrackingSettings> {
   const configScope = { tenantId: scope.tenantId }
   const entries = listTimeTrackingSettingKeys()
-  // `getRecord`/`getRecords` rather than `getValue` so an explicitly stored
-  // `null` (`targets.dailyHours` = "no daily target") stays distinguishable
-  // from an absent row, which must fall back to the default.
   const stored: TimeTrackingSettingsRecord = {}
   const applyRecord = (entry: TimeTrackingSettingKeyDefinition, record: ModuleConfigRecord | null) => {
     if (!record) return
@@ -164,10 +161,6 @@ export async function readTimeTrackingSettings(
     group[entry.key] = record.value
     stored[entry.group] = group
   }
-  // `getRecords` batches the whole registry into at most two SELECTs (tenant
-  // scope, then the global fallback) instead of one `getRecord` round trip
-  // per key; a `ModuleConfigService` that only implements the original
-  // contract falls back to the per-key loop.
   if (configService.getRecords) {
     const records = await configService.getRecords(
       STAFF_TIME_TRACKING_MODULE_ID,

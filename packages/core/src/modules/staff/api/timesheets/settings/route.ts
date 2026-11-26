@@ -236,9 +236,6 @@ async function PUT(req: Request) {
       ? session.body
       : await preserveOmittedSupportSettings(configService, configScope, session.body)
     let parsed = settingsSchema.parse(requestBody) as TimeTrackingSettings
-    // `changedKeys` masks the write to the client's own selection; a `before`
-    // interceptor can validly touch a related key outside that selection, so
-    // the write set folds in whatever the interceptor actually changed too.
     let effectiveChangedKeys = changedKeys
     if (changedKeys) {
       effectiveChangedKeys = mergeSettingKeys(changedKeys, detectInterceptorModifiedKeys(rawBody ?? {}, session.body))

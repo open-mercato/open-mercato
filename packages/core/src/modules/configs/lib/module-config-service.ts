@@ -301,6 +301,12 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     return record
   }
 
+  /**
+   * Detached from the request's own transaction/connection (`useContext: false`,
+   * `disableContextResolution: true`): the batch upsert commits on its own connection
+   * instead of sharing one with whatever else the request's `em` is mid-transaction on,
+   * so it cannot deadlock against that connection and is not rolled back with it.
+   */
   const setTenantValues = async (
     rawModuleId: string,
     values: Readonly<Record<string, unknown>>,
@@ -317,10 +323,6 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
       .sort((left, right) => left.name.localeCompare(right.name, 'en'))
     if (entries.length === 0) return
 
-    // Detached from the request's own transaction/connection (`useContext: false`,
-    // `disableContextResolution: true`): the batch upsert commits on its own connection
-    // instead of sharing one with whatever else the request's `em` is mid-transaction on,
-    // so it cannot deadlock against that connection and is not rolled back with it.
     await em.fork({ useContext: false, disableContextResolution: true })
       .createQueryBuilder(ModuleConfig)
       .insert(entries)
