@@ -8,6 +8,25 @@ import { openPdfDocument } from './pdfJsLoader'
 
 const logger = createLogger('attachments').child({ component: 'text-extraction' })
 
+const DEFAULT_TEXT_EXTRACTION_MAX_BYTES = 10 * 1024 * 1024
+const DEFAULT_TEXT_EXTRACTION_MAX_CHARS = 500_000
+
+function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined || raw.trim() === '') return fallback
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return Math.floor(parsed)
+}
+
+export function resolveTextExtractionMaxBytes(): number {
+  return parsePositiveIntEnv('OM_ATTACHMENT_TEXT_EXTRACTION_MAX_BYTES', DEFAULT_TEXT_EXTRACTION_MAX_BYTES)
+}
+
+export function resolveTextExtractionMaxChars(): number {
+  return parsePositiveIntEnv('OM_ATTACHMENT_TEXT_EXTRACTION_MAX_CHARS', DEFAULT_TEXT_EXTRACTION_MAX_CHARS)
+}
+
 // NOTE: child_process is intentionally NOT imported here.
 // This module MUST NOT shell out to any external binary for content extraction.
 // All extraction must use pure-JS libraries. See HUNT-PARSER-01.
@@ -49,7 +68,18 @@ function isDocx(mimeType: string, ext: string): boolean {
 
 async function extractPlainText(filePath: string): Promise<string | null> {
   try {
+    const stats = await fs.stat(filePath)
+    const maxBytes = resolveTextExtractionMaxBytes()
+    if (stats.size > maxBytes) {
+      logger.warn('Plain text extraction skipped: file exceeds size budget', { filePath, size: stats.size, maxBytes })
+      return null
+    }
     const text = await fs.readFile(filePath, 'utf8')
+    const maxChars = resolveTextExtractionMaxChars()
+    if (text.length > maxChars) {
+      logger.warn('Plain text extraction truncated due to character budget', { filePath, length: text.length, maxChars })
+      return text.slice(0, maxChars)
+    }
     const trimmed = text.trim()
     return trimmed.length > 0 ? trimmed : null
   } catch {
@@ -59,6 +89,12 @@ async function extractPlainText(filePath: string): Promise<string | null> {
 
 async function extractPdfText(filePath: string): Promise<string | null> {
   try {
+    const stats = await fs.stat(filePath)
+    const maxBytes = resolveTextExtractionMaxBytes()
+    if (stats.size > maxBytes) {
+      logger.warn('PDF text extraction skipped: file exceeds size budget', { filePath, size: stats.size, maxBytes })
+      return null
+    }
     const data = new Uint8Array(await fs.readFile(filePath))
     const loadingTask = await openPdfDocument(data)
     const pdfDocument = await loadingTask.promise
@@ -93,7 +129,13 @@ async function extractPdfText(filePath: string): Promise<string | null> {
       await loadingTask.destroy()
     }
     const result = textParts.join('\n').trim()
-    return result.length > 0 ? result : null
+    if (!result) return null
+    const maxChars = resolveTextExtractionMaxChars()
+    if (result.length > maxChars) {
+      logger.warn('PDF text extraction truncated due to character budget', { filePath, length: result.length, maxChars })
+      return result.slice(0, maxChars)
+    }
+    return result
   } catch {
     return null
   }
@@ -101,10 +143,22 @@ async function extractPdfText(filePath: string): Promise<string | null> {
 
 async function extractDocxText(filePath: string): Promise<string | null> {
   try {
+    const stats = await fs.stat(filePath)
+    const maxBytes = resolveTextExtractionMaxBytes()
+    if (stats.size > maxBytes) {
+      logger.warn('DOCX text extraction skipped: file exceeds size budget', { filePath, size: stats.size, maxBytes })
+      return null
+    }
     const mammoth = await import('mammoth')
     const result = await mammoth.extractRawText({ path: filePath })
     const trimmed = result.value.trim()
-    return trimmed.length > 0 ? trimmed : null
+    if (!trimmed) return null
+    const maxChars = resolveTextExtractionMaxChars()
+    if (trimmed.length > maxChars) {
+      logger.warn('DOCX text extraction truncated due to character budget', { filePath, length: trimmed.length, maxChars })
+      return trimmed.slice(0, maxChars)
+    }
+    return trimmed
   } catch {
     return null
   }
