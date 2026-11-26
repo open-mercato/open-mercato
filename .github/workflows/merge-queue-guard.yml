@@ -1,0 +1,46 @@
+name: Merge queue guard
+
+on:
+  pull_request_target:
+    types: [labeled, unlabeled]
+
+# Takes `merge-queue` off a pull request as soon as it carries a blocking label
+# (`qa-failed`, `changes-requested`, `blocked`, `do-not-merge`, or
+# `needs-human-qa` without `qa-approved`) and explains why in a one-line
+# comment. The rule lives in scripts/ci/merge-queue-guard.mts and is unit-tested
+# in scripts/__tests__/merge-queue-guard.test.mts. pull_request_target runs in
+# the base repository context so fork pull requests can be relabeled; the only
+# checkout is a sparse, credential-free copy of the guard script pinned to the
+# default branch, so no pull request head and no contributor-supplied code ever
+# reaches this job. It only reads labels, removes `merge-queue` and comments.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: merge-queue-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    if: >
+      contains(fromJSON('["merge-queue","qa-failed","changes-requested","blocked","do-not-merge","needs-human-qa","qa-approved"]'), github.event.label.name)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    steps:
+      - name: Check out the guard script
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: scripts/ci/merge-queue-guard.mts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Remove merge-queue when a blocking label is present
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { run } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/merge-queue-guard.mts`);
+            await run({ github, context, core });
