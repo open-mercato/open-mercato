@@ -115,6 +115,28 @@ describePostgres('encryption maintenance compares original PostgreSQL JSON value
     ])
   })
 
+  test.each([
+    ['ordinary text', 'hello world', 'hello world'],
+    ['JSON boolean text', 'true', 'true'],
+    ['JSON null text', 'null', 'null'],
+    ['JSON number text', '123', '123'],
+    ['legacy quoted empty text', '""', ''],
+    ['quoted text', '"hello world"', 'hello world'],
+    ['quoted boolean text', '"true"', 'true'],
+    ['structured object', '{"synthetic":[1,2]}', { synthetic: [1, 2] }],
+    ['structured array', '["synthetic"]', ['synthetic']],
+  ])('decrypts %s without changing its JSON column type', async (_description, plaintext, expected) => {
+    const ciphertext = encryptWithAesGcm(String(plaintext), mockKey).value
+    await pool.query('INSERT INTO access_logs VALUES ($1, $2, $3, $4, $5)',
+      ['row-1', tenantId, organizationId, JSON.stringify(ciphertext), JSON.stringify(ciphertext)])
+
+    await run('decrypt-database', ['--confirm', tenantId])
+
+    expect((await pool.query('SELECT context_json, legacy_json FROM access_logs')).rows).toEqual([
+      { context_json: expected, legacy_json: expected },
+    ])
+  })
+
   test('rejects a concurrent JSONB number change that JavaScript rounds to the same value', async () => {
     await pool.query('INSERT INTO access_logs VALUES ($1, $2, $3, $4, NULL)',
       ['row-1', tenantId, organizationId, '9007199254740992'])

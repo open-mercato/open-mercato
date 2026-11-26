@@ -1144,7 +1144,9 @@ const decryptDatabase: ModuleCli = {
                   } catch {
                     valueToWrite = decrypted
                   }
-                  updates[col] = valueToWrite
+                  updates[col] = columns.get(col)
+                    ? formatValueForColumn(resolved.prop, parseDecryptedFieldValue(valueToWrite))
+                    : valueToWrite
                   rowDecrypted = true
                 } catch (error: unknown) {
                   if (error instanceof TenantDataEncryptionError) {
