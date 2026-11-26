@@ -115,12 +115,14 @@ Once a day `main` is cut into one batch, `stabilize/main-<date>`, opened as a PR
    git fetch origin main
    git switch -c stabilize/main-<YYYY-MM-DD> origin/main
    # GitHub refuses a PR with no commits: start the branch with its run notes
+   mkdir -p .ai/runs
+   printf '# Daily batch <YYYY-MM-DD>\n\nStabilizer: @<login>\n\nOpen qa-blocker issues:\n\n- none\n' > .ai/runs/<YYYY-MM-DD>-stabilize-main.md
    git add .ai/runs/<YYYY-MM-DD>-stabilize-main.md && git commit -m "docs(runs): open batch <YYYY-MM-DD>"
    git push -u origin stabilize/main-<YYYY-MM-DD>
    gh pr create --base main --head stabilize/main-<YYYY-MM-DD> --title "chore(ci): daily batch <YYYY-MM-DD>"
    ```
 
-   The `stabilize/` head forces the full suite (typecheck, unit, all 15 integration shards) on every push to the batch PR. List any open `qa-blocker` issues in the PR description. Open it from an account in `ALLOWED_LOGINS` (`scripts/ci/enterprise-contribution-guard.ts`), because the enterprise guard runs on this PR too.
+   Open the batch PR ready for review, never as a draft: draft PRs get no CI once PR #10769 lands. The `stabilize/` head forces the full suite (typecheck, unit, all 15 integration shards) on every push to the batch PR. List any open `qa-blocker` issues in the PR description. Open it from an account in `ALLOWED_LOGINS` (`scripts/ci/enterprise-contribution-guard.ts`), because the enterprise guard runs on this PR too.
 2. **QA deploy.** QA deploys the batch to a free slot (`qa1`–`qa4`):
 
    ```bash
@@ -129,16 +131,16 @@ Once a day `main` is cut into one batch, `stabilize/main-<date>`, opened as a PR
 
 3. **QA pass.** The tester adds `qa-in-progress` to the batch PR and runs the smoke (`.ai/qa/batch-smoke.md`, added by PR #10712) plus the day's checklist (PRs labelled `qa-batch-check`, PRs that reached `main` with `needs-human-qa` but no `qa-approved`, visibly changed PRs with no QA evidence). While `qa-in-progress` is on, do not refresh the batch with newer `main` commits. Findings become issues: `bug` + `daily-qa` + `qa-blocker` for a blocker (a user cannot finish a main task, a migration fails, data is lost or leaks across tenants) plus a comment on the batch PR mentioning the stabilizer; `bug` + `daily-qa` for anything else. Cosmetics, translations and small UX issues never block.
 4. **Verdict.** QA sets `qa-approved` (stable) or `qa-failed` (at least one open blocker) on the batch PR, with a comment carrying `QA verdict: STABLE|UNSTABLE`, `QA head: <sha>` and the commit range. A new head needs a new verdict; retests cover only the fixed area. Bots never give the verdict.
-5. **Fix forward.** Fix red CI and blockers with small PRs whose **base** is `stabilize/main-<YYYY-MM-DD>` (head on `fix/…`, not `stabilize/…`). They get the normal scoped CI; each merge into the batch re-runs the full suite on the batch PR. GitHub closes issues only on merges into `main`, so add each fix's `Fixes #N` to the batch PR description. Revert a PR out of the batch only as a last resort and as the team's call.
+5. **Fix forward.** Fix red CI and blockers with small PRs whose **base** is `stabilize/main-<YYYY-MM-DD>` (head on `fix/…`, not `stabilize/…`). They get the normal scoped CI; each merge into the batch re-runs the full suite on the batch PR. GitHub closes issues only on merges into `main`, so the `Fixes #N` lines you add to the batch PR description are for traceability only. After a passing retest of the fix, QA (or the stabilizer) closes the `qa-blocker` issue by hand; once no blocker is open, QA gives a new verdict on the new head. Revert a PR out of the batch only as a last resort and as the team's call.
 6. **Green tag and merge back.** When the full suite is green on the batch PR head and that head has `qa-approved`, tag it, then squash-merge the batch PR:
 
    ```bash
    git fetch origin stabilize/main-<YYYY-MM-DD>
    git tag green/<YYYY-MM-DD> <batch-head-sha> && git push origin green/<YYYY-MM-DD>
-   gh pr merge <batch-PR> --squash
+   gh pr merge <batch-PR> --squash --match-head-commit <batch-head-sha>
    ```
 
-   The tag never moves. If the merge back conflicts with newer `main`, tag first, then "Update branch" (merge `main` into the batch) and resolve; the full suite re-runs, QA repeats only if the resolution touches an area QA checked. If resolving would take long, cherry-pick only the stabilization commits into a PR to `main` and close the batch PR.
+   `--match-head-commit` refuses the merge if anything was pushed after the verdict; a push after the verdict needs a new verdict (the one exception is the merge-back conflict below). The tag never moves. If the merge back conflicts with newer `main`, tag first, then "Update branch" (merge `main` into the batch) and resolve; the full suite re-runs, QA repeats only if the resolution touches an area QA checked; then pass the resolved head to `--match-head-commit` once its full suite is green. If resolving would take long, cherry-pick only the stabilization commits into a PR to `main` and close the batch PR.
 7. **No tester today.** Do not cut a new batch while one is open. The open batch may be refreshed with `main` until a tester claims it with `qa-in-progress`; open `qa-blocker` issues stay listed. This delays the green tag, not merges into `main`.
 
 ### Enterprise Module Contributions
