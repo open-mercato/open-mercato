@@ -114,7 +114,9 @@ function headline({ outcome, pullRequest, actor }: GuardReport): string {
   }
 }
 
-const cell = (value: string) => value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
+const oneLine = (value: string) => value.replace(/\r?\n/g, ' ')
+
+const cell = (value: string) => oneLine(value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|'))
 
 export function formatSummary(report: GuardReport): string {
   const event = report.action
@@ -140,7 +142,7 @@ export function formatSummary(report: GuardReport): string {
 export function formatLogLine(report: GuardReport): string {
   const target = report.pullRequest ? `#${report.pullRequest.number}` : '(no PR)'
   const event = report.action ? `${report.action} ${report.label ?? '(no label)'} by ${report.actor ?? 'unknown'}` : 'no label event'
-  return `${target}: ${DECISION_TEXT[report.outcome].replace(/`/g, '')} (${report.reason.replace(/`/g, '')}) [event: ${event}, seen at ${report.at}]`
+  return oneLine(`${target}: ${DECISION_TEXT[report.outcome].replace(/`/g, '')} (${report.reason.replace(/`/g, '')}) [event: ${event}, seen at ${report.at}]`)
 }
 
 type IssueParams = { owner: string; repo: string; issue_number: number }

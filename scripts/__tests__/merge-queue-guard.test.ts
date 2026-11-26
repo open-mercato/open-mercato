@@ -274,6 +274,11 @@ test('formatSummary escapes table pipes and works without a pull request', () =>
   assert.equal(formatLogLine(report).includes('\n'), false)
 })
 
+test('formatSummary escapes backslashes before pipes so a cell cannot break out of the table', () => {
+  const summary = formatSummary({ at: 'now', outcome: 'not-relevant', reason: 'a\\|b \\ c' })
+  assert.ok(summary.includes('| Reason | a\\\\\\|b \\\\ c |'), summary)
+})
+
 type WorkflowStep = {
   name?: string
   uses?: string
