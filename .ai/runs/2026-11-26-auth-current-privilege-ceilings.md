@@ -16,12 +16,16 @@ Check the target's current roles and direct ACL at the staff mutation boundary. 
 
 Security-sensitive permission checks. Verify current grants inside the write transaction. Retain existing system invocation and self-service behavior where appropriate.
 
+Source doc: .ai/specs/2026-11-26-auth-current-grant-ceilings.md
+
 ## Progress
+
+PR: #10828
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Current target authority
 
-- [ ] 1.1 Gate staff identity changes and ACL replacement.
-- [ ] 1.2 Cover the permission boundaries and add upgrade documentation.
+- [x] 1.1 Gate staff identity changes and ACL replacement. — d458b52bf9
+- [x] 1.2 Cover the permission boundaries and add upgrade documentation. — d458b52bf9
 - [ ] 1.3 Validate and review the patch.
