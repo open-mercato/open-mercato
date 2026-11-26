@@ -61,17 +61,17 @@ export async function POST(req: Request) {
   const authToken = bearerToken || parseCookie(req, 'auth_token')
   if (!sessToken && !authToken) return buildSafeRedirectResponse(req, '/login', 303)
   const accessClaims = extractAuthTokenClaims(authToken)
-  let claims = accessClaims
+  let refreshClaims: AuthTokenClaims | null = null
   let sessionRevoked = false
-  if (sessToken || claims.sessionId) {
+  if (sessToken || accessClaims.sessionId) {
     try {
       const c = await createRequestContainer()
       const auth = c.resolve<AuthService>('authService')
-      if (!claims.userId && sessToken) {
+      if (!accessClaims.userId && sessToken) {
         try {
           const refreshSession = await auth.refreshFromSessionToken(sessToken)
           if (refreshSession) {
-            claims = {
+            refreshClaims = {
               userId: refreshSession.user.id,
               sessionId: refreshSession.session.id,
               tenantId: refreshSession.user.tenantId ?? null,
@@ -85,15 +85,18 @@ export async function POST(req: Request) {
       if (accessClaims.sessionId) {
         await auth.deleteSessionById(accessClaims.sessionId)
       }
-      if (sessToken) {
-        await auth.deleteSessionByToken(sessToken)
+      if (sessToken && refreshClaims) {
+        sessionRevoked = await auth.deleteSessionByTokenWithResult(sessToken)
+      } else {
+        if (sessToken) await auth.deleteSessionByToken(sessToken)
+        sessionRevoked = true
       }
-      sessionRevoked = true
     } catch (error) {
       getTelemetryRuntime()?.reportError(error, { module: 'auth', code: 'auth.logout_revoke_failed' })
     }
   }
-  if (claims.userId) {
+  const claims = refreshClaims ?? accessClaims
+  if (claims.userId && (!refreshClaims || sessionRevoked)) {
     void emitAuthEvent('auth.logout', {
       id: claims.userId,
       tenantId: claims.tenantId,

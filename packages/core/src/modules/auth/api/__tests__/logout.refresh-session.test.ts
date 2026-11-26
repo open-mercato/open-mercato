@@ -58,7 +58,7 @@ describe('refresh-only logout with AuthService', () => {
     }))
   }
 
-  it('identifies the hashed session and emits only its canonical scope before revocation', async () => {
+  it('identifies the hashed session and emits its canonical scope after revocation', async () => {
     const response = await logout()
 
     expect(response.status).toBe(303)
@@ -75,6 +75,17 @@ describe('refresh-only logout with AuthService', () => {
     expect(mockDeleteSession).toHaveBeenCalledTimes(1)
     expect(mockDeleteSession).toHaveBeenCalledWith(Session, { token: hashAuthToken(refreshToken) })
     expect(mockFindSession.mock.invocationCallOrder[0]).toBeLessThan(mockDeleteSession.mock.invocationCallOrder[0])
+  })
+
+  it('emits once when two requests inspect the same session before deletion', async () => {
+    mockDeleteSession.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+
+    const responses = await Promise.all([logout(), logout()])
+
+    expect(responses.map((response) => response.status)).toEqual([303, 303])
+    expect(mockFindSession).toHaveBeenCalledTimes(2)
+    expect(mockDeleteSession).toHaveBeenCalledTimes(2)
+    expect(mockEmitAuthEvent).toHaveBeenCalledTimes(1)
   })
 
   it.each(['missing', 'expired', 'deleted', 'deleted-user', 'inactive-tenant'])('revokes without an event for a %s session identity', async (state) => {

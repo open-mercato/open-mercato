@@ -2985,6 +2985,12 @@ neither revoke a session nor clear the user's cookies. The route stays POST-only
 **Action for integrators:** none, unless a client treated a `401` from logout as "already signed
 out". It now receives the `307` redirect instead.
 
+### Refresh logout (#7380)
+
+A staff logout after access-token expiry now emits `auth.logout` if the refresh session is eligible and this request deletes it. The payload uses the session user's tenant and organization, with `sessionRevoked: true`. When refresh-only requests race, only the request that deletes the session emits the event. An already-revoked session or a failed deletion emits no refresh-only event. Verified staff access-token logout keeps its existing behavior.
+
+Workflow triggers, webhooks and custom subscribers listening to `auth.logout` receive these additional successful logouts. Check any downstream action that assumed an access token was still valid, and use the event's user and scope fields to process it. This change uses the existing database schema.
+
 ### Warranty claim undo refusals return a localized `error` plus a `code`; claim-line undos refuse stale state
 
 Undoing a `warranty_claims` claim command through `POST /api/audit_logs/audit-logs/actions/undo` used to

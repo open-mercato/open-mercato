@@ -116,8 +116,13 @@ export class AuthService {
   }
 
   async deleteSessionByToken(token: string) {
+    await this.deleteSessionByTokenWithResult(token)
+  }
+
+  async deleteSessionByTokenWithResult(token: string): Promise<boolean> {
     const hashedToken = hashAuthToken(token)
-    await this.em.nativeDelete(Session, { token: hashedToken })
+    const deleted = await this.em.nativeDelete(Session, { token: hashedToken })
+    return deleted > 0
   }
 
   async deleteSessionById(sessionId: string) {

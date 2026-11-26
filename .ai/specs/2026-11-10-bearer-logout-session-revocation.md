@@ -9,6 +9,8 @@ Use the same case-insensitive bearer selection and cookie fallback as staff auth
 ## Migration & Backward Compatibility
 The route, response, cookie and token formats remain unchanged. No database migration or consumer upgrade is required. Existing bearer-only callers gain the expected session revocation; cookie-based callers retain their current behavior. No deprecation or removed public surface is proposed.
 
+The #7380 follow-up extends the existing `auth.logout` event to successful refresh-only revocations. Event IDs, payload shape and verified access-token behavior stay stable. Existing workflow and webhook listeners should account for delivery after access-token expiry. See [upgrade guidance](../../UPGRADE_NOTES.md#refresh-logout-7380).
+
 ## Architecture and data model
 The auth module's existing logout route performs credential selection, `verifyJwt` verifies claims, and `AuthService.deleteSessionById` revokes the selected session. Refresh-cookie revocation continues through `deleteSessionByToken`. No entities, migrations, DI keys, permissions or cross-module relationships are added.
 
@@ -18,8 +20,13 @@ The auth module's existing logout route performs credential selection, `verifyJw
 - Invalid, expired, customer or sessionless bearer tokens cannot select a staff session for deletion. A supplied refresh cookie still follows the existing revocation path.
 - A request with no credentials remains a redirect without clearing cookies. Revocation failures retain existing telemetry and cookie cleanup.
 
+- Without a verified staff access identity, the event uses canonical identity from the eligible refresh session. It is emitted only after this request deletes the stored token. Only the request whose PostgreSQL delete affects a row can emit, even if concurrent requests had both read the session.
+- Missing, expired, ineligible or already-consumed refresh sessions and deletion failures do not emit a refresh-only event. A failed deletion retains telemetry, cookie clearing and the 303 redirect.
+
 ## Integration and UI coverage
 `packages/core/src/modules/auth/__integration__/TC-AUTH-067-logout-without-access-token.spec.ts` creates its own role/user and exercises login, logout, protected profile and refresh routes. Its bearer case verifies access and refresh rejection after logout and continued usability of another session. The same suite covers refresh-only, unusable-access and cookieless requests, including repeated logout and fixture cleanup. Unit cases in `api/__tests__/logout.test.ts` cover bearer casing, mixed-credential precedence, unusable tokens and preserved cookie behavior. Browser QA must retain normal login/logout, locales and mobile coverage; API-only credentials require direct API verification. Existing PARTIAL browser evidence is supporting evidence until required gaps are completed.
+
+The #7380 regression invokes the logout route twice against one PostgreSQL session, waits for both requests to resolve the session before deleting it, and asserts one event with the stored identity and no remaining session. Unit coverage also exercises zero-row deletes and deletion errors.
 
 ## Risks and impact review
 Selecting an unverified or customer token could revoke an unrelated session; only verified staff claims are used, with negative regression cases. Cookie behavior could regress when credentials coexist; precedence and refresh-only regressions cover that boundary. This fix adds no amount, stock, architecture or authorization-grant changes. Removing a public run inventory does not erase earlier Git history or change any security-advisory state.
@@ -36,3 +43,4 @@ The target branch's current 303 See Other logout redirect and navigation regress
 
 ## Changelog
 - 2026-11-10: Document the existing bearer logout contribution and replace its public run inventory with scoped contract and coverage documentation.
+- 2026-11-27: Document refresh-only logout delivery and its concurrent PostgreSQL regression.

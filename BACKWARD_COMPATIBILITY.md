@@ -595,7 +595,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 |---|---|---|
 |API route gating|`requireAuth` `true` → `false`; the handler revokes only the sessions its own cookies identify|⚠️ Narrow relaxation: missing/unverifiable token or no cookie got `401`, now `307` (UPGRADE_NOTES.md)|
 |URL, method, response shape|Unchanged|✓ n/a|
-|`auth.logout` event|Emitted only for a verified staff `auth_token` (now incl. MFA-pending); `session_token`-only revocation emits none|✓ No ID or payload change|
+|`auth.logout` event|Verified staff access (including MFA-pending) or [successful eligible refresh revocation](UPGRADE_NOTES.md#refresh-logout-7380)|✓ Stable ID and payload|
 |Database schema, ACL features, DI names, CLI commands|No change|✓ n/a|
 
 **Migration**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
