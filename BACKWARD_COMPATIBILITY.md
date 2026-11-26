@@ -742,4 +742,4 @@ STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver
 
 ## 2026-11-25 — MCP Code Mode
 
-STABLE MCP tool exposure now requires an explicit operator setting for Code Mode `execute`, including reads through that tool. The implicit default granted direct Code Mode write authority without an operator choosing it. A compatibility bridge that kept the implicit grant would preserve that behavior throughout the deprecation window. Clients can use typed tools. Operators can explicitly enable direct mode when their deployment policy permits it. Named maintainer waiver pending. [Upgrade](UPGRADE_NOTES.md#mcp-code-mode-execution-requires-explicit-direct-mode) · [Spec](.ai/specs/2026-10-21-mcp-tool-exposure-parity-and-audit.md#code-mode-exposure).
+STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
