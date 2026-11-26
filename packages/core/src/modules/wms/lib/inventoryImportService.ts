@@ -543,7 +543,8 @@ export async function validateInventoryImport(
 }
 
 function buildImportRowReferenceId(importBatchId: string, rowNumber: number): string {
-  const bytes = createHash('sha256').update(`wms:csv-import:${importBatchId}:${rowNumber}`).digest().subarray(0, 16)
+  const seed = `wms:csv-import:${importBatchId.toLowerCase()}:${rowNumber}`
+  const bytes = createHash('sha256').update(seed).digest().subarray(0, 16)
   bytes[6] = (bytes[6] & 0x0f) | 0x50
   bytes[8] = (bytes[8] & 0x3f) | 0x80
   const hex = bytes.toString('hex')

@@ -521,8 +521,11 @@ describe('applyInventoryImport', () => {
       mockWarehouseLocationVariant(0)
       const first = await captureReferenceIds('88888888-8888-4888-8888-888888888888', [1])
       const retry = await captureReferenceIds('88888888-8888-4888-8888-888888888888', [1])
+      const upperCaseRetry = await captureReferenceIds('AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', [1])
+      const lowerCaseRetry = await captureReferenceIds('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', [1])
 
       expect(retry[0]).toBe(first[0])
+      expect(upperCaseRetry[0]).toBe(lowerCaseRetry[0])
     })
 
     it('produces referenceIds that wms.inventory.adjust accepts as UUIDs', async () => {
