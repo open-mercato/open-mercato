@@ -1,10 +1,10 @@
 import fs from 'fs/promises'
 import path from 'path'
-import { createRequire } from 'module'
 import { stripNulCharacters } from './extractedText'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveMaxOcrPages, resolvePdfPageIterationLimit } from './ocrLimits'
 import { openPdfDocument } from './pdfJsLoader'
+import { fitsDocxExpansionBudget } from './docxExpansionBudget'
 
 const logger = createLogger('attachments').child({ component: 'text-extraction' })
 
@@ -15,8 +15,7 @@ function parsePositiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name]
   if (raw === undefined || raw.trim() === '') return fallback
   const parsed = Number(raw)
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
-  return Math.floor(parsed)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
 export function resolveTextExtractionMaxBytes(): number {
@@ -97,30 +96,54 @@ async function extractPdfText(filePath: string): Promise<string | null> {
     }
     const data = new Uint8Array(await fs.readFile(filePath))
     const loadingTask = await openPdfDocument(data)
-    const pdfDocument = await loadingTask.promise
     const textParts: string[] = []
-    const maxPages = resolveMaxOcrPages()
-    const pageLimit = resolvePdfPageIterationLimit(pdfDocument.numPages, maxPages)
-    if (pdfDocument.numPages > pageLimit) {
-      logger.warn('PDF page count exceeds text-extraction cap; truncating', {
-        numPages: pdfDocument.numPages,
-        maxPages: pageLimit,
-        filePath,
-      })
-    }
+    let remaining = resolveTextExtractionMaxChars()
     try {
-      for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+      const pdfDocument = await loadingTask.promise
+      const pageLimit = resolvePdfPageIterationLimit(pdfDocument.numPages, resolveMaxOcrPages())
+      if (pdfDocument.numPages > pageLimit) {
+        logger.warn('PDF page count exceeds text-extraction cap; truncating', {
+          numPages: pdfDocument.numPages,
+          maxPages: pageLimit,
+          filePath,
+        })
+      }
+      for (let pageNumber = 1; pageNumber <= pageLimit && remaining > 0; pageNumber += 1) {
+        const separator = textParts.length > 0 ? '\n' : ''
+        const pageBudget = remaining - separator.length
+        if (pageBudget === 0) break
+
         const page = await pdfDocument.getPage(pageNumber)
         try {
-          const textContent = await page.getTextContent()
-          const items = (textContent as any).items as Array<{ str?: string }> | undefined
-          if (Array.isArray(items)) {
-            const pageText = items
-              .map((item) => (typeof item?.str === 'string' ? item.str : ''))
-              .filter((s) => s.length > 0)
-              .join(' ')
-            if (pageText.trim()) textParts.push(pageText.trim())
+          type TextContent = Awaited<ReturnType<typeof page.getTextContent>>
+          const stream = page.streamTextContent() as ReadableStream<TextContent>
+          const reader = stream.getReader()
+          let pageText = ''
+          let exhausted = false
+          try {
+            while (!exhausted) {
+              const { done, value } = await reader.read()
+              if (done) break
+              for (const item of value.items) {
+                if (!('str' in item) || !item.str) continue
+                const text = pageText ? item.str : item.str.trimStart()
+                if (!text) continue
+                if (pageText && pageText.length < pageBudget) pageText += ' '
+                const available = pageBudget - pageText.length
+                pageText += text.slice(0, available)
+                if (pageText.length === pageBudget && text.trimEnd().length >= Math.max(1, available)) {
+                  exhausted = true
+                  break
+                }
+              }
+            }
+          } finally {
+            await reader.cancel()
           }
+          const trimmed = pageText.trimEnd()
+          if (trimmed) textParts.push(separator + trimmed)
+          if (exhausted) break
+          if (trimmed) remaining -= separator.length + trimmed.length
         } finally {
           page.cleanup()
         }
@@ -128,14 +151,7 @@ async function extractPdfText(filePath: string): Promise<string | null> {
     } finally {
       await loadingTask.destroy()
     }
-    const result = textParts.join('\n').trim()
-    if (!result) return null
-    const maxChars = resolveTextExtractionMaxChars()
-    if (result.length > maxChars) {
-      logger.warn('PDF text extraction truncated due to character budget', { filePath, length: result.length, maxChars })
-      return result.slice(0, maxChars)
-    }
-    return result
+    return textParts.join('') || null
   } catch {
     return null
   }
@@ -149,8 +165,13 @@ async function extractDocxText(filePath: string): Promise<string | null> {
       logger.warn('DOCX text extraction skipped: file exceeds size budget', { filePath, size: stats.size, maxBytes })
       return null
     }
+    const buffer = await fs.readFile(filePath)
+    if (buffer.length > maxBytes || !(await fitsDocxExpansionBudget(buffer, maxBytes))) {
+      logger.warn('DOCX text extraction skipped: invalid archive or expanded size exceeds budget', { filePath, maxBytes })
+      return null
+    }
     const mammoth = await import('mammoth')
-    const result = await mammoth.extractRawText({ path: filePath })
+    const result = await mammoth.extractRawText({ buffer })
     const trimmed = result.value.trim()
     if (!trimmed) return null
     const maxChars = resolveTextExtractionMaxChars()
