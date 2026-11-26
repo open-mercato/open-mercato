@@ -150,7 +150,7 @@ export function createRowEncryptor(options: RowEncryptorOptions): RowEncryptor {
   return {
     encryptRows,
     buildCustomFieldRows,
-    droppedColumns: () => Array.from(dropped).sort(),
+    droppedColumns: () => Array.from(dropped).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
   }
 }
 

@@ -145,7 +145,7 @@ function orderDictionaryValues(available: readonly string[], defaults: ReadonlyA
   for (const entry of defaults) {
     if (remaining.delete(entry.value)) ordered.push(entry.value)
   }
-  return [...ordered, ...Array.from(remaining).sort()]
+  return [...ordered, ...Array.from(remaining).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))]
 }
 
 export async function loadSeedDictionaries(em: EntityManager, scope: SeedScope): Promise<SeedDictionaries> {
