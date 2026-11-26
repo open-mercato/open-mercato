@@ -54,6 +54,27 @@ export interface ApiKeyPrincipalService {
   resolveAssignedRoleIds(apiKeyId: string, scope: PrincipalScope): Promise<string[]>
 }
 
+export type IssueOneTimeApiKeyInput = {
+  name: string
+  description?: string | null
+  tenantId: string
+  organizationId: string | null
+  roles: readonly string[]
+  expiresAt?: Date | null
+}
+
+/**
+ * Public, request-scoped server capability owned by the API Keys module for
+ * issuing a short-lived one-time API key on an isolated EntityManager around
+ * an async callback and cleaning it up on completion, failure, or abort.
+ */
+export interface ApiKeyOneTimeIssuer {
+  withOneTimeApiKey<T>(
+    input: IssueOneTimeApiKeyInput,
+    callback: (secret: string) => Promise<T>,
+  ): Promise<T>
+}
+
 export type OrganizationScope = {
   selectedId: string | null
   filterIds: string[] | null
