@@ -114,6 +114,7 @@
   "messages.errors.actionFailed": "Aktion konnte nicht ausgeführt werden.",
   "messages.errors.archiveSenderMessageUnsupported": "Du kannst von dir gesendete Nachrichten nicht archivieren.",
   "messages.errors.attachmentAccessDenied": "Du kannst eine oder mehrere dieser Dateien nicht anhängen.",
+  "messages.errors.attachmentsUnavailable": "Anhänge sind nicht verfügbar.",
   "messages.errors.conversationActionFailed": "Konversation konnte nicht aktualisiert werden.",
   "messages.errors.conversationHasNoChannelThread": "Diese Unterhaltung hat keinen Kanal-Thread, in den zugestellt werden kann",
   "messages.errors.deleteFailed": "Nachricht konnte nicht gelöscht werden.",

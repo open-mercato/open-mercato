@@ -29,7 +29,7 @@ function normalizeOptionalString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-function buildCommandContext(params: {
+export function buildCatalogInventoryProfileCommandContext(params: {
   container: AwilixContainer
   organizationId: string
   tenantId: string
@@ -140,7 +140,7 @@ export async function syncCatalogInventoryProfile(
 ): Promise<void> {
   const intent = catalogInventoryProfileIntentSchema.parse(input.intent)
   const commandBus = input.container.resolve('commandBus') as CommandBus
-  const ctx = buildCommandContext(input)
+  const ctx = buildCatalogInventoryProfileCommandContext(input)
   const catalogProductId = await resolveCatalogProductId({
     target: input.target,
     recordId: input.recordId,

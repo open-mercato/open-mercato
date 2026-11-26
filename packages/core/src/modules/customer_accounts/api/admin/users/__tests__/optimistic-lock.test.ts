@@ -1,19 +1,26 @@
 /** @jest-environment node */
 
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { PUT, DELETE } from '../[id]'
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
 const USER_ID = '123e4567-e89b-12d3-a456-426614174070'
 const CURRENT_VERSION = '2026-06-01T10:00:00.000Z'
 const STALE_VERSION = '2026-06-01T09:00:00.000Z'
+const COMPANY_ID = '11111111-1111-4111-8111-111111111111'
+const PERSON_ID = '22222222-2222-4222-8222-222222222222'
+const NEW_LINK_ID = '33333333-3333-4333-8333-333333333333'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
+const mockFindMetadata = jest.fn()
 
 const mockEm = {
-  nativeUpdate: jest.fn(async () => undefined),
+  getMetadata: () => ({ find: mockFindMetadata }),
+  nativeUpdate: jest.fn(async (_entity: unknown, _where: unknown, _updates: Record<string, unknown>) => undefined),
   nativeDelete: jest.fn(async () => undefined),
   create: jest.fn(() => ({})),
   persist: jest.fn().mockReturnThis(),
@@ -127,5 +134,88 @@ describe('customer_accounts admin user optimistic locking', () => {
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.code).toBe('optimistic_lock_conflict')
+  })
+})
+
+describe('customer_accounts admin user CRM links', () => {
+  const storedLinks = { customerEntityId: COMPANY_ID, personEntityId: PERSON_ID }
+  const user = {
+    id: USER_ID,
+    email: 'buyer@example.test',
+    tenantId: TENANT_ID,
+    organizationId: 'org-1',
+    updatedAt: new Date(CURRENT_VERSION),
+    ...storedLinks,
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    delete process.env.OM_OPTIMISTIC_LOCK
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: TENANT_ID, orgId: user.organizationId })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => entity === CustomerUser ? user : null)
+    mockFindMetadata.mockReturnValue(undefined)
+  })
+
+  it('saves a display name while retaining both stored CRM links when customers is disabled', async () => {
+    const res = await PUT(request('PUT', CURRENT_VERSION, { ...storedLinks, displayName: 'Buyer' }), params)
+
+    expect(res.status).toBe(200)
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(1)
+    expect(mockCustomerUserService.updateProfile).toHaveBeenCalledWith(user, { displayName: 'Buyer' })
+    expect(mockEm.nativeUpdate).toHaveBeenCalledWith(
+      CustomerUser,
+      { id: USER_ID, tenantId: TENANT_ID, organizationId: user.organizationId },
+      { updatedAt: expect.any(Date) },
+    )
+  })
+
+  it.each([
+    ['customerEntityId', 'Company not found'],
+    ['personEntityId', 'Person not found'],
+  ] as const)('rejects a changed %s when customers is disabled', async (field, error) => {
+    const res = await PUT(request('PUT', CURRENT_VERSION, { ...storedLinks, [field]: NEW_LINK_ID }), params)
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ ok: false, error })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(1)
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('allows explicit unlinking when customers is disabled', async () => {
+    const unlinked = { customerEntityId: null, personEntityId: null }
+    const res = await PUT(request('PUT', CURRENT_VERSION, unlinked), params)
+
+    expect(res.status).toBe(200)
+    expect(mockEm.nativeUpdate).toHaveBeenCalledWith(
+      CustomerUser,
+      { id: USER_ID, tenantId: TENANT_ID, organizationId: user.organizationId },
+      { ...unlinked, updatedAt: expect.any(Date) },
+    )
+  })
+
+  it.each([
+    ['customerEntityId', 'company', 'Company not found'],
+    ['personEntityId', 'person', 'Person not found'],
+  ] as const)('validates a resubmitted %s within the caller scope when customers is enabled', async (field, kind, error) => {
+    mockFindMetadata.mockImplementation((entity: unknown) => entity === CustomerEntity ? { class: entity } : undefined)
+
+    const res = await PUT(request('PUT', CURRENT_VERSION, { [field]: storedLinks[field] }), params)
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ ok: false, error })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      CustomerEntity,
+      {
+        id: storedLinks[field],
+        tenantId: TENANT_ID,
+        organizationId: user.organizationId,
+        kind,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: TENANT_ID, organizationId: user.organizationId },
+    )
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
   })
 })

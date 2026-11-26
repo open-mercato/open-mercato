@@ -717,7 +717,7 @@ export const databaseStep = {
           env: ctx.env,
         })
         ctx.env = { ...ctx.env, ...compatibility.settings }
-        ctx.log(`   encryption preflight: ${compatibility.status}`)
+        ctx.log(`🔒 encryption preflight: ${compatibility.status}`)
       } finally {
         ctx.logs?.resume()
         ctx.logs?.resumeActivity?.()
