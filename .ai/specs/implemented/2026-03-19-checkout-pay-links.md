@@ -1976,7 +1976,7 @@ Optional future enhancements to generic payment-source correlation in `payment_g
 
 ### Checkout slug ownership (#9115, 2026-11-19)
 
-The additive migration backfills reservations from live and soft-deleted checkout links. It installs a database trigger that reserves slugs in the same transaction as the link write. Existing live links keep their URLs. If records from multiple tenant and organization scopes already share a slug, the current live link keeps it until deletion or renaming. After retirement, the slug remains reserved without an owner and cannot be reused by any organization. Earlier slugs that no longer appear in any stored link row cannot be reconstructed by the migration.
+The additive migration backfills reservations from live and soft-deleted checkout links. It installs a database trigger that reserves slugs in the same transaction as the link write. Existing live links keep their URLs. If records from multiple tenant and organization scopes already share a slug, the current live link keeps it until deletion or renaming. After retirement, the slug remains reserved without an owner and cannot be reused by any organization. Earlier slugs that no longer appear in any stored link row cannot be reconstructed by the migration. The allocator reads live links and scoped ownership in bounded candidate batches, keeping suffix order and the database trigger as the write-time guard.
 
 Deploy the migration with the updated checkout application. Checkout link writes, including payment reservation and counter updates, wait for the backfill transaction to commit. Reverting the migration drops the reservations, including any history recorded after the upgrade.
 

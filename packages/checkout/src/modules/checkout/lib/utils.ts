@@ -11,6 +11,7 @@ import {
   type WithExactAmounts,
 } from '@open-mercato/shared/lib/decimal'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
@@ -262,23 +263,36 @@ export async function ensureUniqueSlug(
   excludeId?: string | null,
 ): Promise<string> {
   const base = slugify(requestedSlug || fallbackText || 'pay-link') || 'pay-link'
-  let candidate = base
-  let counter = 1
-  while (true) {
-    const liveLink = await em.findOne(CheckoutLink, {
-      slug: candidate,
+  const batchSize = 32
+  for (let firstSuffix = 1; ; firstSuffix += batchSize) {
+    const candidates = Array.from({ length: batchSize }, (_, offset) => {
+      const suffix = firstSuffix + offset
+      return suffix === 1 ? base : `${base}-${suffix}`
+    })
+    const liveLinks = await findWithDecryption(em, CheckoutLink, {
+      slug: { $in: candidates },
       deletedAt: null,
-    }, { fields: ['id', 'tenantId', 'organizationId'] })
-    if (liveLink) {
-      if (liveLink.id === excludeId && liveLink.tenantId === scope.tenantId && liveLink.organizationId === scope.organizationId) {
+    }, { fields: ['id', 'slug', 'tenantId', 'organizationId'] }, scope)
+    const liveBySlug = new Map(liveLinks.map((link) => [link.slug, link]))
+    const retiredCandidates = candidates.filter((slug) => !liveBySlug.has(slug))
+    const owners = retiredCandidates.length === 0 ? [] : await findWithDecryption(em, CheckoutLinkSlugOwner, {
+      slug: { $in: retiredCandidates },
+    }, { fields: ['slug', 'tenantId', 'organizationId'] }, scope)
+    const ownerBySlug = new Map(owners.map((owner) => [owner.slug, owner]))
+
+    for (const candidate of candidates) {
+      const liveLink = liveBySlug.get(candidate)
+      if (liveLink) {
+        if (liveLink.id === excludeId && liveLink.tenantId === scope.tenantId && liveLink.organizationId === scope.organizationId) {
+          return candidate
+        }
+        continue
+      }
+      const owner = ownerBySlug.get(candidate)
+      if (!owner || (owner.tenantId === scope.tenantId && owner.organizationId === scope.organizationId)) {
         return candidate
       }
-    } else {
-      const owner = await em.findOne(CheckoutLinkSlugOwner, { slug: candidate })
-      if (!owner || (owner.tenantId === scope.tenantId && owner.organizationId === scope.organizationId)) return candidate
     }
-    counter += 1
-    candidate = `${base}-${counter}`
   }
 }
 
