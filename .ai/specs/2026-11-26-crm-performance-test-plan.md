@@ -176,7 +176,7 @@ perf/
   AGENTS.md                      short agent rules (link to README; serial execution; safety rules)
   bin/perf                       entrypoint: up | down | users | seed | snapshot | restore | run <phase> | report | compare
   config/
-    target.example.env           SUT host, generator host, ports, credentials file path (copy to target.local.env, gitignored)
+    target.example.env           local target; target.laptop-vps.example.env for the laptop -> VPS setup (copy to target.local.env, gitignored)
     sut.example.env              app/env overrides for the SUT (secrets live in sut.local.env, gitignored)
     hardware.md                  machine profiles and the derived settings table (Phase 0)
     tiers.json                   S/M/L volumes and distributions (perf-v1 profile)
@@ -284,7 +284,7 @@ There are no application schema changes.
 | Interactions (`customer_interactions`) | ~500k | ~1M | ~10M | Power law per entity: 60% have 1–5, 30% have 6–20, 9% have 21–100, 1% have 100–1000. Types: call/email/meeting/note/task. ~70% done, ~30% planned (dates spread across −3 y … +3 months). |
 | Deals | ~25k | ~50k | ~500k | ~0.5 per entity. 2 pipelines × 6 stages. Status open/win/lost per stage, values in 3 currencies, owners from the staff pool, ~3 stage transitions each (`customer_deal_stage_transitions`), ~15% "stuck" (no transition beyond the threshold). |
 | Deal comments | ~50k | ~100k | ~1M | ~2 per deal |
-| Addresses | ~20k | ~100k | ~400k | 1 per company, 0.3 per person, ~60% geocoded (feeds `deals/map`) |
+| Addresses | ~24k | ~48k | ~475k | 1 per company, 0.3 per person, ~60% geocoded (feeds `deals/map`) |
 | Tags | 50 tags | 50 | 50 | 0–3 per entity (Zipf over tags) |
 | Person–company links and roles | — | — | — | From the company assignment; ~5% of people have multiple companies |
 | Custom field values | — | — | — | All `customFieldDefaults.ts` fields, ~60% fill rate |
@@ -411,7 +411,7 @@ There are no new or changed HTTP APIs. The one contract addition is the CLI comm
 | 1 | Build the tooling | repo | All Phase 1 steps merged on the branch with unit tests green |
 | 2 | **Local validation** (tier S, run by the plan authors) | laptop | Smoke, mini-baseline and a mini step test (10→25 VUs) run end to end. Dashboards show data. A report is generated. Runbook fixes applied. |
 | 3 | VPS provisioning and datasets S, M + template snapshots (one tier on disk at a time on `vps-6c16g`) | VPS | Seeder verification passes. Snapshots restore in under the documented time. |
-| 4 | Smoke on VPS | VPS | 2 VUs × 5 min. 0 unexpected errors. Every journey and tag produces samples. |
+| 4 | Smoke on VPS | VPS, S then M | 2 VUs × 5 min of load (~10 min with restore and report). 0 unexpected errors. Every journey and tag produces samples. |
 | 5 | Baseline: single operations, no concurrency | VPS, S and M | ≥ 50 samples per tag after warmup at 1 VU, zero think time. pg top-N and EXPLAIN captured. Runs twice, and the p50 of the two runs differs by ≤ 10%. |
 | 6 | Step load: 10 → 25 → 50 → 100 → 200 VUs, 2 min ramp + 10 min hold each | VPS, M (S optional) | Saturation point identified, or 200 VUs reached without it |
 | 7 | Heavy-operation interference | VPS, M | 50 VUs mixed load **with the heavy group removed** for 30 min (or 50% of the knee VUs, if the knee is below 50):<br>• a 10 min control window,<br>• 10 min with a `constant-arrival-rate` heavy injector,<br>• 10 min recovery.<br><br>Injector rate: 6 heavy ops/min, rotating summary + needsAttention, deals.map, encrypted-sort list and calendar month, plus one `bulk-update-owner` on 1000 deals at minute 0 and minute 5, polled to completion.<br><br>Reported: read-group p95 delta against the control window, bulk completion time and queue backlog. |
@@ -538,7 +538,7 @@ The plan authors run this phase together before any VPS work. There is no separa
 
 ### Phase 3 — VPS provisioning and datasets
 
-1. Provision both machines per Phase 0, and apply the firewall rules (see Network exposure). Clone the repo at the chosen commit, then build the app image on the SUT:
+1. Provision the SUT per Phase 0, and apply the firewall rules (see Network exposure). The generator is the tester's laptop; it needs no provisioning beyond Docker, Node.js and SSH. Clone the repo at the chosen commit, then build the app image on the SUT:
 
    ```
    docker compose -p om-perf -f docker-compose.fullapp.yml -f perf/sut/compose.perf.yml build app
@@ -546,13 +546,13 @@ The plan authors run this phase together before any VPS work. There is no separa
 
    `perf/bin/perf up` uses the same file list.
 2. `perf/bin/perf up`. The measured tenant and org come from `mercato auth setup` followed by `mercato seed:defaults`. Background tenants are created by `perf/bin/perf seed --background`.
-3. Run `users`, then `seed --tier S`, then `snapshot --tier S`. After the S phases, switch to M (only one tier fits on the 80 GB disk): `perf/bin/perf down --volumes --purge-secrets`, `docker volume rm meili_s_template`, then `up`, `tenant`, `users`, `seed --background --tier M`, `seed --tier M`, `snapshot --tier M`. Record the seeding duration and dataset size in the report. L is not run on `vps-6c16g`.
+3. Run `tenant`, `users`, `seed --background --tier S`, `seed --tier S`, then `snapshot --tier S`, and run Phases 4–5 on S. After the S phases, switch to M (only one tier fits on the 80 GB disk): `perf/bin/perf down --volumes --purge-secrets`, `docker volume rm meili_s_template`, then `up`, `tenant`, `users`, `seed --background --tier M`, `seed --tier M`, `snapshot --tier M`. Record the seeding duration and dataset size in the report. L is not run on `vps-6c16g`.
 4. Verify that a snapshot restore round trip leaves row counts and the catalog unchanged. Record the restore durations in `hardware.md`.
 5. Run the network exposure check: from a third host, a port scan of the SUT reaches nothing but SSH. From the tester laptop, only HTTPS and SSH are reachable. Grafana and Prometheus are reachable only through SSH tunnels.
 
 ### Phases 4–9 — Measurement runs
 
-Each phase is a single `perf/bin/perf run <phase> --tier M` after a `restore` (Phase 5 also on S). Parameters live in `workload.json`. Exit criteria are in the [Phasing](#phasing) table. Every run produces a result folder and a report.
+Each phase is a single `perf/bin/perf run <phase> --tier <T>` after a `restore`: Phases 4–5 on S first, then Phases 4–9 on M. Parameters live in `workload.json`. Exit criteria are in the [Phasing](#phasing) table. Every run produces a result folder and a report.
 
 ### Phase 10 — Round analysis
 
@@ -660,7 +660,7 @@ Each experiment is a single-variable change against the round-1 snapshot, report
 
 - **2026-11-26** — initial plan. Agreed decisions:
   - hybrid seeder as a new customers CLI command,
-  - generator on a dedicated VPS in the same region,
+  - generator on a dedicated VPS in the same region (superseded on 2026-11-26: the generator is the tester's laptop),
   - Prometheus + Grafana monitoring,
   - exactly the default module set,
   - dataset tiers S/M/L,

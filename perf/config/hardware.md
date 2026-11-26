@@ -8,7 +8,7 @@ copy the derived values into `perf/config/sut.local.env` and never tune one run 
 
 | Profile | Role | CPU | RAM | Disk | OS | Status |
 |---|---|---|---|---|---|---|
-| `local-mac` | Phase 2 local validation (SUT, monitoring and k6 on one laptop) | Docker Desktop VM, 8 vCPU assigned | 16 GB assigned to the VM | Apple SSD (virtiofs) | macOS + Docker Desktop | numbers are `local-validation` only |
+| `local-mac` | Phase 2 local validation (SUT, monitoring and k6 on one laptop) | Docker Desktop VM, 16 vCPU visible to Docker (Phase 2 run: `nproc=16`) | 16 GB assigned to the VM | Apple SSD (virtiofs) | macOS + Docker Desktop | numbers are `local-validation` only |
 | `vps-8c32g` | Originally recommended SUT (reference only; not the decided machine) | 8 dedicated vCPU | 32 GB | NVMe | Ubuntu 24.04 LTS, Docker Engine + compose plugin | to be confirmed in Phase 0 |
 | `vps-4c8g` | Generator (and a minimal SUT for dry runs) | 4 vCPU | 8 GB | NVMe | Ubuntu 24.04 LTS | **not used**: there is no generator VPS (k6 runs on the tester's laptop) |
 | `vps-6c16g` | **SUT** (decided 2026-11-26) | 6 vCPU (dedicated? to confirm) | 16 GB | 80 GB, fixed — cannot be increased (type to confirm) | to confirm | S and M (100k) fit, one at a time; **L cannot run** (see Disk budget) |

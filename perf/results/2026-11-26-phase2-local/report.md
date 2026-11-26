@@ -10,6 +10,11 @@
 - **Dataset:** `perf-v1`, tier S, seed 42, anchor 2026-11-26, manifest checksum `1263504e…` (identical across two independent seeds)
 - **Branch / PR:** `docs/crm-performance-test-plan`, draft PR #10747 (not for merge)
 - **Status:** harness validation complete; the runbook fixes are applied. **VPS testing: not started.**
+- **Exit criteria, stated literally:** smoke did **not** meet "0 unexpected errors".
+  - It ended with 3 errors (0.28%), and k6 exited 99 because smoke uses strict thresholds.
+  - All 3 are explained by app finding P1-1: one `deals/map` request exhausted the DB pool, and two shell requests failed at the same moment. None came from the harness.
+  - Baseline, mini step and browser ran with 0% errors.
+  - On the VPS, an unexplained smoke error stops the round.
 
 > These are `local-validation` numbers. k6, the app and monitoring share one laptop, so absolute latencies are not baseline values. The *relative* signals below (what is slow at 1 VU, what degrades at 26 VUs, where time goes) are used only to decide what the VPS rounds should look at first.
 
@@ -83,12 +88,11 @@ Priority: **P1** = blocks meaningful VPS results or is a likely production incid
     | `timezone` | 338k |
 - **Code:** `packages/core/src/modules/query_index/lib/search-tokens.ts:222` (`buildSearchTokenRows`), with the per-entity field selection in the customers search configuration.
 - **Impact:**
-  - Linear extrapolation gives ~60 GB at M and ~240 GB at L, doubled by the template snapshot.
-  - On the offered 80 GB VPS, only S fits.
+  - Linear extrapolation gives ~240 GB at L, doubled by the template snapshot, and ~60 GB for the original 250k M. That is why M was reduced to 100k (~24 GB) to fit the 80 GB VPS.
   - Writes also pay for every token row.
 - **Recommendation:**
   - Exclude ids, URLs and enumerations from tokenization, and check whether `search_text` duplicates per-field tokens.
-  - In the meantime, provision ≥ 200 GB for M (`perf/config/hardware.md` → Disk budget).
+  - Until then, tiers stay sized to the 80 GB disk (`perf/config/hardware.md` → Disk budget).
   - Changing tokenization changes the dataset, so it needs a new profile (`perf-v2`). Results across the change are not comparable.
 
 ### P1-4 — A stale `server-start.lock` keeps a restarted container from ever starting (production availability)
@@ -256,12 +260,12 @@ The rerun passed 100% of checks.
 **To confirm in Phase 0:**
 1. Are the vCPUs dedicated?
 2. Disk type.
-3. Is there a second VPS for the generator? The plan's default is a generator VPS in the same datacenter. A laptop generator is a fallback whose numbers include internet RTT.
-4. Disk ≥ 200 GB if tier M is in scope (P1-3).
+3. Which laptop, location and connection will be used for the whole round (`GENERATOR_LOCATION`).
 
 **Decisions taken (2026-11-26):**
 - The disk stays at 80 GB. Tier M is reduced to 100k customer entities (2 background tenants, ≈ 70 GB peak with the snapshot), and S and M run one after the other. **Tier L cannot run on this VPS** (≈ 540 GB). The L-only risks (bind-parameter limit in P1-1 and P2-3) therefore stay unverified.
+- There is no generator VPS: k6 runs on the tester's laptop over the internet. The reports show the server-side p95 at the proxy and flag noisy-network runs.
 - The deployment is tested as shipped: one app process, no replica experiment. VPS reports must state that the knee reflects a single Next.js process (P1-2).
 
 **Recommended before the VPS rounds:**
-- Optional: a dry run of the remote path (SSH, tunnels, exposure check) on the 8 GB personal VPS with a reduced dataset, not used for comparison.
+- Optional: a dry run of the remote path (SSH, tunnels, exposure check) on a spare VPS with a reduced dataset, not used for comparison.

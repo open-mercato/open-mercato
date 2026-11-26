@@ -43,11 +43,17 @@ export function targetIdentity(target) {
   return createHash('sha256').update(material).digest('hex').slice(0, 16)
 }
 
+const TARGET_BOUND_STATE = ['tenant.json', 'users.json', 'owners.json', 'background-tenants.json', 'last-restore.json', 'snapshots']
+
 export function assertTargetAcknowledged(target, flags) {
   const path = statePath('target-ack.json')
   const identity = targetIdentity(target)
   const ack = readJsonFile(path, null)
   if (ack && ack.identity === identity) return
+  const foreignState = ack ? TARGET_BOUND_STATE.filter((file) => existsSync(statePath(file))) : []
+  if (foreignState.length) {
+    throw new Error(`[perf] perf/.state belongs to target "${ack.name}" (${ack.baseUrl}) and holds ${foreignState.join(', ')}. Using it against "${target.PERF_TARGET_NAME}" (${target.BASE_URL}) would reuse the wrong tenant, users and snapshots. Move it aside first: mv perf/.state perf/.state-${ack.name}`)
+  }
   if (!flags['yes-this-is-a-perf-target']) {
     throw new Error(`[perf] target "${target.PERF_TARGET_NAME}" (${target.BASE_URL}) is not confirmed yet. It will be seeded, mutated and load-tested. Re-run with --yes-this-is-a-perf-target once you are sure it is a dedicated perf SUT.`)
   }
