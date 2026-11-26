@@ -8,7 +8,7 @@ on:
 # (`qa-failed`, `changes-requested`, `blocked`, `do-not-merge`, or
 # `needs-human-qa` without `qa-approved`) and explains why in a one-line
 # comment. The rule lives in scripts/ci/merge-queue-guard.mts and is unit-tested
-# in scripts/__tests__/merge-queue-guard.test.mts. pull_request_target runs in
+# in scripts/__tests__/merge-queue-guard.test.ts. pull_request_target runs in
 # the base repository context so fork pull requests can be relabeled; the only
 # checkout is a sparse, credential-free copy of the guard script pinned to the
 # default branch, so no pull request head and no contributor-supplied code ever
@@ -17,10 +17,6 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
-
-concurrency:
-  group: merge-queue-guard-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
 
 jobs:
   guard:

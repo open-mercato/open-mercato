@@ -1,7 +1,7 @@
 // Takes `merge-queue` off a pull request whose labels break the merge-ready rule
 // (.ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md § Merge-ready rule).
 // Wired up by .github/workflows/merge-queue-guard.yml. `decide()` is the pure rule that
-// scripts/__tests__/merge-queue-guard.test.mts exercises; `run()` is the only part that
+// scripts/__tests__/merge-queue-guard.test.ts exercises; `run()` is the only part that
 // talks to the GitHub API. It never adds labels and never removes a blocking one.
 
 export const MERGE_QUEUE_LABEL = 'merge-queue'
