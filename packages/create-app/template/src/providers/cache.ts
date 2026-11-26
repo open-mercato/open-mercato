@@ -1,11 +1,22 @@
 import type { CacheProviderRegistration } from '@open-mercato/cache/provider'
 
-// Stock strategies are available by default with CACHE_STRATEGY.
-// To add an npm provider, install it and add a registration like this:
+// Stock settings belong in the deployment environment. For example:
+// CACHE_STRATEGY=memory
+// CACHE_MEMORY_MAX_ENTRIES=50000
+// CACHE_TTL=300000
+//
+// To opt into an npm provider, install @open-mercato/cache-provider-valkey and
+// add this registration to cacheProviders:
 // {
-//   id: 'acme/example',
-//   load: () => import('@acme/cache-provider-example').then((pkg) => pkg.default),
-//   settings: () => ({ endpoint: process.env.ACME_CACHE_ENDPOINT }),
+//   id: 'open-mercato/valkey',
+//   load: () => import('@open-mercato/cache-provider-valkey').then(({ provider }) => provider),
+//   settings: () => ({
+//     host: process.env.CACHE_VALKEY_HOST,
+//     port: Number(process.env.CACHE_VALKEY_PORT ?? 6379),
+//     username: process.env.CACHE_VALKEY_USERNAME,
+//     password: process.env.CACHE_VALKEY_PASSWORD,
+//   }),
 // }
-// Select the registered ID with CACHE_PROVIDER and set CACHE_PROVIDER_NAMESPACE.
+// Set CACHE_PROVIDER=open-mercato/valkey and a unique CACHE_PROVIDER_NAMESPACE.
+// See the Valkey package guide to configure TLS for production.
 export const cacheProviders: CacheProviderRegistration[] = []
