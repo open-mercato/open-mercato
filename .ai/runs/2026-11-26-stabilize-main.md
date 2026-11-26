@@ -45,8 +45,12 @@ No speculative fixes, test weakening, architecture changes, production dependenc
 - Main run [45709877361](https://github.com/open-mercato/open-mercato/actions/runs/45709877361) passed at `dd5134f2518e724bdde9ca55190bb4d41187cedb`, including all 15 integration shards.
 - PR run [45721358546](https://github.com/open-mercato/open-mercato/actions/runs/45721358546) passed at `f101ee1df09b1565734fb36135b09b208dffd8e4`, including full typechecking/unit tests, all 15 integration shards, app/Docker builds, timezone/multi-instance checks, and coverage aggregation. Other exact-head workflows and CodeQL also passed; audit, mutation execution, and backport skips match their scope conditions.
 - No demonstrated root cause needs a code change. Existing full-suite selection and PR-specific concurrency are covered by the passing local checks.
-- Diagnosis child `fc5cd5e0-31ae-4f8f-8ec7-3e209afea324` failed before model startup: the cockpit rejected restricted Codex tool grants. It produced no independent evidence. The parent completed the audit; the remaining task slot is reserved for final independent review.
+- Diagnosis child `fc5cd5e0-31ae-4f8f-8ec7-3e209afea324` failed before model startup: the cockpit rejected restricted Codex tool grants. It produced no independent evidence. The parent completed the audit; the second and final task performed the independent review below.
 - Branch-protection required-checks lookup returned HTTP 404. Completion therefore requires every reported check and exact-head workflow to settle successfully or with an expected scope skip.
+- Final review task `9fe3f59c-f7fd-4665-b032-942a19e5640b` [APPROVED](https://github.com/open-mercato/open-mercato/pull/10726#pullrequestreview-6067402997) `bf2748fb327c9277817f3343aee756bd692f2aab` with no actionable findings. GitHub rejected an author-bot approval vote, so the explicit independent verdict is a COMMENT review; it does not satisfy a required approving vote. No child changes were merged.
+- Reviewed-head run [45729153362](https://github.com/open-mercato/open-mercato/actions/runs/45729153362) passed all 15 integration shards and merged coverage. The parent independently verified 35 reported checks and four exact-head workflows, all settled successfully or with expected skips, and reran the 45 focused tests successfully.
+- The reviewer disclosed transient local fixture-shell Yarn-resolution failures before an unchanged 45/45 retry; the parent also obtained 45/45 without changes. No assertions were weakened. The transient cause remains unconfirmed and did not fail hosted CI.
+- `automerge` was applied only after the reviewed head was green, then withheld while this completion-metadata update is tested. The final exact-head CI result, label restoration, ready promotion and claim release are recorded on the PR; this document makes no claim about future checks. No source, workflow, dependency or database changes were needed.
 
 ## Progress
 PR: #10726
@@ -55,10 +59,10 @@ PR: #10726
 
 ### Phase 1: Diagnose and verify
 
-- [x] 1.1 Independently audit main CI and confirm full-suite routing — f101ee1df0 (parent audit completed; independent diagnosis task could not start; final review will verify evidence)
+- [x] 1.1 Independently audit main CI and confirm full-suite routing — f101ee1df0 (parent audit completed; final independent review verified the evidence)
 - [x] 1.2 Run the full suite on the stabilization PR and fix only reproduced failures — f101ee1df0 (run 45721358546 passed; no fixes required)
 
 ### Phase 2: Review and finish
 
-- [ ] 2.1 Dispatch the one final independent review task
-- [ ] 2.2 Publish verification evidence and conditionally apply automerge
+- [x] 2.1 Dispatch the one final independent review task — bf2748fb32 (task 9fe3f59c approved; parent verified its report, unchanged branch and tests)
+- [x] 2.2 Publish verification evidence and conditionally apply automerge — bf2748fb32 (reviewed-head evidence published; conditional label applied only after green and withheld during final bookkeeping validation)
