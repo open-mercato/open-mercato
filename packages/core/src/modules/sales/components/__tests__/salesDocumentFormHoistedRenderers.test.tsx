@@ -13,15 +13,18 @@
 import * as React from 'react'
 import * as fs from 'fs'
 import * as path from 'path'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 
 jest.setTimeout(20000)
 
 const mockApiCall = jest.fn()
+const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
 // #5126: the sentinel the mocked CrudForm feeds into the `lines` custom field so the
 // duplicate-error regression is observable through the DOM.
 const LINES_FIELD_ERROR = 'LINES_FIELD_ERROR_SENTINEL'
+let mockRenderedLinesError: string | undefined = LINES_FIELD_ERROR
+const mockCapturedSubmit: { current: ((values: Record<string, unknown>) => Promise<void>) | null } = { current: null }
 
 // #5126: the `lines` field declaration as the form handed it to CrudForm, so the tests can
 // assert the error-ownership contract on the real object instead of scanning source text.
@@ -40,11 +43,12 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 // Render the captured field/group renderers so their behavior is exercised.
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
-  CrudForm: ({ fields, groups, initialValues }: any) => {
+  CrudForm: ({ fields, groups, initialValues, onSubmit }: any) => {
     const docField = (fields ?? []).find((f: any) => f.id === 'documentNumber')
     const billingField = (fields ?? []).find((f: any) => f.id === 'billingAddressSection')
     const linesField = (fields ?? []).find((f: any) => f.id === 'lines')
     mockCapturedLinesField.current = linesField ?? null
+    mockCapturedSubmit.current = onSubmit
     const customerGroup = (groups ?? []).find((g: any) => g.id === 'customer')
     const fieldProps = {
       value: '',
@@ -65,11 +69,11 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
             opted out with `rendersOwnError`, in which case the component owns the node. */}
         <div data-testid="lines">
           {linesField
-            ? linesField.component({ ...fieldProps, id: 'lines', value: [], error: LINES_FIELD_ERROR })
+            ? linesField.component({ ...fieldProps, id: 'lines', value: [], error: mockRenderedLinesError })
             : null}
-          {linesField?.type === 'custom' && linesField?.rendersOwnError ? null : (
-            <div className="text-xs text-status-error-text">{LINES_FIELD_ERROR}</div>
-          )}
+          {mockRenderedLinesError && !linesField?.rendersOwnError ? (
+            <div className="text-xs text-status-error-text">{mockRenderedLinesError}</div>
+          ) : null}
         </div>
         <div data-testid="customer">
           {customerGroup?.component
@@ -150,7 +154,8 @@ jest.mock('@open-mercato/ui/backend/utils/customFieldValues', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/serverErrors', () => ({
   raiseCrudError: jest.fn(),
-  createCrudFormError: (msg: string) => new Error(msg),
+  createCrudFormError: (message: string, fieldErrors?: Record<string, string>) =>
+    Object.assign(new Error(message), { fieldErrors }),
   normalizeCrudServerError: (err: any) => ({ message: err?.message ?? 'error' }),
 }))
 
@@ -192,7 +197,7 @@ jest.mock('@open-mercato/core/modules/customers/utils/addressFormat', () => ({
 // The pin is a non-en locale so a future money assertion in this suite cannot be satisfied
 // by a component that ignores the locale on an en-default runner.
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (key: string, fallback?: string) => fallback ?? key,
+  useT: () => mockTranslate,
   useLocale: () => 'pl-PL',
 }))
 
@@ -308,6 +313,7 @@ describe('SalesDocumentForm lines error ownership (#5126)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockCapturedLinesField.current = null
+    mockRenderedLinesError = LINES_FIELD_ERROR
     mockApiCall.mockResolvedValue({ ok: true, result: { items: [], number: 'ORD-001' } })
   })
 
@@ -351,5 +357,40 @@ describe('SalesDocumentForm lines error ownership (#5126)', () => {
     // so SalesOrderDraftLines' own `role="alert"` node is the single renderer.
     expect(mockCapturedLinesField.current.type).toBe('custom')
     expect(mockCapturedLinesField.current.rendersOwnError).toBe(true)
+  })
+
+  it('focuses the missing-lines alert after each rejected submission', async () => {
+    mockRenderedLinesError = undefined
+    const onCreated = jest.fn()
+    const form = () => <SalesDocumentForm onCreated={onCreated} initialKind="order" />
+    const { rerender } = render(form())
+    const values = { documentKind: 'order', documentNumber: 'ORD-001', lines: [] }
+    const message = 'Add at least one line item before creating the order.'
+
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await act(async () => {
+      await expect(mockCapturedSubmit.current?.(values)).rejects.toMatchObject({ fieldErrors: { lines: message } })
+    })
+    mockRenderedLinesError = message
+    rerender(form())
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toBe(message)
+    expect(document.activeElement).toBe(alert)
+
+    const emailInput = screen.getByPlaceholderText('Email used for the document')
+    emailInput.focus()
+    rerender(form())
+    expect(document.activeElement).toBe(emailInput)
+
+    await act(async () => {
+      await expect(mockCapturedSubmit.current?.(values)).rejects.toMatchObject({ fieldErrors: { lines: message } })
+    })
+    expect(document.activeElement).toBe(alert)
+    expect(onCreated).not.toHaveBeenCalled()
+
+    mockRenderedLinesError = undefined
+    rerender(form())
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })

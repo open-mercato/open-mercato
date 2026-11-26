@@ -827,6 +827,16 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   const [addressesError, setAddressesError] = React.useState<string | null>(null)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
   const [defaultCurrency, setDefaultCurrency] = React.useState<string>('USD')
+  const [missingLinesAttempt, setMissingLinesAttempt] = React.useState(0)
+  const revealedMissingLinesAttempt = React.useRef(0)
+  const missingLinesMessage = t('sales.orders.linesRequired', 'Add at least one line item before creating the order.')
+  const revealMissingLinesError = React.useCallback((alert: HTMLParagraphElement | null) => {
+    if (!alert || revealedMissingLinesAttempt.current === missingLinesAttempt) return
+
+    revealedMissingLinesAttempt.current = missingLinesAttempt
+    alert.scrollIntoView?.({ behavior: 'instant', block: 'center' })
+    alert.focus({ preventScroll: true })
+  }, [missingLinesAttempt])
   const addressRequestRef = React.useRef(0)
   const addressAbortRef = React.useRef<AbortController | null>(null)
   const addressTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1337,6 +1347,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           tenantId={tenantId ?? null}
           lines={Array.isArray(value) ? value as SalesOrderLineDraft[] : []}
           error={error}
+          errorRef={error === missingLinesMessage ? revealMissingLinesError : undefined}
           onChange={(lines) => setValue(lines)}
         />
       ) : null,
@@ -1355,7 +1366,9 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     loadAddresses,
     loadChannels,
     loadCustomers,
+    missingLinesMessage,
     resetAddressFormState,
+    revealMissingLinesError,
     t,
   ])
 
@@ -1446,8 +1459,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         payload.orderNumber = documentNumber
         const lines = Array.isArray(base.lines) ? base.lines : []
         if (lines.length === 0) {
-          const message = t('sales.orders.linesRequired', 'Add at least one line item before creating the order.')
-          throw createCrudFormError(message, { lines: message })
+          setMissingLinesAttempt((attempt) => attempt + 1)
+          throw createCrudFormError(missingLinesMessage, { lines: missingLinesMessage })
         }
         payload.lines = lines.map((line) => {
           const {
@@ -1543,7 +1556,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         throw createCrudFormError(t('sales.documents.form.errors.submit', 'Failed to create document.'))
       }
     },
-    [onCreated, t],
+    [missingLinesMessage, onCreated, t],
   )
 
   const cancelHref = initialKind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'

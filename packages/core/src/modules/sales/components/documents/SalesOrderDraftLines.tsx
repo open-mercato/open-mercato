@@ -24,6 +24,7 @@ type SalesOrderDraftLinesProps = {
   tenantId: string | null
   lines: SalesOrderLineDraft[]
   error?: string | null
+  errorRef?: React.Ref<HTMLParagraphElement>
   onChange: (lines: SalesOrderLineDraft[]) => void
 }
 
@@ -101,6 +102,7 @@ export function SalesOrderDraftLines({
   tenantId,
   lines,
   error,
+  errorRef,
   onChange,
 }: SalesOrderDraftLinesProps) {
   const t = useT()
@@ -173,7 +175,7 @@ export function SalesOrderDraftLines({
           {t('sales.documents.items.add', 'Add item')}
         </Button>
       </div>
-      {error ? <p className="text-sm text-status-error-text" role="alert">{error}</p> : null}
+      {error ? <p ref={errorRef} className="text-sm text-status-error-text" role="alert" tabIndex={-1}>{error}</p> : null}
       <DataTable
         columns={columns}
         data={lines}
