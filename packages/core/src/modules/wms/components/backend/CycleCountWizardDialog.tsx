@@ -23,7 +23,7 @@ import {
 import { FormField } from '@open-mercato/ui/primitives/form-field'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -1919,9 +1919,7 @@ export function CycleCountWizardDialog({
 
           <DialogFooter bordered={false} className="border-t px-6 py-4 sm:justify-between">
             <p className="hidden text-xs text-muted-foreground md:inline-flex md:items-center md:gap-1.5">
-              <KbdShortcut keys={['⌘', 'Enter']} />
-              <span>/</span>
-              <KbdShortcut keys={['Ctrl', 'Enter']} />
+              <KbdSubmitShortcut />
               <span>{shortcutHint}</span>
             </p>
             <div className="flex w-full flex-col-reverse gap-2 md:w-auto md:flex-row md:flex-wrap md:justify-end">

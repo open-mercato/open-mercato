@@ -773,6 +773,7 @@
   "wms.backend.inventory.reserve.fields.variantPlaceholder": "SKU 또는 이름을 검색하세요…",
   "wms.backend.inventory.reserve.fields.warehouse": "창고",
   "wms.backend.inventory.reserve.fields.warehousePlaceholder": "창고를 선택하세요…",
+  "wms.backend.inventory.reserve.shortcutHint": "예약하려면",
   "wms.backend.inventory.reserve.sourceType.manual": "수동 보류",
   "wms.backend.inventory.reserve.sourceType.order": "주문하다",
   "wms.backend.inventory.reserve.sourceType.transfer": "옮기다",

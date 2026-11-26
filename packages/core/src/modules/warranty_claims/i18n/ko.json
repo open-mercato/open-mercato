@@ -682,7 +682,7 @@
   "warranty_claims.portal.new.reviewNotes": "메모",
   "warranty_claims.portal.new.reviewOrder": "주문 참조번호",
   "warranty_claims.portal.new.reviewTitle": "메모 및 검토",
-  "warranty_claims.portal.new.submitHint": "이 양식에서 Cmd/Ctrl+Enter로 클레임을 제출할 수 있습니다.",
+  "warranty_claims.portal.new.submitHint": "이 양식에서 Ctrl/⌘ + Enter로 클레임을 제출할 수 있습니다.",
   "warranty_claims.portal.new.submitting": "제출 중...",
   "warranty_claims.portal.new.success": "클레임이 제출되었습니다.",
   "warranty_claims.portal.new.summaryTitle": "검토 요약",

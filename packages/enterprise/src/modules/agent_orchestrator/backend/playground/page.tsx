@@ -540,7 +540,7 @@ export default function AgentPlaygroundPage() {
             </div>
             <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3">
               <span className="hidden text-xs text-muted-foreground sm:inline">
-                {t('agent_orchestrator.playground.runHint', 'Cmd/Ctrl + Enter runs the agent')}
+                {t('agent_orchestrator.playground.runHint', 'Ctrl/⌘ + Enter runs the agent')}
               </span>
               <Button
                 type="button"

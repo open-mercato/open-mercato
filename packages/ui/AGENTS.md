@@ -77,7 +77,7 @@ When you need… use this. Details (variants, sizes, props, MUST rules) live in 
 | Radio button (single primitive) | `Radio` (inside `RadioGroup`) | `@open-mercato/ui/primitives/radio` |
 | Radio with label + description (form row) | `RadioField` | `@open-mercato/ui/primitives/radio-field` |
 | User / entity avatar | `Avatar`, `AvatarStack` | `@open-mercato/ui/primitives/avatar` |
-| Keyboard shortcut keys | `Kbd`, `KbdShortcut` | `@open-mercato/ui/primitives/kbd` |
+| Keyboard shortcut keys (OS-aware submit hint) | `Kbd`, `KbdShortcut`, `KbdSubmitShortcut` | `@open-mercato/ui/primitives/kbd` |
 | Entity tag pill | `Tag` (with `TagMap`) | `@open-mercato/ui/primitives/tag` |
 | Breadcrumb navigation (DS-aligned, slash/arrow/dot divider, ARIA correct) | `Breadcrumb` (with `BreadcrumbList` / `BreadcrumbItem` / `BreadcrumbLink` / `BreadcrumbPage` / `BreadcrumbStatic` / `BreadcrumbSeparator` / `BreadcrumbEllipsis`) | `@open-mercato/ui/primitives/breadcrumb` |
 | Scrollable container with DS-styled scrollbars | `ScrollArea` (compound: `ScrollAreaRoot` / `Viewport` / `Scrollbar` / `Thumb` / `Corner`) | `@open-mercato/ui/primitives/scroll-area` |
@@ -182,14 +182,14 @@ import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 
 ## Kbd
 
-`Kbd` renders a keyboard key. `KbdShortcut` renders a full shortcut sequence (`⌘ + Enter`).
+`Kbd` renders a keyboard key. `KbdShortcut` renders a full shortcut sequence (`⌘ + Enter`). `KbdSubmitShortcut` renders the submit shortcut for the viewer's OS (`Ctrl + Enter` or `⌘ + Enter`).
 
 Use in dialog footers, tooltips, and empty states to communicate keyboard affordances required by our UX rules (every dialog MUST support `Cmd/Ctrl+Enter` submit and `Escape` cancel).
 
 ### Import
 
 ```typescript
-import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { Kbd, KbdShortcut, KbdSubmitShortcut, MOD_KEY } from '@open-mercato/ui/primitives/kbd'
 ```
 
 ### Usage
@@ -197,22 +197,25 @@ import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
 ```tsx
 // Single key
 <Kbd>Esc</Kbd>
-<Kbd>⌘</Kbd>
 
-// Shortcut sequence
-<KbdShortcut keys={['⌘', 'Enter']} />   // renders: ⌘ + Enter
+// Submit shortcut: Ctrl + Enter on Windows/Linux, ⌘ + Enter on macOS
+<KbdSubmitShortcut />
+
+// Shortcut sequence; MOD_KEY resolves to ⌘ or Ctrl
+<KbdShortcut keys={[MOD_KEY, 'Shift', 'Enter']} />
 <KbdShortcut keys={['Ctrl', 'S']} />
 
 // In a dialog footer hint
 <span className="text-xs text-muted-foreground">
-  Press <KbdShortcut keys={['⌘', 'Enter']} /> to save or <Kbd>Esc</Kbd> to cancel
+  Press <KbdSubmitShortcut /> to save or <Kbd>Esc</Kbd> to cancel
 </span>
 ```
 
 ### Usage Rules
 
 - NEVER use raw `<span>` or `<code>` to display keyboard keys — use `Kbd`
-- Platform-specific keys (`⌘` vs `Ctrl`): detect with `navigator.platform` or use `Ctrl/⌘` text when cross-platform
+- Submit-shortcut hints MUST use `<KbdSubmitShortcut />` — never hard-code `⌘`. Other modifier shortcuts use `MOD_KEY`; `useModifierKeyLabel()` serves a bare `<Kbd>`.
+- Plain-text shortcut copy in locale files uses the single form `Ctrl/⌘ + Enter`.
 
 ---
 

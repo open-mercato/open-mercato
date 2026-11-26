@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 /**
@@ -88,7 +88,7 @@ export function DisposeDialog({
           />
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">
-              <KbdShortcut keys={['⌘', 'Enter']} />
+              <KbdSubmitShortcut />
             </span>
             <Button
               type="button"

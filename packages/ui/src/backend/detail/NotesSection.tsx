@@ -1004,8 +1004,8 @@ function NotesSectionImpl<C = unknown>({
   const appearanceDialogOpen = appearanceDialogState !== null
   const editingAppearanceNoteId =
     appearanceDialogState?.mode === 'edit' ? appearanceDialogState.noteId : null
-  const addNoteShortcutLabel = label('addShortcut', 'Add note ⌘⏎ / Ctrl+Enter')
-  const saveAppearanceShortcutLabel = label('appearance.saveShortcut', 'Save appearance ⌘⏎ / Ctrl+Enter')
+  const addNoteShortcutLabel = label('addShortcut', 'Add note Ctrl/⌘ + Enter')
+  const saveAppearanceShortcutLabel = label('appearance.saveShortcut', 'Save appearance Ctrl/⌘ + Enter')
   const composerSubmitLabel = addNoteShortcutLabel
   const appearanceDialogPrimaryLabel = saveAppearanceShortcutLabel
   const appearanceDialogSavingLabel =

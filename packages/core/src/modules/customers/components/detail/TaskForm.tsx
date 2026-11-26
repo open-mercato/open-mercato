@@ -96,8 +96,8 @@ export function TaskForm({
   const resolvedSubmitLabel =
     submitLabel ??
     (mode === 'edit'
-      ? t('customers.people.detail.tasks.form.submitEdit', 'Update task (⌘/Ctrl + Enter)')
-      : t('customers.people.detail.tasks.form.submitCreate', 'Save task (⌘/Ctrl + Enter)'))
+      ? t('customers.people.detail.tasks.form.submitEdit', 'Update task (Ctrl/⌘ + Enter)')
+      : t('customers.people.detail.tasks.form.submitCreate', 'Save task (Ctrl/⌘ + Enter)'))
   const resolvedCancelLabel = cancelLabel ?? t('customers.people.detail.tasks.cancel', 'Cancel')
 
   const handleSubmit = React.useCallback(

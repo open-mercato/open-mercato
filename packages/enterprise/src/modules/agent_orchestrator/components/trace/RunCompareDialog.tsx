@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { Kbd, KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { Kbd, KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
@@ -414,7 +414,7 @@ export function RunCompareDialog({ open, onOpenChange, run, spans }: RunCompareD
         <DialogFooter
           leading={
             <span className="text-xs text-muted-foreground">
-              <KbdShortcut keys={['⌘', 'Enter']} /> <Kbd>Esc</Kbd>
+              <KbdSubmitShortcut /> <Kbd>Esc</Kbd>
             </span>
           }
         >

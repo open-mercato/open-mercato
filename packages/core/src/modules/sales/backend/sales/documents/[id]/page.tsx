@@ -1241,7 +1241,7 @@ function ContactEmailInlineEditor({
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Spinner className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
+                  {t('customers.people.detail.inline.saveShortcut', 'Save Ctrl/⌘ + Enter')}
                 </Button>
                 <Button
                   type="button"
@@ -2116,7 +2116,7 @@ export default function SalesDocumentDetailPage({
     }
   }, [scopeVersion])
   const saveShortcutLabel = React.useMemo(
-    () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
+    () => t('sales.documents.detail.inline.save', 'Save Ctrl/⌘ + Enter'),
     [t]
   )
   const customDataLabels = React.useMemo(
@@ -2140,7 +2140,7 @@ export default function SalesDocumentDetailPage({
       createError: t('sales.documents.detail.tags.createError', 'Failed to create tag.'),
       updateError: t('sales.documents.detail.tags.updateError', 'Failed to update tags.'),
       labelRequired: t('sales.documents.detail.tags.labelRequired', 'Tag name is required.'),
-      saveShortcut: t('sales.documents.detail.tags.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter'),
+      saveShortcut: t('sales.documents.detail.tags.saveShortcut', 'Save Ctrl/⌘ + Enter'),
       cancelShortcut: t('sales.documents.detail.tags.cancelShortcut', 'Cancel (Esc)'),
       edit: t('ui.forms.actions.edit'),
       cancel: t('ui.forms.actions.cancel'),
@@ -3058,7 +3058,7 @@ export default function SalesDocumentDetailPage({
       emptyError: t('sales.documents.form.currency.emptyError', 'Currency code is required'),
       cancelLabel: t('sales.documents.form.currency.cancel', 'Cancel'),
       saveLabel: t('sales.documents.form.currency.save', 'Save'),
-      saveShortcutHint: '⌘/Ctrl + Enter',
+      saveShortcutHint: 'Ctrl/⌘ + Enter',
       successCreateLabel: t('sales.documents.form.currency.created', 'Currency saved.'),
       errorLoad: t('sales.documents.form.currency.errorLoad', 'Failed to load currencies.'),
       errorSave: t('sales.documents.form.currency.errorSave', 'Failed to save currency.'),
@@ -3093,7 +3093,7 @@ export default function SalesDocumentDetailPage({
       emptyError: t('sales.documents.detail.status.emptyError', 'Status value is required.'),
       cancelLabel: t('sales.documents.detail.status.cancel', 'Cancel'),
       saveLabel: t('sales.documents.detail.status.save', 'Save'),
-      saveShortcutHint: 'Ctrl/Cmd + Enter',
+      saveShortcutHint: 'Ctrl/⌘ + Enter',
       successCreateLabel: t('sales.documents.detail.status.created', 'Status saved.'),
       errorLoad: t('sales.documents.detail.status.errorLoad', 'Failed to load statuses.'),
       errorSave: t('sales.documents.detail.status.errorSave', 'Failed to save status.'),

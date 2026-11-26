@@ -1050,7 +1050,7 @@
   "agent_orchestrator.playground.result.viewTrace": "Zobacz ślad →",
   "agent_orchestrator.playground.resultTitle": "Wynik",
   "agent_orchestrator.playground.run": "Uruchom",
-  "agent_orchestrator.playground.runHint": "Cmd/Ctrl + Enter uruchamia agenta",
+  "agent_orchestrator.playground.runHint": "Ctrl/⌘ + Enter uruchamia agenta",
   "agent_orchestrator.playground.running": "Uruchamianie…",
   "agent_orchestrator.playground.selectAgentFirst": "Najpierw wybierz agenta.",
   "agent_orchestrator.playground.subtitle": "Uruchom agenta na danych wejściowych JSON i sprawdź typowany wynik.",

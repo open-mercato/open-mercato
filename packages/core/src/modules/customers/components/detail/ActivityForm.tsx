@@ -386,8 +386,8 @@ export function ActivityForm({
       initialValues={embeddedInitialValues}
       onSubmit={handleSubmit}
       submitLabel={submitLabel ?? (mode === 'edit'
-        ? t('customers.people.detail.activities.update', 'Update activity (⌘/Ctrl + Enter)')
-        : t('customers.people.detail.activities.save', 'Save activity (⌘/Ctrl + Enter)'))}
+        ? t('customers.people.detail.activities.update', 'Update activity (Ctrl/⌘ + Enter)')
+        : t('customers.people.detail.activities.save', 'Save activity (Ctrl/⌘ + Enter)'))}
       extraActions={(
         <Button
           type="button"

@@ -12,7 +12,7 @@ import {
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
+import { KbdSubmitShortcut } from '@open-mercato/ui/primitives/kbd'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -153,7 +153,7 @@ export function RegisterDialog({
           </div>
           <DialogFooter className="items-center">
             <span className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1">
-              <KbdShortcut keys={['⌘', 'Enter']} />
+              <KbdSubmitShortcut />
             </span>
             <Button
               type="button"

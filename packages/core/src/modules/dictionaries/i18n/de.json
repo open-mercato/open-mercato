@@ -44,7 +44,7 @@
   "dictionaries.config.entries.dialog.labelPlaceholder": "Anzeigename in der Oberfläche",
   "dictionaries.config.entries.dialog.previewEmpty": "Keine Darstellung ausgewählt",
   "dictionaries.config.entries.dialog.save": "Speichern",
-  "dictionaries.config.entries.dialog.saveShortcut": "⌘/Ctrl + Enter",
+  "dictionaries.config.entries.dialog.saveShortcut": "Ctrl/⌘ + Enter",
   "dictionaries.config.entries.dialog.valueLabel": "Wert",
   "dictionaries.config.entries.empty": "Noch keine Einträge.",
   "dictionaries.config.entries.error.delete": "Wörterbucheintrag konnte nicht gelöscht werden.",

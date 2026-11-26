@@ -1375,8 +1375,8 @@ export function DealForm({
       submitLabel={
         submitLabel ??
         (mode === 'edit'
-          ? t('customers.people.detail.deals.update', 'Update deal (⌘/Ctrl + Enter)')
-          : t('customers.people.detail.deals.save', 'Save deal (⌘/Ctrl + Enter)'))
+          ? t('customers.people.detail.deals.update', 'Update deal (Ctrl/⌘ + Enter)')
+          : t('customers.people.detail.deals.save', 'Save deal (Ctrl/⌘ + Enter)'))
       }
       extraActions={showCancelAction ? (
         <Button

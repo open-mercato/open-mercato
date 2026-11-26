@@ -44,7 +44,7 @@
   "dictionaries.config.entries.dialog.labelPlaceholder": "UI에 표시되는 이름",
   "dictionaries.config.entries.dialog.previewEmpty": "선택된 외형이 없습니다",
   "dictionaries.config.entries.dialog.save": "저장",
-  "dictionaries.config.entries.dialog.saveShortcut": "⌘/Ctrl + Enter",
+  "dictionaries.config.entries.dialog.saveShortcut": "Ctrl/⌘ + Enter",
   "dictionaries.config.entries.dialog.valueLabel": "값",
   "dictionaries.config.entries.empty": "아직 항목이 없습니다.",
   "dictionaries.config.entries.error.delete": "사전 항목 삭제에 실패했습니다.",

@@ -82,7 +82,7 @@
   "messages.composer.objectPicker.typePlaceholder": "Select object type",
   "messages.composer.removeAttachment": "Remove attached file",
   "messages.composer.removeObject": "Remove attached object",
-  "messages.composer.shortcuts": "Use Cmd/Ctrl + Enter to submit and Escape to cancel.",
+  "messages.composer.shortcuts": "Use Ctrl/⌘ + Enter to submit and Escape to cancel.",
   "messages.confirm.action": "Are you sure you want to continue?",
   "messages.confirm.actionConfirm": "Confirm",
   "messages.confirm.actionTitle": "Confirm action",

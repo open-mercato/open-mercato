@@ -82,7 +82,7 @@
   "messages.composer.objectPicker.typePlaceholder": "Wybierz typ obiektu",
   "messages.composer.removeAttachment": "Usuń dołączony plik",
   "messages.composer.removeObject": "Usuń dołączony obiekt",
-  "messages.composer.shortcuts": "Użyj Cmd/Ctrl + Enter, aby wysłać, i Escape, aby anulować.",
+  "messages.composer.shortcuts": "Użyj Ctrl/⌘ + Enter, aby wysłać, i Escape, aby anulować.",
   "messages.confirm.action": "Czy na pewno chcesz kontynuować?",
   "messages.confirm.actionConfirm": "Potwierdź",
   "messages.confirm.actionTitle": "Potwierdź akcję",
