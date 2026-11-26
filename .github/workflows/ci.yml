@@ -507,6 +507,60 @@ jobs:
         # scripts/logger-console-allowlist.json.
         run: yarn logger:check-console:ci
 
+  # ── Design showcase ─────────────────────────────────────────────────────────
+  # apps/design is a statically exported Next.js app that reads packages/ui,
+  # packages/core and packages/shared from source. The Mercato build never
+  # compiles it, and its next.config disables build-time type checking, so an
+  # unresolved showcase-only import or a broken static route would otherwise
+  # reach main unnoticed. This job type-checks the workspace and runs the
+  # production export.
+  design-showcase:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: prepare
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Typecheck the showcase
+        run: yarn workspace @open-mercato/design typecheck
+
+      - name: Build the showcase
+        run: yarn design:build
+
   # ── DS lint (advisory) ──────────────────────────────────────────────────────
   # Reports per-rule DS lint counts and the delta vs the base branch on every
   # PR. Advisory by construction: joins no `needs` chain and is not a required
