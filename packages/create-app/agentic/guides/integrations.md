@@ -4,6 +4,8 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 
 ## Provider Family Selector
 
+Cache, queue drivers, and KMS are process-wide infrastructure. Use the [infrastructure provider guide](./infrastructure-providers.md) for their package registration and bootstrap wiring.
+
 | Family | Primary contract |
 |---|---|
 | Transactional email | `IntegrationDefinition`, tenant credentials, DI sender + health services, retry/redaction, and app activation. There is no installed generic transactional-email adapter contract. |
@@ -17,7 +19,7 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 
 ## Package and Activation
 
-- In this standalone repository, put an app-specific provider under `src/modules/<provider>/` and activate it through `src/modules.ts`. Do not invent a `packages/*` workspace: the scaffold has no workspace topology.
+- In this standalone repository, put an app-specific business integration provider under `src/modules/<provider>/` and activate it through `src/modules.ts`. Do not invent a `packages/*` workspace: the scaffold has no workspace topology.
 - When the user explicitly needs reuse across applications, build a separately published provider package/repository with compatible peer/runtime dependencies, public exports, build/prepack output, and module discovery files; install its packed artifact as an app dependency.
 - Ask before changing repository topology or adding the production dependency. Keep packed-consumer validation on the reusable-package branch only.
 - Register provider services through DI and use an `integration.ts` definition for credentials, health, versions, bundle membership, and detail-page extension spot.

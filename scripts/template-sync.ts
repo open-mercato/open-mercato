@@ -1,7 +1,7 @@
 /**
  * Template sync checker/fixer for create-app scaffold parity.
  *
- * Keeps `packages/create-app/template/src/{app,components,i18n,lib,modules}` and selected
+ * Keeps `packages/create-app/template/src/{app,components,i18n,lib,modules,providers}` and selected
  * root src files aligned with app source for shared layout/routes/module scaffolding
  * and locale dictionaries.
  *
@@ -29,7 +29,7 @@ const APP_SRC_ROOT = path.join(ROOT, 'apps', 'mercato', 'src')
 const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 'src')
 const APP_PACKAGE_FILE = path.join(ROOT, 'apps', 'mercato', 'package.json')
 const TEMPLATE_PACKAGE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', 'package.json.template')
-export const SYNC_FOLDERS = ['app', 'components', 'i18n', 'lib', 'modules'] as const
+export const SYNC_FOLDERS = ['app', 'components', 'i18n', 'lib', 'modules', 'providers'] as const
 const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts', 'official-modules.generated.ts'] as const
 const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
   {

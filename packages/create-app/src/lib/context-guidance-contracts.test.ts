@@ -365,6 +365,22 @@ const ROOT_INSTRUCTION_SOURCES = [
   { label: 'template/AGENTS.md', read: () => readPackage('create-app/template/AGENTS.md') },
 ] as const
 
+test('both standalone roots route infrastructure provider registration to the shared convention', () => {
+  const route = 'Infrastructure providers (cache, queue, KMS) live in `src/providers/`.'
+  for (const { label, read } of ROOT_INSTRUCTION_SOURCES) {
+    const instructions = read()
+    assert.ok(instructions.includes(route), `${label} must identify the infrastructure provider directory`)
+    assert.match(instructions, /\]\(\.ai\/guides\/infrastructure-providers\.md\)/, `${label} must link the provider guide`)
+  }
+
+  const guide = readAgentic('guides/infrastructure-providers.md')
+  for (const file of ['cache.ts', 'queue.example.ts', 'kms.example.ts']) {
+    assert.ok(guide.includes(`](../../src/providers/${file})`), `the provider guide must link the shipped ${file}`)
+  }
+  assert.match(guide, /web app, workers, scheduler, and CLI/)
+  assert.match(guide, /explicit lazy npm loaders/)
+})
+
 test('every emitted root states the ordered spec-first gate exactly once', () => {
   for (const { label, read } of ROOT_INSTRUCTION_SOURCES) {
     const root = read()

@@ -2,6 +2,48 @@
   "$comment": "Checked topic registry for the CANON-C source-link contract. source-required topics are one per (emitted owner, rendered exact-file link) pair; their topicId is derived as <ownerSlug>:<targetKey> and re-derived by the validator. retained-normative-snippet topics name a rule that survives in prose; evidence is a literal substring the owner must still contain. The derived source-link inventory must assert that its topic set equals this registry exactly; this file is a contract, not a second authority.",
   "topics": [
     {
+      "topicId": "root:.ai/guides/infrastructure-providers.md",
+      "owner": "AGENTS.md",
+      "requirement": "source-required",
+      "href": ".ai/guides/infrastructure-providers.md",
+      "resolvedPath": ".ai/guides/infrastructure-providers.md"
+    },
+    {
+      "topicId": "guides/architecture:.ai/guides/infrastructure-providers.md",
+      "owner": ".ai/guides/architecture.md",
+      "requirement": "source-required",
+      "href": "./infrastructure-providers.md",
+      "resolvedPath": ".ai/guides/infrastructure-providers.md"
+    },
+    {
+      "topicId": "guides/integrations:.ai/guides/infrastructure-providers.md",
+      "owner": ".ai/guides/integrations.md",
+      "requirement": "source-required",
+      "href": "./infrastructure-providers.md",
+      "resolvedPath": ".ai/guides/infrastructure-providers.md"
+    },
+    {
+      "topicId": "guides/infrastructure-providers:src/providers/cache.ts",
+      "owner": ".ai/guides/infrastructure-providers.md",
+      "requirement": "source-required",
+      "href": "../../src/providers/cache.ts",
+      "resolvedPath": "src/providers/cache.ts"
+    },
+    {
+      "topicId": "guides/infrastructure-providers:src/providers/queue.example.ts",
+      "owner": ".ai/guides/infrastructure-providers.md",
+      "requirement": "source-required",
+      "href": "../../src/providers/queue.example.ts",
+      "resolvedPath": "src/providers/queue.example.ts"
+    },
+    {
+      "topicId": "guides/infrastructure-providers:src/providers/kms.example.ts",
+      "owner": ".ai/guides/infrastructure-providers.md",
+      "requirement": "source-required",
+      "href": "../../src/providers/kms.example.ts",
+      "resolvedPath": "src/providers/kms.example.ts"
+    },
+    {
       "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/types.ts",
       "owner": ".ai/guides/framework-contracts.md",
       "requirement": "source-required",
