@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Overdue staff MFA enrollment denies business API requests (#9152)
+
+When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session remains active. Complete enrollment through the existing security profile flow, then retry the request. API keys continue to follow their own issuance, scope, and revocation rules.
+
+Operators using a custom API catch-all should adopt the request-scoped interceptor invocation from the updated create-app template. The framework dispatcher already includes it. This change requires no database migration or credential reissue.
+
 ## Encrypted tenant custom-field writes require a usable key
 
 With tenant data encryption enabled, saving a non-null value to an encrypted tenant custom field requires a usable tenant key. Affected CRUD requests return HTTP 503 with code `ENCRYPTION_UNAVAILABLE` when the key cannot be read or created. Restore key access before retrying the field write. Custom routes that commit the base record and custom fields separately should check whether the base record already exists before retrying a create.

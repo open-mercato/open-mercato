@@ -21,7 +21,10 @@ function context(identity: AuthContext = auth): InterceptorContext {
   }
 }
 function admit(path = 'sales/orders', identity: AuthContext = auth) {
-  return interceptor.before!({ method: 'GET', url: `http://localhost/api/${path}`, headers: {} }, context(identity))
+  return interceptor.before!(
+    { method: 'GET', url: `http://localhost/api/${path}`, headers: {} },
+    { ...context(identity), routePattern: path },
+  )
 }
 
 describe('MFA enrollment API admission policy', () => {

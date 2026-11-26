@@ -30,6 +30,7 @@ export type InterceptorContext = {
   metadata?: Record<string, unknown>
   extensionHeaders?: ParsedExtensionHeaders
   auth?: AuthContext
+  routePattern?: string
 }
 
 export type InterceptorBeforeResult = {

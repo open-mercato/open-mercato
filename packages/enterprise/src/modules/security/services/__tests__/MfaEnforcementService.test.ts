@@ -52,6 +52,7 @@ function createContext() {
   const methods: MethodRow[] = []
 
   const em = {
+    execute: jest.fn(),
     create: jest.fn((entity: unknown, data: Record<string, unknown>) => {
       if (entity === MfaEnforcementPolicy) {
         return {
@@ -1031,37 +1032,13 @@ describe('MfaEnforcementService', () => {
     expect(report.total).toBe(1)
   })
 
-  test('checkUserCompliance enforces allowed methods filter', async () => {
-    const { service, policies, methods } = createContext()
-    mockedFindOneWithDecryption.mockResolvedValue({
-      id: 'user-1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      deletedAt: null,
-    } as never)
-    policies.push({
-      id: 'policy-1',
-      scope: EnforcementScope.TENANT,
-      tenantId: 'tenant-1',
-      organizationId: null,
-      isEnforced: true,
-      allowedMethods: ['passkey'],
-      enforcementDeadline: null,
-      enforcedBy: 'admin-1',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      deletedAt: null,
-    })
-    methods.push({
-      id: 'method-1',
-      userId: 'user-1',
-      type: 'totp',
-      isActive: true,
-      deletedAt: null,
-    })
+  test('checkUserCompliance returns the stored enforcement decision in one statement', async () => {
+    const { service, em } = createContext()
+    const deadline = new Date('2026-11-15T00:00:00Z')
+    em.execute.mockResolvedValueOnce([{ compliant: false, enforced: true, deadline_ms: deadline.getTime() }])
 
-    const result = await service.checkUserCompliance('user-1')
-
-    expect(result).toEqual({ compliant: false, enforced: true, deadline: undefined })
+    await expect(service.checkUserCompliance('user-1')).resolves.toEqual({ compliant: false, enforced: true, deadline })
+    expect(em.execute).toHaveBeenCalledTimes(1)
+    expect(mockedFindOneWithDecryption).not.toHaveBeenCalled()
   })
 })

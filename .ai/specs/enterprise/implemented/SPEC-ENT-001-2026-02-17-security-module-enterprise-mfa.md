@@ -2168,6 +2168,10 @@ Page middleware requests persistent notification delivery without awaiting the e
 
 **Recovery exemptions.** Preserve the exact auth login/profile/logout routes, security profile/password routes, and the `security/mfa` subtree with a segment boundary (including provider enrollment, verification, method management and recovery). These endpoints retain their existing authentication, enrollment authorization, feature and tenant checks. Security admin/enforcement/user APIs are not exempt. A similarly named path such as `security/mfa-export` is not exempt. Pending-token access remains governed by the canonical pending-token allowlist, so an enrollment exemption never promotes a pending token to a general staff session.
 
+The dispatcher uses the canonical matched path to select request hooks and passes the authored route pattern as optional interceptor context for recovery exemptions. A timed-out hook keeps its request resources until its work settles.
+
+The compliance check reads the current account scope, winning policy, and eligible method in one PostgreSQL statement. Organization policy takes precedence over tenant and platform policy, including when the winning policy explicitly disables enforcement. Each request reads current policy and enrollment state so changes take effect without a cache expiry.
+
 **API-key posture.** API-key principals (`isApiKey: true`) remain noninteractive credentials governed by their existing key lifecycle, validity, tenant/organization, role/feature and session-bound-key checks. This enrollment policy does not newly disable a key because its owner has not enrolled. This applies to regular and session-bound API-key principals; it does not bypass their existing authentication/revocation restrictions. Operators requiring interactive MFA must use interactive sessions and apply their API-key issuance/revocation controls separately. No stronger MFA protection is claimed for API keys.
 
 #### Migration & Backward Compatibility
@@ -2177,6 +2181,7 @@ All shared additions are optional; existing interceptors retain route-local orde
 #### Required regression coverage
 
 - Shared registry/runner: default route selection unchanged, explicit request selection isolated, wildcard matching, admission-only mutation rejection, and fail-closed timeout/exception behavior.
+- PostgreSQL service coverage verifies policy precedence, immediate changes, eligible methods, deadline conversion, and one database statement for a compliance decision.
 - Real catch-all path with real registry/runner/security interceptor: custom GET plus POST/PUT/PATCH/DELETE handlers remain uncalled on overdue and missing/invalid deadline denial, including global/module wildcard ACLs; compliant, unenforced and grace cases preserve handler results; service failures deny without clearing cookies; recovery paths remain reachable with their existing route checks; absent enterprise request hooks preserve existing dispatch behavior and avoid extra DI work.
 - Self-contained integration fixtures: create a user and scoped enforcement policy; prove direct custom business read and write denial using cookies, retain profile/logout/enrollment, verify future-deadline access, enroll and regain business API access, and preserve documented API-key posture. Clean up all fixture records in `finally`/teardown; no seeded business records are required.
 - Template parity, generator, relevant targeted tests and the configured validation gate. Record unavailable live infrastructure and failed/skipped gates explicitly; do not equate mocked dispatcher coverage with end-to-end HTTP evidence.

@@ -54,15 +54,15 @@ async function dispatch(
   method: ApiInterceptorMethod = 'GET',
   path = 'sales/dashboard/widgets/new-orders',
   kind: 'route-file' | 'legacy' = 'route-file',
-  options: { features?: string[]; headers?: Record<string, string>; query?: string } = {},
+  options: { features?: string[]; headers?: Record<string, string>; query?: string; routePattern?: string } = {},
 ) {
-  jest.mocked(findApiRouteManifestMatch).mockReturnValue({
-    route: {
-      moduleId: path.split('/')[0], kind, path: `/${path}`, methods: [method],
-      load: async () => ({ [method]: mockHandler, metadata: { [method]: { requireAuth: true, requireFeatures: options.features ?? ['sales.orders.view'] } } }),
-    },
-    params: {},
-  })
+  const { findApiRouteManifestMatch: matchRoute } = jest.requireActual<typeof import('@open-mercato/shared/modules/registry')>(
+    '@open-mercato/shared/modules/registry',
+  )
+  jest.mocked(findApiRouteManifestMatch).mockImplementation((_routes, matchedMethod, pathname, request) => matchRoute([{
+    moduleId: path.split('/')[0], kind, path: `/${options.routePattern ?? path}`, methods: [method],
+    load: async () => ({ [method]: mockHandler, metadata: { [method]: { requireAuth: true, requireFeatures: options.features ?? ['sales.orders.view'] } } }),
+  }], matchedMethod, pathname, request))
   const request = new NextRequest(`http://localhost/api/${path}${options.query ?? ''}`, {
     method,
     headers: { cookie: 'auth_token=canonical-session', ...(method !== 'GET' ? { 'content-type': 'application/json' } : {}), ...options.headers },
@@ -164,6 +164,15 @@ describe('MFA enrollment through the real API dispatcher and interceptor runner'
       expect(mockCompliance).not.toHaveBeenCalled()
       expect(mockHandler).toHaveBeenCalledTimes(1)
     })
+
+  test('selects an exact request hook using the matched route spelling', async () => {
+    const before = jest.fn(async () => ({ ok: true }))
+    registerApiInterceptors([{ moduleId: 'example', interceptors: [{
+      id: 'test.canonical-admission', targetRoute: 'sales/orders', scope: 'request', methods: ['GET'], before,
+    }] }])
+    expect((await dispatch('GET', 'sales/ORDERS', 'route-file', { routePattern: 'sales/orders' })).status).toBe(200)
+    expect(before).toHaveBeenCalledTimes(1)
+  })
 
   test('keeps profile feature authorization despite recovery exemption', async () => {
     mockGrants = []

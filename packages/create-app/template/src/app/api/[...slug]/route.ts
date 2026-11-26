@@ -20,6 +20,7 @@ import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
+import { resolveApiInterceptorRoutePath } from '@open-mercato/shared/lib/modules/api-route-identity'
 import { getApiInterceptorsForRoute } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
 import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
@@ -611,8 +612,9 @@ async function dispatchRequest(
   }
 
   try {
+    const routePath = auth ? resolveApiInterceptorRoutePath(req) ?? '' : ''
     const requestInterceptors = auth
-      ? getApiInterceptorsForRoute(pathname.replace(/^\//, ''), method, 'request').filter((entry) => entry.interceptor.before)
+      ? getApiInterceptorsForRoute(routePath, method, 'request').filter((entry) => entry.interceptor.before)
       : []
     if (auth && requestInterceptors.length > 0) {
       const container = await ensureContainer()
@@ -624,12 +626,13 @@ async function dispatchRequest(
         : null
       const userFeatures = acl?.isSuperAdmin ? ['*'] : acl?.features ?? []
       const admission = await runApiInterceptorsBefore({
-        routePath: pathname.replace(/^\//, ''),
+        routePath,
         method,
         scope: 'request',
         request: { method, url: req.url, headers: Object.fromEntries(req.headers.entries()) },
         context: {
           auth,
+          routePattern: match.route.path,
           userId: auth.sub,
           tenantId: auth.tenantId ?? '',
           organizationId: auth.orgId ?? '',

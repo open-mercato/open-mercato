@@ -163,21 +163,26 @@ export const interceptors: ApiInterceptor[] = [
     scope: 'request',
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     priority: 100,
-    async before(request, context) {
+    async before(_request, context) {
       const auth = context.auth
       if (!auth || auth.isApiKey || auth.mfa_pending) return { ok: true }
-      const pathname = new URL(request.url).pathname.replace(/\/+$/, '')
+      const routePattern = context.routePattern?.replace(/^\/+|\/+$/g, '').replace(/^api\//, '') ?? ''
       if (
-        pathname === '/api/auth/login'
-        || pathname === '/api/auth/logout'
-        || pathname === '/api/auth/profile'
-        || pathname === '/api/security/profile'
-        || pathname === '/api/security/profile/password'
-        || pathname === '/api/security/mfa'
-        || pathname.startsWith('/api/security/mfa/')
+        routePattern === 'auth/login'
+        || routePattern === 'auth/logout'
+        || routePattern === 'auth/profile'
+        || routePattern === 'security/profile'
+        || routePattern === 'security/profile/password'
+        || routePattern === 'security/mfa'
+        || routePattern.startsWith('security/mfa/')
       ) return { ok: true }
 
-      const enrollmentRedirect = await resolveMfaEnrollmentRedirect({ auth, pathname, container: context.container, failClosed: true })
+      const enrollmentRedirect = await resolveMfaEnrollmentRedirect({
+        auth,
+        pathname: `/api/${routePattern}`,
+        container: context.container,
+        failClosed: true,
+      })
       if (!enrollmentRedirect) return { ok: true }
       const { t } = await resolveTranslations()
       return { ok: false, statusCode: 403, message: t('security.profile.mfa.enforcement.notice.text') }
