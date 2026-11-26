@@ -497,7 +497,7 @@ test('cut --at creates the line at the green tag, not main\'s tip, and splits Un
     assert.ok(lineIndex >= 0 && trunkIndex >= 0, 'one commit carries the line changelog, one bumps main')
     const lineChangelog = treeChangelog(trees[lineIndex]) ?? ''
     const trunkChangelog = treeChangelog(trees[trunkIndex]) ?? ''
-    assert.match(lineChangelog, /^# Unreleased\n\n- Quotes\. \(#101\)\n\n# 0\.9\.0/)
+    assert.equal(lineChangelog, `# Unreleased\n\n- Quotes. (#101)\n\n${CHANGELOG}`, 'the tag\'s changelog is kept byte for byte below the carried entries')
     assert.doesNotMatch(lineChangelog, /#102|Short prose/)
     assert.match(trunkChangelog, /^# Unreleased\n\nShort prose\.\n\n- Invoices\. \(#102\)\n\n# 0\.9\.0/)
     assert.doesNotMatch(trunkChangelog, /#101/)

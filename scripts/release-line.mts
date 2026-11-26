@@ -106,13 +106,14 @@ const abs = (rel: string) => path.join(repoRoot, rel)
 const readText = (rel: string) => readFileSync(abs(rel), 'utf8')
 const readManifest = (rel: string): Manifest => JSON.parse(readText(rel))
 const git = (...args: string[]) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim()
-const tryGit = (...args: string[]): string | null => {
+const tryGitRaw = (...args: string[]): string | null => {
   try {
-    return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
   } catch {
     return null
   }
 }
+const tryGit = (...args: string[]): string | null => tryGitRaw(...args)?.trim() ?? null
 const today = () => flags.date ?? new Date().toISOString().slice(0, 10)
 
 const changed = new Map<string, string>()
@@ -233,7 +234,7 @@ async function cut() {
       const split = splitUnreleased(changelog, (pr) => contained.has(pr))
       if (split) {
         write('CHANGELOG.md', withUnreleased(changelog, split.trunk))
-        const atChangelog = tryGit('show', `${at}:CHANGELOG.md`) ?? ''
+        const atChangelog = tryGitRaw('show', `${at}:CHANGELOG.md`) ?? ''
         const carried = withUnreleased(atChangelog, split.line)
         if (carried.trim() !== atChangelog.trim()) lineChangelog = carried
         log(`# Unreleased split at ${greenTag}: entries for PRs it contains go to ${releaseBranch}, the rest stay on ${TRUNK}`)
