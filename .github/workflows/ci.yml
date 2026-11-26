@@ -85,8 +85,8 @@ on:
       - 'release/v*'
       - feat/wms
   pull_request:
-    # Draft PRs get no CI: `audit-scope` (cheap, required) reports the draft and every other job
-    # skips. `ready_for_review` starts the full run the moment the PR is marked ready.
+    # Draft PRs get no CI: `audit-scope` detects the draft, `test` fails on purpose and every
+    # other job skips. `ready_for_review` starts the full run the moment the PR is marked ready.
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
@@ -288,11 +288,10 @@ jobs:
   # Determines whether dependency audit needs to run. Package manifests and
   # lockfiles are the only inputs that can change the dependency graph.
   #
-  # Also the draft gate: it is the one job that runs on a draft PR, and it is a
-  # required check, so it stays pending on a fresh run and blocks a merge while
-  # the skipped results of an earlier draft run are still the latest ones. The
-  # draft state is read live, so re-running an old draft run after the PR was
-  # marked ready runs the suite instead of re-publishing skipped checks.
+  # Also the draft detector: on a draft PR every other job skips, except
+  # `test`, which fails on purpose (see its note). The draft state is read live,
+  # so re-running an old draft run after the PR was marked ready runs the suite
+  # instead of re-publishing draft results.
   audit-scope:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
@@ -664,16 +663,23 @@ jobs:
   # Typechecking and unit tests. Runs in parallel with ephemeral-integration
   # so typecheck cost does not add to the integration wall time.
   # merge-coverage and docker-build both wait for this job to complete.
+  #
+  # Draft gate: on a draft PR this required job FAILS instead of skipping. A
+  # skipped check counts as passing, so a draft run that only skipped would
+  # leave every required check green on the commit until the ready run's jobs
+  # replaced them. A failing `test` stays red until a non-draft run reports a
+  # real result, so marking a PR ready never opens a merge window.
   test:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
       !cancelled() &&
-      needs.prepare.result == 'success' &&
-      needs.audit-scope.result == 'success' &&
-      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
-      needs.lint.result == 'success'
+      (needs.audit-scope.outputs.draft == 'true' ||
+       (needs.prepare.result == 'success' &&
+        needs.audit-scope.result == 'success' &&
+        (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+        needs.lint.result == 'success'))
     services:
       # `@open-mercato/queue` translates its `coalesce` option into BullMQ deduplication,
       # and the rest of its tests — which mock BullMQ — prove only that the right options
@@ -702,6 +708,12 @@ jobs:
       # which is what keeps it out of every environment that has no Redis.
       QUEUE_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
+      - name: Fail on draft pull request
+        if: needs.audit-scope.outputs.draft == 'true'
+        run: |
+          echo "::error::Draft pull request: CI does not run on drafts. Mark the PR ready for review to run the checks."
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v7
         with:

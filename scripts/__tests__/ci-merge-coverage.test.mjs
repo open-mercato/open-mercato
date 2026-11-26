@@ -11,8 +11,8 @@ const workflow = parse(fs.readFileSync(new URL('../../.github/workflows/ci.yml',
 const coverageJob = workflow.jobs['merge-coverage']
 
 function evaluateJobCondition(job, overrides = {}, { workflowCancelled = false, shardMatrix = '["1/15","2/15"]' } = {}) {
-  const needs = Object.fromEntries(job.needs.map((dependency) => [dependency, { result: 'success' }]))
-  for (const [dependency, result] of Object.entries(overrides)) needs[dependency] = { result }
+  const needs = Object.fromEntries(job.needs.map((dependency) => [dependency, { result: 'success', outputs: {} }]))
+  for (const [dependency, result] of Object.entries(overrides)) needs[dependency] = { ...needs[dependency], result }
   needs.prepare.outputs = { shard_matrix: shardMatrix, skip_integration: 'false' }
   const expression = job.if.replace(/needs\.([\w-]+)/g, 'needs["$1"]')
   return vm.runInNewContext(expression, {
