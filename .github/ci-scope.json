@@ -1,0 +1,66 @@
+{
+  "$schema": "./ci-scope.schema.json",
+  "default": "scoped",
+  "levels": ["ci-targeted", "ci-full"],
+  "implies": {
+    "risk-high": "ci-targeted",
+    "security": "ci-targeted",
+    "backport *": "ci-targeted"
+  },
+  "areas": {
+    "commerce": ["sales", "catalog", "cart", "checkout", "promotions", "payment_gateways", "shipping_carriers", "currencies", "wms"],
+    "crm": ["customers", "customer_groups", "messages", "inbox_ops", "communication_channels", "phone_calls", "planner"],
+    "platform": ["auth", "directory", "entities", "configs", "feature_toggles", "api_keys", "audit_logs", "query_index", "attachments", "dashboards"],
+    "integrations": [
+      "integrations",
+      "data_sync",
+      "webhooks",
+      "notifications",
+      "carrier_inpost",
+      "channel_apns",
+      "channel_discord",
+      "channel_expo",
+      "channel_fcm",
+      "channel_gmail",
+      "channel_imap",
+      "channel_resend",
+      "channel_ses",
+      "channel_smtp",
+      "gateway_autopay",
+      "gateway_stripe",
+      "gateway_tpay",
+      "storage_s3",
+      "sync_akeneo",
+      "sync_excel"
+    ],
+    "portal": ["portal", "customer_accounts"],
+    "workflows": ["workflows", "business_rules", "forms", "resources", "staff", "availability"],
+    "ai": ["ai_assistant", "agent_orchestrator"],
+    "enterprise": ["sso", "security", "record_locks", "system_status_overlays"]
+  },
+  "ignoredLabels": ["ci-monitoring"],
+  "fullSuitePatterns": [
+    "^\\.github/workflows/ci\\.yml$",
+    "^packages/shared/",
+    "^packages/ui/",
+    "^packages/events/",
+    "^packages/queue/",
+    "^packages/cache/",
+    "^packages/search/",
+    "^packages/onboarding/",
+    "^packages/webhooks/",
+    "^packages/core/src/lib/",
+    "^packages/enterprise/src/lib/",
+    "^packages/cli/src/lib/testing/",
+    "^apps/mercato/src/(app|lib|components|layout\\.|page\\.)"
+  ],
+  "docsOnly": [
+    ".ai/specs/**/*.md",
+    ".ai/docs/**/*.md",
+    "apps/docs/**",
+    "README.md",
+    "CONTRIBUTING.md",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ]
+}
