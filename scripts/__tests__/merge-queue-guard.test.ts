@@ -7,9 +7,14 @@ import {
   blockingLabels,
   decide,
   formatComment,
+  formatLogLine,
+  formatSummary,
+  keepReason,
   run,
   type GuardContext,
+  type GuardCore,
   type GuardGithub,
+  type GuardReport,
 } from '../ci/merge-queue-guard.mts'
 
 test('the workflow never coalesces pending label events', () => {
@@ -121,11 +126,31 @@ function fakeGithub(labels: string[], { removeStatus }: { removeStatus?: number 
   return { github, calls }
 }
 
-function fakeContext(action: string, label: string): GuardContext {
-  return { repo: { owner: 'o', repo: 'r' }, payload: { action, label: { name: label }, pull_request: { number: 7 } } }
+function fakeContext(action: string, label: string, sender = 'alice'): GuardContext {
+  return {
+    repo: { owner: 'o', repo: 'r' },
+    payload: { action, label: { name: label }, pull_request: { number: 7 }, sender: { login: sender } },
+  }
 }
 
-const core = { info: () => {} }
+function fakeCore() {
+  const logs: string[] = []
+  const summaries: string[] = []
+  let written = 0
+  const core: GuardCore = {
+    info: (message) => logs.push(message),
+    summary: {
+      addRaw: (text) => summaries.push(text),
+      write: async () => {
+        written += 1
+      },
+    },
+  }
+  return { core, logs, summaries, written: () => written }
+}
+
+const core = fakeCore().core
+const now = () => new Date('2026-11-26T10:00:00.000Z')
 
 test('run removes only merge-queue and comments once, reading fresh labels', async () => {
   const { github, calls } = fakeGithub(['merge-queue', 'qa-failed'])
@@ -163,7 +188,91 @@ test('run ignores events that are not pull request label changes', async () => {
   assert.deepEqual(calls, [])
 })
 
-type WorkflowStep = { name?: string; uses?: string; run?: string; with?: Record<string, unknown> }
+test('every run writes one job summary and one log line', async () => {
+  const recorder = fakeCore()
+  const { github } = fakeGithub(['merge-queue', 'qa-failed'])
+  await run({ github, context: fakeContext('labeled', 'qa-failed'), core: recorder.core, now })
+  assert.equal(recorder.summaries.length, 1)
+  assert.equal(recorder.written(), 1)
+  assert.equal(recorder.logs.length, 1)
+  assert.match(recorder.summaries[0], /^## .*Removed `merge-queue` from #7\n/)
+  assert.match(recorder.summaries[0], /\| Pull request \| \[#7\]\(https:\/\/github\.com\/o\/r\/pull\/7\) \|/)
+  assert.match(recorder.summaries[0], /\| Event \| labeled `qa-failed` by alice \|/)
+  assert.match(recorder.summaries[0], /\| Decision \| \*\*removed `merge-queue`\*\* \|/)
+  assert.match(recorder.logs[0], /^#7: removed merge-queue \(qa-failed was added\)/)
+})
+
+test('a run that keeps merge-queue says so and why in the summary', async () => {
+  const recorder = fakeCore()
+  const { github } = fakeGithub(['merge-queue', 'blocked', 'bug'])
+  await run({ github, context: fakeContext('labeled', 'bug'), core: recorder.core, now })
+  assert.match(recorder.summaries[0], /`merge-queue` stays on #7/)
+  assert.match(recorder.summaries[0], /labeled `bug` is not a trigger for removal \(blocking labels present: `blocked`\)/)
+})
+
+test('a concurrent removal is reported as already gone', async () => {
+  const recorder = fakeCore()
+  const { github } = fakeGithub(['merge-queue', 'blocked'], { removeStatus: 404 })
+  await run({ github, context: fakeContext('labeled', 'blocked'), core: recorder.core, now })
+  assert.match(recorder.summaries[0], /\*\*`merge-queue` was already gone\*\*/)
+})
+
+test('merge-queue removed by someone else is recorded with who and when, never re-added or commented', async () => {
+  const recorder = fakeCore()
+  const { github, calls } = fakeGithub(['blocked'])
+  const decision = await run({
+    github,
+    context: fakeContext('unlabeled', 'merge-queue', 'om-bot[bot]'),
+    core: recorder.core,
+    guardAppSlug: 'release-app',
+    now,
+  })
+  assert.deepEqual(decision, { remove: false })
+  assert.deepEqual(calls, [])
+  assert.match(recorder.summaries[0], /`merge-queue` was removed from #7 by om-bot\[bot\]/)
+  assert.match(recorder.summaries[0], /om-bot\[bot\] removed `merge-queue` at 2026-11-26T10:00:00\.000Z/)
+  assert.match(recorder.logs[0], /removed by someone else.*om-bot\[bot\] removed merge-queue at 2026-11-26T10:00:00\.000Z/)
+})
+
+test("the guard's own merge-queue removal is not reported as someone else's", async () => {
+  const recorder = fakeCore()
+  const { github, calls } = fakeGithub([])
+  await run({
+    github,
+    context: fakeContext('unlabeled', 'merge-queue', 'release-app[bot]'),
+    core: recorder.core,
+    guardAppSlug: 'release-app',
+    now,
+  })
+  assert.deepEqual(calls, [])
+  assert.match(recorder.summaries[0], /Nothing to do for #7/)
+  assert.doesNotMatch(recorder.summaries[0], /someone else/)
+})
+
+test('keepReason separates not relevant from stays', () => {
+  assert.equal(keepReason({ action: 'labeled', label: 'blocked', labels: ['blocked'] }).outcome, 'not-relevant')
+  assert.deepEqual(keepReason({ action: 'labeled', label: 'merge-queue', labels: ['merge-queue'] }), {
+    outcome: 'stays',
+    reason: 'no blocking label is present',
+  })
+})
+
+test('formatSummary escapes table pipes and works without a pull request', () => {
+  const report: GuardReport = { at: 'now', outcome: 'not-relevant', reason: 'a | b\nc' }
+  const summary = formatSummary(report)
+  assert.match(summary, /\| Pull request \| n\/a \|/)
+  assert.match(summary, /\| Event \| not a pull request label event \|/)
+  assert.match(summary, /\| Reason \| a \\\| b c \|/)
+  assert.equal(formatLogLine(report).includes('\n'), false)
+})
+
+type WorkflowStep = {
+  name?: string
+  uses?: string
+  run?: string
+  env?: Record<string, string>
+  with?: Record<string, unknown>
+}
 type Workflow = {
   on: Record<string, { types?: string[] }>
   permissions: Record<string, string>
@@ -220,4 +329,14 @@ test('the script never interpolates event data and token-holding actions are pin
   assert.ok(scriptStep)
   assert.equal(String(scriptStep.with?.script).includes('${{'), false)
   assert.equal(scriptStep.with?.['github-token'], '${{ steps.app-token.outputs.token }}')
+})
+
+test('the job also runs when merge-queue itself is removed, and tells the script which app it acts as', () => {
+  const job = readGuardWorkflow().jobs.guard
+  assert.doesNotMatch(job.if ?? '', /github\.event\.action == 'unlabeled'/)
+  const scriptStep = job.steps.find((step) => step.uses?.startsWith('actions/github-script@'))
+  assert.ok(scriptStep)
+  assert.equal(scriptStep.name, 'Check merge-queue against blocking labels')
+  assert.equal(scriptStep.env?.GUARD_APP_SLUG, '${{ steps.app-token.outputs.app-slug }}')
+  assert.match(String(scriptStep.with?.script), /guardAppSlug: process\.env\.GUARD_APP_SLUG/)
 })

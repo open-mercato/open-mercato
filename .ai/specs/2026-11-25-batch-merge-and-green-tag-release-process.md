@@ -591,6 +591,8 @@ Phases 0–6 plus optional follow-ups. The order is deliberate:
 
     It never adds labels and never removes the blocking ones. The decision lives in `scripts/ci/merge-queue-guard.mts` (`blockingLabels()`, `decide()`), unit-tested in `scripts/__tests__/merge-queue-guard.test.ts`; Phase 4 reuses it. Independent of the CI phases, so it lands now and protects the QA cut-over in step 7.
 
+    Every run writes a job summary (step "Check merge-queue against blocking labels"): PR number and link, the event (`labeled`/`unlabeled`, label, actor), the decision (removed / stays / already gone / not relevant) and the reason, so removals are visible without reading logs. When someone other than the guard (a person or a skill such as `om-auto-fix-pr`) removes `merge-queue`, the run records who and when in the summary and log only: no comment, and the label is never re-added.
+
 **Exit criteria.** 10 batches run. QA time per batch and red-batch rate are known. Fix PRs into the batch get CI. Skills #210 and PR #10712 merged, so only `needs-human-qa` gates merges.
 **Rollback.** Stop cutting daily batches; revert step 1 if needed (it only adds CI).
 
@@ -864,6 +866,7 @@ Other:
 
 ## Changelog
 
+- 2026-11-26: `merge-queue` guard writes a job summary for every run (PR, event, decision, reason) and records `merge-queue` removals by anyone other than the guard; step renamed to "Check merge-queue against blocking labels".
 - 2026-11-26: Audit gate: a failed or cancelled `audit` makes the required `test` and `documents-multi-instance` checks fail instead of skipping (a skip reads as passing); `audit` succeeded or not needed keeps the normal path.
 - 2026-11-26: Draft PRs get no CI: `ready_for_review` trigger plus a live draft lookup in `audit-scope` (`ci.yml`) and `scope` (`mutation-tests.yml`); the required `test` check fails on drafts so no merge window opens after marking ready; enterprise guard unchanged. Documented in CONTRIBUTING.md → Stabilization CI.
 - 2026-11-26: Review round (read-only review of PR #10756): label events moved out of `ci.yml` into `ci-scope-labels.yml` plus a required `ci-scope` aggregator, so a label can never cancel a suite or leave skipped-equals-passing checks; Phase 0 adds `stabilize/**` as a `pull_request` base; external PRs need a human `accepted` and a human approval, AI labels never pass `ci-triage`; `ci-triage` / `ci-scope` are pinned GitHub Actions check runs, not statuses; scope file and resolver read from the base branch, owned by maintainers with enforced code-owner review, and force the full suite when changed; merge-back conflicts re-run the full suite (forced for `stabilize/` heads); `docsOnly` is an explicit allow-list including `apps/docs/**`; planned parity, `ci-scope`, `ci-triage`, `cut --at` and `green_tag` tests, with `ci-triage` reusing `decide()` from PR #10757; corrected what the `main` push suite guarantees; core team by permission level instead of `author_association`; Phase 0 is a trial on the draft and Phase 1 agrees the spec.
