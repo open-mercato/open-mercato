@@ -382,12 +382,6 @@ function resolveWarrantyObjectModel(container: AwilixContainer): GenerateObjectM
 
 export const ATTACHMENT_CONVERSION_FAILED_CODE = 'warranty_claims.ai_attachment_conversion_failed'
 
-function readErrorCode(err: unknown): string | undefined {
-  if (typeof err !== 'object' || err === null) return undefined
-  const code = (err as { code?: unknown }).code
-  return typeof code === 'string' ? code : undefined
-}
-
 async function buildAttachmentMessages(input: {
   container: AwilixContainer
   attachmentId: string
@@ -407,18 +401,17 @@ async function buildAttachmentMessages(input: {
   }
   try {
     return await toWarrantyModelMessages(input.prompt, fileParts)
-  } catch (err) {
+  } catch {
+    const error = new WarrantyAiUnavailableError('[internal] warranty ai attachment conversion failed')
     logger.warn('warranty_claims.ai.attachment_conversion_failed', {
       attachmentId: input.attachmentId,
-      errorName: err instanceof Error ? err.name : typeof err,
-      errorCode: readErrorCode(err),
     })
-    getTelemetryRuntime()?.reportError(err, {
+    getTelemetryRuntime()?.reportError(error, {
       module: MODULE_ID,
       code: ATTACHMENT_CONVERSION_FAILED_CODE,
       attributes: { attachmentId: input.attachmentId },
     })
-    throw new WarrantyAiUnavailableError('[internal] warranty ai attachment conversion failed')
+    throw error
   }
 }
 
