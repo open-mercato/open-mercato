@@ -7,7 +7,13 @@ import { inspectNpmModuleTarget } from '../module-inspection'
 
 describe('module artifact inspection', () => {
   let root: string
-  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-inspection-test-')) })
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-inspection-test-'))
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NPM_CONFIG_USERCONFIG: path.join(root, 'npm-user-config'),
+    })
+  })
   afterEach(() => { jest.restoreAllMocks(); fs.rmSync(root, { recursive: true, force: true }) })
 
   it('inspects large packages whose artifact indexes exceed the subprocess default buffer', () => {
@@ -173,7 +179,7 @@ describe('module artifact inspection', () => {
       const values = args ?? []
       temporaryConfig = String(values[values.indexOf('--userconfig') + 1])
       expect(fs.statSync(temporaryConfig).mode & 0o777).toBe(0o600)
-      expect(fs.readFileSync(temporaryConfig, 'utf8')).toContain('//private.example.test/npm/:_authToken="test-token-do-not-print"')
+      expect(fs.readFileSync(temporaryConfig, 'utf8').includes('//private.example.test/npm/:_authToken="test-token-do-not-print"')).toBe(true)
       expect(values).toContain('--@vendor:registry=https://private.example.test/npm/')
       expect(values.join(' ')).not.toContain('test-token-do-not-print')
       return { status, stdout: JSON.stringify([{ name: '@vendor/example', version: '1.2.3', filename: 'candidate.tgz' }]), stderr: 'test-token-do-not-print', pid: 1, output: [], signal: null }
@@ -212,8 +218,8 @@ describe('module artifact inspection', () => {
     }, (args, config) => { packArgs = args; npmrc = config })
     expect(inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root)).toMatchObject({ version: '1.2.3', moduleIds: ['example'] })
     expect(packArgs).toEqual(expect.arrayContaining(['--registry', 'https://registry.yarnpkg.com', '--@vendor:registry=https://registry.yarnpkg.com']))
-    expect(npmrc).toContain('registry="https://registry.yarnpkg.com"')
-    expect(npmrc).not.toContain('_auth')
+    expect(npmrc.includes('registry="https://registry.yarnpkg.com"')).toBe(true)
+    expect(npmrc.includes('_auth')).toBe(false)
   })
 
   it('keeps top-level Yarn authentication when npmScopes and npmRegistries are unset', () => {
@@ -227,7 +233,7 @@ describe('module artifact inspection', () => {
       npmAuthIdent: 'null\n',
     }, (_args, config) => { npmrc = config })
     expect(inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root).version).toBe('1.2.3')
-    expect(npmrc).toContain('//registry.yarnpkg.com/:_authToken="test-token-do-not-print"')
+    expect(npmrc.includes('//registry.yarnpkg.com/:_authToken="test-token-do-not-print"')).toBe(true)
   })
 
   it('still fails closed on malformed Yarn configuration output', () => {
