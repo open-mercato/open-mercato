@@ -123,9 +123,11 @@ function ProgressTopBarContent({ className, t, completedAutoHideMs }: ProgressTo
 
 function ProgressJobCard({ job, t, onCancel }: { job: ProgressJobDto; t: TranslateFn; onCancel?: () => void }) {
   const [cancelling, setCancelling] = React.useState(false)
+  const isActive = job.status === 'pending' || job.status === 'running'
+  const canCancel = isActive && job.cancellable && job.canCancel === true
 
   const handleCancel = async () => {
-    if (!job.cancellable || cancelling) return
+    if (!canCancel || cancelling) return
     setCancelling(true)
     try {
       await apiCall(`/api/progress/jobs/${job.id}`, { method: 'DELETE' })
@@ -135,7 +137,6 @@ function ProgressJobCard({ job, t, onCancel }: { job: ProgressJobDto; t: Transla
     }
   }
 
-  const isActive = job.status === 'pending' || job.status === 'running'
   const isFailed = job.status === 'failed'
   const isCompleted = job.status === 'completed'
 
@@ -163,8 +164,9 @@ function ProgressJobCard({ job, t, onCancel }: { job: ProgressJobDto; t: Transla
           )}
         </div>
 
-        {isActive && job.cancellable && (
+        {canCancel && (
           <Button
+            type="button"
             variant="ghost"
             size="icon"
             onClick={handleCancel}

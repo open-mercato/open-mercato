@@ -603,6 +603,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     let resolvedPipelineStageLabel: string | null = null
     let stageDefaultProbability: number | null = null
     const createdDictionaryKinds = new Set<string>()
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
     await withAtomicFlush(em, [
       async () => {
         stageSnapshot = parsed.pipelineStageId
@@ -668,19 +669,18 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       },
       () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId, { stampLockToken: false }),
       () => syncDealCompanies(em, deal, parsed.companyIds ?? [], { stampLockToken: false }),
+      () => setCustomFieldsIfAny({
+        dataEngine: de,
+        transactionalEm: em,
+        entityId: DEAL_ENTITY_ID,
+        recordId: deal.id,
+        organizationId: deal.organizationId,
+        tenantId: deal.tenantId,
+        values: custom,
+        notify: false,
+      }),
     ], { transaction: true })
     await invalidateDictionaryKindCaches(ctx, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, createdDictionaryKinds)
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await setCustomFieldsIfAny({
-      dataEngine: de,
-      entityId: DEAL_ENTITY_ID,
-      recordId: deal.id,
-      organizationId: deal.organizationId,
-      tenantId: deal.tenantId,
-      values: custom,
-      notify: false,
-    })
 
     await emitCrudSideEffects({
       dataEngine: de,
@@ -840,13 +840,14 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     let requestedClosureOutcome: DealClosureOutcome | null = null
     const createdDictionaryKinds = new Set<string>()
 
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
     await runCrudCommandWrite({
       ctx,
+      dataEngine: de,
       em,
       entityId: DEAL_ENTITY_ID,
       action: 'updated',
       scope: { tenantId: record.tenantId, organizationId: record.organizationId },
-      customFields: custom,
       events: dealCrudEvents,
       indexer: dealCrudIndexer,
       sideEffect: () => ({
@@ -996,6 +997,15 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         },
         () => syncDealPeople(em, record, parsed.personIds, parsed.primaryPersonEntityId),
         () => syncDealCompanies(em, record, parsed.companyIds),
+        () => setCustomFieldsIfAny({
+          dataEngine: de,
+          transactionalEm: em,
+          entityId: DEAL_ENTITY_ID,
+          recordId: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+          values: custom,
+        }),
       ],
     })
     await invalidateDictionaryKindCaches(ctx, record, createdDictionaryKinds)

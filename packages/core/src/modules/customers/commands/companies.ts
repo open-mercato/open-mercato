@@ -477,10 +477,11 @@ async function setCompanyCustomFields(
   profileId: string,
   organizationId: string,
   tenantId: string,
-  values: Record<string, unknown>
+  values: Record<string, unknown>,
+  transactionalEm?: EntityManager,
 ) {
   if (!values || !Object.keys(values).length) return
-  const em = (ctx.container.resolve('em') as EntityManager)
+  const em = transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
   const routing = await resolveCompanyCustomFieldRouting(em, tenantId, organizationId)
   const entityScoped: Record<string, unknown> = {}
   const profileScoped: Record<string, unknown> = {}
@@ -499,6 +500,7 @@ async function setCompanyCustomFields(
       organizationId,
       tenantId,
       values: entityScoped,
+      transactionalEm,
       notify: false,
     })
   }
@@ -510,6 +512,7 @@ async function setCompanyCustomFields(
       organizationId,
       tenantId,
       values: profileScoped,
+      transactionalEm,
       notify: false,
     })
   }
@@ -595,8 +598,8 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
         em.persist(profile)
       },
       () => syncEntityTags(em, entity, parsed.tags),
+      () => setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom, em),
     ], { transaction: true })
-    await setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -879,9 +882,8 @@ const updateCompanyCommand = {
         }
       },
       () => syncEntityTags(em, record, parsed.tags, { ignoreMissing: ignoreMissingTags }),
+      () => setCompanyCustomFields(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom, em),
     ], { transaction: true })
-
-    await setCompanyCustomFields(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
