@@ -216,7 +216,13 @@ export async function checkAuthorization(
       requiredFeatures,
     })
     const { organizationId } = featureContext
-    const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
+    // An organization scope that resolved to no organization at all is deny-all. The
+    // ACL list alone cannot tell: ids that no longer resolve (a soft-deleted
+    // organization) leave it non-empty while the resolved scope is empty, and the
+    // feature check below would then run with `organizationId: null` and pass.
+    const hasEmptyOrganizationScope = Array.isArray(featureContext.allowedOrganizationIds)
+      && featureContext.allowedOrganizationIds.length === 0
+    const ok = !hasEmptyOrganizationScope && await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
       tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
       organizationId,
     })
