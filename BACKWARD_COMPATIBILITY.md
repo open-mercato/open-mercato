@@ -742,4 +742,4 @@ STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver
 
 ## #10338 (2026-11-25)
 
-STABLE API and Sales org overrides: bridge retains bypass. Named human waiver due. [Migration](UPGRADE_NOTES.md#scoped-api-organization-authorization-10338).
+STABLE org scope. A bridge bypasses auth. Named waiver due. [Guide](UPGRADE_NOTES.md#scoped-api-organization-authorization-10338).
