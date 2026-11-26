@@ -48,8 +48,10 @@ function tryResolveEnqueueOutbound(container: ContainerLike): EnqueueOutboundDel
 /**
  * Finds the organization's external participants whose retry is due (or whose
  * first job never ran) and re-enqueues their delivery on the path that owns it:
- * the mailbox outbound job per link for `send_as_user` messages, the system
- * `external_participants` job otherwise. Participants past the delivery window
+ * the mailbox outbound job per link once a `send_as_user` message is linked, the
+ * system `external_participants` job only for a message whose recorded route is
+ * `system`. Any other route (no email delivery, a channel conversation, a mailbox
+ * hand-off still in progress) is left to its owner. Participants past the delivery window
  * are failed here, so they settle even when no job runs any more. Duplicate jobs
  * are harmless: both paths claim participants before sending.
  */
@@ -113,6 +115,7 @@ export async function runEmailRetryTick(
       }
       continue
     }
+    if (message.emailDeliveryRoute !== 'system') continue
     await enqueueMessageEmailJob({
       type: 'external_participants',
       messageId: message.id,

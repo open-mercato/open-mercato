@@ -116,6 +116,10 @@ async function resolveNotificationVariables(payload: MessageSentPayload, ctx: Re
  * Fails open (`false`, i.e. today's behavior) when the Message can't be
  * found — we can only skip the external send when we can affirmatively show
  * it is channel-routed.
+ *
+ * A channel conversation whose thread no longer resolves falls back to the
+ * platform sender, so its route is recorded as `system` here: the email worker
+ * and the retry tick only deliver `system`-routed messages.
  */
 async function isChannelRoutedMessage(payload: MessageSentPayload, ctx: ResolverContext): Promise<boolean> {
   try {
@@ -150,7 +154,13 @@ async function isChannelRoutedMessage(payload: MessageSentPayload, ctx: Resolver
       { messageThreadId: message.threadId },
       { userId: null, features: [] },
     )
-    return channelThreadAccess !== null
+    if (channelThreadAccess !== null) return true
+    await em.nativeUpdate(
+      Message,
+      { id: payload.messageId, tenantId: payload.tenantId, organizationId: payload.organizationId ?? null, emailDeliveryRoute: null },
+      { emailDeliveryRoute: 'system' },
+    )
+    return false
   } catch {
     return false
   }

@@ -81,7 +81,9 @@ class ImapChannelAdapter implements ChannelAdapter {
     }
     const meta = (native.metadata ?? {}) as Record<string, unknown>
     const to = Array.isArray(meta.to) ? (meta.to as string[]) : []
-    if (to.length === 0) {
+    const cc = Array.isArray(meta.cc) ? (meta.cc as string[]) : []
+    const bcc = Array.isArray(meta.bcc) ? (meta.bcc as string[]) : []
+    if (to.length + cc.length + bcc.length === 0) {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires at least one recipient' }
     }
 
@@ -106,8 +108,8 @@ class ImapChannelAdapter implements ChannelAdapter {
       result = await smtp.send(credentialsToSmtpConnection(credentials), {
         from: credentials.fromAddress,
         to,
-        cc: Array.isArray(meta.cc) ? (meta.cc as string[]) : undefined,
-        bcc: Array.isArray(meta.bcc) ? (meta.bcc as string[]) : undefined,
+        cc: Array.isArray(meta.cc) ? cc : undefined,
+        bcc: Array.isArray(meta.bcc) ? bcc : undefined,
         subject: typeof meta.subject === 'string' ? (meta.subject as string) : undefined,
         text: native.content.text,
         html: native.content.html,

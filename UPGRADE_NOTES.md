@@ -228,8 +228,10 @@ wrappers are unaffected; it still throws when no address was accepted. The new
 string, and `sendSeparately` makes one `send()` call per address. A joint send to more than one
 address throws `EMAIL_TRANSPORT_MULTI_RECIPIENT_UNSUPPORTED` unless the transport sets
 `supportsMultipleRecipients: true`; such a transport receives every address in
-`payload.recipients` (`payload.to` is the first). `send()` may now return an `EmailSendResult` to
-report a partial rejection; returning `void` still means every address was accepted.
+`payload.recipients` (`payload.to` is the first). The `send(): Promise<void>` signature is
+unchanged. A transport that can report a partial rejection may additionally implement the optional
+`sendWithResult(payload): Promise<EmailSendResult>`; `sendEmailWithResult()` prefers it and otherwise
+calls `send()`, treating a resolved call as every address accepted.
 
 ## Mailbox sends: one channel link per recipient for "send separately"
 
@@ -332,6 +334,17 @@ person, visibility and reply threading. Additive contracts: `sendAsUser` (DI fac
 existing-message mode falls back to the stored options when no `channelMetadata` is passed.
 `POST /api/customers/people/[id]/emails` accepts `scheduledAt` and responds with `scheduledAt` instead
 of `queuedAt` when scheduled. New UI hook `useComposeScheduling` in `@open-mercato/ui/backend/messages`.
+
+## Messages: recorded email delivery route
+
+New nullable column `messages.email_delivery_route` (`system` | `send_as_user`, migration
+`messages/Migration20261126120000`) — run `yarn db:migrate`. It is written in the same transaction
+that marks external participants `pending`; the retry tick and the email worker send platform email
+only for `system`, so a mailbox send, a channel conversation or a message without email delivery is
+never picked up by the platform sender. The migration fills it for existing mailbox sends and for sent
+platform-email messages that already have participant delivery statuses. Messages without participant
+rows keep the single-address send. A message sent without email delivery keeps its external
+participants without a delivery status. Additive: `SendAsUserFailureCode` gains `release_superseded`.
 
 ## Deal loss reasons seeded by customers (#8801)
 

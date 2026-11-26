@@ -231,9 +231,10 @@ export async function sendEmailWithResult(options: SendEmailOptions): Promise<Em
       tenantId: options.tenantId,
       organizationId: options.organizationId,
     }
-    let outcome: void | EmailSendResult
+    let outcome: EmailSendResult | null = null
     try {
-      outcome = await transport.send(payload)
+      if (transport.sendWithResult) outcome = await transport.sendWithResult(payload)
+      else await transport.send(payload)
     } catch (error) {
       // A separate send must not lose the addresses already accepted, or a retry would duplicate them.
       if (!options.sendSeparately) throw error

@@ -26,6 +26,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { MessageChannelLink } from '../../data/entities'
+import { Message } from '../../../messages/data/entities'
 import { baseEmailCapabilities } from '../email-capabilities'
 import { OUTBOUND_ATTACHMENTS_METADATA_KEY } from '../outbound-attachments'
 import { sendAsUser, type SendAsUserInput } from '../send-as-user'
@@ -48,7 +49,7 @@ function makeContainer(options: { fileSharing: boolean; scheduler?: boolean }) {
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
     nativeUpdate: jest.fn(async () => 1),
-    transactional: jest.fn(async (work: () => Promise<void>) => work()),
+    transactional: jest.fn(async (work: (trx: unknown) => Promise<void>) => work(em)),
   }
   em.fork = () => em
   const commandBus = { execute: jest.fn(async () => ({ result: { id: 'msg-1', threadId: 'thread-1' } })) }
@@ -220,20 +221,21 @@ describe('sendAsUser — attachments', () => {
   it('sends the files stored by a scheduled send when the message is released', async () => {
     const { container, created } = makeContainer({ fileSharing: true })
     const stored = [{ attachmentId: ATTACHMENT_ID, owner: OWNER, filename: 'Order 42.pdf' }]
+    const message = {
+      id: 'msg-1',
+      threadId: 'msg-1',
+      senderUserId: 'u-1',
+      visibility: 'public',
+      isDraft: false,
+      subject: 'Order 42',
+      body: 'Please find the order attached.',
+      bodyFormat: 'text',
+      emailSendSeparately: false,
+      senderDeliveryOptions: { channelMetadata: { [OUTBOUND_ATTACHMENTS_METADATA_KEY]: stored }, references: [] },
+    }
     mockFindOne.mockReset()
     mockFindOne
-      .mockResolvedValueOnce({
-        id: 'msg-1',
-        threadId: 'msg-1',
-        senderUserId: 'u-1',
-        visibility: 'public',
-        isDraft: false,
-        subject: 'Order 42',
-        body: 'Please find the order attached.',
-        bodyFormat: 'text',
-        emailSendSeparately: false,
-        senderDeliveryOptions: { channelMetadata: { [OUTBOUND_ATTACHMENTS_METADATA_KEY]: stored }, references: [] },
-      } as never)
+      .mockResolvedValueOnce(message as never)
       .mockResolvedValueOnce(null as never)
       .mockResolvedValueOnce({
         id: 'ch-1',
@@ -243,7 +245,7 @@ describe('sendAsUser — attachments', () => {
         isActive: true,
         status: 'connected',
       } as never)
-      .mockResolvedValue(null as never)
+      .mockImplementation(async (_em, entity) => (entity === Message ? message : null) as never)
     mockFind.mockReset()
     mockFind.mockResolvedValueOnce([{ id: 'p-1', role: 'to', email: 'buyer@example.org' }] as never)
 
@@ -259,23 +261,24 @@ describe('sendAsUser — attachments', () => {
     const MESSAGE_OWNER = { entityId: 'messages:message', recordId: 'msg-1' }
 
     function primeExistingMessage(senderDeliveryOptions: Record<string, unknown> | null = null) {
+      const message = {
+        id: 'msg-1',
+        threadId: 'msg-1',
+        senderUserId: 'u-1',
+        visibility: 'public',
+        isDraft: false,
+        subject: 'Order 42',
+        body: 'Attached.',
+        bodyFormat: 'text',
+        emailSendSeparately: false,
+        senderDeliveryOptions,
+      }
       mockFindOne.mockReset()
       mockFindOne
-        .mockResolvedValueOnce({
-          id: 'msg-1',
-          threadId: 'msg-1',
-          senderUserId: 'u-1',
-          visibility: 'public',
-          isDraft: false,
-          subject: 'Order 42',
-          body: 'Attached.',
-          bodyFormat: 'text',
-          emailSendSeparately: false,
-          senderDeliveryOptions,
-        } as never)
+        .mockResolvedValueOnce(message as never)
         .mockResolvedValueOnce(null as never)
         .mockResolvedValueOnce({ id: 'ch-1', userId: 'u-1', providerKey: 'gmail', channelType: 'email', isActive: true, status: 'connected' } as never)
-        .mockResolvedValue(null as never)
+        .mockImplementation(async (_em, entity) => (entity === Message ? message : null) as never)
       mockFind.mockReset()
       mockFind.mockResolvedValueOnce([{ id: 'p-1', role: 'to', email: 'buyer@example.org' }] as never)
     }

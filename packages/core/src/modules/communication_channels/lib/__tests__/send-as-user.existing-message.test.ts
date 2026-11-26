@@ -24,6 +24,7 @@ jest.mock('../queue', () => ({
   getCommunicationChannelsQueue: jest.fn(() => ({ enqueue: enqueueMock })),
 }))
 
+import { LockMode } from '@mikro-orm/core'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sendAsUser, validateSenderChannel } from '../send-as-user'
 import { ChannelMutationBlockedError, guardOutboundCreate } from '../mutation-guards'
@@ -50,7 +51,7 @@ function makeContainer(options: { scheduler?: boolean } = {}) {
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
     nativeUpdate: jest.fn(async () => 1),
-    transactional: jest.fn(async (callback: () => Promise<void>) => callback()),
+    transactional: jest.fn(async (callback: (trx: unknown) => Promise<void>) => callback(em)),
   }
   em.fork.mockReturnValue(em)
   const container = {
@@ -132,7 +133,7 @@ describe('sendAsUser — existing message', () => {
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       Message,
       { id: 'msg-1', ...scope },
-      { sourceEntityType: 'communication_channels.send_as_user', sourceEntityId: 'ch-1' },
+      { sourceEntityType: 'communication_channels.send_as_user', sourceEntityId: 'ch-1', emailDeliveryRoute: 'send_as_user' },
     )
     expect(enqueueMock).toHaveBeenCalledTimes(1)
     expect(enqueueMock.mock.calls[0][0]).toEqual({ messageId: 'msg-1', scope, attempt: 1 })
@@ -202,6 +203,27 @@ describe('sendAsUser — existing message', () => {
     expect(enqueueMock.mock.calls.map(([job]) => (job as { externalParticipantId?: string }).externalParticipantId)).toEqual(['p-a', 'p-b'])
   })
 
+  it('counts committed links as handed off when queueing fails after the first separate job was accepted', async () => {
+    prime({ message: { emailSendSeparately: true } })
+    primeParticipants([
+      { id: 'p-a', role: 'to', email: 'a@example.com' },
+      { id: 'p-b', role: 'to', email: 'b@example.com' },
+    ])
+    enqueueMock.mockResolvedValueOnce('job-a').mockRejectedValueOnce(new Error('queue down'))
+    const { container, created, em } = makeContainer()
+
+    const result = await sendAsUser(container, actor, input)
+
+    expect(result).toEqual(expect.objectContaining({ ok: true, messageId: 'msg-1' }))
+    expect(links(created)).toHaveLength(2)
+    expect(enqueueMock).toHaveBeenCalledTimes(2)
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      Message,
+      { id: 'msg-1', ...scope },
+      expect.objectContaining({ sourceEntityType: 'communication_channels.send_as_user', emailDeliveryRoute: 'send_as_user' }),
+    )
+  })
+
   it('keeps the send-separately rule for a message with copies', async () => {
     prime({ message: { emailSendSeparately: true } })
     const { container, created } = makeContainer()
@@ -246,6 +268,43 @@ describe('sendAsUser — existing message', () => {
 
     expect(result).toMatchObject({ ok: false, status: 409, code: 'already_linked' })
     expect(links(created)).toHaveLength(0)
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('re-checks the release claim under a row lock and refuses a superseded release worker', async () => {
+    prime({ message: { isDraft: true, status: 'releasing', scheduledReleaseAttempts: 2 } })
+    const { container, em, created } = makeContainer()
+
+    const result = await sendAsUser(container, actor, { ...input, expectedReleaseAttempts: 1 })
+
+    expect(result).toMatchObject({ ok: false, status: 409, code: 'release_superseded' })
+    expect(mockFindOne).toHaveBeenCalledWith(
+      em,
+      Message,
+      { id: 'msg-1', ...scope, deletedAt: null },
+      expect.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE }),
+      scope,
+    )
+    expect(links(created)).toHaveLength(0)
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses when a concurrent hand-off committed a link before the lock was taken', async () => {
+    prime({ message: { isDraft: true, status: 'releasing', scheduledReleaseAttempts: 1 } })
+    const primed = mockFindOne.getMockImplementation()
+    let linkLookups = 0
+    mockFindOne.mockImplementation(async (...args) => {
+      if (args[1] === MessageChannelLink) return (++linkLookups > 1 ? { id: 'link-other' } : null) as never
+      return primed!(...args)
+    })
+    const { container, em, created } = makeContainer()
+
+    const result = await sendAsUser(container, actor, { ...input, expectedReleaseAttempts: 1 })
+
+    expect(result).toMatchObject({ ok: false, status: 409, code: 'already_linked' })
+    expect(links(created)).toHaveLength(0)
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 

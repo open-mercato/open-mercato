@@ -56,6 +56,11 @@ describe('convertOutboundForEmail', () => {
     ).rejects.toThrow(/at least one recipient/i)
   })
 
+  it('accepts a copy-only payload so a retry can deliver just the refused cc', async () => {
+    const native = await convertOutboundForEmail({ body: 'hi', bodyFormat: 'text', channelMetadata: { to: [], cc: ['copy@example.com'] } })
+    expect(native.metadata).toEqual(expect.objectContaining({ to: [], cc: ['copy@example.com'], bcc: [] }))
+  })
+
   it('strips CRLF from header-shaped fields (defense-in-depth)', async () => {
     const native = await convertOutboundForEmail({
       body: 'hi',

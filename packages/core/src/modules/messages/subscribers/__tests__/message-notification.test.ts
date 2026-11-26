@@ -182,6 +182,34 @@ describe('messages sent subscriber', () => {
     })
   })
 
+  it('routes an external_conversation whose channel is gone to the platform sender before queueing it', async () => {
+    const nativeUpdate = jest.fn(async () => 1)
+    const ctxWithEm = { resolve: jest.fn(() => ({ fork: () => ({ nativeUpdate }) })) }
+    findOneWithDecryptionMock.mockResolvedValueOnce({
+      sourceEntityType: 'communication_channels.external_conversation',
+      threadId: 'thread-1',
+      visibility: 'public',
+    })
+    resolveMessageChannelThreadAccessMock.mockResolvedValue(null)
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      sendViaEmail: true,
+      externalEmail: 'ext@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctxWithEm)
+
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      { id: 'message-1', tenantId: 'tenant-1', organizationId: 'org-1', emailDeliveryRoute: null },
+      { emailDeliveryRoute: 'system' },
+    )
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external_participants', messageId: 'message-1' }))
+  })
+
   it('skips the external job for an external_conversation sourced message', async () => {
     findOneWithDecryptionMock.mockResolvedValueOnce({ sourceEntityType: 'communication_channels.external_conversation' })
 

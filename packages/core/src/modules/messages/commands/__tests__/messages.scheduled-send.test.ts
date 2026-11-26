@@ -16,6 +16,11 @@ const createBatchMock = jest.fn(async () => [])
 const settleExternalParticipantsMock = jest.fn(async (..._args: unknown[]) => ({ finished: true }))
 
 const assertExternalEmailBudgetMock = jest.fn(async (..._args: unknown[]) => undefined)
+const reportErrorMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
 
 jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => ({
   assertExternalEmailBudget: (...args: unknown[]) => assertExternalEmailBudgetMock(...args),
@@ -348,7 +353,7 @@ describe('messages scheduled send commands', () => {
     })
 
     it('"Send now" sends a scheduled message immediately and clears scheduledAt', async () => {
-      const message = draftMessage({ status: 'scheduled', scheduledAt: inMinutes(30) })
+      const message = draftMessage({ externalEmail: 'lead@example.com', sendViaEmail: true, status: 'scheduled', scheduledAt: inMinutes(30) })
       const { em, ctx, eventBus } = setup(message)
 
       await command('messages.messages.update_draft').execute({ messageId, scheduledAt: null, isDraft: false, ...scope, userId: senderUserId }, ctx)
@@ -425,16 +430,26 @@ describe('messages scheduled send commands', () => {
   })
 
   describe('release_scheduled', () => {
-    function setup() {
+    function setup(overrides: Partial<Message> = {}) {
       const em = createEm()
       const { ctx, eventBus } = createCtx(em)
-      findOneWithDecryptionMock.mockResolvedValue(draftMessage({ status: 'sent', isDraft: false, sentAt: new Date(), threadId: messageId }))
+      findOneWithDecryptionMock.mockResolvedValue(draftMessage({ status: 'sent', isDraft: false, sentAt: new Date(), threadId: messageId, ...overrides }))
       findWithDecryptionMock.mockResolvedValue([{ recipientUserId }])
       return { em, ctx, eventBus }
     }
 
+    it('leaves the addressees of a message without email delivery without status', async () => {
+      const { em, ctx } = setup({ externalEmail: 'lead@example.com', sendViaEmail: false })
+      claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: new Date(), attempts: 1 }])
+
+      const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+      expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
+      expect(em.nativeUpdate).not.toHaveBeenCalledWith(MessageExternalParticipant, expect.anything(), { deliveryStatus: 'pending' })
+    })
+
     it('hands a claimed message off like a draft send and emits messages.message.sent last', async () => {
-      const { em, ctx, eventBus } = setup()
+      const { em, ctx, eventBus } = setup({ externalEmail: 'lead@example.com', sendViaEmail: true })
       claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: new Date(), attempts: 1 }])
 
       const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
@@ -449,12 +464,12 @@ describe('messages scheduled send commands', () => {
       expect(em.nativeUpdate).toHaveBeenCalledWith(Message, { id: messageId, ...scope, threadId: null }, { threadId: messageId })
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         Message,
-        { id: messageId, ...scope, status: 'releasing' },
-        { status: 'sent', isDraft: false, sentAt: expect.any(Date), scheduledAt: null },
+        { id: messageId, ...scope, status: 'releasing', scheduledReleaseAttempts: 1 },
+        { status: 'sent', isDraft: false, sentAt: expect.any(Date), scheduledAt: null, emailDeliveryRoute: 'system' },
       )
       const flipOrder = em.nativeUpdate.mock.calls.findIndex(([entity, where]) => entity === Message && (where as { status?: string }).status === 'releasing')
       const pendingOrder = em.nativeUpdate.mock.calls.findIndex(([entity]) => entity === MessageExternalParticipant)
-      expect(pendingOrder).toBeLessThan(flipOrder)
+      expect(flipOrder).toBeLessThan(pendingOrder)
       expect(eventBus.emitEvent).toHaveBeenCalledWith('query_index.upsert_one', expect.objectContaining({ recordId: messageId }), expect.anything())
       expect(invalidateCrudCacheMock).toHaveBeenCalledWith(ctx.container, 'messages.message', { id: messageId, ...scope }, tenantId, expect.any(String))
       expect(eventIds()).toEqual(['messages.message.sent'])
@@ -499,6 +514,19 @@ describe('messages scheduled send commands', () => {
       expect(assertExternalEmailBudgetMock.mock.invocationCallOrder[0]).toBeLessThan(emitMessagesEventMock.mock.invocationCallOrder[0])
     })
 
+    it('charges no budget when its expired lease was claimed again before the hand-off', async () => {
+      const { ctx } = setupExternal()
+      claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 1 }])
+      findOneWithDecryptionMock.mockResolvedValueOnce(null)
+
+      const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+      expect(result).toEqual({ released: [], reverted: [], returnedToDraft: [] })
+      expect(findOneWithDecryptionMock.mock.calls[0][2]).toEqual(expect.objectContaining({ status: 'releasing', scheduledReleaseAttempts: 1 }))
+      expect(assertExternalEmailBudgetMock).not.toHaveBeenCalled()
+      expect(emitMessagesEventMock).not.toHaveBeenCalled()
+    })
+
     it('returns the message to drafts without delivering anything when the budget refuses', async () => {
       const { em, ctx, eventBus } = setupExternal()
       claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 1 }])
@@ -517,7 +545,7 @@ describe('messages scheduled send commands', () => {
       expect(result).toEqual({ released: [], reverted: [], returnedToDraft: [messageId] })
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         Message,
-        { id: messageId, ...scope, status: 'releasing' },
+        { id: messageId, ...scope, status: 'releasing', scheduledReleaseAttempts: 1 },
         { status: 'draft', isDraft: true, sentAt: null, scheduledAt: null },
       )
       expect(em.nativeUpdate).not.toHaveBeenCalledWith(
@@ -570,7 +598,7 @@ describe('messages scheduled send commands', () => {
       expect(result).toEqual({ released: [], reverted: [messageId], returnedToDraft: [] })
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         Message,
-        { id: messageId, ...scope, status: 'releasing' },
+        { id: messageId, ...scope, status: 'releasing', scheduledReleaseAttempts: 1 },
         { status: 'scheduled', isDraft: true, sentAt: null, scheduledAt },
       )
       expect(em.nativeUpdate).toHaveBeenCalledWith(
@@ -593,6 +621,81 @@ describe('messages scheduled send commands', () => {
       expect(em.nativeUpdate).not.toHaveBeenCalledWith(MessageExternalParticipant, expect.anything(), { deliveryStatus: null })
     })
 
+    function loseLeaseToSuccessor(em: ReturnType<typeof createEm>) {
+      em.nativeUpdate.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => (
+        'scheduledReleaseAttempts' in where ? 0 : 1
+      ))
+    }
+
+    it('changes nothing and announces nothing when its expired lease was claimed again before the flip', async () => {
+      const { em, ctx, eventBus } = setup()
+      claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 1 }])
+      loseLeaseToSuccessor(em)
+
+      const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+      expect(result).toEqual({ released: [], reverted: [], returnedToDraft: [] })
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        Message,
+        { id: messageId, ...scope, status: 'releasing', scheduledReleaseAttempts: 1 },
+        expect.objectContaining({ status: 'sent' }),
+      )
+      expect(em.nativeUpdate).not.toHaveBeenCalledWith(MessageExternalParticipant, expect.anything(), expect.anything())
+      expect(em.nativeUpdate).not.toHaveBeenCalledWith(Message, expect.anything(), { threadId: messageId })
+      expect(emitMessagesEventMock).not.toHaveBeenCalled()
+      expect(eventBus.emitEvent).not.toHaveBeenCalled()
+      expect(invalidateCrudCacheMock).not.toHaveBeenCalled()
+    })
+
+    it('leaves the successor\'s pending deliveries alone when its expired lease fails', async () => {
+      const { em, ctx } = setup()
+      claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 3 }])
+      findOneWithDecryptionMock.mockRejectedValueOnce(new Error('db down'))
+      loseLeaseToSuccessor(em)
+
+      const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+      expect(result).toEqual({ released: [], reverted: [], returnedToDraft: [] })
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        Message,
+        { id: messageId, ...scope, status: 'releasing', scheduledReleaseAttempts: 3 },
+        expect.objectContaining({ status: 'draft' }),
+      )
+      expect(em.nativeUpdate).not.toHaveBeenCalledWith(MessageExternalParticipant, expect.anything(), { deliveryStatus: null })
+      expect(createBatchMock).not.toHaveBeenCalled()
+      expect(reportErrorMock).toHaveBeenCalledWith(
+        expect.any(Error),
+        { module: 'messages', code: 'messages.scheduled_release_handoff_failed', attributes: { messageId, attempts: 3 } },
+      )
+    })
+
+    it('records the system route on the flip of a message delivered by the platform sender', async () => {
+      const { em, ctx } = setupExternal()
+      claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 1 }])
+
+      await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+      expect(em.nativeUpdate).toHaveBeenCalledWith(
+        Message,
+        { id: messageId, ...scope, status: 'releasing', scheduledReleaseAttempts: 1 },
+        expect.objectContaining({ status: 'sent', emailDeliveryRoute: 'system' }),
+      )
+    })
+
+    it('reports a failed announcement without reverting the send', async () => {
+      const { ctx } = setup()
+      claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 1 }])
+      emitMessagesEventMock.mockRejectedValueOnce(new Error('bus down'))
+
+      const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
+
+      expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
+      expect(reportErrorMock).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ code: 'messages.scheduled_release_announce_failed' }),
+      )
+    })
+
     it('returns the message to drafts and notifies the author after the attempt cap', async () => {
       const { em, ctx } = setup()
       claimDueScheduledMessagesMock.mockResolvedValue([{ id: messageId, scheduledAt: inMinutes(-1), attempts: 3 }])
@@ -603,7 +706,7 @@ describe('messages scheduled send commands', () => {
       expect(result).toEqual({ released: [], reverted: [], returnedToDraft: [messageId] })
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         Message,
-        { id: messageId, ...scope, status: 'releasing' },
+        { id: messageId, ...scope, status: 'releasing', scheduledReleaseAttempts: 3 },
         { status: 'draft', isDraft: true, sentAt: null, scheduledAt: null },
       )
       expect(createBatchMock).toHaveBeenCalledWith(
@@ -645,6 +748,15 @@ describe('messages scheduled send commands', () => {
         expect(emitMessagesEventMock.mock.invocationCallOrder[0]).toBeGreaterThan(sendAsUser.mock.invocationCallOrder[0])
       })
 
+      it('records the mailbox route before the participants become pending, so the platform sender never takes them', async () => {
+        const message = publicDraft()
+        const { ctx } = setup(message, { ok: true, messageId, threadId: messageId, channelId: senderChannelId, providerKey: 'imap' })
+
+        await command('messages.messages.update_draft').execute({ messageId, isDraft: false, ...scope, userId: senderUserId }, ctx)
+
+        expect(message.emailDeliveryRoute).toBe('send_as_user')
+      })
+
       it('prefers the mailbox from the request and stores it on the draft', async () => {
         const otherChannelId = '77777777-7777-4777-8777-777777777777'
         const message = publicDraft()
@@ -672,7 +784,7 @@ describe('messages scheduled send commands', () => {
         expect(em.nativeUpdate).toHaveBeenCalledWith(
           Message,
           { id: messageId, ...scope },
-          { status: 'scheduled', isDraft: true, sentAt: null, scheduledAt },
+          { status: 'scheduled', isDraft: true, sentAt: null, scheduledAt, emailDeliveryRoute: null },
         )
         expect(em.nativeUpdate).toHaveBeenCalledWith(
           MessageExternalParticipant,
@@ -702,7 +814,7 @@ describe('messages scheduled send commands', () => {
         const result = await command('messages.messages.release_scheduled').execute(scope, ctx)
 
         expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
-        expect(sendAsUser).toHaveBeenCalledWith(ctx.container, expect.objectContaining({ userId: senderUserId, ...scope }), { userChannelId: senderChannelId, messageId })
+        expect(sendAsUser).toHaveBeenCalledWith(ctx.container, expect.objectContaining({ userId: senderUserId, ...scope }), { userChannelId: senderChannelId, messageId, expectedReleaseAttempts: 1 })
         expect(eventIds()).toEqual(['messages.message.sent'])
         expect(emitMessagesEventMock.mock.invocationCallOrder[0]).toBeGreaterThan(sendAsUser.mock.invocationCallOrder[0])
         expect(settleExternalParticipantsMock).not.toHaveBeenCalled()
@@ -735,8 +847,8 @@ describe('messages scheduled send commands', () => {
         expect(result).toEqual({ released: [messageId], reverted: [], returnedToDraft: [] })
         expect(em.nativeUpdate).toHaveBeenCalledWith(
           Message,
-          { id: messageId, ...scope },
-          { sourceEntityType: 'communication_channels.send_as_user', sourceEntityId: senderChannelId },
+          { id: messageId, ...scope, status: 'releasing', scheduledReleaseAttempts: 1 },
+          { sourceEntityType: 'communication_channels.send_as_user', sourceEntityId: senderChannelId, emailDeliveryRoute: 'send_as_user' },
         )
         expect(settleExternalParticipantsMock).toHaveBeenCalledWith(
           em,
@@ -772,7 +884,7 @@ describe('messages scheduled send commands', () => {
         expect(result).toEqual({ released: [], reverted: [messageId], returnedToDraft: [] })
         expect(em.nativeUpdate).toHaveBeenCalledWith(
           Message,
-          { id: messageId, ...scope, status: 'releasing' },
+          { id: messageId, ...scope, status: 'releasing', scheduledReleaseAttempts: 1 },
           expect.objectContaining({ status: 'scheduled', isDraft: true }),
         )
         expect(emitMessagesEventMock).not.toHaveBeenCalled()

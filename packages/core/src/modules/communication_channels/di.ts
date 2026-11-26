@@ -27,7 +27,10 @@ function registerLegacy(container: AppContainer) {
   ensureTestSeedAdapterRegistered()
   registerEmailTransport({
     id: 'communication_channels',
-    send: (payload) => sendSystemEmail(container, payload),
+    send: async (payload) => {
+      await sendSystemEmail(container, payload)
+    },
+    sendWithResult: (payload) => sendSystemEmail(container, payload),
     isConfigured: isSystemEmailTransportConfigured,
     supportsMultipleRecipients: true,
   })
@@ -100,7 +103,10 @@ export const register = defineProcessDiRegistrar((container: AppContainer) => {
     ensureTestSeedAdapterRegistered()
     registerEmailTransport({
       id: 'communication_channels',
-      send: sendFromCurrentCaller,
+      send: async (payload) => {
+        await sendFromCurrentCaller(payload)
+      },
+      sendWithResult: sendFromCurrentCaller,
       isConfigured: isSystemEmailTransportConfigured,
       supportsMultipleRecipients: true,
     })

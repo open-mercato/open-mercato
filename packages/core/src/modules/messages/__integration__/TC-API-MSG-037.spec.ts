@@ -5,12 +5,16 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
 import { composeMessageWithToken, decodeJwtSubject, deleteMessageIfExists } from './helpers'
 import { listMessageIds, QA_RECIPIENTS, useRaisedExternalEmailBudget } from './scheduledSendFixtures'
 
-type Detail = { externalParticipants?: Array<{ id: string; email: string; role: string }> }
+type Detail = {
+  externalParticipants?: Array<{ id: string; email: string; role: string }>
+  _channelPayload?: { channelMetadata?: Record<string, unknown> | null } | null
+}
 
 /**
  * TC-API-MSG-037: blind-copy recipients are the author's business. A thread viewer who is not
  * the author sees neither the BCC addresses in the message detail nor a hit when filtering the
- * list by a BCC address; the author sees both.
+ * list by a BCC address; the author sees both. The same holds for the enriched mailbox link
+ * metadata (including a legacy link that still stores BCC) while delivery is pending or failed.
  */
 test.describe('TC-API-MSG-037: BCC recipients stay with the author', () => {
   useRaisedExternalEmailBudget()
@@ -19,6 +23,7 @@ test.describe('TC-API-MSG-037: BCC recipients stay with the author', () => {
     const viewerToken = await getAuthToken(request, 'employee')
     const addresses = [QA_RECIPIENTS[0], QA_RECIPIENTS[1]]
     let messageId: string | null = null
+    let linkId: string | null = null
 
     try {
       messageId = await composeMessageWithToken(request, authorToken, {
@@ -56,7 +61,32 @@ test.describe('TC-API-MSG-037: BCC recipients stay with the author', () => {
       expect(await listMessageIds(request, authorToken, { folder: 'sent', externalEmail: blindAddress })).toContain(messageId)
       expect(await listMessageIds(request, viewerToken, { folder: 'inbox', externalEmail: toAddress })).toContain(messageId)
       expect(await listMessageIds(request, viewerToken, { folder: 'inbox', externalEmail: blindAddress })).not.toContain(messageId)
+
+      linkId = await withClient(async (client) => {
+        const inserted = await client.query<{ id: string }>(
+          `insert into message_channel_links
+             (message_id, external_conversation_id, provider_key, channel_type, direction, delivery_status,
+              channel_payload, channel_content_type, channel_metadata, tenant_id, organization_id, created_at)
+           select id, gen_random_uuid(), 'imap', 'email', 'outbound', 'pending',
+                  '{"text":"Blind copy coverage."}'::jsonb, 'text/plain', $2::jsonb, tenant_id, organization_id, now()
+           from messages where id = $1
+           returning id`,
+          [messageId, JSON.stringify({ to: [toAddress], cc: [], bcc: [blindAddress], subject: 'Legacy link' })],
+        )
+        return inserted.rows[0]?.id ?? null
+      })
+      expect(linkId, 'a legacy mailbox link holding BCC metadata was created').toBeTruthy()
+      for (const deliveryStatus of ['pending', 'failed']) {
+        await withClient((client) => client.query(`update message_channel_links set delivery_status = $2 where id = $1`, [linkId, deliveryStatus]))
+        const authorMetadata = (await readDetail(authorToken))._channelPayload?.channelMetadata
+        expect(authorMetadata?.bcc, `author sees BCC while ${deliveryStatus}`).toEqual([blindAddress])
+        const viewerDetail = await readDetail(viewerToken)
+        expect(viewerDetail._channelPayload?.channelMetadata, `viewer gets the ${deliveryStatus} link metadata`).toBeTruthy()
+        expect(viewerDetail._channelPayload?.channelMetadata).not.toHaveProperty('bcc')
+        expect(JSON.stringify(viewerDetail._channelPayload), `viewer never sees the BCC address while ${deliveryStatus}`).not.toContain(blindAddress)
+      }
     } finally {
+      if (linkId) await withClient((client) => client.query(`delete from message_channel_links where id = $1`, [linkId]))
       await deleteMessageIfExists(request, authorToken, messageId)
     }
   })

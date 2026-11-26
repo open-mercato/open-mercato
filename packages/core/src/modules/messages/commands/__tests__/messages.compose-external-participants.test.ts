@@ -105,6 +105,20 @@ describe('messages.messages.compose — external participants', () => {
     ])
   })
 
+  it.each([
+    ['the platform sender', {}, 'system', 'pending'],
+    ['a message without email delivery', { sendViaEmail: false }, null, null],
+    ['a channel conversation', { sourceEntityType: 'communication_channels.external_conversation' }, null, 'pending'],
+    ['a mailbox send', { sourceEntityType: 'communication_channels.send_as_user' }, 'send_as_user', 'pending'],
+  ])('records the delivery route of %s and its participant status', async (_case, overrides, route, deliveryStatus) => {
+    const { command, ctx, message, participants } = createHarness()
+
+    await command.execute(composeInput({ externalEmails: ['a@example.com'], ...overrides }), ctx)
+
+    expect(message()?.emailDeliveryRoute).toBe(route)
+    expect(participants()).toEqual([expect.objectContaining({ email: 'a@example.com', deliveryStatus })])
+  })
+
   it('treats a single externalEmail as a one-address list without changing external_email', async () => {
     const { command, ctx, message, participants } = createHarness()
 
@@ -193,7 +207,7 @@ describe('messages.messages.compose — external participants', () => {
       primeOriginal()
 
       await mockRegisteredCommands.get('messages.messages.reply')!.execute(
-        replyInput({ replyAll: true, externalEmails: ['origin@example.com', 'cc@example.com'], sendSeparately: true }),
+        replyInput({ replyAll: true, externalEmails: ['origin@example.com', 'cc@example.com'], sendSeparately: true, sendViaEmail: true }),
         ctx,
       )
 

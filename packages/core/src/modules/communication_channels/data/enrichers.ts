@@ -104,7 +104,7 @@ function sanitizeEmailPayloadHtml(
 /**
  * Return the subset of `messageIds` the authenticated user may see channel data
  * for: messages they sent or are a non-deleted recipient of, scoped to the
- * caller's tenant/organization. Every enricher on `messages.message` gates its
+ * caller's tenant/organization, mapped to whether the user authored the message. Every enricher on `messages.message` gates its
  * output on this set so privacy does not depend on how the host route scopes its
  * rows (#3872, #3834). Fails closed (empty set) without an authenticated user.
  */
@@ -112,14 +112,14 @@ async function loadParticipantMessageIds(
   em: EntityManager,
   messageIds: string[],
   ctx: EnricherContext,
-): Promise<Set<string>> {
+): Promise<Map<string, boolean>> {
   const userId = typeof ctx.userId === 'string' && ctx.userId.length > 0 ? ctx.userId : null
-  if (!userId || messageIds.length === 0) return new Set()
+  if (!userId || messageIds.length === 0) return new Map()
   const organizationId = ctx.organizationId ?? null
 
   const db = em.getKysely<MessagesParticipantScopeDatabase>()
   let participantQuery = applyMessageParticipantScope(db.selectFrom('messages as m'), userId)
-    .select('m.id')
+    .select(['m.id', 'm.sender_user_id'])
     .distinct()
     .where('m.id', 'in', messageIds)
     .where('m.tenant_id', '=', ctx.tenantId as string)
@@ -130,7 +130,13 @@ async function loadParticipantMessageIds(
     : participantQuery.where('m.organization_id', 'is', null)
 
   const participantRows = await participantQuery.execute()
-  return new Set(participantRows.map((row) => row.id))
+  return new Map(participantRows.map((row) => [row.id, row.sender_user_id === userId]))
+}
+
+/** BCC addressees are visible to the author only; older links still carry them in metadata. */
+export function redactBcc(metadata: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!metadata) return null
+  return Object.fromEntries(Object.entries(metadata).filter(([key]) => key !== 'bcc'))
 }
 
 // ── _channel + _channelPayload + _channelContact ──────────────────────────────
@@ -173,7 +179,7 @@ const messageChannelEnricher: ResponseEnricher<
         _channelContact: null,
       }))
     }
-    const participantMessageIds = Array.from(participantMessageIdSet)
+    const participantMessageIds = Array.from(participantMessageIdSet.keys())
 
     // 1) MessageChannelLink — one bounded `$in` query for the whole page, shared by
     // all three enrichments (channel metadata, channel payload, conversation
@@ -272,7 +278,9 @@ const messageChannelEnricher: ResponseEnricher<
         channelContentType: link.channelContentType ?? null,
         channelPayload: link.channelPayload ?? null,
         interactiveState: link.interactiveState ?? null,
-        channelMetadata: link.channelMetadata ?? null,
+        channelMetadata: participantMessageIdSet.get(r.id)
+          ? link.channelMetadata ?? null
+          : redactBcc(link.channelMetadata ?? null),
         sanitizedHtml: sanitizeEmailPayloadHtml(link.channelContentType, link.channelPayload),
       }
 
@@ -329,7 +337,7 @@ const messageReactionsEnricher: ResponseEnricher<
       em,
       MessageReaction,
       {
-        messageId: { $in: Array.from(participantMessageIdSet) },
+        messageId: { $in: Array.from(participantMessageIdSet.keys()) },
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId ?? null,
       },

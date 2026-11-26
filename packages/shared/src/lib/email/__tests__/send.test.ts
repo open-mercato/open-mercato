@@ -3,10 +3,11 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { isEmailDeliveryConfigured } from '../config'
-import { EmailSendError, readEmailDeliveryErrorHints, sendEmail, sendEmailWithResult } from '../send'
+import { EmailSendError, readEmailDeliveryErrorHints, sendEmail, sendEmailWithResult, type ResolvedEmailPayload } from '../send'
 import {
   clearRegisteredEmailTransportForTests,
   registerEmailTransport,
+  type EmailTransport,
 } from '../transport'
 
 describe('sendEmail', () => {
@@ -294,12 +295,39 @@ describe('sendEmail', () => {
     expect(sendMock).not.toHaveBeenCalled()
   })
 
+  it('keeps a void-returning send() assignable to EmailTransport', async () => {
+    const legacySend = async (_payload: ResolvedEmailPayload): Promise<void> => {}
+    const legacy: EmailTransport = { id: 'legacy', send: legacySend }
+    const delegateToVoid: (payload: ResolvedEmailPayload) => Promise<void> = legacy.send
+    registerEmailTransport({ ...legacy, send: delegateToVoid })
+
+    await expect(sendEmailWithResult({ to: 'user@example.com', subject: 'Hello', text: 'Hi' }))
+      .resolves.toEqual({ accepted: ['user@example.com'], rejected: [] })
+  })
+
+  it('falls back to send() with every address accepted per separate call when sendWithResult is absent', async () => {
+    registerEmailTransport({ id: 'test', send: sendMock })
+
+    await expect(sendEmailWithResult({ to: ['a@example.com', 'b@example.com'], sendSeparately: true, subject: 'Hello', text: 'Hi' }))
+      .resolves.toEqual({ accepted: ['a@example.com', 'b@example.com'], rejected: [] })
+    expect(sendMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('prefers sendWithResult over send when the transport provides both', async () => {
+    const withResult = jest.fn().mockResolvedValue({ accepted: [], rejected: [{ address: 'user@example.com', error: 'rejected' }] })
+    registerEmailTransport({ id: 'test', send: sendMock, sendWithResult: withResult })
+
+    await expect(sendEmailWithResult({ to: 'user@example.com', subject: 'Hello', text: 'Hi' }))
+      .rejects.toThrow('EMAIL_SEND_REJECTED: user@example.com: rejected')
+    expect(sendMock).not.toHaveBeenCalled()
+  })
+
   it('fans out one transport call per address when sending separately and merges results', async () => {
     sendMock
-      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ accepted: ['a@example.com'], rejected: [] })
       .mockResolvedValueOnce({ accepted: [], rejected: [{ address: 'b@example.com', error: 'mailbox unavailable' }] })
       .mockRejectedValueOnce(new Error('connection reset'))
-    registerEmailTransport({ id: 'test', send: sendMock })
+    registerEmailTransport({ id: 'test', send: jest.fn(), sendWithResult: sendMock })
 
     const result = await sendEmailWithResult({
       to: ['a@example.com', 'b@example.com', 'c@example.com'],
@@ -326,7 +354,7 @@ describe('sendEmail', () => {
     sendMock
       .mockResolvedValueOnce({ accepted: ['a@example.com'], rejected: [], retryAt: early })
       .mockResolvedValueOnce({ accepted: ['b@example.com'], rejected: [], retryAt: late })
-    registerEmailTransport({ id: 'test', send: sendMock })
+    registerEmailTransport({ id: 'test', send: jest.fn(), sendWithResult: sendMock })
 
     const result = await sendEmailWithResult({ to: ['a@example.com', 'b@example.com'], sendSeparately: true, subject: 'Hello', text: 'Hi' })
 
@@ -338,7 +366,7 @@ describe('sendEmail', () => {
       accepted: ['a@example.com'],
       rejected: [{ address: 'b@example.com', error: 'rejected' }],
     })
-    registerEmailTransport({ id: 'test', send: sendMock, supportsMultipleRecipients: true })
+    registerEmailTransport({ id: 'test', send: jest.fn(), sendWithResult: sendMock, supportsMultipleRecipients: true })
     await expect(sendEmailWithResult({ to: ['a@example.com', 'b@example.com'], subject: 'Hello', text: 'Hi' }))
       .resolves.toEqual({ accepted: ['a@example.com'], rejected: [{ address: 'b@example.com', error: 'rejected' }] })
 

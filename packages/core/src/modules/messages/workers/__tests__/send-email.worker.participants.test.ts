@@ -52,6 +52,7 @@ describe('messages send-email worker — external participants', () => {
     senderUserId: 'sender-1',
     externalEmail: 'a@example.com',
     emailSendSeparately: true,
+    emailDeliveryRoute: 'system',
     sentAt: new Date(),
   }
   const participants = [
@@ -184,6 +185,31 @@ describe('messages send-email worker — external participants', () => {
       }),
     ]))
     expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['email delivery is disabled', { emailDeliveryRoute: null }],
+    ['the message belongs to a channel conversation', { emailDeliveryRoute: null, sourceEntityType: 'communication_channels.external_conversation' }],
+    ['the message is handed to a mailbox', { emailDeliveryRoute: 'send_as_user' }],
+  ])('sends no platform email and claims nothing when %s', async (_case, overrides) => {
+    findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => (entity === Message ? { ...message, ...overrides } : null))
+    const { ctx, calls } = createContext({ claimRows: 2, participantCount: 2 })
+
+    await handle(job as never, ctx as never)
+
+    expect(sendMessageEmailToExternalMock).not.toHaveBeenCalled()
+    expect(calls).toEqual([])
+  })
+
+  it('keeps the single-address send for a pre-upgrade message without participant rows or a route', async () => {
+    findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => (entity === Message ? { ...message, emailDeliveryRoute: null } : null))
+    sendMessageEmailToExternalMock.mockResolvedValue({ accepted: ['a@example.com'], rejected: [] })
+    const { ctx, calls } = createContext({ claimRows: 2, participantCount: 0 })
+
+    await handle(job as never, ctx as never)
+
+    expect(sendMessageEmailToExternalMock).toHaveBeenCalledWith(expect.objectContaining({ email: 'a@example.com' }))
+    expect(calls.some((call) => call.entity === MessageExternalParticipant)).toBe(false)
   })
 
   it('does nothing when another worker holds the claim', async () => {

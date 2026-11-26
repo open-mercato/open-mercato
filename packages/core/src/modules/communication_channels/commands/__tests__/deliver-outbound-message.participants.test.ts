@@ -271,6 +271,33 @@ describe('deliverOutboundMessageCommand — participants', () => {
     expect(summary?.[2]).toMatchObject({ externalEmailFailedAt: null })
   })
 
+  it('retries a joint link for the refused cc recipient alone once To was accepted', async () => {
+    const link: Record<string, unknown> = {
+      id: 'link-1',
+      deliveryStatus: 'pending',
+      channelPayload: null,
+      channelMetadata: { subject: 'Hi', to: ['a@example.com', 'b@example.com'], cc: ['c@example.com'] },
+    }
+    const { ctx, em, adapter } = makeCtx({ status: 'sent', externalMessageId: 'smtp-2', metadata: { accepted: ['c@example.com'] } })
+    primeFinds(link, [{ id: 'p-c', role: 'cc', email: 'c@example.com' }])
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } },
+      ctx,
+    )
+
+    expect(result).toMatchObject({ status: 'delivered', channelLinkId: 'link-1' })
+    expect(adapter.convertOutbound).toHaveBeenCalledWith(expect.objectContaining({
+      channelMetadata: expect.objectContaining({ to: [], cc: ['c@example.com'], bcc: [] }),
+    }))
+    expect(adapter.sendMessage).toHaveBeenCalledTimes(1)
+    expect(link.deliveryStatus).toBe('sent')
+    const updates = participantUpdates(em)
+    expect(updates).toHaveLength(1)
+    expect(updates[0][1]).toMatchObject({ id: { $in: ['p-c'] } })
+    expect(updates[0][2]).toMatchObject({ deliveryStatus: 'sent' })
+  })
+
   it('delivers a separate link to its own participant only', async () => {
     const link: Record<string, unknown> = {
       id: 'link-b',

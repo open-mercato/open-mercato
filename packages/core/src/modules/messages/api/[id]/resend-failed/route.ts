@@ -1,6 +1,7 @@
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { resendFailedSchema } from '../../../data/validators'
@@ -17,8 +18,9 @@ type ResendFailedResult = { id: string; threadId: string | null; sourceMessageId
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const { ctx, scope } = await resolveMessageContext(req)
-  const body = await req.json().catch(() => ({}))
-  const parsed = resendFailedSchema.safeParse(body ?? {})
+  const raw = await req.text()
+  const body = raw.trim() ? await readJsonSafe<unknown>(raw) : {}
+  const parsed = resendFailedSchema.safeParse(body)
   if (!parsed.success) {
     const { translate } = await resolveTranslations()
     return Response.json(

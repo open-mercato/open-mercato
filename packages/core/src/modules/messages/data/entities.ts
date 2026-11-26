@@ -4,6 +4,7 @@ import { Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-o
 export type MessageStatus = 'draft' | 'sent' | 'scheduled' | 'releasing'
 export type MessagePriority = 'low' | 'normal' | 'high' | 'urgent'
 export type MessageBodyFormat = 'text' | 'markdown'
+export type EmailDeliveryRoute = 'system' | 'send_as_user'
 
 export type MessageAction = {
   id: string
@@ -164,6 +165,9 @@ export class Message {
 
   @Property({ name: 'sender_delivery_options', type: 'json', nullable: true })
   senderDeliveryOptions?: { channelMetadata?: Record<string, unknown>; inReplyTo?: string | null; references?: string[] } | null
+
+  @Property({ name: 'email_delivery_route', type: 'text', nullable: true })
+  emailDeliveryRoute?: EmailDeliveryRoute | null
 }
 
 @Entity({ tableName: 'message_external_recipient_days' })

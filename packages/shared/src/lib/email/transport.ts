@@ -2,8 +2,9 @@ import type { EmailSendResult, ResolvedEmailPayload } from './send'
 
 export type EmailTransport = {
   id: string
-  /** Resolving with `void` means every recipient was accepted. */
-  send: (payload: ResolvedEmailPayload) => Promise<void | EmailSendResult>
+  send: (payload: ResolvedEmailPayload) => Promise<void>
+  /** Optional: reports per-address outcomes. When absent, a resolved `send()` means every recipient was accepted. */
+  sendWithResult?: (payload: ResolvedEmailPayload) => Promise<EmailSendResult>
   isConfigured?: () => boolean
   /** When true, a joint multi-recipient send arrives as one call carrying `payload.recipients`. */
   supportsMultipleRecipients?: boolean

@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -110,6 +111,8 @@ export type SendAsUserExistingMessageInput = {
   userChannelId: string
   messageId: string
   channelMetadata?: Record<string, unknown>
+  /** The scheduled release claim (`scheduledReleaseAttempts`) the caller holds; the hand-off is refused once another claim took over. */
+  expectedReleaseAttempts?: number
 }
 
 /**
@@ -117,8 +120,9 @@ export type SendAsUserExistingMessageInput = {
  * handed it off). `channel_unavailable`: the channel is missing, not the actor's,
  * or cannot deliver (`requires_reauth`, `disconnected`, not connected).
  * `scheduling_unavailable`: `scheduledAt` was set but the scheduler module is absent.
+ * `release_superseded`: the scheduled release claim passed as `expectedReleaseAttempts` is no longer current.
  */
-export type SendAsUserFailureCode = 'already_linked' | 'channel_unavailable' | 'scheduling_unavailable'
+export type SendAsUserFailureCode = 'already_linked' | 'channel_unavailable' | 'scheduling_unavailable' | 'release_superseded'
 
 export type SendAsUserResult =
   | {
@@ -341,7 +345,7 @@ export async function sendAsUser(
     attachments: storedAttachments,
     deliveries,
   })
-  await enqueueOutboundDeliveries(messageId, dscope, deliveries)
+  await enqueueCommittedDeliveries(messageId, dscope, deliveries)
 
   return {
     ok: true,
@@ -353,6 +357,24 @@ export async function sendAsUser(
 }
 
 type OutboundDelivery = { externalParticipantId: string | null; to: string[] }
+
+/** The links are already committed, so a queue failure leaves the dispatch to the retry tick instead of failing the send. */
+async function enqueueCommittedDeliveries(
+  messageId: string,
+  dscope: Parameters<typeof enqueueOutboundDeliveries>[1],
+  deliveries: OutboundDelivery[],
+): Promise<void> {
+  try {
+    await enqueueOutboundDeliveries(messageId, dscope, deliveries)
+  } catch (err) {
+    logger.warn('Outbound delivery could not be queued; the retry tick will dispatch it', { messageId, err })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'communication_channels',
+      code: 'communication_channels.outbound_enqueue_failed',
+      attributes: { messageId },
+    })
+  }
+}
 
 type OutboundDeliveryContent = {
   messageId: string
@@ -463,6 +485,48 @@ async function resolveExistingMessageAttachments(
   return { ok: true, stored: validation.stored }
 }
 
+class ExistingMessageHandOffRefused extends Error {
+  constructor(readonly failure: SendAsUserFailure) {
+    super(`[internal] ${failure.error}`)
+  }
+}
+
+/**
+ * Re-checks the hand-off under a row lock on the message, inside the link
+ * transaction: a concurrent hand-off waits here and then sees the committed
+ * link, and a release worker whose claim was taken over sees the new attempt
+ * count, so only one of them creates links.
+ */
+async function assertExistingMessageStillHandedOff(
+  trx: EntityManager,
+  messageId: string,
+  expectedReleaseAttempts: number | undefined,
+  dscope: { tenantId: string; organizationId: string | null },
+): Promise<void> {
+  const locked = await findOneWithDecryption(
+    trx,
+    Message,
+    { id: messageId, ...dscope, deletedAt: null },
+    { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+    dscope,
+  )
+  const claimLost = expectedReleaseAttempts !== undefined
+    && (locked?.status !== 'releasing' || locked.scheduledReleaseAttempts !== expectedReleaseAttempts)
+  if (!locked || claimLost || (locked.isDraft && locked.status !== 'releasing')) {
+    throw new ExistingMessageHandOffRefused({ ok: false, status: 409, error: 'Message is no longer being released', code: 'release_superseded' })
+  }
+  const linked = await findOneWithDecryption(
+    trx,
+    MessageChannelLink,
+    { messageId, direction: 'outbound', ...dscope },
+    undefined,
+    dscope,
+  )
+  if (linked) {
+    throw new ExistingMessageHandOffRefused({ ok: false, status: 409, error: 'Message is already linked to a channel delivery', code: 'already_linked' })
+  }
+}
+
 async function sendExistingMessageAsUser(
   container: AppContainer,
   actor: SendAsUserActor,
@@ -529,7 +593,7 @@ async function sendExistingMessageAsUser(
     ? await renderMarkdownEmailBody(message.body)
     : undefined
 
-  await persistOutboundDelivery(
+  const refused = await persistOutboundDelivery(
     em,
     actor,
     channel,
@@ -548,23 +612,31 @@ async function sendExistingMessageAsUser(
       attachments: attachments.stored,
       deliveries,
     },
-    async () => {
+    async (trx) => {
+      await assertExistingMessageStillHandedOff(trx, message.id, input.expectedReleaseAttempts, dscope)
       // Same markers a composed send-as-user message carries, so the outbound
       // bridge, the platform email path, the retry tick and "resend to failed"
       // all treat this message as mailbox-routed.
-      await em.nativeUpdate(
+      await trx.nativeUpdate(
         Message,
         { id: message.id, tenantId, organizationId },
-        { sourceEntityType: SEND_AS_USER_SOURCE_ENTITY_TYPE, sourceEntityId: channel.id },
+        { sourceEntityType: SEND_AS_USER_SOURCE_ENTITY_TYPE, sourceEntityId: channel.id, emailDeliveryRoute: 'send_as_user' },
       )
-      await em.nativeUpdate(
+      await trx.nativeUpdate(
         MessageExternalParticipant,
         { messageId: message.id, tenantId, organizationId, deliveryStatus: null },
         { deliveryStatus: 'pending' },
       )
     },
+  ).then(
+    () => null,
+    (error: unknown) => {
+      if (error instanceof ExistingMessageHandOffRefused) return error.failure
+      throw error
+    },
   )
-  await enqueueOutboundDeliveries(message.id, dscope, deliveries)
+  if (refused) return refused
+  await enqueueCommittedDeliveries(message.id, dscope, deliveries)
 
   return {
     ok: true,
@@ -580,7 +652,7 @@ async function persistOutboundDelivery(
   actor: SendAsUserActor,
   channel: CommunicationChannel,
   content: OutboundDeliveryContent,
-  beforeLinks?: () => Promise<void>,
+  beforeLinks?: (trx: EntityManager) => Promise<void>,
 ): Promise<void> {
   const { tenantId } = actor
   const organizationId = actor.organizationId
@@ -593,12 +665,12 @@ async function persistOutboundDelivery(
   // rather than `withAtomicFlush` (single trailing flush). `em.transactional`
   // wraps the whole sequence so a mid-way failure rolls back all three writes
   // instead of leaving an orphaned conversation row.
-  await em.transactional(async () => {
+  await em.transactional(async (trx) => {
     // A reply belongs to the conversation its parent lives in on this channel.
     // One logical thread can map to several provider conversations on the same
     // channel, so the thread alone cannot pick the right one.
     let conversation = content.parentMessageId
-      ? await findParentConversation(em, {
+      ? await findParentConversation(trx, {
           parentMessageId: content.parentMessageId,
           messageThreadId: content.messageThreadId,
           channelId: channel.id,
@@ -607,7 +679,7 @@ async function persistOutboundDelivery(
       : null
     if (!conversation) {
       conversation = await findOneWithDecryption(
-        em,
+        trx,
         ExternalConversation,
         {
           channelId: channel.id,
@@ -626,7 +698,7 @@ async function persistOutboundDelivery(
       // so a follow-up send stays in it instead of opening a parallel one. When
       // the thread spans several conversations here, the oldest one wins.
       const threadMapping = await findOneWithDecryption(
-        em,
+        trx,
         ChannelThreadMapping,
         {
           messageThreadId: content.messageThreadId,
@@ -639,7 +711,7 @@ async function persistOutboundDelivery(
       )
       if (threadMapping) {
         conversation = await findOneWithDecryption(
-          em,
+          trx,
           ExternalConversation,
           {
             id: threadMapping.externalConversationId,
@@ -653,7 +725,7 @@ async function persistOutboundDelivery(
       }
     }
     if (!conversation) {
-      conversation = em.create(ExternalConversation, {
+      conversation = trx.create(ExternalConversation, {
         channelId: channel.id,
         externalConversationId: externalThreadRef,
         subject: content.subject,
@@ -662,8 +734,8 @@ async function persistOutboundDelivery(
         organizationId,
         lastMessageAt: new Date(),
       })
-      em.persist(conversation)
-      await em.flush()
+      trx.persist(conversation)
+      await trx.flush()
     } else {
       conversation.subject = conversation.subject ?? content.subject
       conversation.assignedUserId = conversation.assignedUserId ?? actor.userId
@@ -671,11 +743,11 @@ async function persistOutboundDelivery(
       // Flush the scalar updates BEFORE the ChannelThreadMapping lookup below: a
       // find/findOne on the same EntityManager between a scalar mutation and flush
       // can silently drop the pending UPDATE (core AGENTS.md → Entity Update Safety).
-      await em.flush()
+      await trx.flush()
     }
 
     const existingMapping = await findOneWithDecryption(
-      em,
+      trx,
       ChannelThreadMapping,
       {
         externalConversationId: conversation.id,
@@ -686,7 +758,7 @@ async function persistOutboundDelivery(
       dscope,
     )
     if (!existingMapping) {
-      const mapping = em.create(ChannelThreadMapping, {
+      const mapping = trx.create(ChannelThreadMapping, {
         externalConversationId: conversation.id,
         messageThreadId: content.messageThreadId,
         channelId: channel.id,
@@ -696,13 +768,13 @@ async function persistOutboundDelivery(
         tenantId,
         organizationId,
       })
-      em.persist(mapping)
+      trx.persist(mapping)
     }
 
-    if (beforeLinks) await beforeLinks()
+    if (beforeLinks) await beforeLinks(trx)
 
     for (const delivery of content.deliveries) {
-      const channelLink = em.create(MessageChannelLink, {
+      const channelLink = trx.create(MessageChannelLink, {
         messageId: content.messageId,
         externalParticipantId: delivery.externalParticipantId,
         externalConversationId: conversation.id,
@@ -724,7 +796,7 @@ async function persistOutboundDelivery(
           ...omitOutboundAttachments(content.channelMetadata),
           to: delivery.to,
           cc: delivery.externalParticipantId ? [] : content.cc,
-          bcc: delivery.externalParticipantId ? [] : content.bcc,
+          bcc: [],
           subject: content.subject,
           inReplyTo: content.inReplyTo,
           references: content.references,
@@ -734,9 +806,9 @@ async function persistOutboundDelivery(
         tenantId,
         organizationId,
       })
-      em.persist(channelLink)
+      trx.persist(channelLink)
     }
-    await em.flush()
+    await trx.flush()
   })
 }
 

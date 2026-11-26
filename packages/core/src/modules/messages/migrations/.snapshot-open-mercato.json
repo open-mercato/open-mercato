@@ -364,6 +364,15 @@
           "primary": false,
           "nullable": true,
           "mappedType": "json"
+        },
+        "email_delivery_route": {
+          "name": "email_delivery_route",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
         }
       },
       "name": "messages",

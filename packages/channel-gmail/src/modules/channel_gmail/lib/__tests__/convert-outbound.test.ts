@@ -21,6 +21,18 @@ describe('convertOutboundForGmail', () => {
     expect(raw).toContain('<p>Hello <b>world</b></p>')
   })
 
+  it('builds a copy-only retry without an empty To header', async () => {
+    const result = await convertOutboundForGmail({
+      body: 'hi',
+      bodyFormat: 'text',
+      channelMetadata: { subject: 'Hi', to: [], cc: ['copy@example.com'] },
+      fromAddress: 'alice@gmail.com',
+    })
+    const raw = ((result.metadata as Record<string, unknown>).rawMessage as Buffer).toString('utf-8')
+    expect(raw).not.toMatch(/^To:/m)
+    expect(raw).toContain('Cc: copy@example.com')
+  })
+
   it('preserves the inReplyTo / references headers when threading', async () => {
     const result = await convertOutboundForGmail({
       body: 'reply',

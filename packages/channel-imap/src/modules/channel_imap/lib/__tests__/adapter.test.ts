@@ -122,6 +122,34 @@ describe('ImapChannelAdapter.sendMessage', () => {
     expect(result.error).toMatch(/at least one recipient/i)
   })
 
+  it.each([
+    ['cc', { cc: ['copy@example.com'] }],
+    ['bcc', { bcc: ['hidden@example.com'] }],
+  ])('sends a retry that owes only a %s recipient, keeping header roles', async (_role, copies) => {
+    const sendCalls: Array<Record<string, unknown>> = []
+    setSmtpClient({
+      verify: async () => undefined,
+      send: async (_options, message) => {
+        sendCalls.push(message as unknown as Record<string, unknown>)
+        return { messageId: '<retry@example.com>', raw: Buffer.alloc(0) }
+      },
+    })
+    setImapClient({ connectAndValidate: async () => ({ capabilities: [] }), selectInbox: async () => ({}), fetchUidRange: async () => [], appendSent: async () => undefined })
+
+    const result = await getImapChannelAdapter().sendMessage({
+      content: { text: 'hi', bodyFormat: 'text' },
+      credentials,
+      scope: { tenantId: 't', organizationId: 'o' },
+      metadata: { subject: 'Hi', to: [], ...copies },
+    })
+
+    expect(result.status).toBe('sent')
+    expect(sendCalls).toHaveLength(1)
+    expect(sendCalls[0].to).toEqual([])
+    expect(sendCalls[0].cc).toEqual(copies.cc ?? [])
+    expect(sendCalls[0].bcc).toEqual(copies.bcc ?? [])
+  })
+
   it('reports a partial rejection with the accepted/rejected split', async () => {
     setSmtpClient({
       verify: async () => undefined,

@@ -369,7 +369,7 @@ async function deliverToExternalParticipants(
   delivery: ExternalDeliveryContext,
 ): Promise<void> {
   const scope = { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null }
-  const claimUntil = await claimExternalParticipants(em, payload)
+  const claimUntil = message.emailDeliveryRoute === 'system' ? await claimExternalParticipants(em, payload) : null
   if (!claimUntil) {
     // Messages without participant rows (legacy drafts and replies, pre-upgrade rows) keep the single-address path.
     const participantCount = await em.count(MessageExternalParticipant, { messageId: message.id, ...scope })

@@ -37,11 +37,11 @@ export async function convertOutboundForEmail(
     value === undefined ? undefined : sanitizeHeaderValue(value)
   const subject = sanitizeOptionalHeader(stringOrUndefined(meta.subject))
   const to = toAddressList(meta.to).map(sanitizeHeaderValue)
-  if (to.length === 0) {
-    throw new Error('Email outbound conversion requires at least one recipient (channelMetadata.to)')
-  }
   const cc = toAddressList(meta.cc).map(sanitizeHeaderValue)
   const bcc = toAddressList(meta.bcc).map(sanitizeHeaderValue)
+  if (to.length + cc.length + bcc.length === 0) {
+    throw new Error('[internal] Email outbound conversion requires at least one recipient (channelMetadata.to, cc or bcc)')
+  }
   const inReplyTo = sanitizeOptionalHeader(stringOrUndefined(meta.inReplyTo))
   const references = referencesFromMeta(meta.references)?.map(sanitizeHeaderValue)
   const messageId = sanitizeOptionalHeader(stringOrUndefined(meta.messageId))

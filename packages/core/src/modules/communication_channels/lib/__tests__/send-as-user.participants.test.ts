@@ -41,7 +41,7 @@ function makeContainer() {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
-    transactional: jest.fn(async (callback: () => Promise<void>) => callback()),
+    transactional: jest.fn(async (callback: (trx: unknown) => Promise<void>) => callback(em)),
   }
   em.fork.mockReturnValue(em)
   const container = {

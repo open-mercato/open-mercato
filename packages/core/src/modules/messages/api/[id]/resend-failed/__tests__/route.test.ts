@@ -68,6 +68,23 @@ describe('POST /api/messages/[id]/resend-failed', () => {
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
+  it('treats an empty body as resending to every failed participant', async () => {
+    const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: { id: MESSAGE_ID } })
+
+    expect(response.status).toBe(201)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.resend_failed',
+      expect.objectContaining({ input: expect.not.objectContaining({ participantIds: expect.anything() }) }),
+    )
+  })
+
+  it('rejects malformed JSON with 400 before running the command', async () => {
+    const response = await POST(new Request('http://localhost', { method: 'POST', body: '{"participantIds":' }), { params: { id: MESSAGE_ID } })
+
+    expect(response.status).toBe(400)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
   it('requires the messages.email feature', async () => {
     canUseMessageEmailFeatureMock.mockResolvedValueOnce(false)
 

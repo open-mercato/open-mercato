@@ -196,15 +196,15 @@ flowchart LR
 ```ts
 type SendEmailOptions = { to: string | string[]; sendSeparately?: boolean; /* existing fields */ }
 type ResolvedEmailPayload = { to: string; recipients?: string[]; /* existing */ } // to = first address
-type EmailTransport = { id; send(p): Promise<void | EmailSendResult>; isConfigured?; supportsMultipleRecipients?: boolean }
+type EmailTransport = { id; send(p): Promise<void>; sendWithResult?(p): Promise<EmailSendResult>; isConfigured?; supportsMultipleRecipients?: boolean }
 type EmailSendResult = { accepted: string[]; rejected: { address: string; error: string }[]; retryAt?: Date }
 function sendEmail(o: SendEmailOptions): Promise<EmailSendResult> // was Promise<void>; callers ignoring it are unaffected
 ```
 - `sendSeparately: true` → `sendEmail` loops, one transport call per address with `to: <address>`, results merged.
 - More than one address, `sendSeparately` falsy, transport without `supportsMultipleRecipients` → throws `[internal] EMAIL_TRANSPORT_MULTI_RECIPIENT_UNSUPPORTED` (never silently sends to the first address only).
-- A transport returning `void` is treated as all addresses accepted.
+- `send()` keeps its published `Promise<void>` signature; a transport without `sendWithResult` is called through `send()` and a resolved call counts as all addresses accepted.
 - **`sendEmail()` still throws when `accepted.length === 0`** (all rejected), preserving today's contract for its 17 existing callers (auth reset, invitations, notifications, …) that rely on an exception; only partial rejection returns normally. Unit test required.
-- `communication_channels` transport sets `supportsMultipleRecipients: true`, passes `recipients` to `channelMetadata.to`, and returns accepted/rejected instead of throwing on partial rejection; `retryAt` from HTTP `Retry-After` on 429.
+- `communication_channels` transport sets `supportsMultipleRecipients: true`, passes `recipients` to `channelMetadata.to`, and returns accepted/rejected from `sendWithResult` instead of throwing on partial rejection; `retryAt` from HTTP `Retry-After` on 429.
 - **Extension point (not implemented):** a future optional `sendBatch?(payloads): Promise<EmailSendResult[]>` + `maxBatchSize?` on `EmailTransport`, used by `sendSeparately` when present.
 
 ### Queue `messages-email` (changed — additive)

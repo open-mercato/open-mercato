@@ -57,7 +57,7 @@ type SendAsUserService = (
         channelMetadata?: Record<string, unknown>
         sendSeparately?: boolean
       }
-    | { userChannelId: string; messageId: string },
+    | { userChannelId: string; messageId: string; expectedReleaseAttempts?: number },
 ) => Promise<SendAsUserResult>
 
 type ValidateSenderChannelService = (
@@ -218,14 +218,14 @@ export type MessageHandOffResult =
 export async function handOffMessageToSender(
   container: ContainerLike,
   actor: ComposeSenderActor,
-  target: { senderChannelId: string; messageId: string },
+  target: { senderChannelId: string; messageId: string; expectedReleaseAttempts?: number },
 ): Promise<MessageHandOffResult> {
   const sendAsUser = tryResolveSendAsUserService(container)
   if (!sendAsUser) return { ...(await senderUnavailable()), code: 'channel_unavailable' }
   const result = await sendAsUser(
     container,
     { userId: actor.userId, tenantId: actor.tenantId, organizationId: actor.organizationId, auth: actor.auth },
-    { userChannelId: target.senderChannelId, messageId: target.messageId },
+    { userChannelId: target.senderChannelId, messageId: target.messageId, expectedReleaseAttempts: target.expectedReleaseAttempts },
   )
   if (result.ok) return { ok: true }
   return {

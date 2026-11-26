@@ -83,7 +83,7 @@ describe('messages email retry tick', () => {
         { id: 'p-4', messageId: 'm-joint' },
       ],
       [
-        { id: 'm-system', sentAt, sourceEntityType: null, emailSendSeparately: false },
+        { id: 'm-system', sentAt, sourceEntityType: null, emailDeliveryRoute: 'system', emailSendSeparately: false },
         { id: 'm-separate', sentAt, sourceEntityType: 'communication_channels.send_as_user', emailSendSeparately: true },
         { id: 'm-joint', sentAt, sourceEntityType: 'communication_channels.send_as_user', emailSendSeparately: false },
       ],
@@ -98,6 +98,45 @@ describe('messages email retry tick', () => {
       [{ messageId: 'm-separate', scope, externalParticipantId: 'p-2' }],
       [{ messageId: 'm-separate', scope, externalParticipantId: 'p-3' }],
       [{ messageId: 'm-joint', scope, externalParticipantId: null }],
+    ])
+  })
+
+  it.each([
+    ['email delivery is disabled', { sourceEntityType: null, emailDeliveryRoute: null }],
+    ['the message belongs to a channel conversation', { sourceEntityType: 'communication_channels.external_conversation', emailDeliveryRoute: null }],
+    ['the mailbox hand-off has not linked the message yet', { sourceEntityType: null, emailDeliveryRoute: 'send_as_user' }],
+  ])('queues no platform email when %s', async (_case, route) => {
+    prime(
+      [{ id: 'p-1', messageId: 'm-1' }],
+      [{ id: 'm-1', sentAt: new Date(now.getTime() - 3_600_000), emailSendSeparately: false, ...route }],
+    )
+
+    const result = await runEmailRetryTick(makeEm() as never, container, scope, now)
+
+    expect(result).toEqual({ enqueued: 0, expired: 0 })
+    expect(enqueueMessageEmailJobMock).not.toHaveBeenCalled()
+    expect(enqueueOutbound).not.toHaveBeenCalled()
+  })
+
+  it('dispatches a linked mailbox message whose outbound job was never queued', async () => {
+    prime(
+      [{ id: 'p-1', messageId: 'm-1' }, { id: 'p-2', messageId: 'm-1' }],
+      [{
+        id: 'm-1',
+        sentAt: new Date(now.getTime() - 3_600_000),
+        sourceEntityType: 'communication_channels.send_as_user',
+        emailDeliveryRoute: 'send_as_user',
+        emailSendSeparately: true,
+      }],
+    )
+
+    const result = await runEmailRetryTick(makeEm() as never, container, scope, now)
+
+    expect(result).toEqual({ enqueued: 2, expired: 0 })
+    expect(enqueueMessageEmailJobMock).not.toHaveBeenCalled()
+    expect(enqueueOutbound.mock.calls).toEqual([
+      [{ messageId: 'm-1', scope, externalParticipantId: 'p-1' }],
+      [{ messageId: 'm-1', scope, externalParticipantId: 'p-2' }],
     ])
   })
 
