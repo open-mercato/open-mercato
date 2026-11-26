@@ -167,7 +167,7 @@ export function validateCiLabels(labels: readonly string[], config: CiScopeConfi
   const unknown = labels.filter((label) => {
     if (!label.startsWith(CI_LABEL_PREFIX)) return false
     if (config.levels.includes(label) || config.ignoredLabels.includes(label)) return false
-    if (label.startsWith(AREA_LABEL_PREFIX)) return !(label.slice(AREA_LABEL_PREFIX.length) in config.areas)
+    if (label.startsWith(AREA_LABEL_PREFIX)) return !Object.hasOwn(config.areas, label.slice(AREA_LABEL_PREFIX.length))
     return true
   })
   if (unknown.length === 0) return
@@ -223,8 +223,11 @@ export function resolveCiScope(input: CiScopeInput, config: CiScopeConfig): CiSc
         areas.push(area)
         raise(lowestRaisedLevel, `label ${label}`)
       } else {
-        const implied = Object.entries(config.implies).find(([pattern]) => labelPatternMatches(pattern, label))
-        if (implied) raise(levelName(implied[1]), `label ${label} implies ${implied[1]}`)
+        const implied = Object.entries(config.implies)
+          .filter(([pattern]) => labelPatternMatches(pattern, label))
+          .map(([, impliedLevel]) => impliedLevel)
+          .reduce<string | null>((highest, candidate) => (highest === null || ranks.indexOf(levelName(candidate)) > ranks.indexOf(levelName(highest)) ? candidate : highest), null)
+        if (implied) raise(levelName(implied), `label ${label} implies ${implied}`)
       }
     }
   } else if (event === 'pull_request' && input.labels.some((label) => isScopeLabel(label, config))) {

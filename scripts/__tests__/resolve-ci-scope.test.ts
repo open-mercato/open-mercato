@@ -247,6 +247,23 @@ for (const label of ['risk-medium', 'risk-low', 'backport', 'bug', 'priority-hig
   })
 }
 
+for (const [name, implies] of [
+  ['narrow pattern first', { 'backport *': 'ci-targeted', 'backport release/*': 'ci-full' }],
+  ['broad pattern first', { 'backport release/*': 'ci-full', 'backport *': 'ci-targeted' }],
+] as const) {
+  test(`overlapping implies patterns use the highest level (${name})`, () => {
+    const overlapping = parseCiScopeConfig({ ...rawConfig, implies })
+    const input: CiScopeInput = { changedFiles: ['packages/core/src/modules/sales/a.ts'], labels: ['backport release/v0.10.x'], headRef: 'fix/a', baseRef: 'main', isFork: false }
+    const result = resolveCiScope(input, overlapping)
+    assert.equal(result.level, 'full')
+    assert.deepEqual(result.modules, [])
+    assert.ok(result.reasons.includes('label backport release/v0.10.x implies ci-full'), result.reasons.join('; '))
+    const narrower = resolveCiScope({ ...input, labels: ['backport main'] }, overlapping)
+    assert.equal(narrower.level, 'targeted')
+    assert.deepEqual(narrower.modules, ['sales'])
+  })
+}
+
 test('labels do not raise the scope of a fork PR', () => {
   const result = resolve({ changedFiles: ['packages/core/src/modules/sales/a.ts'], labels: ['ci-area:crm', 'risk-high', 'ci-targeted'], isFork: true })
   assert.equal(result.level, 'scoped')
@@ -342,6 +359,16 @@ for (const labels of [['ci-ful'], ['ci-area:sales'], ['ci-targetted', 'ci-area:n
         return true
       },
     )
+  })
+}
+
+for (const label of ['ci-area:constructor', 'ci-area:toString', 'ci-area:__proto__', 'ci-area:hasOwnProperty']) {
+  test(`area label ${label} naming an inherited Object property is an unknown label`, () => {
+    assert.throws(() => resolve({ changedFiles: ['scripts/a.mjs'], labels: [label] }), (error: unknown) => {
+      assert.ok(error instanceof CiScopeError)
+      assert.ok(error.message.includes(`"${label}"`), error.message)
+      return true
+    })
   })
 }
 
