@@ -177,6 +177,7 @@ test.describe('TC-SALES-8460: CC recipients on quote send', () => {
       await expect(dialog).toHaveAccessibleDescription(`Email will be sent to: ${primaryEmail} ${copyHint}`)
 
       await ccField.fill('not-an-email')
+      await expect(ccField).toHaveValue('not-an-email')
       await ccField.press('Enter')
       await expect(ccField).toHaveValue('not-an-email')
       const invalidAddressAlert = dialog.getByRole('alert').filter({ hasText: 'Enter a valid e-mail address' })
@@ -186,6 +187,7 @@ test.describe('TC-SALES-8460: CC recipients on quote send', () => {
       await expect(ccField).toHaveValue('not-an-email')
 
       await ccField.fill(`${ccConfirmed}; ${ccSecond}`)
+      await expect(ccField).toHaveValue(` ${ccSecond}`)
       await ccField.press('Enter')
       await expect(dialog.getByRole('button', { name: `Remove ${ccConfirmed}`, exact: true })).toBeVisible()
       await expect(dialog.getByRole('button', { name: `Remove ${ccSecond}`, exact: true })).toBeVisible()
@@ -219,6 +221,7 @@ test.describe('TC-SALES-8460: CC recipients on quote send', () => {
       const reopenedCcField = reopened.getByLabel('Send a copy to', { exact: true })
       const extraRecipients = Array.from({ length: 7 }, (_, index) => `extra-${index}@example.test`)
       await reopenedCcField.fill(extraRecipients.join('; '))
+      await expect(reopenedCcField).toHaveValue(` ${extraRecipients[extraRecipients.length - 1]}`)
       await reopenedCcField.press('Enter')
       const lastRemoveButton = reopened.getByRole('button', { name: 'Remove extra-6@example.test', exact: true })
       await expect(reopenedCcField).toBeDisabled()
