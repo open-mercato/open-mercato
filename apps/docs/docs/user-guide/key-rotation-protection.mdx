@@ -158,6 +158,11 @@ that same app root. Keep the standalone app's database and libpq backup service
 pointed at the same source. The Enterprise module runs the same backup and
 verification sequence in a generated app.
 
+Review every map the dry run reports. A map can refer to a column absent from
+its entity or to a module that is disabled in this app. Reconcile the map with
+the deployed schema and module configuration before proceeding. Retain prior
+keys and confirm the status of any affected data before retiring a map.
+
 ## Create and select the new keys, step by step
 
 The rotation command does **not** generate a root/DEK, overwrite Vault, delete versions, release the fence or deploy a new application configuration. Perform key provisioning as an explicitly authorized operator, with all writers stopped and the database fence in place **before changing Vault latest**. Pause independent Vault DEK provisioning/rotation automation from staging the pinned target through verification and controlled application cutover: the database fence does not freeze Vault. Latest-refresh checks detect observed drift, not changes made after the command returns. Rehearse the complete route on disposable data first.
