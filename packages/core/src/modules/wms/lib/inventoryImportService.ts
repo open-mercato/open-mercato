@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -19,7 +19,6 @@ import type {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from '../commands/shared'
 import type { InventoryImportRawRow } from './inventoryImportCsv'
-import { buildStableUuid } from './asnReceiving'
 
 type ImportScope = {
   tenantId: string
@@ -543,6 +542,14 @@ export async function validateInventoryImport(
   }
 }
 
+function buildImportRowReferenceId(importBatchId: string, rowNumber: number): string {
+  const bytes = createHash('sha256').update(`wms:csv-import:${importBatchId}:${rowNumber}`).digest().subarray(0, 16)
+  bytes[6] = (bytes[6] & 0x0f) | 0x50
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = bytes.toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
+
 export async function applyInventoryImport(
   ctx: CommandRuntimeContext,
   input: InventoryImportApplyInput,
@@ -582,7 +589,7 @@ export async function applyInventoryImport(
           delta: row.delta,
           reason: input.reason,
           referenceType: 'manual' as const,
-          referenceId: buildStableUuid(['wms:csv-import', input.importBatchId, String(row.rowNumber)].join(':')),
+          referenceId: buildImportRowReferenceId(input.importBatchId, row.rowNumber),
           performedBy: input.performedBy,
           metadata: {
             importBatchId: input.importBatchId,

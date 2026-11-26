@@ -6,6 +6,7 @@ import {
   Warehouse,
   WarehouseLocation,
 } from '../../data/entities'
+import { inventoryAdjustSchema } from '../../data/validators'
 import {
   applyInventoryImport,
   validateInventoryImport,
@@ -521,8 +522,19 @@ describe('applyInventoryImport', () => {
       const first = await captureReferenceIds('88888888-8888-4888-8888-888888888888', [1])
       const retry = await captureReferenceIds('88888888-8888-4888-8888-888888888888', [1])
 
-      expect(first[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
       expect(retry[0]).toBe(first[0])
+    })
+
+    it('produces referenceIds that wms.inventory.adjust accepts as UUIDs', async () => {
+      mockWarehouseLocationVariant(0)
+      const rowNumbers = Array.from({ length: 200 }, (_, index) => index + 1)
+      const referenceIds = await captureReferenceIds('88888888-8888-4888-8888-888888888888', rowNumbers)
+
+      const rejected = referenceIds.filter(
+        (referenceId) => !inventoryAdjustSchema.shape.referenceId.safeParse(referenceId).success,
+      )
+      expect(referenceIds).toHaveLength(200)
+      expect(rejected).toEqual([])
     })
 
     it('keeps referenceIds distinct across rows and across import batches', async () => {
