@@ -818,20 +818,20 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           protectedRoleIds,
         )
 
-        if (profileProof) {
-          const current = await findOneWithDecryption(
-            em, User, { id: parsed.id, deletedAt: null },
+        const current = profileProof || parsed.email !== undefined
+          ? await findOneWithDecryption(
+            em, User, updateWhere as FilterQuery<User>,
             { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
             { tenantId: userTenantId, organizationId: existing.organizationId ?? null },
           )
-          if (profileProof.userId !== parsed.id || !current || current.passwordHash !== profileProof.passwordHash) {
-            const { translate } = await resolveTranslations()
-            const message = translate('auth.profile.form.errors.currentPasswordInvalid', 'Current password is incorrect.')
-            throw new CrudHttpError(400, {
-              error: message,
-              issues: [{ path: ['currentPassword'], message }],
-            })
-          }
+          : null
+        if (profileProof && (profileProof.userId !== parsed.id || !current || current.passwordHash !== profileProof.passwordHash)) {
+          const { translate } = await resolveTranslations()
+          const message = translate('auth.profile.form.errors.currentPasswordInvalid', 'Current password is incorrect.')
+          throw new CrudHttpError(400, {
+            error: message,
+            issues: [{ path: ['currentPassword'], message }],
+          })
         }
 
         // Email is unique per-tenant, not globally (see Migration20260610120000:
@@ -854,14 +854,13 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           if (duplicate) await throwDuplicateEmailError()
         }
 
-        let emailChanged = false
+        const emailChanged = parsed.email !== undefined && current?.email !== parsed.email
         try {
           const updated = await de.updateOrmEntity({
             entity: User,
             where: updateWhere as FilterQuery<User>,
             apply: (entity) => {
               if (parsed.email !== undefined) {
-                emailChanged = entity.email !== parsed.email
                 entity.email = parsed.email
                 entity.emailHash = emailHash
               }
