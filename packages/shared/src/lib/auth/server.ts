@@ -201,22 +201,35 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
   const cachedAuth = cached && !verifiedSessionKeyId && regularApiKeyAuthContexts.has(cached)
     ? cached as Exclude<AuthContext, null>
     : null
-  if (cachedAuth && !cachedAuth.tenantId) return cachedAuth
   try {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
-    if (cachedAuth?.tenantId) {
-      const tenant = await findOneWithDecryption(em, Tenant, { id: cachedAuth.tenantId, deletedAt: null, isActive: true })
-      if (!tenant) {
+    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
+    if (cachedAuth) {
+      if (cachedAuth.tenantId) {
+        const tenant = await findOneWithDecryption(em, Tenant, { id: cachedAuth.tenantId, deletedAt: null, isActive: true })
+        if (!tenant) {
+          cache.setMiss(secret)
+          return null
+        }
+      }
+      const liveKey = cachedAuth.keyId
+        ? await findOneWithDecryption(em, ApiKey, {
+          id: cachedAuth.keyId,
+          tenantId: cachedAuth.tenantId,
+          organizationId: cachedAuth.orgId,
+          deletedAt: null,
+        }, { fields: ['expiresAt'], disableIdentityMap: true })
+        : null
+      if (!liveKey || (liveKey.expiresAt && liveKey.expiresAt.getTime() <= Date.now())) {
         cache.setMiss(secret)
         return null
       }
       return cachedAuth
     }
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
-    const { ApiKey } = await import('@open-mercato/core/modules/api_keys/data/entities')
     const { isSessionBoundApiKey, resolveApiKeyRoleIds } = await import('@open-mercato/core/modules/api_keys/services/sessionKeyRoles')
     const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
 
