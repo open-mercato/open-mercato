@@ -215,7 +215,8 @@ async function cut() {
       )
     }
     const parents = gh ? await gh.commitParents(existing) : []
-    if (parents.length !== 1 || parents[0] !== at) {
+    const onlyChangelog = gh ? await gh.changesOnlyChangelog(existing) : false
+    if (parents.length !== 1 || parents[0] !== at || !onlyChangelog) {
       fail(
         `${releaseBranch} already exists at ${existing.slice(0, 12)}, which is neither ${from} nor its changelog commit. ` +
           `Run Release cut at the green tag the line was cut from, or delete ${releaseBranch} to cut again.`,
@@ -225,6 +226,8 @@ async function cut() {
 
   stampReleaseSet(next)
   let lineChangelog: string | null = null
+  const atChangelog = greenTag ? tryGitRaw('show', `${at}:CHANGELOG.md`) ?? '' : ''
+  let expectedLineChangelog = atChangelog
   if (existsSync(abs('CHANGELOG.md'))) {
     const changelog = readText('CHANGELOG.md')
     if (!greenTag) {
@@ -234,8 +237,8 @@ async function cut() {
       const split = splitUnreleased(changelog, (pr) => contained.has(pr))
       if (split) {
         write('CHANGELOG.md', withUnreleased(changelog, split.trunk))
-        const atChangelog = tryGitRaw('show', `${at}:CHANGELOG.md`) ?? ''
         const carried = withUnreleased(atChangelog, split.line)
+        expectedLineChangelog = carried
         if (carried.trim() !== atChangelog.trim()) lineChangelog = carried
         log(`# Unreleased split at ${greenTag}: entries for PRs it contains go to ${releaseBranch}, the rest stay on ${TRUNK}`)
         for (const entry of split.untraced) log(`names no PR, kept on ${TRUNK} — move it to ${releaseBranch} by hand if it ships there: ${entry.split('\n')[0]}`)
@@ -248,6 +251,12 @@ async function cut() {
   if (!gh) {
     log(`dry run — would create ${releaseBranch} at ${at.slice(0, 12)}${lineChangelog ? ' with its changelog commit' : ''} and open the ${next} PR (${changed.size} files)`)
   } else {
+    if (greenTag && existing && existing !== at && (await gh.readFile('CHANGELOG.md', existing)) !== expectedLineChangelog) {
+      fail(
+        `${releaseBranch} already carries a different # Unreleased than ${TRUNK} hands it now. ` +
+          `Merge the existing chore/open-v${next} PR and move later entries to ${releaseBranch} by a backport.`,
+      )
+    }
     if (existing) log(`${releaseBranch} already exists at ${existing.slice(0, 12)} — left as it is`)
     else await gh.createBranch(releaseBranch, at)
     if (lineChangelog !== null) {
@@ -259,11 +268,6 @@ async function cut() {
         })
         await gh.moveBranch(releaseBranch, sha, false)
         log(`carried the ${current} # Unreleased entries to ${releaseBranch} as ${sha.slice(0, 12)}`)
-      } else if ((await gh.readFile('CHANGELOG.md', existing)) !== lineChangelog) {
-        fail(
-          `${releaseBranch} already carries a different # Unreleased than ${TRUNK} hands it now. ` +
-            `Merge the existing chore/open-v${next} PR and move later entries to ${releaseBranch} by a backport.`,
-        )
       }
     }
     await gh.ensureLabel(`backport ${releaseBranch}`, 'c5def5', `Cherry-pick into ${releaseBranch} once merged`)

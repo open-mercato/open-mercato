@@ -454,6 +454,7 @@ function cutApi({ tagged, head, existing = null, existingParent, existingChangel
       return [200, pulls ?? [{ number: 50, state: 'closed', merged_at: '2026-11-20T10:00:00Z', head: { ref: 'stabilize/main-2026-11-20', sha: tagged }, base: { ref: 'main' } }]]
     }
     if (method === 'GET' && url.includes('/compare/')) return [200, { status: compare }]
+    if (method === 'GET' && existing && url.endsWith(`/commits/${existing}?per_page=2`)) return [200, { files: [{ filename: 'CHANGELOG.md', status: 'modified' }] }]
     if (method === 'GET' && url.endsWith('/git/ref/heads/release/v0.9.x')) return existing ? [200, { object: { sha: existing } }] : [404, { message: 'Not Found' }]
     if (method === 'GET' && existing && url.endsWith(`/git/commits/${existing}`)) return [200, { sha: existing, tree: { sha: 't' }, parents: [{ sha: existingParent }] }]
     if (method === 'GET' && url.includes('/contents/CHANGELOG.md')) return [200, { sha: 'x', content: Buffer.from(existingChangelog ?? '').toString('base64') }]
@@ -602,6 +603,67 @@ test('cut --at re-runs safely from the same green tag, even after main moved', a
     } finally {
       await api.close()
     }
+  }
+})
+
+test('cut --at refuses a direct child of the tag that also changes code', async () => {
+  const { root, tagged, head } = greenTagRepo()
+  const existing = 'c'.repeat(40)
+  const existingChangelog = `# Unreleased\n\n- Quotes. (#101)\n\n${CHANGELOG}`
+  const handler = cutApi({ tagged, head, existing, existingParent: tagged, existingChangelog })
+  const api = await fakeApi((request) => {
+    if (request.method === 'GET' && request.url.endsWith(`/commits/${existing}?per_page=2`)) {
+      return [200, { files: [{ filename: 'CHANGELOG.md' }, { filename: 'packages/core/index.ts' }] }]
+    }
+    return handler(request)
+  })
+  try {
+    const result = await runLine(root, ['cut', '--branch', 'main', '--at', 'green/2026-11-20'], apiEnv(api.url))
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /neither .* nor its changelog commit/)
+    assert.ok(api.requests.every((request) => request.method === 'GET'), 'an advanced line must not rebuild the bump PR')
+    assert.equal(readVersion(root, 'package.json'), '0.9.0')
+  } finally {
+    await api.close()
+  }
+})
+
+test('cut --at checks an existing changelog commit even when no notes need carrying', async () => {
+  const { root, git } = fixtureRepo('0.9.0')
+  const changelog = `# Unreleased\n\n- Quotes. (#101)\n\n${CHANGELOG}`
+  fs.writeFileSync(path.join(root, 'CHANGELOG.md'), changelog)
+  git('add', '.')
+  commitFixture(git, 'feat(sales): quotes (#101)')
+  git('tag', 'green/2026-11-20')
+  const tagged = git('rev-parse', 'HEAD')
+  const api = await fakeApi(cutApi({
+    tagged, head: tagged, existing: 'c'.repeat(40), existingParent: tagged,
+    existingChangelog: `# Unreleased\n\n- Wrong notes. (#999)\n\n${CHANGELOG}`,
+  }))
+  try {
+    const result = await runLine(root, ['cut', '--branch', 'main', '--at', 'green/2026-11-20'], apiEnv(api.url))
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /already carries a different # Unreleased/)
+    assert.ok(api.requests.every((request) => request.method === 'GET'))
+  } finally {
+    await api.close()
+  }
+})
+
+test('cut --at refuses a green tag carrying a different version before any writes', async () => {
+  const { root, tagged, head } = greenTagRepo()
+  const manifestPath = path.join(root, 'package.json')
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  fs.writeFileSync(manifestPath, JSON.stringify({ ...manifest, version: '0.10.0' }))
+  const api = await fakeApi(cutApi({ tagged, head }))
+  try {
+    const result = await runLine(root, ['cut', '--branch', 'main', '--at', 'green/2026-11-20'], apiEnv(api.url))
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /carries 0.9.0, but main is at 0.10.0/)
+    assert.ok(api.requests.every((request) => request.method === 'GET'))
+    assert.equal(readVersion(root, 'package.json'), '0.10.0')
+  } finally {
+    await api.close()
   }
 })
 

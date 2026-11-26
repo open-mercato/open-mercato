@@ -866,6 +866,8 @@ Other:
 
 ## Changelog
 
+- 2026-11-26: Phase 6 review fixes: a green-tag cut rerun accepts only a direct child changing `CHANGELOG.md` alone (added/modified, never renamed/deleted) with the expected contents, including when no entries need carrying; regression tests reject code-changing children and mismatched notes, and cover version mismatch before writes.
+
 - 2026-11-26: Phase 6 steps 1–4 and 6 implemented: `release-cut.yml` takes an optional `green_tag` input (empty still cuts at `main`'s tip — no default to the newest tag until green tags exist), `release-line.mts cut --at <green tag>` validates the tag (name, existence, version, in the history of a merged `stabilize/` PR — its head, or an earlier commit when `main` was merged into the batch after tagging — via `GET /commits/{sha}/pulls` and `GET /compare`) and creates the line there, `splitUnreleased` hands the line only the `# Unreleased` entries for PRs the tag contains (carried as a `docs(changelog)` commit on top of the tag; entries naming no PR stay on `main` and are logged), plus tests and the `CONTRIBUTING.md` release-cut docs. Step 5 (release QA checklist) is left to QA.
 - 2026-11-26: `merge-queue` guard writes a job summary for every run (PR, event, decision, reason) and records `merge-queue` removals by anyone other than the guard; step renamed to "Check merge-queue against blocking labels".
 - 2026-11-26: Audit gate: a failed or cancelled `audit` makes the required `test` and `documents-multi-instance` checks fail instead of skipping (a skip reads as passing); `audit` succeeded or not needed keeps the normal path.

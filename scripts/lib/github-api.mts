@@ -112,6 +112,13 @@ export function createGithubClient({
       const commit = await ok<GitObject>('GET', `${base}/git/commits/${sha}`)
       return (commit.parents ?? []).map((parent) => parent.sha)
     },
+    async changesOnlyChangelog(sha: string): Promise<boolean> {
+      const commit = await ok<{ files: { filename: string; status: string }[] }>('GET', `${base}/commits/${sha}?per_page=2`)
+      return (
+        commit.files.length === 1 && commit.files[0].filename === 'CHANGELOG.md' &&
+        ['added', 'modified'].includes(commit.files[0].status)
+      )
+    },
     // Every PR carrying the commit, merged or not — including a squash-merged one whose commits
     // never reached the default branch.
     async pullRequestsForCommit(sha: string): Promise<CommitPullRequest[]> {
