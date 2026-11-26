@@ -193,6 +193,29 @@ test.describe('TC-WMS-025: Inventory CSV import API', () => {
       const balance = await fetchBalance(request, adminToken, warehouseId!, variantId)
       expect(toNumber(balance?.quantity_on_hand)).toBe(25)
 
+      const retryApplyResponse = await apiRequest(request, 'POST', '/api/wms/inventory/import/apply', {
+        token: adminToken,
+        data: {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          importBatchId: validation.importBatchId,
+          continueOnError: true,
+          rows: [
+            {
+              rowNumber: 1,
+              warehouseId: resolved?.warehouseId,
+              locationId: resolved?.locationId,
+              catalogVariantId: resolved?.catalogVariantId,
+              quantity: resolved?.quantity,
+              delta: resolved?.delta,
+            },
+          ],
+        },
+      })
+      expect(retryApplyResponse.ok(), `retry apply failed: ${retryApplyResponse.status()}`).toBeTruthy()
+      const balanceAfterRetry = await fetchBalance(request, adminToken, warehouseId!, variantId)
+      expect(toNumber(balanceAfterRetry?.quantity_on_hand)).toBe(25)
+
       // Regression check for #4105: importing a smaller quantity on top of an
       // existing balance must add to it, not reconcile the balance down to it.
       const secondValidateResponse = await apiRequest(request, 'POST', '/api/wms/inventory/import/validate', {

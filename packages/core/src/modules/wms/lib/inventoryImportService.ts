@@ -19,6 +19,7 @@ import type {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from '../commands/shared'
 import type { InventoryImportRawRow } from './inventoryImportCsv'
+import { buildStableUuid } from './asnReceiving'
 
 type ImportScope = {
   tenantId: string
@@ -581,7 +582,7 @@ export async function applyInventoryImport(
           delta: row.delta,
           reason: input.reason,
           referenceType: 'manual' as const,
-          referenceId: randomUUID(),
+          referenceId: buildStableUuid(['wms:csv-import', input.importBatchId, String(row.rowNumber)].join(':')),
           performedBy: input.performedBy,
           metadata: {
             importBatchId: input.importBatchId,

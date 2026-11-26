@@ -478,4 +478,60 @@ describe('applyInventoryImport', () => {
       body: { error: 'import_delta_tampering', rowNumber: 1, expectedDelta: -3 },
     })
   })
+
+  describe('retry idempotency', () => {
+    async function captureReferenceIds(importBatchId: string, rowNumbers: number[]): Promise<string[]> {
+      const executeMock = jest.fn(
+        async (_commandId: string, _payload: { input: { referenceId: string } }) => ({
+          result: { movementId: 'movement-1' },
+        }),
+      )
+      const ctx = {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return {}
+            if (name === 'commandBus') return { execute: executeMock }
+            throw new Error(`Unexpected resolve: ${name}`)
+          },
+        },
+        auth: { sub: USER_ID, tenantId: TENANT, orgId: ORG },
+        organizationScope: null,
+        selectedOrganizationId: ORG,
+        organizationIds: [ORG],
+      }
+      await applyInventoryImport(ctx, {
+        tenantId: TENANT,
+        organizationId: ORG,
+        importBatchId,
+        performedBy: USER_ID,
+        rows: rowNumbers.map((rowNumber) => ({
+          rowNumber,
+          warehouseId: WAREHOUSE_ID,
+          locationId: LOCATION_ID,
+          catalogVariantId: VARIANT_ID,
+          quantity: 5,
+          delta: 5,
+        })),
+      })
+      return executeMock.mock.calls.map(([, payload]) => payload.input.referenceId)
+    }
+
+    it('reuses the same movement referenceId when the same import batch is applied again', async () => {
+      mockWarehouseLocationVariant(0)
+      const first = await captureReferenceIds('88888888-8888-4888-8888-888888888888', [1])
+      const retry = await captureReferenceIds('88888888-8888-4888-8888-888888888888', [1])
+
+      expect(first[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+      expect(retry[0]).toBe(first[0])
+    })
+
+    it('keeps referenceIds distinct across rows and across import batches', async () => {
+      mockWarehouseLocationVariant(0)
+      const [rowOne, rowTwo] = await captureReferenceIds('88888888-8888-4888-8888-888888888888', [1, 2])
+      const [otherBatchRowOne] = await captureReferenceIds('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', [1])
+
+      expect(rowTwo).not.toBe(rowOne)
+      expect(otherBatchRowOne).not.toBe(rowOne)
+    })
+  })
 })
