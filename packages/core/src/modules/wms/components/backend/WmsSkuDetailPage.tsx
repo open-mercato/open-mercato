@@ -5,7 +5,7 @@ import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import {
   ArrowDown,
@@ -473,11 +473,8 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
     },
   })
 
-  const balancesQuery = useQuery({
-    queryKey: ['wms-sku-detail', 'balances', catalogVariantId, warehouseId, showEmptyBalances],
-    enabled: Boolean(catalogVariantId),
-    placeholderData: keepPreviousData,
-    queryFn: async () => {
+  const fetchBalances = React.useCallback(
+    async (hideEmpty: boolean) => {
       const params = new URLSearchParams({
         catalogVariantId: catalogVariantId!,
         page: '1',
@@ -486,7 +483,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
         sortDir: 'desc',
       })
       if (warehouseId !== 'all') params.set('warehouseId', warehouseId)
-      if (!showEmptyBalances) params.set('hideEmpty', 'true')
+      if (hideEmpty) params.set('hideEmpty', 'true')
       const call = await apiCall<PagedResponse<InventoryBalanceRow>>(
         `/api/wms/inventory/balances?${params.toString()}`,
       )
@@ -495,6 +492,23 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
       }
       return call.result ?? { items: [], total: 0, totalPages: 1 }
     },
+    [catalogVariantId, t, warehouseId],
+  )
+
+  const stockedBalancesQuery = useQuery({
+    queryKey: ['wms-sku-detail', 'balances', catalogVariantId, warehouseId, false],
+    enabled: Boolean(catalogVariantId),
+    queryFn: () => fetchBalances(true),
+  })
+
+  const balancesQuery = useQuery({
+    queryKey: ['wms-sku-detail', 'balances', catalogVariantId, warehouseId, showEmptyBalances],
+    enabled: Boolean(catalogVariantId),
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[2] === catalogVariantId && previousQuery?.queryKey[3] === warehouseId
+        ? previousData
+        : undefined,
+    queryFn: () => fetchBalances(!showEmptyBalances),
   })
 
   const lotsQuery = useQuery({
@@ -555,7 +569,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
   const pageTitle = (variantQuery.data?.sku ?? '').trim() || skuLabel
 
   const totals = React.useMemo(() => {
-    const items = balancesQuery.data?.items ?? []
+    const items = stockedBalancesQuery.data?.items ?? []
     let onHand = 0
     let reserved = 0
     let available = 0
@@ -565,7 +579,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
       available += row.quantity_available ?? 0
     }
     return { onHand, reserved, available }
-  }, [balancesQuery.data?.items])
+  }, [stockedBalancesQuery.data?.items])
 
   const daysOfSupply = React.useMemo(() => {
     const movements = movementsQuery.data ?? []
@@ -882,6 +896,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
   const isLoading =
     variantQuery.isLoading ||
     profileQuery.isLoading ||
+    stockedBalancesQuery.isLoading ||
     balancesQuery.isLoading ||
     lotsQuery.isLoading ||
     movementsQuery.isLoading
@@ -889,6 +904,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
   const hasError =
     variantQuery.isError ||
     profileQuery.isError ||
+    stockedBalancesQuery.isError ||
     balancesQuery.isError ||
     lotsQuery.isError ||
     movementsQuery.isError
