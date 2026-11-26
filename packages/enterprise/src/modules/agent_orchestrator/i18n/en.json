@@ -1581,6 +1581,7 @@
   "agent_orchestrator.settings.webSearch.timeoutHint": "Milliseconds this adapter alone may take. Leave empty to use the policy-wide budget.",
   "agent_orchestrator.settings.webSearch.title": "Web search",
   "agent_orchestrator.settings.webSearch.tuning": "Tuning",
+  "agent_orchestrator.settings.webSearch.unreadableStoredSecret": "A saved search adapter key could not be decrypted. Restore the tenant encryption key or replace the adapter key.",
   "agent_orchestrator.settings.webSearch.unsaved": "Unsaved changes",
   "agent_orchestrator.settings.webSearch.unsavedHint": "Not saved yet",
   "agent_orchestrator.settings.webSearch.weight": "Weight",

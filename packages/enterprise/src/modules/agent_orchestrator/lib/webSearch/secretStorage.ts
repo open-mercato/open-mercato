@@ -31,12 +31,13 @@ import {
   resolveAdapterModules,
   type AdapterRegistryEntry,
 } from '@open-mercato/web-research'
-import { decryptWithAesGcm, encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { decryptWithAesGcm, encryptWithAesGcm, isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
 
 /** The subset of `TenantDataEncryptionService` this needs. */
 type EncryptionServiceLike = {
   isEnabled(): boolean
   getDek(tenantId: string | null | undefined): Promise<{ key: string } | null>
+  createDek(tenantId: string): Promise<{ key: string } | null>
 }
 
 export type AdapterSecretField = { name: string; secret?: boolean }
@@ -48,26 +49,37 @@ export type EncryptAdapterSecretsResult = {
   adapterOptions: Record<string, unknown>
   /** False when no DEK was available — the caller MUST surface this. */
   encrypted: boolean
+  unreadableStoredSecret?: true
 }
 
 function resolveEncryptionService(container: AwilixContainer): EncryptionServiceLike | null {
   try {
-    const service = container.resolve('tenantDataEncryptionService') as EncryptionServiceLike
+    const service = container.resolve('tenantEncryptionService') as EncryptionServiceLike
     return typeof service?.isEnabled === 'function' ? service : null
   } catch {
     return null
   }
 }
 
+/**
+ * `createIfMissing` provisions the tenant's DEK on first write, as every other
+ * write path does (`customEntityDoc`, the entity subscriber). Reads and the
+ * pre-save preview never provision: creating key material is a KMS state
+ * change, not a lookup (#5950).
+ */
 async function resolveDek(
   container: AwilixContainer,
   tenantId: string | null,
+  options: { createIfMissing: boolean } = { createIfMissing: false },
 ): Promise<string | null> {
   const service = resolveEncryptionService(container)
-  if (!service || !service.isEnabled()) return null
+  if (!service || !service.isEnabled() || !tenantId) return null
   try {
-    const dek = await service.getDek(tenantId)
-    return dek?.key ?? null
+    const existing = await service.getDek(tenantId)
+    if (existing?.key) return existing.key
+    if (!options.createIfMissing) return null
+    const created = await service.createDek(tenantId)
+    return created?.key ?? null
   } catch {
     return null
   }
@@ -89,9 +101,9 @@ export async function encryptAdapterSecrets(
   tenantId: string | null,
   adapterOptions: Record<string, unknown>,
   fieldsByAdapter: AdapterSecretFields,
+  storedAdapterOptions: Record<string, unknown> = {},
 ): Promise<EncryptAdapterSecretsResult> {
-  const dek = await resolveDek(container, tenantId)
-  if (!dek) return { adapterOptions, encrypted: false }
+  const dek = await resolveDek(container, tenantId, { createIfMissing: true })
 
   const next: Record<string, unknown> = { ...adapterOptions }
   for (const [adapterId, rawOptions] of Object.entries(adapterOptions)) {
@@ -100,15 +112,22 @@ export async function encryptAdapterSecrets(
     if (names.length === 0) continue
 
     const options = { ...(rawOptions as Record<string, unknown>) }
+    const stored = storedAdapterOptions[adapterId]
+    const storedOptions = typeof stored === 'object' && stored !== null
+      ? stored as Record<string, unknown>
+      : {}
     for (const name of names) {
       const value = options[name]
       if (typeof value !== 'string' || value.length === 0) continue
-      if (decryptWithAesGcm(value, dek) !== null) continue
-      options[name] = encryptWithAesGcm(value, dek).value
+      if (dek && decryptWithAesGcm(value, dek) !== null) continue
+      if (storedOptions[name] === value && isEncryptedPayloadShape(value)) {
+        return { adapterOptions, encrypted: false, unreadableStoredSecret: true }
+      }
+      if (dek) options[name] = encryptWithAesGcm(value, dek).value
     }
     next[adapterId] = options
   }
-  return { adapterOptions: next, encrypted: true }
+  return dek ? { adapterOptions: next, encrypted: true } : { adapterOptions, encrypted: false }
 }
 
 /**
@@ -171,7 +190,9 @@ export function adapterSecretFields(container: AwilixContainer): AdapterSecretFi
  *
  * Asked BEFORE a save so the settings page can warn while the operator is still
  * deciding whether to paste a key, rather than after the key is already on disk
- * in the clear.
+ * in the clear. It never provisions a DEK, so a tenant without one yet answers
+ * false here even though the save would create one — a spurious warning is
+ * recoverable, a false "encrypted" is not.
  */
 export async function canEncryptSecrets(
   container: AwilixContainer,
