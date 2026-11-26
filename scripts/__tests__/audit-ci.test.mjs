@@ -314,6 +314,8 @@ test('the scheduled audit scans both maintenance branches and retains the high t
   const scheduled = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'audit.yml'), 'utf8')
   assert.match(scheduled, /branch:\n\s+- main\n\s+- release\/v0\.10\.x\n\s+- release\/v0\.9\.x/)
   assert.match(scheduled, /node scripts\/audit-ci\.mjs --severity high --report-severity=low audited-branch\/yarn\.lock/)
+  assert.match(scheduled, /> audit-report\.log 2> audit-blockers\.log/)
+  assert.match(scheduled, /report = fs\.readFileSync\('audit-blockers\.log', 'utf8'\)/)
 })
 
 test('the change-triggered audit job has a hard workflow timeout', () => {

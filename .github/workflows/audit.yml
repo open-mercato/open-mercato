@@ -91,12 +91,11 @@ jobs:
       - name: Audit dependencies for known CVEs
         id: audit
         continue-on-error: true
-        # Blocking advisories are written to stderr, so both streams have to be
-        # captured — a stdout-only pipe would file a tracking issue with an
-        # empty report.
         run: |
-          set -o pipefail
-          node scripts/audit-ci.mjs --severity high --report-severity=low audited-branch/yarn.lock 2>&1 | tee audit.log
+          status=0
+          node scripts/audit-ci.mjs --severity high --report-severity=low audited-branch/yarn.lock > audit-report.log 2> audit-blockers.log || status=$?
+          cat audit-report.log audit-blockers.log | tee audit.log
+          exit "$status"
 
       - name: Publish job summary
         if: always()
@@ -122,7 +121,7 @@ jobs:
 
             let report = ''
             try {
-              report = fs.readFileSync('audit.log', 'utf8')
+              report = fs.readFileSync('audit-blockers.log', 'utf8') || fs.readFileSync('audit.log', 'utf8')
             } catch {
               report = '(no audit output captured — the step failed before producing a report)'
             }
