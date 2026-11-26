@@ -11,11 +11,11 @@ const runNode = promisify(execFile)
 const requireAssistant = createRequire(new URL('../../packages/ai-assistant/package.json', import.meta.url))
 const requireDocs = createRequire(new URL('../../apps/docs/package.json', import.meta.url))
 
-test('Dependabot 509, 298, 492 and 301 have no vulnerable lock resolutions', async () => {
+test('Dependabot 549, 509, 298, 492 and 301 have no vulnerable lock resolutions', async () => {
   const lockfile = parse(await readFile(new URL('../../yarn.lock', import.meta.url), 'utf8'))
   const ranges = {
-    '@hono/node-server': ['<2.1.3'],
-    'postcss-selector-parser': ['>=7.0.0 <7.1.6'],
+    '@hono/node-server': ['<2.1.6'],
+    'postcss-selector-parser': ['<6.1.5', '>=7.0.0 <7.1.6'],
   }
   for (const [packageName, vulnerableRanges] of Object.entries(ranges)) {
     const versions = Object.entries(lockfile)
