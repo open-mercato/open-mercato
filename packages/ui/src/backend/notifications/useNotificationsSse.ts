@@ -9,10 +9,8 @@ import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injec
 import type { NotificationDto } from '@open-mercato/shared/modules/notifications/types'
 import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '../injection/useAppEvent'
-import {
-  dispatchNotificationHandlers,
-  getRequiredNotificationHandlerFeatures,
-} from './NotificationDispatcher'
+import { dispatchNotificationHandlers } from './NotificationDispatcher'
+import { useNotificationHandlerFeatures } from './useNotificationHandlerFeatures'
 import { useNotificationActions } from './useNotificationActions'
 
 type NotificationCreatedPayload = {
@@ -46,7 +44,7 @@ export function useNotificationsSse(): UseNotificationsSseResult {
   const [hasNew, setHasNew] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const grantedFeaturesRef = React.useRef<string[]>([])
+  const grantedFeaturesRef = useNotificationHandlerFeatures()
   const translate = useOptionalT()
   const translateRef = React.useRef(translate)
   React.useEffect(() => { translateRef.current = translate }, [translate])
@@ -110,28 +108,6 @@ export function useNotificationsSse(): UseNotificationsSseResult {
   const refresh = React.useCallback(() => {
     void fetchNotifications()
   }, [fetchNotifications])
-
-  React.useEffect(() => {
-    let mounted = true
-    const run = async () => {
-      const requiredFeatures = getRequiredNotificationHandlerFeatures()
-      if (requiredFeatures.length === 0) {
-        grantedFeaturesRef.current = []
-        return
-      }
-      const response = await apiCall<{ granted?: string[] }>('/api/auth/feature-check', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ features: requiredFeatures }),
-      })
-      if (!mounted) return
-      grantedFeaturesRef.current = response.ok ? (response.result?.granted ?? []) : []
-    }
-    void run()
-    return () => {
-      mounted = false
-    }
-  }, [])
 
   React.useEffect(() => {
     void fetchNotifications()
