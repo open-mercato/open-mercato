@@ -21,5 +21,10 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+caddy_root="${perf_root}/.state/caddy-root.crt"
+if [ -f "${caddy_root}" ] && [ -z "${NODE_EXTRA_CA_CERTS:-}" ]; then
+  export NODE_EXTRA_CA_CERTS="${caddy_root}"
+fi
+
 cd "${repo_root}"
 exec node "${perf_root}/scripts/cli.mjs" "$@"

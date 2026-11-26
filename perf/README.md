@@ -83,7 +83,7 @@ Compose project `om-perf`, `DEPLOY_ENV=perf`, network `mercato-network-perf-v2`.
 
 TLS is terminated by a small Caddy service `tls` (in `sut/compose.perf.yml`), not by the Traefik overlay.
 The stock overlay needs Let's Encrypt plus a customer-domain forward-auth middleware that adds a request
-per request. Caddy uses `tls internal` (self-signed; k6 runs with `INSECURE_TLS=1` and browser VUs with
+per request. Caddy uses `tls internal` (its own local CA; `up` copies the root to `perf/.state/caddy-root.crt` and the Node scripts verify TLS against it; k6, which cannot load a custom CA, runs with `INSECURE_TLS=1` and browser VUs with
 `ignoreHTTPSErrors`) or, with `PERF_TLS_CADDYFILE=Caddyfile.domain`, an ACME certificate for `PERF_TLS_DOMAIN`.
 The `app` port is never published; Caddy publishes `PERF_TLS_BIND:PERF_TLS_PORT` (default `127.0.0.1:8443`).
 Caddy also exports server-side request durations (`caddy_http_request_duration_seconds`) to Prometheus.
@@ -171,7 +171,7 @@ Steps:
    `ssh -N -L 19090:127.0.0.1:9090 -L 13300:127.0.0.1:3300 perf@<sut-public-ip>`.
    - Grafana is then at http://127.0.0.1:13300.
    - Leave this tunnel open whenever you `run`, `report` or `compare`.
-7. **Check exposure.** `perf/bin/perf build`, then `perf/bin/perf up --yes-this-is-a-perf-target`. Then, from a host other than the tester's laptop, run `nmap -Pn -p- <sut-public-ip>`: it must show only SSH. From the laptop, `curl -sk https://<sut-public-ip>:8443/api/healthz` must return 200.
+7. **Check exposure.** `perf/bin/perf build`. **Then free the build cache on the VPS:** `ssh perf@<sut-public-ip> docker builder prune -af`. The cache takes 10–20 GB, and the M tier needs that space on the 80 GB disk. Then run `perf/bin/perf up --yes-this-is-a-perf-target`. Then, from a host other than the tester's laptop, run `nmap -Pn -p- <sut-public-ip>`: it must show only SSH. From the laptop, `curl -sk https://<sut-public-ip>:8443/api/healthz` must return 200.
 
 ## Phase 3 — datasets on the VPS (S first, then M)
 
@@ -253,4 +253,5 @@ findings (`file:line`, mechanism, P1/P2/P3). Issues and fix PRs only on human re
 | Report says "Network was noisy" | The laptop → VPS round-trip time rose or jittered during the run. Check Wi-Fi/VPN/other traffic and re-run; compare on the server-side p95 |
 | k6 cannot reach `host.docker.internal:19090` | The SSH tunnel is not open, or (Linux laptop) use `GENERATOR_NETWORK=host` with `PROM_RW_URL=http://127.0.0.1:19090/api/v1/write` |
 | App never becomes healthy after a restart, log says `Another Open Mercato production server is already running` | Stale `.mercato/server-start.lock` after an unclean stop (Phase 2 finding P1-4). `restore` recreates the containers; otherwise `docker compose … up -d --force-recreate app worker scheduler` |
+| `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` / `self-signed certificate` from a perf command | The Node scripts verify TLS against Caddy's local CA. Run `perf/bin/perf up` again (it refreshes `perf/.state/caddy-root.crt`, e.g. after `down --volumes` recreated the CA), and run scripts through `perf/bin/perf` so `NODE_EXTRA_CA_CERTS` is set. With `Caddyfile.domain` no CA file is needed |
 | Template database missing after `down --volumes` | Templates live inside the Postgres volume. Re-seed and re-snapshot |

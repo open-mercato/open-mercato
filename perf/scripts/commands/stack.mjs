@@ -3,10 +3,11 @@ import { join } from 'node:path'
 import { findUnsafeSecrets, mergeEnvTemplate, parseEnvText } from '../lib/env.mjs'
 import { runProcess } from '../lib/exec.mjs'
 import { waitForHealth } from '../lib/http.mjs'
+import { CADDY_ROOT_PATH_IN_CONTAINER, CADDY_ROOT_STATE_FILE, canTrustInProcess, extractPemCertificate, trustCertificate, usesInternalCa } from '../lib/tls-trust.mjs'
 import { log, loadContext } from '../lib/context.mjs'
 import { assertTargetAcknowledged, loadTarget } from '../lib/target.mjs'
 import { PERF_ROOT, STATE_DIR, SUT_ENV_EXAMPLE, SUT_ENV_PATH, SUT_ENV_RELATIVE, TARGET_ENV_PATH, statePath } from '../lib/paths.mjs'
-import { readJsonFile, writeTextFile } from '../lib/state.mjs'
+import { ensureStateDir, readJsonFile, writeTextFile } from '../lib/state.mjs'
 import { generatorCompose, k6Environment } from './generator.mjs'
 
 export async function pushSutEnv(sut) {
@@ -52,9 +53,34 @@ export async function up(flags) {
   if (flags.build) await sut.compose(['build', 'app'], { capture: false })
   log('starting the om-perf stack (first boot runs mercato init and can take 10+ minutes)')
   await sut.compose(['up', '-d'], { capture: false })
-  await waitForHealth(target.CONTROL_BASE_URL, { log })
+  const caPath = usesInternalCa(sutEnv) ? await storeCaddyRoot(sut) : null
+  if (caPath && !canTrustInProcess()) await waitForHealthWithExtraCa(target.CONTROL_BASE_URL, caPath)
+  else await waitForHealth(target.CONTROL_BASE_URL, { log })
   await ensureStatementsExtension(sut, database)
   log(`healthy: ${target.CONTROL_BASE_URL}/api/healthz`)
+}
+
+async function storeCaddyRoot(sut, { attempts = 60, intervalMs = 2000 } = {}) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const result = await sut.exec('tls', ['cat', CADDY_ROOT_PATH_IN_CONTAINER], { allowFail: true })
+    const pem = result.code === 0 ? extractPemCertificate(result.stdout) : null
+    if (pem) {
+      const path = statePath(CADDY_ROOT_STATE_FILE)
+      ensureStateDir()
+      writeTextFile(path, pem)
+      trustCertificate(pem)
+      log(`trusting the Caddy local CA (${CADDY_ROOT_STATE_FILE} in perf/.state)`)
+      return path
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, intervalMs))
+  }
+  throw new Error(`[perf] the tls service did not create ${CADDY_ROOT_PATH_IN_CONTAINER}; check \`docker compose … logs tls\``)
+}
+
+async function waitForHealthWithExtraCa(baseUrl, caPath) {
+  const httpModule = new URL('../lib/http.mjs', import.meta.url).href
+  const script = `const { waitForHealth } = await import(${JSON.stringify(httpModule)}); await waitForHealth(${JSON.stringify(baseUrl)}, { log: (line) => console.log('[perf] ' + line) })`
+  await runProcess(process.execPath, ['--input-type=module', '-e', script], { capture: false, env: { NODE_EXTRA_CA_CERTS: caPath } })
 }
 
 export async function down(flags) {

@@ -1,5 +1,5 @@
 import { createSut } from './exec.mjs'
-import { configureTls } from './http.mjs'
+import { trustStoredCaddyRoot } from './tls-trust.mjs'
 import { loadSutEnv, loadTarget } from './target.mjs'
 
 export function log(message) {
@@ -28,7 +28,7 @@ export function parseFlags(argv, booleanFlags = []) {
 
 export function loadContext({ requireSutEnv = true } = {}) {
   const target = loadTarget()
-  configureTls(target)
+  trustStoredCaddyRoot()
   const sutEnv = requireSutEnv ? loadSutEnv() : null
   if (sutEnv?.get('POSTGRES_DB')) target.POSTGRES_DB = sutEnv.get('POSTGRES_DB')
   const sut = createSut(target)

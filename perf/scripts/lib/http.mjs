@@ -1,6 +1,3 @@
-export function configureTls(target) {
-  if (String(target.INSECURE_TLS ?? '1') === '1') process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
-}
 
 export async function apiRequest(baseUrl, path, { method = 'GET', token, json, form, timeoutMs = 60000 } = {}) {
   const headers = { accept: 'application/json' }

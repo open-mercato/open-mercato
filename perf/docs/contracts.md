@@ -44,6 +44,7 @@ PROM_RW_URL=http://prometheus:9090/api/v1/write   # generator VPS / Linux laptop
 | `users.json` (mode 600) | `[{ "email", "password", "role": "admin" \| "employee", "userId", "staffMemberId" \| null }]`, 200 entries |
 | `owners.json` | `{ "owners": [{ "userId", "staffMemberId": string \| null }] }`, consumed by `seed-perf --owners-file` |
 | `last-restore.json` | `{ "tier", "snapshotId", "restoredAt", "migrationHead", "loadPhaseRanSince": false }` |
+| `caddy-root.crt` | PEM root of Caddy's local CA (`/data/caddy/pki/authorities/local/root.crt` in the `tls` container), refreshed by every `up` when `PERF_TLS_CADDYFILE=Caddyfile.internal`. Node scripts trust it; `perf/bin/perf` exports it as `NODE_EXTRA_CA_CERTS`. |
 | `snapshots/<tier>.json` | `{ "tier", "snapshotId", "manifestChecksum", "anchor", "migrationHead", "keyFingerprint", "createdAt", "durationMs" }` |
 
 ## Seeder: `mercato customers seed-perf`
@@ -178,7 +179,7 @@ Target keys beyond the list above (all in `target.example.env`):
 CONTROL_BASE_URL=https://localhost:8443   # URL perf/bin/perf itself calls (users, reindex, checks)
 CALIBRATE_URL=                            # calibration target, default CONTROL_BASE_URL
 PROM_QUERY_URL=http://127.0.0.1:9090      # Prometheus HTTP API for report.mjs (vps: the ssh tunnel)
-INSECURE_TLS=1                            # accept the self-signed Caddy certificate
+INSECURE_TLS=1                            # k6 only (protocol + browser VUs); Node scripts verify against caddy-root.crt
 ```
 
 Extra k6 environment set by `perf/bin/perf run`: `SAMPLES` (baseline, from `--samples`),

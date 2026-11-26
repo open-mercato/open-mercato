@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import { apiRequest, configureTls, login } from './lib/http.mjs'
+import { apiRequest, login } from './lib/http.mjs'
+import { trustStoredCaddyRoot } from './lib/tls-trust.mjs'
 import { generatePassword } from './lib/env.mjs'
 import { loadTarget } from './lib/target.mjs'
 import { ensureStateDir, readJsonFile, writeJsonFile } from './lib/state.mjs'
@@ -117,7 +118,7 @@ export async function provisionUsers({ baseUrl, tenant, total = DEFAULT_TOTAL, a
 
 async function main() {
   const target = loadTarget()
-  configureTls(target)
+  trustStoredCaddyRoot()
   const tenant = readJsonFile(statePath('tenant.json'))
   const result = await provisionUsers({ baseUrl: target.CONTROL_BASE_URL, tenant, log: (line) => process.stdout.write(`${line}\n`) })
   process.stdout.write(`users.json and owners.json written: ${result.users} users (${result.admins} admins)\n`)

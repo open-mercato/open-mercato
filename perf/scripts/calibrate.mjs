@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { pathToFileURL } from 'node:url'
 import { summarize, round } from './lib/stats.mjs'
+import { trustStoredCaddyRoot } from './lib/tls-trust.mjs'
 
 export async function calibrate(baseUrl, { samples = 30, timeoutMs = 10000 } = {}) {
   const durations = []
@@ -38,7 +39,7 @@ async function main() {
   }
   const samplesIndex = rest.indexOf('--samples')
   const samples = samplesIndex >= 0 ? Number(rest[samplesIndex + 1]) : 30
-  if (process.env.INSECURE_TLS !== '0') process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+  trustStoredCaddyRoot()
   const result = await calibrate(baseUrl.replace(/\/+$/, ''), { samples })
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
 }
