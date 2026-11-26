@@ -69,6 +69,7 @@ test('a People viewer can browse without unauthorized controls or related reques
     await expect(page.getByRole('row', { name: new RegExp(displayName) })).toBeVisible()
     await expect(page.getByRole('link', { name: 'New Person' })).toHaveCount(0)
     await expect(page.getByRole('checkbox', { name: 'Select row', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Set normal priority', exact: true })).toHaveCount(0)
     await expect(page.getByTestId('sidebar').getByRole('link', { name: 'Messages', exact: true })).toHaveCount(0)
 
     const emailsLoaded = page.waitForResponse((response) =>

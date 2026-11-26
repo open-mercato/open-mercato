@@ -20,6 +20,7 @@ const mockT = (_key: string, fallback?: string, params?: Record<string, unknown>
 }
 let activePathname = '/backend/customers/people'
 let activeQuery = ''
+let mockGrantedFeatures: string[] = []
 
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -109,6 +110,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures } }),
   useCurrentOrganization: () => ({ id: 'org-scoped', name: 'Scoped Org' }),
 }))
 
@@ -198,6 +200,7 @@ describe('owner filter org scoping', () => {
   beforeEach(() => {
     activePathname = '/backend/customers/people'
     activeQuery = ''
+    mockGrantedFeatures = ['customers.people.view', 'customers.roles.view']
     dataTablePropsCapture.current = null
     readApiResultOrThrowMock.mockReset()
     apiCallMock.mockReset()
@@ -225,5 +228,20 @@ describe('owner filter org scoping', () => {
     await waitFor(() => {
       expect(findRequestedUrl('/api/auth/users?')).toContain('scopeToActiveOrganization=1')
     })
+  })
+
+  it('skips the staff lookup and write actions for a People viewer', async () => {
+    mockGrantedFeatures = ['customers.people.view']
+    renderWithProviders(<CustomersPeoplePage />)
+
+    await waitFor(() => expect(findRequestedUrl('/api/customers/people?')).toBeTruthy())
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/api/staff/team-members/assignable'),
+      expect.anything(),
+      expect.anything(),
+    )
+    expect(findRequestedUrl('/api/auth/users?')).toBe('')
+    expect(dataTablePropsCapture.current?.actions).toBeUndefined()
+    expect(dataTablePropsCapture.current?.bulkActions).toBeUndefined()
   })
 })
