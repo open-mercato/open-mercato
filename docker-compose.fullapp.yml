@@ -130,6 +130,7 @@ services:
     volumes:
       - mcp_shared:/run/mcp-shared
     environment:
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       <<: *tenant-encryption-environment
       # The image (Dockerfile `runner` stage) is a production build installed with
       # `yarn workspaces focus --production`. The Next server child is insulated (the CLI forces
@@ -242,6 +243,7 @@ services:
     # socket don't accidentally pick them up.
     environment:
       <<: *tenant-encryption-environment
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       # The image (Dockerfile `runner` stage) is a production build installed with
       # `yarn workspaces focus --production`. The Next server child is insulated (the CLI forces
       # NODE_ENV=production for it), but pinning `development` here still leaked into every other
