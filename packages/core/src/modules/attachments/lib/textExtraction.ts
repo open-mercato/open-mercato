@@ -128,6 +128,10 @@ async function extractPdfText(filePath: string): Promise<string | null> {
                 if (!('str' in item) || !item.str) continue
                 const text = pageText ? item.str : item.str.trimStart()
                 if (!text) continue
+                if (pageText.length === pageBudget && text.trim()) {
+                  exhausted = true
+                  break
+                }
                 if (pageText && pageText.length < pageBudget) pageText += ' '
                 const available = pageBudget - pageText.length
                 pageText += text.slice(0, available)

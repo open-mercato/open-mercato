@@ -336,6 +336,22 @@ describe('extractAttachmentContent', () => {
     await expect(extractAttachmentContent({ filePath })).resolves.toBe('first\nse')
   })
 
+  it('stops extracting when more text follows a full PDF prefix ending in whitespace', async () => {
+    process.env.OM_ATTACHMENT_TEXT_EXTRACTION_MAX_CHARS = '8'
+    const firstPage = mockPdfPage({ str: 'first     ' }, { str: 'continued' })
+    const getPage = jest.fn().mockResolvedValueOnce(firstPage).mockResolvedValueOnce(mockPdfPage({ str: 'second' }))
+    getPdfMock().getDocument.mockReturnValue({
+      promise: Promise.resolve({ numPages: 2, getPage }),
+      destroy: jest.fn().mockResolvedValue(undefined),
+    })
+
+    const filePath = await writeTempFile('full-prefix.pdf', '%PDF-1.4 placeholder')
+    const { extractAttachmentContent } = await import('../textExtraction')
+    await expect(extractAttachmentContent({ filePath })).resolves.toBe('first')
+    expect(getPage).toHaveBeenCalledTimes(1)
+    expect(firstPage.reader.cancel).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects DOCX input whose expanded size exceeds the limit before invoking Mammoth', async () => {
     const archive = await docxArchive(' '.repeat(1024))
     process.env.OM_ATTACHMENT_TEXT_EXTRACTION_MAX_BYTES = String(archive.length)
