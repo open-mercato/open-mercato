@@ -8,20 +8,27 @@ import path from 'node:path'
 import test from 'node:test'
 import { createGithubClient, type FetchLike } from '../lib/github-api.mts'
 import {
+  batchPullRequest,
   changelogEntryDate,
   changelogSection,
   dropUnreleased,
   ensureChangelogEntry,
   highestLatest,
+  entryPullRequest,
   insertChangelogEntry,
+  isGreenTag,
   newestLineTag,
   nextMinorVersion,
   planRelease,
   previousMinorRelease,
+  pullRequestsInSubjects,
   releaseBranchFor,
   resolveStableDistTag,
+  splitUnreleased,
   stampManifestVersion,
   stampUpgradeWindow,
+  withUnreleased,
+  type CommitPullRequest,
 } from '../lib/release-line.mts'
 
 const scriptPath = path.resolve('scripts/release-line.mts')
@@ -150,6 +157,99 @@ test('generated notes fill in when nothing was written by hand', () => {
 test('a cut hands Unreleased to the line', () => {
   assert.equal(dropUnreleased(`# Unreleased\n\n- Curated.\n\n${CHANGELOG}`), CHANGELOG)
   assert.equal(dropUnreleased(CHANGELOG), CHANGELOG)
+})
+
+test('a green tag is green/YYYY-MM-DD with a real date', () => {
+  assert.ok(isGreenTag('green/2026-11-20'))
+  for (const name of ['green/20261120', 'green/2026-13-01', 'green/2026-02-30', 'green/2026-11-20-2', 'v0.10.0', 'main', 'refs/tags/green/2026-11-20']) {
+    assert.ok(!isGreenTag(name), name)
+  }
+})
+
+const TAGGED = 'a'.repeat(40)
+const batchPr = (overrides: Partial<CommitPullRequest> = {}): CommitPullRequest => ({
+  number: 50,
+  state: 'closed',
+  merged_at: '2026-11-20T10:00:00Z',
+  head: { ref: 'stabilize/main-2026-11-20', sha: TAGGED },
+  base: { ref: 'main' },
+  ...overrides,
+})
+
+test('a green tag must head a stabilize/ batch PR merged into main', () => {
+  assert.deepEqual(batchPullRequest([batchPr()], TAGGED, 'main'), { ok: true, number: 50, branch: 'stabilize/main-2026-11-20' })
+
+  const open = batchPullRequest([batchPr({ state: 'open', merged_at: null })], TAGGED, 'main')
+  assert.ok(!open.ok)
+  assert.match(open.error, /#50 \(stabilize\/main-2026-11-20\), which is still open/)
+
+  const closed = batchPullRequest([batchPr({ merged_at: null })], TAGGED, 'main')
+  assert.ok(!closed.ok)
+  assert.match(closed.error, /closed without merging into main/)
+
+  for (const pulls of [
+    [],
+    [batchPr({ head: { ref: 'feat/x', sha: TAGGED } })],
+    [batchPr({ base: { ref: 'release/v0.9.x' } })],
+    [batchPr({ head: { ref: 'stabilize/main-2026-11-20', sha: 'b'.repeat(40) } })],
+  ]) {
+    const verdict = batchPullRequest(pulls, TAGGED, 'main')
+    assert.ok(!verdict.ok)
+    assert.match(verdict.error, /is not the head commit of a stabilize\/ PR merged into main/)
+  }
+})
+
+test('the PRs a ref contains come from squash and merge commit subjects', () => {
+  const numbers = pullRequestsInSubjects([
+    'feat(sales): add quotes (#101)',
+    'fix(core): decrypt lists (#5430) (#5822)',
+    'Merge pull request #77 from acme/branch',
+    'chore: no number',
+    'docs: mention #9 inside',
+  ])
+  assert.deepEqual([...numbers].sort((left, right) => left - right), [77, 101, 5822])
+})
+
+test('a changelog entry names its PR last, or by its pull link', () => {
+  assert.equal(entryPullRequest('- ✨ Add project mode (#6989). (#7001) *(@dev)*'), 7001)
+  assert.equal(entryPullRequest('* fix(sso): keep redirects (#9019) by @bot in https://github.com/o/r/pull/10394'), 10394)
+  assert.equal(entryPullRequest('Prose with no reference.'), null)
+})
+
+const UNRELEASED_SECTION = [
+  '# Unreleased',
+  '',
+  '## Highlights',
+  '',
+  'A release about quotes.',
+  '',
+  '## ✨ Features',
+  '- ✨ Quotes in the tag. (#101) *(@dev)*',
+  '- ✨ Invoices after the tag. (#102) *(@dev)*',
+  '',
+  '## 🐛 Fixes',
+  '- 🐛 Fix in the tag,',
+  '  over two lines. (#103) *(@dev)*',
+  '',
+  '---',
+  '',
+].join('\n')
+
+test('a green-tag cut splits Unreleased: PRs in the tag go to the line, later PRs stay on main', () => {
+  const inTag = new Set([101, 103])
+  const split = splitUnreleased(`${UNRELEASED_SECTION}${CHANGELOG}`, (pr) => inTag.has(pr))
+  assert.ok(split)
+  assert.equal(split.line, '## ✨ Features\n- ✨ Quotes in the tag. (#101) *(@dev)*\n\n## 🐛 Fixes\n- 🐛 Fix in the tag,\n  over two lines. (#103) *(@dev)*')
+  assert.equal(split.trunk, '## Highlights\n\nA release about quotes.\n\n## ✨ Features\n- ✨ Invoices after the tag. (#102) *(@dev)*')
+  assert.deepEqual(split.untraced, ['A release about quotes.'], 'an entry naming no PR stays on main and is reported')
+  assert.equal(splitUnreleased(CHANGELOG, () => true), null)
+})
+
+test('the split writes each side back under one Unreleased heading', () => {
+  const trunk = withUnreleased(`${UNRELEASED_SECTION}${CHANGELOG}`, '- Later. (#102)')
+  assert.equal(trunk, `# Unreleased\n\n- Later. (#102)\n\n---\n\n${CHANGELOG}`)
+  assert.equal(withUnreleased(CHANGELOG, '- Carried. (#101)'), `# Unreleased\n\n- Carried. (#101)\n\n${CHANGELOG}`)
+  assert.equal(withUnreleased(`${UNRELEASED_SECTION}${CHANGELOG}`, ''), CHANGELOG, 'an empty side drops the section')
 })
 
 test('a section is read whole, without its separator', () => {
@@ -312,6 +412,178 @@ test('a cut re-run after main moved refuses instead of rebuilding the bump PR', 
     assert.match(result.stderr, /already exists at ffffffffffff but main is at/)
     assert.equal(readVersion(root, 'package.json'), '0.9.0', 'nothing is stamped before the refusal')
     assert.equal(api.requests.length, 1)
+  } finally {
+    await api.close()
+  }
+})
+
+const commitFixture = (git: (...args: string[]) => string, message: string) =>
+  git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', message)
+
+// main at 0.9.0: #101 is inside green/2026-11-20, #102 merged after it, and Unreleased lists both
+// plus an untraced prose line.
+function greenTagRepo() {
+  const fixture = fixtureRepo('0.9.0')
+  commitFixture(fixture.git, 'feat(sales): quotes (#101)')
+  fixture.git('tag', 'green/2026-11-20')
+  const tagged = fixture.git('rev-parse', 'HEAD')
+  fs.writeFileSync(
+    path.join(fixture.root, 'CHANGELOG.md'),
+    `# Unreleased\n\nShort prose.\n\n- Quotes. (#101)\n- Invoices. (#102)\n\n${CHANGELOG}`,
+  )
+  fixture.git('add', '.')
+  commitFixture(fixture.git, 'feat(sales): invoices (#102)')
+  return { ...fixture, tagged, head: fixture.git('rev-parse', 'HEAD') }
+}
+
+type CutApiOptions = { tagged: string; head: string; existing?: string | null; existingParent?: string; existingChangelog?: string; pulls?: unknown[] }
+
+function cutApi({ tagged, head, existing = null, existingParent, existingChangelog, pulls }: CutApiOptions) {
+  const lineCommit = 'c'.repeat(40)
+  const bumpCommit = 'd'.repeat(40)
+  return (request: ApiRequest): [number, unknown?] => {
+    const { method, url, body } = request
+    if (method === 'GET' && url.endsWith(`/commits/${tagged}/pulls?per_page=100`)) {
+      return [200, pulls ?? [{ number: 50, state: 'closed', merged_at: '2026-11-20T10:00:00Z', head: { ref: 'stabilize/main-2026-11-20', sha: tagged }, base: { ref: 'main' } }]]
+    }
+    if (method === 'GET' && url.endsWith('/git/ref/heads/release/v0.9.x')) return existing ? [200, { object: { sha: existing } }] : [404, { message: 'Not Found' }]
+    if (method === 'GET' && existing && url.endsWith(`/git/commits/${existing}`)) return [200, { sha: existing, tree: { sha: 't' }, parents: [{ sha: existingParent }] }]
+    if (method === 'GET' && url.includes('/contents/CHANGELOG.md')) return [200, { sha: 'x', content: Buffer.from(existingChangelog ?? '').toString('base64') }]
+    if (method === 'GET' && url.includes('/git/commits/')) return [200, { sha: url.split('/').at(-1), tree: { sha: 't' }, parents: [] }]
+    if (method === 'POST' && url.endsWith('/git/trees')) return [201, { sha: 'tree', tree: { sha: 'tree' } }]
+    if (method === 'POST' && url.endsWith('/git/commits')) {
+      const parents = (body?.parents ?? []) as string[]
+      return [201, { sha: parents[0] === head ? bumpCommit : lineCommit, tree: { sha: 'tree' } }]
+    }
+    if (method === 'GET' && url.endsWith('/git/ref/heads/chore/open-v0.10.0')) return [404, { message: 'Not Found' }]
+    if (method === 'POST' && url.endsWith('/git/refs')) return [201, { object: { sha: String(body?.sha) } }]
+    if (method === 'PATCH' && url.includes('/git/refs/heads/')) return [200, { object: { sha: String(body?.sha) } }]
+    if (method === 'GET' && url.includes('/pulls?')) return [200, []]
+    if (method === 'POST' && url.endsWith('/pulls')) return [201, { number: 9, html_url: 'https://example/pr/9' }]
+    if (method === 'POST' && url.endsWith('/issues/9/labels')) return [200, []]
+    if (method === 'POST' && url.endsWith('/repo/labels')) return [422, { message: 'already_exists' }]
+    return [500, { message: `unexpected ${method} ${url}` }]
+  }
+}
+
+const apiEnv = (url: string) => ({ GH_TOKEN: 't', GITHUB_REPOSITORY: 'acme/repo', GITHUB_API_URL: url })
+const treeChangelog = (request: ApiRequest) =>
+  ((request.body?.tree ?? []) as { path: string; content: string }[]).find((file) => file.path === 'CHANGELOG.md')?.content
+
+test('cut --at creates the line at the green tag, not main\'s tip, and splits Unreleased', async () => {
+  const { root, tagged, head } = greenTagRepo()
+  const api = await fakeApi(cutApi({ tagged, head }))
+  try {
+    const result = await runLine(root, ['cut', '--branch', 'main', '--at', 'green/2026-11-20'], apiEnv(api.url))
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.outputs.sha, tagged)
+    assert.equal(result.outputs.cutFrom, 'green/2026-11-20')
+    const created = api.requests.find((request) => request.method === 'POST' && request.url.endsWith('/git/refs') && request.body?.ref === 'refs/heads/release/v0.9.x')
+    assert.deepEqual(created?.body, { ref: 'refs/heads/release/v0.9.x', sha: tagged })
+    assert.notEqual(tagged, head)
+
+    const trees = api.requests.filter((request) => request.method === 'POST' && request.url.endsWith('/git/trees'))
+    const commits = api.requests.filter((request) => request.method === 'POST' && request.url.endsWith('/git/commits'))
+    const lineIndex = commits.findIndex((request) => (request.body?.parents as string[])[0] === tagged)
+    const trunkIndex = commits.findIndex((request) => (request.body?.parents as string[])[0] === head)
+    assert.ok(lineIndex >= 0 && trunkIndex >= 0, 'one commit carries the line changelog, one bumps main')
+    const lineChangelog = treeChangelog(trees[lineIndex]) ?? ''
+    const trunkChangelog = treeChangelog(trees[trunkIndex]) ?? ''
+    assert.match(lineChangelog, /^# Unreleased\n\n- Quotes\. \(#101\)\n\n# 0\.9\.0/)
+    assert.doesNotMatch(lineChangelog, /#102|Short prose/)
+    assert.match(trunkChangelog, /^# Unreleased\n\nShort prose\.\n\n- Invoices\. \(#102\)\n\n# 0\.9\.0/)
+    assert.doesNotMatch(trunkChangelog, /#101/)
+    const moved = api.requests.find((request) => request.method === 'PATCH' && request.url.endsWith('/git/refs/heads/release/v0.9.x'))
+    assert.deepEqual(moved?.body, { sha: 'c'.repeat(40), force: false }, 'the changelog commit fast-forwards the line')
+    assert.match(result.stdout, /names no PR, kept on main.*Short prose\./)
+  } finally {
+    await api.close()
+  }
+})
+
+test('cut --at refuses a ref that is not a green tag', async () => {
+  const { root, git } = greenTagRepo()
+  git('tag', 'v0.9.0')
+  for (const ref of ['main', 'v0.9.0', 'green/20261120', 'green/2026-11-20-rc']) {
+    const result = await runLine(root, ['cut', '--dry-run', '--branch', 'main', '--at', ref])
+    assert.notEqual(result.status, 0, ref)
+    assert.match(result.stderr, /--at takes a green\/YYYY-MM-DD tag/, ref)
+  }
+})
+
+test('cut --at refuses a green tag that does not exist', async () => {
+  const { root } = greenTagRepo()
+  const result = await runLine(root, ['cut', '--dry-run', '--branch', 'main', '--at', 'green/2026-11-21'])
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /tag green\/2026-11-21 does not exist/)
+})
+
+test('cut --at refuses a green tag on an unmerged or closed batch PR', async () => {
+  const { root, tagged, head } = greenTagRepo()
+  const batch = { number: 50, head: { ref: 'stabilize/main-2026-11-20', sha: tagged }, base: { ref: 'main' } }
+  for (const [pulls, error] of [
+    [[{ ...batch, state: 'open', merged_at: null }], /#50 \(stabilize\/main-2026-11-20\), which is still open/],
+    [[{ ...batch, state: 'closed', merged_at: null }], /closed without merging into main/],
+    [[], /is not the head commit of a stabilize\/ PR merged into main/],
+  ] as const) {
+    const api = await fakeApi(cutApi({ tagged, head, pulls: [...pulls] }))
+    try {
+      const result = await runLine(root, ['cut', '--dry-run', '--branch', 'main', '--at', 'green/2026-11-20'], apiEnv(api.url))
+      assert.notEqual(result.status, 0)
+      assert.match(result.stderr, error)
+      assert.ok(!api.requests.some((request) => request.method !== 'GET'), 'a refused tag writes nothing')
+    } finally {
+      await api.close()
+    }
+  }
+  assert.equal(readVersion(root, 'package.json'), '0.9.0', 'nothing is stamped before the refusal')
+})
+
+test('cut --at --dry-run validates the green tag and names the line', async () => {
+  const { root, tagged, head } = greenTagRepo()
+  const api = await fakeApi(cutApi({ tagged, head }))
+  try {
+    const result = await runLine(root, ['cut', '--dry-run', '--branch', 'main', '--at', 'green/2026-11-20'], apiEnv(api.url))
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(result.outputs.releaseBranch, 'release/v0.9.x')
+    assert.equal(result.outputs.sha, tagged)
+    assert.match(result.stdout, /heads #50 \(stabilize\/main-2026-11-20\), merged into main/)
+    assert.ok(api.requests.every((request) => request.method === 'GET'), 'a dry run only reads')
+  } finally {
+    await api.close()
+  }
+})
+
+test('cut --at re-runs safely from the same green tag, even after main moved', async () => {
+  const { root, tagged, head } = greenTagRepo()
+  const lineTip = 'c'.repeat(40)
+  const expectedLine = `# Unreleased\n\n- Quotes. (#101)\n\n${CHANGELOG}`
+  for (const options of [
+    { existing: tagged },
+    { existing: lineTip, existingParent: tagged, existingChangelog: expectedLine },
+  ]) {
+    const api = await fakeApi(cutApi({ tagged, head, ...options }))
+    try {
+      const result = await runLine(root, ['cut', '--branch', 'main', '--at', 'green/2026-11-20'], apiEnv(api.url))
+      assert.equal(result.status, 0, result.stderr)
+      assert.match(result.stdout, /release\/v0\.9\.x already exists/)
+      assert.ok(!api.requests.some((request) => request.method === 'POST' && request.body?.ref === 'refs/heads/release/v0.9.x'), 'the line is not created twice')
+      const lineCommits = api.requests.filter((request) => request.method === 'POST' && request.url.endsWith('/git/commits') && (request.body?.parents as string[])[0] === tagged)
+      assert.equal(lineCommits.length, options.existing === tagged ? 1 : 0, 'the changelog commit is added once')
+      assert.equal(result.outputs.prUrl, 'https://example/pr/9')
+    } finally {
+      await api.close()
+    }
+  }
+})
+
+test('cut --at refuses a line that was cut elsewhere', async () => {
+  const { root, tagged, head } = greenTagRepo()
+  const api = await fakeApi(cutApi({ tagged, head, existing: 'e'.repeat(40), existingParent: 'f'.repeat(40) }))
+  try {
+    const result = await runLine(root, ['cut', '--branch', 'main', '--at', 'green/2026-11-20'], apiEnv(api.url))
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /already exists at eeeeeeeeeeee, which is neither green\/2026-11-20/)
   } finally {
     await api.close()
   }

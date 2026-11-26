@@ -2,7 +2,8 @@
 // Release-line orchestrator — the side-effect half of scripts/lib/release-line.mts, driven by the
 // release workflows (CONTRIBUTING.md § Releasing):
 //
-//   cut       (Release cut, from main)   main at X.Y.Z → creates release/vX.Y.x at main's tip and
+//   cut       (Release cut, from main)   main at X.Y.Z → creates release/vX.Y.x at main's tip, or
+//                                        with `--at green/YYYY-MM-DD` at that green batch, and
 //                                        opens the PR that moves main to X.(Y+1).0.
 //   prepare   (Release, from release/*)  picks the version (x.y.0 once, then the next patch),
 //                                        stamps the release set + CHANGELOG.md, commits the bump
@@ -30,21 +31,26 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs, promisify } from 'node:util'
 import {
   changelogEntryDate,
+  batchPullRequest,
   changelogSection,
   dropUnreleased,
   ensureChangelogEntry,
   highestLatest,
   insertChangelogEntry,
+  isGreenTag,
   isMinorRelease,
   newestLineTag,
   nextMinorVersion,
   planRelease,
   previousMinorRelease,
+  pullRequestsInSubjects,
   releaseBranchFor,
   resolveStableDistTag,
+  splitUnreleased,
   stampManifestVersion,
   stampUpgradeWindow,
   upgradeCompanionSkill,
+  withUnreleased,
   type ChangelogSection,
 } from './lib/release-line.mts'
 import { createGithubClient, type GithubClient } from './lib/github-api.mts'
@@ -68,6 +74,7 @@ const { positionals, values: flags } = parseArgs({
     published: { type: 'string' },
     date: { type: 'string' },
     tag: { type: 'string' },
+    at: { type: 'string' },
   },
 })
 const command = positionals[0]
@@ -99,6 +106,13 @@ const abs = (rel: string) => path.join(repoRoot, rel)
 const readText = (rel: string) => readFileSync(abs(rel), 'utf8')
 const readManifest = (rel: string): Manifest => JSON.parse(readText(rel))
 const git = (...args: string[]) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim()
+const tryGit = (...args: string[]): string | null => {
+  try {
+    return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  } catch {
+    return null
+  }
+}
 const today = () => flags.date ?? new Date().toISOString().slice(0, 10)
 
 const changed = new Map<string, string>()
@@ -148,6 +162,21 @@ async function openBookkeepingPr(
   return pr.html_url
 }
 
+// `--at` takes only a green tag on the head of a `stabilize/` batch merged into main. The PR check
+// needs the API; a dry run without GH_TOKEN skips it and says so.
+async function greenTagCommit(tag: string, gh: GithubClient | null): Promise<string> {
+  if (!isGreenTag(tag)) fail(`--at takes a green/YYYY-MM-DD tag, not "${tag}"`)
+  const sha = tryGit('rev-parse', '--verify', '--quiet', `refs/tags/${tag}^{commit}`) ?? fail(`tag ${tag} does not exist`)
+  if (!gh) {
+    log(`dry run without GH_TOKEN — not checking that ${tag} heads a stabilize/ PR merged into ${TRUNK}`)
+    return sha
+  }
+  const verdict = batchPullRequest(await gh.pullRequestsForCommit(sha), sha, TRUNK)
+  if (!verdict.ok) fail(`${tag} cannot start a release line: ${verdict.error}`)
+  log(`${tag} (${sha.slice(0, 12)}) heads #${verdict.number} (${verdict.branch}), merged into ${TRUNK}`)
+  return sha
+}
+
 async function cut() {
   const branchName = flags.branch ?? process.env.GITHUB_REF_NAME ?? TRUNK
   if (branchName !== TRUNK) fail(`a release line is cut from ${TRUNK}, not ${branchName}`)
@@ -156,28 +185,80 @@ async function cut() {
   const next = nextMinorVersion(current)
   if (!releaseBranch || !next) fail(`${TRUNK}'s version "${current}" is not a plain x.y.z`)
   const head = git('rev-parse', 'HEAD')
+  const greenTag = flags.at ?? null
 
   const gh = dryRun ? null : github()
+  const reader = gh ?? (process.env.GH_TOKEN ? github() : null)
+  const at = greenTag ? await greenTagCommit(greenTag, reader) : head
+  const from = greenTag ? `${greenTag} (${at.slice(0, 12)})` : `${TRUNK}'s tip (${at.slice(0, 12)})`
+  if (greenTag) {
+    const atVersion = (JSON.parse(git('show', `${at}:package.json`)) as Manifest).version
+    if (atVersion !== current) fail(`${greenTag} carries ${atVersion}, but ${TRUNK} is at ${current}: cut ${releaseBranch} from a green tag taken since ${TRUNK} moved to ${current}`)
+  }
+
   const existing = gh ? await gh.getBranchSha(releaseBranch) : null
   // A re-run after main moved would rebuild the bump PR from a newer main and drop `# Unreleased`
   // notes that never reached the line. Only a re-run from the very commit the line was cut at is safe.
-  if (existing && existing !== head) {
-    fail(
-      `${releaseBranch} already exists at ${existing.slice(0, 12)} but ${TRUNK} is at ${head.slice(0, 12)}. ` +
-        `Merge the existing chore/open-v${next} PR, or delete ${releaseBranch} to cut again from the current ${TRUNK}.`,
-    )
+  // A green-tag cut pins the line to the tag, so it may also find its own changelog commit on top.
+  if (existing && existing !== at) {
+    if (!greenTag) {
+      fail(
+        `${releaseBranch} already exists at ${existing.slice(0, 12)} but ${TRUNK} is at ${head.slice(0, 12)}. ` +
+          `Merge the existing chore/open-v${next} PR, or delete ${releaseBranch} to cut again from the current ${TRUNK}.`,
+      )
+    }
+    const parents = gh ? await gh.commitParents(existing) : []
+    if (parents.length !== 1 || parents[0] !== at) {
+      fail(
+        `${releaseBranch} already exists at ${existing.slice(0, 12)}, which is neither ${from} nor its changelog commit. ` +
+          `Run Release cut at the green tag the line was cut from, or delete ${releaseBranch} to cut again.`,
+      )
+    }
   }
 
   stampReleaseSet(next)
-  if (existsSync(abs('CHANGELOG.md'))) write('CHANGELOG.md', dropUnreleased(readText('CHANGELOG.md')))
-  log(`${TRUNK} ${current} → ${releaseBranch} at ${head.slice(0, 12)}; ${TRUNK} moves to ${next}`)
+  let lineChangelog: string | null = null
+  if (existsSync(abs('CHANGELOG.md'))) {
+    const changelog = readText('CHANGELOG.md')
+    if (!greenTag) {
+      write('CHANGELOG.md', dropUnreleased(changelog))
+    } else {
+      const contained = pullRequestsInSubjects(git('log', '--format=%s', at).split('\n'))
+      const split = splitUnreleased(changelog, (pr) => contained.has(pr))
+      if (split) {
+        write('CHANGELOG.md', withUnreleased(changelog, split.trunk))
+        const atChangelog = tryGit('show', `${at}:CHANGELOG.md`) ?? ''
+        const carried = withUnreleased(atChangelog, split.line)
+        if (carried.trim() !== atChangelog.trim()) lineChangelog = carried
+        log(`# Unreleased split at ${greenTag}: entries for PRs it contains go to ${releaseBranch}, the rest stay on ${TRUNK}`)
+        for (const entry of split.untraced) log(`names no PR, kept on ${TRUNK} — move it to ${releaseBranch} by hand if it ships there: ${entry.split('\n')[0]}`)
+      }
+    }
+  }
+  log(`${TRUNK} ${current} → ${releaseBranch} at ${from}; ${TRUNK} moves to ${next}`)
 
   let prUrl = ''
   if (!gh) {
-    log(`dry run — would create ${releaseBranch} and open the ${next} PR (${changed.size} files)`)
+    log(`dry run — would create ${releaseBranch} at ${at.slice(0, 12)}${lineChangelog ? ' with its changelog commit' : ''} and open the ${next} PR (${changed.size} files)`)
   } else {
     if (existing) log(`${releaseBranch} already exists at ${existing.slice(0, 12)} — left as it is`)
-    else await gh.createBranch(releaseBranch, head)
+    else await gh.createBranch(releaseBranch, at)
+    if (lineChangelog !== null) {
+      if (!existing || existing === at) {
+        const sha = await gh.commitFiles({
+          parentSha: at,
+          files: [{ path: 'CHANGELOG.md', content: lineChangelog }],
+          message: `docs(changelog): carry the ${current} entries from ${TRUNK}`,
+        })
+        await gh.moveBranch(releaseBranch, sha, false)
+        log(`carried the ${current} # Unreleased entries to ${releaseBranch} as ${sha.slice(0, 12)}`)
+      } else if ((await gh.readFile('CHANGELOG.md', existing)) !== lineChangelog) {
+        fail(
+          `${releaseBranch} already carries a different # Unreleased than ${TRUNK} hands it now. ` +
+            `Merge the existing chore/open-v${next} PR and move later entries to ${releaseBranch} by a backport.`,
+        )
+      }
+    }
     await gh.ensureLabel(`backport ${releaseBranch}`, 'c5def5', `Cherry-pick into ${releaseBranch} once merged`)
     await gh.ensureLabel(`backport ${TRUNK}`, 'c5def5', `Forward-port a release-line hotfix to ${TRUNK} once merged`)
     prUrl = await openBookkeepingPr(gh, {
@@ -185,16 +266,17 @@ async function cut() {
       parentSha: head,
       title: `chore(release): open ${next} on ${TRUNK}`,
       body: [
-        `\`${releaseBranch}\` was cut from \`${head.slice(0, 12)}\` and now carries \`${current}\` and its patches.`,
+        `\`${releaseBranch}\` was cut from ${greenTag ? `\`${greenTag}\` (\`${at.slice(0, 12)}\`)` : `\`${at.slice(0, 12)}\``} and now carries \`${current}\` and its patches.`,
         '',
         `This moves ${TRUNK}'s release set to \`${next}\`: features keep landing here while \`${releaseBranch}\` takes only fixes (label a PR \`backport ${releaseBranch}\`).`,
+        ...(greenTag ? ['', `\`# Unreleased\` entries for PRs merged after \`${greenTag}\` stay here for \`${next}\`.`] : []),
         '',
         `Next: run **Release** from \`${releaseBranch}\`.`,
       ].join('\n'),
       labels: BOOKKEEPING_LABELS,
     })
   }
-  emit({ releaseBranch, current, nextVersion: next, prUrl })
+  emit({ releaseBranch, current, nextVersion: next, prUrl, cutFrom: greenTag ?? TRUNK, sha: at })
 }
 
 async function latestOf(name: string): Promise<string | null> {

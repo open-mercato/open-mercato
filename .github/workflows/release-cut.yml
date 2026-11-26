@@ -5,6 +5,10 @@ name: Release cut
 # labels, hands main's `# Unreleased` changelog section to the line, and opens the PR moving
 # main to X.(Y+1).0. It publishes nothing — ship the line with the Release workflow, run from the
 # new branch. Re-running is safe: an existing branch is left alone and the PR is reused.
+#
+# With `green_tag` the line starts at that `green/YYYY-MM-DD` tag instead: the tag must be the head
+# of a `stabilize/` batch PR merged into main, and only the `# Unreleased` entries for PRs the tag
+# contains go to the line; the rest stay on main for the next minor. Empty cuts at main's tip.
 
 on:
   workflow_dispatch:
@@ -14,6 +18,11 @@ on:
         required: false
         default: false
         type: boolean
+      green_tag:
+        description: 'Cut at this green/YYYY-MM-DD tag (head of a stabilize/ batch merged into main); empty cuts at main''s tip'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -30,8 +39,11 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
+      # A green-tag cut reads the tag and every PR it contains from history; a tip cut needs neither.
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          fetch-depth: ${{ inputs.green_tag == '' && 1 || 0 }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -40,9 +52,10 @@ jobs:
 
       # The release app (CONTRIBUTING.md § Releasing → One-time setup) creates the line under the
       # `release/v*` ruleset and opens a main PR that CI actually runs on; GITHUB_TOKEN can do neither.
-      # A dry run touches no API, so it needs no app token.
+      # A dry run at main's tip touches no API, so it needs no app token; a dry run at a green tag
+      # reads the batch PR to validate the tag.
       - name: Mint the release token
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run || inputs.green_tag != '' }}
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
@@ -53,7 +66,8 @@ jobs:
         id: cut
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: node scripts/release-line.mts cut ${{ inputs.dry_run && '--dry-run' || '' }}
+          GREEN_TAG: ${{ inputs.green_tag }}
+        run: node scripts/release-line.mts cut ${{ inputs.dry_run && '--dry-run' || '' }} ${GREEN_TAG:+--at "$GREEN_TAG"}
 
       - name: Write workflow summary
         if: always() && steps.cut.outputs.releaseBranch != ''
@@ -62,9 +76,13 @@ jobs:
           CURRENT: ${{ steps.cut.outputs.current }}
           NEXT: ${{ steps.cut.outputs.nextVersion }}
           PR_URL: ${{ steps.cut.outputs.prUrl }}
+          CUT_FROM: ${{ steps.cut.outputs.cutFrom }}
+          CUT_SHA: ${{ steps.cut.outputs.sha }}
         run: |
           {
             echo "## ✂️ ${RELEASE_BRANCH} (${CURRENT})"
+            echo ""
+            echo "Cut at \`${CUT_FROM}\` (\`${CUT_SHA:0:12}\`)."
             echo ""
             echo "main moves to \`${NEXT}\`${PR_URL:+ in ${PR_URL}}."
             echo ""

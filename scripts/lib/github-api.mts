@@ -6,6 +6,8 @@
 // the app token.
 // Every call is re-run safe: existing branches, tags, PRs, labels and releases are reused.
 
+import type { CommitPullRequest } from './release-line.mts'
+
 const DEFAULT_API = 'https://api.github.com'
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH'
@@ -20,7 +22,7 @@ export type CommitFile = { path: string; content: string }
 export type PullRequest = { number: number; html_url: string }
 
 type GitRef = { object: { sha: string } }
-type GitObject = { sha: string; tree: { sha: string } }
+type GitObject = { sha: string; tree: { sha: string }; parents?: { sha: string }[] }
 type ContentFile = { sha: string; content?: string }
 type Blob = { content: string }
 type Release = { id: number }
@@ -105,6 +107,15 @@ export function createGithubClient({
       const existing = await getRefSha(`tags/${tag}`)
       if (existing === null) await createRef(`tags/${tag}`, sha)
       else if (existing !== sha) throw new Error(`[internal] tag ${tag} already points at ${existing}, not ${sha}`)
+    },
+    async commitParents(sha: string): Promise<string[]> {
+      const commit = await ok<GitObject>('GET', `${base}/git/commits/${sha}`)
+      return (commit.parents ?? []).map((parent) => parent.sha)
+    },
+    // Every PR whose head is the commit, merged or not — including a squash-merged one whose head
+    // never reached the default branch.
+    async pullRequestsForCommit(sha: string): Promise<CommitPullRequest[]> {
+      return ok<CommitPullRequest[]>('GET', `${base}/commits/${sha}/pulls?per_page=100`)
     },
     async hasRelease(tag: string): Promise<boolean> {
       return (await findRelease(tag)) !== null
