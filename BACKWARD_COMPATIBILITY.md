@@ -42,7 +42,7 @@ The following file names, their expected export names, and their role in module 
 |`search.ts`|`searchConfig: SearchModuleConfig`|MUST NOT change `SearchEntityConfig` required fields; may add optional fields|
 |`events.ts`|`eventsConfig` via `createModuleEvents()`|MUST NOT change `EventDefinition` required fields (`id`, `label`); may add optional fields|
 |`extension-points.ts`|`extensionPoints: ModuleExtensionPoints`|New additive convention; declared exact/pattern host IDs, aliases, fallbacks, family/capability semantics, and bound call-site meaning MUST NOT change incompatibly|
-|`form-sections.ts`|`crudFormSections`, `crudFormExtensions` (either or both)|Server-only. `*.client.ts(x)` exports `crudFormSectionRuntime` with the fact's `id` and `roundTripId`.|
+|`form-sections.ts`|`crudFormSections`, `crudFormExtensions` (either or both)|Server-only. `*.client.ts(x)` exports `crudFormSectionRuntime` with matching `id` and `roundTripId`.|
 |`translations.ts`|`translatableFields`|MUST NOT change record shape|
 |`notifications.ts`|`notificationTypes: NotificationTypeDefinition[]`|MUST NOT change required fields; may add optional fields|
 |`notifications.client.ts`|—|MUST NOT change renderer props contract|
@@ -151,13 +151,13 @@ Signatures MUST NOT change incompatibly. New optional parameters may be added.
 |`collectCustomFieldValues()`|`@open-mercato/ui/backend/utils/customFieldValues`|MUST NOT change|
 |`flash()`|`@open-mercato/ui`|MUST NOT change|
 |`CrudForm` component props|`@open-mercato/ui/backend/crud`|MUST NOT remove existing props|
-|`defineCrudFormSections`, `lazyCrudFormSectionRuntime`, `defineCrudFormSectionSink`|`@open-mercato/shared/modules/form-sections`|STABLE declarations, lazy loader, and sink callbacks|
+|`defineCrudFormSections`, `lazyCrudFormSectionRuntime`, `defineCrudFormSectionSink`|`@open-mercato/shared/modules/form-sections`|STABLE declarations, lazy loader, sink callbacks|
 |`defineCrudFormSectionRuntime`|`@open-mercato/ui/backend/injection/crud-form-section-runtime`|STABLE identity, ownership, validator/projector pairing|
 |`defineCrudFormExtension`, `hide`, `replace`, `modify`, `add`, `field.*`, `store.*`|`@open-mercato/ui/backend/crud-form-extensions`|STABLE authoring builders|
 |`defineCrudFormFieldGranularSection`|`@open-mercato/ui/backend/crud-form-field-granular`|STABLE field ownership and refinements|
-|`crudFormSectionScope(address)`, `ComponentReplacementHandles.section(scope, sectionId)`|`@open-mercato/shared/modules/widgets/component-registry`|STABLE scope encoding and two-argument signature|
+|`crudFormSectionScope(address)`, `ComponentReplacementHandles.section(scope, sectionId)`|`@open-mercato/shared/modules/widgets/component-registry`|STABLE scope encoding and signature|
 |`defineCrudRouteSectionHost`|`@open-mercato/shared/lib/crud/form-sections/derived-route-host`|STABLE opt-in conventional CRUD binding and guarded sibling route|
-|`runCrudFormSectionMutation`|`@open-mercato/shared/lib/crud/form-sections/mutation-facade`|STABLE façade helper for declared host/target bindings|
+|`runCrudFormSectionMutation`|`@open-mercato/shared/lib/crud/form-sections/mutation-facade`|STABLE façade host/target bindings|
 |`defineCrudFormSectionOutboxSink`, `outboxColumns`|`@open-mercato/shared/lib/crud/form-sections/outbox`, `@open-mercato/shared/lib/crud/form-sections/outbox-columns`|STABLE revision, columns, fencing facts, and versioned delivery|
 |Built-in `CrudFormGroup.id` values|any module's form-group builder (e.g. `createCompanyFormGroups`)|MUST NOT rename or remove an id a shipped form declares — `CrudForm`'s `hiddenGroupIds` addresses groups by id, and an unmatched id is ignored, so a rename makes a card the host hid silently reappear in production. Renames follow the deprecation protocol; pin a builder's ids with a guard test (pattern: `packages/core/src/modules/customers/components/__tests__/companyFormHiddenGroups.test.tsx`). MAY add new groups freely|
 |`DataTable` component props|`@open-mercato/ui/backend`|MUST NOT remove existing props|
@@ -198,7 +198,7 @@ Spot IDs are the addresses where external modules inject UI. Renaming or removin
 - MAY add new API routes freely
 - To retire a route: deprecate with `deprecated: true` in `openApi`, keep it functional for at least one minor version, then remove
 - Keep `POST /api/extensions/crud-form-sections/resolve`, strict ready/failed envelopes, `crud_form_section_policy_invalid`, and `resolveCrudFormSectionsRequestSchema` / `resolveCrudFormSectionsResponseSchema` in `@open-mercato/shared/lib/crud/form-sections/protocol`.
-- Opt-in `/api/<route>/section-policy` supports declared methods alongside legacy routes. Keep `crudFormSectionPolicyHeaderNames` and bindings in `@open-mercato/shared/lib/crud/form-sections/policy-headers`. Host and target IDs differ. Lock on the target version.
+- Opt-in `/api/<route>/section-policy` keeps declared methods and legacy routes. Keep `crudFormSectionPolicyHeaderNames` bindings in `@open-mercato/shared/lib/crud/form-sections/policy-headers`. Host and target IDs differ. Lock on the target version.
 - Request `extensions` and response `_extensions` / `extensionWarnings` are additive. Preserve `409 extension_policy_mismatch`, `422 mutation_guard_rejected` with `details.fieldErrors`, and `crud_form_section_hidden_field_invalid`, `crud_form_section_external_unavailable`, and `validation_failed` envelopes. [API contracts](.ai/specs/2026-10-22-crudform-section-overrides-framework.md#api-contracts).
 
 ### 8. Database Schema (ADDITIVE-ONLY)
@@ -266,7 +266,7 @@ AI framework registries are public extension points. Published IDs are reference
 - Resolution order MUST remain: programmatic → `modules.ts` inline → file-based override exports → base registrations
 - `AiAgentExtension` patch order MUST remain: `replace*` first, `delete*` second, `append*` last
 - Override value validation MUST keep key/value matching semantics: a non-null agent override's `id` must equal the map key; a non-null tool override's `name` must equal the map key
-- `overrides.forms.sections` keys are `<hostId>/<formVariant>/<formOperation>/<sectionId>`. Programmatic overrides precede inline `modules.ts`, then defaults. `null` masks lower entries. Keep published host, variant, operation, section, descriptor, contribution, capability, mutation-surface, and round-trip IDs stable. Sink event, notification, and retry contracts apply.
+- `overrides.forms.sections` keys are `<hostId>/<formVariant>/<formOperation>/<sectionId>`. Precedence descends from programmatic overrides to inline `modules.ts` to defaults. `null` masks lower entries. Host, variant, operation, section, descriptor, contribution, capability, mutation-surface, and round-trip IDs are stable. Sink event, notification, and retry contracts apply.
 
 **Mutation approval contract:**
 
@@ -292,7 +292,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 - MAY add new generated files and new optional fields to `BootstrapData`
 - MAY add new generated AI registry exports additively
 - `crud-form-section-facts.generated.ts` exports `crudFormSectionFactEntries` and `crudFormSectionServerModules`. `crud-form-section-runtime.generated.ts` exports `crudFormSectionClientHostFacts`, `crudFormSectionContributedOverrides`, `crudFormSectionRuntimeEntries`, and `getCrudFormSectionRuntime`. Pair descriptor/round-trip IDs. Include enabled modules in dependency order. Browser output uses serialized facts and literal lazy imports.
-- The module-root `form-sections.runtime-revisions.json` tracks descriptor IDs, `roundTripId`, and `sourceHash`. Commit updates with paired facts/runtime. Advance `<descriptor-id>@v<n>` for semantic changes. Bridge older revisions with matching facts/runtime.
+- Module-root `form-sections.runtime-revisions.json` tracks descriptor ID, `roundTripId`, and `sourceHash`. Commit updates with paired facts/runtime. Advance `<descriptor-id>@v<n>` for semantic changes. Bridge older revisions with matching facts/runtime.
 - `form-sections.revisions.json` tracks wrapper revisions (`n`, `baseRoundTripId`, `patchHash`). [Wrapper recipe](apps/docs/docs/framework/admin-ui/crud-form.mdx#extend-a-published-host).
 - Generated `.ai/guides/module-facts.json` is the v1 compatibility projection. It keeps its existing top-level module record and legacy sections; optional per-module `extensionSurfaces` is ADDITIVE. Its `hosts`, `contributions`, and `unresolved` arrays, correlation-resolution values, exact public IDs, and published classification modes are STABLE.
 - Generated `.ai/guides/module-facts.v2.json` is the additive corrected projection and keeps the same `Record<moduleId, ModuleFactsJsonEntry>` top-level shape. New harness consumers prefer v2 and fall back to v1. Once published, v2 values follow the same generated-facts stability rules; future incompatible corrections require another explicit version boundary.
