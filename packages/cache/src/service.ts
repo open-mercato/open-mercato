@@ -567,7 +567,7 @@ function createStockTenantAwareStrategy(strategyType: CacheStrategyName, options
 
   const codecOptions = resolveCodecOptions(options)
 
-  const createStrategy = stockProviderFactories[strategyType] ?? stockProviderFactories.memory
+  const createStrategy = isCacheStrategyName(strategyType) ? stockProviderFactories[strategyType] : stockProviderFactories.memory
   const baseStrategy = createStrategy({ options, defaultTtl, maxEntries, codecOptions })
   const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl, maxEntries)
   const reportsBoundedCounters = strategyType === 'memory'

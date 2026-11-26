@@ -6,7 +6,7 @@ import {
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_JSON_FILE_CACHE_PATH, DEFAULT_SQLITE_CACHE_PATH } from '../defaults'
-import type { CacheStrategy } from '../types'
+import type { CacheServiceOptions, CacheStrategy } from '../types'
 import { runWithCacheTenant } from '../tenantContext'
 import * as memoryStrategyModule from '@open-mercato/cache-provider-memory'
 import * as sqliteStrategyModule from '@open-mercato/cache-provider-sqlite'
@@ -490,6 +490,12 @@ describe('Cache Service stock selection characterization', () => {
     expect(factories.sqlite).not.toHaveBeenCalled()
     expect(factories.redis).not.toHaveBeenCalled()
     expect(factories.jsonfile).not.toHaveBeenCalled()
+    await expect(cache.get('unknown-strategy')).resolves.toBe('value')
+  })
+
+  it.each(['constructor', '__proto__'])('keeps the memory fallback for an unknown JS strategy %s', async (strategy) => {
+    const cache = createCacheService({ strategy: strategy as CacheServiceOptions['strategy'] })
+    await cache.set('unknown-strategy', 'value')
     await expect(cache.get('unknown-strategy')).resolves.toBe('value')
   })
 
