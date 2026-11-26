@@ -435,11 +435,7 @@ Phases 4–9 always restore the snapshot first and never run concurrently with e
 
 Phase 2 uses `step --profile mini`.
 
-**Delivery.** The tooling ships as two PRs that share this spec:
-- **PR A** is the seeder CLI in `packages/core` (Phase 1.2). It can be reviewed by the customers maintainers and merged without any VPS decision.
-- **PR B** is the `perf/` harness (Phases 1.1, 1.3–1.6).
-
-The seam between them is the `catalog.json` and manifest format, defined in PR A.
+**Delivery.** Everything ships on a single branch and draft PR (#10747): this spec, the seeder CLI (Phase 1.2) and the `perf/` harness. That PR is **not intended to be merged**. It is the working base the performance tests run from. Implement the seeder first, because the harness consumes its `catalog.json` and manifest format. Any product fix found during the rounds goes to its own separate PR.
 
 ## Implementation Plan
 
@@ -684,5 +680,5 @@ Each experiment is a single-variable change against the round-1 snapshot, report
   - Bulk jobs are fire-and-forget in the mixed load; a shared hot set exercises lock conflicts.
   - Users and staff are created through the APIs.
   - Fixed the interference injector rate and the no-knee stress fallback.
-  - Delivery split into PR A (seeder) and PR B (harness).
+  - Delivery on a single, non-merged working PR (#10747).
   - Corrected citations.
