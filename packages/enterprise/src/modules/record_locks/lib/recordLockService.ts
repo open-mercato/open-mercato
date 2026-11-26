@@ -226,6 +226,11 @@ function reportHistoryLookupFailure() {
 
 export type ParsedRecordLockHeaders = Partial<RecordLockMutationHeaders>
 
+function readAuditTimestampMs(value: unknown): number {
+  if (value instanceof Date) return value.getTime()
+  return typeof value === 'string' ? Date.parse(value) : Number.NaN
+}
+
 function normalizeDate(value: Date): string {
   return value.toISOString()
 }
@@ -1000,8 +1005,9 @@ export class RecordLockService {
 
     const latest = await this.findLatestActionLog(input)
     if (!latest || latest.id !== conflict.incomingActionLogId) return false
-    if (!(latest.createdAt instanceof Date)) return false
-    return currentVersionMs <= latest.createdAt.getTime()
+    const latestWriteMs = readAuditTimestampMs(latest.createdAt)
+    if (!Number.isFinite(latestWriteMs)) return false
+    return currentVersionMs <= latestWriteMs
   }
 
   async validateMutation(input: RecordLockMutationValidationInput): Promise<RecordLockValidationResult> {

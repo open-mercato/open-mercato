@@ -53,6 +53,7 @@ function createService(options: {
   settings?: RecordLockSettings
   conflict?: ConflictRow | null
   latestLogId?: string | null
+  latestLogAt?: unknown
   canOverrideIncoming?: boolean
 } = {}) {
   const service = new RecordLockService({
@@ -74,7 +75,8 @@ function createService(options: {
     options.conflict === undefined ? pendingConflict() : options.conflict,
   )
   const latestLogId = options.latestLogId === undefined ? INCOMING_LOG_ID : options.latestLogId
-  internals.findLatestActionLog = jest.fn().mockResolvedValue(latestLogId ? { id: latestLogId, createdAt: INCOMING_LOG_AT } : null)
+  const latestLogAt = options.latestLogAt === undefined ? INCOMING_LOG_AT : options.latestLogAt
+  internals.findLatestActionLog = jest.fn().mockResolvedValue(latestLogId ? { id: latestLogId, createdAt: latestLogAt } : null)
   return { service, internals }
 }
 
@@ -112,6 +114,21 @@ describe('RecordLockService.canKeepMineOverrideStaleVersion', () => {
       conflict: pendingConflict({ status: 'resolved_accept_mine', resolution: 'accept_mine', resolvedByUserId: REQUESTER_ID }),
     })
     await expect(service.canKeepMineOverrideStaleVersion(keepMineInput(), CURRENT_VERSION)).resolves.toBe(true)
+  })
+
+  it('reads the incoming change time when the audit history returns it as a raw database string', async () => {
+    const { service } = createService({ latestLogAt: '2026-11-23 10:00:00.500123+00' })
+    await expect(service.canKeepMineOverrideStaleVersion(keepMineInput(), CURRENT_VERSION)).resolves.toBe(true)
+    await expect(
+      service.canKeepMineOverrideStaleVersion(keepMineInput(), '2026-11-23T10:00:05.000Z'),
+    ).resolves.toBe(false)
+  })
+
+  it('refuses when the incoming change time cannot be read', async () => {
+    for (const latestLogAt of ['not a date', null, 1763892000500]) {
+      const { service } = createService({ latestLogAt })
+      await expect(service.canKeepMineOverrideStaleVersion(keepMineInput(), CURRENT_VERSION)).resolves.toBe(false)
+    }
   })
 
   it('refuses when someone wrote the record after the conflict was shown', async () => {
