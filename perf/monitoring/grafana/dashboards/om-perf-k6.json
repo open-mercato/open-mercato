@@ -238,7 +238,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Error rate",
+      "title": "Error rate (cumulative over the run)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -274,8 +274,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(k6_http_reqs_total{run_id=~\"$run_id\", expected_response=\"false\"}[1m])) / sum(rate(k6_http_reqs_total{run_id=~\"$run_id\"}[1m]))",
-          "legendFormat": "errors",
+          "expr": "sum by (run_id) (k6_http_reqs_total{run_id=~\"$run_id\", expected_response=\"false\"}) / sum by (run_id) (k6_http_reqs_total{run_id=~\"$run_id\"})",
+          "legendFormat": "{{run_id}}",
           "refId": "A",
           "range": true
         }
@@ -283,7 +283,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Optimistic-lock conflicts",
+      "title": "Optimistic-lock conflicts (cumulative)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -319,8 +319,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(k6_om_conflicts_total{run_id=~\"$run_id\"}[1m])) * 60",
-          "legendFormat": "per min",
+          "expr": "sum by (run_id) (k6_om_conflicts_total{run_id=~\"$run_id\"})",
+          "legendFormat": "{{run_id}}",
           "refId": "A",
           "range": true
         }
@@ -373,7 +373,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Dropped iterations (generator saturation)",
+      "title": "Dropped iterations (cumulative, generator saturation)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -409,8 +409,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(k6_dropped_iterations_total{run_id=~\"$run_id\"}[1m])) * 60",
-          "legendFormat": "per min",
+          "expr": "sum by (run_id) (k6_dropped_iterations_total{run_id=~\"$run_id\"})",
+          "legendFormat": "{{run_id}}",
           "refId": "A",
           "range": true
         }

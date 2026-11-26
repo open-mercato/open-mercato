@@ -72,7 +72,7 @@ function summarySection(model) {
   if (run.localValidation) lines.push('> **local-validation** run: script and runbook check on a laptop. These are not baseline numbers.', '')
   if (run.k6ExitCode && run.k6ExitCode !== 0) lines.push(`> k6 exited with code ${run.k6ExitCode}${run.k6ExitCode === 99 ? ' (a threshold or safety abort fired)' : ''}.`, '')
   lines.push(`- Saturation point: ${saturation ? `step ${saturation.step} (${saturation.vus} VUs): ${saturation.reasons.join('; ')}` : 'not reached in this run'}`)
-  lines.push(`- Worst endpoints by p95: ${worst.length ? worst.map((row) => `\`${row.name}\` ${formatMs(row.p95)} ms`).join(', ') : '–'}`)
+  lines.push(`- Worst endpoints by p95: ${worst.length ? worst.map((row) => `\`${row.name}\` ${formatMs(row.p95)}${row.p95 >= 10000 ? "" : " ms"}`).join(', ') : '–'}`)
   lines.push(`- Error budget: ${budget.requests} requests, ${formatPct(budget.errorRate)} errors, ${formatPct(budget.conflictRate)} optimistic-lock conflicts`)
   if (comparison) {
     const regressions = comparison.rows.filter((row) => row.deltaP95 !== null && row.deltaP95 > 0.1).length

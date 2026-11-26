@@ -283,7 +283,7 @@ There are no application schema changes.
 |---|---|---|---|---|
 | Customer entities | 50k | 250k | 1M | 75% people / 25% companies, ~3 people per company, ~10% of people without a company |
 | Interactions (`customer_interactions`) | ~500k | ~2.5M | ~10M | Power law per entity: 60% have 1–5, 30% have 6–20, 9% have 21–100, 1% have 100–1000. Types: call/email/meeting/note/task. ~70% done, ~30% planned (dates spread across −3 y … +3 months). |
-| Deals | ~25k | ~125k | ~500k | ~0.5 per entity. 2 pipelines × 6 stages. Status open/win/loose per stage, values in 3 currencies, owners from the staff pool, ~3 stage transitions each (`customer_deal_stage_transitions`), ~15% "stuck" (no transition beyond the threshold). |
+| Deals | ~25k | ~125k | ~500k | ~0.5 per entity. 2 pipelines × 6 stages. Status open/win/lost per stage, values in 3 currencies, owners from the staff pool, ~3 stage transitions each (`customer_deal_stage_transitions`), ~15% "stuck" (no transition beyond the threshold). |
 | Deal comments | ~50k | ~250k | ~1M | ~2 per deal |
 | Addresses | ~20k | ~100k | ~400k | 1 per company, 0.3 per person, ~60% geocoded (feeds `deals/map`) |
 | Tags | 50 tags | 50 | 50 | 0–3 per entity (Zipf over tags) |

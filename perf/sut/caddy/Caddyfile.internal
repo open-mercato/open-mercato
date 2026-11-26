@@ -10,5 +10,9 @@
 
 https://localhost, https://tls, https://{$PERF_TLS_HOST:127.0.0.1} {
 	tls internal
-	reverse_proxy app:3000
+	reverse_proxy app:3000 {
+		transport http {
+			keepalive 4s
+		}
+	}
 }

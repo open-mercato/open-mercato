@@ -11,6 +11,7 @@ copy the derived values into `perf/config/sut.local.env` and never tune one run 
 | `local-mac` | Phase 2 local validation (SUT, monitoring and k6 on one laptop) | Docker Desktop VM, 8 vCPU assigned | 16 GB assigned to the VM | Apple SSD (virtiofs) | macOS + Docker Desktop | numbers are `local-validation` only |
 | `vps-8c32g` | **Recommended SUT** | 8 dedicated vCPU | 32 GB | NVMe | Ubuntu 24.04 LTS, Docker Engine + compose plugin | to be confirmed in Phase 0 |
 | `vps-4c8g` | Generator (and a minimal SUT for dry runs) | 4 vCPU | 8 GB | NVMe | Ubuntu 24.04 LTS | to be confirmed in Phase 0 |
+| `vps-6c16g` | **Offered SUT** (2026-11-26) | 6 vCPU (dedicated? to confirm) | 16 GB | 80 GB (type to confirm) | to confirm | provisional: S fits; M needs ≥ 200 GB disk (see below) |
 
 Shared-vCPU plans add steal-time noise; if one is used, the report's `CPU steal` row must be read before any comparison.
 
@@ -31,19 +32,19 @@ Shared-vCPU plans add steal-time noise; if one is used, the report's `CPU steal`
 
 ## Derived settings
 
-| Setting | `local-mac` | `vps-8c32g` | `vps-4c8g` |
-|---|---|---|---|
-| `DB_POOL_MAX` | 20 | 40 | 20 |
-| `WORKER_DB_POOL_MAX` | 8 | 12 | 8 |
-| `PG_MAX_CONNECTIONS` | 200 | 200 | 100 |
-| `PG_SHARED_BUFFERS` | 2GB | 8GB | 2GB |
-| `PG_EFFECTIVE_CACHE_SIZE` | 6GB | 20GB | 5GB |
-| `PG_WORK_MEM` | 16MB | 32MB | 8MB |
-| `PG_MAINTENANCE_WORK_MEM` | 512MB | 1GB | 512MB |
-| `NODE_OPTIONS` | `--max-old-space-size=3072` | `--max-old-space-size=8192` | `--max-old-space-size=3072` |
-| `WORKER_NODE_OPTIONS` | `--max-old-space-size=2048` | `--max-old-space-size=4096` | `--max-old-space-size=2048` |
-| `REDIS_MAXMEMORY` | 512mb | 2gb | 1gb |
-| `PG_SHM_SIZE` | 1gb | 2gb | 1gb |
+| Setting | `local-mac` | `vps-8c32g` | `vps-4c8g` | `vps-6c16g` |
+|---|---|---|---|---|
+| `DB_POOL_MAX` | 20 | 40 | 20 | 20 |
+| `WORKER_DB_POOL_MAX` | 8 | 12 | 8 | 8 |
+| `PG_MAX_CONNECTIONS` | 200 | 200 | 100 | 100 |
+| `PG_SHARED_BUFFERS` | 2GB | 8GB | 2GB | 2GB |
+| `PG_EFFECTIVE_CACHE_SIZE` | 6GB | 20GB | 5GB | 6GB |
+| `PG_WORK_MEM` | 16MB | 32MB | 8MB | 32MB |
+| `PG_MAINTENANCE_WORK_MEM` | 512MB | 1GB | 512MB | 512MB |
+| `NODE_OPTIONS` | `--max-old-space-size=3072` | `--max-old-space-size=8192` | `--max-old-space-size=3072` | `--max-old-space-size=4096` |
+| `WORKER_NODE_OPTIONS` | `--max-old-space-size=2048` | `--max-old-space-size=4096` | `--max-old-space-size=2048` | `--max-old-space-size=2048` |
+| `REDIS_MAXMEMORY` | 512mb | 2gb | 1gb | 1gb |
+| `PG_SHM_SIZE` | 1gb | 2gb | 1gb | 1gb |
 
 ## Measured durations
 
@@ -52,6 +53,18 @@ and `last-restore.json` hold the raw numbers.
 
 | Profile | Tier | Seed (seed-perf) | Query index reindex | Fulltext reindex | Snapshot | Restore | Dataset size |
 |---|---|---|---|---|---|---|---|
-| `local-mac` | S | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
+| `local-mac` | S | 79 s (≈ 630 entities/s) | 362 s | 921 s (Meilisearch, 113k docs) | 64 s | 65 s | 12 GB Postgres (11 GB `search_tokens`), ~0.9 GB Meilisearch |
 | `vps-8c32g` | M | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
 | `vps-8c32g` | L | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
+
+## Disk budget
+
+Measured on `local-mac` at tier S: Postgres 12 GB, of which `search_tokens` is ~11 GB (heap ~2.5× larger than live rows after the reindex pipeline); Meilisearch ~0.9 GB. The template snapshot doubles both. Estimates for M and L scale linearly from S.
+
+| Tier | Postgres | + template snapshot | Meilisearch (×2) | Image + OS + Docker + Prometheus | Total (est.) |
+|---|---|---|---|---|---|
+| S | 12 GB (measured) | 12 GB | 2 GB | ~20 GB | **~45–50 GB** |
+| M | ~60 GB | ~60 GB | ~9 GB | ~20 GB | **~150 GB → provision ≥ 200 GB** |
+| L | ~240 GB | ~240 GB | ~36 GB | ~20 GB | **~540 GB** |
+
+On an 80 GB disk only S fits. M needs a bigger disk (or an attached volume for Docker data), a compressed `pg_dump` snapshot (slower restores), or a reduced M.
