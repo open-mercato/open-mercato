@@ -34,7 +34,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Apply inventory CSV import',
       description:
-        'Applies validated inventory import rows via wms.inventory.adjust commands (idempotent skip when delta is zero). Re-sending a row of the same importBatchId with the same target and delta returns the original movement instead of posting it again.',
+        'Applies validated inventory import rows via wms.inventory.adjust commands (idempotent skip when delta is zero). In additive mode, re-sending a row of the same importBatchId with the same target and delta returns the original movement instead of posting it again. In reconcile mode, a resend is rejected with import_delta_tampering once the live balance no longer matches the delta that was validated, before it would reach the replay check.',
       requestBody: { contentType: 'application/json', schema: inventoryImportApplySchema },
       responses: [{ status: 200, description: 'Import applied', schema: successSchema }],
       errors: [

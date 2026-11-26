@@ -3,6 +3,7 @@
 import {
   InventoryBalance,
   InventoryLot,
+  InventoryMovement,
   Warehouse,
   WarehouseLocation,
 } from '../../data/entities'
@@ -29,11 +30,19 @@ const queryEngine = {
   query: jest.fn(),
 }
 
+function createEm(legacyMovementRows: Array<{ id: string }> = []) {
+  return {
+    getConnection: () => ({
+      execute: jest.fn(async () => legacyMovementRows),
+    }),
+  }
+}
+
 function createCtx() {
   return {
     container: {
       resolve: (name: string) => {
-        if (name === 'em') return {}
+        if (name === 'em') return createEm()
         if (name === 'queryEngine') return queryEngine
         if (name === 'commandBus') {
           return {
@@ -355,7 +364,7 @@ describe('applyInventoryImport', () => {
     const ctx = {
       container: {
         resolve: (name: string) => {
-          if (name === 'em') return {}
+          if (name === 'em') return createEm()
           if (name === 'commandBus') return { execute: executeMock }
           throw new Error(`Unexpected resolve: ${name}`)
         },
@@ -399,7 +408,7 @@ describe('applyInventoryImport', () => {
     const ctx = {
       container: {
         resolve: (name: string) => {
-          if (name === 'em') return {}
+          if (name === 'em') return createEm()
           if (name === 'commandBus') return { execute: executeMock }
           throw new Error(`Unexpected resolve: ${name}`)
         },
@@ -445,7 +454,7 @@ describe('applyInventoryImport', () => {
     const ctx = {
       container: {
         resolve: (name: string) => {
-          if (name === 'em') return {}
+          if (name === 'em') return createEm()
           if (name === 'commandBus') return { execute: jest.fn() }
           throw new Error(`Unexpected resolve: ${name}`)
         },
@@ -490,7 +499,7 @@ describe('applyInventoryImport', () => {
       const ctx = {
         container: {
           resolve: (name: string) => {
-            if (name === 'em') return {}
+            if (name === 'em') return createEm()
             if (name === 'commandBus') return { execute: executeMock }
             throw new Error(`Unexpected resolve: ${name}`)
           },
@@ -547,6 +556,53 @@ describe('applyInventoryImport', () => {
 
       expect(rowTwo).not.toBe(rowOne)
       expect(otherBatchRowOne).not.toBe(rowOne)
+    })
+
+    it('treats a row applied before this fix (random referenceId) as already applied instead of posting it again', async () => {
+      const LEGACY_MOVEMENT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+      findOneWithDecryption.mockImplementation(async (_em, entity) => {
+        if (entity === InventoryMovement) return { id: LEGACY_MOVEMENT_ID }
+        return null
+      })
+      const executeMock = jest.fn(async () => ({ result: { movementId: 'movement-1' } }))
+      const ctx = {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return createEm([{ id: LEGACY_MOVEMENT_ID }])
+            if (name === 'commandBus') return { execute: executeMock }
+            throw new Error(`Unexpected resolve: ${name}`)
+          },
+        },
+        auth: { sub: USER_ID, tenantId: TENANT, orgId: ORG },
+        organizationScope: null,
+        selectedOrganizationId: ORG,
+        organizationIds: [ORG],
+      }
+
+      const result = await applyInventoryImport(ctx, {
+        tenantId: TENANT,
+        organizationId: ORG,
+        importBatchId: '88888888-8888-4888-8888-888888888888',
+        performedBy: USER_ID,
+        rows: [
+          {
+            rowNumber: 1,
+            warehouseId: WAREHOUSE_ID,
+            locationId: LOCATION_ID,
+            catalogVariantId: VARIANT_ID,
+            quantity: 5,
+            delta: 5,
+          },
+        ],
+      })
+
+      expect(executeMock).not.toHaveBeenCalled()
+      expect(result.summary.applied).toBe(1)
+      expect(result.rows[0]).toMatchObject({
+        rowNumber: 1,
+        status: 'applied',
+        movementId: LEGACY_MOVEMENT_ID,
+      })
     })
   })
 })

@@ -8,6 +8,7 @@ import { E } from '#generated/entities.ids.generated'
 import {
   InventoryBalance,
   InventoryLot,
+  InventoryMovement,
   Warehouse,
   WarehouseLocation,
 } from '../data/entities'
@@ -551,6 +552,41 @@ function buildImportRowReferenceId(importBatchId: string, rowNumber: number): st
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
 
+// A row applied before buildImportRowReferenceId existed posted its movement with a
+// random referenceId, so a retry's deterministic referenceId never matches it and
+// wms.inventory.adjust would post the delta again. Recognize that row by the import
+// batch/row metadata every apply writes, independent of referenceId.
+async function findExistingImportRowMovement(
+  em: EntityManager,
+  scope: ImportScope,
+  importBatchId: string,
+  rowNumber: number,
+): Promise<InventoryMovement | null> {
+  const rows = await em.getConnection().execute<Array<{ id: string }>>(
+    `select id
+     from wms_inventory_movements
+     where organization_id = ?
+       and tenant_id = ?
+       and deleted_at is null
+       and reference_type = 'manual'
+       and metadata->>'source' = 'csv_import'
+       and metadata->>'importBatchId' = ?
+       and metadata->>'importRowNumber' = ?
+     order by created_at asc
+     limit 1`,
+    [scope.organizationId, scope.tenantId, importBatchId, String(rowNumber)],
+  )
+  const id = rows[0]?.id
+  if (!id) return null
+  return findOneWithDecryption(
+    em,
+    InventoryMovement,
+    { id, organizationId: scope.organizationId, deletedAt: null },
+    undefined,
+    scope,
+  )
+}
+
 export async function applyInventoryImport(
   ctx: CommandRuntimeContext,
   input: InventoryImportApplyInput,
@@ -574,6 +610,13 @@ export async function applyInventoryImport(
     if (Math.abs(row.delta) < 0.000001) {
       skipped += 1
       resultRows.push({ rowNumber: row.rowNumber, status: 'skipped' })
+      continue
+    }
+
+    const legacyMovement = await findExistingImportRowMovement(em, scope, input.importBatchId, row.rowNumber)
+    if (legacyMovement) {
+      applied += 1
+      resultRows.push({ rowNumber: row.rowNumber, status: 'applied', movementId: legacyMovement.id })
       continue
     }
 
