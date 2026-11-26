@@ -742,4 +742,4 @@ STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver
 
 ## 2026-11-25 — #9140
 
-STABLE portal URLs and lookup need unique slugs to avoid cross-tenant routing. Update renamed links and caches. Rollback keeps renames. Named waiver pending. [Upgrade](UPGRADE_NOTES.md#organization-portal-slugs-are-globally-unique-9140).
+STABLE portal URLs/lookup need unique slugs for isolation. Update links and caches. Rollback keeps renames. Named waiver due. [Guide](UPGRADE_NOTES.md#organization-portal-slugs-are-globally-unique-9140).
