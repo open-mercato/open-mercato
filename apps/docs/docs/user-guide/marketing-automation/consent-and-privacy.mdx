@@ -1,0 +1,148 @@
+---
+title: Consent and personal data
+description: The four ways somebody comes off your list, the preference centre that offers alternatives to leaving, importing a suppression list from another tool, and answering a request to export or erase.
+sidebar_label: Consent and personal data
+---
+
+# Consent and personal data
+
+Marketing consent is recorded per customer: whether they want marketing email from you, why, and how that was decided. Every change is also written to a separate, append-only history — the answer you would hand a regulator.
+
+The current state appears on a customer's marketing profile under **Marketing consent**, as one of:
+
+- **Subscribed to email**
+- **Unsubscribed from email**
+- **No email preference recorded**
+
+## What "no preference recorded" means
+
+:::warning An absent record permits sending
+A customer who has never said anything either way **can** be messaged.
+
+This is worth being explicit about. The platform has no shop-wide consent model for this module to inherit, so treating silence as refusal would have silently switched off every campaign on every existing installation the moment the module shipped — a change of behaviour nobody asked for, arriving as a bug report.
+
+If your shop needs explicit opt-in, import your consent records. The suppression import below exists for exactly that migration.
+:::
+
+## The four ways somebody comes off your list
+
+### From the message
+
+Every marketing email carries an unsubscribe link. The customer clicks it, confirms on the page that opens, and is recorded as unsubscribed with the source **customer**.
+
+Two details that matter:
+
+- **The link asks; it does not act on being opened.** Corporate link scanners, antivirus gateways, proxies and chat previews all fetch every URL in a message. If the link unsubscribed people on being fetched, those scanners would unsubscribe your customers indistinguishably from the customers themselves. So the link opens a page with a button, and pressing the button is what acts. One-click unsubscribe from a mail client's own header still works exactly as promised, because that mechanism submits rather than merely fetches.
+- **The link does not contain the customer's identity.** It names the message; the system works out who that was.
+
+The page is shown in the language of the browser opening it, not the language the message was written in. Which language to *email* somebody in is a separate choice they make in the preference centre.
+
+If something goes wrong, the page says so rather than claiming success: *"We could not record that just now. Please try again, or contact us and we will remove you."* Somebody who believes they unsubscribed and did not is worse off than somebody who sees an error.
+
+### From the customer portal
+
+Customers signed in to your portal get an **Email preferences** page. See the preference centre below.
+
+### Recorded by a member of staff
+
+Somebody phones and asks to be taken off the list. On their marketing profile, **Record unsubscribe** — or **Record consent** — with a reason:
+
+> **Why (recorded with the change):** *Asked on the phone*
+
+The change is recorded with your name against it, and the source **operator**. This needs its own permission: whoever answers the phone must be able to honour "take me off the list" without also being able to author campaigns that message everybody.
+
+### Imported in bulk
+
+**Marketing settings → Suppression list** takes a CSV file — comma-separated values, the format every marketing tool exports — of email addresses from the tool you are leaving. Every address matching a customer here is recorded as unsubscribed, with the reason you give.
+
+:::warning An import can only take people OFF the list
+There is no way to import anybody as subscribed, and that is not an omission.
+
+A file is not consent. Nobody in it agreed to anything in *this* system, so an import that could add people would manufacture exactly the evidence your shop might one day have to substantiate. Suppression needs no such evidence, which is why that direction is safe and the other is not.
+:::
+
+The importer is forgiving about the file's shape — a byte-order mark, Windows line endings, semicolons instead of commas, a quoted header, extra columns, trailing blank lines are all fine, with or without a header row — and strict about its content. A row holding nothing that could be an email address is **counted and reported**, never guessed at: there is no import that can undo suppressing whoever a guess landed on.
+
+Afterwards you get the full arithmetic:
+
+> *"Suppressed 1,284. 96 were already unsubscribed. 41 addresses matched no customer here, and 3 rows held no address."*
+
+:::note Why "matched no customer" is reported rather than swallowed
+Email addresses are encrypted in your database, so matching one means decrypting and comparing. That is done over a bounded set of recent records, which means an older customer on a large installation may not be matched.
+
+An operator who cannot see that number has no way to know their list was only partly applied — so the count, and a sample, are reported. If the number looks high, run the import again, or check those addresses individually.
+:::
+
+A file longer than one import applies is reported too: *"upload the rest separately."* You must give a reason before importing; it is recorded on every customer the file unsubscribes.
+
+## The preference centre
+
+Unsubscribing is not the only thing a customer might want. The portal's **Email preferences** page offers the middle ground, which is the cheapest unsubscribe prevention there is: somebody who only wanted *fewer* emails has historically had to choose "none".
+
+| Setting | What it does |
+|---|---|
+| **Marketing emails** — Subscribed / Unsubscribed | The consent decision, made by the customer themselves |
+| **How often at most** — no limit, or at most N a week | Their own cap, up to 14 a week |
+| **Take a break** — pause for a chosen number of days | Defers messages instead of stopping them; up to a year |
+| **Language** | Which language you write to them in |
+
+How each of these affects an actual send is in [Send rules](./send-rules.mdx) — in short: their cap drops a message, their pause defers it, and their cap can only ever make things quieter than your own.
+
+Whatever the customer has chosen also shows on their marketing profile under **What they asked for**, so staff can see it without going through the portal.
+
+A pause of more than a year is not stored as a pause. Beyond that it is an unsubscribe with extra steps, and storing it as a pause would be dishonest.
+
+## Answering a data request
+
+Both buttons are on the customer's marketing profile.
+
+### Export data
+
+**Export data** produces everything this module holds about one person, curated into something a human can read rather than a dump of internal identifiers:
+
+- Their consent state, and the full history of every change
+- Every loyalty point awarded or deducted, with the reason
+- Every campaign they entered, and when
+- Every message sent to them, its status, and why any was held back
+- Every open and click, and which link
+- **Every survey answer, including their comment** — the one thing in this module they actually wrote
+- What they asked for in the preference centre
+- The products they are watching for a price drop
+- Their referral code, who used it, who went on to buy, and who referred them
+- Whether their marketing data has ever been erased, and when
+
+### Erase data
+
+**Erase data** asks you to confirm, and tells you exactly what it will and will not do:
+
+> *"Erase this customer's marketing data? Their campaign history stays as anonymous rows so past totals remain correct, and their unsubscribe is kept so they are never mailed again."*
+
+Three design decisions are worth understanding before you use it.
+
+**It unlinks; it does not delete.** The person's identifier is removed from every row, and the rows stay. They can be: this module never stored a name, an address or a phone number — the run records, the send history and the engagement table were each built to hold none — so a row with no customer attached identifies nobody, which is what erasure has to achieve. Deleting the rows instead would silently rewrite your reporting: a campaign that reported 4,000 sends last quarter would start reporting 3,850, and every number anybody had written down would quietly stop matching. Erasure is a duty to one person; falsifying an audit trail harms everybody else.
+
+**Two things are genuinely deleted:** their preference-centre settings and their price watches. Those are not history — they are standing instructions ("pause me until March", "tell me when this product gets cheaper"). Nothing aggregates over them, so unlinking would preserve no total; it would just leave an instruction with nobody behind it, which is a row that could still cause a message to be composed. An instruction from somebody who has asked to be forgotten has to stop existing, not become anonymous.
+
+**Their unsubscribe is kept, with their identifier on it.** This looks like the opposite of erasure and is the standard, expected practice: forgetting that somebody unsubscribed is how they get mailed again, which is the exact harm they acted to prevent. Once the customer record itself is erased elsewhere in the platform, that identifier points at nothing and names nobody, while still suppressing it for ever.
+
+**An erased customer is never enrolled again.** Every campaign checks it before starting a run — including a birthday greeting or a reorder reminder that would otherwise still recognise their identifier.
+
+Erasure runs as a single operation and hands you back a report of what it changed. You keep that report as the answer to the request.
+
+## What the module never stores
+
+Some of these are worth knowing because they are the reason certain things are *not* available:
+
+| Not stored | Consequence |
+|---|---|
+| Email addresses in the send history | The reporting identifies recipients by their customer record, not by address. An address there would be a permanent unencrypted trail beside a field the platform encrypts |
+| Email addresses in a message's saved state | The recipient's address is read fresh at the moment of sending, which also means a customer who corrects their address mid-journey gets the remaining messages at the new one |
+| IP addresses or browser details on an open or a click | The questions the reporting answers do not need them, and a marketing module that built a device-and-location log of every recipient would be a liability nobody asked for |
+| Your email provider's error text | A rejection quotes the address it rejected. The run's step log shows a cleaned-up summary; the original goes to the system log, which is a different set of eyes |
+| A staff colleague's name or email in marketing settings | Only their user id is kept, and the staff directory answers for both. A copy goes stale the day they change either |
+
+## Where to go next
+
+- [**Send rules**](./send-rules.mdx) — how each of these decisions affects an actual send
+- [**Audiences and segments**](./audiences.mdx) — targeting by language, which comes from the preference centre
+- [**Results and A/B tests**](./results.mdx) — where held-back messages appear in the reporting
