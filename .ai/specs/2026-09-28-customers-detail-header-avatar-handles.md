@@ -38,20 +38,20 @@ New leaf `packages/core/src/modules/customers/components/detail/DetailHeaderAvat
 ```tsx
 "use client"
 
-import * as React from 'react'
 import { Building2 } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { extensionPoints } from '../../extension-points'
 import type { CompanyOverview, PersonOverview } from '../formConfig'
 
-export const COMPANY_DETAIL_HEADER_AVATAR_COMPONENT_ID = 'section:customers.companies.detailHeader.avatar'
-export const PERSON_DETAIL_HEADER_AVATAR_COMPONENT_ID = 'section:customers.people.detailHeader.avatar'
+export const COMPANY_DETAIL_HEADER_AVATAR_COMPONENT_ID = extensionPoints.hosts.companyHeaderAvatar.componentId
+export const PERSON_DETAIL_HEADER_AVATAR_COMPONENT_ID = extensionPoints.hosts.personHeaderAvatar.componentId
 
 export type CompanyDetailHeaderAvatarProps = { data: CompanyOverview; displayName: string }
 export type PersonDetailHeaderAvatarProps = { data: PersonOverview; displayName: string }
 
-function DefaultCompanyDetailHeaderAvatar(_props: CompanyDetailHeaderAvatarProps) {
+function DefaultCompanyDetailHeaderAvatar() {
   return <Avatar label="" icon={<Building2 />} size="xl" variant="monochrome" />
 }
 
@@ -84,18 +84,18 @@ export function CompanyDetailHeaderAvatar(props: CompanyDetailHeaderAvatarProps)
 
 In the headers, `<CompanyDetailHeaderAvatar data={data} displayName={displayName} />` replaces the inline `Avatar` in `CompanyDetailHeader`, and `<PersonDetailHeaderAvatar data={data} displayName={displayName} />` does the same in `PersonDetailHeader`. `displayName` is the value each header already computes, with its `…detail.untitled` fallback.
 
-Both handles are declared in `customers/extension-points.ts`, following the `staff` and `checkout` component-handle declarations:
+Both handles are declared in `customers/extension-points.ts`. The first source is the leaf that resolves the handle, so module-fact generation can verify its binding.
 
 ```ts
 companyHeaderAvatar: componentExtensionHost({
   componentId: 'section:customers.companies.detailHeader.avatar',
   propsContract: 'customers.company_detail_header_avatar.props.v1',
-  source: ['components/detail/CompanyDetailHeader.tsx', 'components/detail/DetailHeaderAvatar.tsx'],
+  source: ['components/detail/DetailHeaderAvatar.tsx', 'components/detail/CompanyDetailHeader.tsx'],
 }),
 personHeaderAvatar: componentExtensionHost({
   componentId: 'section:customers.people.detailHeader.avatar',
   propsContract: 'customers.person_detail_header_avatar.props.v1',
-  source: ['components/detail/PersonDetailHeader.tsx', 'components/detail/DetailHeaderAvatar.tsx'],
+  source: ['components/detail/DetailHeaderAvatar.tsx', 'components/detail/PersonDetailHeader.tsx'],
 }),
 ```
 

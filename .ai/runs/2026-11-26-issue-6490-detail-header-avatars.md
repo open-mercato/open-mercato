@@ -17,11 +17,12 @@ Let CRM extensions render a company logo or contact photo in the existing detail
 Applications depend on the handle names and prop shapes once shipped. Tests will pin the names to the declarations and check that the original overview reaches the override. Keep the person's current avatar dimensions, which changed since the spec was written.
 
 ## Progress
+PR: #10736
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Customer header avatar contracts
 
-- [ ] 1.1 Register and render both customer header avatars
-- [ ] 1.2 Test the contracts and detail header integration
+- [x] 1.1 Register and render both customer header avatars — fcc661ea06
+- [x] 1.2 Test the contracts and detail header integration — fcc661ea06
 - [ ] 1.3 Document the public handles and verify the change
