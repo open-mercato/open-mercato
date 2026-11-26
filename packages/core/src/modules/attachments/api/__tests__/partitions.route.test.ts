@@ -19,6 +19,7 @@ jest.mock('@open-mercato/core/modules/attachments/lib/partitions', () => ({
     { code: 'privateAttachments' },
     { code: 'productsMedia' },
   ],
+  FORM_LOGO_PARTITION_CODE: 'formLogos',
   ensureDefaultPartitions: jest.fn(async () => {}),
   sanitizePartitionCode: (input: unknown) =>
     typeof input === 'string' ? input.trim() : null,
@@ -79,6 +80,7 @@ type PartitionRow = {
 type AttachmentRow = {
   partitionCode: string
   tenantId: string | null
+  organizationId?: string | null
 }
 
 const store: { partitions: PartitionRow[]; attachments: AttachmentRow[] } = {
@@ -88,11 +90,12 @@ const store: { partitions: PartitionRow[]; attachments: AttachmentRow[] } = {
 
 function matchesFilter(row: PartitionRow, filter: any): boolean {
   if (!filter) return true
-  if (filter.$or && Array.isArray(filter.$or)) {
-    return filter.$or.some((part: any) => matchesFilter(row, part))
-  }
   for (const key of Object.keys(filter)) {
     const expected = filter[key]
+    if (key === '$or' && Array.isArray(expected)) {
+      if (!expected.some((part) => matchesFilter(row, part))) return false
+      continue
+    }
     const actual = (row as any)[key]
     if (expected === null) {
       if (actual !== null && actual !== undefined) return false
@@ -110,12 +113,7 @@ const mockEm = {
   findOne: jest.fn(async (entity: any, filter: any) => {
     const name = typeof entity?.name === 'string' ? entity.name : ''
     if (name === 'AttachmentPartition' || entity === undefined) {
-      if (filter?.id) {
-        return store.partitions.find((row) => row.id === filter.id) ?? null
-      }
-      if (filter?.code) {
-        return store.partitions.find((row) => row.code === filter.code) ?? null
-      }
+      return store.partitions.find((row) => matchesFilter(row, filter)) ?? null
     }
     return null
   }),
@@ -125,6 +123,7 @@ const mockEm = {
       if (Object.prototype.hasOwnProperty.call(filter ?? {}, 'tenantId')) {
         if (filter.tenantId !== row.tenantId) return false
       }
+      if (filter?.organizationId && filter.organizationId !== row.organizationId) return false
       return true
     }).length,
   ),
@@ -157,6 +156,8 @@ const mockEm = {
     return this
   }),
   flush: jest.fn(async () => {}),
+  execute: jest.fn(async () => []),
+  transactional: jest.fn(async (run: (em: unknown) => Promise<unknown>) => run(mockEm)),
 }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({

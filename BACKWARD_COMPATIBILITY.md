@@ -725,3 +725,7 @@ Scope hardening: see UPGRADE_NOTES.md.
 ## 2026-11-24 — Trace ingest
 
 STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-26 — Organization and partition ownership
+
+STABLE API §7: organization lists honor organization grants. The wider read would preserve access outside the grant. ADDITIVE-ONLY schema §8: a scope-aware unique index replaces global partition-code uniqueness. Retaining global uniqueness would keep independent owners coupled. Codes, partition IDs, and storage paths retain their formats. See the [upgrade notes](UPGRADE_NOTES.md#organization-and-attachment-partition-ownership) and [scope spec](.ai/specs/2026-11-24-scoped-resource-administration.md#migration--backward-compatibility). Named maintainer acknowledgment is required for the security exception.

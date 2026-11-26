@@ -72,17 +72,20 @@ export default function ProfileChangePasswordPage() {
       id: 'currentPassword',
       label: t('auth.profile.form.currentPassword', 'Current password'),
       type: 'password',
+      autoComplete: 'current-password',
     },
     {
       id: 'password',
       label: t('auth.profile.form.password', 'New password'),
       type: 'password',
+      autoComplete: 'new-password',
       description: passwordDescription,
     },
     {
       id: 'confirmPassword',
       label: t('auth.profile.form.confirmPassword', 'Confirm new password'),
       type: 'password',
+      autoComplete: 'new-password',
     },
   ], [passwordDescription, t])
 

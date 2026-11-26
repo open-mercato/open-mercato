@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
+  deleteAttachmentIfExists, deleteAttachmentPartitionIfExists, uploadAttachmentFixture,
+} from '@open-mercato/core/helpers/integration/attachmentsFixtures'
+import {
   createOrganizationFixture,
   createRoleFixture,
   createUserFixture,
@@ -11,7 +14,7 @@ import {
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
-import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 test('TC-ATT-030: each organization sees its own storage partitions and tenant-wide partitions', async ({ request }) => {
   const superadminToken = await getAuthToken(request, 'superadmin')
@@ -71,6 +74,74 @@ test('TC-ATT-030: each organization sees its own storage partitions and tenant-w
       expect(visibleIds).toHaveLength(2)
       expect(visibleIds).toEqual(expect.arrayContaining([partitionId, sharedPartitionId]))
     }
+  } finally {
+    for (const cleanup of cleanups.reverse()) await cleanup()
+  }
+})
+
+test('TC-ATT-030: partition namespaces follow the owning scope', async ({ request }) => {
+  const adminToken = await getAuthToken(request, 'superadmin')
+  const { tenantId } = getTokenContext(adminToken)
+  const suffix = randomUUID().slice(0, 8)
+  const code = `qa_scope_${suffix}`
+  const cleanups: Array<() => Promise<unknown>> = []
+  const partitionPath = '/api/attachments/partitions'
+  type Partition = { id: string; code: string; title: string }
+  const list = async (token: string) => {
+    const response = await apiRequest(request, 'GET', partitionPath, { token })
+    expect(response.status()).toBe(200)
+    return (await readJsonSafe<{ items: Partition[] }>(response))?.items.filter((item) => item.code === code)
+  }
+  try {
+    const newTenant = await apiRequest(request, 'POST', '/api/directory/tenants', {
+      token: adminToken, data: { name: `QA partition tenant ${suffix}` },
+    })
+    expect(newTenant.status()).toBe(201)
+    const secondTenantId = expectId((await readJsonSafe<{ id: string }>(newTenant))?.id, 'QA tenant id')
+    cleanups.push(() => apiRequest(request, 'DELETE', '/api/directory/tenants', {
+      token: adminToken, data: { id: secondTenantId },
+    }))
+    const created: Partition[] = []
+    for (const [index, ownerTenantId] of [tenantId, tenantId, secondTenantId].entries()) {
+      const title = `QA partition ${index} ${suffix}`
+      const organizationId = await createOrganizationFixture(request, adminToken, { tenantId: ownerTenantId, name: title })
+      cleanups.push(() => deleteOrganizationIfExists(request, adminToken, organizationId))
+      const roleId = await createRoleFixture(request, adminToken, { tenantId: ownerTenantId, name: title })
+      cleanups.push(() => deleteRoleIfExists(request, adminToken, roleId))
+      await setRoleAclFeatures(request, adminToken, { roleId, features: ['attachments.*'], organizations: [organizationId] })
+
+      const email = `qa-partition-${index}-${suffix}@example.test`
+      const password = `Qa1!${randomUUID()}`
+      const user = await apiRequest(request, 'POST', '/api/auth/users', {
+        token: adminToken, data: { email, password, tenantId: ownerTenantId, organizationId, roles: [roleId] },
+      })
+      expect(user.status()).toBe(201)
+      const userId = expectId((await readJsonSafe<{ id: string }>(user))?.id, 'QA partition user id')
+      cleanups.push(() => deleteUserIfExists(request, adminToken, userId))
+      const token = await getAuthToken(request, email, password)
+      expect(await list(token)).toEqual([])
+
+      const create = () => apiRequest(request, 'POST', partitionPath, { token, data: { code, title, requiresOcr: false } })
+      const first = await create()
+      test.skip(index === 0 && first.status() === 403, 'Partition writes are disabled by the environment')
+      expect(first.status()).toBe(201)
+      const item = (await readJsonSafe<{ item: Partition }>(first))?.item
+      if (!item) throw new Error('[internal] Missing created partition')
+      created.push(item)
+      cleanups.push(() => deleteAttachmentPartitionIfExists(request, token, item.id))
+      expect(await list(token)).toEqual([expect.objectContaining({ id: item.id, code, title })])
+      expect((await create()).status()).toBe(409)
+
+      const file = await uploadAttachmentFixture(request, token, {
+        entityId: 'attachments:library', recordId: randomUUID(), partitionCode: code,
+        fileName: 'qa.txt', mimeType: 'text/plain', buffer: Buffer.from(title),
+      })
+      cleanups.push(() => deleteAttachmentIfExists(request, token, file.id))
+      const download = await apiRequest(request, 'GET', `/api/attachments/file/${file.id}`, { token })
+      expect(download.status()).toBe(200)
+      expect(await download.text()).toBe(title)
+    }
+    expect(new Set(created.map(({ id }) => id)).size).toBe(3)
   } finally {
     for (const cleanup of cleanups.reverse()) await cleanup()
   }

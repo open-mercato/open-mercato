@@ -2,8 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { StorageDriver } from './types'
 import { LocalStorageDriver } from './localDriver'
 import { LegacyPublicStorageDriver } from './legacyPublicDriver'
-import { AttachmentPartition } from '../../data/entities'
-import { canUseAttachmentPartition } from '../partitionScope'
+import { canUseAttachmentPartition, resolveAttachmentPartition } from '../partitionScope'
 import {
   AttachmentStorageConfigurationError,
   assertAttachmentStoragePartitionExists,
@@ -62,7 +61,7 @@ export class StorageDriverFactory {
 
   async resolveForPartition(partitionCode: string, scope?: DriverScope): Promise<StorageDriver> {
     getAttachmentStoragePolicy()
-    const partition = await this.em.findOne(AttachmentPartition, { code: partitionCode })
+    const partition = await resolveAttachmentPartition(this.em, partitionCode, scope)
     if (partition && !canUseAttachmentPartition(partition, scope)) {
       throw new AttachmentStorageConfigurationError('partition_missing')
     }

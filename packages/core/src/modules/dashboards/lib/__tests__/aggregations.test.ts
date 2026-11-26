@@ -221,7 +221,7 @@ describe('aggregations', () => {
       })
       expect(result?.sql).toContain('GROUP BY status')
       expect(result?.sql).toContain('status AS group_key')
-      expect(result?.sql).toContain('LIMIT 100')
+      expect(result?.sql).toContain('LIMIT 101')
     })
 
     it('includes groupBy with granularity for timestamp fields', () => {

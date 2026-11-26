@@ -43,8 +43,7 @@ export const filterOperatorSchema = z.enum([
  * deep inside query construction; validating here yields a 400 that names the offending
  * filter and is published in the route's OpenAPI schema.
  *
- * 200 is deliberately generous for a dashboard filter: the widest grouping a widget can render
- * is capped at 100 buckets (`groupBy.limit`), and a batch carries at most 50 requests, so even
+ * 200 is deliberately generous for a dashboard filter. A batch carries at most 50 requests, so even
  * a fully saturated batch stays an order of magnitude below PostgreSQL's per-statement limit
  * of 65535 bound parameters. Raising it later is a one-line change to this constant.
  */
@@ -116,6 +115,7 @@ export const widgetDataResponseSchema = z.object({
   metadata: z.object({
     fetchedAt: z.string(),
     recordCount: z.number(),
+    truncated: z.boolean().optional(),
     currency: z.string().nullable().optional(),
   }),
 })

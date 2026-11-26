@@ -16,8 +16,14 @@ Authorization and vector request shapes and the vector driver signature remain s
 
 - Attachment partition administration follows the caller's organization and limits edits of shared partitions to platform administrators. Staff invitation flows must use roles in their own tenant and organization. Callers that invite users with roles reserved for administrators need an authorized staff identity with `customer_accounts.roles.manage`. Reissue outstanding privileged invitations from an active staff user with the grant.
 - HTTP MCP clients that delegate to a chat session must authenticate with the configured `MCP_SERVER_API_KEY` or its file-backed equivalent. The chat session's own ephemeral API key can also authenticate that session. Managed API key listings omit ephemeral chat credentials.
-- Grouped analytics returns at most 100 groups when a request omits a limit. Its grouped total reflects the returned buckets. Supply a lower limit or narrow the underlying data as needed. Analytics interceptors can narrow filters for the requested entity.
+- Grouped analytics returns up to 100 groups by default, or 366 for calendar grouping over the matching date-range field. If an implicit cap is exceeded, `value` is the full aggregate and `metadata.truncated` is true. Explicit limits retain the top-bucket behavior. Analytics interceptors can narrow filters for the requested entity.
 - The PostgreSQL vector runtime leaves the shared index intact on dimension changes. Operators should provision and validate a replacement index, then switch settings and reindex in a controlled migration.
+
+## Organization and attachment partition ownership
+
+Organization options, management, and tree responses follow the caller's organization grant. Clients that need an organization outside that grant must use a principal authorized for that organization.
+
+Attachment partition codes are unique within their owning scope. Clients and integrations that query partitions directly should resolve by code and attachment owner, with tenant-wide and platform-wide partitions as fallbacks. Existing codes, IDs, and storage paths are preserved. Apply the attachment partition migration and update all partition readers before reopening writes during rollout. Rolling back after different owners have reused a code requires resolving those duplicates before restoring the previous unique constraint.
 
 ## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
 

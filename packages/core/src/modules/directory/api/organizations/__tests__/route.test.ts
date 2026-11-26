@@ -315,6 +315,7 @@ describe('directory organizations GET — malformed ?ids= are rejected at the bo
     findWithDecryptionMock.mockResolvedValue([])
     findOneWithDecryptionMock.mockResolvedValue(null)
     resolveIsSuperAdminMock.mockResolvedValue(false)
+    resolveOrganizationScopeMock.mockResolvedValue({ selectedId: tenantOrgId, allowedIds: null, tenantId: foreignTenantId })
   })
 
   it.each(views)('rejects a malformed id with 400 before any lookup (view=%s)', async (view) => {

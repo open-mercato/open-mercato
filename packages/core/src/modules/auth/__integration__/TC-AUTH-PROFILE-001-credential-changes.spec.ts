@@ -110,6 +110,10 @@ profileTest.describe('TC-AUTH-PROFILE-001: Self-service credentials in the brows
     const confirmation = page.getByLabel('Confirm new password', { exact: true })
     const save = page.getByRole('button', { name: 'Save changes', exact: true })
     await expect(page.getByText('At most 72 bytes (UTF-8)', { exact: false })).toBeVisible()
+    await expect(currentPassword).toHaveAttribute('autocomplete', 'current-password')
+    await expect(newPassword).toHaveAttribute('autocomplete', 'new-password')
+    await expect(confirmation).toHaveAttribute('autocomplete', 'new-password')
+    await expect(newPassword).toHaveAccessibleDescription(/At most 72 bytes \(UTF-8\)/)
 
     const oversizedPassword = `Valid3!${'é'.repeat(33)}`
     await currentPassword.fill(initialPassword)

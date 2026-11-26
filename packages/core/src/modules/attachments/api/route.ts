@@ -1,4 +1,4 @@
-import { canUseAttachmentPartition } from '../lib/partitionScope'
+import { attachmentPartitionVisibility, canUseAttachmentPartition, resolveAttachmentPartition } from '../lib/partitionScope'
 import { attachmentErrorSchema } from './openapi'
 import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
@@ -234,9 +234,9 @@ async function listRecordAttachments(req: Request) {
   const currentPage = usePaging ? Math.max(1, page) : null
   const currentPageSize = usePaging ? pageSize : null
   const pageOffset = usePaging ? (currentPage! - 1) * currentPageSize! : undefined
-  const partitions = await em.find(AttachmentPartition, {})
-  const protectedScan = requiresAttachmentAccessScan(partitions)
   const scope = { tenantId: auth.tenantId ?? null, organizationId: orgId ?? null }
+  const partitions = await em.find(AttachmentPartition, attachmentPartitionVisibility(scope, !orgId))
+  const protectedScan = requiresAttachmentAccessScan(partitions)
   let items: Attachment[]
   let total: number | null
   if (protectedScan) {
@@ -463,7 +463,7 @@ async function uploadAttachment(req: Request) {
   )
   let partition: AttachmentPartition | null = null
   for (const code of partitionCodeCandidates) {
-    const record = await em.findOne(AttachmentPartition, { code })
+    const record = await resolveAttachmentPartition(em, code, { tenantId, organizationId: orgId })
     assertAttachmentStoragePartitionExists(Boolean(record))
     if (record) {
       partition = record
@@ -471,7 +471,7 @@ async function uploadAttachment(req: Request) {
     }
   }
   if (!partition) {
-    partition = await em.findOne(AttachmentPartition, { code: defaultPartitionCode })
+    partition = await resolveAttachmentPartition(em, defaultPartitionCode, { tenantId, organizationId: orgId })
   }
   if (!partition || !canUseAttachmentPartition(partition, { tenantId, organizationId: orgId })) {
     assertAttachmentStoragePartitionExists(false)

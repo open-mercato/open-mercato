@@ -334,11 +334,12 @@ export function buildDistinctCurrencyQuery(
 }
 
 export const MAX_WIDGET_GROUPS = 100
+const MAX_CALENDAR_WIDGET_GROUPS = 366
 
-export function resolveWidgetGroupLimit(limit: number | undefined): number {
+export function resolveWidgetGroupLimit(limit: number | undefined, calendarRange = false): number {
   return typeof limit === 'number' && Number.isInteger(limit) && limit > 0
     ? Math.min(limit, MAX_WIDGET_GROUPS)
-    : MAX_WIDGET_GROUPS
+    : calendarRange ? MAX_CALENDAR_WIDGET_GROUPS : MAX_WIDGET_GROUPS
 }
 
 export function buildAggregationQuery(options: BuildAggregationQueryOptions): AggregationQuery | null {
@@ -369,7 +370,9 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
       // encrypted path can mirror the same ordering (#4622).
       orderByClause = `ORDER BY value DESC NULLS LAST`
 
-      limitClause = `LIMIT ${resolveWidgetGroupLimit(options.groupBy.limit)}`
+      const calendarRange = Boolean(options.groupBy.granularity && options.dateRange?.field === options.groupBy.field)
+      const limit = resolveWidgetGroupLimit(options.groupBy.limit, calendarRange)
+      limitClause = `LIMIT ${limit + (options.groupBy.limit === undefined ? 1 : 0)}`
     }
   }
 
