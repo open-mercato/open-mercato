@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
+  acquireRecordLock,
   cleanupDictionary,
   createDictionaryEntryFixture,
   createDictionaryFixture,
   getDictionaryEntryUpdatedAt,
+  releaseRecordLock,
   updateDictionaryEntryLabel,
 } from './helpers/recordLocks'
 
@@ -34,6 +37,7 @@ export const integrationMeta = { dependsOnModules: ['record_locks', 'dictionarie
  */
 
 const CONFLICT_CODES = ['optimistic_lock_conflict', 'record_lock_conflict']
+const RESOURCE_KIND = 'dictionaries.entry'
 
 type PeerModules = { configsEnabled: boolean; auditLogsEnabled: boolean }
 
@@ -50,7 +54,48 @@ async function probePeerModules(request: APIRequestContext, superadminToken: str
   }
 }
 
-async function assertStaleWriteRejectedFreshWriteAccepted(request: APIRequestContext, token: string): Promise<void> {
+async function assertLockLifecycle(
+  request: APIRequestContext,
+  token: string,
+  resourceId: string,
+  auditLogsEnabled: boolean,
+): Promise<void> {
+  const acquired = await acquireRecordLock(request, token, RESOURCE_KIND, resourceId)
+  expect(acquired.status).toBe(200)
+  expect(acquired.body?.resourceEnabled).toBe(true)
+  const lock = acquired.body?.lock as { token?: string; baseActionLogId?: string | null } | undefined
+  expect(lock?.token).toBeTruthy()
+  const lockToken = lock?.token as string
+
+  try {
+    const scope = { resourceKind: RESOURCE_KIND, resourceId, token: lockToken }
+    if (auditLogsEnabled) expect(acquired.body?.latestActionLogId).toEqual(expect.any(String))
+    else expect(acquired.body?.latestActionLogId).toBeNull()
+    expect(lock?.baseActionLogId).toBe(acquired.body?.latestActionLogId)
+
+    const validated = await apiRequest(request, 'POST', '/api/record_locks/validate', {
+      token, data: { ...scope, method: 'PUT' },
+    })
+    expect(validated.status()).toBe(200)
+    expect(await readJsonSafe(validated)).toMatchObject({
+      ok: true, latestActionLogId: acquired.body?.latestActionLogId,
+    })
+
+    const heartbeat = await apiRequest(request, 'POST', '/api/record_locks/heartbeat', { token, data: scope })
+    expect(heartbeat.status()).toBe(200)
+    expect(await readJsonSafe(heartbeat)).toMatchObject({ ok: true, expiresAt: expect.any(String) })
+  } finally {
+    const released = await releaseRecordLock(request, token, RESOURCE_KIND, resourceId, lockToken)
+    expect(released.status).toBe(200)
+    expect(released.body?.released).toBe(true)
+  }
+}
+
+async function assertStaleWriteRejectedFreshWriteAccepted(
+  request: APIRequestContext,
+  token: string,
+  auditLogsEnabled: boolean,
+): Promise<void> {
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
   let dictionaryId: string | null = null
   try {
@@ -73,6 +118,15 @@ async function assertStaleWriteRejectedFreshWriteAccepted(request: APIRequestCon
     expect(stale.status, `a write on a stale version is refused (body=${JSON.stringify(stale.body)})`).toBe(409)
     expect(CONFLICT_CODES).toContain(stale.body?.code as string)
 
+    const staleDelete = await apiRequest(request, 'DELETE', `/api/dictionaries/${dictionaryId}/entries/${entryId}`, {
+      token,
+      headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: baseUpdatedAt as string },
+    })
+    expect(staleDelete.status()).toBe(409)
+    expect(CONFLICT_CODES).toContain((await readJsonSafe<{ code?: string }>(staleDelete))?.code)
+
+    await assertLockLifecycle(request, token, entryId, auditLogsEnabled)
+
     const freshUpdatedAt = await getDictionaryEntryUpdatedAt(request, token, dictionaryId, entryId)
     expect(freshUpdatedAt).toBeTruthy()
     expect(freshUpdatedAt).not.toBe(baseUpdatedAt)
@@ -89,9 +143,9 @@ test.describe('TC-LOCK-9205: OSS optimistic-lock floor with and without configs/
 
   test('a stale dictionary-entry write 409s and a fresh one succeeds', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin')
-    await probePeerModules(request, superadminToken)
+    const peers = await probePeerModules(request, superadminToken)
     const adminToken = await getAuthToken(request, 'admin')
-    await assertStaleWriteRejectedFreshWriteAccepted(request, adminToken)
+    await assertStaleWriteRejectedFreshWriteAccepted(request, adminToken, peers.auditLogsEnabled)
   })
 
   test('without configs or audit_logs the settings resolve to defaults and the floor still holds', async ({ request }) => {
@@ -111,6 +165,6 @@ test.describe('TC-LOCK-9205: OSS optimistic-lock floor with and without configs/
     }
 
     const adminToken = await getAuthToken(request, 'admin')
-    await assertStaleWriteRejectedFreshWriteAccepted(request, adminToken)
+    await assertStaleWriteRejectedFreshWriteAccepted(request, adminToken, peers.auditLogsEnabled)
   })
 })

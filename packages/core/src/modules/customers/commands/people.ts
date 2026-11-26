@@ -669,10 +669,11 @@ async function setCustomFieldsForPerson(
   profileId: string,
   organizationId: string,
   tenantId: string,
-  values: Record<string, unknown>
+  values: Record<string, unknown>,
+  transactionalEm?: EntityManager,
 ): Promise<void> {
   if (!values || !Object.keys(values).length) return
-  const em = (ctx.container.resolve('em') as EntityManager)
+  const em = transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
   const routing = await resolvePersonCustomFieldRouting(em, tenantId, organizationId)
   const entityScoped: Record<string, unknown> = {}
   const profileScoped: Record<string, unknown> = {}
@@ -691,6 +692,7 @@ async function setCustomFieldsForPerson(
       organizationId,
       tenantId,
       values: entityScoped,
+      transactionalEm,
       notify: true,
     })
   }
@@ -702,6 +704,7 @@ async function setCustomFieldsForPerson(
       organizationId,
       tenantId,
       values: profileScoped,
+      transactionalEm,
       notify: true,
     })
   }
@@ -888,12 +891,12 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       },
       () => syncLegacyPrimaryCompanyLink(em, entity, profile, parsed.companyEntityId ?? null),
       () => syncEntityTags(em, entity, parsed.tags),
+      () => setCustomFieldsForPerson(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom, em),
     ], { transaction: true })
 
     const tenantId = entity.tenantId
     const organizationId = entity.organizationId
     await invalidateDictionaryKindCaches(ctx, { tenantId, organizationId }, createdDictionaryKinds)
-    await setCustomFieldsForPerson(ctx, entity.id, profile.id, organizationId, tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -1250,10 +1253,10 @@ const updatePersonCommand = {
         }
       },
       () => syncEntityTags(em, record, parsed.tags, { ignoreMissing: replay !== undefined }),
+      () => setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom, em),
     ], { transaction: true })
 
     await invalidateDictionaryKindCaches(ctx, record, createdDictionaryKinds)
-    await setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
