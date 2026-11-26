@@ -5,12 +5,14 @@ import {
   CustomerUser,
   CustomerUserInvitation,
   CustomerUserRole,
+  CustomerUserSession,
   CustomerRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
+import { pendingSignup } from '../lib/pendingSignup'
 
 const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
@@ -267,6 +269,7 @@ export class CustomerInvitationService {
           undefined,
           { tenantId: invitation.tenantId, organizationId: invitation.organizationId },
         )
+<<<<<<< HEAD
       : []
     for (const role of roles) {
       const userRole = this.em.create(CustomerUserRole, {
@@ -276,6 +279,24 @@ export class CustomerInvitationService {
       } as any)
       this.em.persist(userRole)
     }
+=======
+        if (existingActiveUser) {
+          if (existingActiveUser.organizationId !== scope.organizationId
+            || !existingActiveUser.isActive || existingActiveUser.emailVerifiedAt || existingActiveUser.lastLoginAt) {
+            throw new CustomerInvitationEmailConflictError(invitation.email)
+          }
+          const retired = await transactionEm.nativeUpdate(CustomerUser, {
+            id: existingActiveUser.id,
+            ...scope,
+            ...pendingSignup,
+          }, { deletedAt: acceptedAt, isActive: false, passwordHash: null, sessionsRevokedAt: acceptedAt })
+          if (retired !== 1) throw new CustomerInvitationEmailConflictError(invitation.email)
+          await transactionEm.nativeUpdate(CustomerUserSession, {
+            user: existingActiveUser.id,
+            deletedAt: null,
+          }, { deletedAt: acceptedAt })
+        }
+>>>>>>> 40dca93737 (fix(customer_accounts): secure portal signup and email verification (#9107) (#10259))
 
     // Mark invitation as accepted
     invitation.acceptedAt = new Date()

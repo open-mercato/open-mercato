@@ -3,10 +3,14 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
+  createCustomerRoleFixture,
   createCustomerUserFixture,
+  deleteCustomerRoleFixture,
   deleteCustomerUserFixture,
+  uniqueSuffix,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 /**
  * TC-CACC-INVITE-REUSE-001: re-inviting the email of a soft-deleted portal user (#5532)
@@ -81,6 +85,55 @@ async function deleteInvitationRows(invitationIds: string[]): Promise<void> {
 }
 
 test.describe('TC-CACC-INVITE-REUSE-001: a soft-deleted portal user does not block re-invitation', () => {
+  test('a staff invitation replaces an unverified registration in its organization', async ({ request }) => {
+    const stamp = uniqueSuffix()
+    const email = `qa-cacc-pending-invite-${stamp}@test.local`
+    const adminToken = await getAuthToken(request, 'admin')
+    const { tenantId, organizationId } = getTokenContext(adminToken)
+    const adminUsers = '/api/customer_accounts/admin/users'
+    let registrationId: string | null = null
+    let invitedId: string | null = null
+    let roleId: string | null = null
+    const invitationIds: string[] = []
+
+    try {
+      roleId = (await createCustomerRoleFixture(request, adminToken)).id
+      const registration = await request.post('/api/customer_accounts/signup', {
+        data: { email, displayName: 'Pending customer', tenantId, organizationId },
+      })
+      expect(registration.status()).toBe(202)
+      const list = await apiRequest(request, 'GET', `${adminUsers}?search=${encodeURIComponent(email)}`, { token: adminToken })
+      const listed = await readJsonSafe<{ items: Array<{ id: string; email: string; emailVerified: boolean }> }>(list)
+      const pending = listed?.items.find((item) => item.email === email)
+      registrationId = expectId(pending?.id, 'signup should create a pending customer')
+      expect(pending?.emailVerified).toBe(false)
+
+      const invitation = await apiRequest(request, 'POST', '/api/customer_accounts/admin/users-invite', {
+        token: adminToken,
+        data: { email, roleIds: [roleId] },
+      })
+      expect(invitation.status()).toBe(201)
+      const created = await readJsonSafe<{ invitation: { id: string } }>(invitation)
+      invitationIds.push(expectId(created?.invitation?.id, 'invitation should have an id'))
+
+      const token = await waitForInviteToken(email, new Set<string>())
+      const response = await request.post('/api/customer_accounts/invitations/accept', {
+        data: { token, displayName: 'Invited customer', password: `InvitedPassword${stamp}!` },
+      })
+      expect(response.status()).toBe(201)
+      const accepted = await readJsonSafe<{ user: { id: string; emailVerified: boolean } }>(response)
+      invitedId = expectId(accepted?.user?.id, 'invitation should create a customer account')
+      expect(invitedId).not.toBe(registrationId)
+      expect(accepted?.user?.emailVerified).toBe(true)
+      expect(await readDeletedAt(registrationId)).toBeInstanceOf(Date)
+    } finally {
+      await deleteCustomerUserFixture(request, adminToken, invitedId)
+      await deleteCustomerUserFixture(request, adminToken, registrationId)
+      await deleteInvitationRows(invitationIds)
+      await deleteCustomerRoleFixture(request, adminToken, roleId)
+    }
+  })
+
   test('accepting a re-invitation succeeds, and a second one for the now-active account returns 409', async ({ request }) => {
     const stamp = Date.now()
     const email = `qa-cacc-reuse-001-${stamp}@test.local`

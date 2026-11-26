@@ -63,13 +63,23 @@ export default async function handle(
       emailHash: { $in: emailHashes },
       tenantId,
       deletedAt: null,
+      emailVerifiedAt: { $ne: null },
+      isActive: true,
       personEntityId: null,
     })
 
+<<<<<<< HEAD
     if (customerUser) {
       const updates: Record<string, unknown> = { personEntityId: (entity as any).id }
       if (companyEntityId && !customerUser.customerEntityId) {
         updates.customerEntityId = companyEntityId
+=======
+    if (customerUser?.emailVerifiedAt && customerUser.isActive) {
+      const updates: Partial<CustomerUser> = { personEntityId: entity.id, updatedAt: new Date() }
+      if (!customerUser.customerEntityId) {
+        const companyEntityId = await resolveOwnedCompanyForPerson(em, entity.id, ownScope)
+        if (companyEntityId) updates.customerEntityId = companyEntityId
+>>>>>>> 40dca93737 (fix(customer_accounts): secure portal signup and email verification (#9107) (#10259))
       }
       const affected = await em.nativeUpdate(CustomerUser, { id: customerUser.id, personEntityId: null }, updates)
       if (affected === 0) return
