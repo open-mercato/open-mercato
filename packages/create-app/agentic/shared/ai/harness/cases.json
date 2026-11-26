@@ -22133,5 +22133,105 @@
       "OMH-088",
       "OMH-089"
     ]
+  },
+  {
+    "id": "OMH-244",
+    "title": "Compose a record detail screen from business blocks and copy one only for a structural change",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "A staff app needs a deal detail screen with a title, status and actions header, a list of labelled facts, and an activity history, plus a stage board on the list screen and a three-step intake flow. One module also needs the stage board with a different card structure than the shared one allows. Route the request to the UI design owner and decide, surface by surface, which shared business block to import and which exact installed contract defines its props, slots, and events. State where the records come from, given that a block holds no data source, and how block events reach the server. For the module that needs a different structure, name the command that creates a tracked copy, where the copy and its lock file land, and what to check before overwriting a copy that was edited locally. Do not list or glob node_modules, read a sibling file the owner does not link, copy package source by hand, or modify any source.",
+    "tags": [
+      "backend-ui",
+      "business-blocks",
+      "design-system-gallery",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "backend-ui"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "framework-context"
+      ]
+    },
+    "requiredSkills": [
+      "om-backend-ui-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ],
+      "sourceReferenceIds": [
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts",
+        "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts"
+      ]
+    },
+    "decisionVocabulary": [
+      "business-block-import-first",
+      "block-contract-reference-source",
+      "block-data-through-props",
+      "block-copy-only-for-structure-change",
+      "blocks-lock-tracked-copy",
+      "block-diff-before-force",
+      "hand-built-block-duplicate",
+      "manual-node-modules-copy"
+    ],
+    "requiredDecisions": [
+      "business-block-import-first",
+      "block-contract-reference-source",
+      "block-data-through-props",
+      "block-copy-only-for-structure-change",
+      "blocks-lock-tracked-copy",
+      "block-diff-before-force"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "blocks\\.lock\\.json.{0,40}(?:hand-edit|edit by hand|manually edit)",
+      "text-\\[[0-9]+px\\]"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 14,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 196608,
+    "relatedCases": [
+      "OMH-221",
+      "OMH-228"
+    ]
   }
 ]

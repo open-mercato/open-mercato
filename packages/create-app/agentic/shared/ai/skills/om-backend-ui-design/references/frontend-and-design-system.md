@@ -34,6 +34,21 @@ Start with the generated `.ai/harness/design-system-inventory.json` and follow o
 
 For token and design-foundation decisions, inspect the app-owned [`src/app/globals.css`](../../../../src/app/globals.css) together with the exact prompt-applicable gallery item. The inventory records that no portable design skill or token snapshot is emitted today; do not substitute a monorepo-only skill/snapshot, infer Figma publication from parse success, or follow network/credential paths.
 
+## Business Blocks
+
+Before composing one of these surfaces by hand, import the matching block from `@open-mercato/ui/blocks/<block>`. A block holds no data source: load records through the routed API helpers, pass them as props, and wire its events to guarded mutations. Read the exact installed contract for the props, slots, and events; shared types are in [`shared.ts`](../../../../node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts).
+
+| Surface | Block | Contract |
+|---|---|---|
+| Record title, status, and actions | `entity-header` | [`entity-header.ts`](../../../../node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts) |
+| Labelled facts about one record | `key-value` | [`key-value.ts`](../../../../node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts) |
+| Activity or change history | `timeline` | [`timeline.ts`](../../../../node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts) |
+| Records moved between stages | `kanban` | [`kanban.ts`](../../../../node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts) |
+| Multi-step flow | `wizard` | [`wizard.ts`](../../../../node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts) |
+| Vertical or inline spacing | `stack` | [`stack.ts`](../../../../node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts) |
+
+Importing is the default. Copy a block only when the module needs a different structure: `yarn mercato ui add <block> --module <moduleId>` writes `src/modules/<moduleId>/components/blocks/<block>/` and records the package version and hashes in the module's `blocks.lock.json`. `yarn mercato ui list` names the installed blocks and `yarn mercato ui diff --module <moduleId>` compares a copy with the installed version. Never copy from `node_modules` by hand or edit the lock. A refused overwrite means the copy has local edits: read the diff before passing `--force`.
+
 ## Portal Extension Contract
 
 - Hooks: `useCustomerAuth`, `useTenantContext`, `usePortalInjectedMenuItems`, `usePortalEventBridge`, and `usePortalAppEvent` from their `@open-mercato/ui/portal/hooks/*` exports.

@@ -141,7 +141,7 @@ function stageApp(): string {
       'src/modules/customers/components/calendar/CalendarEventEditor.tsx',
       'src/modules/customers/lib/calendar/eventTypeResolver.ts',
     ],
-    ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx', 'src/backend/inputs/MarkdownField.tsx', 'src/backend/markdown/codeBlockLanguages.ts'],
+    ui: ['src/primitives/button.tsx', 'figma/button.figma.tsx', 'src/backend/inputs/MarkdownField.tsx', 'src/backend/markdown/codeBlockLanguages.ts', 'src/blocks/contracts/shared.ts', 'src/blocks/contracts/entity-header.ts', 'src/blocks/contracts/key-value.ts', 'src/blocks/contracts/timeline.ts', 'src/blocks/contracts/kanban.ts', 'src/blocks/contracts/wizard.ts', 'src/blocks/contracts/stack.ts'],
     shared: [
       'src/lib/commands/types.ts',
       'src/lib/commands/registry.ts',
@@ -726,12 +726,12 @@ test('deterministic evaluation rejects module-fact context absent from an emitte
   }
 })
 
-test('deterministic evaluation enforces the case schema through OMH-243', () => {
+test('deterministic evaluation enforces the case schema through OMH-244', () => {
   const root = stageApp()
   try {
     const casesPath = path.join(root, '.ai', 'harness', 'cases.json')
     const cases = JSON.parse(fs.readFileSync(casesPath, 'utf8')) as HarnessCase[]
-    assert.equal(cases.at(-1)?.id, 'OMH-243')
+    assert.equal(cases.at(-1)?.id, 'OMH-244')
     cases[0].title = 'x'.repeat(181)
     fs.writeFileSync(casesPath, `${JSON.stringify(cases, null, 2)}\n`)
 
@@ -3980,7 +3980,7 @@ const shippedSpecRoutingDecisions: ReadonlyArray<readonly [string, string]> = [
 test('the spec routing oracle is inert for every shipped case that declares no contract', async () => {
   const evaluator = await loadSpecRoutingEvaluator()
   const cases = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as HarnessCase[]
-  assert.equal(cases.length, 243)
+  assert.equal(cases.length, 244)
   const declaring = new Set(shippedSpecRoutingDecisions.map(([id]) => id))
   const inert = cases.filter((record) => !declaring.has(record.id))
   assert.equal(inert.length, cases.length - declaring.size)

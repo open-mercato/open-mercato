@@ -9,9 +9,9 @@
   },
   "derived": {
     "ownerCount": 33,
-    "recordCount": 161,
-    "sourceRequiredCount": 135,
-    "renderedLinkCount": 137,
+    "recordCount": 168,
+    "sourceRequiredCount": 142,
+    "renderedLinkCount": 144,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -121,7 +121,8 @@
         "OMH-221",
         "OMH-223",
         "OMH-228",
-        "OMH-243"
+        "OMH-243",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -240,7 +241,8 @@
         "OMH-221",
         "OMH-223",
         "OMH-228",
-        "OMH-243"
+        "OMH-243",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -354,7 +356,8 @@
         "OMH-221",
         "OMH-223",
         "OMH-228",
-        "OMH-243"
+        "OMH-243",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -470,7 +473,8 @@
         "OMH-221",
         "OMH-223",
         "OMH-228",
-        "OMH-243"
+        "OMH-243",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -1840,7 +1844,8 @@
         "OMH-137",
         "OMH-221",
         "OMH-223",
-        "OMH-228"
+        "OMH-228",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -2198,7 +2203,8 @@
         "OMH-137",
         "OMH-221",
         "OMH-223",
-        "OMH-228"
+        "OMH-228",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -2266,6 +2272,328 @@
       "packageRelativePath": "figma/button.figma.tsx"
     },
     {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-223",
+        "OMH-228",
+        "OMH-244"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/entity-header.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-223",
+        "OMH-228",
+        "OMH-244"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/kanban.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-223",
+        "OMH-228",
+        "OMH-244"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/key-value.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-223",
+        "OMH-228",
+        "OMH-244"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/shared.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-223",
+        "OMH-228",
+        "OMH-244"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/stack.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-223",
+        "OMH-228",
+        "OMH-244"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/timeline.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts",
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "originAuthoringPath": "agentic/shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts",
+      "targetAuthoringPath": null,
+      "moduleId": null,
+      "capabilityIds": [],
+      "integrationTestPaths": [],
+      "affectedCaseIds": [
+        "OMH-090",
+        "OMH-091",
+        "OMH-092",
+        "OMH-115",
+        "OMH-129",
+        "OMH-130",
+        "OMH-131",
+        "OMH-135",
+        "OMH-136",
+        "OMH-137",
+        "OMH-221",
+        "OMH-223",
+        "OMH-228",
+        "OMH-244"
+      ],
+      "replacesBaselineBlockIds": [],
+      "citedByBaselineBlockIds": [],
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts",
+      "renderedLinkCount": 1,
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/wizard.ts"
+    },
+    {
       "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx",
       "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx",
       "requirement": "source-required",
@@ -2292,7 +2620,8 @@
         "OMH-137",
         "OMH-221",
         "OMH-223",
-        "OMH-228"
+        "OMH-228",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -2386,7 +2715,8 @@
         "OMH-137",
         "OMH-221",
         "OMH-223",
-        "OMH-228"
+        "OMH-228",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -3112,7 +3442,8 @@
         "OMH-217",
         "OMH-221",
         "OMH-223",
-        "OMH-228"
+        "OMH-228",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -8052,7 +8383,8 @@
         "OMH-240",
         "OMH-241",
         "OMH-242",
-        "OMH-243"
+        "OMH-243",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
@@ -8317,7 +8649,8 @@
         "OMH-240",
         "OMH-241",
         "OMH-242",
-        "OMH-243"
+        "OMH-243",
+        "OMH-244"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [

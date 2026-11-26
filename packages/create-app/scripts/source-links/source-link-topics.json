@@ -181,6 +181,55 @@
       "referenceRole": "design-foundation-token"
     },
     {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts"
+    },
+    {
+      "topicId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts",
+      "owner": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts"
+    },
+    {
       "topicId": "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx",
       "owner": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
       "requirement": "source-required",

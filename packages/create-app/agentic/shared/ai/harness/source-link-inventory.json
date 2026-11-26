@@ -3,9 +3,9 @@
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
     "ownerCount": 33,
-    "recordCount": 161,
-    "sourceRequiredCount": 135,
-    "readableCount": 161,
+    "recordCount": 168,
+    "sourceRequiredCount": 142,
+    "readableCount": 168,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -1280,6 +1280,167 @@
             "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
           }
         }
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/entity-header.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/kanban.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/key-value.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/shared.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/stack.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/timeline.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Business Blocks",
+      "href": "../../../../node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/blocks/contracts/wizard.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
       ]
     },
     {
