@@ -743,3 +743,7 @@ STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver
 ## Workflow events (2026-11-20, #9134)
 
 STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
+
+## 2026-11-25 — MCP Code Mode
+
+STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
