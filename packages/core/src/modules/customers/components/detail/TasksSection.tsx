@@ -49,6 +49,7 @@ type TasksSectionProps = {
   dialogContextFallback?: string
   /** When true, use the canonical interactions API instead of the legacy todos API. */
   useCanonicalInteractions?: boolean
+  useLegacyReadEndpoint?: boolean
   runGuardedMutation?: GuardedMutationRunner
 }
 
@@ -120,6 +121,7 @@ export function TasksSection({
   dialogContextKey,
   dialogContextFallback,
   useCanonicalInteractions = false,
+  useLegacyReadEndpoint,
   runGuardedMutation,
 }: TasksSectionProps) {
   const tHook = useT()
@@ -141,7 +143,11 @@ export function TasksSection({
   const statusMap = statusDictionary.data?.map ?? null
 
   // Legacy path: usePersonTasks (default)
-  const legacyResult = usePersonTasks({ entityId, initialTasks })
+  const legacyResult = usePersonTasks({
+    entityId: useCanonicalInteractions ? null : entityId,
+    initialTasks,
+    useLegacyReadEndpoint,
+  })
 
   // Canonical path: useInteractions with planned-status filter
   const canonicalResult = useInteractions({
@@ -258,7 +264,7 @@ export function TasksSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
-    if (!entityId) {
+    if (!entityId || useLegacyReadEndpoint) {
       onActionChange(null)
       return
     }
@@ -270,7 +276,7 @@ export function TasksSection({
     return () => {
       onActionChange(null)
     }
-  }, [addActionLabel, entityId, isMutating, onActionChange, openCreateDialog])
+  }, [addActionLabel, entityId, isMutating, onActionChange, openCreateDialog, useLegacyReadEndpoint])
 
   React.useEffect(() => {
     if (!onLoadingChange) return
@@ -491,11 +497,13 @@ export function TasksSection({
 
         {!isInitialLoading && !error && !hasTasks ? (
           <TabEmptyState title={emptyState.title}>
-            <Button asChild variant="outline" size="sm" className="mt-2">
-              <Link href="/backend/customer-tasks">
-                {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
-              </Link>
-            </Button>
+            {!useLegacyReadEndpoint ? (
+              <Button asChild variant="outline" size="sm" className="mt-2">
+                <Link href="/backend/customer-tasks">
+                  {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
+                </Link>
+              </Button>
+            ) : null}
           </TabEmptyState>
         ) : null}
 
@@ -524,7 +532,7 @@ export function TasksSection({
                               const next = event.target.checked
                               void handleToggle(task, next)
                             }}
-                            disabled={isMutating || isPendingToggle || isCanceled}
+                            disabled={useLegacyReadEndpoint || isMutating || isPendingToggle || isCanceled}
                             className="h-4 w-4 rounded border"
                           />
                           <span
@@ -551,7 +559,7 @@ export function TasksSection({
                       timestamp={task.createdAt}
                       fallbackTimestampLabel={createdLabel}
                     />
-                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    {!useLegacyReadEndpoint ? <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                       <IconButton
                         type="button"
                         variant="ghost"
@@ -576,7 +584,7 @@ export function TasksSection({
                       >
                         {isMutating ? <Loader2 className="h-4 w-4 animate-spin text-destructive" /> : <Trash2 className="h-4 w-4" />}
                       </IconButton>
-                    </div>
+                    </div> : null}
                   </div>
                   {meta.length ? (
                     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
@@ -635,7 +643,7 @@ export function TasksSection({
             ) : null}
           </div>
         ) : null}
-        {!isInitialLoading && hasTasks ? (
+        {!isInitialLoading && hasTasks && !useLegacyReadEndpoint ? (
           <div className="flex justify-center">
             <Button asChild variant="outline" size="sm">
               <Link href="/backend/customer-tasks">
@@ -647,7 +655,7 @@ export function TasksSection({
       </div>
 
       <TaskDialog
-        open={dialogOpen}
+        open={!useLegacyReadEndpoint && dialogOpen}
         mode={dialogMode}
         onOpenChange={(next) => {
           if (!next) closeDialog()

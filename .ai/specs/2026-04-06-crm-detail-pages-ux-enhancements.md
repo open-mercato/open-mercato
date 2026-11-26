@@ -1363,6 +1363,14 @@ Existing relation arrays remain present and return empty arrays when the caller 
 
 The company detail page uses the presence of the server-authorized Active deals count to render the Active deals and Customer value cards and the completed-deals caption. The component's `canViewDeals` prop is optional and defaults to `true` for existing consumers; the company page always passes the server-authorized value explicitly. `TC-CRM-9335-company-kpi-permissions.spec.ts` covers card visibility for users with and without deal access, including a company with zero deals.
 
+### People backoffice permission checks (2026-11-26, #9349)
+
+The People list shows create and delete actions for `customers.people.manage` and loads owner options for `customers.roles.view`. People export follows the list endpoint's existing `customers.people.view` grant.
+
+Person v2 uses the current backoffice feature grants to keep edit controls and related tabs aligned with the permissions for their requests. A deep link to a hidden tab opens an available tab. People viewers can still read the form and email threads. Dictionary, custom-field, mailbox, message, and related-record actions use their own grants. The Messages inbox is shown for `messages.view` and offers Compose for `messages.compose`.
+
+The shared read-only presentation options are opt-in. Existing consumers keep their current defaults. API routes, response shapes, and permission IDs remain stable. Browser coverage for the People viewer role lives in `TC-CRM-9349-people-permission-controls.spec.ts`.
+
 ### Deprecated deal header inputs (2026-11-10, #8552)
 
 The decluttered deal header (Enhancement 4 revisited) moved stage changes to clickable `PipelineStepper` segments and the Won / Lost buttons to a "Close deal" menu in `DealDetailHeader.secondaryActions`. The component inputs that drove the previous presentation remain accepted and `@deprecated`, with a functional bridge where the input carried behavior:
@@ -1455,6 +1463,7 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-11-26 | #9349 aligns People list and detail controls, related tabs, and the Messages inbox entry with existing backoffice permissions. |
 | 2026-11-21 | #9149 applies related-data view permissions to person and company detail rows, counts, previews, KPIs, and cached responses. |
 | 2026-11-21 | #9335 uses the scoped company detail response to control the visibility of deal KPIs. |
 | 2026-11-16 | Rev 11 (#7494, QA follow-up #9619): the activity tab fits phone widths down to 320 px. In history rows narrower than 448 px (container query) the date moves to a line above the title, and "Mark done" with the row menu wraps under the title instead of covering it; wider rows keep the date column. The AI chips row wraps. In `PlannedActivitiesSection` the header and the overdue row wrap: "Schedule" drops under the title and overdue count, and "Mark done" with the row menu drops under the row text as one group. No API, data or i18n change. |

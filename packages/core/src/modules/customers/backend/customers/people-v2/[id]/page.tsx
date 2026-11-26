@@ -60,7 +60,6 @@ import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
-const HIDDEN_INTERACTION_TABS = ['activities']
 
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -70,9 +69,25 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const pathname = usePathname()
   const { organizationId } = useOrganizationScopeDetail()
   const { payload: chrome } = useBackendChrome()
-  const grantedFeatures = chrome?.grantedFeatures ?? []
+  const grantedFeatures = chrome?.grantedFeatures
+  const canManagePerson = hasFeature(grantedFeatures, 'customers.people.manage')
   const canViewInteractions = hasFeature(grantedFeatures, 'customers.interactions.view')
+  const canManageInteractions = hasFeature(grantedFeatures, 'customers.interactions.manage')
+  const canViewActivities = hasFeature(grantedFeatures, 'customers.activities.view')
   const canViewRoles = hasFeature(grantedFeatures, 'customers.roles.view')
+  const canViewCompanies = hasFeature(grantedFeatures, 'customers.companies.view')
+  const canManageCompanies = hasFeature(grantedFeatures, 'customers.companies.manage')
+  const canViewDeals = hasFeature(grantedFeatures, 'customers.deals.view')
+  const canManageDeals = hasFeature(grantedFeatures, 'customers.deals.manage')
+  const canManageActivities = hasFeature(grantedFeatures, 'customers.activities.manage')
+  const canViewFiles = hasFeature(grantedFeatures, 'attachments.view')
+  const canManageFiles = hasFeature(grantedFeatures, 'attachments.manage')
+  const canViewHistory = hasFeature(grantedFeatures, 'audit_logs.view_self')
+  const canManageSettings = hasFeature(grantedFeatures, 'customers.settings.manage')
+  const canManageCustomFields = canManagePerson && hasFeature(grantedFeatures, 'entities.definitions.manage')
+  const canSendMessage = hasFeature(grantedFeatures, 'messages.compose')
+  const canComposeEmail = hasFeature(grantedFeatures, 'customers.email.compose')
+  const canConnectMailbox = hasFeature(grantedFeatures, 'communication_channels.connect_user_channel')
   const isMobile = useIsMobile()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -80,9 +95,16 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
 
   const formSchema = React.useMemo(() => createPersonEditSchema(), [])
-  const fields = React.useMemo(() => createPersonEditFields(t), [t])
+  const fields = React.useMemo(() => createPersonEditFields(t, {
+    canManageDictionaries: canManagePerson && canManageSettings,
+    canViewCompanies,
+    canManageCompanies: canManagePerson && canManageCompanies,
+  }), [t, canManagePerson, canManageSettings, canViewCompanies, canManageCompanies])
 
   const [data, setData] = React.useState<PersonOverview | null>(null)
+  const useCanonicalInteractions = data?.interactionMode === 'canonical'
+  const canViewLegacyTasks = !useCanonicalInteractions && hasFeature(grantedFeatures, 'customers.view')
+  const canViewTasks = canViewInteractions || canViewLegacyTasks
   // Mirror the latest `data` into a ref so save handlers always read the current
   // optimistic-lock token (`person.updatedAt`) instead of the value captured in
   // their `useCallback` closure. Without this, a header-field save issued after a
@@ -132,13 +154,13 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     : null
 
   const scheduleDialogCompanyName = coerceDisplayNameOrNull(
-    data?.company?.displayName ?? data?.companies?.[0]?.displayName ?? null,
+    canViewCompanies ? data?.company?.displayName ?? data?.companies?.[0]?.displayName : null,
   )
 
   const groups = React.useMemo(
-    () => createPersonPersonalDataGroups(t, { entityName: personDisplayNameForGroups })
+    () => createPersonPersonalDataGroups(t, { entityName: personDisplayNameForGroups, canViewCompanies })
       .filter((group) => group.id !== 'roles' || canViewRoles),
-    [t, personDisplayNameForGroups, canViewRoles],
+    [t, personDisplayNameForGroups, canViewCompanies, canViewRoles],
   )
 
   const zoneSections = React.useMemo<ZoneSectionDescriptor[]>(() => [
@@ -315,10 +337,22 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     () => resolveLegacyTab(searchParams?.get('tab'), injectedTabIds),
     [injectedTabIds, searchParams],
   )
-  const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
+  const [selectedTab, setSelectedTab] = React.useState<PersonTabId>(initialTab)
+  const hiddenTabIds = React.useMemo(() => [
+    ...(!canViewInteractions ? ['activities'] : []),
+    ...(!canViewTasks ? ['tasks'] : []),
+    ...(!canViewCompanies ? ['companies'] : []),
+    ...(!canViewDeals ? ['deals'] : []),
+    ...(!canViewActivities ? ['addresses'] : []),
+    ...(!canViewFiles ? ['files'] : []),
+    ...(!canViewHistory ? ['changelog'] : []),
+  ], [canViewInteractions, canViewTasks, canViewCompanies, canViewDeals, canViewActivities, canViewFiles, canViewHistory])
+  const activeTab = hiddenTabIds.includes(selectedTab)
+    ? (canViewInteractions ? 'activities' : 'emails')
+    : selectedTab
 
   React.useEffect(() => {
-    setActiveTab(initialTab)
+    setSelectedTab(initialTab)
   }, [initialTab])
 
   const isActivityTabActive = canViewInteractions && activeTab === 'activities'
@@ -329,13 +363,14 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const handleTabChange = React.useCallback(
     (tab: PersonTabId) => {
-      setActiveTab(tab)
+      if (hiddenTabIds.includes(tab)) return
+      setSelectedTab(tab)
       if (!pathname) return
       const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
       nextParams.set('tab', tab)
       router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
     },
-    [pathname, router, searchParams],
+    [hiddenTabIds, pathname, router, searchParams],
   )
 
   // Tags
@@ -367,6 +402,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   // Form submit/delete
   const handleFormSubmit = React.useCallback(
     async (values: PersonEditFormValues) => {
+      if (!canManagePerson) return
       setIsSaving(true)
       try {
         await tagsSectionControllerRef.current?.flush()
@@ -374,6 +410,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         let payload: Record<string, unknown>
         try {
           payload = buildPersonEditPayload(values, organizationId)
+          if (!canViewCompanies) delete payload.companyEntityId
         } catch (err) {
           if (err instanceof Error && err.message === 'DISPLAY_NAME_REQUIRED') {
             const message = t('customers.people.form.displayName.error')
@@ -407,13 +444,13 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         setIsSaving(false)
       }
     },
-    [loadData, organizationId, t],
+    [canManagePerson, canViewCompanies, loadData, organizationId, t],
   )
 
   const handleFormDelete = React.useCallback(
     async () => {
       const personId = data?.person?.id ?? ''
-      if (!personId) return
+      if (!canManagePerson || !personId) return
       const approved = await confirm({
         title: t('customers.people.detail.deleteConfirmTitle', 'Delete person?'),
         description: t('customers.people.detail.deleteConfirmDescription', 'This action cannot be undone.'),
@@ -447,7 +484,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       flash(t('customers.people.list.deleteSuccess', 'Person deleted.'), 'success')
       router.push('/backend/customers/people')
     },
-    [confirm, data?.person?.id, router, runMutationWithContext, t],
+    [canManagePerson, confirm, data?.person?.id, router, runMutationWithContext, t],
   )
 
   const handleHeaderSave = React.useCallback(() => {
@@ -505,8 +542,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   }
 
   const personId = data.person.id
-  const useCanonicalInteractions = data.interactionMode === 'canonical'
-
   return (
     <Page>
       <PageBody>
@@ -525,7 +560,12 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onDelete={handleFormDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onOpenCompaniesTab={() => handleTabChange('companies')}
+            canManagePerson={canManagePerson}
+            canManageTags={canManagePerson && canViewActivities && canManageActivities}
+            canManageSettings={canManageSettings}
+            canViewCompanies={canViewCompanies}
+            canSendMessage={canSendMessage}
+            canViewHistory={canViewHistory}
             onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'people-v2', err })) }}
             onFocusField={(fieldName) => {
               const selectorMap: Record<string, string> = {
@@ -562,6 +602,9 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                   optimisticLockUpdatedAt={data.person.updatedAt ?? data.person.updated_at ?? null}
                   onSubmit={handleFormSubmit}
                   onDelete={handleFormDelete}
+                  readOnly={!canManagePerson}
+                  readOnlyDisplay="fields"
+                  customFieldsManageMode={canManageCustomFields ? undefined : 'hidden'}
                   hideFooterActions
                   collapsibleGroups={{ pageType: 'person-v2', chevronPosition: 'right' }}
                   sortableGroups={{ pageType: 'person-v2' }}
@@ -574,14 +617,14 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
                 isLoadingInjectedTabs={injectedTabsLoading}
-                hiddenTabIds={chrome && !canViewInteractions ? HIDDEN_INTERACTION_TABS : undefined}
+                hiddenTabIds={hiddenTabIds}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}
                 companiesCount={companyCount}
                 addressesCount={data?.counts?.addresses ?? 0}
                 tasksCount={todoCount}
-                sectionAction={sectionAction}
+                sectionAction={selectedTab === activeTab && (activeTab !== 'tasks' || canManageInteractions) ? sectionAction : null}
               >
                 <div className="min-w-0">
                 {(() => {
@@ -604,6 +647,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                         runGuardedMutation={runMutationWithContext}
                         refreshKey={activityRefreshKey}
                         useCanonicalInteractions={useCanonicalInteractions}
+                        canViewLegacyActivities={canViewActivities}
                         addActionLabel={t('customers.people.detail.activities.add', 'Log activity')}
                         emptyState={{
                           title: t('customers.people.detail.emptyState.activities.title', 'No activities logged yet'),
@@ -619,6 +663,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       <PersonEmailThreadsTab
                         personId={personId}
                         defaultRecipient={data.person?.primaryEmail ?? null}
+                        canCompose={canComposeEmail}
+                        canConnectMailbox={canConnectMailbox}
                       />
                     )
                   }
@@ -627,6 +673,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                     return (
                       <DealsSection
                         scope={dealsScope}
+                        canManage={canManageDeals}
                         emptyLabel={t('customers.people.detail.empty.deals', 'No deals linked to this person.')}
                         addActionLabel={t('customers.people.detail.actions.addDeal', 'Add deal')}
                         emptyState={{
@@ -646,6 +693,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       <PersonCompaniesSection
                         personId={personId}
                         personName={personName}
+                        canManage={canManagePerson}
                         initialLinkedCompanies={data?.companies ?? []}
                         onChanged={loadData}
                         runGuardedMutation={runMutationWithContext}
@@ -657,6 +705,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                     return (
                       <AddressesSection
                         entityId={personId}
+                        readOnly={!canManageActivities}
+                        canManageSettings={canManageSettings}
                         emptyLabel={t('customers.people.detail.empty.addresses', 'No addresses linked to this person.')}
                         addActionLabel={t('customers.people.detail.addresses.add', 'Add address')}
                         emptyState={{
@@ -674,6 +724,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       <TasksSection
                         entityId={personId}
                         initialTasks={[]}
+                        useLegacyReadEndpoint={!canViewInteractions}
                         useCanonicalInteractions={useCanonicalInteractions}
                         runGuardedMutation={runMutationWithContext}
                         onDataRefresh={loadData}
@@ -697,6 +748,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       <AttachmentsSection
                         entityId={E.customers.customer_entity}
                         recordId={personId}
+                        readOnly={!canManageFiles}
                         title={t('customers.people.detail.tabs.files', 'Files')}
                       />
                     )
@@ -736,7 +788,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           <InjectionSpot spotId={extensionPoints.hosts.personFooter.spotId} context={injectionContext} data={data} />
 
           {/* Schedule Activity Dialog — opened from PlannedActivities "+ Schedule" or other triggers */}
-          <ScheduleActivityDialog
+          {canManageInteractions ? <ScheduleActivityDialog
             open={scheduleDialogOpen}
             onClose={() => { setScheduleDialogOpen(false); setScheduleEditData(null) }}
             entityId={personId}
@@ -745,7 +797,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             entityType="person"
             onActivityCreated={() => { void handleActivityCreated() }}
             editData={scheduleEditData}
-          />
+          /> : null}
           {ConfirmDialogElement}
         </div>
       </PageBody>

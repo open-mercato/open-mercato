@@ -30,6 +30,12 @@ type PersonDetailHeaderProps = {
   onDelete: () => Promise<void>
   isDirty: boolean
   isSaving: boolean
+  canManagePerson?: boolean
+  canManageTags?: boolean
+  canManageSettings?: boolean
+  canSendMessage?: boolean
+  canViewCompanies?: boolean
+  canViewHistory?: boolean
   actions?: React.ReactNode
   /** Callback to focus a specific field in the Zone 1 CrudForm by field name. */
   onFocusField?: (fieldName: string) => void
@@ -75,6 +81,12 @@ export function PersonDetailHeader({
   onDelete,
   isDirty,
   isSaving,
+  canManagePerson = true,
+  canManageTags = canManagePerson,
+  canManageSettings,
+  canSendMessage = true,
+  canViewCompanies = true,
+  canViewHistory = true,
   actions,
   onFocusField,
   onOpenCompaniesTab,
@@ -100,10 +112,11 @@ export function PersonDetailHeader({
   const visibleTags = React.useMemo(() => data.tags.slice(0, 6), [data.tags])
   const hiddenTagsCount = Math.max(0, data.tags.length - visibleTags.length)
   const primaryCompany = linkedCompanies.find((entry) => entry.isPrimary) ?? linkedCompanies[0] ?? null
-  const companyName = primaryCompany?.displayName ?? null
+  const companyName = canViewCompanies ? primaryCompany?.displayName ?? null : null
   const companyId = primaryCompany?.id ?? profile?.companyEntityId ?? null
 
   const personOrgId = person.organizationId ?? null
+  const { data: jobTitleDict } = useCustomerDictionary('job-titles', 0, personOrgId)
   const { data: statusDict } = useCustomerDictionary('statuses', 0, personOrgId)
   const { data: lifecycleDict } = useCustomerDictionary('lifecycle-stages', 0, personOrgId)
   const { data: sourceDict } = useCustomerDictionary('sources', 0, personOrgId)
@@ -118,7 +131,7 @@ export function PersonDetailHeader({
           <div className="min-w-0 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="min-w-0 truncate text-2xl font-normal leading-tight text-foreground">{displayName}</h1>
-              {data.isPrimary ? (
+              {canViewCompanies && data.isPrimary ? (
                 <Badge variant="info" size={16}>
                   {t('customers.people.detail.header.primary', 'PRIMARY')}
                 </Badge>
@@ -127,7 +140,9 @@ export function PersonDetailHeader({
 
             <dl className="flex flex-wrap gap-x-10 gap-y-3">
               {jobTitle ? (
-                <HeaderFact label={t('customers.people.detail.facts.jobTitle', 'Job title')}>{jobTitle}</HeaderFact>
+                <HeaderFact label={t('customers.people.detail.facts.jobTitle', 'Job title')}>
+                  {jobTitleDict?.map[jobTitle]?.label ?? jobTitle}
+                </HeaderFact>
               ) : null}
               {companyName ? (
                 <HeaderFact label={t('customers.people.detail.facts.company', 'Company')}>
@@ -169,16 +184,18 @@ export function PersonDetailHeader({
                   +{hiddenTagsCount} {t('customers.people.detail.header.more', 'more')}
                 </Badge>
               ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={() => setManageTagsOpen(true)}
-              >
-                <Pencil className="size-3.5" />
-                {t('customers.people.detail.actions.manageTags', 'Edit tags')}
-              </Button>
+              {canManageTags ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => setManageTagsOpen(true)}
+                >
+                  <Pencil className="size-3.5" />
+                  {t('customers.people.detail.actions.manageTags', 'Edit tags')}
+                </Button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -186,72 +203,84 @@ export function PersonDetailHeader({
         {/* Right side: actions */}
         <div className="flex w-full shrink-0 items-center justify-start gap-2 sm:w-auto sm:justify-end">
           {actions}
-          <SendObjectMessageDialog
-            object={{
-              entityModule: 'customers',
-              entityType: 'person',
-              entityId: person.id,
-              previewData: {
-                title: displayName,
-                subtitle: person.primaryEmail ?? companyName ?? undefined,
-              },
-            }}
-            viewHref={`/backend/customers/people-v2/${person.id}`}
-            buttonVariant="outline"
-            buttonSize="icon"
-            buttonClassName={HEADER_ICON_BUTTON_CLASS}
-            buttonLabel={t('customers.people.detail.actions.sendMessage', 'Send message')}
-          />
-          <ObjectHistoryButton
-            resourceKind="customers.person"
-            resourceId={person.id}
-            organizationId={person.organizationId ?? undefined}
-          />
-          <IconButton
-            variant="outline"
-            size="sm"
-            type="button"
-            aria-label={t('customers.people.detail.actions.delete', 'Delete')}
-            onClick={() => {
-              void onDelete()
-            }}
-          >
-            <Trash2 className="size-4" />
-          </IconButton>
-          <Button
-            type="button"
-            size="sm"
-            onClick={onSave}
-            disabled={!isDirty || isSaving}
-          >
-            {t('customers.people.detail.actions.save', 'Save')}
-          </Button>
+          {canSendMessage ? (
+            <SendObjectMessageDialog
+              object={{
+                entityModule: 'customers',
+                entityType: 'person',
+                entityId: person.id,
+                previewData: {
+                  title: displayName,
+                  subtitle: person.primaryEmail ?? companyName ?? undefined,
+                },
+              }}
+              viewHref={`/backend/customers/people-v2/${person.id}`}
+              buttonVariant="outline"
+              buttonSize="icon"
+              buttonClassName={HEADER_ICON_BUTTON_CLASS}
+              buttonLabel={t('customers.people.detail.actions.sendMessage', 'Send message')}
+            />
+          ) : null}
+          {canViewHistory ? (
+            <ObjectHistoryButton
+              resourceKind="customers.person"
+              resourceId={person.id}
+              organizationId={person.organizationId ?? undefined}
+            />
+          ) : null}
+          {canManagePerson ? (
+            <>
+              <IconButton
+                variant="outline"
+                size="sm"
+                type="button"
+                aria-label={t('customers.people.detail.actions.delete', 'Delete')}
+                onClick={() => {
+                  void onDelete()
+                }}
+              >
+                <Trash2 className="size-4" />
+              </IconButton>
+              <Button
+                type="button"
+                size="sm"
+                onClick={onSave}
+                disabled={!isDirty || isSaving}
+              >
+                {t('customers.people.detail.actions.save', 'Save')}
+              </Button>
+            </>
+          ) : null}
         </div>
       </div>
-      <PersonTagsDialog
-        open={manageTagsOpen}
-        onClose={() => setManageTagsOpen(false)}
-        personId={person.id}
-        personOrganizationId={person.organizationId ?? null}
-        personData={{
-          status: person.status,
-          lifecycleStage: person.lifecycleStage,
-          source: person.source,
-          temperature: person.temperature,
-          renewalQuarter: person.renewalQuarter,
-          jobTitle: data.profile?.jobTitle ?? null,
-          customFields: data.customFields,
-          tags: data.tags,
-        }}
-        onSaved={() => {
-          void invalidateCustomerDictionary(queryClient, 'statuses')
-          void invalidateCustomerDictionary(queryClient, 'lifecycle-stages')
-          void invalidateCustomerDictionary(queryClient, 'sources')
-          void invalidateCustomerDictionary(queryClient, 'temperature')
-          void invalidateCustomerDictionary(queryClient, 'renewal-quarters')
-          onDataReload?.()
-        }}
-      />
+      {canManageTags ? (
+        <PersonTagsDialog
+          open={manageTagsOpen}
+          canManageSettings={canManageSettings}
+          onClose={() => setManageTagsOpen(false)}
+          personId={person.id}
+          personOrganizationId={person.organizationId ?? null}
+          personData={{
+            status: person.status,
+            lifecycleStage: person.lifecycleStage,
+            source: person.source,
+            temperature: person.temperature,
+            renewalQuarter: person.renewalQuarter,
+            jobTitle: data.profile?.jobTitle ?? null,
+            customFields: data.customFields,
+            tags: data.tags,
+          }}
+          onSaved={() => {
+            void invalidateCustomerDictionary(queryClient, 'job-titles')
+            void invalidateCustomerDictionary(queryClient, 'statuses')
+            void invalidateCustomerDictionary(queryClient, 'lifecycle-stages')
+            void invalidateCustomerDictionary(queryClient, 'sources')
+            void invalidateCustomerDictionary(queryClient, 'temperature')
+            void invalidateCustomerDictionary(queryClient, 'renewal-quarters')
+            onDataReload?.()
+          }}
+        />
+      ) : null}
     </div>
   )
 }

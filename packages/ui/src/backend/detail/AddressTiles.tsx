@@ -59,6 +59,7 @@ type AddressTilesProps<C = unknown> = {
   t: Translator
   emptyLabel: string
   isSubmitting?: boolean
+  readOnly?: boolean
   gridClassName?: string
   hideAddButton?: boolean
   onAddActionChange?: (action: { openCreateForm: () => void; addDisabled: boolean } | null) => void
@@ -177,6 +178,7 @@ export function AddressTiles<C = unknown>({
   t,
   emptyLabel,
   isSubmitting = false,
+  readOnly = false,
   gridClassName = 'grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-2 sm:gap-4',
   hideAddButton = false,
   onAddActionChange,
@@ -296,9 +298,10 @@ export function AddressTiles<C = unknown>({
   }, [formatContext, label, loadFormat, scopeVersion])
 
   const openCreateForm = React.useCallback(() => {
+    if (readOnly) return
     resetForm()
     setIsFormOpen(true)
-  }, [resetForm])
+  }, [readOnly, resetForm])
 
   const handleCancel = React.useCallback(() => {
     resetForm()
@@ -352,7 +355,7 @@ export function AddressTiles<C = unknown>({
   }, [draft.addressLine1, draft.latitude, draft.longitude, fieldLabels, label, line1FieldLabel])
 
   const handleSave = React.useCallback(async () => {
-    if (!validate()) return
+    if (readOnly || !validate()) return
     setSaving(true)
     setGeneralError(null)
     try {
@@ -408,7 +411,7 @@ export function AddressTiles<C = unknown>({
     } finally {
       setSaving(false)
     }
-  }, [draft, editingId, fieldLabels, label, labelPrefix, onCreate, onUpdate, resetForm, t, validate])
+  }, [draft, editingId, fieldLabels, label, labelPrefix, onCreate, onUpdate, readOnly, resetForm, t, validate])
 
   const handleDelete = React.useCallback(
     async (id: string) => {
@@ -442,8 +445,8 @@ export function AddressTiles<C = unknown>({
 
   React.useEffect(() => {
     if (!onAddActionChange) return
-    onAddActionChange({ openCreateForm, addDisabled })
-  }, [onAddActionChange, openCreateForm, addDisabled])
+    onAddActionChange(readOnly ? null : { openCreateForm, addDisabled })
+  }, [onAddActionChange, openCreateForm, addDisabled, readOnly])
 
   React.useEffect(
     () => () => {
@@ -558,7 +561,7 @@ export function AddressTiles<C = unknown>({
 
   return (
     <div className="space-y-4">
-      {!hideAddButton && hasAddresses ? (
+      {!readOnly && !hideAddButton && hasAddresses ? (
         <div className="flex justify-end">
           <Button
             type="button"
@@ -575,7 +578,7 @@ export function AddressTiles<C = unknown>({
       {hasAddresses ? (
         <div className={gridClassName}>
           {addresses.map((address) => {
-            if (isFormOpen && editingId === address.id) {
+            if (!readOnly && isFormOpen && editingId === address.id) {
               return renderFormTile(`form-${address.id}`)
             }
             const isDeleting = deletingId === address.id
@@ -603,7 +606,7 @@ export function AddressTiles<C = unknown>({
                     ) : null}
                     <AddressView address={address} format={format} className="text-sm text-foreground" />
                   </div>
-                  <div className="flex items-center gap-1 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
+                  {!readOnly ? <div className="flex items-center gap-1 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
                     <Button
                       type="button"
                       variant="ghost"
@@ -628,21 +631,21 @@ export function AddressTiles<C = unknown>({
                         <Trash2 className="h-4 w-4" />
                       )}
                     </Button>
-                  </div>
+                  </div> : null}
                 </div>
               </div>
             )
           })}
-          {isFormOpen && !editingId ? renderFormTile('create') : null}
+          {!readOnly && isFormOpen && !editingId ? renderFormTile('create') : null}
         </div>
-      ) : isFormOpen ? (
+      ) : !readOnly && isFormOpen ? (
         <div className={gridClassName}>
           {renderFormTile('create')}
         </div>
       ) : (
         <TabEmptyState
           title={emptyTitle}
-          action={{
+          action={readOnly ? undefined : {
             label: emptyActionLabel,
             onClick: openCreateForm,
             disabled: addDisabled,

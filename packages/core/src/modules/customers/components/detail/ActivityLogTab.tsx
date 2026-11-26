@@ -40,6 +40,7 @@ type ActivityLogTabProps = {
   runGuardedMutation?: GuardedMutationRunner
   refreshKey?: number
   useCanonicalInteractions?: boolean
+  canViewLegacyActivities?: boolean
   /** @deprecated Planned rows no longer render a company subtitle (#7494); the prop is ignored. Remove after one minor cycle. */
   entityCompanyName?: string | null
   addActionLabel?: string
@@ -68,6 +69,7 @@ export function ActivityLogTab({
   runGuardedMutation,
   refreshKey = 0,
   useCanonicalInteractions = false,
+  canViewLegacyActivities,
   addActionLabel,
   emptyState,
   onActionChange,
@@ -96,7 +98,7 @@ export function ActivityLogTab({
           onActivityCreated={onActivityCreated}
           runGuardedMutation={runGuardedMutation}
           onScheduleRequested={onScheduleRequested}
-          useCanonicalInteractions={useCanonicalInteractions}
+          useCanonicalInteractions={useCanonicalInteractions || canViewLegacyActivities === false}
           refreshKey={refreshKey}
         />
       ) : null}
@@ -113,6 +115,7 @@ export function ActivityLogTab({
         entityId={entityId}
         entityName={entityName}
         useCanonicalInteractions={useCanonicalInteractions}
+        canViewLegacyActivities={canViewLegacyActivities}
         runGuardedMutation={runGuardedMutation}
         onDataRefresh={onActivityCreated}
         refreshKey={refreshKey}

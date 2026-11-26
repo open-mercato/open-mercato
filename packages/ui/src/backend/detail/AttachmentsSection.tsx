@@ -12,6 +12,7 @@ import { AttachmentDeleteDialog } from './AttachmentDeleteDialog'
 import { AttachmentMetadataDialog, type AttachmentItem, type AttachmentMetadataSavePayload } from './AttachmentMetadataDialog'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
+import { buildAttachmentFileUrl } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 
 type AttachmentsResponse = {
   items?: AttachmentItem[]
@@ -33,6 +34,7 @@ type Props = {
   showHeader?: boolean
   compact?: boolean
   hideWhenUnavailable?: boolean
+  readOnly?: boolean
   onChanged?: () => void
 }
 
@@ -45,6 +47,7 @@ function AttachmentsSectionImpl({
   showHeader = true,
   compact = false,
   hideWhenUnavailable = false,
+  readOnly = false,
   onChanged,
 }: Props) {
   const t = useT()
@@ -130,7 +133,7 @@ function AttachmentsSectionImpl({
 
   const acceptFiles = React.useCallback(
     async (files: FileList | null) => {
-      if (!files || !files.length || !recordId || uploadingRef.current) return
+      if (readOnly || !files || !files.length || !recordId || uploadingRef.current) return
       uploadingRef.current = true
       setError(null)
       setIsUploading(true)
@@ -170,7 +173,7 @@ function AttachmentsSectionImpl({
         }
       }
     },
-    [entityId, load, onChanged, recordId, t],
+    [entityId, load, onChanged, readOnly, recordId, t],
   )
 
   const handleDrop = React.useCallback(
@@ -206,7 +209,7 @@ function AttachmentsSectionImpl({
   }, [])
 
   const handleDelete = React.useCallback(async () => {
-    if (!deleteTarget) return
+    if (readOnly || !deleteTarget) return
     try {
       const call = await apiCall<{ error?: string }>(
         `/api/attachments?id=${encodeURIComponent(deleteTarget.id)}`,
@@ -223,10 +226,11 @@ function AttachmentsSectionImpl({
     } catch (err: any) {
       setError(err?.message || t('attachments.library.errors.delete', 'Failed to delete attachment.'))
     }
-  }, [deleteTarget, load, onChanged, t])
+  }, [deleteTarget, load, onChanged, readOnly, t])
 
   const handleMetadataSave = React.useCallback(
     async (id: string, payload: AttachmentMetadataSavePayload) => {
+      if (readOnly) return
       const body: Record<string, unknown> = {
         tags: payload.tags,
         assignments: payload.assignments,
@@ -247,7 +251,7 @@ function AttachmentsSectionImpl({
       await load(1, true)
       onChanged?.()
     },
-    [load, onChanged, t],
+    [load, onChanged, readOnly, t],
   )
 
   const sectionTitle = title ?? t('attachments.library.title', 'Attachments')
@@ -263,7 +267,7 @@ function AttachmentsSectionImpl({
         </div>
       ) : null}
 
-      {!recordId ? (
+      {readOnly ? null : !recordId ? (
         <div className="rounded-md border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">
           {t('attachments.library.upload.saveFirst', 'Save the record before uploading files.')}
         </div>
@@ -306,6 +310,24 @@ function AttachmentsSectionImpl({
           compact ? 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-5' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
         )}>
           {items.map((item) => {
+            const cardContent = (
+              <>
+                <AttachmentVisualPreview
+                  fileName={item.fileName}
+                  mimeType={item.mimeType}
+                  thumbnailUrl={item.thumbnailUrl}
+                  className={compact ? 'aspect-[2/1] w-full' : 'aspect-[4/3] w-full'}
+                />
+                <div className={cn('space-y-1 w-full', compact ? 'p-2' : 'p-3')}>
+                  <div className={cn('truncate font-medium', compact ? 'text-xs' : 'text-sm')} title={item.fileName}>
+                    {item.fileName}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatAttachmentFileSize(item.fileSize)}
+                  </div>
+                </div>
+              </>
+            )
             return (
               <div
                 key={item.id}
@@ -313,11 +335,12 @@ function AttachmentsSectionImpl({
                 className="group relative flex flex-col overflow-hidden rounded-lg border bg-card text-left transition-shadow hover:shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
               >
                 <Button
-                  type="button"
+                  asChild={readOnly}
+                  type={readOnly ? undefined : 'button'}
                   variant="ghost"
                   aria-label={item.fileName}
-                  onClick={() => openMetadataDialog(item)}
-                  onKeyDown={(event) => {
+                  onClick={readOnly ? undefined : () => openMetadataDialog(item)}
+                  onKeyDown={readOnly ? undefined : (event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
                       openMetadataDialog(item)
@@ -325,22 +348,11 @@ function AttachmentsSectionImpl({
                   }}
                   className="flex h-auto w-full flex-col items-stretch rounded-lg p-0 text-left hover:bg-transparent focus-visible:outline-none focus-visible:ring-0"
                 >
-                  <AttachmentVisualPreview
-                    fileName={item.fileName}
-                    mimeType={item.mimeType}
-                    thumbnailUrl={item.thumbnailUrl}
-                    className={compact ? 'aspect-[2/1] w-full' : 'aspect-[4/3] w-full'}
-                  />
-                  <div className={cn('space-y-1 w-full', compact ? 'p-2' : 'p-3')}>
-                    <div className={cn('truncate font-medium', compact ? 'text-xs' : 'text-sm')} title={item.fileName}>
-                      {item.fileName}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatAttachmentFileSize(item.fileSize)}
-                    </div>
-                  </div>
+                  {readOnly ? (
+                    <a href={buildAttachmentFileUrl(item.id, { download: true })} download>{cardContent}</a>
+                  ) : cardContent}
                 </Button>
-                <Button
+                {!readOnly ? <Button
                   type="button"
                   variant="ghost"
                   size="icon"
@@ -352,7 +364,7 @@ function AttachmentsSectionImpl({
                   aria-label={t('attachments.library.delete', 'Delete attachment')}
                 >
                   <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
+                </Button> : null}
               </div>
             )
           })}
@@ -378,14 +390,14 @@ function AttachmentsSectionImpl({
       ) : null}
 
       <AttachmentMetadataDialog
-        open={metadataOpen}
+        open={!readOnly && metadataOpen}
         onOpenChange={setMetadataOpen}
         item={selectedItem}
         availableTags={[]}
         onSave={handleMetadataSave}
       />
       <AttachmentDeleteDialog
-        open={deleteOpen}
+        open={!readOnly && deleteOpen}
         onOpenChange={setDeleteOpen}
         fileName={deleteTarget?.fileName}
         onConfirm={handleDelete}

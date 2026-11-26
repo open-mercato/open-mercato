@@ -97,6 +97,15 @@ export type CustomerFormFieldOptions = {
   requireTaxId?: boolean
 }
 
+type PersonFormFieldOptions = CustomerFormFieldOptions & {
+  canManageCompanies?: boolean
+  canManageDictionaries?: boolean
+}
+
+type PersonEditFieldOptions = PersonFormFieldOptions & {
+  canViewCompanies?: boolean
+}
+
 export type PersonFormValues = {
   displayName: string
   firstName: string
@@ -145,6 +154,7 @@ type DictionarySelectFieldProps = {
   showLabelInput?: boolean
   showActiveAppearance?: boolean
   organizationId?: string | null
+  disabled?: boolean
 }
 
 export { CUSTOMER_DICTIONARIES_MANAGE_HREF, getCustomerDictionaryManageHref }
@@ -185,6 +195,7 @@ export function DictionarySelectField({
   showLabelInput = true,
   showActiveAppearance = true,
   organizationId = null,
+  disabled = false,
 }: DictionarySelectFieldProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -292,6 +303,7 @@ export function DictionarySelectField({
       fetchOptions={fetchOptions}
       createOption={createOption}
       labels={labels}
+      disabled={disabled}
       manageHref={manageHref ?? getCustomerDictionaryManageHref(kind)}
       selectClassName={selectClassName}
       allowInlineCreate={allowInlineCreate}
@@ -519,6 +531,8 @@ type CompanySelectFieldProps = {
   value?: string
   onChange: (value: string | undefined) => void
   labels: CompanySelectLabels
+  canManageCompanies?: boolean
+  disabled?: boolean
 }
 
 type CompanyOption = { value: string; label: string }
@@ -544,7 +558,13 @@ function normalizeCompanyOption(raw: unknown): CompanyOption | null {
   return { value: id, label: displayName }
 }
 
-export function CompanySelectField({ value, onChange, labels }: CompanySelectFieldProps) {
+export function CompanySelectField({
+  value,
+  onChange,
+  labels,
+  canManageCompanies = true,
+  disabled = false,
+}: CompanySelectFieldProps) {
   const [options, setOptions] = React.useState<CompanyOption[]>([])
   const [loading, setLoading] = React.useState(true)
   const [dialogOpen, setDialogOpen] = React.useState(false)
@@ -619,7 +639,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
   }, [])
 
   const handleDialogSubmit = React.useCallback(async () => {
-    if (saving) return
+    if (disabled || !canManageCompanies || saving) return
     const trimmed = newCompany.trim()
     if (!trimmed) {
       setFormError(labels.emptyError)
@@ -656,7 +676,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
     } finally {
       setSaving(false)
     }
-  }, [labels.emptyError, labels.errorSave, loadOptions, newCompany, onChange, saving])
+  }, [canManageCompanies, disabled, labels.emptyError, labels.errorSave, loadOptions, newCompany, onChange, saving])
 
   const handleInputKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -668,7 +688,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
     [handleDialogSubmit]
   )
 
-  const disabled = loading || saving
+  const canCreateCompany = canManageCompanies && !disabled
   const selectedOption = value ? options.find((option) => option.value === value) : null
 
   return (
@@ -677,7 +697,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
         <Select
           value={value || undefined}
           onValueChange={(next) => onChange(next || undefined)}
-          disabled={loading}
+          disabled={disabled || loading}
         >
           <SelectTrigger>
             <SelectValue placeholder={labels.placeholder}>{selectedOption?.label}</SelectValue>
@@ -690,19 +710,21 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
             ))}
           </SelectContent>
         </Select>
-        <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
-          <DialogTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              disabled={disabled}
-              aria-label={labels.addLabel}
-              title={labels.addLabel}
-            >
-              <Plus className="h-4 w-4" aria-hidden />
-            </Button>
-          </DialogTrigger>
+        <Dialog open={canCreateCompany && dialogOpen} onOpenChange={handleDialogChange}>
+          {canCreateCompany ? (
+            <DialogTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                disabled={loading || saving}
+                aria-label={labels.addLabel}
+                title={labels.addLabel}
+              >
+                <Plus className="h-4 w-4" aria-hidden />
+              </Button>
+            </DialogTrigger>
+          ) : null}
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
               <DialogTitle>{labels.dialogTitle}</DialogTitle>
@@ -972,9 +994,10 @@ const createPersonDisplayNameField = (t: Translator): CrudField => ({
   component: (props: CrudCustomFieldRenderProps) => <PersonDisplayNameInput {...props} t={t} />,
 })
 
-export const createPersonFormFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
+export const createPersonFormFields = (t: Translator, options?: PersonFormFieldOptions): CrudField[] => {
   const defaultCountryIso2 = options?.defaultCountryIso2
   const phoneCountries = options?.phoneCountries
+  const canManageDictionaries = options?.canManageDictionaries !== false
   const contactSection = createSectionHeadingField('__contactInformationSection', t('customers.people.form.sections.contactInformation'))
   const companySection = createSectionHeadingField('__companyInformationSection', t('customers.people.form.sections.companyInformation'))
   const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
@@ -982,15 +1005,16 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
     label: t(definition.labelKey),
     type: 'custom',
     layout: definition.layout ?? 'third',
-    component: ({ value, setValue, values }: CrudCustomFieldRenderProps) => (
+    component: ({ value, setValue, values, disabled }: CrudCustomFieldRenderProps) => (
       <DictionarySelectField
         organizationId={readRecordOrganizationId(values)}
         kind={definition.kind}
         value={typeof value === 'string' ? value : undefined}
         onChange={(next) => setValue(next)}
         labels={buildDictionaryLabels(t, definition)}
-        allowInlineCreate
-        showManage
+        disabled={disabled}
+        allowInlineCreate={canManageDictionaries && !disabled}
+        showManage={canManageDictionaries && !disabled}
       />
     ),
   }))
@@ -1004,7 +1028,7 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
       label: t('customers.people.form.jobTitle', 'Job title'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue, values }: CrudCustomFieldRenderProps) => (
+      component: ({ value, setValue, values, disabled }: CrudCustomFieldRenderProps) => (
         <DictionarySelectField
           organizationId={readRecordOrganizationId(values)}
           kind="job-titles"
@@ -1028,8 +1052,9 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
             loadingLabel: t('customers.people.form.dictionary.loading'),
             manageTitle: t('customers.people.form.dictionary.manage'),
           }}
-          allowInlineCreate
-          showManage
+          disabled={disabled}
+          allowInlineCreate={canManageDictionaries && !disabled}
+          showManage={canManageDictionaries && !disabled}
         />
       ),
     },
@@ -1042,10 +1067,12 @@ export const createPersonFormFields = (t: Translator, options?: CustomerFormFiel
       label: t('customers.people.form.company'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue }) => (
+      component: ({ value, setValue, disabled }) => (
         <CompanySelectField
           value={typeof value === 'string' ? value : undefined}
           onChange={(next) => setValue(next)}
+          canManageCompanies={options?.canManageCompanies}
+          disabled={disabled}
           labels={{
             placeholder: t('customers.people.form.company.placeholder'),
             addLabel: t('customers.people.form.company.add'),
@@ -1809,10 +1836,10 @@ export const createCompanyEditFields = (t: Translator, options?: CustomerFormFie
   })
 }
 
-export const createPersonEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
-  const baseFields = createPersonFormFields(t, options).map((field) =>
-    field.id === 'displayName' ? createPersonDisplayNameField(t) : field,
-  )
+export const createPersonEditFields = (t: Translator, options?: PersonEditFieldOptions): CrudField[] => {
+  const baseFields = createPersonFormFields(t, options)
+    .filter((field) => options?.canViewCompanies !== false || field.id !== 'companyEntityId')
+    .map((field) => field.id === 'displayName' ? createPersonDisplayNameField(t) : field)
   return [
     ...baseFields,
     {
@@ -1987,7 +2014,7 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
  */
 export const createPersonPersonalDataGroups = (
   t: Translator,
-  options?: { entityName?: string | null },
+  options?: { entityName?: string | null; canViewCompanies?: boolean },
 ): CrudFormGroup[] => {
   const entityName = options?.entityName?.trim() || null
   const rolesTitle = entityName
@@ -2011,7 +2038,12 @@ export const createPersonPersonalDataGroups = (
       id: 'companyRole',
       title: t('customers.people.form.groups.companyRole', 'Company & role'),
       column: 1,
-      fields: ['companyEntityId', 'status', 'lifecycleStage', 'source'],
+      fields: [
+        ...(options?.canViewCompanies !== false ? ['companyEntityId'] : []),
+        'status',
+        'lifecycleStage',
+        'source',
+      ],
     },
     {
       id: 'customFields',

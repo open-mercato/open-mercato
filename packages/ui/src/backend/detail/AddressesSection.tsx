@@ -61,6 +61,7 @@ export type AddressesSectionProps<C = unknown> = {
   onActionChange?: (action: SectionAction | null) => void
   translator?: Translator
   onLoadingChange?: (isLoading: boolean) => void
+  readOnly?: boolean
   dataAdapter: AddressDataAdapter<C>
   dataContext?: C
   addressTypesAdapter?: AddressTypesAdapter<C>
@@ -84,6 +85,7 @@ function AddressesSectionImpl<C = unknown>({
   onActionChange,
   translator,
   onLoadingChange,
+  readOnly = false,
   dataAdapter,
   dataContext,
   addressTypesAdapter,
@@ -322,7 +324,7 @@ function AddressesSectionImpl<C = unknown>({
 
   React.useEffect(() => {
     if (!onActionChange) return
-    if (!addAction || addresses.length === 0) {
+    if (readOnly || !addAction || addresses.length === 0) {
       onActionChange(null)
       return
     }
@@ -331,7 +333,7 @@ function AddressesSectionImpl<C = unknown>({
       onClick: addAction.openCreateForm,
       disabled: addAction.addDisabled,
     })
-  }, [addAction, addActionLabel, addresses.length, onActionChange])
+  }, [addAction, addActionLabel, addresses.length, onActionChange, readOnly])
 
   return (
     <div className="mt-4">
@@ -349,6 +351,7 @@ function AddressesSectionImpl<C = unknown>({
           onUpdate={handleUpdate}
           onDelete={handleDelete}
           isSubmitting={isSubmitting}
+          readOnly={readOnly}
           emptyLabel={emptyLabel}
           t={t}
           hideAddButton

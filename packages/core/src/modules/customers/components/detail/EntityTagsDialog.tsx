@@ -86,6 +86,7 @@ export type EntityTagsDialogProps = {
   entityType: 'person' | 'company'
   entityOrganizationId: string | null
   entityData: EntityTagData
+  canManageSettings?: boolean
   onSaved?: () => void
 }
 
@@ -374,6 +375,7 @@ export function EntityTagsDialog({
   entityType,
   entityOrganizationId,
   entityData,
+  canManageSettings = true,
   onSaved,
 }: EntityTagsDialogProps) {
   const t = useT()
@@ -1170,16 +1172,18 @@ export function EntityTagsDialog({
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-auto gap-2 rounded-lg px-3.5 py-2 text-sm font-medium"
-              onClick={() => setManageTagsOpen(true)}
-            >
-              <SlidersHorizontal className="size-3.5" />
-              {t('customers.personTags.settingsButton', 'Tag settings')}
-            </Button>
+            {canManageSettings ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-auto gap-2 rounded-lg px-3.5 py-2 text-sm font-medium"
+                onClick={() => setManageTagsOpen(true)}
+              >
+                <SlidersHorizontal className="size-3.5" />
+                {t('customers.personTags.settingsButton', 'Tag settings')}
+              </Button>
+            ) : null}
             <IconButton
               type="button"
               variant="outline"
@@ -1439,13 +1443,15 @@ export function EntityTagsDialog({
         </div>
       </DialogContent>
 
-      <ManageTagsDialog
-        open={manageTagsOpen}
-        onClose={() => {
-          setManageTagsOpen(false)
-          void loadData()
-        }}
-      />
+      {canManageSettings ? (
+        <ManageTagsDialog
+          open={manageTagsOpen}
+          onClose={() => {
+            setManageTagsOpen(false)
+            void loadData()
+          }}
+        />
+      ) : null}
     </Dialog>
   )
 }

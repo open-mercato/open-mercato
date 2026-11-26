@@ -567,7 +567,7 @@ describe('CrudForm custom field loading', () => {
     expect(handleSubmit).toHaveBeenCalledWith({ regions: ['north', 'south'] }, expect.any(Object))
   })
 
-  it('opens the field manager without submitting the parent form', async () => {
+  it.each(['inline', 'hidden'] as const)('handles %s field management without submitting the parent form', async (mode) => {
     const handleSubmit = jest.fn().mockResolvedValue(undefined)
 
     buildFormFieldFromCustomFieldDefMock.mockReturnValue({
@@ -600,6 +600,7 @@ describe('CrudForm custom field loading', () => {
         fields={fields}
         groups={groups}
         initialValues={{ name: 'Acme' }}
+        customFieldsManageMode={mode}
         onSubmit={handleSubmit}
       />,
       {
@@ -614,7 +615,13 @@ describe('CrudForm custom field loading', () => {
     await waitFor(() => {
       expect(fetchCustomFieldFormStructureMock).toHaveBeenCalledTimes(1)
     })
-    const manageButton = await screen.findByRole('button', { name: 'Manage fields' }, { timeout: 3000 })
+    expect(await screen.findByRole('textbox', { name: 'Custom note' })).toBeVisible()
+    const manageButton = screen.queryByRole('button', { name: 'Manage fields' })
+    if (mode === 'hidden') {
+      expect(manageButton).not.toBeInTheDocument()
+      return
+    }
+    if (!manageButton) throw new Error('[internal] expected field management button')
 
     await act(async () => {
       fireEvent.click(manageButton)

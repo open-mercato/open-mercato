@@ -8,6 +8,7 @@ import {
   DictionarySelectField,
   createCompanyEditFields,
   createPersonEditFields,
+  createPersonPersonalDataGroups,
   getCustomerDictionaryManageHref,
   mapCompanyOverviewToFormValues,
   mapPersonOverviewToFormValues,
@@ -36,18 +37,21 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryEntrySel
     id,
     manageHref,
     fetchOptions,
+    allowInlineCreate,
+    showManage,
   }: {
     id?: string
     manageHref?: string
     fetchOptions: () => Promise<unknown>
+    allowInlineCreate?: boolean
+    showManage?: boolean
   }) => {
     capturedFetchOptions = fetchOptions
     return (
       <>
         <button type="button" role="combobox" aria-expanded={false} id={id} />
-        <a data-testid="manage-link" href={manageHref}>
-          Manage
-        </a>
+        {allowInlineCreate ? <button type="button">Add value</button> : null}
+        {showManage ? <a data-testid="manage-link" href={manageHref}>Manage</a> : null}
       </>
     )
   },
@@ -276,6 +280,25 @@ describe('edit forms pass the record organization to dictionary selects (issue #
     } as never)
     expect(company.organizationId).toBe('org-of-record')
     expect(person.organizationId).toBe('org-of-record')
+  })
+
+  it('keeps dictionary selection available without showing dictionary management actions', () => {
+    const jobTitleField = createPersonEditFields(t, { canManageDictionaries: false })
+      .find((field) => field.id === 'jobTitle')
+    if (jobTitleField?.type !== 'custom') throw new Error('[internal] Expected the job title field')
+
+    render(<>{jobTitleField.component({ id: jobTitleField.id, value: '', setValue: jest.fn() })}</>)
+
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add value' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Manage' })).not.toBeInTheDocument()
+  })
+
+  it('omits the company picker when the editor cannot view companies', () => {
+    expect(createPersonEditFields(t, { canViewCompanies: false }).map((field) => field.id))
+      .not.toContain('companyEntityId')
+    expect(createPersonPersonalDataGroups(t, { canViewCompanies: false })
+      .find((group) => group.id === 'companyRole')?.fields).toEqual(['status', 'lifecycleStage', 'source'])
   })
 })
 

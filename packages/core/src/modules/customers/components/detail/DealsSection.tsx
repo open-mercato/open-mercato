@@ -298,6 +298,7 @@ function formatValueLabel(
 
 export type DealsSectionProps = {
   scope: DealsScope | null
+  canManage?: boolean
   addActionLabel: string
   emptyLabel: string
   emptyState: TabEmptyStateConfig
@@ -311,6 +312,7 @@ export type DealsSectionProps = {
 
 export function DealsSection({
   scope,
+  canManage = true,
   addActionLabel,
   emptyLabel,
   emptyState,
@@ -628,7 +630,7 @@ export function DealsSection({
       addedIds: string[]
       removedIds: string[]
     }) => {
-      if (!scope) return
+      if (!canManage || !scope) return
       if (!addedIds.length && !removedIds.length) return
       pushLoading()
       try {
@@ -721,7 +723,7 @@ export function DealsSection({
         popLoading()
       }
     },
-    [loadDeals, onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, t],
+    [canManage, loadDeals, onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, t],
   )
 
   const closeDialog = React.useCallback(() => {
@@ -823,7 +825,7 @@ export function DealsSection({
 
   const handleUnlink = React.useCallback(
     async (deal: NormalizedDeal) => {
-      if (!scope) return
+      if (!canManage || !scope) return
 
       const nextPersonIds =
         scope.kind === 'person'
@@ -882,11 +884,12 @@ export function DealsSection({
         popLoading()
       }
     },
-    [confirm, onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
+    [canManage, confirm, onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
   )
 
   const handleDialogSubmit = React.useCallback(
     async (payload: DealFormSubmitPayload) => {
+      if (!canManage) return
       try {
         await handleCreate(payload)
         closeDialog()
@@ -898,7 +901,7 @@ export function DealsSection({
         flash(message, 'error')
       }
     },
-    [closeDialog, handleCreate, translate],
+    [canManage, closeDialog, handleCreate, translate],
   )
 
   React.useEffect(() => {
@@ -923,28 +926,30 @@ export function DealsSection({
           {loadError}
         </div>
       ) : null}
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={openLinkDialog}
-          disabled={!scope || pendingAction !== null}
-        >
-          <Link2 className="mr-1.5 size-3.5" />
-          {t('customers.people.detail.deals.linkExisting', 'Link existing deal')}
-        </Button>
-        <Button
-          type="button"
-          variant="default"
-          size="sm"
-          onClick={openCreateDialog}
-          disabled={!scope || pendingAction !== null}
-        >
-          <Plus className="mr-1.5 size-3.5" />
-          {addActionLabel}
-        </Button>
-      </div>
+      {canManage ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={openLinkDialog}
+            disabled={!scope || pendingAction !== null}
+          >
+            <Link2 className="mr-1.5 size-3.5" />
+            {t('customers.people.detail.deals.linkExisting', 'Link existing deal')}
+          </Button>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            onClick={openCreateDialog}
+            disabled={!scope || pendingAction !== null}
+          >
+            <Plus className="mr-1.5 size-3.5" />
+            {addActionLabel}
+          </Button>
+        </div>
+      ) : null}
       {isLoading && sortedDeals.length === 0 ? (
         <LoadingMessage
           label={t('customers.people.detail.deals.loading', 'Loading deals…')}
@@ -955,11 +960,11 @@ export function DealsSection({
           {!isLoading && sortedDeals.length === 0 ? (
             <TabEmptyState
               title={emptyState.title}
-              action={{
+              action={canManage ? {
                 label: emptyState.actionLabel,
                 onClick: openCreateDialog,
                 disabled: !scope || pendingAction !== null,
-              }}
+              } : undefined}
             />
           ) : null}
           <div className="space-y-4">
@@ -1000,21 +1005,23 @@ export function DealsSection({
                         <Pencil className="size-4" />
                       </Link>
                     </IconButton>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 rounded-lg px-3 text-xs"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        void handleUnlink(deal)
-                      }}
-                      disabled={pendingAction !== null}
-                    >
-                      {isUnlinkPending
-                        ? t('customers.people.detail.deals.unlinking', 'Unlinking…')
-                        : t('customers.people.card.unlink', 'Unlink')}
-                    </Button>
+                    {canManage ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 rounded-lg px-3 text-xs"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          void handleUnlink(deal)
+                        }}
+                        disabled={pendingAction !== null}
+                      >
+                        {isUnlinkPending
+                          ? t('customers.people.detail.deals.unlinking', 'Unlinking…')
+                          : t('customers.people.card.unlink', 'Unlink')}
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
               </header>
@@ -1085,24 +1092,28 @@ export function DealsSection({
         </>
       )}
 
-      <DealDialog
-        open={dialogOpen}
-        mode="create"
-        onOpenChange={handleDialogOpenChange}
-        initialValues={initialValues}
-        onSubmit={async (payload) => {
-          await handleDialogSubmit(payload)
-        }}
-        isSubmitting={Boolean(isFormPending)}
-      />
-      <LinkEntityDialog
-        open={linkDialogOpen}
-        onOpenChange={setLinkDialogOpen}
-        adapter={dealLinkAdapter}
-        initialSelectedIds={existingDealIds}
-        onConfirm={handleLinkConfirm}
-      />
-      {ConfirmDialogElement}
+      {canManage ? (
+        <>
+          <DealDialog
+            open={dialogOpen}
+            mode="create"
+            onOpenChange={handleDialogOpenChange}
+            initialValues={initialValues}
+            onSubmit={async (payload) => {
+              await handleDialogSubmit(payload)
+            }}
+            isSubmitting={Boolean(isFormPending)}
+          />
+          <LinkEntityDialog
+            open={linkDialogOpen}
+            onOpenChange={setLinkDialogOpen}
+            adapter={dealLinkAdapter}
+            initialSelectedIds={existingDealIds}
+            onConfirm={handleLinkConfirm}
+          />
+          {ConfirmDialogElement}
+        </>
+      ) : null}
     </div>
   )
 }

@@ -26,6 +26,8 @@ import { PersonEmailShareControl } from './PersonEmailShareControl'
 type PersonEmailThreadsTabProps = {
   personId: string
   defaultRecipient?: string | null
+  canCompose?: boolean
+  canConnectMailbox?: boolean
 }
 
 const CONTEXT_ID = 'customers-person-email-threads'
@@ -91,7 +93,12 @@ function readEventMessageId(event: unknown): string | null {
   return typeof messageId === 'string' ? messageId : null
 }
 
-export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmailThreadsTabProps) {
+export function PersonEmailThreadsTab({
+  personId,
+  defaultRecipient,
+  canCompose = true,
+  canConnectMailbox = true,
+}: PersonEmailThreadsTabProps) {
   const t = useT()
   const [threads, setThreads] = React.useState<EmailThread[]>([])
   // Incremented after every thread fetch. The share control's visibility depends
@@ -174,6 +181,7 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
   // Poll every connected mailbox now (fetches new mail server-side). Inbound
   // ingest + CRM linking happen on workers, so callers should burst-poll after.
   const triggerSync = React.useCallback(async () => {
+    if (!canConnectMailbox) return
     await Promise.allSettled(
       channelsRef.current.map((channel) => {
         const channelId = (channel as { id?: string }).id
@@ -184,7 +192,7 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
         )
       }),
     )
-  }, [])
+  }, [canConnectMailbox])
 
   const startBurst = React.useCallback(() => {
     if (burstTimer.current) clearInterval(burstTimer.current)
@@ -288,8 +296,11 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
   // Initial load.
   React.useEffect(() => {
     void loadThreads({ showLoading: true })
-    void loadChannels()
-  }, [loadThreads, loadChannels])
+  }, [loadThreads])
+
+  React.useEffect(() => {
+    if (canConnectMailbox) void loadChannels()
+  }, [canConnectMailbox, loadChannels])
 
   // Background heartbeat — surfaces inbound replies without a page reload.
   React.useEffect(() => {
@@ -423,16 +434,15 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
     [threads, optimistic],
   )
 
-  const canCompose = channels.length > 0
-
-  const composeDisabledHint = (
+  const canUseComposer = canCompose && canConnectMailbox
+  const composeDisabledHint = canUseComposer ? (
     <Button asChild variant="outline" size="sm" className="gap-2">
       <Link href="/backend/profile/communication-channels">
         <Mail className="h-4 w-4" />
         {t('customers.email.compose.noChannel.cta', 'Connect your mailbox')}
       </Link>
     </Button>
-  )
+  ) : undefined
 
   return (
     <>
@@ -452,21 +462,23 @@ export function PersonEmailThreadsTab({ personId, defaultRecipient }: PersonEmai
         threads={mergedThreads}
         loading={loading}
         error={error}
-        canCompose={canCompose}
+        canCompose={canUseComposer && channels.length > 0}
         composeDisabledHint={composeDisabledHint}
         onComposeNew={onComposeNew}
         onReply={onReply}
         onRefresh={() => { void onRefresh() }}
-        onRetry={(message) => { void onRetry(message) }}
+        onRetry={canUseComposer ? (message) => { void onRetry(message) } : undefined}
       />
-      <ComposeEmailDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        defaultRecipient={defaultRecipient}
-        channels={channels}
-        replyTo={replyTo}
-        onSend={onSend}
-      />
+      {canUseComposer ? (
+        <ComposeEmailDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          defaultRecipient={defaultRecipient}
+          channels={channels}
+          replyTo={replyTo}
+          onSend={onSend}
+        />
+      ) : null}
     </>
   )
 }

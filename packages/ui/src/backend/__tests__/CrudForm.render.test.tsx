@@ -245,6 +245,31 @@ describe('CrudForm initialValues', () => {
     expect(queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
   })
 
+  it('shows disabled fields without an overlay in fields-only read-only mode', () => {
+    const onSubmit = jest.fn()
+    const { container, getByRole, queryByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        initialValues={{ name: 'Alice' }}
+        readOnly
+        readOnlyDisplay="fields"
+        readOnlyOverlay={<div>Locked overlay</div>}
+        onSubmit={onSubmit}
+      />,
+    )
+
+    const name = getByRole('textbox', { name: 'Name' })
+    expect(name).toBeVisible()
+    expect(name).toHaveValue('Alice')
+    expect(name).toBeDisabled()
+    expect(queryByText('Locked overlay')).not.toBeInTheDocument()
+    const form = container.querySelector('form')
+    if (!form) throw new Error('[internal] expected form')
+    fireEvent.submit(form)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
   it('autofocuses the first combobox without opening suggestions on mount', async () => {
     jest.useFakeTimers()
 

@@ -30,6 +30,7 @@ type LinkedCompanySummary = {
 type PersonCompaniesSectionProps = {
   personId: string
   personName: string
+  canManage?: boolean
   initialLinkedCompanies?: LinkedCompanySummary[]
   onChanged?: () => Promise<void> | void
   runGuardedMutation?: GuardedMutationRunner
@@ -87,6 +88,7 @@ function Pagination({
 export function PersonCompaniesSection({
   personId,
   personName: _personName,
+  canManage = true,
   initialLinkedCompanies = [],
   onChanged,
   runGuardedMutation,
@@ -228,6 +230,7 @@ export function PersonCompaniesSection({
       primaryId?: string | null
       optionsById: Record<string, LinkEntityOption>
     }) => {
+      if (!canManage) return
       const currentPrimaryId = linkedPrimaryId
       const nextPrimaryId = nextSelectedIds.length
         ? primaryId && nextSelectedIds.includes(primaryId)
@@ -315,12 +318,12 @@ export function PersonCompaniesSection({
         throw error
       }
     },
-    [linkedCompanies, linkedPrimaryId, loadData, onChanged, personId, runWriteMutation, t],
+    [canManage, linkedCompanies, linkedPrimaryId, loadData, onChanged, personId, runWriteMutation, t],
   )
 
   const handleUnlink = React.useCallback(
     async (companyId: string, displayName: string) => {
-      if (!companyId || unlinkingId) return
+      if (!canManage || !companyId || unlinkingId) return
       const confirmed = await confirm({
         title: t('customers.people.detail.companies.unlinkConfirmTitle', 'Unlink company'),
         description: t(
@@ -367,7 +370,7 @@ export function PersonCompaniesSection({
         setUnlinkingId(null)
       }
     },
-    [_personName, confirm, loadData, onChanged, personId, runWriteMutation, t, unlinkingId],
+    [_personName, canManage, confirm, loadData, onChanged, personId, runWriteMutation, t, unlinkingId],
   )
 
   const reloadOnPersonDetach = React.useCallback((event: AppEventPayload) => {
@@ -389,7 +392,9 @@ export function PersonCompaniesSection({
         <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
             <div className="text-sm font-semibold text-foreground">
-              {t('customers.people.detail.companies.manageTitle', 'Manage linked companies')}
+              {canManage
+                ? t('customers.people.detail.companies.manageTitle', 'Manage linked companies')
+                : t('customers.people.detail.tabs.companies', 'Companies')}
             </div>
             <div className="text-sm text-muted-foreground">
               {t('customers.people.detail.companies.summary', '{{count}} linked companies', {
@@ -407,15 +412,17 @@ export function PersonCompaniesSection({
               )}
               className="sm:w-[260px]"
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setDialogOpen(true)}
-            >
-              <Link2 className="mr-2 size-4" />
-              {t('customers.people.detail.companies.manageAction', 'Manage links')}
-            </Button>
+            {canManage ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDialogOpen(true)}
+              >
+                <Link2 className="mr-2 size-4" />
+                {t('customers.people.detail.companies.manageAction', 'Manage links')}
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -476,7 +483,7 @@ export function PersonCompaniesSection({
                   temperatureMap={temperatureDict?.map}
                   renewalQuarterMap={renewalQuarterDict?.map}
                   roleMap={roleDict?.map}
-                  onUnlink={() => handleUnlink(item.companyId, item.displayName)}
+                  onUnlink={canManage ? () => handleUnlink(item.companyId, item.displayName) : undefined}
                   unlinkLabel={t('customers.people.detail.companies.unlinkAction', 'Unlink')}
                   unlinkDisabled={unlinkingId === item.companyId}
                 />
@@ -487,17 +494,21 @@ export function PersonCompaniesSection({
         )}
       </div>
 
-      <LinkEntityDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        adapter={companyLinkAdapter}
-        initialSelectedIds={linkedIds}
-        initialPrimaryId={linkedPrimaryId}
-        primarySupported
-        onConfirm={handleLinkConfirm}
-        runGuardedMutation={runWriteMutation}
-      />
-      {ConfirmDialogElement}
+      {canManage ? (
+        <>
+          <LinkEntityDialog
+            open={dialogOpen}
+            onOpenChange={setDialogOpen}
+            adapter={companyLinkAdapter}
+            initialSelectedIds={linkedIds}
+            initialPrimaryId={linkedPrimaryId}
+            primarySupported
+            onConfirm={handleLinkConfirm}
+            runGuardedMutation={runWriteMutation}
+          />
+          {ConfirmDialogElement}
+        </>
+      ) : null}
     </>
   )
 }

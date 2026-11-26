@@ -60,6 +60,7 @@ export type UsePersonTasksOptions = {
   entityId: string | null
   initialTasks?: TodoLinkSummary[]
   pageSize?: number
+  useLegacyReadEndpoint?: boolean
 }
 
 export type UsePersonTasksResult = {
@@ -177,6 +178,7 @@ export function usePersonTasks({
   entityId,
   initialTasks = [],
   pageSize = 20,
+  useLegacyReadEndpoint = false,
 }: UsePersonTasksOptions): UsePersonTasksResult {
   const [tasks, setTasks] = React.useState<TodoLinkSummary[]>(initialTasks)
   const [pageInfo, setPageInfo] = React.useState<{ page: number; hasMore: boolean; total: number }>({
@@ -227,6 +229,7 @@ export function usePersonTasks({
         init,
         { errorMessage: 'Failed to load tasks.' },
       )
+      if (useLegacyReadEndpoint) return readPage('/api/customers/todos')
       try {
         return await readPage('/api/customers/interactions/tasks', {
           headers: { 'x-om-forbidden-redirect': '0' },
@@ -242,7 +245,7 @@ export function usePersonTasks({
         return readPage('/api/customers/todos')
       }
     },
-    [entityId, pageSize],
+    [entityId, pageSize, useLegacyReadEndpoint],
   )
 
   const refresh = React.useCallback(async () => {

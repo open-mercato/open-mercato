@@ -76,7 +76,12 @@ jest.mock('../DealDialog', () => ({
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
-  TabEmptyState: ({ title }: { title: string }) => <div>{title}</div>,
+  TabEmptyState: ({ title, action }: { title: string; action?: { label: string } }) => (
+    <div>
+      {title}
+      {action ? <button type="button">{action.label}</button> : null}
+    </div>
+  ),
 }))
 
 describe('DealsSection', () => {
@@ -153,6 +158,31 @@ describe('DealsSection', () => {
     await waitFor(() => {
       expect(screen.getByText('Test Deal')).toBeInTheDocument()
     })
+  })
+
+  it.each([true, false])('omits deal write actions for viewers when linked deals exist: %s', async (hasLinkedDeals) => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: hasLinkedDeals ? [makeDeal()] : [],
+      totalPages: 1,
+    })
+
+    renderWithProviders(
+      <DealsSection
+        scope={{ kind: 'person', entityId: 'person-1' }}
+        canManage={false}
+        addActionLabel="Add deal"
+        emptyLabel="—"
+        emptyState={{ title: 'No deals', actionLabel: 'Create deal' }}
+      />,
+    )
+
+    if (hasLinkedDeals) {
+      expect(await screen.findByRole('link', { name: 'Test Deal' })).toHaveAttribute('href', '/backend/customers/deals/deal-1')
+    } else {
+      expect(await screen.findByText('No deals')).toBeInTheDocument()
+    }
+    expect(screen.queryByRole('button', { name: /^(add deal|link existing deal|create deal|unlink)$/i })).toBeNull()
+    expect(updateCrudMock).not.toHaveBeenCalled()
   })
 
   it('formats the deal value and its expected-close date in the app locale', async () => {

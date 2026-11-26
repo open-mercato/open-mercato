@@ -8,6 +8,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { hasFeature } from '@open-mercato/shared/security/features'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
@@ -87,6 +89,9 @@ export function MessagesInboxPageClient() {
   const t = useT()
   const queryClient = useQueryClient()
   const scopeVersion = useOrganizationScopeVersion()
+  const { payload: chrome } = useBackendChrome()
+  const canCompose = hasFeature(chrome?.grantedFeatures, 'messages.compose')
+  const canListUsers = hasFeature(chrome?.grantedFeatures, 'auth.users.list')
 
   const invalidateMessageListQueries = React.useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['messages', 'list'] })
@@ -207,6 +212,7 @@ export function MessagesInboxPageClient() {
   }, [])
 
   const loadSenderOptions = React.useCallback(async (query?: string) => {
+    if (!canListUsers) return []
     const params = new URLSearchParams()
     params.set('page', '1')
     params.set('pageSize', '20')
@@ -241,7 +247,7 @@ export function MessagesInboxPageClient() {
       mergeSenderOptions(next)
     }
     return next
-  }, [mergeSenderOptions, scopeVersion])
+  }, [canListUsers, mergeSenderOptions, scopeVersion])
 
   React.useEffect(() => {
     const items = listQuery.data?.items ?? []
@@ -446,9 +452,11 @@ export function MessagesInboxPageClient() {
                 </div>
               ) : null}
             </div>
-            <Button asChild>
-              <Link href="/backend/messages/compose">{t('messages.compose', 'Compose message')}</Link>
-            </Button>
+            {canCompose ? (
+              <Button asChild>
+                <Link href="/backend/messages/compose">{t('messages.compose', 'Compose message')}</Link>
+              </Button>
+            ) : null}
           </div>
         }
         onRowClick={(row) => {
@@ -457,7 +465,7 @@ export function MessagesInboxPageClient() {
         emptyState={(
           <ListEmptyState
             entityName={t('messages.title', 'Messages')}
-            createHref="/backend/messages/compose"
+            createHref={canCompose ? '/backend/messages/compose' : undefined}
             createLabel={t('messages.compose', 'Compose message')}
           />
         )}

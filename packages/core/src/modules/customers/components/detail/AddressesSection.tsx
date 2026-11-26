@@ -17,6 +17,8 @@ export type AddressesSectionProps = {
   onActionChange?: (action: SectionAction | null) => void
   translator?: (key: string, fallback?: string, params?: Record<string, string | number>) => string
   onLoadingChange?: (isLoading: boolean) => void
+  readOnly?: boolean
+  canManageSettings?: boolean
 }
 
 type ApiAddressPayload = Record<string, unknown>
@@ -29,6 +31,8 @@ export function AddressesSection({
   onActionChange,
   translator,
   onLoadingChange,
+  readOnly = false,
+  canManageSettings = true,
 }: AddressesSectionProps) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo(() => createTranslatorWithFallback(tHook), [tHook])
@@ -193,7 +197,7 @@ export function AddressesSection({
         })
         .filter((entry): entry is { value: string; label: string } => !!entry)
     },
-    create: async (value: string) => {
+    create: canManageSettings ? async (value: string) => {
       const response = await apiCallOrThrow<Record<string, unknown>>(
         '/api/customers/dictionaries/address-types',
         {
@@ -208,9 +212,9 @@ export function AddressesSection({
       const createdValue = typeof payload.value === 'string' ? payload.value : value
       const label = typeof payload.label === 'string' && payload.label.trim().length ? payload.label : createdValue
       return { value: createdValue, label }
-    },
-    manageHref: '/backend/config/customers',
-  }), [t])
+    } : undefined,
+    manageHref: canManageSettings ? '/backend/config/customers' : undefined,
+  }), [canManageSettings, t])
 
   const loadFormat = React.useCallback(async (): Promise<AddressFormatStrategy> => {
     const call = await apiCall<{ addressFormat?: string; error?: string }>(
@@ -240,10 +244,11 @@ export function AddressesSection({
       emptyState={emptyState}
       onActionChange={onActionChange}
       onLoadingChange={onLoadingChange}
+      readOnly={readOnly}
       translator={t}
       dataAdapter={dataAdapter}
       addressTypesAdapter={addressTypesAdapter}
-      loadFormat={loadFormat}
+      loadFormat={canManageSettings ? loadFormat : undefined}
       showCoordinateFields
     />
   )
