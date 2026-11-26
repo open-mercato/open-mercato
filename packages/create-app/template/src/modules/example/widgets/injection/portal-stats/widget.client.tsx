@@ -15,9 +15,9 @@ export default function PortalStatsWidget() {
   return (
     <div className="grid grid-cols-2 gap-4">
       {STATS.map((stat) => (
-        <div key={stat.label}>
+        <div key={t(stat.label)}>
           <p className="text-overline font-semibold uppercase tracking-wider text-muted-foreground/60">
-            {stat.label}
+            {t(stat.label)}
           </p>
           <p className={`mt-0.5 text-2xl font-bold tracking-tight ${stat.color}`}>
             {stat.value}
