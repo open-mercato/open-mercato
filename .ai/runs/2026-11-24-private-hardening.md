@@ -29,6 +29,11 @@ The four independent implementation groups run in parallel and converge for veri
 - 3.1 Integrate the latest main branch and verify both sets of authorization changes.
 - 3.2 Add accessible labels, autocomplete, and password instructions to the Enterprise Security form.
 
+### Phase 4: Hosted CI follow-up
+
+- 4.1 Resolve the generator-test conflicts while retaining app and template parity.
+- 4.2 Preserve active sessions when a role edit submits an unchanged encrypted email.
+
 ## Risks
 
 Confirm normal authentication, operator setup, and storefront behavior alongside the negative cases. Changes to operator defaults and narrowly changed API behavior need migration notes.
@@ -59,3 +64,8 @@ PR: #10543
 - [x] Validation follow-up: align the empty-scope RBAC and storefront query fixtures. — e239e1f644 (254 focused tests passed.)
 
 - [x] Validation follow-up: keep the merged compatibility guidance within the existing harness context limits. All nine budget tests passed.
+
+### Phase 4: Hosted CI follow-up
+
+- [x] 4.1 Resolve the generator-test conflicts while retaining app and template parity. — 0d2ce4ed4b
+- [x] 4.2 Preserve active sessions when a role edit submits an unchanged encrypted email. — 518a321e7c (46 focused tests passed, covering unchanged and changed email.)
