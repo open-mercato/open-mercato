@@ -860,10 +860,11 @@ Other:
 - No application code, data model, API, event, ACL or DI changes. Backward-compatibility surfaces touched: CI check names and labels only; existing required check names are preserved.
 - `CODEOWNERS`-covered files (`.github/workflows/**`, `scripts/release-line.mts`, `scripts/lib/release-line.mts`) are owned by maintainers in every phase.
 - Ruleset changes (required checks, merge methods) are admin actions and listed explicitly.
-- Integration tests: not applicable to application paths. No tests exist yet for the planned CI and release changes; each phase lists the tests it must add: `merge-queue` guard tests (PR #10757, Phase 0), resolver parity and `ci-scope` aggregator tests (Phase 2), `ci-triage` decision tests (Phases 4–5), and `cut --at`, `green_tag` validation and changelog split tests (Phase 6). Exit criteria also require observed runs on real PRs.
+- Integration tests: not applicable to application paths. `scripts/__tests__/ci-stabilization-batch.test.mjs` covers the Phase 0 CI base filter and executes the merge-back runbook, including failed fetch, tag creation and tag publication. Each remaining phase lists the tests it must add: `merge-queue` guard tests (PR #10757, Phase 0), resolver parity and `ci-scope` aggregator tests (Phase 2), `ci-triage` decision tests (Phases 4–5), and `cut --at`, `green_tag` validation and changelog split tests (Phase 6). Exit criteria also require observed runs on real PRs.
 
 ## Changelog
 
+- 2026-11-26: Runbook autofix (PR #10764): chain fetch, tag creation, tag publication and merge so a failed prerequisite stops the merge; add regression tests for the stabilization CI base filter and merge-back success/failure paths.
 - 2026-11-26: Runbook review (PR #10764): `qa-blocker` issues are closed by hand after a passing retest (`Fixes #N` on the batch PR is traceability only), and the merge back is pinned to the QA-approved head with `--match-head-commit`.
 - 2026-11-26: Audit gate: a failed or cancelled `audit` makes the required `test` and `documents-multi-instance` checks fail instead of skipping (a skip reads as passing); `audit` succeeded or not needed keeps the normal path.
 - 2026-11-26: Draft PRs get no CI: `ready_for_review` trigger plus a live draft lookup in `audit-scope` (`ci.yml`) and `scope` (`mutation-tests.yml`); the required `test` check fails on drafts so no merge window opens after marking ready; enterprise guard unchanged. Documented in CONTRIBUTING.md → Stabilization CI.

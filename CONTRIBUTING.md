@@ -139,8 +139,9 @@ Once a day `main` is cut into one batch, `stabilize/main-<date>`, opened as a PR
 6. **Green tag and merge back.** When the full suite is green on the batch PR head and that head has `qa-approved`, tag it, then squash-merge the batch PR:
 
    ```bash
-   git fetch origin stabilize/main-<YYYY-MM-DD>
-   git tag green/<YYYY-MM-DD> <batch-head-sha> && git push origin green/<YYYY-MM-DD>
+   git fetch origin stabilize/main-<YYYY-MM-DD> &&
+   git tag green/<YYYY-MM-DD> <batch-head-sha> &&
+   git push origin green/<YYYY-MM-DD> &&
    gh pr merge <batch-PR> --squash --match-head-commit <batch-head-sha>
    ```
 
