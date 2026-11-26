@@ -58,7 +58,7 @@ function environmentSection(run) {
     ['Env hash', run.envHash],
     ['Notable overrides', Object.entries(run.envNotable ?? {}).map(([key, value]) => `${key}=${value}`).join(', ')],
     ['Hardware', `${run.hardwareProfile} ${Object.entries(run.hardware ?? {}).map(([key, value]) => `${key}=${value}`).join(' ')}`],
-    ['Generator', `${run.generatorLocation}, RTT p50 ${run.rtt?.p50 ?? '–'} ms / p95 ${run.rtt?.p95 ?? '–'} ms`],
+    ['Generator', `${run.generatorLocation}, RTT p50 ${run.rtt?.p50 ?? '–'} ms / p95 ${run.rtt?.p95 ?? '–'} ms before the run${run.rttAfter ? `, p50 ${run.rttAfter.p50} ms / p95 ${run.rttAfter.p95} ms after` : ''}`],
     ['k6', run.k6Version],
     ['Window', `${run.startedAt} → ${run.finishedAt ?? '–'}`],
     ['Modules', `${(run.modules ?? []).length} static (${(run.conditionalModules ?? []).length} env-gated not counted)`],
@@ -66,14 +66,42 @@ function environmentSection(run) {
   return `## 1. Environment\n\n${markdownTable(['Item', 'Value'], rows)}`
 }
 
+const REMOTE_RTT_P50_MS = 5
+const NOISY_RTT_P95_MS = 50
+
+export function networkAssessment(run) {
+  const before = run.rtt ?? null
+  const after = run.rttAfter ?? null
+  const remote = Boolean(before && before.p50 > REMOTE_RTT_P50_MS)
+  const reasons = []
+  for (const [label, sample] of [['before', before], ['after', after]]) {
+    if (sample && sample.p95 > NOISY_RTT_P95_MS) reasons.push(`RTT p95 ${sample.p95} ms ${label} the run`)
+    if (sample && sample.failures > 0) reasons.push(`${sample.failures} calibration failures ${label} the run`)
+  }
+  if (before && after && before.p95 > 0 && after.p95 > 2 * before.p95) reasons.push(`RTT p95 doubled during the run (${before.p95} → ${after.p95} ms)`)
+  return { remote, noisy: reasons.length > 0, reasons }
+}
+
+function serverSideRows(model) {
+  const metric = (model.resources?.metrics ?? []).find((entry) => entry.id === 'serverP95')
+  return (metric?.rows ?? []).filter((row) => row.samples > 0 && row.max !== null)
+}
+
 function summarySection(model) {
   const { saturation, worst, budget, comparison, run } = model
   const lines = ['## 2. Summary', '']
-  if (run.localValidation) lines.push('> **local-validation** run: script and runbook check on a laptop. These are not baseline numbers.', '')
+  if (run.localValidation) lines.push('> **local-validation** run: a check of the test harness on one laptop (k6, app and monitoring on the same machine). **This is not a performance result for this tier** and does not replace the VPS run; the latencies are distorted by the shared laptop.', '')
   if (run.k6ExitCode && run.k6ExitCode !== 0) lines.push(`> k6 exited with code ${run.k6ExitCode}${run.k6ExitCode === 99 ? ' (a threshold or safety abort fired)' : ''}.`, '')
   lines.push(`- Saturation point: ${saturation ? `step ${saturation.step} (${saturation.vus} VUs): ${saturation.reasons.join('; ')}` : 'not reached in this run'}`)
   lines.push(`- Worst endpoints by p95: ${worst.length ? worst.map((row) => `\`${row.name}\` ${formatMs(row.p95)}${row.p95 >= 10000 ? "" : " ms"}`).join(', ') : '–'}`)
   lines.push(`- Error budget: ${budget.requests} requests, ${formatPct(budget.errorRate)} errors, ${formatPct(budget.conflictRate)} optimistic-lock conflicts`)
+  const network = networkAssessment(run)
+  const serverRows = serverSideRows(model)
+  if (serverRows.length) {
+    lines.push(`- Server-side p95 at the proxy (Caddy, excludes the generator network): ${serverRows.map((row) => `${row.window} ${formatMs(row.avg * 1000)} ms avg / ${formatMs(row.max * 1000)} ms peak`).join('; ')}`)
+  }
+  if (network.remote) lines.push(`- Generator is remote (RTT p50 ${run.rtt.p50} ms): k6 latencies include the network path; compare rounds on the server-side p95 above.`)
+  if (network.noisy) lines.push(`- **Network was noisy:** ${network.reasons.join('; ')}. Treat k6 latencies of this run as unreliable; re-run if the server-side p95 does not explain the result.`)
   if (comparison) {
     const regressions = comparison.rows.filter((row) => row.deltaP95 !== null && row.deltaP95 > 0.1).length
     lines.push(`- Previous comparable run: \`${comparison.runId}\`; ${regressions} tags regressed by more than 10% at p95 (see \`perf/bin/perf compare\`)`)
@@ -133,6 +161,8 @@ function findingsSection(model) {
 function limitationsSection(model) {
   const items = [...LIMITATIONS]
   if (model.run.localValidation) items.unshift('local-validation: k6, the SUT and monitoring share one laptop; latency includes Docker Desktop virtualization and generator contention.')
+  const network = networkAssessment(model.run)
+  if (network.remote) items.push(`The generator reaches the SUT over the internet (RTT p50 ${model.run.rtt.p50} ms before the run): every k6 sample includes that path and its jitter. Runs are comparable only from the same generator location and connection.`)
   if (model.counters?.dropped) items.push(`k6 dropped ${model.counters.dropped} iterations: the generator could not keep up; affected steps are not valid.`)
   for (const flag of model.comparison?.flags ?? []) items.push(flag.message)
   return `## 8. Limitations of this run\n\n${items.map((item) => `- ${item}`).join('\n')}\n`

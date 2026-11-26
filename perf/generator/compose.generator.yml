@@ -1,5 +1,6 @@
 # k6 load generator. Driven by perf/bin/perf run|lint; see perf/docs/contracts.md (k6 section).
-# Add compose.generator.local.yml (joins the SUT network) or compose.generator.vps.yml (host network).
+# Overlay by GENERATOR_NETWORK: sut -> compose.generator.local.yml (joins the SUT network), host -> compose.generator.vps.yml
+# (host network, generator VPS or Linux laptop), laptop -> compose.generator.laptop.yml (tester laptop -> remote SUT).
 
 services:
   k6:

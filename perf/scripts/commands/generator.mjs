@@ -3,11 +3,24 @@ import { GENERATOR_PROJECT } from '../lib/paths.mjs'
 const GENERATOR_FILE = 'perf/generator/compose.generator.yml'
 export const K6_IMAGE = 'grafana/k6:1.8.2-with-browser'
 
+const GENERATOR_OVERLAYS = {
+  sut: 'perf/generator/compose.generator.local.yml',
+  host: 'perf/generator/compose.generator.vps.yml',
+  laptop: 'perf/generator/compose.generator.laptop.yml',
+}
+
+export function resolveGeneratorNetwork(target) {
+  const mode = String(target.GENERATOR_NETWORK ?? '').trim()
+  if (mode) {
+    if (!GENERATOR_OVERLAYS[mode]) throw new Error(`[perf] GENERATOR_NETWORK must be one of ${Object.keys(GENERATOR_OVERLAYS).join(', ')}`)
+    return mode
+  }
+  return target.K6_NETWORK ? 'sut' : 'host'
+}
+
 export function generatorCompose(target, { offline = false } = {}, args = []) {
   const files = ['-f', GENERATOR_FILE]
-  if (!offline) {
-    files.push('-f', target.K6_NETWORK ? 'perf/generator/compose.generator.local.yml' : 'perf/generator/compose.generator.vps.yml')
-  }
+  if (!offline) files.push('-f', GENERATOR_OVERLAYS[resolveGeneratorNetwork(target)])
   return ['compose', '-p', GENERATOR_PROJECT, ...files, ...args]
 }
 

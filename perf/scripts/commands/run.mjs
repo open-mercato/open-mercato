@@ -126,6 +126,7 @@ export async function run(positional, flags) {
   const exitCode = await runK6(target, { scenario, profile, runId, tier, rawDir, flags })
   metadata.finishedAt = new Date().toISOString()
   metadata.k6ExitCode = exitCode
+  metadata.rttAfter = await calibrate(target.CALIBRATE_URL, { samples: 30 })
   writeJsonFile(join(dir, 'run.json'), metadata)
   log(`k6 exited with ${exitCode}; capturing the database snapshot and logs`)
   const requestCount = readRequestCount(rawDir)

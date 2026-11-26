@@ -20,7 +20,7 @@
 
 ## 2. Summary
 
-> **local-validation** run: script and runbook check on a laptop. These are not baseline numbers.
+> **local-validation** run: a check of the test harness on one laptop (k6, app and monitoring on the same machine). **This is not a performance result for this tier** and does not replace the VPS run; the latencies are distorted by the shared laptop.
 
 > k6 exited with code 99 (a threshold or safety abort fired).
 

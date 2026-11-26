@@ -3,7 +3,7 @@
 Extends: `.ai/specs/2026-06-03-enterprise-performance-stability-hardening.md` (its open items, chiefly the 2026-08 benchmark findings, are re-measured here on a reproducible harness)
 Related: `.ai/specs/2026-05-24-crud-api-performance-quick-wins.md`; open PR #10145 (`.ai/specs/2026-11-08-backend-request-cost-benchmark.md` on that branch, not on `main`)
 
-**Status:** draft — plan agreed, tooling not yet built
+**Status:** tooling built and validated locally (Phase 2, laptop only, 2026-11-26). **No VPS phase has run yet; no tier has been measured on the target hardware.**
 **Owner:** core / customers
 **Date:** 2026-11-26
 
@@ -105,7 +105,7 @@ The customer 360 card has **no order-history tab**. `sales` is reached only thro
 | Decision | Rationale |
 |---|---|
 | **k6** for protocol load, **k6 browser** (`k6/browser`) for page-level Web Vitals | One tool, one Docker image (`grafana/k6:<pinned>-with-browser`), one metrics pipeline. The browser API mirrors Playwright (`page.goto`, `page.locator`), so the team's Playwright knowledge carries over. Playwright itself cannot generate realistic concurrent load. |
-| **Generator on a dedicated VPS in the same datacenter/region** as the system under test. The laptop only drives it over SSH. | Removes home-network RTT and jitter from every sample, and keeps runs from different testers comparable. Every run still records generator RTT, measured as calibration requests to `/api/healthz`. |
+| **Generator on the tester's laptop**, reaching the SUT over the internet (decided 2026-11-26: there is no second VPS). The original choice was a generator VPS in the same datacenter. | No extra machine. The cost is network RTT and jitter in every k6 sample. Mitigations: RTT is calibrated before and after every run, and the report shows the **server-side p95 at the Caddy proxy** (measured on the SUT, excluding the network) next to the k6 numbers. The report flags noisy-network runs, and `GENERATOR_LOCATION` (same laptop, place and connection) is a comparability key. |
 | **Hybrid seeding** through a new additive CLI command, `mercato customers seed-perf` | Ships in the production image and has the full DI container. It encrypts each row with `TenantDataEncryptionService.encryptEntityPayload` (`packages/shared/src/lib/encryption/tenantDataEncryptionService.ts:613`) before Kysely bulk inserts, then builds indexes through the existing `query_index reindex` and `search reindex` commands. It takes minutes to hours where the API path takes days, and it follows the `seed-stresstest` precedent. |
 | **Dataset tiers S / M / L** (50k / 100k / 1M customer entities; M reduced from 250k on 2026-11-26 to fit the 80 GB SUT disk) | S runs locally for validation. S and M run on the VPS, so the report shows how latency scales with volume. **L cannot run on the `vps-6c16g` SUT** (it needs ~540 GB of disk); it stays defined for a larger SUT. The 2026-08 run suggested the knee does not depend on volume, and this re-tests that claim. |
 | **Snapshot via a Postgres template database**, restored before every load phase | Test writes mutate data, so every run must start from an identical state. `CREATE DATABASE … TEMPLATE … STRATEGY FILE_COPY` is much faster than `pg_restore` at the L tier. The default strategy on PG15+ is `WAL_LOG`, so `FILE_COPY` must be named explicitly. The Meilisearch data volume is copied alongside while Meilisearch is stopped, and Redis is flushed. See [Snapshot and restore](#snapshot-and-restore). |
@@ -125,7 +125,7 @@ The customer 360 card has **no order-history tab**. `sales` is reached only thro
 | Seeding only through the HTTP API | Most faithful write path, but 6–14 h per 1M entities. API writes are still measured: the write journeys keep creating real history during every run. |
 | Plain SQL seeding with encryption off | Fastest, but it measures a configuration no default install uses. |
 | A seeder script in `perf/` with a derived image | Keeps product code untouched, but bootstrapping the app's generated registries and DI outside the CLI is fragile. A module CLI command is the established pattern. |
-| A reverse proxy for server-side timing | Unnecessary once the generator sits in the same datacenter (sub-millisecond RTT). The app does not emit `Server-Timing`. Caddy is present only for TLS. |
+| A separate timing proxy or `Server-Timing` headers | The Caddy TLS proxy already exports server-side request durations (`caddy_http_request_duration_seconds`). That is the comparison metric now that the generator is remote. The app does not emit `Server-Timing`. |
 | `xk6-sse` for SSE connections in protocol VUs | Needs a custom k6 build. The plan keeps the stock pinned image, and browser VUs hold real SSE connections instead. |
 | Extending `seed-stresstest` in place | Its users and its plaintext/legacy semantics would change. A new command is additive and leaves `seed-stresstest` alone. |
 
@@ -133,14 +133,12 @@ The customer 360 card has **no order-history tab**. `sales` is reached only thro
 
 ```mermaid
 flowchart LR
-  subgraph Laptop["Operator laptop (existing)"]
+  subgraph Laptop["Tester laptop (existing) = generator"]
     OP[agent / tester<br/>SSH + tunnels]
-  end
-  subgraph GEN["Generator VPS (new)"]
     K6[k6 + k6 browser<br/>Docker]
     CTL[perf/bin/perf]
   end
-  subgraph SUT["SUT VPS (new)"]
+  subgraph SUT["SUT VPS vps-6c16g"]
     TR[Caddy TLS proxy<br/>perf overlay]
     APP[app: mercato server start<br/>next start, 1 replica]
     WRK[worker: queue worker --all]
@@ -156,10 +154,11 @@ flowchart LR
       OTEL[otel-collector to Prometheus]
     end
   end
-  OP -- ssh --> CTL
+  OP --> CTL
+  CTL -- ssh: up, seed, snapshot, restore --> SUT
   OP -. ssh -L Grafana .-> GRAF
   CTL --> K6
-  K6 -- HTTPS --> TR --> APP
+  K6 -- HTTPS over the internet --> TR --> APP
   K6 -- remote write via SSH tunnel --> PROM
   APP --> PG & RD & MS
   WRK --> PG & RD & MS & MP
@@ -167,7 +166,7 @@ flowchart LR
   EXP --> PROM --> GRAF
 ```
 
-Takeaway: the system under test is the stock `docker-compose.fullapp.yml` stack plus two new overlays (`perf/sut` with the Caddy TLS proxy, worker, scheduler and Mailpit; `perf/monitoring`). All load comes from a separate machine. `perf/bin/perf` runs on the generator and drives SUT-side actions (up, seed, snapshot, restore, metrics) over SSH, using `SUT_SSH` from `target.local.env`. Prometheus is the single sink for k6, host, container, Postgres, Redis and app runtime metrics, and the report generator reads from it.
+Takeaway: the system under test is the stock `docker-compose.fullapp.yml` stack plus two new overlays (`perf/sut` with the Caddy TLS proxy, worker, scheduler and Mailpit; `perf/monitoring`). All load comes from the tester's laptop, over the internet. `perf/bin/perf` runs on the laptop and drives SUT-side actions (up, seed, snapshot, restore, metrics) over SSH, using `SUT_SSH` from `target.local.env`. Prometheus is the single sink for k6, host, container, Postgres, Redis and app runtime metrics, and the report generator reads from it.
 
 ### `perf/` layout
 
@@ -231,10 +230,10 @@ Overrides on top of `docker-compose.fullapp.yml`. Each one is documented in `sut
 | Postgres flags | `shared_preload_libraries=pg_stat_statements,auto_explain`, `track_io_timing=on`, `log_min_duration_statement=500`, `auto_explain.log_min_duration=1000`, `auto_explain.log_analyze=on`, `log_lock_waits=on` | Slow-statement evidence and plans. |
 | Everything else | compose defaults, including `CACHE_STRATEGY=redis` and `ENABLE_CRUD_API_CACHE=true` | Measure what ships, and record the effective env hash per run. |
 
-**Network exposure.** Published Docker ports bypass host firewalls such as `ufw`, because Docker writes its own iptables rules. So the access rules are enforced in one of three ways: the provider's cloud firewall (preferred), `DOCKER-USER` iptables rules, or binding the published ports to the private network IP shared with the generator. Only the HTTPS port is reachable, and only from the generator.
+**Network exposure.** Published Docker ports bypass host firewalls such as `ufw`, because Docker writes its own iptables rules. So the access rules are enforced in one of three ways: the provider's cloud firewall (preferred), `DOCKER-USER` iptables rules, or binding the published ports to a specific address. Only the HTTPS port is reachable, and only from the tester laptop's public IP (allow-listed in the cloud firewall).
 - Grafana and Prometheus bind to `127.0.0.1`.
 - The operator reaches Grafana through `ssh -L`.
-- k6 remote write goes through an SSH tunnel from the generator, because the Prometheus remote-write receiver has no authentication.
+- k6 remote write goes through an SSH tunnel from the tester laptop, because the Prometheus remote-write receiver has no authentication.
 
 Phase 3 exit criterion: a port probe from a third host reaches nothing.
 
@@ -441,11 +440,9 @@ Phase 2 uses `step --profile mini`.
 
 ### Phase 0 — Prerequisites and hardware confirmation (gate)
 
-The VPS hardware is **not yet decided**. The developer who starts the plan confirms it before Phase 3.
+The SUT was decided on 2026-11-26: **`vps-6c16g` (6 vCPU / 16 GB / 80 GB fixed disk)**, with **no generator VPS**. The load comes from the tester's laptop. The original recommendation (an 8 dedicated vCPU / 32 GB SUT plus a 4 vCPU generator in the same region) stays in `hardware.md` for reference.
 
-1. Choose the machines. Recommended profile, to be confirmed or replaced:
-   - **SUT:** 8 dedicated vCPU, 32 GB RAM, NVMe, Ubuntu 24.04 LTS, Docker Engine + compose plugin.
-   - **Generator:** 4 vCPU, 8 GB RAM, same provider and region.
+1. Confirm the remaining facts about the SUT: whether the vCPUs are dedicated, the disk type and the OS. Fix the tester laptop and location for the round (`GENERATOR_LOCATION`).
 
    Shared-vCPU plans are discouraged because steal time adds run-to-run noise. If one is used, the report records `steal` from node_exporter.
 2. Fill in the hardware profile in `perf/config/hardware.md`, and derive the settings from it:
@@ -457,7 +454,7 @@ The VPS hardware is **not yet decided**. The developer who starts the plan confi
    - Redis `maxmemory`.
 
    The derivation table is part of `hardware.md`, so the same profile always yields the same settings.
-3. Confirm network access: the SUT accepts the app port and Prometheus remote write only from the generator, and both machines are reachable over SSH from the operator.
+3. Confirm network access. The SUT accepts the HTTPS port only from the tester laptop's public IP, and SSH from the tester. Prometheus is reached only through the SSH tunnel.
 
 ### Phase 1 — Build the tooling
 
@@ -551,7 +548,7 @@ The plan authors run this phase together before any VPS work. There is no separa
 2. `perf/bin/perf up`. The measured tenant and org come from `mercato auth setup` followed by `mercato seed:defaults`. Background tenants are created by `perf/bin/perf seed --background`.
 3. Run `users`, then `seed --tier S`, then `snapshot --tier S`. After the S phases, switch to M (only one tier fits on the 80 GB disk): `perf/bin/perf down --volumes --purge-secrets`, `docker volume rm meili_s_template`, then `up`, `tenant`, `users`, `seed --background --tier M`, `seed --tier M`, `snapshot --tier M`. Record the seeding duration and dataset size in the report. L is not run on `vps-6c16g`.
 4. Verify that a snapshot restore round trip leaves row counts and the catalog unchanged. Record the restore durations in `hardware.md`.
-5. Run the network exposure check: from a third host (or the operator laptop), a port scan of the SUT reaches nothing. From the generator, only HTTPS is reachable. Grafana and Prometheus are reachable only through SSH tunnels.
+5. Run the network exposure check: from a third host, a port scan of the SUT reaches nothing but SSH. From the tester laptop, only HTTPS and SSH are reachable. Grafana and Prometheus are reachable only through SSH tunnels.
 
 ### Phases 4–9 — Measurement runs
 
@@ -637,7 +634,8 @@ Each experiment is a single-variable change against the round-1 snapshot, report
 | The seeded dataset diverges from what the write path produces (encryption rules, index docs, tokens) | High | Encryption goes through the same service and rules. Indexes are built by the product's own reindex commands. Verification decrypts samples and checks coverage. A small API-created share exists through the write journeys. | Seeded records lack `action_logs` and event side effects (documented) |
 | Seeder bugs leave a partial dataset | Medium | Checkpointed batches with `--resume`. Verification is required before a snapshot is taken. Snapshots are only taken from verified datasets. | — |
 | VPS noise (steal, noisy neighbors) makes rounds incomparable | Medium | Dedicated vCPU recommended. Steal is recorded. Baseline runs twice with a ≤ 10% p50 agreement rule. `compare` refuses mismatched hardware profiles. | Provider-side variance |
-| The generator becomes the bottleneck | Medium | Generator CPU and k6 `dropped_iterations` are monitored, and a step exceeding the limits is marked invalid | — |
+| The generator (the tester's laptop) becomes the bottleneck | Medium | Generator CPU and k6 `dropped_iterations` are monitored, and a step exceeding the limits is marked invalid. Browser VUs stay at 2–5. | A laptop cannot drive as high a VU count as a dedicated generator |
+| Internet RTT and jitter between the laptop and the SUT distort k6 latencies | High | RTT is calibrated before and after each run. The report shows the Caddy server-side p95 next to the k6 numbers and flags noisy runs. One fixed laptop, location and wired connection per round, which `GENERATOR_LOCATION` enforces through `compare`. | k6 numbers are user-perceived from one location; only the server-side numbers compare cleanly across rounds |
 | Test writes accumulate and drift the dataset | Medium | Restore from the template before every load phase, enforced by `run` | — |
 | k6 protocol VUs do not hold SSE connections, so server SSE fan-out is under-represented | Low | Browser VUs hold real SSE connections. The limitation is noted in every report. | SSE fan-out is under-represented at high VU counts |
 | Encryption keys are lost, making every snapshot unreadable | High | Keys are generated once per SUT and stored outside the repo next to the snapshot manifest. `snapshot.json` records a key fingerprint, and `restore` refuses to run on a mismatch. | Re-seeding (hours at L) if the keys are lost anyway |
@@ -690,3 +688,10 @@ Each experiment is a single-variable change against the round-1 snapshot, report
   - The SUT is `vps-6c16g` (6 vCPU / 16 GB / 80 GB). The disk cannot be increased, so tier M is reduced from 250k to **100k** customer entities with 2 background tenants (≈ 70 GB peak with the template snapshot). M had never been seeded, so `perf-v1` is edited in place instead of creating `perf-v2`. **L cannot run on this VPS** (≈ 540 GB); it stays defined for a larger SUT. Only one tier fits on disk at a time, so S and M run one after the other.
   - The deployment is tested **as shipped**: a single app process. No multi-replica experiment. Reports state that the knee reflects one Next.js process (Phase 2 finding P1-2).
   - Phase 2 results and the prioritized findings are in `perf/results/2026-11-26-phase2-local/report.md`.
+- **2026-11-26 (generator on the tester laptop)**: there is no second VPS, so k6 runs on the tester's laptop against the SUT over the internet.
+  - New target example: `perf/config/target.laptop-vps.example.env`.
+  - New generator mode `GENERATOR_NETWORK=laptop`: the k6 container reaches the SSH tunnel through `host.docker.internal`.
+  - RTT is measured before and after each run.
+  - The report shows the Caddy server-side p95 and flags remote or noisy-network runs.
+  - Runbook: a status section, a quickstart for a new tester and a laptop → VPS provisioning section.
+  - The status line states that no VPS phase has run yet.

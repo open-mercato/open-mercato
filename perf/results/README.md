@@ -12,6 +12,6 @@ One folder per run: `<YYYY-MM-DD>-<tier>-<scenario>-<label>/`, created by `perf/
 Rules:
 
 - Commit `run.json`, `report.md` and `report.json` only; review them for secrets first.
-- Runs marked `local-validation` are script checks, never baseline numbers.
+- Runs marked `local-validation` are harness checks on a laptop, never baseline numbers. The `2026-11-26-S-*-local` folders are such checks. **No VPS run exists yet**, and tier S has not been measured on the target hardware.
 - Round reports go to `<YYYY-MM-DD>-round-<n>/report.md` with ranked findings (`file:line`, mechanism, P1/P2/P3).
 - Compare runs with `perf/bin/perf compare <a> <b>`; it refuses incomparable runs unless `--force`.

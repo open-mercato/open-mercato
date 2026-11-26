@@ -30,7 +30,9 @@ SUT_REPO_DIR=                     # repo checkout path on the SUT (vps only)
 GENERATOR_LOCATION=laptop-local   # recorded in run.json; comparability key
 HARDWARE_PROFILE=local-mac        # key into perf/config/hardware.md; comparability key
 K6_NETWORK=mercato-network-perf-v2  # docker network for the k6 container when local; empty on vps
-PROM_RW_URL=http://prometheus:9090/api/v1/write   # vps: http://127.0.0.1:19090/... through ssh -L
+GENERATOR_NETWORK=                # sut | host | laptop; default: sut when K6_NETWORK is set, else host.
+                                  # laptop = tester laptop -> remote SUT (bridge network, host.docker.internal)
+PROM_RW_URL=http://prometheus:9090/api/v1/write   # generator VPS / Linux laptop: http://127.0.0.1:19090/...; macOS laptop: http://host.docker.internal:19090/... (through ssh -L)
 ```
 
 ## State: `perf/.state/` (gitignored, mode 700)
@@ -136,7 +138,7 @@ spec's API table, e.g. `people.list:list`), `phase`, `step` (the load step index
 - `raw/` (k6 summary, logs, pg snapshots, Prometheus exports) is gitignored.
 
 `run.json` fields: `runId`, `scenario`, `profile`, `tier`, `gitSha`, `imageDigest`, `modules[]`,
-`envHash`, `envNotable{}`, `hardwareProfile`, `generatorLocation`, `rtt{p50,p95}`, `k6Version`,
+`envHash`, `envNotable{}`, `hardwareProfile`, `generatorLocation`, `rtt{p50,p95}` (before k6), `rttAfter{p50,p95}` (after k6), `k6Version`,
 `migrationHead`, `datasetAnchor`, `datasetAgeDays`, `snapshotId`, `startedAt`, `finishedAt`, `params{}`,
 `localValidation` (boolean).
 

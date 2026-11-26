@@ -7,6 +7,51 @@ Contracts between the seeder, k6 and the scripts: [`docs/contracts.md`](docs/con
 The goal is exploration and a baseline, not pass/fail. Thresholds are reference lines; only the safety
 aborts (error rate > 20% for 2 min, or p95 > 30 s) stop a run.
 
+## Status: what has and has not been tested
+
+> **No performance test has run on the target VPS yet. No tier — not S, not M — has been measured on the target hardware.**
+>
+> The only runs so far are **Phase 2 local validation**: on 2026-11-26, the harness was exercised on one laptop.
+> k6, the app and monitoring shared that machine, with tier S data.
+> Their purpose was to prove the scripts, seeder, snapshot/restore, dashboards and reports work end to end.
+> The latencies in `results/2026-11-26-S-*-local/` are distorted by the shared laptop and are **not results for tier S**.
+> The Phase 2 report (`results/2026-11-26-phase2-local/report.md`) lists hypotheses those runs surfaced; each one still has to be measured on the VPS.
+> The VPS work (Phases 0, 1 and 3–10) is still to do, starting with tier S.
+
+## Quickstart for a new tester (or the agent guiding them)
+
+**Decided setup:**
+- The app runs on **one VPS** (`vps-6c16g`: 6 vCPU / 16 GB / 80 GB).
+- The load is generated **from the tester's laptop** over the internet. There is no generator VPS.
+- Everything is driven from the laptop with `perf/bin/perf`. Commands reach the VPS over SSH, and the tester never works on the VPS by hand except for the one-time provisioning.
+
+**Collect these first.** An agent asks for them before running anything:
+1. VPS public IP, the SSH user, and confirmation that the tester's SSH key works (`ssh -o BatchMode=yes <user>@<ip> true`).
+2. Whether the vCPUs are dedicated, and the disk type. These go into `config/hardware.md`, row `vps-6c16g`.
+3. The tester's public IP (`curl -s https://ifconfig.me`), for the VPS firewall rule.
+4. The laptop that will be used for **every** run of the round, and where it will be (wired, no VPN). This becomes `GENERATOR_LOCATION`.
+
+**Laptop prerequisites:**
+- Docker Desktop (or Docker Engine) with the compose plugin,
+- Node.js 20+, bash, an SSH client,
+- a clone of this branch,
+- ~5 GB free for the k6 image and results.
+
+**VPS prerequisites:**
+- Ubuntu 24.04, Docker Engine 24+ with the compose plugin, Node.js 20+,
+- a `perf` user in the `docker` group,
+- this branch cloned at `SUT_REPO_DIR`.
+
+**First commands, after Phase 0 below:**
+```bash
+cp perf/config/target.laptop-vps.example.env perf/config/target.local.env   # fill in the <...> values
+perf/bin/perf init-secrets                         # generates secrets, pushes sut.local.env to the VPS
+ssh -N -L 19090:127.0.0.1:9090 -L 13300:127.0.0.1:3300 perf@<sut-public-ip>   # keep open in a second terminal
+perf/bin/perf build && perf/bin/perf up --yes-this-is-a-perf-target
+perf/bin/perf status
+```
+Then follow Phase 3 and Phases 4–9 in order. Grafana is at http://127.0.0.1:13300 through the tunnel.
+
 ## Layout
 
 | Path | What |
@@ -37,9 +82,15 @@ Caddy also exports server-side request durations (`caddy_http_request_duration_s
 ## Prerequisites
 
 - Docker Engine 24+ with the compose plugin 2.24+ (`!reset`/`!override` tags), Node.js 20+, bash. Secrets are generated with `node:crypto` (no openssl needed).
-- Disk: tier S ≈ 10 GB free, M ≈ 40 GB, L ≈ 150 GB (database + template copy + Meilisearch copy).
-- Local: Docker Desktop with ≥ 8 vCPU and ≥ 16 GB RAM assigned.
-- VPS: SUT and generator in the same region, SSH key access from the operator, `SUT_SSH` reachable non-interactively (`ssh -o BatchMode=yes`).
+- Disk on the SUT, measured at S (see `config/hardware.md` → Disk budget). Only one tier is kept on disk at a time:
+
+  | Tier | Disk needed | Note |
+  |---|---|---|
+  | S | ~45–50 GB | |
+  | M (100k) | ~70 GB | |
+  | L | ~540 GB | **does not run on `vps-6c16g`** |
+- Local laptop validation: Docker Desktop with ≥ 8 vCPU, ≥ 16 GB RAM and ≥ 40 GB free in its virtual disk.
+- VPS: SSH key access from the tester's laptop, reachable non-interactively (`ssh -o BatchMode=yes`).
 
 ## Safety rules (read first)
 
@@ -48,66 +99,82 @@ Caddy also exports server-side request durations (`caddy_http_request_duration_s
 3. Phases run one at a time. Restore before every load phase (`run` refuses otherwise).
 4. Secrets live only in `perf/config/sut.local.env` and `perf/.state/` (gitignored). Reports redact env values.
 
-## Phase 2 — local validation (tier S, laptop)
+## Phase 2 — local validation (tier S, laptop) — done on 2026-11-26
 
-These numbers are not baseline numbers; every report is marked `local-validation`.
+This phase checks the harness, not the app. Its numbers are not baseline numbers, and every report is marked `local-validation`.
+It was completed once; repeat it only after changing the harness. The sequence is kept here for that purpose.
 
 ```bash
 cp perf/config/target.example.env perf/config/target.local.env   # defaults target the local stack
 perf/bin/perf init-secrets                                        # writes perf/config/sut.local.env (mode 600)
-perf/bin/perf build                                               # docker compose build app (20–40 min first time)
-perf/bin/perf up --yes-this-is-a-perf-target                      # first boot runs mercato init: 5–15 min
+perf/bin/perf build                                               # docker compose build app (15–40 min)
+perf/bin/perf up --yes-this-is-a-perf-target                      # first boot runs mercato init: 1–15 min
 perf/bin/perf tenant                                              # measured tenant via `mercato auth setup --json` + `mercato seed:defaults`
-perf/bin/perf users                                               # 200 users + staff team members: ~2–5 min
-perf/bin/perf seed --background --tier S                          # 2 background tenants × 5%
-perf/bin/perf seed --tier S                                       # seed-perf + reindex + Meilisearch + VACUUM
-perf/bin/perf snapshot --tier S
+perf/bin/perf users                                               # 200 users + staff team members: ~1 min
+perf/bin/perf seed --background --tier S                          # 2 background tenants × 5%: ~2 min
+perf/bin/perf seed --tier S                                       # seed-perf + reindex + Meilisearch + VACUUM: ~25 min
+perf/bin/perf snapshot --tier S                                   # ~1 min
 perf/bin/perf lint                                                # k6 inspect of every scenario
 
 perf/bin/perf restore --tier S && perf/bin/perf run smoke --label local
 perf/bin/perf restore --tier S && perf/bin/perf run baseline --samples 20 --label local
 perf/bin/perf restore --tier S && perf/bin/perf run step --profile mini --label local
+perf/bin/perf restore --tier S && perf/bin/perf run browser --label local
 ```
 
-UIs (loopback only): Grafana http://127.0.0.1:3300 (anonymous viewer; admin password in `sut.local.env`),
-Prometheus http://127.0.0.1:9090, Mailpit http://127.0.0.1:8025, app https://localhost:8443.
+UIs (loopback only):
 
-Exit criteria: smoke, mini-baseline and mini step finish; every tag has samples; 0 unexpected errors in
-smoke; Grafana shows k6, host, containers, Postgres and OM runtime data for the run window; `report.md`
-is generated; seed, snapshot and restore durations are copied into `config/hardware.md`.
+| UI | Address |
+|---|---|
+| Grafana | http://127.0.0.1:3300 (anonymous viewer; admin password in `sut.local.env`) |
+| Prometheus | http://127.0.0.1:9090 |
+| Mailpit | http://127.0.0.1:8025 |
+| App | https://localhost:8443 |
 
-## Phase 0 and 3 — VPS provisioning
+## Phase 0 and 1 — VPS provisioning (laptop → VPS)
 
-1. Pick machines per `config/hardware.md` and confirm the profile row.
-2. Firewall (Docker bypasses `ufw`): use the provider's cloud firewall, `DOCKER-USER` iptables rules, or bind to the private IP.
-   Only `PERF_TLS_PORT` is reachable, only from the generator. SSH from the operator.
-3. On the SUT: clone the repo at the chosen commit into `SUT_REPO_DIR`.
-4. On the generator: clone the same commit, then create `perf/config/target.local.env`:
-   ```
-   PERF_TARGET_NAME=vps-round1
-   PERF_TARGET_KIND=vps
-   BASE_URL=https://<sut-private-ip>:8443
-   CONTROL_BASE_URL=https://<sut-private-ip>:8443
-   SUT_SSH=perf@<sut-host>
-   SUT_REPO_DIR=/srv/open-mercato
-   GENERATOR_LOCATION=<provider>-<region>-generator
-   HARDWARE_PROFILE=vps-8c32g
-   K6_NETWORK=
-   PROM_RW_URL=http://127.0.0.1:19090/api/v1/write
-   PROM_QUERY_URL=http://127.0.0.1:19090
-   ```
-5. `perf/bin/perf init-secrets` on the generator generates the secrets and pushes `sut.local.env` to the SUT.
-   Then edit `sut.local.env` with the `vps-6c16g` column of `hardware.md` (the decided SUT), set `PERF_TLS_BIND` and
-   `PERF_TLS_HOST` to the SUT private IP and `APP_URL=https://<sut-private-ip>:8443`, and run `init-secrets` again to push it.
-6. Open the tunnel the generator keeps for the whole session (remote write and report queries):
-   `ssh -N -L 19090:127.0.0.1:9090 -L 13300:127.0.0.1:3300 perf@<sut-host>`.
-   The operator reaches Grafana with `ssh -L 3300:127.0.0.1:3300 perf@<sut-host>`.
-7. Same sequence as Phase 2 with `--tier S` (`build`, `up --yes-this-is-a-perf-target`, `tenant`, `users`, `seed --background --tier S`, `seed --tier S`, `snapshot --tier S`).
-   **Only one tier fits on the 80 GB `vps-6c16g` disk at a time.** After the S runs, switch to M:
-   `perf/bin/perf down --volumes --purge-secrets`, `docker volume rm meili_s_template`, then repeat the sequence with `--tier M`.
-   M seeding takes about an hour; run it inside `tmux`. **Tier L cannot run on `vps-6c16g`** (≈ 540 GB of disk; see `perf/config/hardware.md`).
-8. Verify a restore round trip: `restore --tier <T>`, then compare row counts (`seed-perf` manifest) and the catalog.
-9. Port probe from a third host: `nmap -Pn -p- <sut-public-ip>` reaches nothing but SSH; from the generator only `PERF_TLS_PORT`.
+The load comes from the tester's laptop over the internet, so plan for these four things:
+- **Network time in every sample.** Every k6 latency includes the laptop → VPS round-trip time and its jitter.
+  - `run` measures that round-trip time before and after each run.
+  - The report shows the **server-side p95 at the proxy** (Caddy, measured on the VPS), next to the k6 numbers. Compare rounds on the server-side p95.
+  - The report flags the run when the network was noisy.
+- **One generator location per round.** Use the same laptop, from the same place, over the same wired connection, with no VPN and no sleep. Keep `GENERATOR_LOCATION` identical; `compare` refuses runs from different locations.
+- **The laptop is the generator's ceiling.** About 200 protocol VUs are fine. Keep browser VUs at 2–5.
+  - If k6 reports `dropped_iterations`, or the laptop's CPU stays above 70%, that step is invalid.
+  - Close heavy applications during a run.
+- **Long runs.** The soak (4–8 h) needs the laptop awake, plugged in and connected for the whole time.
+
+Steps:
+
+1. **Confirm the hardware.** Fill the `vps-6c16g` row of `config/hardware.md`: whether the vCPUs are dedicated, the disk type, the OS.
+2. **Set the firewall** in the provider's cloud firewall. Docker bypasses `ufw`, so `ufw` rules do not protect published ports.
+   - Allow SSH from the tester's IP.
+   - Allow `PERF_TLS_PORT` (8443) **from the tester's public IP only**.
+   - Nothing else is reachable. Grafana, Prometheus and Mailpit stay on the VPS loopback and are reached through SSH tunnels.
+3. **Prepare the VPS:** install Docker and Node.js, create the `perf` user in the `docker` group, and clone this branch at the chosen commit into `SUT_REPO_DIR`.
+4. **Create the target file on the laptop:** `cp perf/config/target.laptop-vps.example.env perf/config/target.local.env` and fill in the `<...>` values.
+   On a Linux laptop, set `GENERATOR_NETWORK=host` and `PROM_RW_URL=http://127.0.0.1:19090/api/v1/write` instead.
+5. **Generate the secrets.** `perf/bin/perf init-secrets` on the laptop generates them and pushes `sut.local.env` to the VPS.
+   - Edit `perf/config/sut.local.env` on the laptop: copy the `vps-6c16g` column of `config/hardware.md`.
+   - Set `PERF_TLS_BIND=0.0.0.0`, `PERF_TLS_HOST=<sut-public-ip>`, `APP_URL=https://<sut-public-ip>:8443` and `PERF_APP_ALLOWED_ORIGINS=https://<sut-public-ip>:8443`.
+   - Run `init-secrets` again to push the edited file.
+6. **Open the tunnel** for the whole session, in a second terminal on the laptop. It carries k6 remote write and the report queries:
+   `ssh -N -L 19090:127.0.0.1:9090 -L 13300:127.0.0.1:3300 perf@<sut-public-ip>`.
+   - Grafana is then at http://127.0.0.1:13300.
+   - Leave this tunnel open whenever you `run`, `report` or `compare`.
+7. **Check exposure.** `perf/bin/perf build`, then `perf/bin/perf up --yes-this-is-a-perf-target`. Then, from a host other than the tester's laptop, run `nmap -Pn -p- <sut-public-ip>`: it must show only SSH. From the laptop, `curl -sk https://<sut-public-ip>:8443/api/healthz` must return 200.
+
+## Phase 3 — datasets on the VPS (S first, then M)
+
+**Only one tier fits on the 80 GB `vps-6c16g` disk at a time.** Run the S phases first, then switch to M. **Tier L cannot run on `vps-6c16g`** (≈ 540 GB of disk; see `config/hardware.md`).
+
+1. **Tier S.** Run `tenant`, `users`, `seed --background --tier S`, `seed --tier S`, `snapshot --tier S`.
+   - Record the seed, snapshot and restore durations in `config/hardware.md`.
+   - Verify a restore round trip: `restore --tier S`, then compare row counts against the `seed-perf` manifest and the catalog.
+2. **Run Phases 4–5 on S** (smoke, then baseline twice). These give the S-versus-M comparison on the same hardware.
+3. **Switch to M:** `perf/bin/perf down --volumes --purge-secrets`, `ssh perf@<sut-public-ip> docker volume rm meili_s_template`, then `up`, `tenant`, `users`, `seed --background --tier M`, `seed --tier M`, `snapshot --tier M`.
+   M seeding takes about an hour. Run it inside `tmux` on the laptop, or keep the laptop awake.
+4. **Verify the M restore round trip** the same way as for S.
 
 ## Phases 4–9 — measurement runs
 
@@ -127,7 +194,7 @@ Each run writes `perf/results/<date>-<tier>-<scenario>-<label>/` with `run.json`
 
 What `run` does: checks the target confirmation and the restore marker → writes `run.json` (git SHA, image
 digest, modules, env hash, migration head, dataset age, hardware facts, k6 version) → calibrates RTT with
-30 × `GET /api/healthz` → resets `pg_stat_statements` → marks the restore as used → runs k6 (CSV +
+30 × `GET /api/healthz` (again after k6, to detect network drift) → resets `pg_stat_statements` → marks the restore as used → runs k6 (CSV +
 Prometheus remote write) → captures `pg-snapshot.json` (top statements, generic plans, auto_explain plans,
 lock waits, temp files) and service logs → generates the report.
 
@@ -164,7 +231,7 @@ findings (`file:line`, mechanism, P1/P2/P3). Issues and fix PRs only on human re
 | Symptom | Cause and fix |
 |---|---|
 | Login 429 for many VUs | Login IP rate limit. `RATE_LIMIT_LOGIN_IP_POINTS` (10000) must reach the app: `docker compose … exec app env \| grep RATE_LIMIT`; restart after editing `sut.local.env` |
-| k6 `dropped_iterations` > 0 or generator CPU > 70% | The generator is the bottleneck; that step is invalid. Use a larger generator or fewer browser VUs |
+| k6 `dropped_iterations` > 0 or generator CPU > 70% | The laptop is the bottleneck; that step is invalid. Close other applications, use fewer browser VUs, or stop at the previous step |
 | Pool exhaustion: `om_db_pool_pending_requests` > 0, timeouts after 6 s | `DB_POOL_MAX` too small for the step, or slow statements hold connections. Check section 6 of the report before raising the pool |
 | `restore` fails with "source database is being accessed by other users" | Something still connects to the template or the DB. `restore` terminates backends, but a manual `psql` session or a running `mcp`/`opencode` profile can hold one. Stop it and retry |
 | `run` says a load phase already ran since the last restore | Expected: restore first. Never edit `last-restore.json` by hand |
@@ -173,5 +240,8 @@ findings (`file:line`, mechanism, P1/P2/P3). Issues and fix PRs only on human re
 | Meilisearch count never settles during `seed` | The `worker` service must run the fulltext-indexing queue: `docker compose … logs worker`. The wait times out after 4 h |
 | No OM runtime metrics in Grafana | `TELEMETRY_BACKEND=otlp` must reach the app; the OTLP reader exports every 60 s, so wait two minutes; check `otel-collector` logs |
 | Empty BullMQ panels | Queue keys use the `bull:<queue>:<state>` prefix; check with `redis-cli --scan --pattern 'bull:*' \| head` |
-| cAdvisor shows no containers on macOS | Docker Desktop hides cgroup paths; container panels may be partial locally. They work on a Linux VPS |
+| cAdvisor shows no containers | Older cAdvisor cannot read the containerd image store (default in Docker Desktop and fresh Docker Engine 29). The pinned `ghcr.io/google/cadvisor:v0.60.6` with the docker/containerd socket mounts handles it; check `docker logs mercato-cadvisor-perf` for `failed to identify the read-write layer ID` |
+| Report says "Network was noisy" | The laptop → VPS round-trip time rose or jittered during the run. Check Wi-Fi/VPN/other traffic and re-run; compare on the server-side p95 |
+| k6 cannot reach `host.docker.internal:19090` | The SSH tunnel is not open, or (Linux laptop) use `GENERATOR_NETWORK=host` with `PROM_RW_URL=http://127.0.0.1:19090/api/v1/write` |
+| App never becomes healthy after a restart, log says `Another Open Mercato production server is already running` | Stale `.mercato/server-start.lock` after an unclean stop (Phase 2 finding P1-4). `restore` recreates the containers; otherwise `docker compose … up -d --force-recreate app worker scheduler` |
 | Template database missing after `down --volumes` | Templates live inside the Postgres volume. Re-seed and re-snapshot |

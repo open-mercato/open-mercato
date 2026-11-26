@@ -3,6 +3,19 @@
 Performance harness for the CRM. Runbook: [`README.md`](README.md). Contracts: [`docs/contracts.md`](docs/contracts.md).
 Spec: `.ai/specs/2026-11-26-crm-performance-test-plan.md`.
 
+## Current status (keep accurate)
+
+- **No VPS phase has run.** Tier S and tier M have **not** been measured on the target hardware (`vps-6c16g`).
+- The only results are the Phase 2 harness checks on a laptop (`results/2026-11-26-*-local`, `results/2026-11-26-phase2-local/report.md`). Never present them as tier S results, a baseline or "done" testing. They are hypotheses for the VPS rounds.
+- Setup: one SUT VPS (`vps-6c16g`, 6 vCPU / 16 GB / 80 GB fixed disk). k6 runs on the tester's laptop over the internet (no generator VPS). The app is tested as shipped (one app process). Tiers S and M are run one at a time. **L cannot run on this VPS.**
+
+## Guiding a tester
+
+- Start from `README.md` → "Status" and "Quickstart for a new tester". Collect the four inputs it lists (SSH access, hardware facts, the tester's public IP, the fixed laptop and location) before running any command.
+- Walk the phases in README order. Explain each command before running it and what its exit criteria are, and show the report path after each run.
+- Before every load phase, check that the SSH tunnel is open, the laptop is on the agreed wired connection, and nothing heavy runs locally. Stop and re-run when the report says "Network was noisy".
+- Fill in `config/hardware.md` (row `vps-6c16g`, measured durations) as facts become known.
+
 ## Always
 
 - Drive everything through `perf/bin/perf`; follow the README phase by phase.

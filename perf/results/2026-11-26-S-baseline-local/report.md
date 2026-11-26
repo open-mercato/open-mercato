@@ -20,7 +20,7 @@
 
 ## 2. Summary
 
-> **local-validation** run: script and runbook check on a laptop. These are not baseline numbers.
+> **local-validation** run: a check of the test harness on one laptop (k6, app and monitoring on the same machine). **This is not a performance result for this tier** and does not replace the VPS run; the latencies are distorted by the shared laptop.
 
 - Saturation point: not reached in this run
 - Worst endpoints by p95: `heavy.deals.map:page` 9598 ms, `search.list:noHit` 7833 ms, `heavy.encrypted.sort:people.name` 2967 ms

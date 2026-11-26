@@ -1,12 +1,17 @@
-# Phase 2 — Local validation report (tier S)
+# Phase 2 — Harness validation on a laptop (tier S data)
+
+> **Read this first.** This is **not** a performance test of tier S, and it does not cover any part of the VPS test plan.
+> - **What ran:** the test harness, end to end, on **one laptop**. k6, the app, Postgres and monitoring all shared that machine. Its purpose was to prove that the seeder, snapshot/restore, k6 journeys, dashboards and reports work.
+> - **What did not run:** anything on the target VPS. **Tier S, tier M and every load phase (4–9) still have to be run on `vps-6c16g`** (see `perf/README.md`).
+> - **How to read the numbers:** the latencies below are distorted by the shared laptop and must not be quoted as results. The findings are **hypotheses ranked by local signals**. Each one stays open until a VPS run measures it.
 
 - **Date:** 2026-11-26
 - **Hardware profile:** `local-mac` (Docker Desktop VM, 16 GB assigned, containerd image store; SUT, monitoring and k6 on one laptop)
 - **Dataset:** `perf-v1`, tier S, seed 42, anchor 2026-11-26, manifest checksum `1263504e…` (identical across two independent seeds)
 - **Branch / PR:** `docs/crm-performance-test-plan`, draft PR #10747 (not for merge)
-- **Status:** Phase 2 exit criteria met: smoke, baseline, mini step, browser, dashboards, report. Runbook fixes are applied.
+- **Status:** harness validation complete; the runbook fixes are applied. **VPS testing: not started.**
 
-> These are `local-validation` numbers. k6, the app and monitoring share one laptop, so absolute latencies are not baseline values. The *relative* signals below (what is slow at 1 VU, what degrades at 26 VUs, where time goes) are strong enough to rank hypotheses before the VPS rounds.
+> These are `local-validation` numbers. k6, the app and monitoring share one laptop, so absolute latencies are not baseline values. The *relative* signals below (what is slow at 1 VU, what degrades at 26 VUs, where time goes) are used only to decide what the VPS rounds should look at first.
 
 ## 1. Runs
 
@@ -23,11 +28,11 @@ Setup timings on `local-mac` (tier S) are in `perf/config/hardware.md`:
 - snapshot 64 s, restore 65 s,
 - full clean rebuild (stack up → snapshot) ≈ 28 min.
 
-## 2. Findings — prioritized
+## 2. Hypotheses to verify on the VPS — prioritized by local signal
 
-Priority: **P1** = blocks meaningful VPS results or is a likely production incident; **P2** = large, clearly attributable latency; **P3** = smaller or operational. No GitHub issues were filed; a human decides which items become issues.
+Priority: **P1** = blocks meaningful VPS results or is a likely production incident; **P2** = large, clearly attributable latency; **P3** = smaller or operational. No GitHub issues were filed; a human decides which items become issues. The latency items are hypotheses until the VPS rounds measure them. Some items do not depend on load numbers: P1-4, P2-0, P3-2, P3-3 and P3-4 are functional or operational defects reproduced directly, and they hold wherever the app runs.
 
-### P1-1 — `deals/map` is unbounded and CPU-bound in Node (H3 confirmed)
+### P1-1 — `deals/map` is unbounded and CPU-bound in Node (H3: strong local signal, to measure on the VPS)
 
 - **Evidence:**
   - At 1 VU: p50 8.8 s, p95 9.6 s. At 26 VUs: p95 13.3 s.
@@ -108,7 +113,7 @@ Priority: **P1** = blocks meaningful VPS results or is a likely production incid
   - The keys are the original ones (`perf/.state/snapshots/S.keys.env`).
 - **Question:** either the preflight cannot verify a database restored from a template, or the message is wrong about blocking writes. Both are worth knowing before a real restore-from-backup incident.
 
-### P2-1 — Search with no token hit falls back to `ILIKE` over encrypted columns (H4 confirmed)
+### P2-1 — Search with no token hit falls back to `ILIKE` over encrypted columns (H4: strong local signal, to measure on the VPS)
 
 - **Evidence:**
   - `search.list:noHit` takes 7.1 s at 1 VU.
@@ -117,7 +122,7 @@ Priority: **P1** = blocks meaningful VPS results or is a likely production incid
 - **To verify:** with tenant encryption on, those columns hold ciphertext. If so, the fallback both scans and cannot match plaintext, which is a correctness question as well as a performance one.
 - **Recommendation:** with encryption on, skip the `ILIKE` fallback (or cap it); otherwise add a trigram index.
 
-### P2-2 — Sorting by an encrypted column decrypts the whole match set (H1 confirmed)
+### P2-2 — Sorting by an encrypted column decrypts the whole match set (H1: strong local signal, to measure on the VPS)
 
 - **Evidence:**
 
@@ -179,16 +184,16 @@ Priority: **P1** = blocks meaningful VPS results or is a likely production incid
 - **Calendar:** the month view has no owner filter, so it loads every owner's interactions.
 - **Refresh token:** only returned with `remember=1`.
 
-## 3. Hypotheses status after Phase 2
+## 3. Hypotheses status after Phase 2 (local signals only; none is settled until measured on the VPS)
 
 | ID | Status | Note |
 |---|---|---|
-| H1 encrypted sort | **confirmed** | P2-2 |
+| H1 encrypted sort | strong local signal | P2-2 |
 | H2 `IN (…)` bind limit | open (needs L) | P2-3 shows load sensitivity at S |
-| H3 `deals/map` unbounded | **confirmed** | P1-1 |
-| H4 `ILIKE` fallback | **confirmed** | P2-1 |
+| H3 `deals/map` unbounded | strong local signal | P1-1 |
+| H4 `ILIKE` fallback | strong local signal | P2-1 |
 | H5 360 detail fan-out | weak at S | `company.360:detail` 269 ms → 8.8 s at 26 VUs; likely queueing (P1-2) |
-| H6 per-request overhead / single process | **confirmed as the knee mechanism** | P1-2 |
+| H6 per-request overhead / single process | strong local signal; the likely knee mechanism | P1-2 |
 | H7 missing indexes | not visible at S | DB is idle; re-test at M |
 | H8 write path | partially | `write.interaction:create` 1.8 s → 11 s; queueing vs. write path to split at M |
 | H9 bulk owner update | not exercised enough | 5 samples only |
