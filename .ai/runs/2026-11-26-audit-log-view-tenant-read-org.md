@@ -44,5 +44,5 @@
 
 ### Phase 2: Coverage and notes
 
-- [ ] 2.1 Integration test
-- [ ] 2.2 Compatibility notes
+- [x] 2.1 Integration test — ef86f3b684
+- [x] 2.2 Compatibility notes — 846a75f4aa
