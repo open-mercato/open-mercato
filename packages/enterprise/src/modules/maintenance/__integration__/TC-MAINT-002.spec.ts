@@ -57,6 +57,10 @@ test.describe('TC-MAINT-002: Maintenance window gates traffic', () => {
       const html = await page.text()
       expect(html).toContain('QA &lt;b&gt;upgrade&lt;/b&gt;')
       expect(html).not.toContain('<script>soon</script>')
+      expect(html).toContain('src="/open-mercato.svg"')
+      const logo = await request.get('/open-mercato.svg')
+      expect(logo.status()).toBe(200)
+      expect(logo.headers()['content-type']).toContain('image/svg+xml')
 
       const status = await request.get('/api/maintenance/status')
       expect(status.status()).toBe(200)

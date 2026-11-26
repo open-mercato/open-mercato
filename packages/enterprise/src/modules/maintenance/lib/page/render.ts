@@ -57,7 +57,7 @@ export function renderMaintenancePage(input: MaintenancePageInput): string {
   const message = input.message || t('maintenance.page.defaultMessage', 'The service is temporarily unavailable. Please try again shortly.')
   const untilLabel = formatUntil(input.until, input.locale, input.timezone)
   const supportUrl = sanitizeUrl(input.supportUrl)
-  const logoUrl = sanitizeUrl(input.logoUrl)
+  const logoUrl = sanitizeUrl(input.logoUrl) ?? '/open-mercato.svg'
   const refreshSeconds = Math.min(MAX_REFRESH_SECONDS, Math.max(30, input.retryAfterSeconds))
 
   const template = loadInstanceTemplate(input.templatePath)
@@ -69,7 +69,7 @@ export function renderMaintenancePage(input: MaintenancePageInput): string {
       untilIso: input.until ?? '',
       retryAfter: String(input.retryAfterSeconds),
       supportUrl: supportUrl ?? '',
-      logoUrl: logoUrl ?? '',
+      logoUrl,
       lang: input.locale,
     })
   }
@@ -77,7 +77,7 @@ export function renderMaintenancePage(input: MaintenancePageInput): string {
   const untilBlock = input.until && untilLabel
     ? `<p class="until">${escapeHtml(t('maintenance.page.expectedBack', 'Expected back:'))} <time datetime="${escapeHtml(input.until)}">${escapeHtml(untilLabel)}</time></p>`
     : ''
-  const logoBlock = logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="">` : ''
+  const logoBlock = `<img src="${escapeHtml(logoUrl)}" alt="">`
   const supportBlock = supportUrl ? `<a href="${escapeHtml(supportUrl)}" rel="noopener">${escapeHtml(t('maintenance.page.contactSupport', 'Contact support'))}</a>` : ''
 
   return [

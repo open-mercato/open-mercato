@@ -8,7 +8,7 @@ The new Enterprise `maintenance` module turns on with `OM_ENABLE_ENTERPRISE_MODU
   - `@open-mercato/shared/lib/runtime/request-gate`: evaluated by the API dispatcher, `api/auth/login` and `proxy.ts`.
   - `@open-mercato/shared/lib/runtime/worker-gate`: consulted by `runWorker` and the local scheduler tick.
   - `@open-mercato/shared/lib/maintenance/types`: the `maintenanceCoordinator` DI contract, plus `withMaintenanceHold` / `runEncryptionMaintenance`.
-  - **Standalone apps:** pick up the `proxy.ts` and `api/auth/login/route.ts` changes from the create-app template.
+  - **Standalone apps:** pick up the `instrumentation.ts`, `proxy.ts` and API route changes from the create-app template. Regenerate after enabling Enterprise so Node startup registers the maintenance gate before the first page request.
 - **Behavior change on Enterprise installs.** These commands now refuse to write unless they hold a drained maintenance window:
   - `entities rotate-encryption-key`
   - `auth rotate-encryption-key`

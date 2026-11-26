@@ -4,6 +4,12 @@ Use this provider-neutral checklist before recommending that a standalone Open M
 
 Classify findings as **required**, **recommended**, or **module-specific**. Do not present every `.env.example` key as mandatory. Ask before accessing or changing credentials, creating billable infrastructure, or starting, changing, or rolling back a live deployment. This guide supports a readiness review; do not perform or claim a live deployment or an unrun check.
 
+## Enterprise maintenance page
+
+For standalone apps using a version of `@open-mercato/enterprise` that includes `maintenance`, verify that `src/modules.ts` activates the module with `OM_ENABLE_ENTERPRISE_MODULES=true`. Use `mercato maintenance on --title "..." --message "..."` for per-window copy. Use `OM_MAINTENANCE_LOGO_URL`, `OM_MAINTENANCE_SUPPORT_URL`, and `OM_MAINTENANCE_TIMEZONE` for persistent branding and display settings. The default logo is the login asset `public/open-mercato.svg`.
+
+For a custom layout, mount an app-owned HTML file at `OM_MAINTENANCE_PAGE_TEMPLATE` on every web process and restart those processes after template edits. Include `{{title}}` and `{{message}}` as HTML text. The renderer escapes values, disallows scripts and event handlers, and falls back to the built-in page if validation fails. Verify HTTP 503, branding and bypass using the [Enterprise maintenance guide](https://docs.openmercato.com/enterprise/maintenance-mode).
+
 ## 1. HTTPS/TLS, DNS, and the edge
 
 - **Required:** Serve every public route over HTTPS with a valid, auto-renewing certificate. Redirect HTTP to HTTPS and verify the redirect, certificate chain, supported TLS versions, and renewal path.

@@ -94,6 +94,8 @@ Every Enterprise subscription includes the proprietary modules in `@open-mercato
 
 ### Enterprise Maintenance and Deployment Toolkit
 
+- **Maintenance Mode** — schedule an instance-wide window that serves a branded HTTP 503 page, pauses background work, and lets operators drain in-flight work before backups or key rotation. Supports temporary operator bypass for ordinary windows. See the [maintenance mode guide](../../apps/docs/docs/enterprise/maintenance-mode.mdx).
+
 - **Encrypted Backup and Recovery** — standalone PostgreSQL backup, authenticated encrypted artifacts, resumable execution and isolated restore/exercise with retained application keys. Commercial `backups` module; enable `OM_ENABLE_ENTERPRISE_MODULES` + `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS` and attest commercial rights. See the [operator guide](../../apps/docs/docs/deployment/enterprise-backup-recovery.mdx). Backup artifacts and custody keys stay in operator-controlled storage.
 - **Edition and version visibility** — See the Enterprise edition and running application version in System Status when verifying a deployment or troubleshooting an environment.
 

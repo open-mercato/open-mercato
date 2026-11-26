@@ -26,6 +26,11 @@ describe('maintenance page renderer', () => {
     expect(html).toContain('http-equiv="refresh" content="300"')
   })
 
+  it('uses the login logo by default and accepts a custom logo URL', () => {
+    expect(render()).toContain('src="/open-mercato.svg"')
+    expect(render({ logoUrl: '/branding/logo.svg' })).toContain('src="/branding/logo.svg"')
+  })
+
   it('renders <script> in the message inert and newlines as paragraphs', () => {
     const html = render({ title: 'Upgrade <b>now</b>', message: 'Line one\n<script>alert(1)</script>' })
     expect(html).not.toContain('<script>alert(1)</script>')
@@ -80,6 +85,12 @@ describe('instance templates', () => {
     expect(validateTemplate('<p>{{title}}</p>').ok).toBe(false)
     expect(validateTemplate('<p>{{title}}{{message}}{{bogus}}</p>').ok).toBe(false)
     expect(validateTemplate('<p>{{title}}</p><p>{{message}}</p>').ok).toBe(true)
+  })
+
+  it('supplies the login asset to templates by default', () => {
+    const file = writeTemplate('<img src="{{logoUrl}}" alt=""><h1>{{title}}</h1><p>{{message}}</p>')
+    expect(render({ templatePath: file })).toContain('src="/open-mercato.svg"')
+    expect(render({ templatePath: file, logoUrl: '/branding/logo.svg' })).toContain('src="/branding/logo.svg"')
   })
 
   it('falls back to the built-in page when the template is invalid', () => {

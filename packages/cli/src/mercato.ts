@@ -2832,6 +2832,10 @@ export async function run(argv = process.argv) {
 
   const mod = all.find((m) => m.id === modName)
   if (!mod) {
+    if (modName === 'maintenance') {
+      console.error('Maintenance mode requires the Enterprise maintenance module. Set OM_ENABLE_ENTERPRISE_MODULES=true and regenerate the app after enabling Enterprise.')
+      return 1
+    }
     console.error(`❌ Module not found: "${modName}"`)
     return 1
   }

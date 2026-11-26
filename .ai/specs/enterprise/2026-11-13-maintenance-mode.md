@@ -298,7 +298,7 @@ These apply to the planned `backups` module ([CLI spec](2026-11-06-cli-backup-re
 
 The page is a self-contained HTML document:
 
-- inline CSS and no external requests;
+- inline CSS and a same-origin logo by default;
 - no React, no database and no session, so it renders during a restore;
 - no script at all, so the nonce-based production CSP (`script-src-attr 'none'`) needs no exception;
 - optional `<meta http-equiv="refresh">` set to `Retry-After`, capped at 300 s.
@@ -311,6 +311,10 @@ The page is a self-contained HTML document:
 2. Instance template `OM_MAINTENANCE_PAGE_TEMPLATE=<path to .html>`, loaded once at boot and validated for the required placeholders. Placeholders: `{{title}}`, `{{message}}`, `{{until}}`, `{{untilIso}}`, `{{retryAfter}}`, `{{supportUrl}}`, `{{logoUrl}}`, `{{lang}}`. All values are HTML-escaped and there is no raw-HTML placeholder. `{{supportUrl}}` and `{{logoUrl}}` accept only `https:` or `http:` URLs (or a same-origin path); anything else is dropped. Templates containing `<script>`, inline event handlers, or placeholders inside `style` or `href="javascript:` are rejected. If the template is invalid, the built-in page is used and an error is logged.
 3. Instance env `OM_MAINTENANCE_LOGO_URL` and `OM_MAINTENANCE_SUPPORT_URL`.
 4. Built-in defaults from `maintenance/i18n/<locale>.json`. The locale is chosen from `Accept-Language`, limited to the app's supported locales.
+
+**Startup.** The monorepo app and standalone template register the server gate in Node instrumentation when the generated module list includes maintenance. The first page request is gated even when process container initialization is disabled.
+
+**Branding.** The default logo is the login asset at `/open-mercato.svg`, also shipped in the standalone app template. An instance can override it with `OM_MAINTENANCE_LOGO_URL`. The default also supplies `{{logoUrl}}` in custom templates.
 
 **Design system.** The built-in template follows the design system: colors come from the generated DS token values inlined at build time, with no hard-coded status colors. It has the text scale, `role="main"`, `lang`, sufficient contrast, and passes `prefers-color-scheme`.
 
