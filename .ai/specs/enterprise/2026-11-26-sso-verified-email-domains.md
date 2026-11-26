@@ -118,7 +118,7 @@ The sign-in page uses two distinct actions. Email edits and tenant changes clear
 | SSO-D4 | A staff user wants to choose the correct sign-in method. | Verified provider discovery offers an explicit SSO action with keyboard access. Pending, scope-mismatched or ambiguous results leave ordinary sign-in available to eligible users. Changing the identifier cannot leave an old provider action active. |
 | SSO-D5 | A platform operator needs to recover a disputed domain. | The operator validates current ownership and records who released the earlier claim and why. The legitimate administrator completes the ordinary fresh verification flow after release. A scoped administrator cannot release another configuration's claim. |
 
-The acceptance prototype covers SSO-D1 and SSO-D2 in the organization settings. It includes an activation prerequisite, propagation delay and recovery. The public login and operator workflows are described for implementation and acceptance testing.
+The [acceptance prototype](../assets/sso-verified-email-domains/prototype/README.md) covers SSO-D1 and SSO-D2 in the organization settings. It includes an activation prerequisite, propagation delay and recovery. The public login and operator workflows are described for implementation and acceptance testing.
 
 ## Edge Cases & Failure Scenarios
 

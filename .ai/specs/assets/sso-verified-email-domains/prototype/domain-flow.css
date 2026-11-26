@@ -1,0 +1,68 @@
+.proto-toolbar {
+  flex-wrap: wrap;
+}
+
+.form-card {
+  max-width: 48rem;
+}
+
+.form-card .title,
+.form-card p,
+.form-card dl {
+  margin: 0;
+}
+
+.form-card a.btn {
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.form-card dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.5rem 1rem;
+}
+
+.form-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+#domain-form .row-3 {
+  margin-top: 0.5rem;
+}
+
+#domain-form .btn {
+  flex: none;
+}
+
+#domain-error {
+  margin-top: 0.5rem;
+  color: var(--destructive);
+}
+
+@media (max-width: 48rem) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app .sidebar,
+  .app .topbar-right {
+    display: none;
+  }
+
+  .page-head,
+  .page-actions,
+  .form-card .row-3 {
+    flex-wrap: wrap;
+  }
+
+  .doc-toolbar {
+    gap: 0.5rem;
+    padding-inline: 1rem;
+  }
+
+  .proto-toolbar {
+    margin-left: 0;
+  }
+}
