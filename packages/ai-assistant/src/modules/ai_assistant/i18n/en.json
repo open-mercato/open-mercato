@@ -309,6 +309,11 @@
   "ai_assistant.dock.left": "Dock Left",
   "ai_assistant.dock.minimize": "Minimize",
   "ai_assistant.dock.right": "Dock Right",
+<<<<<<< HEAD
+=======
+  "ai_assistant.errors.directMutationDenied": "Mutation tools cannot execute directly. Use an agent chat or run-object request with the mutation approval policy.",
+  "ai_assistant.errors.mcpSessionTokenRequired": "Authentication failed: a session token (_sessionToken) is required for this tool call.",
+>>>>>>> 8f1aa3b7de (fix(ai-assistant): require per-user session token for MCP HTTP tool calls (#5173) (#9314))
   "ai_assistant.errors.moderationBlocked": "Your message was blocked by the content safety filter. Please rephrase and try again.",
   "ai_assistant.errors.moderationUnavailable": "The content safety check is temporarily unavailable. Please try again in a moment.",
   "ai_assistant.launcher.composerPlaceholder": "Ask anything…",
