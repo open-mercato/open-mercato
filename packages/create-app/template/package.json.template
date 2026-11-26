@@ -166,6 +166,11 @@
   "resolutions": {
     "lodash": "4.18.1",
     "lodash-es": "4.18.1",
+<<<<<<< HEAD
+=======
+    "node-forge": "1.4.3",
+    "sharp": "0.35.5",
+>>>>>>> 7c3d3bb77b (fix(deps): patch Forge and XML parser vulnerabilities (#9283))
     "zod": "4.6.6"
   },
   "imports": {
