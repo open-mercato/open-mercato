@@ -252,6 +252,10 @@ export function useMessageCompose({
       params.set('pageSize', String(ATTACHMENT_LIST_PAGE_SIZE))
 
       const call = await apiCall<AttachmentListResponse>(`/api/attachments?${params.toString()}`)
+      if (call.status === 404 && page === 1) {
+        setAttachmentIds([])
+        return []
+      }
       if (!call.ok) {
         throw new Error(
           toErrorMessage(call.result)

@@ -77,7 +77,7 @@ const optionChoiceSchema = z.object({
 const optionDefinitionSchema = z.object({
   code: slugSchema,
   label: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   inputType: z.enum(['select', 'text', 'textarea', 'number']),
   isRequired: z.boolean().optional(),
   isMultiple: z.boolean().optional(),
@@ -86,8 +86,8 @@ const optionDefinitionSchema = z.object({
 
 const optionSchema = z.object({
   version: z.number().int().min(1).optional(),
-  name: z.string().trim().max(255).optional(),
-  description: z.string().trim().max(4000).optional(),
+  name: z.string().trim().max(255).nullable().optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   options: z.array(optionDefinitionSchema).max(64),
 })
 
@@ -547,6 +547,7 @@ export const priceCreateSchema = priceBaseSchema
 export const priceUpdateSchema = z
   .object({
     id: uuid(),
+    announce: z.boolean().optional(),
   })
   .merge(priceBaseSchema.partial())
   .superRefine(priceQuantityRangeRefinement)

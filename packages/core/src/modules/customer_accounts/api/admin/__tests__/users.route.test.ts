@@ -10,6 +10,7 @@ const mockRbac = { userHasAllFeatures: jest.fn() }
 const mockEmFind = jest.fn()
 const mockEmFindAndCount = jest.fn()
 const mockEmFindOne = jest.fn()
+const mockFindMetadata = jest.fn()
 const mockEmCreate = jest.fn()
 const mockEmPersist = jest.fn()
 const mockEmFlush = jest.fn()
@@ -39,6 +40,7 @@ const mockEm: Record<string, unknown> = {
   find: mockEmFind,
   findAndCount: mockEmFindAndCount,
   findOne: mockEmFindOne,
+  getMetadata: () => ({ find: mockFindMetadata }),
   create: mockEmCreate,
   persist: mockEmPersist,
   flush: mockEmFlush,
@@ -475,6 +477,7 @@ describe('admin /api/customer_accounts/admin/users — POST role validation', ()
     })
     mockEmCreate.mockImplementation((_entity: unknown, data: unknown) => data)
     mockEmFind.mockResolvedValue([])
+    mockFindMetadata.mockImplementation((entity: unknown) => ({ class: entity }))
   })
 
   it('validates all requested roles via a single $in query scoped to tenant AND organization', async () => {
@@ -588,6 +591,27 @@ describe('admin /api/customer_accounts/admin/users — POST role validation', ()
       kind: 'company',
       deletedAt: null,
     })
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('rejects a CRM company link without querying CRM when customers is disabled', async () => {
+    mockFindMetadata.mockReturnValue(undefined)
+    const req = buildRequest('http://localhost/api/customer_accounts/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'new@example.com',
+        password: 'Secret123!',
+        displayName: 'New User',
+        customerEntityId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      }),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ ok: false, error: 'Company not found' })
+    expect(mockEmFindOne).not.toHaveBeenCalled()
     expect(mockCreateUser).not.toHaveBeenCalled()
   })
 

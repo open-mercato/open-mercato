@@ -46,6 +46,9 @@ services:
     build:
       context: .
       args:
+        - OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES:-false}
+        - OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
+        - POSTGRES_CLIENT_MAJOR=${POSTGRES_CLIENT_MAJOR:-17}
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
         - INSTALL_CHROMIUM=${INSTALL_CHROMIUM:-0}
         # Optional: browser-reachable ws(s):// endpoint baked in at build time.
@@ -77,6 +80,7 @@ services:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
     environment:
       <<: *tenant-encryption-environment
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       # The image is a production build installed with `yarn workspaces focus --production`. The
       # Next server child is insulated (the CLI forces NODE_ENV=production for it), but pinning
       # `development` here still leaked into `mercato init`, migrations, workers, and the scheduler.
@@ -84,6 +88,8 @@ services:
       # Prevents V8 from growing toward total host RAM before GC kicks in.
       # Override in .env to tune for your host: --max-old-space-size=6144 suits 16 GB+ servers.
       NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=3072}
+      OM_ENABLE_ENTERPRISE_MODULES: ${OM_ENABLE_ENTERPRISE_MODULES:-false}
+      OM_ENABLE_ENTERPRISE_MODULES_BACKUPS: ${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
       DEPLOY_ENV: ${DEPLOY_ENV:-local}
       PORT: ${CONTAINER_PORT:-3000}
       TELEMETRY_BACKEND: ${TELEMETRY_BACKEND:-}
@@ -332,6 +338,7 @@ services:
     volumes:
       - mcp_shared:/run/mcp-shared
     environment:
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       <<: *tenant-encryption-environment
       NODE_ENV: ${NODE_ENV:-production}
       NODE_OPTIONS: ${MCP_NODE_OPTIONS:---max-old-space-size=2048}
@@ -450,7 +457,7 @@ services:
     profiles:
       - storage-s3
     ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
+      - "${INFRA_BIND_HOST:-127.0.0.1}:${LOCALSTACK_PORT:-4566}:4566"
     environment:
       SERVICES: s3
       AWS_DEFAULT_REGION: us-east-1
@@ -466,6 +473,7 @@ services:
       - mercato-network-fullapp
 
 volumes:
+  recovery_data:
   postgres_data:
   # Shared MCP API key file: the mcp service provisions it, opencode reads it.
   mcp_shared:
