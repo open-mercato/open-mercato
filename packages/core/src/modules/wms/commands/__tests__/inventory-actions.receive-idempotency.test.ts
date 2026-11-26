@@ -73,6 +73,7 @@ function createCtx(em: ReturnType<typeof createEm>) {
             query: async () => ({ items: [{ id: VARIANT_ID, sku: 'SKU-1' }] }),
           }
         }
+        if (name === 'rbacService') return { userHasAllFeatures: async () => true }
         throw new Error(`Unexpected resolve: ${name}`)
       },
     },

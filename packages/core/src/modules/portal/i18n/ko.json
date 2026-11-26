@@ -144,8 +144,9 @@
   "portal.verify.error.backToLogin": "로그인으로 돌아가기",
   "portal.verify.error.generic": "이메일 인증에 실패했습니다. 다시 시도해 주세요.",
   "portal.verify.error.invalidToken": "인증 토큰이 없습니다.",
+  "portal.verify.submit": "이메일 인증 및 비밀번호 설정",
   "portal.verify.success.description": "이메일 인증이 완료되었습니다. 이제 포털에 로그인할 수 있습니다.",
   "portal.verify.success.loginLink": "로그인",
   "portal.verify.success.title": "이메일 인증 완료",
-  "portal.verify.title": "이메일 인증 중"
+  "portal.verify.title": "이메일 인증"
 }
