@@ -124,7 +124,11 @@ function assertExpectedTenant(req: Request, context: SettingsContext): void {
   })
 }
 
-function readChangedKeys(req: Request, body: Record<string, unknown>): TimeTrackingSettingKeyDefinition[] | null {
+function readChangedKeys(
+  req: Request,
+  body: Record<string, unknown>,
+  translate: (key: string, fallback?: string) => string,
+): TimeTrackingSettingKeyDefinition[] | null {
   const searchParams = new URL(req.url).searchParams
   if (!searchParams.has(CHANGED_KEYS_PARAM)) return null
 
@@ -132,11 +136,61 @@ function readChangedKeys(req: Request, body: Record<string, unknown>): TimeTrack
     const entry = getTimeTrackingSettingKey(key)
     const group = entry ? body[entry.group] : undefined
     if (!entry || !group || typeof group !== 'object' || !Object.hasOwn(group, entry.key)) {
-      validation.addIssue({ code: 'custom', message: 'Changed keys must be registered and present in the settings body' })
+      validation.addIssue({
+        code: 'custom',
+        message: translate(
+          'staff.errors.invalidChangedKey',
+          'Changed keys must be registered and present in the settings body',
+        ),
+      })
       return z.NEVER
     }
     return entry
   })).parse([...new Set(changedKeysSchema.parse(searchParams.getAll(CHANGED_KEYS_PARAM)))])
+}
+
+/**
+ * A `before` interceptor on this route may add a related setting to the body
+ * under a key the client never listed in `changedKeys` (EP-12). The masked
+ * write below only persists `changedKeys`, so without this an interceptor's
+ * edit to an unselected key would validate, respond 200, and then vanish —
+ * silently discarded instead of written. Comparing the pre- and
+ * post-interceptor body over every registered key, not just `changedKeys`,
+ * finds exactly the keys an interceptor touched so they can be folded into
+ * the write set alongside the client's own selection.
+ */
+function detectInterceptorModifiedKeys(
+  rawBody: Record<string, unknown>,
+  interceptedBody: Record<string, unknown>,
+): TimeTrackingSettingKeyDefinition[] {
+  const modified: TimeTrackingSettingKeyDefinition[] = []
+  for (const entry of listTimeTrackingSettingKeys()) {
+    const beforeGroup = rawBody[entry.group]
+    const afterGroup = interceptedBody[entry.group]
+    const afterHasKey = !!afterGroup && typeof afterGroup === 'object' && Object.hasOwn(afterGroup, entry.key)
+    if (!afterHasKey) continue
+    const beforeHasKey = !!beforeGroup && typeof beforeGroup === 'object' && Object.hasOwn(beforeGroup, entry.key)
+    const afterValue = (afterGroup as Record<string, unknown>)[entry.key]
+    const beforeValue = beforeHasKey ? (beforeGroup as Record<string, unknown>)[entry.key] : undefined
+    if (!beforeHasKey || !isDeepStrictEqual(beforeValue, afterValue)) {
+      modified.push(entry)
+    }
+  }
+  return modified
+}
+
+function mergeSettingKeys(
+  base: TimeTrackingSettingKeyDefinition[],
+  extra: TimeTrackingSettingKeyDefinition[],
+): TimeTrackingSettingKeyDefinition[] {
+  const merged = [...base]
+  const seen = new Set(base.map(({ id }) => id))
+  for (const entry of extra) {
+    if (seen.has(entry.id)) continue
+    seen.add(entry.id)
+    merged.push(entry)
+  }
+  return merged
 }
 
 async function PUT(req: Request) {
@@ -157,6 +211,7 @@ async function PUT(req: Request) {
     }
     const grantedFeatures = access.grantedFeatures
 
+    const rawBody = await readJsonSafe<Record<string, unknown>>(req, {})
     const interceptors = await runTimesheetInterceptors({
       request: req,
       method: 'PUT',
@@ -168,7 +223,7 @@ async function PUT(req: Request) {
         userFeatures: grantedFeatures,
         tenantGlobal: true,
       },
-      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+      body: rawBody,
     })
     if (!interceptors.ok) return interceptors.response
     const { session } = interceptors
@@ -176,14 +231,19 @@ async function PUT(req: Request) {
     const settingsSchema = buildTimeTrackingSettingsSchema()
     const configService = resolveConfigService(context)
     const configScope = { tenantId: context.tenantId }
-    const changedKeys = readChangedKeys(req, session.body)
+    const changedKeys = readChangedKeys(req, session.body, context.translate)
     const requestBody = changedKeys
       ? session.body
       : await preserveOmittedSupportSettings(configService, configScope, session.body)
     let parsed = settingsSchema.parse(requestBody) as TimeTrackingSettings
+    // `changedKeys` masks the write to the client's own selection; a `before`
+    // interceptor can validly touch a related key outside that selection, so
+    // the write set folds in whatever the interceptor actually changed too.
+    let effectiveChangedKeys = changedKeys
     if (changedKeys) {
+      effectiveChangedKeys = mergeSettingKeys(changedKeys, detectInterceptorModifiedKeys(rawBody ?? {}, session.body))
       const current = await readTimeTrackingSettings(configService, configScope)
-      for (const { id, group, key } of changedKeys) {
+      for (const { id, group, key } of effectiveChangedKeys) {
         current[group] = { ...current[group], [key]: readTimeTrackingSettingValue(parsed, id) }
       }
       parsed = current
@@ -211,7 +271,7 @@ async function PUT(req: Request) {
     let effective = parsed
     if (guardPayload) {
       const merged = { ...parsed, ...guardPayload }
-      if (changedKeys) {
+      if (effectiveChangedKeys) {
         for (const [group, value] of Object.entries(guardPayload)) {
           if (value && typeof value === 'object' && !Array.isArray(value)) {
             merged[group] = { ...parsed[group], ...value }
@@ -222,8 +282,8 @@ async function PUT(req: Request) {
     }
 
     let settings: TimeTrackingSettings
-    if (changedKeys) {
-      const writeKeys = new Set(changedKeys.map(({ id }) => id))
+    if (effectiveChangedKeys) {
+      const writeKeys = new Set(effectiveChangedKeys.map(({ id }) => id))
       if (guardPayload) {
         for (const { id } of listTimeTrackingSettingKeys()) {
           if (!isDeepStrictEqual(readTimeTrackingSettingValue(parsed, id), readTimeTrackingSettingValue(effective, id))) {

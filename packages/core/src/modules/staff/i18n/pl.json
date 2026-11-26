@@ -249,6 +249,7 @@
   "staff.errors.customerAccountNotLinked": "To konto portalu nie jest powiązane z klientem.",
   "staff.errors.forbidden": "Brak dostępu",
   "staff.errors.internal": "Wewnętrzny błąd serwera",
+  "staff.errors.invalidChangedKey": "Zmienione klucze muszą być zarejestrowane i obecne w treści ustawień.",
   "staff.errors.invalidInput": "Nieprawidłowe żądanie",
   "staff.errors.invalid_request": "Nieprawidłowe żądanie",
   "staff.errors.missingScope": "Brak kontekstu najemcy lub organizacji.",

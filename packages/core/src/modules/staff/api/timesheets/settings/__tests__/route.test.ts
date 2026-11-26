@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
+import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
 
@@ -49,6 +50,7 @@ const container = {
   hasRegistration: (name: string) => name === 'moduleConfigService' || name === 'rbacService',
   resolve: jest.fn((name: string) => {
     if (name === 'moduleConfigService') return activeConfigService
+    if (name === 'em') return {}
     if (name === 'rbacService') {
       return {
       getGrantedFeatures: async () => grantedFeatures,
@@ -86,6 +88,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 import { GET, PUT, metadata } from '../route'
 import { DEFAULT_TIME_TRACKING_SETTINGS, STAFF_TIME_TRACKING_MODULE_ID, TIME_TRACKING_SETTING_KEYS } from '../../../../lib/time-tracking/settings'
 import { registerTimeTrackingSettingKey } from '../../../../lib/time-tracking/settingKeys'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const getRequest = () => new Request('http://localhost/api/staff/timesheets/settings')
 
@@ -113,12 +116,14 @@ describe('staff time tracking settings route', () => {
     setTenantValuesSpy.mockClear()
     container.resolve.mockClear()
     registerMutationGuards([])
+    registerApiInterceptors([])
     grantedFeatures = ['staff.timesheets.view', 'staff.timesheets.settings.manage']
     authValue = { tenantId: tenantA, sub: userId, orgId: organizationId }
   })
 
   afterAll(() => {
     registerMutationGuards([])
+    registerApiInterceptors([])
   })
 
   it('declares the feature guards required by the spec', () => {
@@ -220,6 +225,55 @@ describe('staff time tracking settings route', () => {
       targets: { dailyHours: 7.5 },
       warnings: { overlap: false, runningTimer: false },
     })
+  })
+
+  it('preserves a before-interceptor edit to an unselected key during a masked save, without disturbing a sibling setting', async () => {
+    configStore.set(storeKey(tenantA, 'defaults.chainStartFromPreviousEnd'), false)
+    configStore.set(storeKey(tenantA, 'support.referencePrefix'), 'HELP')
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.staff.settings.support_prefix',
+            targetRoute: 'staff/timesheets/settings',
+            methods: ['PUT'],
+            async before(request) {
+              return { ok: true, body: { ...request.body, support: { referencePrefix: 'ESC' } } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const response = await PUT(putRequest({ targets: { dailyHours: 7.5 } }, '?changedKeys=targets.dailyHours'))
+
+    expect(response.status).toBe(200)
+    expect(setTenantValuesSpy).toHaveBeenCalledWith(STAFF_TIME_TRACKING_MODULE_ID, {
+      'targets.dailyHours': 7.5,
+      'support.referencePrefix': 'ESC',
+    }, tenantA)
+    await expect(response.json()).resolves.toMatchObject({
+      defaults: { chainStartFromPreviousEnd: false },
+      targets: { dailyHours: 7.5 },
+      support: { referencePrefix: 'ESC' },
+    })
+    expect(configStore.get(storeKey(tenantA, 'defaults.chainStartFromPreviousEnd'))).toBe(false)
+  })
+
+  it('localizes the invalid changed-key detail for a non-English locale', async () => {
+    const polishMessage = 'Zmienione klucze muszą być zarejestrowane i obecne w treści ustawień.'
+    ;(resolveTranslations as jest.Mock).mockResolvedValueOnce({
+      translate: (key: string, fallback?: string) =>
+        key === 'staff.errors.invalidChangedKey' ? polishMessage : fallback ?? key,
+      t: (key: string, fallback?: string) => fallback ?? key,
+    })
+
+    const response = await PUT(putRequest({ targets: { dailyHours: 7.5 } }, '?changedKeys=unknown.key'))
+
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as { details?: Array<{ message: string }> }
+    expect(body.details?.[0]?.message).toBe(polishMessage)
   })
 
   it('applies only selected keys with a Configs service that implements the original contract', async () => {

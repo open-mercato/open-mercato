@@ -249,6 +249,7 @@
   "staff.errors.customerAccountNotLinked": "Dieses Portalkonto ist keinem Kunden zugeordnet.",
   "staff.errors.forbidden": "Zugriff verweigert",
   "staff.errors.internal": "Interner Serverfehler",
+  "staff.errors.invalidChangedKey": "Geänderte Schlüssel müssen registriert und im Anfragetext der Einstellungen enthalten sein.",
   "staff.errors.invalidInput": "Ungültige Anfrage",
   "staff.errors.invalid_request": "Ungültige Anfrage",
   "staff.errors.missingScope": "Mandanten- oder Organisationskontext fehlt.",

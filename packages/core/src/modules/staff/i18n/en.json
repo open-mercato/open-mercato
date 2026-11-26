@@ -249,6 +249,7 @@
   "staff.errors.customerAccountNotLinked": "This portal account is not linked to a customer.",
   "staff.errors.forbidden": "Forbidden",
   "staff.errors.internal": "Internal server error",
+  "staff.errors.invalidChangedKey": "Changed keys must be registered and present in the settings body.",
   "staff.errors.invalidInput": "Invalid request",
   "staff.errors.invalid_request": "Invalid request",
   "staff.errors.missingScope": "Missing tenant or organization scope.",

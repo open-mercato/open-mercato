@@ -121,6 +121,19 @@ export type ModuleConfigDefault = {
 
 export type ModuleConfigService = {
   getRecord(moduleId: string, name: string, scope?: ConfigScope): Promise<ModuleConfigRecord | null>
+  /**
+   * Batched `getRecord`, one call per name instead of one call to `getRecord`
+   * per name: a cold-cache caller reading N names pays at most two SELECTs
+   * (tenant scope, then the global fallback) instead of up to 2N. Optional so
+   * a `ModuleConfigService` that only implements the original contract (a
+   * test double, or an older override) keeps working through the `getRecord`
+   * fallback its caller already has.
+   */
+  getRecords?(
+    moduleId: string,
+    names: readonly string[],
+    scope?: ConfigScope,
+  ): Promise<Record<string, ModuleConfigRecord | null>>
   getValue<T = unknown>(
     moduleId: string,
     name: string,
@@ -166,6 +179,77 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
       if (scoped) return scoped
     }
     return loadRow(cache, moduleId, name, null)
+  }
+
+  const loadRows = async (
+    cache: CacheStrategy | null,
+    moduleId: string,
+    names: string[],
+    tenantId: string | null,
+  ): Promise<Map<string, ModuleConfigRecord | null>> => {
+    const resolved = new Map<string, ModuleConfigRecord | null>()
+    const missing: string[] = []
+    for (const name of names) {
+      const key = cacheKey(moduleId, name, tenantId)
+      const cached = await readCache(cache, key, tenantId)
+      if (cached) resolved.set(name, cached.found ? cached.record ?? null : null)
+      else missing.push(name)
+    }
+    if (missing.length === 0) return resolved
+
+    const em = resolveEm(container)
+    if (!em) {
+      for (const name of missing) resolved.set(name, null)
+      return resolved
+    }
+    const rows = await em.getRepository(ModuleConfig).find({ moduleId, name: { $in: missing }, tenantId })
+    const byName = new Map(rows.map((row) => [row.name, row]))
+    for (const name of missing) {
+      const key = cacheKey(moduleId, name, tenantId)
+      const entity = byName.get(name)
+      if (!entity) {
+        await writeCache(cache, key, { found: false }, moduleId, tenantId)
+        resolved.set(name, null)
+      } else {
+        const record = toRecord(entity, tenantId ? 'tenant' : 'instance')
+        await writeCache(cache, key, { found: true, record }, moduleId, tenantId)
+        resolved.set(name, record)
+      }
+    }
+    return resolved
+  }
+
+  const getRecords = async (
+    rawModuleId: string,
+    rawNames: readonly string[],
+    scope?: ConfigScope,
+  ): Promise<Record<string, ModuleConfigRecord | null>> => {
+    if (rawNames.length === 0) return {}
+    const normalized = rawNames.map((rawName) => ({ rawName, ...normalizeKey(rawModuleId, rawName) }))
+    const moduleId = normalized[0].moduleId
+    const names = normalized.map((entry) => entry.name)
+    const tenantId = scope?.tenantId ?? null
+    const cache = resolveCache(container)
+
+    const byName: Record<string, ModuleConfigRecord | null> = {}
+    let pending = names
+    if (tenantId) {
+      const tenantRows = await loadRows(cache, moduleId, names, tenantId)
+      pending = []
+      for (const name of names) {
+        const row = tenantRows.get(name)
+        if (row) byName[name] = row
+        else pending.push(name)
+      }
+    }
+    if (pending.length > 0) {
+      const instanceRows = await loadRows(cache, moduleId, pending, null)
+      for (const name of pending) byName[name] = instanceRows.get(name) ?? null
+    }
+
+    const output: Record<string, ModuleConfigRecord | null> = {}
+    for (const entry of normalized) output[entry.rawName] = byName[entry.name] ?? null
+    return output
   }
 
   const getValue = async <T>(
@@ -233,6 +317,10 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
       .sort((left, right) => left.name.localeCompare(right.name, 'en'))
     if (entries.length === 0) return
 
+    // Detached from the request's own transaction/connection (`useContext: false`,
+    // `disableContextResolution: true`): the batch upsert commits on its own connection
+    // instead of sharing one with whatever else the request's `em` is mid-transaction on,
+    // so it cannot deadlock against that connection and is not rolled back with it.
     await em.fork({ useContext: false, disableContextResolution: true })
       .createQueryBuilder(ModuleConfig)
       .insert(entries)
@@ -300,6 +388,7 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
 
   return {
     getRecord,
+    getRecords,
     getValue,
     setValue,
     setTenantValues,

@@ -249,6 +249,7 @@
   "staff.errors.customerAccountNotLinked": "Esta cuenta del portal no está vinculada a un cliente.",
   "staff.errors.forbidden": "Prohibido",
   "staff.errors.internal": "Error interno del servidor",
+  "staff.errors.invalidChangedKey": "Las claves modificadas deben estar registradas y presentes en el cuerpo de la configuración.",
   "staff.errors.invalidInput": "Solicitud no válida",
   "staff.errors.invalid_request": "Solicitud no válida",
   "staff.errors.missingScope": "Falta el contexto de inquilino u organización.",
