@@ -367,12 +367,38 @@ describe('messages validators', () => {
 
     it.each([
       '/backend/sales/orders/1',
-      'https://example.com/orders/1',
-      'mailto:support@example.com',
-      'tel:+123456789',
-    ])('accepts safe href %s', (href) => {
-      const result = messageActionSchema.safeParse({ ...baseAction, href })
-      expect(result.success).toBe(true)
+      '/backend/messages/{messageId}',
+      './relative/path',
+      '../parent/path',
+      '?query=1',
+      '#details',
+    ])('accepts relative navigation target %s', (href) => {
+      expect(messageActionSchema.safeParse({ ...baseAction, href }).success).toBe(true)
+    })
+
+    it.each([
+      'https://example.invalid/help',
+      'mailto:help@example.invalid',
+      'tel:+12025550100',
+      '/backend/notes\tpreview',
+    ])('rejects a target outside the relative link format %j', (href) => {
+      expect(messageActionSchema.safeParse({ ...baseAction, href }).success).toBe(false)
+    })
+
+    it('applies the same link policy to compose requests and draft updates', () => {
+      const composeFields = {
+        subject: 'Subject',
+        body: 'Body',
+        visibility: 'internal',
+        recipients: [{ userId: '11111111-1111-1111-8111-111111111111', type: 'to' }],
+      }
+      const localActionData = { actions: [{ ...baseAction, href: '/backend/messages' }] }
+      const externalActionData = { actions: [{ ...baseAction, href: 'https://example.invalid/help' }] }
+
+      expect(composeMessageRequestSchema.safeParse({ ...composeFields, actionData: localActionData }).success).toBe(true)
+      expect(composeMessageRequestSchema.safeParse({ ...composeFields, actionData: externalActionData }).success).toBe(false)
+      expect(updateDraftSchema.safeParse({ actionData: localActionData }).success).toBe(true)
+      expect(updateDraftSchema.safeParse({ actionData: externalActionData }).success).toBe(false)
     })
 
     it('accepts an action without an href', () => {

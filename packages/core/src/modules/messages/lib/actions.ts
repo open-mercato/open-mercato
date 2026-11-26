@@ -1,6 +1,7 @@
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import type { Message, MessageAction, MessageActionData, MessageObject } from '../data/entities'
+import { sanitizeMessageActionHref } from './action-href'
 import { getAllMessageObjectTypes, getMessageObjectType } from './message-objects-registry'
 import { getAllMessageTypes, getMessageType } from './message-types-registry'
 
@@ -224,7 +225,10 @@ export function resolveActionHref(
   if (!action.href) return null
   const context = buildTemplateContext(message, resolutionContext, action.objectRef)
   const resolved = resolveTemplateString(action.href, context, encodeURIComponent)
-  return sanitizeRichTextHref(resolved)
+  if (action.source === 'type_default' || action.source === 'object') {
+    return sanitizeRichTextHref(resolved)
+  }
+  return sanitizeMessageActionHref(resolved)
 }
 
 function collectCommandId(target: Set<string>, commandId: unknown): void {

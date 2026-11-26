@@ -727,3 +727,7 @@ STABLE API: legacy signatures leave organization unverified. Rotate scoped keys 
 ## 2026-11-25 — Empty organization scope (#10503)
 
 STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+
+## 2026-11-26 — Message-supplied action links (#3487)
+
+STABLE Messages API (§7) and action validator (§1): compose and draft updates require relative destinations for message-supplied actions. Execution also checks the resolved destination for stored actions. Module-declared message-type and object-type actions keep their existing link policy. A compatibility bridge that accepts off-origin message-supplied redirects would keep the unsafe behavior available. Named maintainer approval of the Emergency Security Exception is pending. See [upgrade instructions](UPGRADE_NOTES.md#message-supplied-action-links-3487) and the [compatibility spec](.ai/specs/2026-11-26-message-action-link-policy.md).

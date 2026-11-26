@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
-import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRichText'
+import { sanitizeMessageActionHref } from '../lib/action-href'
 import { channelTypeRequiresExternalEmail } from '../lib/channel-sender-identity'
 
 export const messageRouteIdSchema = z.guid()
@@ -88,8 +88,8 @@ export const messageActionSchema = z.object({
     .string()
     .optional()
     .refine(
-      (value) => value == null || sanitizeRichTextHref(value) != null,
-      { message: '[internal] message action href must be http(s), mailto, tel, or a relative path' },
+      (value) => value == null || sanitizeMessageActionHref(value) != null,
+      { message: '[internal] message action href must be a same-origin relative path' },
     ),
   isTerminal: z.boolean().optional(),
   confirmRequired: z.boolean().optional(),

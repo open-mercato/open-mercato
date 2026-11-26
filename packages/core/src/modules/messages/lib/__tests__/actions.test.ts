@@ -1,4 +1,5 @@
 import {
+  findResolvedMessageActionById,
   getMessageSafeCommandIds,
   isMessageSafeCommandId,
   isTerminalMessageAction,
@@ -140,10 +141,27 @@ describe('resolveActionHref', () => {
     const action = createAction({
       commandId: undefined,
       href: '/backend/messages/{messageId}',
+      source: 'message',
     })
     expect(resolveActionHref(action, createMessage(), resolutionContext)).toBe(
       '/backend/messages/message-1',
     )
+  })
+
+  it('rejects external destinations from stored message actions', () => {
+    const storedAction = { id: 'help', label: 'Help', href: 'https://example.invalid/help' }
+    const message = createMessage({ actionData: { actions: [storedAction] } })
+    const action = findResolvedMessageActionById(message, [], storedAction.id)
+
+    expect(action?.source).toBe('message')
+    expect(action && resolveActionHref(action, message, resolutionContext)).toBeNull()
+  })
+
+  it.each(['type_default', 'object'] as const)('preserves destinations declared by %s actions', (source) => {
+    const href = 'https://example.invalid/help'
+    const action = createAction({ commandId: undefined, href, source })
+
+    expect(resolveActionHref(action, createMessage(), resolutionContext)).toBe(href)
   })
 
   it('keeps safe absolute http(s) and mailto hrefs', () => {
