@@ -719,3 +719,11 @@ The STABLE attachment library API response and the enrichment helper signature r
 ## #10331 #10332 (2026-11-23)
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
+
+## 2026-11-24 — Trace ingest
+
+STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-25 — Empty organization scope (#10503)
+
+STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.

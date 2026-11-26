@@ -19,7 +19,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalCard } from '@open-mercato/ui/portal/components/PortalCard'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
-import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'
+import { usePortalLiveRefetch } from '@open-mercato/ui/portal/hooks/usePortalLiveRefetch'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   ATTACHMENT_ACCEPT_TYPES,
@@ -147,9 +147,10 @@ export default function PortalSupportTicketDetailPage({ params }: Props) {
     void load()
   }, [load])
 
-  usePortalAppEvent(PORTAL_SUPPORT_UPDATED_EVENT, (event) => {
-    if (readPortalTicketIdFromEvent(event) === params.id) void load()
-  }, [load, params.id])
+  usePortalLiveRefetch(PORTAL_SUPPORT_UPDATED_EVENT, () => void load(), {
+    filter: (event) => readPortalTicketIdFromEvent(event) === params.id,
+    deps: [load, params.id],
+  })
 
   const clearFailed = React.useCallback((fileName: string) => {
     forgetFailedUpload(params.id, fileName)
