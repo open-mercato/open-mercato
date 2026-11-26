@@ -20,6 +20,12 @@ Non-goals: other alerts, issues/advisory creation, dismissal, merges, releases, 
 2.1 Run configured ordered validation gate and applicable resolution checks; request ci-full.
 2.2 Obtain independent final review and publish evidence; keep draft on incomplete verification.
 
+### Phase 3: Cover the adapter follow-up
+3.1 Update the adapter resolution and cover the five source alerts.
+3.2 Verify the installed paths, ordered gate, and independent review.
+
+The alert feed reports a second affected range for `@hono/node-server`, covering the 2.1.3 version originally proposed by this PR. Alert `dependabot:open-mercato/open-mercato:549` (`GHSA-jpvv-r467-5p4w`) belongs to the existing adapter remediation. Upgrade the existing pin to 2.1.6 and regenerate the lockfile with Yarn 4.17.1. MCP SDK 1.32.2 accepts the patch through `^1.19.9 || ^2.0.5`. The patch was published November 2, 2026, and clears the five-day age gate.
+
 ## Risks
 
 Adapter changes major version but existing SDK permits it; smoke coverage and full CI required. Dependency installation/build may encounter unrelated baseline or environment failures; report separately. No alert is fixed until merged main is verified on a future run.
@@ -41,3 +47,8 @@ PR: #8946
 - [ ] 2.2 Obtain independent final review and publish evidence; keep draft on incomplete verification.
 
 Phase 1 evidence: Yarn4.17.1 up -R postcss-selector-parser refreshed only two lock entries (adapter2.1.3, parser7.1.7). Immutable install, resolution checker and template parity passed. Three focused tests pass; lock regression fails on main1.19.14. Native install warnings: make unavailable for better-sqlite3/cpu-features. Initial template/commit attempt hit long TMPDIR Unix-socket limit; rerun with private /tmp/sec-b134 passed. No hooks bypassed.
+
+### Phase 3: Cover the adapter follow-up
+
+- [ ] 3.1 Update the adapter resolution and cover the five source alerts
+- [ ] 3.2 Verify the installed paths, ordered gate, and independent review
