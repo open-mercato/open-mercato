@@ -1,15 +1,47 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
-import { apiRequest, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
+import { hash } from 'bcryptjs'
+import { apiRequest, postForm, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture, createRoleFixture, createUserFixture,
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createSuperadminApiToken, generateTotpCode, loginViaApi } from './helpers/securityFixtures'
 
 const READ_PATH = '/api/sales/dashboard/widgets/new-orders'
 const CUSTOM_WRITE_PATH = '/api/sales/quotes/convert'
+
+test('TC-SEC-016: a valid tenantless staff account retains authenticated API access', async () => {
+  const userId = randomUUID()
+  const email = `qa-mfa-tenantless-${userId}@example.test`
+  const password = `Qa1!${userId}`
+  const passwordHash = await hash(password, 10)
+  await withClient((client) => client.query(
+    'insert into users (id, email, password_hash, is_confirmed, created_at) values ($1, $2, $3, true, now())',
+    [userId, email, passwordHash],
+  ))
+
+  try {
+    await withCredentialIsolatedRequest(async (isolated) => {
+      const session = await loginViaApi(isolated, email, password)
+      expect(getTokenContext(session.token)).toEqual({ tenantId: '', organizationId: '' })
+      const response = await isolated.post('/api/auth/feature-check', {
+        headers: { cookie: `auth_token=${encodeURIComponent(session.token)}` },
+        data: { features: [] },
+      })
+      expect(response.status()).toBe(200)
+      expect(await response.json()).toEqual({ ok: true, granted: [], userId })
+    })
+  } finally {
+    await withClient(async (client) => {
+      await client.query('delete from sessions where user_id = $1', [userId])
+      const result = await client.query('delete from users where id = $1', [userId])
+      expect(result.rowCount).toBe(1)
+    })
+  }
+})
 
 for (const features of [
   ['*'],
@@ -90,6 +122,29 @@ for (const features of [
         expect((await isolated.get('/api/auth/profile', { headers: cookie })).status()).toBe(200)
         expect((await isolated.get('/api/security/profile', { headers: cookie })).status()).toBe(200)
         expect((await isolated.get('/api/security/mfa/providers', { headers: cookie })).status()).toBe(200)
+        const refreshLogin = await postForm(isolated, '/api/auth/login', { email, password, remember: 'true' })
+        expect(refreshLogin.status()).toBe(200)
+        const refreshSession = await readJsonSafe<{ token: string; refreshToken: string }>(refreshLogin)
+        expect(refreshSession?.refreshToken).toBeTruthy()
+        const refreshCookie = {
+          cookie: `auth_token=${encodeURIComponent(refreshSession!.token)}; session_token=${encodeURIComponent(refreshSession!.refreshToken)}`,
+        }
+        const refreshRedirect = await isolated.get('/api/auth/session/refresh?redirect=%2Fbackend', {
+          headers: refreshCookie, maxRedirects: 0,
+        })
+        expect(refreshRedirect.status()).toBe(307)
+        expect(new URL(refreshRedirect.headers().location, 'http://localhost').pathname).toBe('/backend')
+        expect(refreshRedirect.headers()['set-cookie']).toContain('auth_token=')
+        const refreshed = await isolated.post('/api/auth/session/refresh', {
+          headers: refreshCookie, data: { refreshToken: refreshSession!.refreshToken },
+        })
+        expect(refreshed.status()).toBe(200)
+        const refreshedSession = await readJsonSafe<{ accessToken: string }>(refreshed)
+        expect(refreshedSession?.accessToken).toBeTruthy()
+        expect((await isolated.get(READ_PATH, {
+          headers: { cookie: `auth_token=${encodeURIComponent(refreshedSession!.accessToken)}` },
+        })).status()).toBe(403)
+
         expect((await isolated.post('/api/auth/logout', {
           headers: { cookie: `auth_token=${encodeURIComponent(logoutSession.token)}` },
         })).status()).toBe(200)

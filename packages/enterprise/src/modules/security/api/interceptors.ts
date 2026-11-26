@@ -171,6 +171,7 @@ export const interceptors: ApiInterceptor[] = [
         routePattern === 'auth/login'
         || routePattern === 'auth/logout'
         || routePattern === 'auth/profile'
+        || routePattern === 'auth/session/refresh'
         || routePattern === 'security/profile'
         || routePattern === 'security/profile/password'
         || routePattern === 'security/mfa'

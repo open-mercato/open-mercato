@@ -144,6 +144,59 @@ describeWithPostgres('MfaService concurrent mutations on PostgreSQL', () => {
     await expect(enforcement.checkUserCompliance(randomUUID())).rejects.toMatchObject({ statusCode: 404 })
   })
 
+  test('organization and tenant policies apply only to accounts within their scope', async () => {
+    const em = orm.em.fork()
+    const enforcement = new MfaEnforcementService(em)
+    const otherUserId = randomUUID()
+    const otherTenantId = randomUUID()
+    const otherOrganizationId = randomUUID()
+    const otherOrganizationInSameTenant = randomUUID()
+    const now = new Date()
+    const deadline = new Date('2026-11-15T00:00:00Z')
+    const policyFields = { enforcedBy: userId, isEnforced: true, enforcementDeadline: deadline, createdAt: now, updatedAt: now }
+    try {
+      em.persist([
+        em.create(User, {
+          id: otherUserId, email: `${otherUserId}@example.test`, tenantId: otherTenantId,
+          organizationId: otherOrganizationId, isConfirmed: true, createdAt: now,
+        }),
+        em.create(MfaEnforcementPolicy, {
+          ...policyFields, scope: EnforcementScope.ORGANISATION, tenantId,
+          organizationId: otherOrganizationInSameTenant,
+        }),
+        em.create(MfaEnforcementPolicy, {
+          ...policyFields, scope: EnforcementScope.ORGANISATION, tenantId: otherTenantId,
+          organizationId: otherOrganizationId, isEnforced: false,
+        }),
+        em.create(MfaEnforcementPolicy, { ...policyFields, scope: EnforcementScope.TENANT, tenantId: otherTenantId }),
+      ])
+      await em.flush()
+      await expect(enforcement.checkUserCompliance(userId)).resolves.toEqual({ compliant: true, enforced: false })
+      await expect(enforcement.checkUserCompliance(otherUserId)).resolves.toEqual({ compliant: true, enforced: false })
+
+      await em.nativeDelete(MfaEnforcementPolicy, {
+        scope: EnforcementScope.ORGANISATION, tenantId: otherTenantId, organizationId: otherOrganizationId,
+      })
+      await expect(enforcement.checkUserCompliance(otherUserId)).resolves.toEqual({ compliant: false, enforced: true, deadline })
+      await expect(enforcement.checkUserCompliance(userId)).resolves.toEqual({ compliant: true, enforced: false })
+    } finally {
+      await orm.em.fork().nativeDelete(User, { id: otherUserId })
+    }
+  })
+
+  test('a stored tenantless account remains unenforced when a platform policy exists', async () => {
+    const em = orm.em.fork()
+    await em.nativeUpdate(User, { id: userId }, { tenantId: null, organizationId: null })
+    em.persist(em.create(MfaEnforcementPolicy, {
+      scope: EnforcementScope.PLATFORM, isEnforced: true, enforcedBy: userId,
+      createdAt: new Date(), updatedAt: new Date(),
+    }))
+    await em.flush()
+
+    await expect(new MfaEnforcementService(em).checkUserCompliance(userId))
+      .resolves.toEqual({ compliant: true, enforced: false })
+  })
+
   function service(em = orm.em.fork(), allowMultiple = false, label?: string) {
     const registry = new MfaProviderRegistry()
     registry.register({

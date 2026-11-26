@@ -349,7 +349,7 @@ export class MfaEnforcementService {
       left join lateral (
         select is_enforced, enforcement_deadline, allowed_methods
         from mfa_enforcement_policies
-        where deleted_at is null and (
+        where account.tenant_id is not null and deleted_at is null and (
           (scope = ? and tenant_id = account.tenant_id and organization_id = account.organization_id)
           or (scope = ? and tenant_id = account.tenant_id and organization_id is null)
           or (scope = ? and tenant_id is null and organization_id is null)
@@ -357,7 +357,7 @@ export class MfaEnforcementService {
         order by case scope when ? then 0 when ? then 1 else 2 end, updated_at desc
         limit 1
       ) as policy on true
-      where account.id = ? and account.deleted_at is null and account.tenant_id is not null
+      where account.id = ? and account.deleted_at is null
     `, [
       EnforcementScope.ORGANISATION,
       EnforcementScope.TENANT,
@@ -382,9 +382,10 @@ export class MfaEnforcementService {
 
   async getEffectivePolicyForUser(userId: string): Promise<MfaEnforcementPolicy | null> {
     const user = await this.findUserById(userId)
-    if (!user?.tenantId) {
+    if (!user) {
       throw new MfaEnforcementServiceError('User not found', 404)
     }
+    if (!user.tenantId) return null
 
     return this.resolveEffectivePolicy(user.tenantId, user.organizationId ?? undefined)
   }

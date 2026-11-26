@@ -1032,6 +1032,15 @@ describe('MfaEnforcementService', () => {
     expect(report.total).toBe(1)
   })
 
+  test('a tenantless account has no enrollment policy and missing accounts remain errors', async () => {
+    const { service } = createContext()
+    mockedFindOneWithDecryption.mockResolvedValueOnce({ id: 'platform-staff', tenantId: null } as User)
+    mockedFindOneWithDecryption.mockResolvedValueOnce(null)
+
+    await expect(service.getEffectivePolicyForUser('platform-staff')).resolves.toBeNull()
+    await expect(service.getEffectivePolicyForUser('missing-user')).rejects.toMatchObject({ statusCode: 404 })
+  })
+
   test('checkUserCompliance returns the stored enforcement decision in one statement', async () => {
     const { service, em } = createContext()
     const deadline = new Date('2026-11-15T00:00:00Z')

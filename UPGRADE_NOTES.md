@@ -2,7 +2,7 @@
 
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
-When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session remains active. Complete enrollment through the existing security profile flow, then retry the request. API keys continue to follow their own issuance, scope, and revocation rules.
+When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.
 
 Operators using a custom API catch-all should adopt the request-scoped interceptor invocation from the updated create-app template. The framework dispatcher already includes it. This change requires no database migration or credential reissue.
 

@@ -56,7 +56,7 @@ describe('MFA enrollment API admission policy', () => {
   })
 
   test.each([
-    'auth/login', 'auth/profile', 'auth/logout', 'security/profile', 'security/profile/password',
+    'auth/login', 'auth/profile', 'auth/logout', 'auth/session/refresh', 'security/profile', 'security/profile/password',
     'security/mfa', 'security/mfa/providers', 'security/mfa/provider/totp', 'security/mfa/verify',
     'security/mfa/methods', 'security/mfa/methods/method-1', 'security/mfa/recovery-codes/regenerate',
   ])('retains recovery route %s without querying enforcement', async (path) => {
