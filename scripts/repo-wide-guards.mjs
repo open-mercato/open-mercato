@@ -266,6 +266,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'apps/mercato and packages/create-app/template globals.css — z-index scale',
       },
       {
+        path: 'src/primitives/__tests__/spacing-roles.test.ts',
+        scans: 'apps/mercato and packages/create-app/template globals.css — spacing role tokens, compact density and the page grid; also packages/shared/src/lib/utils.ts, which must teach tailwind-merge the role names',
+      },
+      {
         path: 'src/backend/icons/__tests__/lucideRegistryGenerator.test.ts',
         scans: 'git-tracked files repo-wide — importers of the deep lucideRegistry.generated path',
       },
