@@ -16,6 +16,10 @@ Let CRM extensions render a company logo or contact photo in the existing detail
 
 Applications depend on the handle names and prop shapes once shipped. Tests will pin the names to the declarations and check that the original overview reaches the override. Keep the person's current avatar dimensions, which changed since the spec was written.
 
+## Verification
+
+All 18 focused Jest tests passed. The company and person browser cases both passed against the disposable app. The generated catalog binds both handles, and all seven compatibility-context checks pass after integrating upstream. Browser screenshots and the full repository gate results are tracked on [the implementation PR](https://github.com/open-mercato/open-mercato/pull/10736).
+
 ## Progress
 PR: #10736
 
@@ -25,4 +29,4 @@ PR: #10736
 
 - [x] 1.1 Register and render both customer header avatars — fcc661ea06
 - [x] 1.2 Test the contracts and detail header integration — fcc661ea06
-- [ ] 1.3 Document the public handles and verify the change
+- [x] 1.3 Document the public handles and verify the change — 6065ef88a6
