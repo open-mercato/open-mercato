@@ -162,6 +162,14 @@ async function resolveSystemEmailChannel(
     if (!channel.isActive || channel.status !== 'connected') {
       throw new Error(`SYSTEM_EMAIL_CHANNEL_UNAVAILABLE: channel is ${channel.status}`)
     }
+    // Defensive trust boundary: tenant-configured channels must be explicit for system email.
+    // Only channels explicitly marked with capabilities.systemEmail === true are eligible.
+    // This keeps the scope of tenant-configured channels explicit and prevents implicit
+    // borrowing of tenant credentials for security-sensitive system email delivery.
+    if (channel.capabilities?.systemEmail !== true) {
+      // Treat as no tenant channel – fall through to instance-wide env transport.
+      return envTarget
+    }
     return { channel, hasTenantChannel: true }
   }
 
