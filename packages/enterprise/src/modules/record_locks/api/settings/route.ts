@@ -45,6 +45,7 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         { status: 401, description: 'Unauthorized', schema: recordLockErrorSchema },
+        { status: 403, description: 'Organization scope denied', schema: recordLockErrorSchema },
       ],
     },
     POST: {
@@ -59,6 +60,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload', schema: recordLockErrorSchema },
         { status: 401, description: 'Unauthorized', schema: recordLockErrorSchema },
+        { status: 403, description: 'Organization scope denied', schema: recordLockErrorSchema },
       ],
     },
   },

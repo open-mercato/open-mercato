@@ -1044,6 +1044,7 @@
   "wms.backend.putaway.complete.dialog.shortcutHint": "aby zakończyć",
   "wms.backend.putaway.complete.dialog.submit": "Zakończ rozlokowanie",
   "wms.backend.putaway.complete.dialog.title": "Zakończ rozlokowanie",
+  "wms.backend.putaway.complete.errors.quantityExceedsTask": "Potwierdzona ilość nie może przekraczać ilości w zadaniu.",
   "wms.backend.putaway.complete.errors.quantityPositive": "Potwierdzona ilość musi być większa od 0.",
   "wms.backend.putaway.complete.errors.serialMismatch": "Zeskanowany numer seryjny nie pasuje do tego zadania.",
   "wms.backend.putaway.complete.errors.submit": "Nie udało się zakończyć zadania rozlokowania.",
