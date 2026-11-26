@@ -220,7 +220,7 @@ const entityHeaderEntry: GalleryEntry = {
       render: () => <EntityHeader {...entityHeaderFixtures.error} />,
       code: entityHeaderCode(`  title="Acme Corporation"
   status="error"
-  errorMessage={t('customers.detail.loadError')}`),
+  errorMessage={t(loadErrorKey)}`),
     },
     {
       id: 'with-slots',
@@ -359,7 +359,7 @@ const keyValueEntry: GalleryEntry = {
       render: () => <KeyValue {...keyValueFixtures.error} />,
       code: keyValueCode(`  items={[]}
   status="error"
-  errorMessage={t('customers.detail.loadError')}`),
+  errorMessage={t(loadErrorKey)}`),
     },
     {
       id: 'empty',
@@ -501,7 +501,7 @@ const timelineEntry: GalleryEntry = {
       code: timelineCode(`  items={[]}
   order="desc"
   status="error"
-  errorMessage={t('customers.activity.loadError')}`),
+  errorMessage={t(loadErrorKey)}`),
     },
     {
       id: 'empty',
@@ -630,7 +630,7 @@ const kanbanEntry: GalleryEntry = {
     id: stage.id,
     title: stage.name,
     status: stage.error ? 'error' : stage.loading ? 'loading' : 'ready',
-    errorMessage: stage.error ? t('customers.deals.stageLoadError') : undefined,
+    errorMessage: stage.error ? t(loadErrorKey) : undefined,
     cards: stage.deals,
   }))}
   onMove={moveDeal}
@@ -661,7 +661,7 @@ const kanbanEntry: GalleryEntry = {
       render: () => <Kanban {...kanbanFixtures.error} />,
       code: kanbanCode(`  columns={[]}
   status="error"
-  errorMessage={t('customers.deals.loadError')}
+  errorMessage={t(loadErrorKey)}
   onMove={moveDeal}
   renderCard={(deal) => <DealCard deal={deal} />}`),
     },
@@ -792,7 +792,7 @@ const wizardEntry: GalleryEntry = {
       render: () => <Wizard {...wizardFixtures.error} />,
       code: wizardCode(`  activeStepId="details"
   status="error"
-  errorMessage={t('catalog.wizard.loadError')}
+  errorMessage={t(loadErrorKey)}
   onNext={async () => true}
   onBack={goBack}
   onFinish={submit}`),
