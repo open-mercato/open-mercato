@@ -78,6 +78,9 @@ env:
 # `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
 # `main`, and while it is absent from these lists no job is scheduled for them at all.
 # Drop the entry once its stack has landed on `main`.
+# `stabilize/**` is a pull_request base only: fix PRs into the daily batch
+# (`stabilize/main-<date>`, CONTRIBUTING.md § Daily batch) get the normal scoped run. The batch
+# PR itself has a `stabilize/` head, so FORCE_FULL_SUITE keeps it on the full suite.
 on:
   push:
     branches:
@@ -85,11 +88,14 @@ on:
       - 'release/v*'
       - feat/wms
   pull_request:
-    types: [opened, synchronize, reopened]
+    # Draft PRs get no CI: `audit-scope` detects the draft, `test` fails on purpose and every
+    # other job skips. `ready_for_review` starts the full run the moment the PR is marked ready.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
       - 'release/v*'
       - feat/wms
+      - 'stabilize/**'
 
 # PR runs: a new push cancels the in-progress run, so only the latest commit is tested.
 # Branch pushes (main, release lines): never cancel a running suite. A full run takes about
@@ -113,6 +119,8 @@ jobs:
   #                      skipped for CI/docs-only PRs to save ~2 min.
   prepare:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: audit-scope
+    if: needs.audit-scope.outputs.draft != 'true'
     outputs:
       skip_integration: ${{ steps.integration-scope.outputs.skip }}
       affected_modules: ${{ steps.integration-scope.outputs.modules }}
@@ -283,12 +291,42 @@ jobs:
   # ── Audit scope ─────────────────────────────────────────────────────────────
   # Determines whether dependency audit needs to run. Package manifests and
   # lockfiles are the only inputs that can change the dependency graph.
+  #
+  # Also the draft detector: on a draft PR every other job skips, except
+  # `test`, which fails on purpose (see its note). The draft state is read live,
+  # so re-running an old draft run after the PR was marked ready runs the suite
+  # instead of re-publishing draft results.
   audit-scope:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       should_run: ${{ steps.dependency-files.outputs.should_run }}
+      draft: ${{ steps.draft.outputs.draft }}
     steps:
+      - name: Detect draft pull request
+        id: draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          DRAFT=false
+          if [ "${EVENT_DRAFT}" = "true" ]; then
+            DRAFT=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.draft' 2>/dev/null || echo false)
+          fi
+          if [ "${DRAFT}" = "true" ]; then
+            echo "Draft pull request: CI skipped. Mark it ready for review to run the checks." >> "$GITHUB_STEP_SUMMARY"
+          else
+            DRAFT=false
+          fi
+          echo "draft=${DRAFT}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
+        if: steps.draft.outputs.draft != 'true'
         uses: actions/checkout@v6
         with:
           # A pull_request checkout is GitHub's merge commit; its first parent is
@@ -297,6 +335,7 @@ jobs:
           fetch-depth: 2
 
       - name: Detect dependency file changes
+        if: steps.draft.outputs.draft != 'true'
         id: dependency-files
         shell: bash
         run: |
@@ -450,6 +489,8 @@ jobs:
   # no-op job (issue #4472).
   lint:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: audit-scope
+    if: needs.audit-scope.outputs.draft != 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -520,6 +561,8 @@ jobs:
   # redirected to `typescript-js`.
   ds-lint:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: audit-scope
+    if: needs.audit-scope.outputs.draft != 'true'
     permissions:
       contents: read
       pull-requests: write   # sticky comment; no-op on fork PRs (read-only token)
@@ -624,16 +667,29 @@ jobs:
   # Typechecking and unit tests. Runs in parallel with ephemeral-integration
   # so typecheck cost does not add to the integration wall time.
   # merge-coverage and docker-build both wait for this job to complete.
+  #
+  # Draft gate: on a draft PR this required job FAILS instead of skipping. A
+  # skipped check counts as passing, so a draft run that only skipped would
+  # leave every required check green on the commit until the ready run's jobs
+  # replaced them. A failing `test` stays red until a non-draft run reports a
+  # real result, so marking a PR ready never opens a merge window.
+  #
+  # Audit gate: `audit` is not a required check, and a failed or cancelled
+  # audit used to skip this job, which also reads as passing. It now runs and
+  # fails at its first step instead. documents-multi-instance does the same.
   test:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
       !cancelled() &&
-      needs.prepare.result == 'success' &&
-      needs.audit-scope.result == 'success' &&
-      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
-      needs.lint.result == 'success'
+      (needs.audit-scope.outputs.draft == 'true' ||
+       needs.audit.result == 'failure' ||
+       needs.audit.result == 'cancelled' ||
+       (needs.prepare.result == 'success' &&
+        needs.audit-scope.result == 'success' &&
+        (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+        needs.lint.result == 'success'))
     services:
       # `@open-mercato/queue` translates its `coalesce` option into BullMQ deduplication,
       # and the rest of its tests — which mock BullMQ — prove only that the right options
@@ -662,6 +718,18 @@ jobs:
       # which is what keeps it out of every environment that has no Redis.
       QUEUE_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
+      - name: Fail on draft pull request
+        if: needs.audit-scope.outputs.draft == 'true'
+        run: |
+          echo "::error::Draft pull request: CI does not run on drafts. Mark the PR ready for review to run the checks."
+          exit 1
+
+      - name: Fail on failed audit
+        if: needs.audit.result == 'failure' || needs.audit.result == 'cancelled'
+        run: |
+          echo "::error::Audit failed: the dependency audit did not pass, so this required check fails instead of skipping. Fix the audit job first."
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
@@ -927,6 +995,9 @@ jobs:
   # regression. Run it as a dedicated required job on GitHub's Docker-capable
   # runner so every change proves the two-sidecar Redis/PostgreSQL persistence
   # path rather than relying on an opt-in local command.
+  #
+  # Required check: a failed or cancelled audit makes it fail at its first step
+  # rather than skip (a skip reads as passing). See the audit gate on `test`.
   documents-multi-instance:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -934,11 +1005,20 @@ jobs:
     if: |
       always() &&
       !cancelled() &&
-      needs.prepare.result == 'success' &&
-      needs.audit-scope.result == 'success' &&
-      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
-      needs.lint.result == 'success'
+      (needs.audit.result == 'failure' ||
+       needs.audit.result == 'cancelled' ||
+       (needs.prepare.result == 'success' &&
+        needs.audit-scope.result == 'success' &&
+        (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+        needs.lint.result == 'success'))
     steps:
+      - name: Fail on failed audit
+        id: audit-gate
+        if: needs.audit.result == 'failure' || needs.audit.result == 'cancelled'
+        run: |
+          echo "::error::Audit failed: the dependency audit did not pass, so this required check fails instead of skipping. Fix the audit job first."
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v7
 
@@ -980,27 +1060,27 @@ jobs:
         run: yarn workspace @open-mercato/documents test:multi-instance
 
       - name: Run advisory lock suite against real Postgres
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/shared test:pg-integration
 
       - name: Run integrations module suites against real Postgres
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/core test:pg-integration
 
       - name: Run Discord auto-reply repeat-delivery suite against real Postgres
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/channel-discord test:pg-integration
 
       - name: Run checkout migration suite against real Postgres
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/checkout test:pg-integration
 
       - name: Run webhook delivery claim suite against real Postgres
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/webhooks test:pg-integration
 
       - name: Check OAuth grant import paths resolve against the built dist
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: node scripts/check-oauth-publish-shape.mjs
 
   # ── Integration tests ───────────────────────────────────────────────────────

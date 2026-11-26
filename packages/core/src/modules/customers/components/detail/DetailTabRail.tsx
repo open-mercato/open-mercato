@@ -4,7 +4,7 @@ import * as React from 'react'
 import { MoreHorizontal, Plus } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
-import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 
 export type DetailTabRailTab = {
@@ -188,16 +188,17 @@ export function DetailTabRail({
     return tabs.filter((tab) => !visible.has(tab.id))
   }, [tabs, measuring, visibleIds])
   const showMore = measuring || overflowTabs.length > 0
+  const hasSelectedTab = visibleTabs.some((tab) => tab.id === activeTab)
 
   React.useEffect(() => {
     if (!showMore) setMoreOpen(false)
   }, [showMore])
 
   return (
-    <div>
+    <Tabs value={activeTab} onValueChange={onTabChange} variant="underline">
       <div ref={rowRef} data-testid="detail-tabs-row" aria-busy={busy} className="flex items-end justify-between gap-2 border-b">
         <div ref={listRef} className="flex min-w-0 flex-1 flex-nowrap items-end overflow-hidden">
-          <Tabs value={activeTab} onValueChange={onTabChange} variant="underline" className="shrink-0">
+          <div className="shrink-0">
             <TabsList aria-label={listLabel} className="-mb-px flex-nowrap border-b-0 px-1">
               {visibleTabs.map((tab) => (
                 <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
@@ -205,7 +206,7 @@ export function DetailTabRail({
                 </TabsTrigger>
               ))}
             </TabsList>
-          </Tabs>
+          </div>
           {showMore ? (
             <Popover open={moreOpen} onOpenChange={setMoreOpen}>
               <PopoverTrigger asChild>
@@ -283,9 +284,13 @@ export function DetailTabRail({
         ) : null}
       </div>
 
-      <div className={contentClassName} role="tabpanel">
-        {children}
-      </div>
-    </div>
+      {hasSelectedTab ? (
+        <TabsContent value={activeTab} className={`mt-0 ${contentClassName}`}>
+          {children}
+        </TabsContent>
+      ) : (
+        <div className={contentClassName}>{children}</div>
+      )}
+    </Tabs>
   )
 }

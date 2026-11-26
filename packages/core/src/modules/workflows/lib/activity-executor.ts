@@ -15,6 +15,7 @@ import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
+import type { ApiKeyOneTimeIssuer } from '@open-mercato/shared/lib/auth/principal-service'
 import { createModuleQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import {
@@ -23,7 +24,7 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
+import { getDeclaredEvents, isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import {
   definitionDeclaresGrant,
@@ -962,9 +963,9 @@ export async function executeEmitEvent(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
-  const { eventName, payload } = config
+  const { eventName, payload }: { eventName?: unknown; payload?: Record<string, unknown> } = config
 
-  if (!eventName) {
+  if (typeof eventName !== 'string' || !eventName) {
     throw new Error('EMIT_EVENT requires "eventName" field')
   }
 
@@ -974,6 +975,11 @@ export async function executeEmitEvent(
   // regular event activity into a cross-process invalidation primitive.
   if (isPrivateCrossProcessBroadcastEvent(eventName)) {
     throw new Error(`EMIT_EVENT cannot emit private cross-process event "${eventName}"`)
+  }
+
+  const declaration = getDeclaredEvents().find((event) => event.id === eventName)
+  if (declaration?.workflowEmittable !== true || declaration.portalBroadcast || declaration.crossProcessBroadcast) {
+    throw new Error(`EMIT_EVENT cannot emit event "${eventName}" from a workflow`)
   }
 
   // Emissions are fire-and-forget and no subscriber validates the payload shape,
@@ -997,22 +1003,23 @@ export async function executeEmitEvent(
   }
 
   // Publish event with workflow metadata
-  const enrichedPayload = {
+  const { tenantId, organizationId } = context.workflowInstance
+  const enrichedPayload: Record<string, unknown> = {
     ...payload,
+    tenantId,
+    organizationId,
     _workflow: {
       workflowInstanceId: context.workflowInstance.id,
       workflowId: context.workflowInstance.workflowId,
-      tenantId: context.workflowInstance.tenantId,
-      organizationId: context.workflowInstance.organizationId,
+      tenantId,
+      organizationId,
     },
   }
+  delete enrichedPayload.organizationIds
 
   await raceAbortable(
     Promise.resolve(
-      eventBus.emitEvent(eventName, enrichedPayload, {
-        tenantId: context.workflowInstance.tenantId,
-        organizationId: context.workflowInstance.organizationId,
-      })
+      eventBus.emitEvent(eventName, enrichedPayload, { tenantId, organizationId })
     ),
     signal
   )
@@ -1749,11 +1756,46 @@ export async function executeInvokeAgent(
   }
 }
 
+function isMissingApiKeyOneTimeIssuerError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { name?: unknown; message?: unknown }
+  if (candidate.name !== 'AwilixResolutionError') return false
+  const message = typeof candidate.message === 'string' ? candidate.message : ''
+  return /Could not resolve ['"]apiKeyOneTimeIssuer['"]/.test(message)
+}
+
+function resolveApiKeyOneTimeIssuer(container: AwilixContainer): ApiKeyOneTimeIssuer | null {
+  if (
+    typeof container.hasRegistration === 'function' &&
+    !container.hasRegistration('apiKeyOneTimeIssuer')
+  ) {
+    return null
+  }
+  let candidate: unknown
+  try {
+    candidate = container.resolve<ApiKeyOneTimeIssuer | null | undefined>('apiKeyOneTimeIssuer')
+  } catch (error) {
+    if (isMissingApiKeyOneTimeIssuerError(error)) {
+      return null
+    }
+    throw error
+  }
+  if (candidate === null || candidate === undefined) {
+    return null
+  }
+  if (typeof (candidate as ApiKeyOneTimeIssuer).withOneTimeApiKey !== 'function') {
+    throw new Error(
+      '[CALL_API] Registered apiKeyOneTimeIssuer service is invalid: missing withOneTimeApiKey().',
+    )
+  }
+  return candidate as ApiKeyOneTimeIssuer
+}
+
 /**
  * CALL_API activity handler
  *
  * Makes authenticated HTTP request to internal Open Mercato APIs
- * - Automatically creates one-time API key for authentication
+ * - Soft-resolves `apiKeyOneTimeIssuer` from DI to mint a short-lived one-time API key
  * - Injects tenant/organization context headers
  * - Validates URL security (SSRF prevention)
  * - Classifies errors (retriable vs non-retriable)
@@ -1787,29 +1829,20 @@ export async function executeCallApi(
   // 2. Build full URL (prepend APP_URL for relative paths)
   const requestUrl = await resolveCallApiUrl(endpoint)
 
-  // 3. Import the one-time API key helper
-  const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
+  // 3. Soft-resolve the API Keys-owned one-time credential issuer from the active container.
+  //    A missing registration takes the translated API Keys-unavailable refusal; a present
+  //    dependency that fails propagates into normal activity failure and retry classification.
+  const apiKeyOneTimeIssuer = resolveApiKeyOneTimeIssuer(container)
+  if (!apiKeyOneTimeIssuer) {
+    throw await createCallApiError(
+      'workflows.errors.callApi.apiKeysModuleDisabled',
+      'CALL_API needs the api_keys module to authenticate internal calls',
+    )
+  }
 
-  // 4. Create the one-time API key on an EntityManager that is fully detached
-  //    from the surrounding request/transaction context.
-  //
-  //    CALL_API runs inside `workflowExecutor.executeWorkflow()`, which wraps
-  //    the whole execution in `em.transactional(...)`. The request EM is forked
-  //    with `useContext: true`, so while that transaction is open, EVERY
-  //    operation on the container's `em` — including this API key's
-  //    persist/flush — is transparently redirected to the uncommitted
-  //    transaction fork (MikroORM `getContext()` → `TransactionContext`). The
-  //    key would therefore stay invisible until the transaction commits, but
-  //    the commit cannot happen until this activity returns. The outbound
-  //    self-authenticated `fetch` below opens a SEPARATE DB connection that
-  //    cannot see the uncommitted row, so the internal API responds `401` and
-  //    the activity fails (issue #4202).
-  //
-  //    Forking with `useContext: false` (matching the query_index/webhooks
-  //    isolated-EM convention) gives the key its own pooled connection with
-  //    autocommit, so it is committed and visible to the internal request
-  //    immediately.
-  const apiKeyEm = container
+  // 4. Resolve active user roles on a context-free EntityManager fork outside the surrounding
+  //    workflow transaction (matching the isolated-EM convention).
+  const roleResolutionEm = container
     .resolve<PostgreSqlEntityManager>('em')
     .fork({ clear: true, freshEventManager: true, useContext: false }) as PostgreSqlEntityManager
 
@@ -1833,7 +1866,7 @@ export async function executeCallApi(
   //        when the instance was started by an event trigger with no user.
   //     3. If no traceable principal exists, the activity refuses to run —
   //        there is no "system" fallback that bypasses RBAC.
-  const resolvedRoleIds = await resolveCallApiRoleIds(apiKeyEm, context.workflowInstance)
+  const resolvedRoleIds = await resolveCallApiRoleIds(roleResolutionEm, context.workflowInstance)
 
   if (resolvedRoleIds.length === 0) {
     throw new Error(
@@ -1843,9 +1876,8 @@ export async function executeCallApi(
     )
   }
 
-  // 6. Execute request with one-time API key scoped to the resolved user's roles
-  return await withOnetimeApiKey(
-    apiKeyEm,
+  // 6. Execute request with a one-time API key issued by the API Keys provider
+  return await apiKeyOneTimeIssuer.withOneTimeApiKey(
     {
       name: `__workflow_${context.workflowInstance.id}__`,
       description: `One-time key for workflow ${context.workflowInstance.workflowId} instance ${context.workflowInstance.id}`,

@@ -6,8 +6,13 @@ import {
   defaultSecurityModuleConfig,
   type SecurityModuleConfig,
 } from '../../lib/security-config'
+import { MFA_NO_METHODS_CONFIGURED_CODE } from '../../lib/mfa-error-codes'
 import { MfaVerificationService } from '../MfaVerificationService'
 import type { MfaEnforcementService } from '../MfaEnforcementService'
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn((em, entity, query) => em.findOne(entity, query)),
+}))
 
 jest.mock('../../events', () => ({
   emitSecurityEvent: jest.fn().mockResolvedValue(undefined),
@@ -175,10 +180,11 @@ describe('MfaVerificationService', () => {
       name: 'MfaVerificationServiceError',
       statusCode: 400,
       message: 'No MFA methods configured',
+      code: MFA_NO_METHODS_CONFIGURED_CODE,
     })
   })
 
-  test('createChallenge rejects when configured methods reference no registered providers', async () => {
+  test('createChallenge rejects when configured methods reference no registered providers without persisting an orphaned challenge', async () => {
     const { service, em } = createServiceContext()
     em.find.mockResolvedValueOnce([{
       id: 'method-unknown',
@@ -192,11 +198,21 @@ describe('MfaVerificationService', () => {
       lastUsedAt: null,
     }])
 
-    await expect(service.createChallenge('user-1')).rejects.toMatchObject({
+    let caughtError: unknown
+    try {
+      await service.createChallenge('user-1')
+    } catch (error) {
+      caughtError = error
+    }
+
+    expect(caughtError).toMatchObject({
       name: 'MfaVerificationServiceError',
       statusCode: 400,
       message: 'No registered MFA providers are available for the configured methods',
     })
+    expect((caughtError as { code?: string } | undefined)?.code).toBeUndefined()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   test('createChallenge filters out methods disallowed by the active enforcement policy', async () => {
