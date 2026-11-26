@@ -157,7 +157,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const canViewTenant = await canViewTenantAuditLogs({ rbac, auth, organizationId })
+  const canViewTenant = await canViewTenantAuditLogs({ rbac, auth, organizationId, requestedOrganizationId: queryOrgId })
 
   const actorSubject = canViewTenant ? undefined : canonicalAuthSubject.subject
   let actorUserId: string | undefined

@@ -121,7 +121,7 @@ Implementation: `packages/core/src/modules/entities/api/records.ts`.
 The audit-log changelog has a dedicated export endpoint that always returns CSV.
 
 - **Endpoint:** `GET /audit-logs/actions/export`
-- **Feature:** `audit_logs.view_self` (holders of `audit_logs.view_tenant` can widen the scope to other actors and organizations; without it the export is scoped to the caller's own actions)
+- **Feature:** `audit_logs.view_self` (holders of `audit_logs.view_tenant` also export other actors' rows, for the organization the request reads; a request without `organizationId` needs a grant that is not limited to particular organizations. Otherwise the export is scoped to the caller's own actions)
 - **Format:** CSV only — there is no `format` parameter.
 - **Filename:** `changelog-export.csv`
 - **Columns:** `When`, `User`, `Action`, `Field`, `Old Value`, `New Value`, `Source` (one row per field change, or a single summary row when an action recorded no field-level changes).

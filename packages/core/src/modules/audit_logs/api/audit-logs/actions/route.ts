@@ -34,7 +34,7 @@ const auditActionQuerySchema = z.object({
   organizationId: z.string().uuid().describe('Limit results to a specific organization').optional(),
   actorUserId: z
     .string()
-    .describe('Filter logs created by specific actor IDs (tenant administrators only). Accepts a single UUID or a comma-separated UUID list.')
+    .describe('Filter logs created by specific actor IDs (honored only for callers holding `audit_logs.view_tenant` for the organization being read). Accepts a single UUID or a comma-separated UUID list.')
     .optional(),
   ids: z
     .string()
@@ -113,7 +113,7 @@ const auditActionItemSchema = z.object({
 
 const auditActionResponseSchema = z.object({
   items: z.array(auditActionItemSchema),
-  canViewTenant: z.boolean(),
+  canViewTenant: z.boolean().describe('Whether the caller holds `audit_logs.view_tenant` for the organization this request read'),
   page: z.number().int(),
   pageSize: z.number().int(),
   total: z.number().int(),
@@ -201,7 +201,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const canViewTenant = await canViewTenantAuditLogs({ rbac, auth, organizationId })
+  const canViewTenant = await canViewTenantAuditLogs({ rbac, auth, organizationId, requestedOrganizationId: queryOrgId })
 
   const actorSubject = canViewTenant ? undefined : canonicalAuthSubject.subject
   let actorUserId: string | undefined

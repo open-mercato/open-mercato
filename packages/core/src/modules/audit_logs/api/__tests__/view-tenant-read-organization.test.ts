@@ -14,8 +14,8 @@ const USER_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const ROLE_SELF = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1'
 const ROLE_TENANT = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2'
 
-type World = { userOrgId: string | null; tenantRoleOrganizations: string[] | null }
-const world: World = { userOrgId: null, tenantRoleOrganizations: [ORG_A] }
+type World = { userOrgId: string | null; tenantRoleOrganizations: string[] | null; tenantRoleIsSuperAdmin: boolean }
+const world: World = { userOrgId: null, tenantRoleOrganizations: [ORG_A], tenantRoleIsSuperAdmin: false }
 
 const organizations = [
   { id: ORG_A, tenant: TENANT, ancestorIds: [], descendantIds: [] },
@@ -34,16 +34,17 @@ const em: Record<string, jest.Mock> = {
   }),
   find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
     if (entity === RoleAcl) {
-      if (where.isSuperAdmin === true) return []
+      const tenantRoleAcl = {
+        role: { id: ROLE_TENANT },
+        tenantId: TENANT,
+        isSuperAdmin: world.tenantRoleIsSuperAdmin,
+        featuresJson: ['audit_logs.view_tenant'],
+        organizationsJson: world.tenantRoleOrganizations,
+      }
+      if (where.isSuperAdmin === true) return world.tenantRoleIsSuperAdmin ? [tenantRoleAcl] : []
       return [
         { role: { id: ROLE_SELF }, tenantId: TENANT, isSuperAdmin: false, featuresJson: ['audit_logs.view_self'], organizationsJson: null },
-        {
-          role: { id: ROLE_TENANT },
-          tenantId: TENANT,
-          isSuperAdmin: false,
-          featuresJson: ['audit_logs.view_tenant'],
-          organizationsJson: world.tenantRoleOrganizations,
-        },
+        tenantRoleAcl,
       ]
     }
     if (entity === UserRole) return [{ role: { id: ROLE_SELF, tenantId: TENANT } }, { role: { id: ROLE_TENANT, tenantId: TENANT } }]
@@ -117,6 +118,7 @@ describe('audit_logs.view_tenant applies to the organization being read', () => 
     accessLogs.list.mockClear()
     world.userOrgId = null
     world.tenantRoleOrganizations = [ORG_A]
+    world.tenantRoleIsSuperAdmin = false
     rbac = new RbacService(em as never, undefined, hierarchy as never)
   })
 
@@ -201,6 +203,38 @@ describe('audit_logs.view_tenant applies to the organization being read', () => 
       expect(query.organizationId).toBe(ORG_B)
       expect(query.actorUserId).toBe(USER_ID)
     })
+  })
+
+  describe('super-admin role limited to organization A', () => {
+    beforeEach(() => {
+      world.tenantRoleIsSuperAdmin = true
+    })
+
+    const superAdminFlagged = { ...userAuth(null), isSuperAdmin: true }
+
+    it('actions: a read without an organization returns the caller\'s own rows', async () => {
+      const result = await run(actionsGET, superAdminFlagged, `${base}/actions`)
+      expect(result.status).toBe(200)
+      const query = lastActionQuery()
+      expect(query.organizationId).toBeUndefined()
+      expect(query.actorSubject).toBe(USER_ID)
+    })
+
+    it('access: actorScope=all without an organization returns the caller\'s own rows', async () => {
+      const result = await run(accessGET, superAdminFlagged, `${base}/access?actorScope=all`)
+      expect(result.status).toBe(200)
+      expect(lastAccessQuery().actorUserId).toBe(USER_ID)
+    })
+  })
+
+  it('does not consult RBAC for an organization id that is not a UUID', async () => {
+    world.tenantRoleOrganizations = null
+    world.userOrgId = ORG_A
+    hierarchy.resolveAncestorIds.mockClear()
+    const result = await run(accessGET, userAuth(ORG_A), `${base}/access?actorScope=all&organizationId=not-a-uuid`)
+    expect(result.status).toBe(200)
+    expect(hierarchy.resolveAncestorIds).not.toHaveBeenCalledWith(expect.objectContaining({ organizationId: 'not-a-uuid' }))
+    expect(lastAccessQuery().actorUserId).toBe(USER_ID)
   })
 
   describe('view_tenant granted without an organization restriction', () => {
