@@ -30,10 +30,10 @@ const SECTION_STATUSES_OF_A_VISIBLE_FILE = ['not_extracted', 'pending', 'process
  * `attachments.list_record_attachments` return a Documents file to a user the
  * document is shared with and refuse it to a user without the share, and after
  * the share is revoked; copies in another organization and another tenant are
- * refused to both. Without a session token the server key itself, a regular
- * key with the same role, is refused the document file.
- * `attachments.get_document_sections` answers `not_found` to the same callers
- * that are refused the file. Every row is unchanged.
+ * refused to both. HTTP tool calls without a session token are rejected
+ * before attachment access is evaluated, even with a valid server key.
+ * `attachments.get_document_sections` answers `not_found` to session callers
+ * who cannot read the file. Every row is unchanged.
  */
 test('TC-AI-ATTACHMENT-OWNER-MCP-001: HTTP MCP session tokens apply attachment owner access', async ({ request }) => {
   test.setTimeout(300_000)
@@ -67,23 +67,23 @@ test('TC-AI-ATTACHMENT-OWNER-MCP-001: HTTP MCP session tokens apply attachment o
       server = await startMcpHttpServer()
       const mcp = server
 
-      const read = async (attachmentId: string, sessionToken?: string) => {
+      const read = async (attachmentId: string, sessionToken: string) => {
         const outcome = await mcp.callTool(serverKey.secret, 'attachments.read_attachment', {
-          attachmentId, includeExtractedText: true, ...(sessionToken ? { _sessionToken: sessionToken } : {}),
+          attachmentId, includeExtractedText: true, _sessionToken: sessionToken,
         })
         expect(outcome.isError, JSON.stringify(outcome.payload)).toBe(false)
         return outcome.payload as ReadPayload
       }
-      const list = async (entityType: string, recordId: string, sessionToken?: string) => {
+      const list = async (entityType: string, recordId: string, sessionToken: string) => {
         const outcome = await mcp.callTool(serverKey.secret, 'attachments.list_record_attachments', {
-          entityType, recordId, ...(sessionToken ? { _sessionToken: sessionToken } : {}),
+          entityType, recordId, _sessionToken: sessionToken,
         })
         expect(outcome.isError, JSON.stringify(outcome.payload)).toBe(false)
         return ((outcome.payload as ListPayload).items ?? []).map((item) => item.id)
       }
-      const sectionsStatus = async (attachmentId: string, sessionToken?: string) => {
+      const sectionsStatus = async (attachmentId: string, sessionToken: string) => {
         const outcome = await mcp.callTool(serverKey.secret, 'attachments.get_document_sections', {
-          attachmentId, includeText: false, ...(sessionToken ? { _sessionToken: sessionToken } : {}),
+          attachmentId, includeText: false, _sessionToken: sessionToken,
         })
         expect(outcome.isError, JSON.stringify(outcome.payload)).toBe(false)
         return (outcome.payload as SectionsPayload).status
@@ -102,11 +102,18 @@ test('TC-AI-ATTACHMENT-OWNER-MCP-001: HTTP MCP session tokens apply attachment o
       expect(await sectionsStatus(file, unsharedSession), 'the user without the share gets no document structure')
         .toBe('not_found')
 
-      expect(await read(file), 'the server key without a session token has no user share')
-        .toEqual({ found: false, attachmentId: file })
-      expect(await list('documents:document', document), 'the server key lists nothing').toEqual([])
-      expect(await sectionsStatus(file), 'the server key gets no document structure').toBe('not_found')
-      expect((await read(libraryFile)).found, 'the server key still reads an unprotected library file').toBe(true)
+      const callsWithoutSession = [
+        { name: 'attachments.read_attachment', args: { attachmentId: file, includeExtractedText: true } },
+        { name: 'attachments.read_attachment', args: { attachmentId: libraryFile, includeExtractedText: true } },
+        { name: 'attachments.list_record_attachments', args: { entityType: 'documents:document', recordId: document } },
+        { name: 'attachments.get_document_sections', args: { attachmentId: file, includeText: false } },
+      ]
+      for (const { name, args } of callsWithoutSession) {
+        expect(await mcp.callTool(serverKey.secret, name, args), `${name} requires a user session`).toMatchObject({
+          isError: true,
+          payload: { code: 'UNAUTHORIZED' },
+        })
+      }
 
       for (const session of [recipientSession, unsharedSession]) {
         expect((await read(libraryFile, session)).found, 'the unprotected library file stays readable').toBe(true)
