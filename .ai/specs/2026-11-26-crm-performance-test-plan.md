@@ -526,7 +526,7 @@ The steps are independent enough for an implementing agent to delegate 1.2, 1.3,
 The plan authors run this phase together before any VPS work. There is no separate generator machine here: k6 runs locally in Docker. That is acceptable for validating scripts, but these numbers are **not** baseline numbers, and the report marks them `local-validation`.
 
 1. Set up the local target and seed the dataset:
-   1. `perf/bin/perf up` (local target). This runs `mercato auth setup` for the measured tenant/org and writes the ids to the state file.
+   1. `perf/bin/perf up` (local target). Then `perf/bin/perf tenant` runs `mercato auth setup` for the measured tenant/org, then `mercato seed:defaults` (module reference data such as the currency dictionary, which `auth setup` does not create), and writes the ids to the state file.
    2. `perf/bin/perf users`.
    3. `perf/bin/perf seed --background`.
    4. `perf/bin/perf seed --tier S`.
@@ -548,7 +548,7 @@ The plan authors run this phase together before any VPS work. There is no separa
    ```
 
    `perf/bin/perf up` uses the same file list.
-2. `perf/bin/perf up`. The measured tenant and org come from `mercato auth setup`. Background tenants are created by `perf/bin/perf seed --background`.
+2. `perf/bin/perf up`. The measured tenant and org come from `mercato auth setup` followed by `mercato seed:defaults`. Background tenants are created by `perf/bin/perf seed --background`.
 3. Run `users`, then `seed --tier M`, then `snapshot --tier M`, then the same for L. Record the seeding duration and dataset size in the report.
 4. Verify that a snapshot restore round trip leaves row counts and the catalog unchanged. Record the restore durations in `hardware.md`.
 5. Run the network exposure check: from a third host (or the operator laptop), a port scan of the SUT reaches nothing. From the generator, only HTTPS is reachable. Grafana and Prometheus are reachable only through SSH tunnels.
@@ -682,3 +682,7 @@ Each experiment is a single-variable change against the round-1 snapshot, report
   - Fixed the interference injector rate and the no-knee stress fallback.
   - Delivery on a single, non-merged working PR (#10747).
   - Corrected citations.
+- **2026-11-26 (Phase 2 local run, in progress)** — fixes found while running tier S locally:
+  - `perf tenant` now runs `mercato seed:defaults` after `mercato auth setup`; without it the tenant had no currency dictionary and the pipeline journey got 404s.
+  - The seeder makes its first perf pipeline the tenant's default, so the kanban opens on the seeded pipeline rather than the empty "Default Pipeline" that `seed:defaults` creates.
+  - The Meilisearch settle check ignores BullMQ repeatable jobs that are not yet due.

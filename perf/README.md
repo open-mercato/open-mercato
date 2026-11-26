@@ -57,7 +57,7 @@ cp perf/config/target.example.env perf/config/target.local.env   # defaults targ
 perf/bin/perf init-secrets                                        # writes perf/config/sut.local.env (mode 600)
 perf/bin/perf build                                               # docker compose build app (20–40 min first time)
 perf/bin/perf up --yes-this-is-a-perf-target                      # first boot runs mercato init: 5–15 min
-perf/bin/perf tenant                                              # measured tenant via `mercato auth setup --json`
+perf/bin/perf tenant                                              # measured tenant via `mercato auth setup --json` + `mercato seed:defaults`
 perf/bin/perf users                                               # 200 users + staff team members: ~2–5 min
 perf/bin/perf seed --background --tier S                          # 2 background tenants × 5%
 perf/bin/perf seed --tier S                                       # seed-perf + reindex + Meilisearch + VACUUM

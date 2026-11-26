@@ -30,6 +30,8 @@ async function createTenant(sut, { orgName, orgSlug, email }) {
     '--roles', 'superadmin,admin,employee', '--json',
   ])
   const payload = parseLastJsonLine(result.stdout)
+  log(`running module seedDefaults hooks (mercato seed:defaults) for ${orgName}`)
+  await sut.exec('app', ['yarn', 'mercato', 'seed:defaults'], { capture: false })
   return { tenantId: payload.tenantId, organizationId: payload.organizationId, adminUserId: payload.adminUserId, adminEmail: email, adminPassword: password }
 }
 

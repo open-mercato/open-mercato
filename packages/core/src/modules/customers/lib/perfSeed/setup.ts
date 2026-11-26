@@ -77,7 +77,29 @@ export async function ensurePerfPipelines(em: EntityManager, scope: SeedScope, p
       stages: stages.map((stage) => ({ id: stage.id, name: stage.label, order: stage.order })),
     })
   }
+  await makeFirstPipelineDefault(em, scope, refs)
   return refs
+}
+
+async function makeFirstPipelineDefault(em: EntityManager, scope: SeedScope, refs: PipelineRef[]): Promise<void> {
+  const primaryId = refs[0]?.id
+  if (!primaryId) return
+  const pipelines = await findWithDecryption(
+    em,
+    CustomerPipeline,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  let changed = false
+  for (const pipeline of pipelines) {
+    const shouldBeDefault = pipeline.id === primaryId
+    if (pipeline.isDefault !== shouldBeDefault) {
+      pipeline.isDefault = shouldBeDefault
+      changed = true
+    }
+  }
+  if (changed) await em.flush()
 }
 
 export async function ensurePerfTags(em: EntityManager, scope: SeedScope, profile: PerfProfile): Promise<string[]> {
