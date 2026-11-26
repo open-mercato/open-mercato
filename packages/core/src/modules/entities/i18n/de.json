@@ -110,6 +110,7 @@
   "entities.customFields.editor.ruleNumberPlaceholder": "Zahl",
   "entities.customFields.editor.rulePatternPlaceholder": "Muster (z. B. ^[a-z]+$)",
   "entities.customFields.editor.ruleRequiredMessage": "Dieses Feld ist erforderlich",
+  "entities.customFields.editor.ruleValuePlaceholder": "Wert",
   "entities.customFields.editor.saveGroup": "Gruppe speichern",
   "entities.customFields.editor.savingOrder": "Reihenfolge wird gespeichert…",
   "entities.customFields.editor.singleFieldsetPerEntity": "Eine Feldgruppe pro Entität",

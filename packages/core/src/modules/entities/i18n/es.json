@@ -110,6 +110,7 @@
   "entities.customFields.editor.ruleNumberPlaceholder": "Número",
   "entities.customFields.editor.rulePatternPlaceholder": "Patrón (p. ej. ^[a-z]+$)",
   "entities.customFields.editor.ruleRequiredMessage": "Este campo es obligatorio",
+  "entities.customFields.editor.ruleValuePlaceholder": "Valor",
   "entities.customFields.editor.saveGroup": "Guardar grupo",
   "entities.customFields.editor.savingOrder": "Guardando el orden…",
   "entities.customFields.editor.singleFieldsetPerEntity": "Un solo conjunto de campos por entidad",

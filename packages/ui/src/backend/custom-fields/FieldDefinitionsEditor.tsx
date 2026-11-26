@@ -19,6 +19,7 @@ import { useOptionalT, type TranslateFn } from '@open-mercato/shared/lib/i18n/co
 import { FieldRegistry } from '../fields/registry'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 import { useConfirmDialog } from '../confirm-dialog'
+import { normalizeValidationRuleParams, ruleTakesNumericParam } from './validationRuleParams'
 import {
   Dialog,
   DialogContent,
@@ -641,15 +642,21 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   )
 
   const sanitize = (def: FieldDefinition): FieldDefinition => {
-    if (!def.configJson || !Array.isArray(def.configJson.options)) return def
-    const normalizedOptions = normalizeCustomFieldOptions(def.configJson.options)
-    return {
-      ...def,
-      configJson: {
-        ...def.configJson,
-        options: normalizedOptions,
-      },
+    if (!def.configJson) return def
+    const configJson = { ...def.configJson }
+    let changed = false
+    if (Array.isArray(configJson.options)) {
+      configJson.options = normalizeCustomFieldOptions(configJson.options)
+      changed = true
     }
+    if (Array.isArray(configJson.validation)) {
+      const normalizedRules = normalizeValidationRuleParams(configJson.validation, def.kind)
+      if (normalizedRules !== configJson.validation) {
+        configJson.validation = normalizedRules
+        changed = true
+      }
+    }
+    return changed ? { ...def, configJson } : def
   }
 
   const replaceLocal = React.useCallback((next: FieldDefinition) => {
@@ -1150,13 +1157,15 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                   placeholder={
                     rule?.rule === 'regex'
                       ? t('entities.customFields.editor.rulePatternPlaceholder', 'Pattern (e.g. ^[a-z]+$)')
-                      : (['lt','lte','gt','gte'].includes(rule?.rule)
+                      : (ruleTakesNumericParam(rule?.rule, local.kind)
                         ? t('entities.customFields.editor.ruleNumberPlaceholder', 'Number')
-                        : t('entities.customFields.editor.noParameterPlaceholder', '—'))
+                        : (rule?.rule === 'eq' || rule?.rule === 'ne'
+                          ? t('entities.customFields.editor.ruleValuePlaceholder', 'Value')
+                          : t('entities.customFields.editor.noParameterPlaceholder', '—')))
                   }
                   value={rule?.param ?? ''}
                   onChange={(event) => {
-                    const value = ['lt','lte','gt','gte'].includes(rule?.rule) ? Number(event.target.value) : event.target.value
+                    const value = event.target.value
                     apply((current) => {
                       const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
                       const existing = (list[index] as any) || {}
