@@ -15,7 +15,7 @@ const mutationDraftStep = mutation.jobs.scope.steps.find((step) => step.id === '
 const draftGate = "needs.audit-scope.outputs.draft != 'true'"
 const liveEventDraft = "${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true }}"
 
-function detectDraft(step, { eventDraft, apiDraft, apiFails = false }) {
+function detectDraft(step, { eventDraft, apiDraft, apiFails = false, stabilizationDraft = false }) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-draft-'))
   try {
     const output = path.join(directory, 'output')
@@ -28,6 +28,7 @@ function detectDraft(step, { eventDraft, apiDraft, apiFails = false }) {
         GITHUB_OUTPUT: output,
         GITHUB_STEP_SUMMARY: summary,
         EVENT_DRAFT: String(eventDraft),
+        RUN_STABILIZATION_DRAFT: String(stabilizationDraft),
         PR_NUMBER: '42',
         REPOSITORY: 'open-mercato/open-mercato',
       },
@@ -76,6 +77,31 @@ test('audit-scope is the ungated draft detector and reads the draft state live',
   assert.equal(job.permissions['pull-requests'], 'read')
   assert.equal(ciDraftStep.env.EVENT_DRAFT, liveEventDraft)
 })
+
+for (const [eventName, headRepository, branch, expected] of [
+  ['pull_request', 'open-mercato/open-mercato', 'stabilize/main-2026-11-27', true],
+  ['pull_request', 'contributor/fork', 'stabilize/main-2026-11-27', false],
+  ['pull_request', 'open-mercato/open-mercato', 'fix/ordinary-pr', false],
+  ['pull_request', 'open-mercato/open-mercato', 'fix/stabilize/main', false],
+  ['push', 'open-mercato/open-mercato', 'stabilize/main-2026-11-27', false],
+]) {
+  test(`stabilization draft exception is ${expected} for ${eventName} ${headRepository}:${branch}`, () => {
+    const expression = ciDraftStep.env.RUN_STABILIZATION_DRAFT.slice(3, -2).trim()
+    const stabilizationDraft = vm.runInNewContext(expression, {
+      github: {
+        event_name: eventName,
+        repository: 'open-mercato/open-mercato',
+        head_ref: branch,
+        event: { pull_request: { head: { repo: { full_name: headRepository } } } },
+      },
+      startsWith: (value, prefix) => value.startsWith(prefix),
+    }, { timeout: 1000 })
+    assert.equal(stabilizationDraft, expected)
+    const result = detectDraft(ciDraftStep, { eventDraft: true, apiDraft: true, stabilizationDraft })
+    assert.equal(result.draft, `draft=${!expected}`)
+    assert.equal(result.apiCalled, !expected)
+  })
+}
 
 test('every root job except audit-scope skips on a draft PR', () => {
   const rootJobs = Object.entries(ci.jobs).filter(([name, job]) => name !== 'audit-scope' && job.needs === undefined)
@@ -192,7 +218,9 @@ test('mutation-tests.yml re-runs on ready_for_review and does no work on a live 
   assert.equal(scope.permissions['pull-requests'], 'read')
   assert.equal(scope.steps[0].id, 'draft')
   assert.equal(mutationDraftStep.env.EVENT_DRAFT, liveEventDraft)
-  assert.equal(mutationDraftStep.run, ciDraftStep.run.replace('CI skipped. Mark it ready for review to run the checks.', 'mutation testing skipped. Mark it ready for review to run it.'))
+  assert.equal(mutationDraftStep.run, ciDraftStep.run
+    .replace(' && [ "${RUN_STABILIZATION_DRAFT}" != "true" ]', '')
+    .replace('CI skipped. Mark it ready for review to run the checks.', 'mutation testing skipped. Mark it ready for review to run it.'))
   for (const step of scope.steps.slice(1)) {
     assert.equal(step.if, "steps.draft.outputs.draft != 'true'", `${step.name} must skip on a draft PR`)
   }
