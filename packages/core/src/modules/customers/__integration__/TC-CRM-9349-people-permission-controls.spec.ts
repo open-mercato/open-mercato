@@ -16,6 +16,8 @@ import {
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 
+export const integrationMeta = { requiredModules: ['messages'] }
+
 const restrictedRequests = [
   '/api/staff/team-members/assignable',
   '/api/customers/companies',
