@@ -286,6 +286,19 @@ describe('GET /api/search/index for a tenant-level API key without an organizati
     expect(entryIds(result.body)).toEqual(['a2', 'a3', 'b1', 'b2'])
   })
 
+  it('keeps organization-scoped entity permissions on a tenant-wide index listing', async () => {
+    world.searchRoleOrganizations = null
+    world.customerRoleOrganizations = [ORG_B]
+
+    const result = await dispatch(GET, 'GET', 'http://localhost/api/search/index?limit=2&offset=1', 'search.view')
+
+    expect(result.featureContext.scope.filterIds).toBeNull()
+    expect(entryIds(result.body)).toEqual(['b2', 'b3'])
+    expect(vectorStrategy.listEntries).toHaveBeenCalledWith(expect.objectContaining({
+      entityAccess: [{ organizationId: ORG_B, entityIds: [CUSTOMER_ENTITY] }],
+    }))
+  })
+
   it('returns an empty list without calling the driver when no organization is approved', async () => {
     world.searchRoleOrganizations = [ORG_OUTSIDE]
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue(apiKeyAuth)

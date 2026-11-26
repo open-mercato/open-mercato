@@ -63,10 +63,9 @@ export async function GET(req: Request) {
     const selectedOrganizationId = scope.selectedId?.trim() || null
     const organizationIds = selectedOrganizationId ? [selectedOrganizationId] : scope.filterIds
     const requestedEntityTypes = entityIdParam ? [entityIdParam] : undefined
-    const singleOrganizationId = organizationIds?.[0] ?? null
-    const scopedAcls: ReadonlyMap<string | null, Awaited<ReturnType<RbacService['loadAcl']>>> = organizationIds && organizationIds.length > 1
-      ? await rbac.loadOrganizationAcls(auth.sub, tenantId, organizationIds)
-      : new Map([[singleOrganizationId, await rbac.loadAcl(auth.sub, { tenantId, organizationId: singleOrganizationId })]])
+    const scopedAcls = organizationIds?.length === 1
+      ? new Map([[organizationIds[0], await rbac.loadAcl(auth.sub, { tenantId, organizationId: organizationIds[0] })]])
+      : await rbac.loadOrganizationAcls(auth.sub, tenantId, organizationIds)
     const entityAccess = Array.from(scopedAcls, ([organizationId, acl]) => ({
       organizationId,
       entityIds: resolveReadableEntityTypes(
