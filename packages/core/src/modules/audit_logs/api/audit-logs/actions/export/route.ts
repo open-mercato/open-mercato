@@ -20,7 +20,7 @@ import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
 import { redactActionLogEntries } from '@open-mercato/core/modules/audit_logs/lib/actionLogRedaction'
 import { loadAuditLogDisplayMaps } from '../../display'
-import { requireResolvedTenantScope } from '../../readScope'
+import { canViewTenantAuditLogs, requireResolvedTenantScope } from '../../readScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
@@ -135,12 +135,6 @@ export async function GET(req: Request) {
   const actionLogs = container.resolve('actionLogService') as ActionLogService
   const em = container.resolve('em') as EntityManager
 
-  const canViewTenant = await rbac.userHasAllFeatures(
-    auth.sub,
-    ['audit_logs.view_tenant'],
-    { tenantId: auth.tenantId ?? null, organizationId: defaultOrganizationId ?? null },
-  )
-
   const url = new URL(req.url)
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
@@ -162,6 +156,8 @@ export async function GET(req: Request) {
       organizationId = queryOrgId
     }
   }
+
+  const canViewTenant = await canViewTenantAuditLogs({ rbac, auth, organizationId })
 
   const actorSubject = canViewTenant ? undefined : canonicalAuthSubject.subject
   let actorUserId: string | undefined

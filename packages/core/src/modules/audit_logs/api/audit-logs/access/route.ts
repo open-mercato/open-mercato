@@ -6,7 +6,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { AccessLogService } from '@open-mercato/core/modules/audit_logs/services/accessLogService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadAuditLogDisplayMaps } from '../display'
-import { requireResolvedTenantScope } from '../readScope'
+import { canViewTenantAuditLogs, requireResolvedTenantScope } from '../readScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -108,11 +108,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const canViewTenant = await rbac.userHasAllFeatures(
-    auth.sub,
-    ['audit_logs.view_tenant'],
-    { tenantId: auth.tenantId ?? null, organizationId: organizationId ?? null },
-  )
+  const canViewTenant = await canViewTenantAuditLogs({ rbac, auth, organizationId })
 
   let actorUserId: string | undefined = auth.sub
   if (canViewTenant && actorQuery) {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 type ResolvedAuth = NonNullable<AuthContext>
 
@@ -25,4 +26,30 @@ function isSuperAdmin(auth: ResolvedAuth): boolean {
 export function requireResolvedTenantScope(auth: ResolvedAuth): NextResponse | null {
   if (auth.tenantId || isSuperAdmin(auth)) return null
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+}
+
+const VIEW_TENANT_FEATURES = ['audit_logs.view_tenant'] as const
+
+/**
+ * Decide whether the caller may read other actors' audit-log rows.
+ *
+ * `audit_logs.view_tenant` must hold for the organization the query actually reads, so the
+ * check runs against the organization left after `?organizationId=` narrowing, not the
+ * caller's default one. A read with no organization predicate covers every organization of
+ * the tenant, and a feature check without an organization is satisfied by a grant that is
+ * limited to some organizations. Such a read therefore widens actor visibility only for a
+ * grant that is not organization-restricted; otherwise the caller keeps its own rows.
+ */
+export async function canViewTenantAuditLogs(input: {
+  rbac: Pick<RbacService, 'userHasAllFeatures' | 'resolveFeatureOrganizationAccess'>
+  auth: ResolvedAuth
+  organizationId: string | null | undefined
+}): Promise<boolean> {
+  const { rbac, auth } = input
+  const organizationId = input.organizationId ?? null
+  const tenantId = auth.tenantId ?? null
+  const granted = await rbac.userHasAllFeatures(auth.sub, [...VIEW_TENANT_FEATURES], { tenantId, organizationId })
+  if (!granted || organizationId || isSuperAdmin(auth)) return granted
+  const access = await rbac.resolveFeatureOrganizationAccess(auth.sub, VIEW_TENANT_FEATURES, { tenantId })
+  return access.unrestricted
 }
