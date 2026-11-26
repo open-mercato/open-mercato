@@ -661,6 +661,29 @@ describe('--help never triggers side effects (issue #5581)', () => {
       consoleErrorSpy.mockRestore()
     })
 
+    it('prints usage instead of executing configs restore-defaults when --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const restoreDefaults = jest.fn()
+
+      registerCliModules([
+        {
+          id: 'configs',
+          cli: [{ command: 'restore-defaults', run: restoreDefaults }],
+        } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'configs', 'restore-defaults', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(restoreDefaults).not.toHaveBeenCalled()
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('mercato configs restore-defaults [args]')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
     it('still runs the command when no help flag is present', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
@@ -1078,7 +1101,13 @@ describe('init command failure output', () => {
     consoleLogSpy.mockRestore()
   })
 
-  it('keeps init successful when lean presets disable optional modules', async () => {
+  it.each([
+    { configsEnabled: true, expectedRestoreCount: 1 },
+    { configsEnabled: false, expectedRestoreCount: 0 },
+  ])('keeps init successful in a lean preset with Configs enabled: $configsEnabled', async ({
+    configsEnabled,
+    expectedRestoreCount,
+  }) => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
 
@@ -1120,10 +1149,10 @@ describe('init command failure output', () => {
     jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
       bootstrapFromAppRoot: jest.fn().mockResolvedValue({
         modules: [
-          {
+          ...(configsEnabled ? [{
             id: 'configs',
             cli: [{ command: 'restore-defaults', run: configsRestoreDefaults }],
-          },
+          }] : []),
           {
             id: 'auth',
             cli: [
@@ -1172,9 +1201,91 @@ describe('init command failure output', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(
       '⏭️  Skipping "search:reindex" — module not enabled',
     )
-    expect(configsRestoreDefaults).toHaveBeenCalled()
+    expect(configsRestoreDefaults).toHaveBeenCalledTimes(expectedRestoreCount)
     expect(authSetup).toHaveBeenCalled()
+    if (configsEnabled) {
+      expect(configsRestoreDefaults.mock.invocationCallOrder[0]).toBeLessThan(
+        authSetup.mock.invocationCallOrder[0],
+      )
+    }
     expect(queryIndexReindex).toHaveBeenCalledWith(['--force', '--tenant', 'tenant-1'])
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('aborts init with nonzero exit and never runs auth setup when configs restore-defaults fails', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    const configsRestoreDefaults = jest.fn().mockRejectedValue(new Error('strict restore rollback'))
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    const authSeedRoles = jest.fn().mockResolvedValue(undefined)
+    const entitiesSeedEncryption = jest.fn().mockResolvedValue(undefined)
+    const queryIndexReindex = jest.fn().mockResolvedValue(undefined)
+
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue({ rows: [] }),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/db', () => ({
+      dbMigrate: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
+        modules: [
+          {
+            id: 'configs',
+            cli: [{ command: 'restore-defaults', run: configsRestoreDefaults }],
+          },
+          {
+            id: 'auth',
+            cli: [
+              { command: 'setup', run: authSetup },
+              { command: 'seed-roles', run: authSeedRoles },
+            ],
+          },
+          {
+            id: 'entities',
+            cli: [{ command: 'seed-encryption', run: entitiesSeedEncryption }],
+          },
+          {
+            id: 'query_index',
+            cli: [{ command: 'reindex', run: queryIndexReindex }],
+          },
+        ],
+      }),
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    expect(configsRestoreDefaults).toHaveBeenCalledTimes(1)
+    expect(authSetup).not.toHaveBeenCalled()
+    expect(authSeedRoles).not.toHaveBeenCalled()
+    expect(entitiesSeedEncryption).not.toHaveBeenCalled()
+    expect(queryIndexReindex).not.toHaveBeenCalled()
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()

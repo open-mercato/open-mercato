@@ -971,7 +971,7 @@ function recordManagedRuntimeExit(exitCode, signal) {
 function ensureStandaloneEnvFile() {
   if (!fs.existsSync('.env') && fs.existsSync('.env.example')) {
     createEnvFileFromExample('.env.example', '.env')
-    const message = '[setup] Copied .env.example to .env'
+    const message = '📄 Copied .env.example to .env'
     console.log(message)
     updateSplashState({
       detail: 'Project files are ready',
@@ -981,7 +981,7 @@ function ensureStandaloneEnvFile() {
   }
 
   if (fs.existsSync('.env')) {
-    console.log('[setup] Keeping existing .env')
+    console.log('📄 Keeping existing .env')
     updateSplashState({
       detail: 'Project files are ready',
       activity: 'Project files are ready',
@@ -1008,7 +1008,7 @@ async function guardDatabaseMutation(commandArgs, env = {}) {
     projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
     env: { ...process.env, ...env },
   })
-  console.log(`[setup] encryption preflight: ${compatibility.status}`)
+  console.log(`🔒 encryption preflight: ${compatibility.status}`)
   Object.assign(process.env, compatibility.settings)
   Object.assign(env, compatibility.settings)
 }
