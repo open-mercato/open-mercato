@@ -56,7 +56,7 @@ const context = {
   },
   auth: { tenantId, sub: userId, orgId: organizationId },
   em,
-  organizationId,
+  organizationId: organizationId as string | null,
   tenantId,
   readableOrganizationIds: [organizationId],
   translate: (_key: string, fallback?: string) => fallback ?? 'error',
@@ -85,13 +85,17 @@ const entryParams = { params: { dictionaryId, entryId } }
 describe('dictionary entry write routes mutation guard', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    context.organizationId = organizationId
     em.fork.mockReturnValue(em)
+    em.findOne.mockReset()
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
     commandBusExecuteMock.mockResolvedValue({ result: { entryId }, logEntry: null })
   })
 
   it('runs the mutation guard lifecycle when creating an entry', async () => {
+    em.findOne.mockResolvedValueOnce(dictionaryRecord)
+
     const response = await createEntry(
       new Request(`http://localhost/api/dictionaries/${dictionaryId}/entries`, {
         method: 'POST',
@@ -102,6 +106,10 @@ describe('dictionary entry write routes mutation guard', () => {
     )
 
     expect(response.status).toBe(201)
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      { id: dictionaryId, organizationId, tenantId, deletedAt: null },
+    )
     expect(commandBusExecuteMock).toHaveBeenCalledWith('dictionaries.entries.create', expect.anything())
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
       container,
@@ -114,6 +122,7 @@ describe('dictionary entry write routes mutation guard', () => {
   })
 
   it('blocks entry creation when the guard rejects the mutation', async () => {
+    em.findOne.mockResolvedValueOnce(dictionaryRecord)
     validateCrudMutationGuardMock.mockResolvedValueOnce({ ok: false, status: 423, body: { error: 'locked' } })
 
     const response = await createEntry(
@@ -126,6 +135,41 @@ describe('dictionary entry write routes mutation guard', () => {
     )
 
     expect(response.status).toBe(423)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('returns not found when the scoped dictionary lookup returns no match', async () => {
+    em.findOne.mockResolvedValueOnce(null)
+
+    const response = await createEntry(
+      new Request(`http://localhost/api/dictionaries/${dictionaryId}/entries`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: 'red', label: 'Red' }),
+      }),
+      { params: { dictionaryId } },
+    )
+
+    expect(response.status).toBe(404)
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('requires a resolved organization before looking up a dictionary for creation', async () => {
+    context.organizationId = null
+
+    const response = await createEntry(
+      new Request(`http://localhost/api/dictionaries/${dictionaryId}/entries`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: 'red', label: 'Red' }),
+      }),
+      { params: { dictionaryId } },
+    )
+
+    expect(response.status).toBe(400)
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
