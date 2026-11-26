@@ -248,8 +248,6 @@
   "entities.userEntities.form.submit": "Erstellen",
   "entities.userEntities.form.systemEntityNotice": "Dies ist eine im Code definierte Systementität. Ihr Label und ihre Beschreibung werden im Code verwaltet und können hier nicht bearbeitet werden — nur die Felddefinitionen unten sind bearbeitbar.",
   "entities.userEntities.form.title": "Entität erstellen",
-<<<<<<< HEAD
-=======
   "entities.userEntities.help.api": "Programmatischer Zugriff ist verfügbar — cURL-Beispiele finden Sie auf der Seite für Entitätsdatensätze.",
   "entities.userEntities.help.create": "Verwenden Sie Erstellen, um eine neue Entität hinzuzufügen, und fügen Sie anschließend benutzerdefinierte Felder hinzu.",
   "entities.userEntities.help.description": "Erstellen und verwalten Sie Benutzerentitäten — eigene Datentypen, ähnlich wie benutzerdefinierte Datenbanktabellen. Speichern Sie Datensätze und nutzen Sie diese in der Verwaltungsoberfläche und über APIs.",
@@ -273,7 +271,6 @@
   "entities.userEntities.records.apiHelp.security": "Sicherheitshinweise",
   "entities.userEntities.records.apiHelp.title": "API: Datensätze per cURL",
   "entities.userEntities.records.apiHelp.update": "5) Datensatz aktualisieren",
->>>>>>> 955f210e1d (fix(entities): localize custom record pages and wrap narrow headings (#9686))
   "entities.userEntities.records.errors.deleteFailed": "Datensatz konnte nicht gelöscht werden",
   "entities.userEntities.records.errors.entityIdRequired": "Entitätskennung ist erforderlich",
   "entities.userEntities.records.errors.recordIdRequired": "Datensatzkennung ist erforderlich",

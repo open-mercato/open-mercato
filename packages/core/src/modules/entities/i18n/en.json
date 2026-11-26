@@ -248,8 +248,6 @@
   "entities.userEntities.form.submit": "Create",
   "entities.userEntities.form.systemEntityNotice": "This is a system entity defined in code. Its label and description are managed in code and cannot be edited here — only the field definitions below are editable.",
   "entities.userEntities.form.title": "Create Entity",
-<<<<<<< HEAD
-=======
   "entities.userEntities.help.api": "Programmatic access is available — see the cURL examples in the entity records page.",
   "entities.userEntities.help.create": "Use Create to add a new entity and then attach custom fields.",
   "entities.userEntities.help.description": "Create and manage user entities — your own data types, similar to custom database tables. Store records and work with them across the admin UI and APIs.",
@@ -273,7 +271,6 @@
   "entities.userEntities.records.apiHelp.security": "Security notes",
   "entities.userEntities.records.apiHelp.title": "API: Records via cURL",
   "entities.userEntities.records.apiHelp.update": "5) Update a record",
->>>>>>> 955f210e1d (fix(entities): localize custom record pages and wrap narrow headings (#9686))
   "entities.userEntities.records.errors.deleteFailed": "Failed to delete record",
   "entities.userEntities.records.errors.entityIdRequired": "Entity identifier is required",
   "entities.userEntities.records.errors.recordIdRequired": "Record identifier is required",

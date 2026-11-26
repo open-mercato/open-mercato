@@ -248,8 +248,6 @@
   "entities.userEntities.form.submit": "Crear",
   "entities.userEntities.form.systemEntityNotice": "Esta es una entidad de sistema definida en el código. Su etiqueta y descripción se gestionan en el código y no se pueden editar aquí — solo las definiciones de campos siguientes son editables.",
   "entities.userEntities.form.title": "Crear entidad",
-<<<<<<< HEAD
-=======
   "entities.userEntities.help.api": "El acceso programático está disponible: consulta los ejemplos de cURL en la página de registros de la entidad.",
   "entities.userEntities.help.create": "Usa Crear para añadir una entidad y luego adjunta campos personalizados.",
   "entities.userEntities.help.description": "Crea y administra entidades de usuario: tus propios tipos de datos, similares a tablas de base de datos personalizadas. Almacena registros y trabaja con ellos desde la interfaz de administración y las API.",
@@ -273,7 +271,6 @@
   "entities.userEntities.records.apiHelp.security": "Indicaciones de seguridad",
   "entities.userEntities.records.apiHelp.title": "API: registros con cURL",
   "entities.userEntities.records.apiHelp.update": "5) Actualiza un registro",
->>>>>>> 955f210e1d (fix(entities): localize custom record pages and wrap narrow headings (#9686))
   "entities.userEntities.records.errors.deleteFailed": "No se pudo eliminar el registro",
   "entities.userEntities.records.errors.entityIdRequired": "Se requiere el identificador de la entidad",
   "entities.userEntities.records.errors.recordIdRequired": "Se requiere el identificador del registro",
