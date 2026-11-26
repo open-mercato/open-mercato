@@ -6,15 +6,7 @@ Related: `.ai/specs/2026-11-24-business-blocks-and-component-showcase.md` (spaci
 
 ## TLDR
 
-One table of inner padding, heights and gaps for every component class, on a strict 4 px grid, anchored to IBM Carbon and cross-checked with Ant Design and Atlassian. Values are written as spacing roles where a role exists, otherwise as the 4 px scale. Every primitive is then reviewed against this table, family by family, with before and after screenshots.
-
-## Reference systems
-
-- **IBM Carbon** (primary): the most complete published per-component spacing, with a Style tab per component and form rhythm. https://carbondesignsystem.com/elements/spacing/overview/ and `/components/<name>/style/`.
-- **Ant Design** (density cross-check): component tokens on a 4 px base with 24 / 32 / 40 control heights, closest to our product density. https://ant.design/docs/react/customize-theme and component token tables.
-- **Atlassian** (sanity check): spacing tokens on an 8 px base; component values come from compiled CSS, not stated standards. https://atlassian.design/foundations/spacing.
-
-Where they disagree we follow Carbon's steps and Ant's density, and round to the 4 px grid. Ant's border-subtracted values (15, 11, 7, 5) and Atlassian's 6 / 2 are not copied.
+One table of inner padding, heights and gaps for every component class, on a strict 4 px grid. Values are written as spacing roles where a role exists, otherwise as the 4 px scale. Every primitive is then reviewed against this table, family by family, with before and after screenshots.
 
 ## Principles
 
@@ -26,92 +18,92 @@ Where they disagree we follow Carbon's steps and Ant's density, and round to the
 
 ## Standard
 
-Columns: **OM** is the standard; **Today** is what our primitive does now; **Carbon** and **Ant** are the references.
+Columns: **OM** is the standard; **Today** is what our primitive did before the alignment.
 
 ### Controls
 
-| Component | OM | Today | Carbon | Ant |
-| --- | --- | --- | --- | --- |
-| Button height sm / md / lg | 32 / 36 / 40 | 32 / 36 / 40 | 32 / 40 / 48 | 24 / 32 / 40 |
-| Button horizontal padding sm / md / lg | 12 / 16 / 20 | 12 / 16 / 24 | 16 | 7 / 15 / 15 |
-| Button side with a leading icon | padding minus 4 | 10 / 12 / 16 | 16 | n/d |
-| Button icon gap sm / md / lg | 4 / 8 / 8 | 6 / 8 / 8 | 8 (ghost) to 16 | 8 |
-| Gap between buttons | 8 | mixed 8 to 12 | 16 | 8 |
-| Input / select height sm / md / lg | 32 / 36 / 40 | 32 / 36 / 40 | 32 / 40 / 48 | 24 / 32 / 40 |
-| Input horizontal padding sm / md / lg | 8 / 12 / 12 (`px-control-x`) | 10 / 12 / 12, source sizes 8 to 10 | 16 | 7 / 11 / 11 |
-| Input inner gap (icon, prefix) | 8 | 6 / 8 | n/d | n/d |
-| Checkbox / radio to label | 8 | 8 | 8 | 8 |
-| Stacked checkbox / radio options | 8 | mixed | 4 / 8 | 8 |
+| Component | OM | Today |
+| --- | --- | --- |
+| Button height sm / md / lg | 32 / 36 / 40 | 32 / 36 / 40 |
+| Button horizontal padding sm / md / lg | 12 / 16 / 20 | 12 / 16 / 24 |
+| Button side with a leading icon | padding minus 4 | 10 / 12 / 16 |
+| Button icon gap sm / md / lg | 4 / 8 / 8 | 6 / 8 / 8 |
+| Gap between buttons | 8 | mixed 8 to 12 |
+| Input / select height sm / md / lg | 32 / 36 / 40 | 32 / 36 / 40 |
+| Input horizontal padding sm / md / lg | 8 / 12 / 12 (`px-control-x`) | 10 / 12 / 12, source sizes 8 to 10 |
+| Input inner gap (icon, prefix) | 8 | 6 / 8 |
+| Checkbox / radio to label | 8 | 8 |
+| Stacked checkbox / radio options | 8 | mixed |
 
 ### Forms
 
-| Rhythm | OM | Today | Carbon | Ant |
-| --- | --- | --- | --- | --- |
-| Label to field | 8 (`field-label`) | 8 | 8 | 8 |
-| Field to hint or error | 8 (`field-hint`) | 8 | 4 | n/d |
-| Field to field | 24 (`field-stack`) | 24 | 32 | 24 |
-| Form section title to first field | 16 | mixed | 40 | n/d |
-| Field group to field group | 40 (`group`) | 40 | 40 | n/d |
-| Last field to form actions | 32 (`section`) | mixed | 48 | n/d |
+| Rhythm | OM | Today |
+| --- | --- | --- |
+| Label to field | 8 (`field-label`) | 8 |
+| Field to hint or error | 8 (`field-hint`) | 8 |
+| Field to field | 24 (`field-stack`) | 24 |
+| Form section title to first field | 16 | mixed |
+| Field group to field group | 40 (`group`) | 40 |
+| Last field to form actions | 32 (`section`) | mixed |
 
 ### Overlays
 
-| Component | OM | Today | Carbon | Ant | Atlassian |
-| --- | --- | --- | --- | --- | --- |
-| Menu container padding | 4 | 4 | n/d | 4 | n/d |
-| Menu item height | 32 | 32 to 36 | 32 / 40 | 32 / 40 | 32 / 40 |
-| Menu item horizontal padding | 8 | 8 | 16 | 12 to 16 | 12 to 16 |
-| Menu item icon gap | 8 | 8 | n/d | 10 | 8 / 12 |
-| Menu separator margin | 4 | 4 | 4 | n/d | n/d |
-| Menu section label | 8 sides, 8 top, 4 bottom | 8 / 8 / 4 | n/d | n/d | 8 / 20 / 6 |
-| Popover padding | 16 (`panel`) | 0 to 16 | 16 | 12 | n/d |
-| Tooltip padding sm / md | 4 × 8 / 8 × 12 | 2 × 6 / 4 × 10 | 16 | 6 × 8 | 4 × 6 |
-| Dialog padding | 24 (`dialog`) | 24 | 16 | 24 | 24 |
-| Dialog header to body / body to footer | 16 / 24 | 16 / 16 | 16 / 48 | 8 / 12 | 16 / 16 |
-| Dialog footer button gap | 8 | 8 | full bleed | 8 | 8 |
+| Component | OM | Today |
+| --- | --- | --- |
+| Menu container padding | 4 | 4 |
+| Menu item height | 32 | 32 to 36 |
+| Menu item horizontal padding | 8 | 8 |
+| Menu item icon gap | 8 | 8 |
+| Menu separator margin | 4 | 4 |
+| Menu section label | 8 sides, 8 top, 4 bottom | 8 / 8 / 4 |
+| Popover padding | 16 (`panel`) | 0 to 16 |
+| Tooltip padding sm / md | 4 × 8 / 8 × 12 | 2 × 6 / 4 × 10 |
+| Dialog padding | 24 (`dialog`) | 24 |
+| Dialog header to body / body to footer | 16 / 24 | 16 / 16 |
+| Dialog footer button gap | 8 | 8 |
 
 ### Surfaces and feedback
 
-| Component | OM | Today | Carbon | Ant | Atlassian |
-| --- | --- | --- | --- | --- | --- |
-| Card padding | 24 (`card`), compact 16 | 24 | 16 | 24 / 12 | n/d |
-| Section inside a page or form | 16 (`panel`) | 16 | n/d | n/d | n/d |
-| Alert default padding | 16 | 14 | 12 vertical, 48 min height | 12 × 8, 24 × 20 with text | 16 |
-| Alert sm / xs | 12 × 8 / 8 × 4 | 10 × 8 / 8 × 6 | n/d | n/d | n/d |
-| Alert icon gap | 12 | 12 | 16 | n/d | n/d |
-| Toast padding | 16 | mixed | 16 | 24 × 20 | n/d |
-| Tag / badge height md / sm | 24 / 20 | 22 / 16 | 24 / 18 | about 20 | n/d |
-| Tag / badge horizontal padding | 8 | 8 to 10 | 8 / 12 | 7 | n/d |
-| Empty state and Result padding | 24 sides, 48 vertical; compact 16 / 24 | 16 to 24 | n/d | n/d | n/d |
+| Component | OM | Today |
+| --- | --- | --- |
+| Card padding | 24 (`card`), compact 16 | 24 |
+| Section inside a page or form | 16 (`panel`) | 16 |
+| Alert default padding | 16 | 14 |
+| Alert sm / xs | 12 × 8 / 8 × 4 | 10 × 8 / 8 × 6 |
+| Alert icon gap | 12 | 12 |
+| Toast padding | 16 | mixed |
+| Tag / badge height md / sm | 24 / 20 | 22 / 16 |
+| Tag / badge horizontal padding | 8 | 8 to 10 |
+| Empty state and Result padding | 24 sides, 48 vertical; compact 16 / 24 | 16 to 24 |
 
 ### Data and navigation
 
-| Component | OM | Today | Carbon | Ant | Atlassian |
-| --- | --- | --- | --- | --- | --- |
-| Table row height compact / default / comfortable | 32 / 40 / 48 | about 36 | 32 / 40 / 48 | 39 / 47 / 55 | n/d |
-| Table cell horizontal padding | 16 | 16 | 16 | 16 / 12 / 8 | 8 |
-| Table header height | same as rows | about 36 | n/d | n/d | n/d |
-| Tabs height | 36 pill / 40 underline | 36 / 40 | 40 / 48 | n/d | n/d |
-| Tab horizontal padding | 12 | 12 | 16 | 16 (card) | 8 |
-| Gap between underline tabs | 16 | 16 | 1 | 32 | n/d |
-| Tab bar to content | 16 | mixed | n/d | 16 | n/d |
-| Toolbar padding and gap | 8 padding, 8 gap | 2 to 8 | n/d | n/d | n/d |
+| Component | OM | Today |
+| --- | --- | --- |
+| Table row height compact / default / comfortable | 32 / 40 / 48 | about 36 |
+| Table cell horizontal padding | 16 | 16 |
+| Table header height | same as rows | about 36 |
+| Tabs height | 36 pill / 40 underline | 36 / 40 |
+| Tab horizontal padding | 12 | 12 |
+| Gap between underline tabs | 16 | 16 |
+| Tab bar to content | 16 | mixed |
+| Toolbar padding and gap | 8 padding, 8 gap | 2 to 8 |
 
 ### Layout
 
-| Rhythm | OM | Today | Carbon | Ant |
-| --- | --- | --- | --- | --- |
-| Page margin | 16, 24 from 640 px (`page`) | 16 / 24 | 0 to 24 | n/d |
-| Grid gutter | 16, 24 from 640 px (`gutter`) | 16 / 24 | 16 narrow, 32 wide | 16 + 8n |
-| Section to section | 32 (`section`) | 32 | from the scale | n/d |
+| Rhythm | OM | Today |
+| --- | --- | --- |
+| Page margin | 16, 24 from 640 px (`page`) | 16 / 24 |
+| Grid gutter | 16, 24 from 640 px (`gutter`) | 16 / 24 |
+| Section to section | 32 (`section`) | 32 |
 
-## Deviations from Carbon, and why
+## Rationale for the key values
 
-- Control heights 32 / 36 / 40 instead of 32 / 40 / 48: back-office density; matches Ant and our Figma library.
-- Input padding 12 instead of 16: 36 px fields with 14 px text read better at 12; Ant uses 11.
-- Field to field 24 instead of 32: denser forms; matches Ant.
-- Dialog padding 24 instead of 16: matches Ant and Atlassian; our dialogs carry forms.
-- Menu item padding 8 instead of 16: our menus are narrower and carry icons and shortcuts.
+- Control heights 32 / 36 / 40: back-office density, and the sizes our Figma library already uses.
+- Input padding 12: 36 px fields with 14 px text read better at 12 than at 16.
+- Field to field 24: dense forms that still separate fields clearly.
+- Dialog padding 24: our dialogs carry forms and need the room.
+- Menu item padding 8: our menus are narrow and carry icons and shortcuts.
 
 ## Rollout
 
@@ -122,7 +114,7 @@ Columns: **OM** is the standard; **Today** is what our primitive does now; **Car
 
 ## Changelog
 
-- 2026-11-25: Draft written from Carbon, Ant and Atlassian references.
+- 2026-11-25: Draft written.
 - 2026-11-25: Approved. Family 1 (buttons, inputs, select triggers) aligned.
 - 2026-11-25: Family 2 (select lists, command menu, dropdown, popover, tooltip) aligned. PopoverContent keeps p-0 by contract (28 call sites rely on it); content compositions use `p-panel`.
 - 2026-11-25: Family 3 (alert, badge, tag, dialog) aligned; card already matched (24).

@@ -421,7 +421,7 @@ Mapping table: `.ai/skills/om-ds-guardian/references/token-mapping.md` § "Legac
 
 ### L.7a `om-ds/no-off-grid-spacing`
 
-**Goal**: Keep primitives and blocks on the 4 px spacing grid set by `.ai/specs/2026-11-25-component-spacing-standard.md` (anchored to IBM Carbon, cross-checked with Ant Design).
+**Goal**: Keep primitives and blocks on the 4 px spacing grid set by `.ai/specs/2026-11-25-component-spacing-standard.md`.
 
 Shipped implementation (`packages/eslint-plugin-ds/rules/no-off-grid-spacing.js`):
 
