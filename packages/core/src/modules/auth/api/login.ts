@@ -294,7 +294,7 @@ async function handleLoginRequest(req: Request) {
     }).catch(() => undefined)
     return NextResponse.json(
       { ok: false, error: translate('auth.login.errors.generic', 'An error occurred. Please try again.') },
-      { status: interceptedResponse.statusCode },
+      { status: interceptedResponse.statusCode, headers: interceptedResponse.headers },
     )
   }
   void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
@@ -313,7 +313,7 @@ async function handleLoginRequest(req: Request) {
   // token and skip the outstanding second factor, so it is cleared alongside the swap.
   const authTokenReplacedByInterceptor = authTokenForCookie !== token
 
-  const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
+  const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode, headers: interceptedResponse.headers })
   res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
   // A successful login changes the browser's identity. The scope-selection cookies
   // (`om_selected_org`, `om_selected_tenant`) outlive sessions by design (30-day
