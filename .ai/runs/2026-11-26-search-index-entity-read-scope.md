@@ -12,6 +12,8 @@ Apply the existing search entity authorization policy to the vector-index list a
 
 A change to how the index selects readable types can alter results seen by diagnostic clients. Verify scoped grants, a permitted explicit entity, a denied explicit entity, and mixed listings. Keep the fix open for review and acceptance.
 
+The affected search tests, PostgreSQL filter check, typecheck and independent production build passed. The full workspace gate remains open because the unchanged Core `TasksSection.conflicts.test.tsx` suite failed in the full test retry. Its seven tests passed in isolation.
+
 ## Progress
 
 PR: #10796
