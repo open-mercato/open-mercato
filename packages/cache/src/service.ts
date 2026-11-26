@@ -50,7 +50,6 @@ function isCacheMetadata(value: CacheValue | null): value is CacheMetadata {
 }
 
 type CacheStrategyName = NonNullable<CacheServiceOptions['strategy']>
-const KNOWN_STRATEGIES: CacheStrategyName[] = ['memory', 'redis', 'sqlite', 'jsonfile']
 const TENANT_META_KEY_PATTERN = 'tenant:*:key:meta:*'
 const TENANT_META_KEY_MARKER = ':key:meta:'
 
@@ -60,7 +59,7 @@ type TenantAwareCacheStrategy = CacheStrategy & {
 
 function isCacheStrategyName(value: string | undefined): value is CacheStrategyName {
   if (!value) return false
-  return KNOWN_STRATEGIES.includes(value as CacheStrategyName)
+  return Object.hasOwn(stockProviderFactories, value)
 }
 
 function resolveConfiguredStrategyType(options?: CacheServiceOptions): CacheStrategyName {
@@ -568,7 +567,8 @@ function createStockTenantAwareStrategy(strategyType: CacheStrategyName, options
 
   const codecOptions = resolveCodecOptions(options)
 
-  const baseStrategy = createStrategyForType(strategyType, options, defaultTtl, maxEntries, codecOptions)
+  const createStrategy = stockProviderFactories[strategyType] ?? stockProviderFactories.memory
+  const baseStrategy = createStrategy({ options, defaultTtl, maxEntries, codecOptions })
   const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl, maxEntries)
   const reportsBoundedCounters = strategyType === 'memory'
 
@@ -684,18 +684,19 @@ export class CacheService implements CacheStrategy {
   }
 }
 
-function createStrategyForType(strategyType: CacheStrategyName, options?: CacheServiceOptions, defaultTtl?: number, maxEntries?: number, codecOptions?: CacheCodecOptions): CacheStrategy {
-  switch (strategyType) {
-    case 'redis':
-      return createRedisStrategy(options?.redisUrl, { defaultTtl, ...codecOptions })
-    case 'sqlite':
-      return createSqliteStrategy(options?.sqlitePath, { defaultTtl, ...codecOptions })
-    case 'jsonfile':
-      return createJsonFileStrategy(options?.jsonFilePath, { defaultTtl })
-    case 'memory':
-    default:
-      return createMemoryStrategy({ defaultTtl, maxEntries })
-  }
+type StockFactoryOptions = {
+  defaultTtl?: number
+  maxEntries?: number
+  codecOptions: CacheCodecOptions
+  options?: CacheServiceOptions
+}
+
+/** Stock npm factories are available even to synchronous pre-bootstrap callers. */
+const stockProviderFactories: Record<CacheStrategyName, (config: StockFactoryOptions) => CacheStrategy> = {
+  memory: ({ defaultTtl, maxEntries }) => createMemoryStrategy({ defaultTtl, maxEntries }),
+  redis: ({ defaultTtl, codecOptions, options }) => createRedisStrategy(options?.redisUrl, { defaultTtl, ...codecOptions }),
+  sqlite: ({ defaultTtl, codecOptions, options }) => createSqliteStrategy(options?.sqlitePath, { defaultTtl, ...codecOptions }),
+  jsonfile: ({ defaultTtl, options }) => createJsonFileStrategy(options?.jsonFilePath, { defaultTtl }),
 }
 
 function describeDependencyFailure(error: CacheDependencyUnavailableError): string {
@@ -729,7 +730,7 @@ function withDependencyFallback(strategy: CacheStrategy, strategyType: CacheStra
 
   const ensureFallback = (error: CacheDependencyUnavailableError) => {
     if (!fallbackStrategy) {
-      fallbackStrategy = createMemoryStrategy({ defaultTtl, maxEntries })
+      fallbackStrategy = stockProviderFactories.memory({ defaultTtl, maxEntries, codecOptions: {} })
     }
     if (!warned) {
       const dependencyMessage = error.dependency

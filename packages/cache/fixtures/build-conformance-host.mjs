@@ -28,9 +28,9 @@ function resolveSource(base) {
 const workspaceSources = {
   name: 'workspace-sources',
   setup(context) {
-    context.onResolve({ filter: /^@open-mercato\/[^/]+\/.+/ }, (args) => {
+    context.onResolve({ filter: /^@open-mercato\/[^/]+(?:\/.+)?$/ }, (args) => {
       const [, scopeName, ...rest] = args.path.split('/')
-      const resolved = resolveSource(path.join(packagesDir, scopeName, 'src', ...rest))
+      const resolved = resolveSource(path.join(packagesDir, scopeName, 'src', ...(rest.length ? rest : ['index'])))
       return resolved ? { path: resolved } : { path: args.path, external: true }
     })
     context.onResolve({ filter: /^[^./]/ }, (args) => (path.isAbsolute(args.path) ? undefined : { path: args.path, external: true }))

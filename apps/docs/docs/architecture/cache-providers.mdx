@@ -12,6 +12,19 @@ This page has two parts:
 
 Provider selection is deployment-wide and takes effect on restart. Per-tenant providers, queue, rate-limiter and event transports are out of scope.
 
+## Stock providers
+
+The stock implementations ship as separate npm packages. They are installed with `@open-mercato/cache` and continue to use the existing `CACHE_STRATEGY` configuration.
+
+| `CACHE_STRATEGY` | Package |
+|---|---|
+| `memory` (default) | `@open-mercato/cache-provider-memory` |
+| `sqlite` | `@open-mercato/cache-provider-sqlite` |
+| `redis` | `@open-mercato/cache-provider-redis-legacy` |
+| `jsonfile` | `@open-mercato/cache-provider-jsonfile` |
+
+Use the steps below to add an optional npm provider alongside the stock choices.
+
 ## Operator guide
 
 ### 1. Install the provider package
@@ -22,13 +35,13 @@ Install the provider in the application workspace like any other dependency, and
 yarn add @acme/cache-provider-example
 ```
 
-An installed provider is trusted server code that runs with full process privileges. Review it like any other production dependency. Open Mercato never installs packages or resolves modules from a selector string: only packages your app imports in `mercato.cache.ts` can be selected.
+An installed provider is trusted server code that runs with full process privileges. Review it like any other production dependency. Open Mercato never installs packages or resolves modules from a selector string: only packages your app imports in `src/providers/cache.ts` can be selected.
 
-### 2. Register it in `mercato.cache.ts`
+### 2. Register it in `src/providers/cache.ts`
 
-Create `mercato.cache.ts` (or `mercato.cache.js`) at the **app root**, next to `package.json`, not under `src/`. It must export a named `cacheProviders` array:
+Edit the app's [infrastructure provider registry](./infrastructure-providers), `src/providers/cache.ts`. The monorepo example is at `apps/mercato/src/providers/cache.ts`. Standalone apps ship the same file at `src/providers/cache.ts`. It exports a named `cacheProviders` array:
 
-```ts title="mercato.cache.ts"
+```ts title="src/providers/cache.ts"
 import { defineCacheProviderRegistration } from '@open-mercato/cache/provider'
 
 export const cacheProviders = [
@@ -48,7 +61,7 @@ export const cacheProviders = [
 - `load` is a literal dynamic import. Bundlers and Next build tracing follow it, and the package is only loaded when its ID is selected.
 - `settings` is called once per process, only for the selected provider. Read endpoints and credentials from named environment variables or secret references. The provider package documents its settings, defaults and validation.
 
-You can register several providers. Duplicate IDs, built-in names and invalid IDs are rejected at startup **when a provider is selected**. With `CACHE_PROVIDER` unset the registrations are ignored entirely (not validated, loaded or evaluated), so a broken `mercato.cache.ts` cannot take down a stock deployment.
+You can register several providers. Duplicate IDs, built-in names and invalid IDs are rejected at startup **when a provider is selected**. With `CACHE_PROVIDER` unset the registrations are ignored entirely (not validated, loaded or evaluated), so a broken `src/providers/cache.ts` cannot take down a stock deployment.
 
 Then regenerate the registries so the app, CLI, workers and scheduler all read the same manifest:
 
@@ -56,7 +69,7 @@ Then regenerate the registries so the app, CLI, workers and scheduler all read t
 yarn generate
 ```
 
-The generator never evaluates `mercato.cache.ts`. It writes `.mercato/generated/cache-providers.generated.ts`, which re-exports your list, or an empty list when the file is absent. Re-run `yarn generate` whenever you add, rename or remove `mercato.cache.ts`.
+The generator never evaluates `src/providers/cache.ts`. It writes `.mercato/generated/cache-providers.generated.ts`, which re-exports your list, or an empty list when the file is absent. Re-run `yarn generate` whenever you add, rename or remove `src/providers/cache.ts`.
 
 When a provider is selected, the post-generate purge (see [Generation purge](#generation-purge-and-cache-maintenance)) resolves it and therefore evaluates its `settings()`. Root `yarn generate` runs through turbo, which passes only `CACHE_*` variables to the generate task. Provider settings that read other environment variable names (for example `ACME_CACHE_ENDPOINT` above) must therefore live in the app's `.env` file, which the generator loads itself; variables exported only in your shell are dropped at the turbo boundary and the purge reports `invalid_settings`.
 
@@ -114,7 +127,7 @@ Do not point a provider at a replica or read-only endpoint whose stale reads cou
 
 Existing stock Redis deployments need no reinstall or migration: nothing changes until `CACHE_PROVIDER` is set. To adopt a provider:
 
-1. Install the package, add `mercato.cache.ts`, run `yarn generate` and build. Deploy this with `CACHE_PROVIDER` still unset. Behavior stays stock.
+1. Install the package, add `src/providers/cache.ts`, run `yarn generate` and build. Deploy this with `CACHE_PROVIDER` still unset. Behavior stays stock.
 2. Choose a **new** `CACHE_PROVIDER_NAMESPACE` reserved for this deployment and provider layout. Never reuse a namespace from another deployment: that aliases two deployments onto one cache.
 3. Plan for a cold cache (higher database load right after the switch). Short-lived security markers held in the old cache, such as OAuth state, do not carry over. Drain or accept those flows before switching.
 4. Switch **all** processes together: HTTP servers, workers, schedulers and maintenance jobs. Do not run replicas on mixed providers for the same deployment; they would not see each other's invalidations.
@@ -132,7 +145,7 @@ Every provider failure surfaces as a `CacheProviderError` with a stable `code`. 
 
 | Code | Meaning | What to do |
 |---|---|---|
-| `invalid_registration` | A registration or the loaded definition is malformed: missing `load`/`settings`, no `safeParse` schema, missing `capability()`/`create()`, an invalid placement, or `create()` returned a strategy without the required methods. | Fix `mercato.cache.ts` or report it to the provider author. |
+| `invalid_registration` | A registration or the loaded definition is malformed: missing `load`/`settings`, no `safeParse` schema, missing `capability()`/`create()`, an invalid placement, or `create()` returned a strategy without the required methods. | Fix `src/providers/cache.ts` or report it to the provider author. |
 | `duplicate_id` | Two registrations use the same ID. | Keep one registration per ID. |
 | `reserved_id` | A registration ID or `CACHE_PROVIDER` is a built-in strategy name (`memory`, `redis`, `sqlite`, `jsonfile`) or has no `<scope>/` prefix. | Use `CACHE_STRATEGY` for built-ins and namespaced IDs for providers. |
 | `not_registered` | `CACHE_PROVIDER` names an ID the app does not register. | Check spelling, add the registration and run `yarn generate`. |
@@ -154,7 +167,7 @@ A provider is a server-only npm package that exports a definition built with `de
 ### Package shape
 
 - Declare `@open-mercato/cache` as a **peer dependency** (`">=0.11.0"` or your tested range). Declare your client libraries as your own dependencies. Do not add cloud SDKs to `@open-mercato/cache`.
-- Export server-only code, set `"sideEffects": false`, and export the definition without registering anything on import. The app registers it in `mercato.cache.ts`.
+- Export server-only code, set `"sideEffects": false`, and export the definition without registering anything on import. The app registers it in `src/providers/cache.ts`.
 - Pick a stable namespaced ID such as `acme/example` (pattern `^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$`). Built-in names and IDs without a scope are reserved.
 - Document every setting, its default, the environment variables apps typically map to it, the supported topologies and the maximum accepted item size.
 

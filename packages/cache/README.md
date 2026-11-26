@@ -139,7 +139,7 @@ The glob-matching happens on logical keys, so you can keep friendly names for tr
 
 ## Pluggable cache providers
 
-Besides the built-in strategies, a deployment can select an installed npm **cache provider**. The app registers it explicitly in `mercato.cache.ts` at the app root:
+The built-in strategies ship with this package as independent npm providers for memory, SQLite, Redis and JSON files. Existing `CACHE_STRATEGY` settings and the memory default apply. A deployment can also select an installed npm **cache provider**. The app registers it explicitly in `src/providers/cache.ts`:
 
 ```ts
 import { defineCacheProviderRegistration } from '@open-mercato/cache/provider'

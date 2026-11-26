@@ -21,7 +21,7 @@ import { join } from 'node:path'
 
 const repoRoot = join(__dirname, '..', '..', '..', '..')
 const bootstrapPath = join(repoRoot, 'packages', 'core', 'src', 'bootstrap.ts')
-const cacheTypesPath = join(repoRoot, 'packages', 'cache', 'src', 'types.ts')
+const cacheTypesPath = join(repoRoot, 'packages', 'cache-provider-kit', 'src', 'index.ts')
 const cacheAgentsPath = join(repoRoot, 'packages', 'cache', 'AGENTS.md')
 const reviewChecklistPath = join(repoRoot, '.ai', 'review-checklist.md')
 
@@ -46,7 +46,7 @@ function registeredCacheToken(): string {
 function cacheStrategyBody(): string {
   const source = readSource(cacheTypesPath)
   const start = source.indexOf('export type CacheStrategy = {')
-  if (start === -1) throw new Error('[internal] CacheStrategy type not found in packages/cache/src/types.ts')
+  if (start === -1) throw new Error('[internal] CacheStrategy type not found in packages/cache-provider-kit/src/index.ts')
   const rest = source.slice(start)
   const endOffset = rest.search(/^\}/m)
   if (endOffset === -1) throw new Error('[internal] CacheStrategy type body is not terminated')

@@ -8,6 +8,8 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '^@open-mercato/(cache-provider-(memory|sqlite|redis-legacy|jsonfile|kit))$': '<rootDir>/../$1/src/index',
+    '^@open-mercato/cache-provider-kit/(.*)$': '<rootDir>/../cache-provider-kit/src/$1',
     '^@open-mercato/cache/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
   },

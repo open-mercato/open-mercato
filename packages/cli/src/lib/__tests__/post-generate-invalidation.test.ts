@@ -111,7 +111,7 @@ describe('runPostGenerateStructuralInvalidation', () => {
   it('reports a manifest load failure through cacheError without purging', async () => {
     process.env.CACHE_PROVIDER = 'acme/fake'
     const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'post-generate-invalidation-manifest-fail-'))
-    loadManifest.mockRejectedValue(new Error('mercato.cache.ts failed to compile'))
+    loadManifest.mockRejectedValue(new Error('src/providers/cache.ts failed to compile'))
     try {
       const result = await runPostGenerateStructuralInvalidation(appDir)
 
