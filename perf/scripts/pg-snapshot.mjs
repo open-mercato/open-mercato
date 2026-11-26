@@ -11,7 +11,7 @@ const EXPLAIN_LIMIT = 10
 
 const STATEMENT_COLUMNS = `queryid::text as queryid, calls, round(total_exec_time::numeric, 2)::float as total_exec_time,
   round(mean_exec_time::numeric, 3)::float as mean_exec_time, rows, shared_blks_hit, shared_blks_read,
-  temp_blks_written, round((shared_blk_read_time + shared_blk_write_time)::numeric, 2)::float as io_time_ms, left(query, 4000) as query`
+  temp_blks_written, round((shared_blk_read_time + shared_blk_write_time)::numeric, 2)::float as io_time_ms, left(query, 4000) as query, query as full_query`
 
 function topStatementsSql(orderBy, minCalls) {
   return `select ${STATEMENT_COLUMNS} from pg_stat_statements
@@ -27,7 +27,7 @@ export async function resetStatements(sut, database) {
 async function explainGeneric(sut, database, statements) {
   const plans = []
   for (const statement of statements.filter((entry) => isExplainableSelect(entry.query)).slice(0, EXPLAIN_LIMIT)) {
-    const sql = `set statement_timeout = '15s';\nexplain (generic_plan, costs on, verbose off) ${statement.query};\n`
+    const sql = `set statement_timeout = '15s';\nexplain (generic_plan, costs on, verbose off) ${statement.full_query ?? statement.query};\n`
     const result = await sut.psql(sql, { database, allowFail: true })
     plans.push({
       queryid: statement.queryid,
@@ -57,6 +57,7 @@ export async function capturePgSnapshot(sut, { database, since, requestCount, ou
     statement.callsPerRequest = requestCount ? statement.calls / requestCount : null
   }
   const genericPlans = await explainGeneric(sut, database, byTotal)
+  for (const statement of [...byTotal, ...byMean]) delete statement.full_query
   const database_ = await databaseStats(sut, database)
   const logsResult = await sut.compose(['logs', '--no-color', '--no-log-prefix', '--since', since, 'postgres'], { allowFail: true })
   const logText = `${logsResult.stdout}\n${logsResult.stderr}`

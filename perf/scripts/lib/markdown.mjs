@@ -89,9 +89,12 @@ export const STEP_TABLE_HEADERS = ['Step', 'VUs', 'Requests', 'Req/s', 'Read p95
 
 export function resourceTableRows(resources) {
   const rows = []
+  const windows = new Set((resources?.metrics ?? []).flatMap((metric) => metric.rows.map((row) => row.window)))
+  const singleStep = [...windows].filter((name) => name.startsWith('step ')).length === 1
   for (const metric of resources?.metrics ?? []) {
     for (const row of metric.rows) {
       if (row.samples === 0) continue
+      if (singleStep && row.window.startsWith('step ')) continue
       rows.push([metric.label, row.label, row.window, formatUnit(row.avg, metric.unit), formatUnit(row.max, metric.unit)])
     }
   }

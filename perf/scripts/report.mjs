@@ -16,7 +16,7 @@ import {
 
 const LIMITATIONS = [
   'Protocol VUs do not hold SSE connections (core k6 has no EventSource); only browser VUs do, so SSE fan-out is under-represented.',
-  'App runtime metrics (pool, event loop, heap) are exported by the OTLP metric reader every 60 s (the telemetry package builds the reader without an interval), so short spikes are averaged.',
+  'App runtime metrics (pool, event loop, heap) are exported by the OTLP metric reader every 60 s (the telemetry package builds the reader without an interval), so short spikes are averaged. The pool gauges are point samples at export time and can read 0 while the pool is saturated in between; use `DB pool wait p95`, `Postgres backends` and app `timeout exceeded when trying to connect` errors for pool saturation.',
   'Seeded records have no action_logs history; the changelog tab is sparse for them.',
 ]
 

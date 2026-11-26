@@ -1,16 +1,21 @@
 const SERVICE = 'container_label_com_docker_compose_service'
 const PROJECT = 'container_label_com_docker_compose_project="om-perf"'
+const MONITORING_SERVICES = 'cadvisor|grafana|prometheus|node-exporter|postgres-exporter|redis-exporter|otel-collector|mailpit'
+
+function groupMonitoring(selector) {
+  return `label_replace(label_replace(${selector}, "svc", "$1", "${SERVICE}", "(.+)"), "svc", "monitoring (sum)", "${SERVICE}", "${MONITORING_SERVICES}")`
+}
 
 export const RESOURCE_QUERIES = [
-  { id: 'cpu', label: 'CPU cores', unit: 'cores', by: SERVICE, expr: `sum by (${SERVICE}) (rate(container_cpu_usage_seconds_total{${PROJECT}}[1m]))` },
-  { id: 'memory', label: 'Working set', unit: 'bytes', by: SERVICE, expr: `sum by (${SERVICE}) (container_memory_working_set_bytes{${PROJECT}})` },
+  { id: 'cpu', label: 'CPU cores', unit: 'cores', by: 'svc', expr: `sum by (svc) (${groupMonitoring(`rate(container_cpu_usage_seconds_total{${PROJECT}}[1m])`)})` },
+  { id: 'memory', label: 'Working set', unit: 'bytes', by: 'svc', expr: `sum by (svc) (${groupMonitoring(`container_memory_working_set_bytes{${PROJECT}}`)})` },
   { id: 'poolUsed', label: 'DB pool used', unit: 'count', by: 'job', expr: 'sum by (job) ({__name__=~"om_db_pool_connections.*", state="used"})' },
   { id: 'poolPending', label: 'DB pool pending', unit: 'count', by: 'job', expr: 'sum by (job) ({__name__=~"om_db_pool_pending_requests.*"})' },
   { id: 'poolWaitP95', label: 'DB pool wait p95', unit: 'seconds', by: 'job', expr: 'histogram_quantile(0.95, sum by (le, job) (rate({__name__=~"om_db_pool_wait_time.*_bucket"}[1m])))' },
   { id: 'eventLoop', label: 'Event loop utilization', unit: 'ratio', by: 'job', expr: 'max by (job) ({__name__=~"nodejs_eventloop_utilization.*"})' },
   { id: 'eventLoopDelayP99', label: 'Event loop delay p99', unit: 'seconds', by: 'job', expr: 'max by (job) ({__name__=~"nodejs_eventloop_delay_p99.*"})' },
   { id: 'heap', label: 'V8 heap used', unit: 'bytes', by: 'job', expr: 'sum by (job) ({__name__=~"v8js_memory_heap_used.*"})' },
-  { id: 'queueDepth', label: 'BullMQ waiting', unit: 'count', by: null, expr: 'sum(redis_key_size{key=~"bull:.*:(wait|delayed|prioritized|paused)"})' },
+  { id: 'queueDepth', label: 'BullMQ waiting', unit: 'count', by: null, expr: 'sum(redis_key_size{key=~"bull:.*:(wait|prioritized|paused)"})' },
   { id: 'queueActive', label: 'BullMQ active', unit: 'count', by: null, expr: 'sum(redis_key_size{key=~"bull:.*:active"})' },
   { id: 'redisMemory', label: 'Redis memory', unit: 'bytes', by: null, expr: 'max(redis_memory_used_bytes)' },
   { id: 'pgBackends', label: 'Postgres backends', unit: 'count', by: null, expr: 'sum(pg_stat_database_numbackends)' },
