@@ -16,10 +16,12 @@ The existing job opens tracking issues when its high-severity gate fails. Keep i
 
 ## Progress
 
+PR: #10798
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Branch coverage and verification
 
-- [ ] 1.1 Add optional reporting below the failure threshold
-- [ ] 1.2 Audit the release graphs on the existing schedule
+- [x] 1.1 Add optional reporting below the failure threshold — 6974dc5141
+- [x] 1.2 Audit the release graphs on the existing schedule — 6974dc5141
 - [ ] 1.3 Verify workflow and report results
