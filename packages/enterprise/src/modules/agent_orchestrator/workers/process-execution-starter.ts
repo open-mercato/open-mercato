@@ -148,6 +148,7 @@ type WorkflowExecutorLike = {
       tenantId?: string
       organizationId?: string
     },
+    container?: Awaited<ReturnType<typeof createRequestContainer>>,
   ) => Promise<{ id: string; workflowId?: string; version?: number }>
   executeWorkflow: (
     em: EntityManager,
@@ -217,7 +218,7 @@ export default async function handle(job: QueuedJob<ProcessExecutionJobPayload>,
       ...(initiatedBy ? { metadata: { initiatedBy } } : {}),
       tenantId: decrypted.tenantId,
       organizationId: decrypted.organizationId,
-    })
+    }, container)
     instanceId = instance.id
     instanceVersion = instance.version
   } catch (error) {
