@@ -254,6 +254,9 @@ The rerun passed 100% of checks.
 3. Is there a second VPS for the generator? The plan's default is a generator VPS in the same datacenter. A laptop generator is a fallback whose numbers include internet RTT.
 4. Disk ≥ 200 GB if tier M is in scope (P1-3).
 
+**Decisions taken (2026-11-26):**
+- The disk stays at 80 GB, so full M (250k) does not fit. The M scope is to be redefined; ~100k entities is the largest that fits.
+- The deployment is tested as shipped: one app process, no replica experiment. VPS reports must state that the knee reflects a single Next.js process (P1-2).
+
 **Recommended before the VPS rounds:**
-- Decide on the single-process question (P1-2). Either accept it as "deployment as shipped", or add the replica experiment.
 - Optional: a dry run of the remote path (SSH, tunnels, exposure check) on the 8 GB personal VPS with a reduced dataset, not used for comparison.

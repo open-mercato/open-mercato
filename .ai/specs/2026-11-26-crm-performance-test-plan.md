@@ -686,3 +686,7 @@ Each experiment is a single-variable change against the round-1 snapshot, report
   - `perf tenant` now runs `mercato seed:defaults` after `mercato auth setup`; without it the tenant had no currency dictionary and the pipeline journey got 404s.
   - The seeder makes its first perf pipeline the tenant's default, so the kanban opens on the seeded pipeline rather than the empty "Default Pipeline" that `seed:defaults` creates.
   - The Meilisearch settle check ignores BullMQ repeatable jobs that are not yet due.
+- **2026-11-26 (decisions after Phase 2)**:
+  - The SUT is `vps-6c16g` (6 vCPU / 16 GB / 80 GB). The disk cannot be increased, so full tier M (250k) does not fit; the M scope is to be redefined (see `perf/config/hardware.md` → Disk budget).
+  - The deployment is tested **as shipped**: a single app process. No multi-replica experiment. Reports state that the knee reflects one Next.js process (Phase 2 finding P1-2).
+  - Phase 2 results and the prioritized findings are in `perf/results/2026-11-26-phase2-local/report.md`.

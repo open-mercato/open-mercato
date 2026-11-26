@@ -11,7 +11,7 @@ copy the derived values into `perf/config/sut.local.env` and never tune one run 
 | `local-mac` | Phase 2 local validation (SUT, monitoring and k6 on one laptop) | Docker Desktop VM, 8 vCPU assigned | 16 GB assigned to the VM | Apple SSD (virtiofs) | macOS + Docker Desktop | numbers are `local-validation` only |
 | `vps-8c32g` | **Recommended SUT** | 8 dedicated vCPU | 32 GB | NVMe | Ubuntu 24.04 LTS, Docker Engine + compose plugin | to be confirmed in Phase 0 |
 | `vps-4c8g` | Generator (and a minimal SUT for dry runs) | 4 vCPU | 8 GB | NVMe | Ubuntu 24.04 LTS | to be confirmed in Phase 0 |
-| `vps-6c16g` | **Offered SUT** (2026-11-26) | 6 vCPU (dedicated? to confirm) | 16 GB | 80 GB (type to confirm) | to confirm | provisional: S fits; M needs ≥ 200 GB disk (see below) |
+| `vps-6c16g` | **SUT** (decided 2026-11-26) | 6 vCPU (dedicated? to confirm) | 16 GB | 80 GB, fixed — cannot be increased (type to confirm) | to confirm | S fits; full M (250k) does not (see Disk budget) |
 
 Shared-vCPU plans add steal-time noise; if one is used, the report's `CPU steal` row must be read before any comparison.
 
@@ -67,4 +67,4 @@ Measured on `local-mac` at tier S: Postgres 12 GB, of which `search_tokens` is ~
 | M | ~60 GB | ~60 GB | ~9 GB | ~20 GB | **~150 GB → provision ≥ 200 GB** |
 | L | ~240 GB | ~240 GB | ~36 GB | ~20 GB | **~540 GB** |
 
-On an 80 GB disk only S fits. M needs a bigger disk (or an attached volume for Docker data), a compressed `pg_dump` snapshot (slower restores), or a reduced M.
+On an 80 GB disk only S fits. **Decision (2026-11-26): the disk cannot be increased.** Full M does not fit even with a compressed `pg_dump` snapshot (the live database alone is ~60 GB). The largest dataset that fits with template snapshots and headroom is ~100k customer entities (~24 GB Postgres, ~50 GB with the snapshot).
