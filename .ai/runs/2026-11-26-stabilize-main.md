@@ -38,14 +38,25 @@ No speculative fixes, test weakening, architecture changes, production dependenc
 - Main may advance while the isolated PR run continues. Evidence must identify the tested head and base.
 - Local dependencies are absent at preflight. Select the runner using repository probes before validation; remote CI remains required evidence.
 
+## Verification evidence
+
+- Runner: local for focused CI regression tests; hosted GitHub Actions for the full suite. No compose app container was running during the prescribed probes.
+- Local gate: `node --test scripts/__tests__/ci-full-label.test.mjs scripts/__tests__/ci-concurrency.test.mjs scripts/__tests__/ci-merge-coverage.test.mjs` passed 45/45; `git diff --check origin/main...HEAD` passed. No configured markdown-specific lint command was found. The docs-only gate applies because only this plan changed.
+- Main run [45709877361](https://github.com/open-mercato/open-mercato/actions/runs/45709877361) passed at `dd5134f2518e724bdde9ca55190bb4d41187cedb`, including all 15 integration shards.
+- PR run [45721358546](https://github.com/open-mercato/open-mercato/actions/runs/45721358546) passed at `f101ee1df09b1565734fb36135b09b208dffd8e4`, including full typechecking/unit tests, all 15 integration shards, app/Docker builds, timezone/multi-instance checks, and coverage aggregation. Other exact-head workflows and CodeQL also passed; audit, mutation execution, and backport skips match their scope conditions.
+- No demonstrated root cause needs a code change. Existing full-suite selection and PR-specific concurrency are covered by the passing local checks.
+- Diagnosis child `fc5cd5e0-31ae-4f8f-8ec7-3e209afea324` failed before model startup: the cockpit rejected restricted Codex tool grants. It produced no independent evidence. The parent completed the audit; the remaining task slot is reserved for final independent review.
+- Branch-protection required-checks lookup returned HTTP 404. Completion therefore requires every reported check and exact-head workflow to settle successfully or with an expected scope skip.
+
 ## Progress
+PR: #10726
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Diagnose and verify
 
-- [ ] 1.1 Independently audit main CI and confirm full-suite routing
-- [ ] 1.2 Run the full suite on the stabilization PR and fix only reproduced failures
+- [x] 1.1 Independently audit main CI and confirm full-suite routing — f101ee1df0 (parent audit completed; independent diagnosis task could not start; final review will verify evidence)
+- [x] 1.2 Run the full suite on the stabilization PR and fix only reproduced failures — f101ee1df0 (run 45721358546 passed; no fixes required)
 
 ### Phase 2: Review and finish
 
