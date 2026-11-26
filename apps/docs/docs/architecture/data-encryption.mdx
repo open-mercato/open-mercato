@@ -38,7 +38,16 @@ This document outlines the data-encryption architecture so module owners can wir
 - `TENANT_DATA_ENCRYPTION_DEBUG` – `yes` to surface map evaluation decisions, Vault cache hits/misses, and fallback selection in logs.
 - `VAULT_ADDR`, `VAULT_TOKEN` – required for the HashiCorp Vault KMS provider.
 - `VAULT_KV_PATH` – KV v2 mount for tenant keys; defaults to `secret/data`.
+- `VAULT_REQUEST_TIMEOUT_MS`, `VAULT_RECOVERY_COOLDOWN_MS` – request time limit and recovery interval after a transient failure. The defaults are 1,000 ms and 30,000 ms, respectively.
 - Fallback secrets (used when Vault is down or missing): `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`, then legacy `TENANT_DATA_ENCRYPTION_KEY`. Auth/session secrets are intentionally excluded. The built-in dev fallback requires `ALLOW_DERIVED_KMS_FALLBACK=true`; production without a dedicated fallback secret falls back to the noop KMS.
+
+### Planned application KMS providers
+
+Vault is the current default when tenant encryption is enabled and the deployment provides `VAULT_ADDR` and `VAULT_TOKEN`. Continue to use the [Vault setup guide](../user-guide/encryption.mdx#vault-setup-kms) for existing deployments.
+
+The [KMS driver proposal](https://github.com/open-mercato/open-mercato/pull/10670) places app-owned registrations in `src/providers/kms.ts`, alongside cache and queue registrations. A shared early bootstrap will resolve the selected KMS driver for the web app, workers, scheduler, setup, and key-consuming CLI commands. The proposal also moves Vault into `@open-mercato/kms-driver-vault` and ships it as the default in both app templates.
+
+The planned packaging change preserves existing `VAULT_*` settings, Vault key paths, and stored keys. Current installations can keep their configuration. When released, the package change itself will require no key rotation or database migration.
 
 ## Data flow
 
