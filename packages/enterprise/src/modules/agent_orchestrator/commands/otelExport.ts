@@ -166,7 +166,7 @@ export async function hasOtelExportFeatures(
   if (!auth) return false
   try {
     const acl = await loadInvokerAcl(container, invokerFromAuth(auth), scope)
-    return authorizeFeatures(features, {
+    return acl.hasUnrestrictedOrganizationVisibility === true && authorizeFeatures(features, {
       grantedFeatures: acl.features,
       unrestricted: acl.isSuperAdmin,
     })

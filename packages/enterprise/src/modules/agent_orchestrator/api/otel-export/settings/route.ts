@@ -41,7 +41,8 @@ import { agentOrchestratorTag } from '../../openapi'
  * The caller organization's export integration is reduced to whether it is
  * configured and enabled.
  * Writing needs `agents.manage` (plus `trace.view_content` to ask for content
- * export) and goes through an undoable command whose `updatedAt` is the
+ * export), requires unrestricted organization visibility because the row is
+ * tenant-wide, and goes through an undoable command whose `updatedAt` is the
  * optimistic-lock version of the tenant's config row.
  */
 
@@ -216,14 +217,14 @@ export const openApi: OpenApiRouteDoc = {
     PUT: {
       summary: 'Save the tenant OTel export settings',
       description:
-        'Writes the tenant-scoped settings through the undoable agent_orchestrator.otelExportSettings.update command. Send the x-om-ext-optimistic-lock-expected-updated-at header with the updatedAt from GET to reject a stale save with 409. Requires agent_orchestrator.agents.manage; content "full" also requires agent_orchestrator.trace.view_content and is refused with 422 content_export_not_allowed while the deployment denies content export (OM_AGENT_OTEL_EXPORT_CONTENT is not allow); destination "integration" is refused with 422 tenant_endpoints_not_allowed while the deployment denies tenant endpoints (OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS is not allow).',
+        'Writes the tenant-scoped settings through the undoable agent_orchestrator.otelExportSettings.update command. Send the x-om-ext-optimistic-lock-expected-updated-at header with the updatedAt from GET to reject a stale save with 409. Requires agent_orchestrator.agents.manage and unrestricted organization visibility; content "full" also requires agent_orchestrator.trace.view_content and is refused with 422 content_export_not_allowed while the deployment denies content export (OM_AGENT_OTEL_EXPORT_CONTENT is not allow); destination "integration" is refused with 422 tenant_endpoints_not_allowed while the deployment denies tenant endpoints (OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS is not allow).',
       responses: [{ status: 200, description: 'Saved settings', schema: settingsResponseSchema }],
       errors: [
         { status: 400, description: 'Invalid settings or missing tenant', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         {
           status: 403,
-          description: 'Missing agent_orchestrator.agents.manage (or agent_orchestrator.trace.view_content for content export)',
+          description: 'Missing write features or unrestricted organization visibility',
           schema: errorSchema,
         },
         { status: 409, description: 'The settings changed since they were read', schema: conflictSchema },

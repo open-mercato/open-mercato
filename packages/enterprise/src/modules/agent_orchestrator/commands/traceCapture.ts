@@ -98,7 +98,7 @@ export async function hasTraceCaptureWriteAccess(
 ): Promise<boolean> {
   if (!auth) return false
   const acl = await loadInvokerAcl(container, invokerFromAuth(auth), scope)
-  return authorizeFeatures(TRACE_CAPTURE_WRITE_FEATURES, {
+  return acl.hasUnrestrictedOrganizationVisibility === true && authorizeFeatures(TRACE_CAPTURE_WRITE_FEATURES, {
     grantedFeatures: acl.features,
     unrestricted: acl.isSuperAdmin,
   })

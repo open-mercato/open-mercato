@@ -211,7 +211,27 @@ describe('loadInvokerAcl', () => {
     })
     const acl = await loadInvokerAcl(container as never, invoker, scope)
     expect(loadAcl).toHaveBeenCalledWith(principalId, scope)
-    expect(acl).toEqual({ features: ['sales.orders.view'], isSuperAdmin: false })
+    expect(acl).toEqual({
+      features: ['sales.orders.view'],
+      isSuperAdmin: false,
+      hasUnrestrictedOrganizationVisibility: true,
+    })
+  })
+
+  it('marks organization-restricted ACLs as unable to change tenant-wide settings', async () => {
+    const { container } = makeContainer({
+      'user-1': { isSuperAdmin: false, features: ['agent_orchestrator.agents.manage'], organizations: [scope.organizationId!] },
+    })
+    const acl = await loadInvokerAcl(container as never, { kind: 'user', userId: 'user-1' }, scope)
+    expect(acl.hasUnrestrictedOrganizationVisibility).toBe(false)
+  })
+
+  it('recognizes a super-admin ACL as globally visible', async () => {
+    const { container } = makeContainer({
+      'user-1': { isSuperAdmin: true, features: [], organizations: null },
+    })
+    const acl = await loadInvokerAcl(container as never, { kind: 'user', userId: 'user-1' }, scope)
+    expect(acl.hasUnrestrictedOrganizationVisibility).toBe(true)
   })
 
   it('grants nothing when the organization restriction excludes the run organization', async () => {
@@ -219,7 +239,7 @@ describe('loadInvokerAcl', () => {
       'user-1': { isSuperAdmin: false, features: ['sales.*'], organizations: ['org-other'] },
     })
     const acl = await loadInvokerAcl(container as never, { kind: 'user', userId: 'user-1' }, scope)
-    expect(acl).toEqual({ features: [], isSuperAdmin: false })
+    expect(acl).toEqual({ features: [], isSuperAdmin: false, hasUnrestrictedOrganizationVisibility: false })
   })
 
   it('fails closed when the RBAC service throws', async () => {
@@ -229,7 +249,7 @@ describe('loadInvokerAcl', () => {
       },
     }
     const acl = await loadInvokerAcl(container as never, { kind: 'user', userId: 'user-1' }, scope)
-    expect(acl).toEqual({ features: [], isSuperAdmin: false })
+    expect(acl).toEqual({ features: [], isSuperAdmin: false, hasUnrestrictedOrganizationVisibility: false })
   })
 })
 

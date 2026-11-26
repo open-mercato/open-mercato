@@ -66,13 +66,14 @@ function makeContainer(options: {
   store?: ReturnType<typeof makeConfigStore>
   features?: string[]
   isSuperAdmin?: boolean
+  organizations?: string[] | null
   execute?: jest.Mock
 }) {
   const store = options.store ?? makeConfigStore()
   const loadAcl = jest.fn(async () => ({
     isSuperAdmin: options.isSuperAdmin ?? false,
     features: options.features ?? [],
-    organizations: null,
+    organizations: options.organizations ?? null,
   }))
   const execute = options.execute ?? jest.fn()
   const container = {
@@ -224,6 +225,17 @@ describe('PUT /trace-capture/settings', () => {
 
     expect(invalid.status).toBe(400)
     expect(malformed.status).toBe(400)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  test('403 for an organization-restricted writer even when both features are granted', async () => {
+    const { container, execute } = makeContainer({ features: FULL_FEATURES, organizations: [ORG] })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    const response = await PUT(putRequest({ level: 'off' }))
+
+    expect(response.status).toBe(403)
     expect(execute).not.toHaveBeenCalled()
   })
 

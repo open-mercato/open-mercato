@@ -13,6 +13,7 @@ export const AGENT_INVOKE_ENFORCEMENT_ENV = 'OM_AGENT_INVOKE_ENFORCEMENT'
 export type InvokerAcl = {
   features: string[]
   isSuperAdmin: boolean
+  hasUnrestrictedOrganizationVisibility?: boolean
 }
 
 export type InvokerScope = {
@@ -27,7 +28,11 @@ type RbacServiceLike = {
   ) => Promise<{ isSuperAdmin: boolean; features: string[]; organizations?: string[] | null }>
 }
 
-const EMPTY_ACL: InvokerAcl = { features: [], isSuperAdmin: false }
+const EMPTY_ACL: InvokerAcl = {
+  features: [],
+  isSuperAdmin: false,
+  hasUnrestrictedOrganizationVisibility: false,
+}
 
 /**
  * Invoke enforcement is ON unless `OM_AGENT_INVOKE_ENFORCEMENT=off`: the kill
@@ -92,7 +97,12 @@ export async function loadInvokerAcl(
     ) {
       return EMPTY_ACL
     }
-    return { features: Array.isArray(loaded.features) ? loaded.features : [], isSuperAdmin }
+    return {
+      features: Array.isArray(loaded.features) ? loaded.features : [],
+      isSuperAdmin,
+      hasUnrestrictedOrganizationVisibility:
+        isSuperAdmin || loaded.organizations === null || loaded.organizations?.includes('__all__') === true,
+    }
   } catch (err) {
     logger.warn('failed to load invoker ACL; treating as no grants', {
       invokerKind: invoker.kind,
