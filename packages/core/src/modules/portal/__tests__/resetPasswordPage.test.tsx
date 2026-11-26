@@ -30,6 +30,7 @@ jest.mock('next/navigation', () => ({
 }))
 
 import PortalResetPasswordPage from '../frontend/[orgSlug]/portal/reset-password/page'
+import PortalVerifyPage from '../frontend/[orgSlug]/portal/verify/page'
 
 describe('PortalResetPasswordPage', () => {
   beforeEach(() => {
@@ -77,6 +78,20 @@ describe('PortalResetPasswordPage', () => {
     })
 
     await findByText(/invalid or expired reset token/i)
+  })
+
+  it('submits the password chosen on the verification page along with the token', async () => {
+    apiCallMock.mockResolvedValueOnce({ ok: true, status: 200, result: { ok: true } })
+    const { getByLabelText, getByRole, findByRole } = renderWithProviders(<PortalVerifyPage params={{ orgSlug: 'acme' }} />)
+    expect(apiCallMock).not.toHaveBeenCalled()
+    fillForm(getByLabelText, 'pw12345678', 'pw12345678')
+    fireEvent.click(getByRole('button', { name: 'Verify email and set password' }))
+
+    await findByRole('heading', { name: 'Email verified' })
+    expect(apiCallMock).toHaveBeenCalledWith(
+      '/api/customer_accounts/email/verify',
+      expect.objectContaining({ body: JSON.stringify({ token: 'reset-token-123', password: 'pw12345678' }) }),
+    )
   })
 
   it('surfaces backend error verbatim on non-400 failure', async () => {

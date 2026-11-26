@@ -53,8 +53,19 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
     mockFindWithDecryption.mockResolvedValue([])
   })
 
+  it('does not search CRM or attach a company for an unverified registration', async () => {
+    mockFindOneWithDecryption.mockResolvedValueOnce({
+      id: userId, tenantId, organizationId, email: 'fixture@example.com', isActive: true, emailVerifiedAt: null,
+    })
+    const em = { findOne: jest.fn(), nativeUpdate: jest.fn() }
+    const { default: handle } = await import('../autoLinkCrm')
+    await handle({ id: userId, tenantId, organizationId }, makeCtx(em))
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
   it('replaces a person-pointing customerEntityId with the person profile company', async () => {
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: linkedPersonId }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId, customerEntityId: linkedPersonId }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
       if (entity === CustomerUser) return user
       if (entity === CustomerEntity) return { id: linkedPersonId, kind: 'person' }
@@ -69,13 +80,13 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       CustomerUser,
-      { id: userId, tenantId, organizationId },
+      expect.objectContaining({ id: userId, tenantId, organizationId, emailVerifiedAt: { $ne: null } }),
       { customerEntityId: companyEntityId },
     )
   })
 
   it('clears a person-pointing customerEntityId when no company can be recovered', async () => {
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: linkedPersonId }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId, customerEntityId: linkedPersonId }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
       if (entity === CustomerUser) return user
       if (entity === CustomerEntity) return { id: linkedPersonId, kind: 'person' }
@@ -90,7 +101,7 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       CustomerUser,
-      { id: userId, tenantId, organizationId },
+      expect.objectContaining({ id: userId, tenantId, organizationId, emailVerifiedAt: { $ne: null } }),
       { customerEntityId: null },
     )
   })
@@ -98,7 +109,7 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
   it('clears a customerEntityId that does not resolve inside the user own org', async () => {
     // customerEntityId is the portal company scope key, so a cross-org value must
     // be cleared, not left in place "because it is a company somewhere".
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: companyEntityId }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId, customerEntityId: companyEntityId }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
       if (entity === CustomerUser) return user
       if (entity === CustomerEntity) return null
@@ -113,13 +124,13 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       CustomerUser,
-      { id: userId, tenantId, organizationId },
+      expect.objectContaining({ id: userId, tenantId, organizationId, emailVerifiedAt: { $ne: null } }),
       { customerEntityId: null },
     )
   })
 
   it('does not adopt a recovered company that belongs to another org', async () => {
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: linkedPersonId }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId, customerEntityId: linkedPersonId }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: any) => {
       if (entity === CustomerUser) return user
       if (entity === CustomerEntity) {
@@ -139,13 +150,13 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       CustomerUser,
-      { id: userId, tenantId, organizationId },
+      expect.objectContaining({ id: userId, tenantId, organizationId, emailVerifiedAt: { $ne: null } }),
       { customerEntityId: null },
     )
   })
 
   it('leaves a correct company customerEntityId untouched', async () => {
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: companyEntityId }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId, customerEntityId: companyEntityId }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
       if (entity === CustomerUser) return user
       if (entity === CustomerEntity) return { id: companyEntityId, kind: 'company' }
@@ -162,7 +173,7 @@ describe('autoLinkCrm — poisoned customerEntityId normalization (#4362)', () =
   })
 
   it('scopes the person profile lookup by tenant and organization', async () => {
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: linkedPersonId }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId, customerEntityId: linkedPersonId }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
       if (entity === CustomerUser) return user
       if (entity === CustomerEntity) return { id: linkedPersonId, kind: 'person' }
@@ -199,7 +210,7 @@ describe('autoLinkCrm — CRM auto-link path scoping', () => {
   }
 
   it('does not link a CRM person that belongs to another organization', async () => {
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId: null, customerEntityId: null }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId: null, customerEntityId: null }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => (
       entity === CustomerUser ? user : null
     ))
@@ -224,7 +235,7 @@ describe('autoLinkCrm — CRM auto-link path scoping', () => {
   })
 
   it('links an in-org CRM person together with its in-org company', async () => {
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId: null, customerEntityId: null }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId: null, customerEntityId: null }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: any) => {
       if (entity === CustomerUser) return user
       if (entity === CustomerEntity && where?.kind === 'company') return { id: companyEntityId, kind: 'company' }
@@ -242,13 +253,13 @@ describe('autoLinkCrm — CRM auto-link path scoping', () => {
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       CustomerUser,
-      { id: userId, tenantId, organizationId },
+      expect.objectContaining({ id: userId, tenantId, organizationId, emailVerifiedAt: { $ne: null }, personEntityId: null }),
       { personEntityId: linkedPersonId, customerEntityId: companyEntityId },
     )
   })
 
   it('links the person but not a company that sits outside the user org', async () => {
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId: null, customerEntityId: null }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId: null, customerEntityId: null }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => (
       entity === CustomerUser ? user : null
     ))
@@ -264,7 +275,7 @@ describe('autoLinkCrm — CRM auto-link path scoping', () => {
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       CustomerUser,
-      { id: userId, tenantId, organizationId },
+      expect.objectContaining({ id: userId, tenantId, organizationId, emailVerifiedAt: { $ne: null }, personEntityId: null }),
       { personEntityId: linkedPersonId },
     )
   })
@@ -279,7 +290,7 @@ describe('autoLinkCrm — person-invited users get a company scope key (#4362)',
   it('derives customerEntityId from the linked person profile', async () => {
     // These users accept with personEntityId already set, so the email-matching
     // path never runs for them and customerEntityId would stay null forever.
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: null }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId, customerEntityId: null }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: any) => {
       if (entity === CustomerUser) return user
       if (entity === CustomerEntity && where?.kind === 'company') return { id: companyEntityId, kind: 'company' }
@@ -299,7 +310,7 @@ describe('autoLinkCrm — person-invited users get a company scope key (#4362)',
     })
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       CustomerUser,
-      { id: userId, tenantId, organizationId },
+      expect.objectContaining({ id: userId, tenantId, organizationId, emailVerifiedAt: { $ne: null } }),
       { customerEntityId: companyEntityId },
     )
     expect(mockFindWithDecryption).not.toHaveBeenCalled()
@@ -308,7 +319,7 @@ describe('autoLinkCrm — person-invited users get a company scope key (#4362)',
   it('reads the profile company relation in its raw id form too', async () => {
     // MikroORM hands back either an entity reference or the bare uuid depending on
     // whether the relation is loaded; both must resolve to the same company.
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: null }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId, customerEntityId: null }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: any) => {
       if (entity === CustomerUser) return user
       if (entity === CustomerEntity && where?.kind === 'company') return { id: companyEntityId, kind: 'company' }
@@ -323,13 +334,13 @@ describe('autoLinkCrm — person-invited users get a company scope key (#4362)',
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       CustomerUser,
-      { id: userId, tenantId, organizationId },
+      expect.objectContaining({ id: userId, tenantId, organizationId, emailVerifiedAt: { $ne: null } }),
       { customerEntityId: companyEntityId },
     )
   })
 
   it('writes nothing when the linked person has no in-org company', async () => {
-    const user = { id: userId, tenantId, organizationId, email: 'a@b.co', personEntityId, customerEntityId: null }
+    const user = { id: userId, tenantId, organizationId, isActive: true, emailVerifiedAt: new Date(), emailHash: 'email-digest', email: 'a@b.co', personEntityId, customerEntityId: null }
     mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => (
       entity === CustomerUser ? user : null
     ))

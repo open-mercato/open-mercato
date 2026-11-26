@@ -31,6 +31,9 @@ function matches(row: Row, where: Record<string, unknown>): boolean {
     if (typeof value === 'object' && value !== null && '$in' in value) {
       return (value.$in as unknown[]).includes(row[key])
     }
+    if (typeof value === 'object' && value !== null && '$ne' in value) {
+      return row[key] !== value.$ne
+    }
     return row[key] === value
   })
 }
@@ -38,7 +41,7 @@ function matches(row: Row, where: Record<string, unknown>): boolean {
 function setup() {
   const user: Row = {
     id: 'user-a', tenantId, organizationId, emailHash: `hash:${email}`,
-    personEntityId: null, customerEntityId: null, deletedAt: null,
+    personEntityId: null, customerEntityId: null, deletedAt: null, isActive: true, emailVerifiedAt: new Date(),
   }
   const person: Row = {
     id: 'person-a', tenantId, organizationId, kind: 'person', primaryEmail: email, deletedAt: null,
@@ -77,6 +80,14 @@ function setup() {
 
 describe('reverse CRM auto-link organization isolation (#7852)', () => {
   beforeEach(() => jest.clearAllMocks())
+
+  it('leaves an unverified registration unlinked', async () => {
+    const fixture = setup()
+    fixture.user.emailVerifiedAt = null
+    await handle(fixture.payload, fixture.ctx)
+    expect(fixture.user.personEntityId).toBeNull()
+    expect(fixture.em.nativeUpdate).not.toHaveBeenCalled()
+  })
 
   it.each(['person', 'profile'] as const)('leaves a matching-email account in another organization unchanged for a %s ID event', async (idType) => {
     const fixture = setup()
