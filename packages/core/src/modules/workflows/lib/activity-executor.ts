@@ -15,6 +15,7 @@ import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
+import { isApiKeysModuleEnabled } from './optional-modules'
 import { createModuleQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import {
@@ -1792,6 +1793,13 @@ export async function executeCallApi(
 
   // 2. Build full URL (prepend APP_URL for relative paths)
   const requestUrl = await resolveCallApiUrl(endpoint)
+
+  if (!isApiKeysModuleEnabled()) {
+    throw await createCallApiError(
+      'workflows.errors.callApi.apiKeysModuleDisabled',
+      'CALL_API needs the api_keys module to authenticate internal calls',
+    )
+  }
 
   // 3. Import the one-time API key helper
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')

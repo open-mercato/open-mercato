@@ -3825,7 +3825,7 @@ export default function SalesDocumentDetailPage({
     if (!committedCc.ok) {
       setSendCcError(
         committedCc.reason === 'limit'
-          ? t('sales.quotes.send.ccLimit', 'You can add up to {limit} CC addresses', { limit: QUOTE_SEND_CC_LIMIT })
+          ? t('sales.quotes.send.ccLimit', 'You can send copies to up to {limit} addresses', { limit: QUOTE_SEND_CC_LIMIT })
           : t('sales.quotes.send.ccInvalid', 'Enter a valid e-mail address'),
       )
       return
@@ -5138,10 +5138,13 @@ export default function SalesDocumentDetailPage({
             <DialogTitle>{t('sales.quotes.send.title', 'Send quote to customer')}</DialogTitle>
             <DialogDescription>
               {t('sales.quotes.send.description', 'Email will be sent to:')} {contactEmail ?? t('sales.quotes.send.noEmail', 'No email')}
+              <span className="mt-1 block">
+                {t('sales.quotes.send.ccHint', 'Each copy is sent as a separate email. Only the main recipient gets the link to accept the quote.')}
+              </span>
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor={sendCcFieldId}>{t('sales.quotes.send.cc', 'CC')}</Label>
+            <Label htmlFor={sendCcFieldId}>{t('sales.quotes.send.cc', 'Send a copy to')}</Label>
             <TagInput
               id={sendCcFieldId}
               value={sendCc}
