@@ -3,7 +3,12 @@ const mockApplyCoverageAdjustments = jest.fn(async () => undefined)
 const mockCreateCoverageAdjustments = jest.fn(() => [])
 const mockRecordIndexerError = jest.fn(async () => undefined)
 const mockLoadQueryIndexRowScope = jest.fn(async () => ({ kind: 'missing' as const }))
-const mockResolveQueryIndexSourceMetadata = jest.fn(() => ({
+const mockResolveQueryIndexSourceMetadata = jest.fn((): {
+  table: string
+  organizationColumn: string | null
+  tenantColumn: string | null
+  deletedAtColumn?: string
+} => ({
   table: 'entity_indexes',
   organizationColumn: 'organization_id',
   tenantColumn: 'tenant_id',
@@ -242,5 +247,47 @@ describe('query_index delete_one coverage refresh throttling', () => {
     expect(trx.selectFrom).toHaveBeenCalledWith('feature_toggles')
     expect(rowQuery.where).toHaveBeenCalledTimes(1)
     expect(rowQuery.where).toHaveBeenCalledWith('id', '=', 'toggle-consistent-1')
+  })
+
+  it.each([false, true].flatMap((alwaysConsistent) => [
+    { alwaysConsistent, state: 'live hard-delete row', row: { id: 'section-1' }, baseDelta: 0 },
+    { alwaysConsistent, state: 'live soft-delete row', row: { archived_at: null }, baseDelta: 0 },
+    { alwaysConsistent, state: 'soft-deleted row', row: { archived_at: new Date('2026-01-01') }, baseDelta: -1 },
+    { alwaysConsistent, state: 'missing row', row: undefined, baseDelta: -1 },
+  ]))('handles $state when synchronous consistency is $alwaysConsistent', async ({ alwaysConsistent, row, baseDelta }) => {
+    mockIsReadProjectionAlwaysConsistent.mockReturnValue(alwaysConsistent)
+    mockResolveQueryIndexRecordScope.mockReturnValue({ organizationId: 'org-1', tenantId: 'tenant-1' })
+    const { ctx: consistentContext, rowQuery } = createAlwaysConsistentContext()
+    const deletedAtColumn = row && 'archived_at' in row ? 'archived_at' : undefined
+    mockResolveQueryIndexSourceMetadata.mockReturnValue({
+      table: 'entity_indexes',
+      organizationColumn: 'organization_id',
+      tenantColumn: 'tenant_id',
+      deletedAtColumn,
+    })
+    rowQuery.executeTakeFirst.mockResolvedValue(row)
+    const { ctx: deferredContext } = createContext(() => ({ selectFrom: () => rowQuery }))
+
+    await handleDeleteOne({
+      entityType: 'attachments:attachment_document_section',
+      recordId: 'section-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      suppressCoverage: true,
+    }, alwaysConsistent ? consistentContext : deferredContext)
+    await flushFireAndForget()
+
+    expect(mockCreateCoverageAdjustments).toHaveBeenCalledWith({
+      entityType: 'attachments:attachment_document_section',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      baseDelta,
+      indexDelta: -1,
+    })
+    expect(mockRecordIndexerError).not.toHaveBeenCalled()
+    expect(rowQuery.select).toHaveBeenCalledTimes(1)
+    expect(rowQuery.select).toHaveBeenCalledWith(deletedAtColumn ?? 'id')
+    expect(rowQuery.where).toHaveBeenCalledTimes(3)
+    expect(rowQuery.where).toHaveBeenCalledWith('organization_id', '=', 'org-1')
   })
 })

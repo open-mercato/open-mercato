@@ -117,7 +117,10 @@ export default function CreateSalesDocumentPage() {
   return (
     <Page>
       <PageBody>
+        {/* A different ?kind= is a different document: remount so the form values and the
+            kind the form tracks for its lines card reset together. */}
         <SalesDocumentForm
+          key={initialKind ?? 'quote'}
           onCreated={handleCreated}
           isSubmitting={false}
           initialKind={initialKind}

@@ -1,11 +1,12 @@
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import { LockMode, type EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import * as workflowExecutor from '../workflow-executor'
 import { WORKFLOW_ENGINE_VERSION } from '../engine-version'
 import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
-import { UserTask, WorkflowEvent } from '../../data/entities'
-import type { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
+import { StepInstance, UserTask, WorkflowEvent, WorkflowInstance } from '../../data/entities'
+import type { WorkflowDefinition } from '../../data/entities'
 
 jest.mock('../transition-handler', () => ({
   findValidTransitions: jest.fn(),
@@ -38,6 +39,43 @@ describe('Workflow Executor (Unit Tests)', () => {
   const testOrgId = '00000000-0000-4000-8000-000000000002'
   const testDefinitionId = '00000000-0000-4000-8000-000000000003'
   const testInstanceId = '00000000-0000-4000-8000-000000000004'
+
+  describe('hasWorkflowStepReference', () => {
+    const scope = { tenantId: testTenantId, organizationId: testOrgId }
+    const stepInstanceId = '00000000-0000-4000-8000-000000000005'
+
+    test('requires the exact step instance to belong to the scoped workflow instance', async () => {
+      mockEm.findOne.mockResolvedValueOnce({ id: testInstanceId })
+      mockEm.findOne.mockResolvedValueOnce({ id: stepInstanceId })
+      const result = await workflowExecutor.hasWorkflowStepReference(
+        mockEm as unknown as PostgreSqlEntityManager, scope, testInstanceId, 'review', stepInstanceId,
+      )
+      expect(result).toBe(true)
+      expect(mockEm.findOne).toHaveBeenNthCalledWith(
+        1, WorkflowInstance, { id: testInstanceId, ...scope, deletedAt: null }, { fields: ['id'] },
+      )
+      expect(mockEm.findOne).toHaveBeenNthCalledWith(
+        2, StepInstance, { id: stepInstanceId, workflowInstanceId: testInstanceId, stepId: 'review', ...scope }, { fields: ['id'] },
+      )
+    })
+
+    test('returns false without reading steps when the scoped instance is missing', async () => {
+      mockEm.findOne.mockResolvedValueOnce(null)
+      const result = await workflowExecutor.hasWorkflowStepReference(
+        mockEm as unknown as PostgreSqlEntityManager, scope, testInstanceId, 'review', stepInstanceId,
+      )
+      expect(result).toBe(false)
+      expect(mockEm.findOne).toHaveBeenCalledTimes(1)
+    })
+
+    test('rejects an invalid occurrence identifier before querying the database', async () => {
+      const result = await workflowExecutor.hasWorkflowStepReference(
+        mockEm as unknown as PostgreSqlEntityManager, scope, testInstanceId, 'review', 'invalid-id',
+      )
+      expect(result).toBe(false)
+      expect(mockEm.findOne).not.toHaveBeenCalled()
+    })
+  })
 
   // Mock workflow definition with simple START -> END flow
   const mockDefinition: Partial<WorkflowDefinition> = {
@@ -558,6 +596,31 @@ describe('Workflow Executor (Unit Tests)', () => {
         'end',
         expect.objectContaining({ userId: 'user-from-metadata' })
       )
+    })
+
+    test('refuses retry or resume of a persisted event actor before any step', async () => {
+      const transitionHandler = jest.requireMock('../transition-handler') as {
+        findValidTransitions: jest.Mock
+        executeTransition: jest.Mock
+      }
+      const instance = {
+        id: testInstanceId, definitionId: testDefinitionId, workflowId: 'simple-workflow',
+        version: 1, status: 'RUNNING', currentStepId: 'start', context: {},
+        metadata: { initiatedBy: 'victim-user', labels: { trigger_id: 'old-trigger' } },
+        tenantId: testTenantId, organizationId: testOrgId, startedAt: new Date(),
+        retryCount: 1, createdAt: new Date(), updatedAt: new Date(),
+      } as WorkflowInstance
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: unknown) => {
+        if ((where as Record<string, unknown>)?.id === testInstanceId) return instance
+        if ((where as Record<string, unknown>)?.id === testDefinitionId) return mockDefinition as WorkflowDefinition
+        return null
+      })
+
+      await expect(workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId, { userId: 'victim-user' }))
+        .rejects.toThrow('Untrusted legacy event-triggered workflow identity')
+
+      expect(transitionHandler.findValidTransitions).not.toHaveBeenCalled()
+      expect(transitionHandler.executeTransition).not.toHaveBeenCalled()
     })
 
     test('should throw error if instance not found', async () => {

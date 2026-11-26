@@ -6,6 +6,7 @@
 // by that suite's `useCode` coverage.
 
 import { randomUUID } from 'crypto'
+import { ZodError } from 'zod'
 import { LockMode } from '@mikro-orm/core'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -352,7 +353,11 @@ describe('promotions.code.update command', () => {
       ctx,
       snapshots: { before: prepared && 'before' in prepared ? prepared.before : undefined, after },
     })
-    return () => undoUpdate(logEntry!.payload, ctx)
+    const undo = () => undoUpdate(logEntry!.payload, ctx)
+    const redo = () => updateCodeCommand.redo
+      ? updateCodeCommand.redo({ input: updateInput, ctx, logEntry: { commandPayload: logEntry!.payload } })
+      : updateCodeCommand.execute(updateInput, ctx)
+    return Object.assign(undo, { redo })
   }
 
   it('undo does not reactivate a code that was used up after the update it reverts', async () => {
@@ -457,6 +462,103 @@ describe('promotions.code.update command', () => {
     expect(code.active).toBe(false)
   })
 
+  it.each([
+    { usage: 'single', usageAmount: null, used: 1 },
+    { usage: 'multiple', usageAmount: 3, used: 3 },
+  ] as const)('redo keeps an exhausted $usage code inactive after a full-form rename', async (limits) => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { ...limits, used: 0, name: 'Original', active: true })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed', active: true })
+    code.used = limits.used
+    code.active = false
+
+    await undo()
+    await undo.redo()
+
+    expect(code.name).toBe('Changed')
+    expect(code.used).toBe(limits.used)
+    expect(code.active).toBe(false)
+  })
+
+  it('redo keeps a code inactive when it was redeemed after an activation edit', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 0, active: false })
+    const undo = await runLoggedUpdate(em, code, { active: true })
+    code.used = 1
+    code.active = false
+
+    await undo()
+    await undo.redo()
+
+    expect(code.active).toBe(false)
+  })
+
+  it('redo applies the replayed usage limit before checking whether uses remain', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'multiple', usageAmount: 5, used: 0 })
+    const undo = await runLoggedUpdate(em, code, { usageAmount: 3, active: true })
+    code.used = 3
+    code.active = false
+
+    await undo()
+    expect(code.active).toBe(true)
+    await undo.redo()
+
+    expect(code.usageAmount).toBe(3)
+    expect(code.active).toBe(false)
+  })
+
+  it('redo reads committed redemption state under a scoped row lock before applying the update', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 0, active: true })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed', active: true })
+    await undo()
+    const baseFindOne = em.findOne
+    const lockedReads: Array<{ where: Row; options: unknown; inTransaction: boolean }> = []
+    em.findOne = (async (entity: Function, where: Row, options?: { lockMode?: LockMode }) => {
+      if (entity === Code && options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+        lockedReads.push({ where, options, inTransaction: em.isInTransaction() })
+        code.used = 1
+        code.active = false
+      }
+      return baseFindOne(entity, where)
+    }) as FakeEm['findOne']
+
+    await undo.redo()
+
+    expect(code.name).toBe('Changed')
+    expect(code.active).toBe(false)
+    expect(lockedReads).toEqual([{
+      where: { id: code.id, tenantId: TENANT, organizationId: ORG, deletedAt: null },
+      options: { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      inTransaction: true,
+    }])
+  })
+
+  it('redo preserves deliberate activation when no redemption occurred since the edit', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', used: 1, active: false })
+    const undo = await runLoggedUpdate(em, code, { active: true })
+
+    await undo()
+    await undo.redo()
+
+    expect(code.active).toBe(true)
+  })
+
+  it('redo preserves dynamic-code activation independently of generated-code usage', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'dynamic', code: null, usage: 'single', used: 0 })
+    const undo = await runLoggedUpdate(em, code, { name: 'Changed', active: true })
+    code.used = 1
+    code.active = false
+
+    await undo()
+    await undo.redo()
+
+    expect(code.active).toBe(true)
+  })
+
   it('undo reads the code under a scoped row lock inside its transaction', async () => {
     const { em, tables } = createFakeEm()
     const code = seedCode(tables, { usage: 'single', used: 0, active: true })
@@ -476,6 +578,81 @@ describe('promotions.code.update command', () => {
         inTransaction: true,
       },
     ])
+  })
+})
+
+describe('promotions.code.update merged-record validation (#7633 item 9)', () => {
+  async function expectRejected(run: () => Promise<unknown>, path: string, message: string) {
+    const error = await run().then(() => null, (err: unknown) => err)
+    expect(error).toBeInstanceOf(ZodError)
+    expect((error as ZodError).issues).toEqual([
+      expect.objectContaining({ code: 'custom', path: [path], message }),
+    ])
+  }
+
+  it('rejects switching usage to "multiple" while the stored usageAmount is null', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'single', usageAmount: null })
+    const dataEngine = fakeDataEngine()
+    const ctx = fakeCtx(em, { dataEngine })
+
+    await expectRejected(
+      () => updateCodeCommand.execute({ id: code.id, usage: 'multiple' } as any, ctx),
+      'usageAmount',
+      'usageAmount is required when usage is "multiple"',
+    )
+    expect(code.usage).toBe('single')
+    expect(dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+  })
+
+  it('rejects clearing the code string of a stored static code', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'static', code: 'QAWIN1' })
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+
+    await expectRejected(
+      () => updateCodeCommand.execute({ id: code.id, code: null } as any, ctx),
+      'code',
+      'code is required for a static code',
+    )
+    expect(code.code).toBe('QAWIN1')
+  })
+
+  it('rejects clearing usageAmount of a stored "multiple" code', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'multiple', usageAmount: 5 })
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+
+    await expectRejected(
+      () => updateCodeCommand.execute({ id: code.id, usageAmount: null } as any, ctx),
+      'usageAmount',
+      'usageAmount is required when usage is "multiple"',
+    )
+    expect(code.usageAmount).toBe(5)
+  })
+
+  it('accepts valid partial updates that satisfy the merged shape', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { usage: 'multiple', usageAmount: 5 })
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+
+    await updateCodeCommand.execute({ id: code.id, usageAmount: 3 } as any, ctx)
+    await updateCodeCommand.execute({ id: code.id, code: 'NEWCODE' } as any, ctx)
+    await updateCodeCommand.execute({ id: code.id, usage: 'unlimited', usageAmount: null } as any, ctx)
+
+    expect(code.usageAmount).toBeNull()
+    expect(code.usage).toBe('unlimited')
+    expect(code.code).toBe('NEWCODE')
+  })
+
+  it('keeps the active toggle working on a code whose stored shape is already inconsistent', async () => {
+    const { em, tables } = createFakeEm()
+    const code = seedCode(tables, { type: 'static', code: null, usage: 'multiple', usageAmount: null, active: true })
+    const ctx = fakeCtx(em, { dataEngine: fakeDataEngine() })
+
+    await updateCodeCommand.execute({ id: code.id, active: false } as any, ctx)
+
+    expect(code.active).toBe(false)
   })
 })
 

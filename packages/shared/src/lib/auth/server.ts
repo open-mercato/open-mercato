@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers.js'
+import type { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { isMfaPendingJwtPayload, verifyJwt } from './jwt'
 import { isMfaPendingAccessAllowed } from './mfaPendingAccess'
@@ -382,7 +383,7 @@ async function resolveCanonicalInteractiveAuthContext(auth: AuthContext): Promis
     ])
     const container = await createRequestContainer()
     const em = container.resolve('em') as EntityManager
-    return await resolveCanonicalStaffAuthContext(em, auth)
+    return await resolveCanonicalStaffAuthContext(em, auth, () => container.resolve<AuthService>('authService'))
   } catch (err) {
     // A thrown error here means we could not check the token against the
     // database (DB down, pool exhausted, timeout). This is NOT the same as the

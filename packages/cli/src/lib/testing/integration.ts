@@ -363,6 +363,7 @@ const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   integration: 'INT',
 }
 const BACKEND_BROWSER_AUTH_REDIRECT_LIMIT = 6
+const AUTHENTICATED_API_PROBE_PATH = '/api/auth/profile'
 const BUILD_CACHE_STATE_VERSION = 2
 const BUILD_CACHE_ENV_KEYS = [
   'NODE_ENV',
@@ -474,6 +475,12 @@ function buildEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     ...process.env,
     ...overrides,
   }
+}
+
+export function withoutCoverageEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = { ...environment }
+  delete result.NODE_V8_COVERAGE
+  return result
 }
 
 function buildEnvironmentFingerprint(environment: NodeJS.ProcessEnv): string {
@@ -1533,7 +1540,7 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
       }
     }
 
-    const apiResponse = await probeFetch(`${baseUrl}/api/customers/people?pageSize=1`, {
+    const apiResponse = await probeFetch(`${baseUrl}${AUTHENTICATED_API_PROBE_PATH}`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -1545,8 +1552,8 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
       apiStatus: apiResponse.status,
       healthy,
       detail: healthy
-        ? 'Authenticated GET /api/customers/people returned 200'
-        : `Authenticated GET /api/customers/people returned ${apiResponse.status}`,
+        ? `Authenticated GET ${AUTHENTICATED_API_PROBE_PATH} returned 200`
+        : `Authenticated GET ${AUTHENTICATED_API_PROBE_PATH} returned ${apiResponse.status}`,
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -3769,6 +3776,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       const appReadyTimeoutMs = resolveAppReadyTimeoutMs(options.logPrefix)
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
       const environmentFingerprint = buildEnvironmentFingerprint(commandEnvironment)
+      const buildToolEnvironment = withoutCoverageEnvironment(commandEnvironment)
       let sourceFingerprintValue: string | null = null
       let needsBuild = true
       let shouldPersistBuildCache = true
@@ -3811,7 +3819,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
           console.log(`[${options.logPrefix}] Building packages...`)
           await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
-            runYarnCommand(['build:packages'], commandEnvironment, {
+            runYarnCommand(['build:packages'], buildToolEnvironment, {
               silent: !options.verbose,
             }))
         } else {
@@ -3823,14 +3831,14 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
           force: true,
         })
         await runTimedStep(options.logPrefix, 'Regenerating module artifacts', { expectedSeconds: 8 }, async () =>
-          runYarnCommand(['generate'], commandEnvironment, {
+          runYarnCommand(['generate'], buildToolEnvironment, {
             silent: !options.verbose,
           }, appDirectory))
 
         if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
           console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
           await runTimedStep(options.logPrefix, 'Rebuilding packages after generation', { expectedSeconds: 20 }, async () =>
-            runYarnCommand(['build:packages'], commandEnvironment, {
+            runYarnCommand(['build:packages'], buildToolEnvironment, {
               silent: !options.verbose,
             }))
         }
@@ -3838,7 +3846,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         console.log(`[${options.logPrefix}] Building application...`)
         await resetNextBuildOutputDirectories(options.logPrefix)
         await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 76 }, async () =>
-          runYarnCommand(['build'], commandEnvironment, {
+          runYarnCommand(['build'], buildToolEnvironment, {
             silent: !options.verbose,
           }, appDirectory))
       }

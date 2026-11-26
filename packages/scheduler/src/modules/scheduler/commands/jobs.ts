@@ -449,7 +449,8 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     }
 
     const scheduleChanged = input.scheduleType !== undefined || input.scheduleValue !== undefined || input.timezone !== undefined
-    const nextRunAt = scheduleChanged
+    const reenabling = input.isEnabled === true && schedule.isEnabled !== true
+    const nextRunAt = scheduleChanged || reenabling
       ? calculateNextRunForWrite(
         input.scheduleType ?? schedule.scheduleType,
         input.scheduleValue ?? schedule.scheduleValue,
@@ -535,6 +536,8 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     const schedule = await em.findOne(ScheduledJob, { id: before.id })
 
     if (schedule) {
+      const reenabling = before.isEnabled === true && schedule.isEnabled !== true
+
       // Restore all fields
       schedule.name = before.name
       schedule.description = before.description
@@ -552,7 +555,12 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       schedule.isEnabled = before.isEnabled
       schedule.sourceType = before.sourceType
       schedule.sourceModule = before.sourceModule
-      schedule.nextRunAt = toDate(before.nextRunAt)
+      if (reenabling) {
+        const nextRunAt = calculateNextRunForWrite(before.scheduleType, before.scheduleValue, before.timezone)
+        if (nextRunAt) schedule.nextRunAt = nextRunAt
+      } else {
+        schedule.nextRunAt = toDate(before.nextRunAt)
+      }
       schedule.lastRunAt = toDate(before.lastRunAt)
       schedule.updatedAt = new Date()
 

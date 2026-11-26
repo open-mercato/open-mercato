@@ -99,7 +99,7 @@ test.describe('TC-CRM-6197: Customer dictionary translation browser flow', () =>
     }
   })
 
-  test('saves a Polish label through TranslationManager and uses localized Source filters at 390px', async ({ page, context, baseURL }, testInfo) => {
+  test('saves a Polish label through TranslationManager at 390px', async ({ page, context, baseURL }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await login(page, 'superadmin')
     expect(baseURL).toBeTruthy()
@@ -121,13 +121,11 @@ test.describe('TC-CRM-6197: Customer dictionary translation browser flow', () =>
     await page.getByRole('tab', { name: 'PL', exact: true }).click()
     const translationInput = translationRow.getByPlaceholder(baseLabel, { exact: true })
     const table = page.getByRole('table').filter({ has: translationRow })
-    const scroll = await table.evaluate((element) => {
+    const layout = await table.evaluate((element) => {
       const viewport = element.parentElement!
-      viewport.scrollLeft = viewport.scrollWidth
-      return { width: viewport.clientWidth, contentWidth: viewport.scrollWidth, left: viewport.scrollLeft }
+      return { width: viewport.clientWidth, contentWidth: viewport.scrollWidth }
     })
-    expect(scroll.contentWidth).toBeGreaterThan(scroll.width)
-    expect(scroll.left).toBeGreaterThan(0)
+    expect(layout.contentWidth).toBe(layout.width)
     await translationInput.fill(polishLabel)
     await expect(translationInput).toHaveValue(polishLabel)
     await expect(translationInput).toBeInViewport({ ratio: 1 })
@@ -142,12 +140,25 @@ test.describe('TC-CRM-6197: Customer dictionary translation browser flow', () =>
     expect(await saved.json()).toMatchObject({ entityId: entryId, translations: { pl: { label: polishLabel } } })
     await expect(page.getByText('Translations saved', { exact: true })).toBeVisible()
     await testInfo.attach('manager-polish-label-390px', { body: await page.screenshot(), contentType: 'image/png' })
+  })
 
-    for (const locale of ['pl', 'en'] as const) {
+  for (const locale of ['pl', 'en'] as const) {
+    test(`uses ${locale} Source filters at 390px after saving a Polish label`, async ({ page, context, baseURL, request }, testInfo) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      const saved = await apiRequest(request, 'PUT', `/api/translations/${encodeURIComponent(entityType)}/${entryId}`, {
+        ...scope, data: { pl: { label: polishLabel } },
+      })
+      expect(saved.ok()).toBeTruthy()
+      await login(page, 'superadmin')
+      expect(baseURL).toBeTruthy()
+      await context.addCookies([
+        { name: 'locale', value: locale, url: baseURL! },
+        { name: 'om_selected_tenant', value: tenantId!, url: baseURL! },
+        { name: 'om_selected_org', value: organizationId!, url: baseURL! },
+      ])
       const labels = filterLabels[locale]
       const expectedLabel = locale === 'pl' ? polishLabel : baseLabel
       const unexpectedLabel = locale === 'pl' ? baseLabel : polishLabel
-      await context.addCookies([{ name: 'locale', value: locale, url: baseURL! }])
       await page.goto(`/backend/customers/people?search=${encodeURIComponent(`QA ${value.slice('qa_source_'.length)}`)}`)
       await expect(page.getByRole('row').filter({ hasText: personName })).toBeVisible()
       await expect(page.getByRole('row').filter({ hasText: otherPersonName })).toBeVisible()
@@ -170,6 +181,6 @@ test.describe('TC-CRM-6197: Customer dictionary translation browser flow', () =>
       await expect(page.getByRole('row').filter({ hasText: personName })).toBeVisible()
       await expect(page.getByRole('row').filter({ hasText: otherPersonName })).toHaveCount(0)
       await expect(page.getByTestId('active-filter-chip')).toContainText(labels.source)
-    }
-  })
+    })
+  }
 })
