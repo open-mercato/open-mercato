@@ -740,6 +740,6 @@ STABLE feature-gated APIs return `403` before lookup when organization scope res
 
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
 
-## 2026-11-20 — Workflow event emission (#9134)
+## Workflow events (2026-11-20, #9134)
 
-STABLE workflow configs require opted-in events and instance scope. A bridge retains the bypass. [Migration](UPGRADE_NOTES.md#workflow-event-emission-requires-module-opt-in-9134).
+STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
