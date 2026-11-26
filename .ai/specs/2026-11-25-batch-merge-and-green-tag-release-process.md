@@ -54,6 +54,16 @@ Source of truth: `.ai/docs/pr-workflow.md` → "QA meta labels and the merge gat
 - **No-tester days:** no new batch while one is open; the open batch grows with `main` until a tester claims it.
 - **Retired labels:** `weekly-qa` (replaced by `daily-qa`), `ready-for-qa` (replaced by the batch search; #10712 supersedes #9864).
 
+## Merge-ready rule
+
+A PR to `main` is ready to merge when:
+
+1. Every required check is green on the head commit: today `scope`, `guard`, `prepare`, `lint`, `ds-lint`, `test`, `audit-scope`, `documents-multi-instance`; plus `ci-scope` (Phase 2) and `ci-triage` (Phase 4).
+2. It has one approving review (the `main` ruleset requires 1).
+3. It carries no blocking label: `needs-human-qa` without `qa-approved`, `qa-failed`, `changes-requested`, `blocked`, `do-not-merge`.
+
+`merge-queue` is the routing label ("all gates passed"). Guardrails: the `merge-queue` guard workflow takes it off whenever rule 3 breaks (Phase 0), and from Phase 4 `ci-triage` fails on rule 3, so GitHub itself refuses the merge.
+
 ## Problem Statement
 
 The team targets about 80 merged PRs a day. Running scoped or full integration CI on every PR costs 13–70 minutes and many runner minutes per PR, which caps merge throughput. Stabilization already happens on ad-hoc `stabilize/` branches, QA tests `main` weekly, and release lines are cut from an untested `main` tip. The process needs to: merge faster, spend full-suite and QA time once per day instead of per PR, keep `main` releasable through daily green points, and keep contributors' workflow unchanged (PRs still target `main`).
@@ -90,6 +100,12 @@ Phases 0–6 below, plus optional follow-ups. The order is deliberate:
 7. **Green tag and merge back.** When the full suite is green and QA says stable, the stabilizer tags the batch tip `green/<date>` (`git tag green/<date> <sha> && git push origin green/<date>`) and squash-merges the batch PR into `main` (the only merge method the `main` ruleset allows). The tag keeps the tested commit reachable.
 8. **No-tester days.** No new batch while one is open. The open batch grows with `main` until a tester claims it with `qa-in-progress`; open `qa-blocker` issues are listed at the start of the next pass.
 9. **Record metrics** (see Phase 4 metrics) in a pinned issue: QA time per batch, red batches, time to green.
+10. **`merge-queue` label guard.** New workflow `.github/workflows/merge-queue-guard.yml` on `pull_request_target` (`labeled`, `unlabeled`; no checkout of PR code, label API only, same pattern as `partner-request-label.yml`). It removes `merge-queue` and posts a one-line rationale comment (auto-skill protocol) when:
+    - a blocking label is added: `qa-failed`, `changes-requested`, `blocked`, `do-not-merge`, or `needs-human-qa` while `qa-approved` is absent;
+    - `qa-approved` is removed while `needs-human-qa` is present;
+    - `merge-queue` is added while any of the above is already true (the label is taken off at once).
+
+    It never adds labels and never removes the blocking ones. Unit-test the decision function (`scripts/ci/merge-queue-guard.mts`: labels before/after → remove or keep). Touches: new workflow, new script and test. Owner: maintainers. Independent of the CI phases, so it can land now and protects the QA cut-over in step 5a.
 
 **Exit criteria.** 10 batches run. QA time per batch and red-batch rate are known. Skills #210 and PR #10712 merged, so only `needs-human-qa` gates merges. No CI changes yet.
 **Rollback.** Stop cutting daily batches; nothing else changed.
@@ -175,7 +191,7 @@ Phases 0–6 below, plus optional follow-ups. The order is deliberate:
 **Steps.**
 1. **Fast gate job.** Using the job from #10457: typecheck of changed packages, lint, related unit tests, enterprise guard, CLA. Touches: `ci.yml`.
 2. **Flip the default.** In `.github/ci-scope.json` set the unlabelled default to `fast`; integration jobs are skipped unless the resolver says `targeted` or `full`. Required check names keep reporting. Touches: `ci-scope.json`, `ci.yml`.
-3. **Require `ci-triage`.** Admin adds `ci-triage` to the `main` ruleset. A PR that was never triaged cannot merge. Touches: GitHub ruleset `main`.
+3. **Require `ci-triage`, and make it the merge-ready check.** `ci-triage` also fails while the PR carries a blocking label (same rule as the `merge-queue` guard: `qa-failed`, `changes-requested`, `blocked`, `do-not-merge`, `needs-human-qa` without `qa-approved`), and it re-evaluates on `labeled`/`unlabeled`. Admin adds `ci-triage` to the `main` ruleset. Then "all required checks green + one approval" is the full, GitHub-enforced merge rule, and `merge-queue` is routing only. Touches: GitHub ruleset `main`.
 4. **Auto-fix on red `main`.** When the push run on `main` fails an integration test, trigger the fixer (e.g. `om-auto-fix-pr --ci-only` against a new `stabilize/` branch) and notify the stabilizer. Touches: new workflow `.github/workflows/main-red-autofix.yml` or a scheduled agent.
 5. **Metrics dashboard.** Weekly job or issue comment with the metrics below.
 
@@ -255,7 +271,8 @@ Contracts this plan introduces or changes (no application code, data model or AP
 | `.github/ci-scope.json` | New config | Levels, areas, level-implying labels, docs-only paths |
 | `scripts/ci/resolve-ci-scope.mts` | New script | Pure function: changed files + labels → level, modules, lane |
 | `ci.yml` `prepare` job | Changed | Uses the resolver; triggers on `labeled`/`unlabeled`; new jobs `ci-scope`, fast gate, docs lane |
-| `ci-scope`, `ci-triage` | New required checks | Added to the `main` ruleset in Phases 2 and 4 |
+| `ci-scope`, `ci-triage` | New required checks | Added to the `main` ruleset in Phases 2 and 4; `ci-triage` also fails on blocking labels |
+| `merge-queue-guard.yml` | New workflow | Removes `merge-queue` when a blocking label is present (Phase 0) |
 | Labels | New | `ci-targeted`, `ci-area:*` (8), `needs-triage`, `accepted`; QA labels `qa-batch-check`, `daily-qa`, `qa-blocker` already exist |
 | Labels | Changed meaning | `needs-qa` no longer gates the merge; `needs-human-qa` is the QA gate (PR #10712) |
 | Labels | Retired | `weekly-qa`, `ready-for-qa` |
@@ -304,6 +321,7 @@ Other:
 | Fast gate lets an integration break into `main`; it stays up to a day | Medium | All modules | Phases 0–3 before Phase 4; triage raises risky PRs; full suite on every `main` push; auto-fix PR; no release from `main` | Accepted by the team: `main` can be red for up to a day |
 | Triage skill under-scores PRs | Medium | CI | Shadow mode with a miss threshold; `FULL_SUITE_PATTERN` floor; raise-only | Some misses surface in the batch |
 | Label-change runs flood runners | Low | CI cost | Early filter job ignores non-scope labels; concurrency cancels stale PR runs | Small |
+| A PR stays in `merge-queue` after a blocking label is added and is merged by hand or by automation | High | Merging | `merge-queue` guard (Phase 0); `ci-triage` fails on blocking labels (Phase 4) | Low |
 | Required check names disappear when jobs are skipped | High | Merging | Keep job names; skipped jobs report success; verify on a test PR before changing rulesets | Low |
 | No tester on some days | Medium | QA | Batch grows with `main` until claimed; `qa-blocker` issues stay listed; green tag waits | Releases may wait a day |
 | QA gate cut-over lets a PR that needs a tester merge without one | High | Merging | Re-triage and queue cleanup before the switch, merges paused, refusal verified on a queued `needs-human-qa` PR (PR #10712 rollout) | Low |
@@ -321,5 +339,6 @@ Other:
 
 ## Changelog
 
+- 2026-11-26: Added merge guardrails: `merge-queue-guard.yml` removes `merge-queue` when a blocking label is present (Phase 0), and `ci-triage` fails on blocking labels so the ruleset enforces the QA gate (Phase 4).
 - 2026-11-26: Adopted the QA rules from QA (draft PR #10712, open-mercato/skills#210): `needs-human-qa` as the only QA merge gate, `qa-batch-check` lane, `daily-qa` / `qa-blocker`, batch PR verdict labels, `om-qa-batch` checklist; retired `weekly-qa` and `ready-for-qa`. Phase 0 gains the QA lanes rollout; Phase 3 keeps only CI triage.
 - 2026-11-25: Initial spec from the approved flow diagram and team discussion (QA feedback, acceptance triage, label set). Found that the `main` ruleset allows squash merges only; plan adapted to squash merge-back with green tags.
