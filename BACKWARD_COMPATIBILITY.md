@@ -719,3 +719,12 @@ The STABLE attachment library API response and the enrichment helper signature r
 ## #10331 #10332 (2026-11-23)
 
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
+
+## Record-lock validation target access (2026-11-26, #10603)
+
+`POST /api/record_locks/validate` applies the shared record-read policy before
+returning lock or conflict data. An unreadable or missing target returns the same
+HTTP 404. Keeping the previous response available to callers without target
+access would preserve the unauthorized read. The request and authorized response
+contracts are unchanged. See the [migration notes](UPGRADE_NOTES.md#record-lock-validation-requires-target-read-access-10603)
+and [record-lock coverage spec](.ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md#migration--backward-compatibility).
