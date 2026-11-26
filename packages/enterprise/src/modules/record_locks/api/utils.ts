@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
 import type { RecordLockService } from '../lib/recordLockService'
 
@@ -30,6 +31,9 @@ export async function resolveRecordLocksApiContext(req: Request): Promise<Record
     auth,
     request: req,
   })
+  if (isExplicitlyEmptyOrganizationScope(scope)) {
+    return jsonError('Forbidden', 403)
+  }
 
   const recordLockService = container.resolve<RecordLockService>('recordLockService')
 

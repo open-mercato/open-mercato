@@ -1180,7 +1180,7 @@ describe('Workflow Instances API', () => {
           organizationId: { $in: [testOrgId] },
         }),
         expect.objectContaining({
-          orderBy: { occurredAt: 'DESC' },
+          orderBy: { occurredAt: 'DESC', id: 'DESC' },
         })
       )
     })

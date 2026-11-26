@@ -119,6 +119,8 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       name: 'display_name',
+      displayName: 'display_name',
+      display_name: 'display_name',
       email: 'primary_email',
       primaryEmail: 'primary_email',
       status: 'status',

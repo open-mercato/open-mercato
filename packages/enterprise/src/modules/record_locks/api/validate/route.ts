@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { recordLockValidateResponseSchema } from '../../data/validators'
+import { recordLockErrorSchema, recordLockValidateResponseSchema } from '../../data/validators'
 import { resolveRecordLocksApiContext } from '../utils'
 
 const validateSchema = z.object({
@@ -154,6 +154,11 @@ export const openApi: OpenApiRouteDoc = {
       },
       responses: [
         { status: 200, description: 'Validation result', schema: recordLockValidateResponseSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: recordLockErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: recordLockErrorSchema },
+        { status: 403, description: 'Organization scope denied', schema: recordLockErrorSchema },
       ],
     },
   },

@@ -8,6 +8,7 @@ import { GET as listInstanceEvents, metadata as instanceEventsMetadata } from '.
 import { GET as listEvents, metadata as eventsMetadata } from '../events/route'
 import { WorkflowDefinition, WorkflowEvent, WorkflowInstance } from '../../data/entities'
 import { getAllCodeWorkflows } from '../../lib/code-registry'
+import { createTiedTimestampOrdering, type TiedTimestampOrderOptions } from './helpers/tiedTimestampOrdering'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -269,6 +270,80 @@ describe('Workflow list pagination boundaries', () => {
       expect.objectContaining({ workflowInstanceId: instanceId, ...scopedWhere }),
       expect.objectContaining({ limit: 100, offset: 100000 }),
     )
+  })
+
+  test('global events order by the requested field with an id tiebreak in the same direction', async () => {
+    await listEvents(new NextRequest('http://localhost/api/workflows/events?page=2&pageSize=10'))
+    await listEvents(new NextRequest('http://localhost/api/workflows/events?sortField=eventType&sortDir=asc'))
+
+    const defaultOrder = mockEm.findAndCount.mock.calls[0][2].orderBy
+    expect(defaultOrder).toEqual({ occurredAt: 'desc', id: 'desc' })
+    expect(Object.keys(defaultOrder)).toEqual(['occurredAt', 'id'])
+    const requestedOrder = mockEm.findAndCount.mock.calls[1][2].orderBy
+    expect(requestedOrder).toEqual({ eventType: 'asc', id: 'asc' })
+    expect(Object.keys(requestedOrder)).toEqual(['eventType', 'id'])
+  })
+
+  test('global events walk every page exactly once when events share a timestamp', async () => {
+    const occurredAt = new Date('2026-11-01T10:00:00.000Z')
+    const events = [1, 2, 3, 4, 5].map((id) => ({
+      id,
+      workflowInstanceId: instanceId,
+      stepInstanceId: null,
+      eventType: 'STEP_ENTERED',
+      eventData: {},
+      occurredAt,
+      userId: null,
+    }))
+    const orderPage = createTiedTimestampOrdering(events)
+    mockEm.findAndCount.mockImplementation(async (_entity: unknown, _where: unknown, options: TiedTimestampOrderOptions) => [
+      orderPage(options),
+      events.length,
+    ])
+
+    const seen: string[] = []
+    for (const page of [1, 2, 3]) {
+      const response = await listEvents(new NextRequest(`http://localhost/api/workflows/events?page=${page}&pageSize=2`))
+      const body = await response.json()
+      seen.push(...body.items.map((item: { id: string }) => item.id))
+    }
+
+    expect(seen).toEqual(['5', '4', '3', '2', '1'])
+  })
+
+  test('instance events order by occurredAt with an id tiebreak so tied events page deterministically', async () => {
+    await listInstanceEvents(
+      new NextRequest(`http://localhost/api/workflows/instances/${instanceId}/events?limit=2&offset=2`),
+      { params: Promise.resolve({ id: instanceId }) },
+    )
+
+    expect(mockEm.findAndCount.mock.calls[0][2]).toEqual({
+      orderBy: { occurredAt: 'DESC', id: 'DESC' },
+      limit: 2,
+      offset: 2,
+    })
+  })
+
+  test('instance events walk every page exactly once when one engine step writes events in the same millisecond', async () => {
+    const occurredAt = new Date('2026-11-01T10:00:00.000Z')
+    const events = [11, 12, 13, 14, 15].map((id) => ({ id, workflowInstanceId: instanceId, occurredAt }))
+    const orderPage = createTiedTimestampOrdering(events)
+    mockEm.findAndCount.mockImplementation(async (_entity: unknown, _where: unknown, options: TiedTimestampOrderOptions) => [
+      orderPage(options),
+      events.length,
+    ])
+
+    const seen: number[] = []
+    for (const offset of [0, 2, 4]) {
+      const response = await listInstanceEvents(
+        new NextRequest(`http://localhost/api/workflows/instances/${instanceId}/events?limit=2&offset=${offset}`),
+        { params: Promise.resolve({ id: instanceId }) },
+      )
+      const body = await response.json()
+      seen.push(...body.data.map((event: { id: number }) => event.id))
+    }
+
+    expect(seen).toEqual([15, 14, 13, 12, 11])
   })
 
   test('definitions fetch a single database page at a large offset without reading the prefix', async () => {
