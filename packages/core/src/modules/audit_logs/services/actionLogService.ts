@@ -24,6 +24,7 @@ import {
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY,
   actionLogBelongsToSubject,
@@ -179,13 +180,61 @@ function stringArraysEqual(left: string[] | null, right: string[]): boolean {
   return left.every((value, index) => value === right[index])
 }
 
+export type AuditHistoryOrganizationScope =
+  | { mode: 'exact'; organizationId: string | null }
+  | { mode: 'tenant-level-fallback'; organizationIds: readonly string[] | 'all-authorized' }
+
+export type AuditHistoryResource = {
+  tenantId: string
+  resourceKind: string
+  resourceId: string
+}
+
+type AuditHistoryQuery = AuditHistoryResource & { organization: AuditHistoryOrganizationScope }
+
+type AuditHistoryRow = {
+  id: string
+  tenant_id: string | null
+  organization_id: string | null
+  resource_kind: string | null
+  resource_id: string | null
+  actor_user_id: string | null
+  deleted_at: Date | null
+  created_at: Date
+  changes_json: unknown
+  snapshot_before: unknown
+  snapshot_after: unknown
+}
+
+export type AuditHistoryEntry = {
+  id: string
+  actorUserId: string | null
+  createdAt: Date
+  changesJson: Record<string, unknown> | null
+  snapshotBefore: Record<string, unknown> | null
+  snapshotAfter: Record<string, unknown> | null
+}
+
+export type ActionLogHistoryService = Pick<
+  ActionLogService,
+  'findLatestResourceHistory' | 'findLatestActorHistory' | 'findResourceHistoryById'
+>
+
+function readAuditHistoryRecord(value: unknown): Record<string, unknown> | null {
+  const parsed = typeof value === 'string' ? parseDecryptedFieldValue(value) : value
+  return isRecord(parsed) ? parsed : null
+}
+
 export class ActionLogService {
   constructor(
     private readonly em: EntityManager,
     private readonly tenantEncryptionService?: TenantDataEncryptionService,
   ) {}
 
-  private async decryptEntryPayload<T extends Record<string, unknown>>(entry: T): Promise<T> {
+  private async decryptEntryPayload<T extends Record<string, unknown>>(
+    entry: T,
+    options?: { throwOnFailure?: boolean },
+  ): Promise<T> {
     if (!this.tenantEncryptionService?.isEnabled()) return entry
 
     try {
@@ -244,6 +293,7 @@ export class ActionLogService {
 
       return merged as T
     } catch (err) {
+      if (options?.throwOnFailure) throw err
       if (!decryptionWarningLogged) {
         decryptionWarningLogged = true
         logger.warn('Failed to decrypt action log entry', { err })
@@ -813,6 +863,87 @@ export class ActionLogService {
     const entry = await this.em.findOne(ActionLog, { id, deletedAt: null })
     await this.decryptEntries(entry)
     return entry
+  }
+
+  async findLatestResourceHistory(query: AuditHistoryQuery): Promise<AuditHistoryEntry | null> {
+    return this.readResourceHistory(query, {})
+  }
+
+  async findLatestActorHistory(query: AuditHistoryQuery, actorUserId: string): Promise<AuditHistoryEntry | null> {
+    if (!isSchemaUuid(actorUserId)) return null
+    return this.readResourceHistory(query, { actorUserId })
+  }
+
+  async findResourceHistoryById(
+    query: AuditHistoryResource & { organization: Extract<AuditHistoryOrganizationScope, { mode: 'exact' }> },
+    id: string,
+  ): Promise<AuditHistoryEntry | null> {
+    if (query.organization?.mode !== 'exact' || !isSchemaUuid(id)) return null
+    return this.readResourceHistory(query, { id })
+  }
+
+  private async readResourceHistory(
+    query: AuditHistoryQuery,
+    filters: { actorUserId?: string; id?: string },
+  ): Promise<AuditHistoryEntry | null> {
+    const { tenantId, resourceKind, resourceId, organization } = query
+    if (!tenantId || !resourceKind || !resourceId || !organization) return null
+
+    let lookup = this.em.getKysely<{ action_logs: AuditHistoryRow }>()
+      .selectFrom('action_logs')
+      .select(['id', 'tenant_id', 'organization_id', 'actor_user_id', 'created_at', 'changes_json', 'snapshot_before', 'snapshot_after'])
+      .where('tenant_id', '=', tenantId)
+      .where('resource_kind', '=', resourceKind)
+      .where('resource_id', '=', resourceId)
+      .where('deleted_at', 'is', null)
+
+    switch (organization.mode) {
+      case 'exact':
+        if (organization.organizationId === undefined) return null
+        lookup = organization.organizationId === null
+          ? lookup.where('organization_id', 'is', null)
+          : lookup.where('organization_id', '=', organization.organizationId)
+        break
+      case 'tenant-level-fallback':
+        if (organization.organizationIds === 'all-authorized') {
+          lookup = lookup.where('organization_id', 'is not', null)
+        } else {
+          if (!organization.organizationIds?.length) return null
+          lookup = lookup.where('organization_id', 'in', organization.organizationIds)
+        }
+        break
+      default:
+        return null
+    }
+
+    if (filters.actorUserId) lookup = lookup.where('actor_user_id', '=', filters.actorUserId)
+    lookup = filters.id ? lookup.where('id', '=', filters.id) : lookup.orderBy('created_at', 'desc')
+
+    const row = await lookup.limit(1).executeTakeFirst()
+    if (!row) return null
+
+    const entry = { id: row.id, actorUserId: row.actor_user_id, createdAt: row.created_at }
+    try {
+      const decrypted = await this.decryptEntryPayload({
+        tenantId: row.tenant_id,
+        organizationId: row.organization_id,
+        changesJson: row.changes_json,
+        snapshotBefore: row.snapshot_before,
+        snapshotAfter: row.snapshot_after,
+      }, { throwOnFailure: true })
+      return {
+        ...entry,
+        changesJson: readAuditHistoryRecord(decrypted.changesJson),
+        snapshotBefore: readAuditHistoryRecord(decrypted.snapshotBefore),
+        snapshotAfter: readAuditHistoryRecord(decrypted.snapshotAfter),
+      }
+    } catch {
+      getTelemetryRuntime()?.reportError(new Error('[internal] Audit history payload could not be decrypted'), {
+        module: 'audit_logs',
+        code: 'audit_logs.history_decryption_failed',
+      })
+      return { ...entry, changesJson: null, snapshotBefore: null, snapshotAfter: null }
+    }
   }
 
   async latestUndoableForResource(params: {
