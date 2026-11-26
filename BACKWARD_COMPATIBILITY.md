@@ -740,6 +740,6 @@ STABLE feature-gated APIs return `403` before lookup when organization scope res
 
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
 
-## System dictionaries (#10341, 2026-11-25)
+## #10341
 
-STABLE PATCH and DELETE. A bridge can orphan module lookups. [Migration](UPGRADE_NOTES.md#system-dictionary-preservation-10341). Named waiver pending.
+STABLE system dictionary PATCH/DELETE. Bridge may orphan lookups. Named waiver due. [See](UPGRADE_NOTES.md#system-dictionary-preservation-10341).
