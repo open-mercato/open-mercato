@@ -1904,12 +1904,19 @@ export class BasicQueryEngine implements QueryEngine {
     // equals any excluded value, the same set semantics as the query-index predicate and
     // the in-memory custom-document matcher. One row per value means a per-row `!=` /
     // `not in` would let another stored value satisfy the predicate (#10168).
-    const excludesValues = (excluded: unknown[]) => eb.and([
-      eb.exists(buildSub(eb).where(sql<boolean>`${caseExpr} is not null`)),
-      eb.not(eb.exists(buildSub(eb).where(
-        sql<boolean>`${caseExpr} in (${sql.join(excluded.map((excludedValue) => sql`${excludedValue}`), sql`, `)})`,
-      ))),
-    ])
+    // A null in the list adds nothing: the field must already be set, so `nin: [null]`
+    // means the same as `ne: null`. The query-index engine applies the same rule.
+    const excludesValues = (excluded: unknown[]) => {
+      const isSet = eb.exists(buildSub(eb).where(sql<boolean>`${caseExpr} is not null`))
+      const nonNullExcluded = excluded.filter((excludedValue) => excludedValue != null)
+      if (nonNullExcluded.length === 0) return isSet
+      return eb.and([
+        isSet,
+        eb.not(eb.exists(buildSub(eb).where(
+          sql<boolean>`${caseExpr} in (${sql.join(nonNullExcluded.map((excludedValue) => sql`${excludedValue}`), sql`, `)})`,
+        ))),
+      ])
+    }
 
     let predicate: RawBuilder<boolean> | null = null
     switch (op) {

@@ -149,4 +149,13 @@ maybe('BasicQueryEngine cf ne/nin on multi-value fields against PostgreSQL (#101
     const result = await run({ 'cf:labels': { $nin: [] } })
     expect(result.total).toBe(Object.keys(RECORDS).length)
   })
+
+  test('a null in a nin list adds nothing beyond "the field is set"', async () => {
+    const mixed = await run({ 'cf:labels': { $nin: [null, 'a'] } })
+    expect(mixed.names).toEqual(['multi_b', 'single_c'])
+    expect(mixed.total).toBe(2)
+    const nullOnly = await run({ 'cf:labels': { $nin: [null] } })
+    expect(nullOnly.names).toEqual(['multi_ab', 'multi_b', 'single_a', 'single_c'])
+    expect(nullOnly.total).toBe(4)
+  })
 })

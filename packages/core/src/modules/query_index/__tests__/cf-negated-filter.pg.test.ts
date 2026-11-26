@@ -21,6 +21,7 @@ type HybridInternals = {
     value: unknown,
     sources: IndexDocSource[],
   ) => Expression<boolean> | null
+  applyCfFilterFromAlias: <Q>(q: Q, alias: string, entityType: string, key: string, op: FilterOp, value: unknown) => Q
 }
 
 const PG_URL = process.env.OM_QUERY_INDEX_PG_URL ?? process.env.OM_COUNT_CAP_PG_URL
@@ -74,6 +75,12 @@ maybe('HybridQueryEngine.buildCfFilterExpression ne/nin against PostgreSQL', () 
     return rows.map((row) => row.id)
   }
 
+  const runCustomEntity = async (op: FilterOp, value: unknown) => {
+    const query = db.selectFrom('cf_docs as ei').select('ei.id').orderBy('ei.id')
+    const rows = await engine.applyCfFilterFromAlias(query, 'ei', 'cfcheck:widget', 'cf:labels', op, value).execute()
+    return rows.map((row) => row.id)
+  }
+
   test('ne excludes every row eq matches, arrays included', async () => {
     expect(await run('eq', 'a')).toEqual(['array_a_b', 'scalar_a'])
     expect(await run('ne', 'a')).toEqual(['array_b', 'scalar_c'])
@@ -90,5 +97,17 @@ maybe('HybridQueryEngine.buildCfFilterExpression ne/nin against PostgreSQL', () 
 
   test('an empty nin excludes nothing but unset fields', async () => {
     expect(await run('nin', [])).toEqual(['array_a_b', 'array_b', 'scalar_a', 'scalar_c'])
+  })
+
+  test('a null in a nin list adds nothing beyond "the field is set" (#10168)', async () => {
+    expect(await run('nin', [null, 'a'])).toEqual(['array_b', 'scalar_c'])
+    expect(await run('nin', [null])).toEqual(await run('ne', null))
+  })
+
+  test('the custom-entity alias path applies the same null rule to a nin list', async () => {
+    const scalarOnly = (ids: string[]) => ids.filter((id) => !id.startsWith('array_'))
+    expect(scalarOnly(await runCustomEntity('nin', [null, 'a']))).toEqual(['scalar_c'])
+    expect(scalarOnly(await runCustomEntity('nin', [null]))).toEqual(['scalar_a', 'scalar_c'])
+    expect(scalarOnly(await runCustomEntity('nin', [null]))).toEqual(scalarOnly(await runCustomEntity('ne', null)))
   })
 })
