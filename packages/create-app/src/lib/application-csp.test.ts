@@ -9,6 +9,7 @@ import * as policy from '../../../shared/src/lib/security/contentSecurityPolicy'
 import { openMercatoServerExternalPackages } from '../../../shared/src/lib/nextjs/server-external-packages'
 import { stripeContentSecurityPolicy } from '../../../gateway-stripe/src/contentSecurityPolicy'
 import { resolveDocumentsCollaborationCspOrigins } from '../../../documents/src/contentSecurityPolicy'
+import { parseBooleanWithDefault } from '../../../shared/src/lib/boolean'
 
 const require = createRequire(import.meta.url)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
@@ -34,11 +35,54 @@ type NextConfigFactory = (phase: string) => { env?: Record<string, string | unde
 
 const sharedDependencies = {
   'next/constants': nextConstants,
+  '@open-mercato/shared/lib/boolean': { parseBooleanWithDefault },
   '@open-mercato/shared/lib/security/contentSecurityPolicy': policy,
   '@open-mercato/shared/lib/nextjs/server-external-packages': { openMercatoServerExternalPackages },
   '@open-mercato/gateway-stripe/contentSecurityPolicy': { stripeContentSecurityPolicy },
   '@open-mercato/documents/contentSecurityPolicy': { resolveDocumentsCollaborationCspOrigins },
 }
+
+test('both configs add production transport protection with a build-time opt-out and deny unused sensors', async () => {
+  const previousEnvironment = process.env.NODE_ENV
+  const previousHsts = process.env.OM_HSTS_ENABLED
+  try {
+    for (const relativePath of ['apps/mercato/next.config.ts', 'packages/create-app/template/next.config.ts']) {
+      const resolveConfig = loadSource(relativePath, {
+        ...sharedDependencies,
+        './src/lib/dev-origins': { resolveAllowedDevOrigins: () => [] },
+        '@open-mercato/telemetry/nextjs-config': { telemetryServerExternalPackages: [] },
+      }).default as NextConfigFactory
+      for (const environment of ['development', 'production']) {
+        process.env.NODE_ENV = environment
+        for (const setting of [undefined, '', 'true', 'false', '0', 'off']) {
+          if (setting === undefined) delete process.env.OM_HSTS_ENABLED
+          else process.env.OM_HSTS_ENABLED = setting
+          for (const phase of [PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD, PHASE_PRODUCTION_SERVER]) {
+            const rules = await resolveConfig(phase).headers()
+            const globalHeaders = rules.find((rule) => rule.source === '/:path*')!.headers
+            const hsts = globalHeaders.find((header) => header.key === 'Strict-Transport-Security')?.value
+            const expectedHsts = environment === 'production'
+              && phase !== PHASE_DEVELOPMENT_SERVER
+              && !['false', '0', 'off'].includes(setting ?? '')
+            assert.equal(hsts, expectedHsts ? 'max-age=31536000; includeSubDomains' : undefined,
+              `${relativePath}: ${environment}, ${phase}, OM_HSTS_ENABLED=${setting}`)
+            const permissions = globalHeaders.find((header) => header.key === 'Permissions-Policy')?.value
+            assert.ok(permissions)
+            for (const feature of ['accelerometer', 'camera', 'geolocation', 'gyroscope', 'magnetometer', 'microphone', 'usb']) {
+              assert.ok(permissions.split(', ').includes(`${feature}=()`))
+            }
+            assert.doesNotMatch(permissions, /(?:^|,\s*)(?:payment|fullscreen)=/)
+          }
+        }
+      }
+    }
+  } finally {
+    if (previousEnvironment === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = previousEnvironment
+    if (previousHsts === undefined) delete process.env.OM_HSTS_ENABLED
+    else process.env.OM_HSTS_ENABLED = previousHsts
+  }
+})
 
 test('both configs preserve the explicitly configured documents collaboration origin', async () => {
   const previous = {

@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 import { builtinModules } from 'node:module'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { resolveAllowedDevOrigins } from './src/lib/dev-origins'
 import { telemetryServerExternalPackages } from '@open-mercato/telemetry/nextjs-config'
 import {
@@ -41,6 +42,11 @@ function buildSecurityHeaders(allowLoopbackFraming: boolean) {
   const globalFrameOptionsHeaders = allowLoopbackFraming
     ? []
     : [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }]
+  const transportSecurityHeaders = process.env.NODE_ENV === 'production'
+    && !allowLoopbackFraming
+    && parseBooleanWithDefault(process.env.OM_HSTS_ENABLED, true)
+    ? [{ key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' }]
+    : []
   return [
     {
       source: '/:path*',
@@ -48,6 +54,8 @@ function buildSecurityHeaders(allowLoopbackFraming: boolean) {
         { key: 'Content-Security-Policy', value: contentSecurityPolicy },
         { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
         { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'Permissions-Policy', value: 'accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), usb=()' },
+        ...transportSecurityHeaders,
         ...globalFrameOptionsHeaders,
       ],
     },
