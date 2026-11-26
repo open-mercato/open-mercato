@@ -362,8 +362,8 @@ function applyPriceSnapshot(line: CartLine, resolved: ResolvedLinePrice, pricedA
  * (`line.priceRowId`), not a re-derivation of the whole tier ladder. A single row-by-id
  * lookup (cheap, no row-set fetch, no `catalogBuyerPricingService` call) is enough to
  * answer "did we leave that row's own window" — this is the check `.update` uses to decide
- * whether a re-price is even necessary, so a same-tier quantity change never calls the
- * pricing service at all.
+ * whether a quantity change crosses the stored tier, so an already visible line can
+ * keep its snapshot on a same-tier update.
  */
 async function isWithinStoredPriceTier(
   em: EntityManager,
@@ -1226,14 +1226,10 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     }
 
     const now = new Date()
+    const restoringVisibility = assortmentScope !== undefined && line.flagState === 'product_unavailable'
     const sameTier = await isWithinStoredPriceTier(em, scope, line, finalQuantity)
-    // §5.2 trigger 1 + §5.1's `priceChanges` disclosure (Step 5.1): populated only when the
-    // tier-crossing re-price below actually moved the unit price, never for a same-tier
-    // quantity change. `Cart.lastPriceChangeAt` (§5.3: "the cart records last_price_change_at")
-    // is set on `cart` — already loaded on this same `em` by `loadMutableCart` — so the single
-    // `em.flush()` below persists both the line's new snapshot and the cart's own timestamp.
     const priceChanges: CartPriceChange[] = []
-    if (!sameTier) {
+    if (!sameTier || restoringVisibility) {
       const pricingContext = buildCartPricingRowFilterContext(cart)
       const variantIds = line.variantId ? [line.variantId] : []
       const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [line.productId], variantIds), line.variantId ?? null)
@@ -1265,7 +1261,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
           newUnitPriceNet,
           oldUnitPriceGross,
           newUnitPriceGross,
-          reason: 'tier_change',
+          reason: sameTier ? 'stale_snapshot' : 'tier_change',
         })
         cart.lastPriceChangeAt = now
       }
@@ -1285,7 +1281,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     await withAtomicFlush(em, [
       async () => {
         line.quantity = String(finalQuantity)
-        if (assortmentScope !== undefined && line.flagState === 'product_unavailable') line.flagState = null
+        if (restoringVisibility) line.flagState = null
       },
       ...buildCartPromotionsAndTotalsPhases({
         currencyDecimalPlaces,
