@@ -3,7 +3,7 @@
   "default": ["core"],
   "external": {
     "source": "open-mercato/skills",
-    "ref": "bbdb742f17a5198a3615d99db9cf66390760c020",
+    "ref": "7e6b9de567a73bcc9373b889231bc0efafe1bb30",
     "cliVersion": "1.9.0",
     "description": "Skills installed from the shared open-mercato/skills collection via `npx skills add` (see scripts/install-skills.mjs). A folder under .ai/skills/ matching one of these names is a repo-local override read by the external skill, never symlinked into the harness directories.",
     "skills": [
@@ -81,12 +81,17 @@
         "om-auto-upgrade-0.6.6-to-0.6.7",
         "om-auto-upgrade-0.6.7-to-0.7.0",
         "om-auto-upgrade-0.7.0-to-0.8.0",
-        "om-auto-upgrade-0.8.0-to-0.9.0"
+        "om-auto-upgrade-0.8.0-to-0.9.0",
+        "om-auto-upgrade-0.9.0-to-0.10.0"
       ]
     },
     "infra": {
       "description": "Rare, special-case skills.",
-      "skills": ["om-dev-container-maintenance", "om-integration-builder"]
+      "skills": [
+        "om-dev-container-maintenance",
+        "om-integration-builder",
+        "om-backup-database"
+      ]
     }
   }
 }

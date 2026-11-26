@@ -91,12 +91,12 @@ function resolveAdapterProgressJobDescription(input: StartDataSyncRunInput): Dat
 
 export async function startDataSyncRun(params: {
   syncRunService: SyncRunService
-  progressService: ProgressService
+  progressService: ProgressService | null
   scope: DataSyncStartScope
   input: StartDataSyncRunInput
 }) {
   const { syncRunService, progressService, scope, input } = params
-  const createProgressJob = input.createProgressJob !== false
+  const createProgressJob = progressService !== null && input.createProgressJob !== false
 
   const described = createProgressJob ? resolveAdapterProgressJobDescription(input) : {}
   const progressJob = createProgressJob

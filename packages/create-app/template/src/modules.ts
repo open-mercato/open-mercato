@@ -234,8 +234,11 @@ export const enabledModules: ModuleEntry[] = [
   // .ai/skills/om-refresh-standalone-harness/SKILL.md step 9. Enabling is
   // therefore a maintainer call that follows that skill.
   // { id: 'forms', from: '@open-mercato/core' },
-  { id: 'ratelimit_probe', from: '@app' },
 ]
+
+if (parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)) {
+  enabledModules.push({ id: 'ratelimit_probe', from: '@app' })
+}
 
 // Official modules activated via official-modules.json / official-modules.local.json
 // (managed by `yarn official-modules`; backed by the external/official-modules submodule).
@@ -277,4 +280,8 @@ if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
   // brand-new module (see apps/mercato/src/modules/agent_examples/README.md).
   // It imports the orchestrator SDK, so it is only enabled alongside it.
   enabledModules.push({ id: 'agent_examples', from: '@app' })
+}
+
+if (enterpriseModulesEnabled && parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_BACKUPS, false)) {
+  enabledModules.push({ id: 'backups', from: '@open-mercato/enterprise' })
 }

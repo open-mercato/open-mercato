@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import type { WorkflowDefinitionData } from '@open-mercato/core/modules/workflows/data/entities'
+import type { WorkflowExampleAuthoring } from '@open-mercato/core/modules/workflows/lib/example-definition-authoring'
 import { AgentEvalAssertion, AgentEvalCase } from '../data/entities'
 import { canonicalInputKey } from './eval/canonicalInputKey'
 import { getAgentEntry } from './sdk/defineAgent'
@@ -99,32 +99,17 @@ const DEMO_HEALTHY_EXPECTED = {
   },
 }
 
-type WorkflowSeedDefinition = {
-  workflowId: string
-  workflowName: string
-  description?: string | null
-  version?: number
-  definition: WorkflowDefinitionData
-  metadata?: Record<string, unknown> | null
-  enabled?: boolean
-}
-
-function readExampleJson<T>(fileName: string): T {
+function readExampleJson(fileName: string): unknown {
   const candidates = [
     path.join(__esmDirname, '..', 'examples', fileName),
-    path.join(process.cwd(), 'packages', 'core', 'src', 'modules', 'agent_orchestrator', 'examples', fileName),
+    path.join(process.cwd(), 'packages', 'enterprise', 'src', 'modules', 'agent_orchestrator', 'examples', fileName),
     path.join(process.cwd(), 'src', 'modules', 'agent_orchestrator', 'examples', fileName),
   ]
   const filePath = candidates.find((candidate) => fs.existsSync(candidate))
   if (!filePath) {
     throw new Error(`[internal] Missing agent_orchestrator seed file: ${fileName}`)
   }
-  return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
-}
-
-function requireString(value: unknown, label: string): string {
-  if (typeof value === 'string' && value.trim().length > 0) return value
-  throw new Error(`[internal] Invalid ${label} in agent_orchestrator seed data.`)
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'))
 }
 
 /**
@@ -141,40 +126,35 @@ function verifyDemoAgent(): void {
   }
 }
 
-/**
- * Idempotent seed of an example workflow definition from a bundled JSON file
- * (find by workflowId in scope, create-if-absent). Mirrors `workflows/lib/seeds.ts`;
- * resolves the workflows entity lazily so agent_orchestrator does not hard-depend
- * on the optional peer.
- */
-async function seedWorkflowDefinitionFile(
+async function seedWorkflowExamples(
   em: EntityManager,
+  container: AwilixContainer,
   scope: AgentOrchestratorSeedScope,
-  fileName: string,
-): Promise<boolean> {
-  const entities = (await import(
-    '@open-mercato/core/modules/workflows/data/entities'
-  )) as typeof import('@open-mercato/core/modules/workflows/data/entities')
+): Promise<void> {
+  const authoring = container.resolve<Partial<WorkflowExampleAuthoring> | undefined>(
+    'workflowDefinitionAuthoring', { allowUnregistered: true },
+  )
+  let exampleAuthoring: Partial<WorkflowExampleAuthoring> | undefined = authoring
+  if (typeof authoring?.createExampleDefinitionIfAbsent !== 'function') {
+    exampleAuthoring = container.resolve<WorkflowExampleAuthoring | undefined>(
+      'workflowExampleAuthoring', { allowUnregistered: true },
+    )
+  }
 
-  const seed = readExampleJson<WorkflowSeedDefinition>(fileName)
-  const workflowId = requireString(seed.workflowId, 'workflowId')
+  if (typeof exampleAuthoring?.createExampleDefinitionIfAbsent !== 'function') {
+    if (container.hasRegistration('workflowDefinitionAuthoring') || container.hasRegistration('workflowExampleAuthoring')) {
+      throw new Error('[internal] Workflow example authoring is unavailable.')
+    }
+    logger.warn('workflows module not enabled; skipping demo workflow seed')
+    return
+  }
 
-  const existing = await em.findOne(entities.WorkflowDefinition, {
-    workflowId,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
-  if (existing) return false
-
-  const workflow = em.create(entities.WorkflowDefinition, {
-    ...seed,
-    workflowId,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
-  em.persist(workflow)
-  await em.flush()
-  return true
+  for (const fileName of [DEMO_WORKFLOW_FILE, REFUND_TRIAGE_WORKFLOW_FILE]) {
+    await exampleAuthoring.createExampleDefinitionIfAbsent(em, {
+      ...scope,
+      fixture: readExampleJson(fileName),
+    })
+  }
 }
 
 function buildSeedCommandContext(
@@ -203,6 +183,10 @@ async function seedDemoDeals(
   const customers = (await import(
     '@open-mercato/core/modules/customers/data/entities'
   )) as typeof import('@open-mercato/core/modules/customers/data/entities')
+  if (!em.getMetadata().find(customers.CustomerDeal)) {
+    logger.warn('customers module not enabled; skipping demo deals seed')
+    return 0
+  }
   const commandBus = container.resolve('commandBus') as CommandBus
 
   let created = 0
@@ -278,6 +262,10 @@ async function seedDealsHealthCheckEval(
   const customers = (await import(
     '@open-mercato/core/modules/customers/data/entities'
   )) as typeof import('@open-mercato/core/modules/customers/data/entities')
+  if (!em.getMetadata().find(customers.CustomerDeal)) {
+    logger.warn('customers module not enabled; skipping demo golden eval case')
+    return
+  }
   const deal = await findOneWithDecryption(
     em,
     customers.CustomerDeal,
@@ -328,8 +316,7 @@ export async function seedAgentOrchestratorExamples(
   scope: AgentOrchestratorSeedScope,
 ): Promise<void> {
   verifyDemoAgent()
-  await seedWorkflowDefinitionFile(em, scope, DEMO_WORKFLOW_FILE)
-  await seedWorkflowDefinitionFile(em, scope, REFUND_TRIAGE_WORKFLOW_FILE)
+  await seedWorkflowExamples(em, container, scope)
   await seedDemoDeals(container, scope)
   await seedDealsHealthCheckEval(container, scope)
 }

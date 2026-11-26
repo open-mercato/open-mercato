@@ -84,6 +84,20 @@ describe('startDataSyncRun — adapter-described progress job', () => {
 
   afterEach(clearGlobalRegistry)
 
+  it('queues the run without a job when progress is unavailable', async () => {
+    const { syncRunService, createRun } = buildServices()
+    const result = await startDataSyncRun({
+      syncRunService,
+      progressService: null,
+      scope: SCOPE,
+      input: { integrationId: 'sync_feed', entityType: 'sales.order', direction: 'import' },
+    })
+
+    expect(result.progressJob).toBeNull()
+    expect(createRun).toHaveBeenCalledWith(expect.objectContaining({ progressJobId: null }), expect.anything())
+    expect(mockEnqueue).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps the core defaults when the adapter declares no hook', async () => {
     registerDataSyncAdapter(buildAdapter())
 
