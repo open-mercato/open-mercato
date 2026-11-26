@@ -587,7 +587,12 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
             </div>
           </DialogHeader>
 
-          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+          <div
+            className={cn(
+              'flex min-h-0 flex-1 flex-col lg:flex-row',
+              displayedResults.length === 0 && 'max-lg:block max-lg:overflow-y-auto',
+            )}
+          >
             <div className="flex min-h-0 flex-col gap-3 border-b border-border/70 bg-card p-4 lg:w-[480px] lg:shrink-0 lg:border-b-0 lg:border-r">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
