@@ -113,11 +113,13 @@ Toggles the CRUD API response cache layer. When enabled, GET requests served by 
 Selects the cache backend. Supported values include `memory` (in-process) and `sqlite`. Related docs: [Cache tuning](https://docs.openmercato.com/docs/framework/performance/cache).
 
 ### CACHE_PROVIDER {#cache_provider}
-**Default:** _(unset)_  
+**Default:** _(unset)_
+
 Selects a cache provider registered by the application in `src/providers/cache.ts`, by its `<scope>/<name>` id. When set it overrides `CACHE_STRATEGY`; an unknown or misconfigured provider fails startup instead of falling back to memory. Related docs: [Cache providers](https://docs.openmercato.com/docs/architecture/cache-providers).
 
 ### CACHE_PROVIDER_NAMESPACE {#cache_provider_namespace}
-**Default:** _(unset)_  
+**Default:** _(unset)_
+
 Stable deployment namespace (1-64 letters, digits, `.`, `_` or `-`) required whenever `CACHE_PROVIDER` is set. Providers use it to fence this deployment's records from other deployments sharing the same backend.
 
 ### CACHE_TTL {#cache_ttl}
