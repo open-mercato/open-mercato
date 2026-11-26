@@ -88,17 +88,19 @@ export async function resolveMfaEnrollmentRedirect(args: {
   auth: AuthContext
   pathname: string
   container: ServiceContainerLike
+  failClosed?: true
 }): Promise<string | null> {
   const { auth, pathname, container } = args
   if (!auth || typeof auth.sub !== 'string' || auth.sub.length === 0) return null
   if (auth.mfa_pending === true) return null
   if (isExemptPath(pathname)) return null
+  const failClosed = args.failClosed === true || canFailClosed(auth)
 
   const emergencyBypass = readSecurityModuleConfig().mfa.emergencyBypass
 
   const enforcementService = resolveEnforcementService(container)
   if (!enforcementService.service) {
-    if (!canFailClosed(auth)) return null
+    if (!failClosed) return null
     if (emergencyBypass) {
       emitMfaEmergencyBypassActiveWarning('mfa-enrollment-redirect bypassed', {
         userId: auth.sub,
@@ -133,7 +135,7 @@ export async function resolveMfaEnrollmentRedirect(args: {
 
     return createEnrollmentRedirect(pathname, deadlineState.overdue)
   } catch (error) {
-    if (canFailClosed(auth)) {
+    if (failClosed) {
       if (emergencyBypass) {
         emitMfaEmergencyBypassActiveWarning('mfa-enrollment-redirect bypassed', {
           userId: auth.sub,

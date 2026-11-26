@@ -18,6 +18,10 @@ import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FAL
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
 import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
+import { resolveApiInterceptorRoutePath } from '@open-mercato/shared/lib/modules/api-route-identity'
+import { getApiInterceptorsForRoute } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
+import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 
 // Ensure all package registrations are initialized for API routes.
 bootstrap()
@@ -152,7 +156,8 @@ function normalizeLoadedMetadata(
 export async function checkAuthorization(
   methodMetadata: MethodMetadata | null,
   auth: AuthContext,
-  req: NextRequest
+  req: NextRequest,
+  provideContainer?: () => ReturnType<typeof createRequestContainer>,
 ): Promise<NextResponse | null> {
   const { t } = await resolveTranslations()
   const requiresAuthentication = methodMetadata?.requireAuth !== false
@@ -170,11 +175,11 @@ export async function checkAuthorization(
     warnDeprecatedRequireRoles(req.nextUrl.pathname, req.method.toUpperCase() as HttpMethod)
   }
 
-  let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
-  const ensureContainer = async () => {
-    if (!container) container = await createRequestContainer()
-    return container
-  }
+  let containerPromise: ReturnType<typeof createRequestContainer> | null = null
+  const ensureContainer = provideContainer ?? (() => {
+    containerPromise ??= createRequestContainer()
+    return containerPromise
+  })
 
   if (auth && requiresAuthentication) {
     // HTTP parameter pollution hardening (issue #2665): a request can carry `tenantId`
@@ -404,7 +409,12 @@ async function handleRequest(
   })
 
   const methodMetadata = extractMethodMetadata(routeMetadata, method)
-  const authError = await checkAuthorization(methodMetadata, auth, req)
+  let containerPromise: ReturnType<typeof createRequestContainer> | null = null
+  const ensureContainer = () => {
+    containerPromise ??= createRequestContainer()
+    return containerPromise
+  }
+  const authError = await checkAuthorization(methodMetadata, auth, req, ensureContainer)
   if (authError) {
     // Auth could not be verified because of a transient/unexpected failure (DB
     // unavailable, pool exhausted, timeout). Do NOT clear the session cookies or
@@ -463,6 +473,47 @@ async function handleRequest(
   }
 
   try {
+    const routePath = auth ? resolveApiInterceptorRoutePath(req) ?? '' : ''
+    const requestInterceptors = auth
+      ? getApiInterceptorsForRoute(routePath, method, 'request').filter((entry) => entry.interceptor.before)
+      : []
+    if (auth && requestInterceptors.length > 0) {
+      const container = await ensureContainer()
+      const acl = requestInterceptors.some((entry) => entry.interceptor.features?.length)
+        ? await container.resolve<RbacService>('rbacService').loadAcl(auth.sub, {
+            tenantId: auth.tenantId ?? null,
+            organizationId: auth.orgId ?? null,
+          })
+        : null
+      const userFeatures = acl?.isSuperAdmin ? ['*'] : acl?.features ?? []
+      const admission = await runApiInterceptorsBefore({
+        routePath,
+        method,
+        scope: 'request',
+        request: { method, url: req.url, headers: Object.fromEntries(req.headers.entries()) },
+        context: {
+          auth,
+          routePattern: match.route.path,
+          userId: auth.sub,
+          tenantId: auth.tenantId ?? '',
+          organizationId: auth.orgId ?? '',
+          em: container.resolve<InterceptorContext['em']>('em'),
+          container,
+          userFeatures,
+        },
+      })
+      if (!admission.ok) {
+        await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
+          ...receivedPayload,
+          status: admission.statusCode,
+          userId: auth.sub,
+          tenantId: auth.tenantId ?? null,
+          durationMs: Date.now() - startedAt,
+        })
+        getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, admission.statusCode, startedAt)
+        return NextResponse.json(admission.body, { status: admission.statusCode })
+      }
+    }
     const handlerContext: HandlerContext = { params: match.params, auth }
     const runHandler = () => runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
     const response = methodMetadata?.skipModuleResourceUsageTracking !== true
