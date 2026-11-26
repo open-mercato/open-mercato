@@ -18,4 +18,4 @@ The PR's implementation, regression tests, and upgrade notes establish the behav
 
 ### Phase 2: Official documentation
 
-- [ ] 2.1 Document production HTTP authentication, chat recovery, and operator migration
+- [x] 2.1 Document production HTTP authentication, chat recovery, and operator migration — 03ff3ab131
