@@ -135,6 +135,33 @@ describe('DealsSection', () => {
     expect(onActionChange).toHaveBeenCalledWith(null)
   })
 
+  it('returns focus to Link existing deal after Escape closes the dialog', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({ items: [], totalPages: 1 })
+    renderWithProviders(
+      <DealsSection
+        scope={{ kind: 'company', entityId: 'company-1' }}
+        addActionLabel="Add deal"
+        emptyLabel="—"
+        emptyState={{ title: 'No deals', actionLabel: 'Create deal' }}
+      />,
+    )
+
+    await screen.findByText('No deals')
+    const opener = screen.getByRole('button', { name: 'Link existing deal' })
+    opener.focus()
+    fireEvent.click(opener)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Link deal' })
+    const search = within(dialog).getByRole('textbox', { name: 'Search all deals…' })
+    expect(search).toHaveFocus()
+    fireEvent.keyDown(search, { key: 'Escape' })
+
+    await waitFor(() => {
+      expect(dialog).not.toBeInTheDocument()
+      expect(opener).toHaveFocus()
+    })
+  })
+
   it('renders deals after loading', async () => {
     readApiResultOrThrowMock.mockResolvedValueOnce({
       items: [makeDeal()],

@@ -590,10 +590,6 @@ export function DealsSection({
   }, [scope])
 
   const [linkDialogOpen, setLinkDialogOpen] = React.useState(false)
-  const openLinkDialog = React.useCallback(() => {
-    if (!scope) return
-    setLinkDialogOpen(true)
-  }, [scope])
 
   const existingDealIds = React.useMemo(() => deals.map((deal) => deal.id), [deals])
 
@@ -924,16 +920,24 @@ export function DealsSection({
         </div>
       ) : null}
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={openLinkDialog}
-          disabled={!scope || pendingAction !== null}
-        >
-          <Link2 className="mr-1.5 size-3.5" />
-          {t('customers.people.detail.deals.linkExisting', 'Link existing deal')}
-        </Button>
+        <LinkEntityDialog
+          open={linkDialogOpen}
+          onOpenChange={setLinkDialogOpen}
+          trigger={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!scope || pendingAction !== null}
+            >
+              <Link2 className="mr-1.5 size-3.5" />
+              {t('customers.people.detail.deals.linkExisting', 'Link existing deal')}
+            </Button>
+          }
+          adapter={dealLinkAdapter}
+          initialSelectedIds={existingDealIds}
+          onConfirm={handleLinkConfirm}
+        />
         <Button
           type="button"
           variant="default"
@@ -1094,13 +1098,6 @@ export function DealsSection({
           await handleDialogSubmit(payload)
         }}
         isSubmitting={Boolean(isFormPending)}
-      />
-      <LinkEntityDialog
-        open={linkDialogOpen}
-        onOpenChange={setLinkDialogOpen}
-        adapter={dealLinkAdapter}
-        initialSelectedIds={existingDealIds}
-        onConfirm={handleLinkConfirm}
       />
       {ConfirmDialogElement}
     </div>

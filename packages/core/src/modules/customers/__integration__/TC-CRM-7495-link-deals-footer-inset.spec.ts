@@ -59,7 +59,7 @@ async function openLinkDealsDialog(page: Page, companyId: string, dealTitle: str
   await page.goto(`/backend/customers/companies-v2/${companyId}?tab=deals`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('tab', { name: /^deals/i })).toHaveAttribute('aria-selected', 'true');
-  await page.getByRole('button', { name: 'Link existing deal' }).click();
+  await page.getByRole('button', { name: 'Link existing deal' }).press('Enter');
   const dialog = page.getByRole('dialog', { name: /^Link deal/ });
   await expect(dialog).toBeVisible();
 
@@ -73,7 +73,7 @@ async function openLinkDealsDialog(page: Page, companyId: string, dealTitle: str
 }
 
 test.describe('TC-CRM-7495: Link deals modal footer inset', () => {
-  test('selected count and Link deal keep their horizontal inset inside the modal', async ({ page, request }) => {
+  test('the modal keeps its footer inset and returns focus to its opener on dismiss', async ({ page, request }) => {
     test.slow();
 
     const stamp = Date.now();
@@ -88,6 +88,7 @@ test.describe('TC-CRM-7495: Link deals modal footer inset', () => {
       dealId = await createDealFixture(request, adminToken, { title: dealTitle });
 
       await login(page, 'admin');
+      const opener = page.getByRole('button', { name: 'Link existing deal' });
 
       // Desktop width: centered modal.
       await page.setViewportSize({ width: 1280, height: 900 });
@@ -97,6 +98,7 @@ test.describe('TC-CRM-7495: Link deals modal footer inset', () => {
       await expect(desktopLink).toBeEnabled();
       await page.keyboard.press('Escape');
       await expect(desktopDialog).toBeHidden();
+      await expect(opener).toBeFocused();
 
       // Narrow width: bottom-sheet variant must keep the same inset without clipping.
       await page.setViewportSize({ width: 480, height: 860 });
@@ -104,6 +106,7 @@ test.describe('TC-CRM-7495: Link deals modal footer inset', () => {
       await expectFooterInset(page, narrowDialog, 'narrow');
       await narrowDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
       await expect(narrowDialog).toBeHidden();
+      await expect(opener).toBeFocused();
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, adminToken, '/api/customers/companies', companyId);
