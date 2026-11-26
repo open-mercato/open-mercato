@@ -57,3 +57,5 @@ PR: #10543
 - [x] 3.2 Add accessible labels, autocomplete, and password instructions to the Enterprise Security form. — 57f476674c (Enterprise Chromium assertions included in TC-SEC-016.)
 
 - [x] Validation follow-up: align the empty-scope RBAC and storefront query fixtures. — e239e1f644 (254 focused tests passed.)
+
+- [x] Validation follow-up: keep the merged compatibility guidance within the existing harness context limits. All nine budget tests passed.
