@@ -169,6 +169,17 @@ export type ObservablePool = PoolEventSource & {
   connect: PoolConnect
 }
 
+type RecoverablePoolClient = {
+  on(event: 'error', listener: (err: unknown) => void): unknown
+  release?: PoolRelease
+}
+
+type PrimaryPool = Omit<ObservablePool, 'on'> & {
+  on(event: 'error', listener: (err: unknown) => void): unknown
+  on(event: 'acquire' | 'connect', listener: (client: RecoverablePoolClient) => void): unknown
+  on(event: 'release', listener: (err: unknown, client: RecoverablePoolClient) => void): unknown
+}
+
 const GLOBAL_PRIMARY_POOL_INSTRUMENTATION_KEY = Symbol.for(
   '@open-mercato/shared.primaryPoolInstrumentation',
 )
@@ -203,9 +214,8 @@ function primaryPoolInstrumentationStore(): PrimaryPoolInstrumentationStore {
 //   awaits non-DB work): pg-pool removes its idle listener, so the FATAL emits
 //   on the Client itself.
 // Either way an unlistened 'error' event crashes the whole process ("Scheduler
-// polling engine exited unexpectedly with exit code 1"). Swallow both: the pool
-// discards the dead client, and any in-flight transaction still fails normally
-// on its next query/commit against the dead connection.
+// polling engine exited unexpectedly with exit code 1"). The pool discards dead
+// idle clients. The primary pool also releases checked-out dead clients below.
 // The per-client listener is deliberately attached once on 'connect' and never
 // removed: it is a last-resort sink whose only job is to guarantee the 'error'
 // event always has a listener, in every client state. It is not error handling
@@ -220,6 +230,26 @@ export function attachPoolErrorHandlers(pool: PoolEventSource): void {
   pool.on('connect', (client) => {
     client.on('error', (err: unknown) => {
       logger.warn('pg client error (connection reaped/terminated)', { err })
+    })
+  })
+}
+
+function attachPrimaryPoolClientRecovery(pool: PrimaryPool): void {
+  const checkedOut = new WeakSet<RecoverablePoolClient>()
+  pool.on('acquire', (client) => { checkedOut.add(client) })
+  pool.on('release', (_error, client) => { checkedOut.delete(client) })
+  pool.on('connect', (client) => {
+    client.on('error', (error) => {
+      if (!checkedOut.delete(client) || !client.release) return
+      const release = client.release
+      client.release = () => undefined
+
+      try {
+        release(error)
+      } catch (releaseError) {
+        logger.warn('Failed to release disconnected pg pool client', { err: releaseError })
+        getTelemetryRuntime()?.reportError(releaseError, { module: 'shared', code: 'db.pool.release_failed' })
+      }
     })
   })
 }
@@ -434,9 +464,10 @@ async function initializeOrm(): Promise<AppMikroORM> {
       lock_timeout: lockTimeoutMs,
       options: connectionOptions,
       ssl: sslConfig,
-      onPoolCreated: (pool: ObservablePool) => {
+      onPoolCreated: (pool: PrimaryPool) => {
         disposePoolInstrumentation?.()
         attachPoolErrorHandlers(pool)
+        attachPrimaryPoolClientRecovery(pool)
         disposePoolInstrumentation = instrumentPrimaryPool(pool)
         if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
           logger.info('pg pool created with options', {
