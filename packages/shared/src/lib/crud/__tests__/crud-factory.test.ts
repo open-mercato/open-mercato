@@ -1580,13 +1580,20 @@ describe('CRUD Factory', () => {
     expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
   })
 
-  it('PUT mutation guard uses route resource identity instead of spoofed lock headers', async () => {
+  it('PUT mutation guard uses server-resolved resource identity and organization scope', async () => {
     crudMutationGuardService = {
       validateMutation: jest.fn().mockResolvedValue({
         ok: true,
-        shouldRunAfterSuccess: false,
+        shouldRunAfterSuccess: true,
       }),
       afterMutationSuccess: jest.fn().mockResolvedValue(undefined),
+    }
+
+    mockOrganizationScopeOverride = {
+      selectedId: defaultOrganizationId,
+      filterIds: [defaultOrganizationId],
+      allowedIds: [defaultOrganizationId],
+      tenantId: defaultTenantId,
     }
 
     const created = em.create(Todo, {
@@ -1612,7 +1619,12 @@ describe('CRUD Factory', () => {
     expect(crudMutationGuardService.validateMutation).toHaveBeenCalledWith(expect.objectContaining({
       resourceKind: 'example.todo',
       resourceId: created.id,
+      organizationScope: mockOrganizationScopeOverride,
       requestHeaders: expect.any(Headers),
+    }))
+    expect(crudMutationGuardService.afterMutationSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      resourceId: created.id,
+      organizationScope: mockOrganizationScopeOverride,
     }))
   })
 

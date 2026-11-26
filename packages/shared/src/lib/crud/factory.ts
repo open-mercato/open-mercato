@@ -795,9 +795,10 @@ function buildSyncPayload(
 
 function collectAndRunGuards(
   container: AwilixContainer,
+  organizationScope: OrganizationScope | null,
 ): { allGuards: MutationGuard[] } {
   const allGuards = [...getAllMutationGuardInstances()]
-  const legacyGuard = bridgeLegacyGuard(container)
+  const legacyGuard = bridgeLegacyGuard(container, organizationScope)
   if (legacyGuard) allGuards.push(legacyGuard)
   return { allGuards }
 }
@@ -2490,7 +2491,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
         // Mutation guard registry — command path (mirrors the direct create branch)
         const createCmdUserFeatures = await resolveUserFeatures(ctx)
-        const { allGuards: createCmdAllGuards } = collectAndRunGuards(ctx.container)
+        const { allGuards: createCmdAllGuards } = collectAndRunGuards(ctx.container, ctx.organizationScope)
         let createCmdGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
         if (createCmdAllGuards.length && ctx.auth.tenantId) {
           const guardResult = await runMutationGuards(createCmdAllGuards, {
@@ -2624,7 +2625,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       // Mutation guard registry (guards now run on create)
       const userFeatures = await resolveUserFeatures(ctx)
-      const { allGuards } = collectAndRunGuards(ctx.container)
+      const { allGuards } = collectAndRunGuards(ctx.container, ctx.organizationScope)
       let createGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
       if (allGuards.length && ctx.auth.tenantId) {
         const guardResult = await runMutationGuards(allGuards, {
@@ -2814,7 +2815,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
 
         const updateUserFeatures = await resolveUserFeatures(ctx)
-        const { allGuards: updateAllGuards } = collectAndRunGuards(ctx.container)
+        const { allGuards: updateAllGuards } = collectAndRunGuards(ctx.container, ctx.organizationScope)
         let cmdUpdateGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
         // Commands whose mapInput wraps the payload (e.g. `{ body }`) intentionally
         // null candidateId and OPT OUT of row-level guards, leaving the command-level
@@ -2958,7 +2959,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       // Mutation guard registry (multi-guard)
       const updateUserFeatures = await resolveUserFeatures(ctx)
-      const { allGuards: updateAllGuards } = collectAndRunGuards(ctx.container)
+      const { allGuards: updateAllGuards } = collectAndRunGuards(ctx.container, ctx.organizationScope)
       let updateGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
       if (updateAllGuards.length && ctx.auth.tenantId) {
         const guardResult = await runMutationGuards(updateAllGuards, {
@@ -3161,7 +3162,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
 
         const deleteUserFeatures = await resolveUserFeatures(ctx)
-        const { allGuards: deleteAllGuards } = collectAndRunGuards(ctx.container)
+        const { allGuards: deleteAllGuards } = collectAndRunGuards(ctx.container, ctx.organizationScope)
         let cmdDeleteGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
         if (deleteAllGuards.length && ctx.auth.tenantId && candidateId) {
           const guardResult = await runMutationGuards(deleteAllGuards, {
@@ -3279,7 +3280,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       // Mutation guard registry (multi-guard)
       const deleteUserFeatures = await resolveUserFeatures(ctx)
-      const { allGuards: deleteAllGuards } = collectAndRunGuards(ctx.container)
+      const { allGuards: deleteAllGuards } = collectAndRunGuards(ctx.container, ctx.organizationScope)
       let deleteGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
       if (deleteAllGuards.length && ctx.auth.tenantId) {
         const guardResult = await runMutationGuards(deleteAllGuards, {
