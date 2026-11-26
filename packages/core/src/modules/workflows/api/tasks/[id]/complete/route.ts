@@ -150,7 +150,10 @@ export async function POST(
 
     // Handle specific error codes from task-handler
     if (error instanceof Error) {
-      if ((error as { code?: unknown }).code === 'UNKNOWN_DECISION') {
+      if (
+        (error as { code?: unknown }).code === 'UNKNOWN_DECISION' ||
+        (error as { code?: unknown }).code === 'FORM_VALIDATION_FAILED'
+      ) {
         return NextResponse.json(
           { error: error.message },
           { status: 400 }

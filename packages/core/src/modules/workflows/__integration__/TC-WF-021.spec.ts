@@ -44,7 +44,7 @@ test.describe('TC-WF-021: user task after the join', () => {
             // Spec §6.4 made a task addressed to one person that person's to
             // finish (`completeUserTask` → TASK_ASSIGNED_TO_ANOTHER_USER, 409),
             // so a non-id placeholder now produces a task nobody can complete.
-            userTaskConfig: { assignedTo: callerUserId },
+            userTaskConfig: { assignedTo: callerUserId, formSchema: { properties: { reviewed: { type: 'boolean' } } } },
           },
           { stepId: 'end', stepName: 'End', stepType: 'END' },
         ],

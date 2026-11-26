@@ -124,11 +124,11 @@ function runUnclaim(id = TASK_ID) {
   )
 }
 
-function runComplete(id = TASK_ID) {
+function runComplete(id = TASK_ID, formData: Record<string, unknown> = {}) {
   return completeTask(
     new NextRequest(`http://localhost/api/workflows/tasks/${id}/complete`, {
       method: 'POST',
-      body: JSON.stringify({ formData: {} }),
+      body: JSON.stringify({ formData }),
       headers: { 'content-type': 'application/json' },
     }),
     { params: { id } },
@@ -454,4 +454,44 @@ describe('an explicitly empty organization scope', () => {
     expect(taskHandler.releaseUserTask).not.toHaveBeenCalled()
     expect(taskHandler.completeUserTask).not.toHaveBeenCalled()
   })
+})
+
+
+describe('issue 9142 completion validation errors', () => {
+  test('returns 400 by code even when the localized message does not contain validation', async () => {
+    setTask(makeTask({ assignedTo: USER_ID, assignedToRoles: null }))
+    taskHandler.completeUserTask.mockImplementation(async () => {
+      throw Object.assign(new Error('Niedozwolone pola formularza'), {
+        code: 'FORM_VALIDATION_FAILED',
+      })
+    })
+
+    expect(await bodyAndStatus(await runComplete())).toEqual({
+      status: 400,
+      body: { error: 'Niedozwolone pola formularza' },
+    })
+  })
+})
+
+
+describe('issue 9142 staff route with real completion validation', () => {
+  test.each(['id', 'approved', '__result', '__decision', '_pendingAsyncActivities'])(
+    'refuses injected %s without changing the task', async (field) => {
+      const task = makeTask({
+        assignedTo: USER_ID,
+        assignedToRoles: null,
+        formSchema: { properties: { note: { type: 'string' } } },
+      })
+      setTask(task)
+      const before = { ...task }
+      const { completeUserTask } = await import('../../lib/task-handler')
+      taskHandler.completeUserTask.mockImplementation(completeUserTask)
+      const flush = jest.fn()
+      Object.assign(mockEm, { flush })
+
+      expect((await runComplete(TASK_ID, { note: 'ok', [field]: 'injected' })).status).toBe(400)
+      expect(task).toEqual(before)
+      expect(flush).not.toHaveBeenCalled()
+    },
+  )
 })

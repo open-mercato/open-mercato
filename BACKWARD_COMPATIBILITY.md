@@ -747,3 +747,7 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 ## 2026-11-25 — MCP Code Mode
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## User-task completion field allowlist (2026-11-26, #9142)
+
+STABLE API behavior changes on `POST /api/workflows/tasks/:id/complete`, `POST /api/workflows/portal/tasks/:id/complete` and `taskHandler.completeUserTask`: a submitted `formData` key absent from the task's form schema, or an engine-reserved key, is refused with HTTP 400 (`FORM_VALIDATION_FAILED`) before anything is written. A task with no declared fields accepts only empty `formData`. A bridge accepting the old arbitrary context patch would keep the vulnerability. Clients send only declared fields and use `decisionId` for decisions. Steps 1–3 waived by workflows maintainer @pat-lewczuk (Patryk Lewczuk) on 2026-11-26. [Migration](UPGRADE_NOTES.md#workflow-task-completion-accepts-only-declared-fields-9142) · [Spec](.ai/specs/2026-11-26-issue-9142-task-completion-field-allowlist.md).
