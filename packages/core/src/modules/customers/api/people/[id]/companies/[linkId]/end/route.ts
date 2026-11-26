@@ -33,9 +33,9 @@ const paramsSchema = z.object({
   id: z.string().uuid().describe('Person ID'),
   linkId: z.string().uuid().describe('Company ID'),
 })
-const guardPayloadSchema = personCompanyEmploymentEndSchema.partial()
+const guardPayloadSchema = z.object({ endedOn: personCompanyEmploymentEndSchema.shape.endedOn.optional() })
 
-function limitEmploymentGuardPayload(guard: MutationGuard): MutationGuard {
+function limitEmploymentGuardPayload(guard: MutationGuard, timezone: string | undefined): MutationGuard {
   return {
     id: guard.id,
     targetEntity: guard.targetEntity,
@@ -45,7 +45,11 @@ function limitEmploymentGuardPayload(guard: MutationGuard): MutationGuard {
     async validate(input) {
       const result = await guard.validate(input)
       if (!result.ok || !result.modifiedPayload) return result
-      return { ...result, modifiedPayload: guardPayloadSchema.parse(result.modifiedPayload) }
+      const modifiedPayload = guardPayloadSchema.parse(result.modifiedPayload)
+      if (modifiedPayload.endedOn !== undefined) {
+        personCompanyEmploymentEndSchema.parse({ ...modifiedPayload, timezone })
+      }
+      return { ...result, modifiedPayload }
     },
     afterSuccess: guard.afterSuccess?.bind(guard),
   }
@@ -71,7 +75,10 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'End a person’s employment at a company',
       headers: z.object({ [OPTIMISTIC_LOCK_HEADER_NAME]: z.string().optional() }),
-      requestBody: { schema: personCompanyEmploymentEndSchema },
+      requestBody: {
+        description: 'The optional IANA timezone determines which departure dates are in the future. Defaults to UTC.',
+        schema: personCompanyEmploymentEndSchema,
+      },
       responses: [
         { status: 200, description: 'Employment ended', schema: z.object({ ok: z.literal(true) }) },
         { status: 400, description: 'Invalid departure date or identifier' },
@@ -120,8 +127,8 @@ export async function POST(req: Request, ctx: { params?: { id?: string; linkId?:
     if (legacyGuard) guards.push(legacyGuard)
     const rbac = container.resolve<RbacService>('rbacService')
     const guardResult = await runMutationGuards(
-      guards.map(limitEmploymentGuardPayload),
-      { ...guardScope, mutationPayload: { ...payload, companyEntityId } },
+      guards.map((guard) => limitEmploymentGuardPayload(guard, payload.timezone)),
+      { ...guardScope, mutationPayload: { endedOn: payload.endedOn, companyEntityId } },
       { userFeatures: await rbac.getGrantedFeatures(userId, scope) },
     )
     if (!guardResult.ok) {

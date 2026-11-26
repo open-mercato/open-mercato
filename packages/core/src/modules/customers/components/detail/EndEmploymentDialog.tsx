@@ -11,12 +11,10 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { calendarInstantToWallTime, defaultCalendarTimezone } from '../../lib/calendar/timezone'
 
-const getToday = () => new Date().toISOString().slice(0, 10)
+const getToday = (timezone: string) => calendarInstantToWallTime(new Date(), timezone).date
 const departureDateError = 'customers.companies.detail.employment.dateInvalid'
-const formSchema = z.object({
-  endedOn: z.iso.date(departureDateError).refine((date) => date <= getToday(), departureDateError),
-})
 
 type EndEmploymentDialogProps = {
   companyId: string
@@ -29,6 +27,10 @@ type EndEmploymentDialogProps = {
 
 export function EndEmploymentDialog({ companyId, personId, personName, updatedAt, onClose, onEnded }: EndEmploymentDialogProps) {
   const t = useT()
+  const [timezone] = React.useState(defaultCalendarTimezone)
+  const formSchema = React.useMemo(() => z.object({
+    endedOn: z.iso.date(departureDateError).refine((date) => date <= getToday(timezone), departureDateError),
+  }), [timezone])
   const title = t('customers.companies.detail.employment.end', 'End employment')
   const dateLabel = t('customers.companies.detail.employment.departureDate', 'Departure date')
   const fields = React.useMemo<CrudField[]>(() => [{
@@ -42,13 +44,13 @@ export function EndEmploymentDialog({ companyId, personId, personName, updatedAt
         aria-label={dateLabel}
         value={typeof value === 'string' && value ? parseISO(value) : null}
         onChange={(date) => setValue(date ? format(date, 'yyyy-MM-dd') : '')}
-        maxDate={parseISO(getToday())}
+        maxDate={parseISO(getToday(timezone))}
         footer="none"
         disabled={disabled}
         required
       />
     ),
-  }], [dateLabel])
+  }], [dateLabel, timezone])
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
@@ -77,7 +79,7 @@ export function EndEmploymentDialog({ companyId, personId, personName, updatedAt
             await apiCallOrThrow(`/api/customers/people/${encodeURIComponent(personId)}/companies/${encodeURIComponent(companyId)}/end`, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ endedOn }),
+              body: JSON.stringify({ endedOn, timezone }),
             }, { errorMessage: t('customers.companies.detail.employment.saveError', 'Failed to end employment.') })
           }}
           onSubmitSuccess={onEnded}

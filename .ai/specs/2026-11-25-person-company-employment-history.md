@@ -22,7 +22,7 @@ CiviCRM also keeps ended relationships in an inactive list and supports calendar
 | --- | --- | --- |
 | How does a person rejoin the same company? | Link existing person reactivates the same row and preserves the most recent departure date. The command log captures each transition. | Preserves the existing one-row-per-pair contract and lets staff use the familiar linking flow. An employment-period ledger is outside this scope. |
 | How should imported and primary assignments work? | Materialize a profile-only assignment when ending it. Ending a primary link promotes the existing fallback if present, otherwise it clears the primary company. | An imported assignment offers the same action. Every active projection agrees on the new state. |
-| What date is required? | Collect a calendar date on the company People tab. Apply the transition immediately and accept today or earlier, including dates before CRM import. | A departure date describes a prior event independent of the time zone used to display it. |
+| What date is required? | Collect a calendar date on the company People tab. Apply the transition immediately and accept today or earlier in the browser’s CRM calendar time zone, including dates before CRM import. | A departure date describes a prior event independent of the time zone used to display it. |
 
 ## 📝 Delta
 
@@ -74,7 +74,7 @@ flowchart LR
 | Interface | Behavior |
 | --- | --- |
 | `GET /api/customers/companies/{id}/people` | Existing active view by default. Optional `employmentStatus=ended` uses the same company authorization and pagination, orders recent requests by departure date, and returns the date with each row. Active rows expose the link ID and write version when available, or the profile version for imported assignments. |
-| `POST /api/customers/people/{id}/companies/{companyId}/end` | Requires `customers.people.manage` and scoped access to the person and company. Accepts `{ endedOn: "YYYY-MM-DD" }` and the normal expected-version header. Returns `{ ok: true }` and operation metadata. Missing and out-of-scope associations return 404. Stale writes use the shared conflict response. |
+| `POST /api/customers/people/{id}/companies/{companyId}/end` | Requires `customers.people.manage` and scoped access to the person and company. Accepts `{ endedOn: "YYYY-MM-DD", timezone?: string }` and the normal expected-version header. The server validates the IANA zone and uses its own clock to reject future dates. The browser sends the same zone used by the date picker. Returns `{ ok: true }` and operation metadata. Missing and out-of-scope associations return 404. Stale writes use the shared conflict response. |
 | Existing person link create, update and delete routes | Link create reactivates an ended link. Primary changes apply to active links. Remove keeps its existing unlink behavior. Legacy IDs and response fields stay available. |
 
 Use the standard mutation guard registry and command bus for the end action. Compare the expected version inside the transaction after locking the parent and loading the matching link or legacy profile record. Revalidate both customer kinds and tenant and organization ownership before changing either. Undo restores the active or legacy assignment and reconciles primary state only when the affected records still match the recorded transition.
@@ -91,7 +91,7 @@ The budget is zero new page roots, providers, or heavy dependencies. Verify rout
 
 ## Migration & Backward Compatibility
 
-The migration adds columns with defaults for existing data and preserves the existing unique index. Current non-deleted rows begin active and previously removed links retain their removal status. No historical end date is inferred from soft-deletion. Active-only reads include the employment predicate across the linked lists, badge, selectors and legacy fallback paths. Consumers that inspect raw link rows can use `employment_status` to distinguish the states. An application rollback should retain the columns while data contains recorded departures.
+The migration adds columns with defaults for existing data and preserves the existing unique index. Current non-deleted rows begin active and previously removed links retain their removal status. No historical end date is inferred from soft-deletion. Active-only reads include the employment predicate across the linked lists, badge, selectors and legacy fallback paths. Consumers that inspect raw link rows can use `employment_status` to distinguish the states. An application rollback should retain the columns while data contains recorded departures. Requests that omit the optional `timezone` retain UTC validation, and the recorded date does not store the zone.
 
 ## Risks & Impact Review
 
@@ -121,3 +121,5 @@ The design uses the existing scoped link model, permissions, lock/version infras
 ## Changelog
 
 - 2026-11-25 · Proposed departure recording and a Former employees section for CRM company detail.
+
+- 2026-11-26 · Aligned the departure date picker and API limit with the CRM calendar time zone and covered both sides of UTC midnight.

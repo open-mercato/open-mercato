@@ -80,6 +80,7 @@ it('passes the scoped version to the command and applies only the guarded depart
     ok: true,
     modifiedPayload: {
       endedOn: '2020-03-01',
+      timezone: 'Mars/Olympus',
       tenantId: otherScopeId,
       organizationId: otherScopeId,
       personEntityId: otherScopeId,
@@ -155,6 +156,30 @@ it.each(['0000-01-01', '9999-12-31', '2021-02-29', '2020-02-29T00:00:00Z'])('rej
   expect(response.status).toBe(400)
   expect(mockLoadPersonContext).not.toHaveBeenCalled()
   expect(execute).not.toHaveBeenCalled()
+})
+
+describe('departure date time zone', () => {
+  afterEach(() => jest.useRealTimers())
+
+  it.each([
+    { now: '2026-11-24T23:30:00Z', timezone: 'Europe/Warsaw', date: '2026-11-25', status: 200 },
+    { now: '2026-11-25T00:30:00Z', timezone: 'America/New_York', date: '2026-11-25', status: 400 },
+    { now: '2026-11-24T23:30:00Z', timezone: undefined, date: '2026-11-25', status: 400 },
+    { now: '2026-11-25T00:30:00Z', timezone: 'Mars/Olympus', date: '2026-11-25', status: 400 },
+  ])('validates $date in $timezone at $now', async ({ now, timezone, date, status }) => {
+    jest.useFakeTimers({ now: new Date(now) })
+
+    const response = await POST(makeRequest({ endedOn: date, timezone }), { params })
+
+    expect(response.status).toBe(status)
+    if (status === 200) {
+      expect(execute).toHaveBeenCalledWith(commandId, expect.objectContaining({
+        input: expect.objectContaining({ endedOn: date, timezone }),
+      }))
+    } else {
+      expect(execute).not.toHaveBeenCalled()
+    }
+  })
 })
 
 it('returns 404 when the person does not belong to the selected organization', async () => {

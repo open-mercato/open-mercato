@@ -3,8 +3,11 @@
  */
 import * as React from 'react'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { format } from 'date-fns/format'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import * as calendarTimezone from '../../../lib/calendar/timezone'
 import { CompanyPeopleSection, type CompanyPersonSummary } from '../CompanyPeopleSection'
+import { EndEmploymentDialog } from '../EndEmploymentDialog'
 
 const pushMock = jest.fn()
 const flashMock = jest.fn()
@@ -36,8 +39,8 @@ jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
 }))
 
 jest.mock('@open-mercato/ui/primitives/date-picker', () => ({
-  DatePicker: ({ 'aria-label': label, onChange }: { 'aria-label': string; onChange: (date: Date) => void }) => (
-    <button type="button" onClick={() => onChange(new Date(2024, 1, 29))}>{label}</button>
+  DatePicker: ({ 'aria-label': label, onChange, maxDate }: { 'aria-label': string; onChange: (date: Date) => void; maxDate?: Date }) => (
+    <button type="button" data-max-date={maxDate && format(maxDate, 'yyyy-MM-dd')} onClick={() => onChange(new Date(2024, 1, 29))}>{label}</button>
   ),
 }))
 
@@ -920,10 +923,40 @@ describe('CompanyPeopleSection', () => {
     expect(mockScopedHeaders).toHaveBeenCalledWith({ 'x-om-ext-optimistic-lock-expected-updated-at': person.updatedAt })
     expect(apiCallOrThrowMock).toHaveBeenCalledWith(
       '/api/customers/people/person-1/companies/company-123/end',
-      expect.objectContaining({ method: 'POST', body: '{"endedOn":"2024-02-29"}' }),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ endedOn: '2024-02-29', timezone: calendarTimezone.defaultCalendarTimezone() }),
+      }),
       expect.anything(),
     )
     expect(onDataRefresh).toHaveBeenCalled()
+  })
+
+  describe('employment date picker calendar day', () => {
+    afterEach(() => {
+      jest.restoreAllMocks()
+      jest.useRealTimers()
+    })
+
+    it.each([
+      { now: '2026-11-24T23:30:00Z', timezone: 'Europe/Warsaw', expected: '2026-11-25' },
+      { now: '2026-11-25T00:30:00Z', timezone: 'America/New_York', expected: '2026-11-24' },
+    ])('caps departures at $expected in $timezone at $now', ({ now, timezone, expected }) => {
+      jest.useFakeTimers({ now: new Date(now) })
+      jest.spyOn(calendarTimezone, 'defaultCalendarTimezone').mockReturnValue(timezone)
+      renderWithProviders(
+        <EndEmploymentDialog
+          companyId="company-123"
+          personId="person-1"
+          personName="Ada Lovelace"
+          updatedAt="2026-11-20T12:34:56.000Z"
+          onClose={jest.fn()}
+          onEnded={jest.fn()}
+        />,
+      )
+
+      expect(screen.getByRole('button', { name: 'Departure date' })).toHaveAttribute('data-max-date', expected)
+    })
   })
 
   it.each([

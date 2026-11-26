@@ -4,7 +4,7 @@ import { withDecimalCaps } from '@open-mercato/shared/lib/decimal'
 import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
-import { calendarDayStartInstant, calendarWallTimeToInstant, isCalendarTimezone } from '../lib/calendar/timezone'
+import { calendarDayStartInstant, calendarInstantToWallTime, calendarWallTimeToInstant, isCalendarTimezone } from '../lib/calendar/timezone'
 
 const uuid = () => z.string().uuid()
 
@@ -880,15 +880,23 @@ export const personCompanyLinkUpdateSchema = scopedSchema.extend({
   isPrimary: z.boolean(),
 })
 
-export const personCompanyEmploymentEndSchema = z.object({
-  endedOn: z.iso.date().refine((date) => date >= '0001-01-01' && date <= new Date().toISOString().slice(0, 10)),
-})
+const employmentEndFields = {
+  endedOn: z.iso.date().refine((date) => date >= '0001-01-01'),
+  timezone: calendarTimezoneSchema.optional(),
+}
+
+function isPastOrCurrentEmploymentDate({ endedOn, timezone = 'UTC' }: { endedOn: string; timezone?: string }): boolean {
+  return !isCalendarTimezone(timezone) || endedOn <= calendarInstantToWallTime(new Date(), timezone).date
+}
+
+export const personCompanyEmploymentEndSchema = z.object(employmentEndFields)
+  .refine(isPastOrCurrentEmploymentDate, { path: ['endedOn'] })
 
 export const personCompanyEmploymentEndCommandSchema = scopedSchema.extend({
-  ...personCompanyEmploymentEndSchema.shape,
+  ...employmentEndFields,
   personEntityId: uuid(),
   companyEntityId: uuid(),
-})
+}).refine(isPastOrCurrentEmploymentDate, { path: ['endedOn'] })
 
 export type PersonCompanyEmploymentEndInput = z.infer<typeof personCompanyEmploymentEndCommandSchema>
 
