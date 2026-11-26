@@ -1,13 +1,5 @@
 # Upgrade Notes
 
-<<<<<<< HEAD
-=======
-## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
-
-When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.
-
-Clients that treated this 500 as a server fault can retry on `structured_output_invalid`. The request contract and response fields are unchanged. No database migration or configuration change is required.
-
 ## An empty organization scope is stopped at the feature guard (#10503)
 
 A non-super-admin principal whose organization scope resolves to **no organization** is now denied
@@ -36,46 +28,6 @@ see no organization. Grant the intended organizations in the user's or role's ac
 **Action for integrators:** a client that treated an empty list or a `404` as "nothing visible"
 for such a principal must also handle `403`.
 
-## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
-
-An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
-
-Callers that send `callSettings` to such an agent must drop them, or the agent author must allow runtime overrides. The agent's own `modelSettings` still apply, an empty `callSettings` object is treated as absent, and agents without the flag (the default, permissive) are unaffected. No first-party agent sets the flag to `false`. No database migration or configuration change is required.
-
-## Production fullapp LocalStack binds to loopback (#10342)
-
-The production fullapp `storage-s3` profile now publishes LocalStack on
-`127.0.0.1` by default. `LOCALSTACK_PORT` still controls the host port, and
-containers on the Compose network can still connect to `localstack:4566`.
-Operators who intentionally use remote tooling must set `INFRA_BIND_HOST`
-to the specific host interface they want to expose, then recreate LocalStack
-with the updated Compose file.
-
-## Agent trace ingest signing and workflow references
-
-Each trace-ingest adapter now needs a signing key provisioned for its tenant and organization. Provision separate scoped keys server-side with `traceIngestSecret(tenantId, organizationId)` and distribute only the derived key to each adapter. The Standard Webhooks header names, signed body format, and five-minute timestamp tolerance still apply. Adapters using the server-side signing helper pass `organizationId` as its second argument.
-
-Operators should pause trace delivery during the server and adapter cutover, replace the old signing keys, and retry queued deliveries with fresh timestamps and signatures. Previously issued tenant-wide signatures return HTTP 401. The webhook no longer establishes workflow attribution. Use the external run ID of the workflow-created agent invocation or send a standalone trace under its own run ID. Review previously ingested workflow links that lack a server-recorded invocation before relying on their process rollups. There is no schema migration.
-
-[Implementation spec](.ai/specs/enterprise/agent-orchestrator/2026-11-24-trace-ingest-scope.md)
-
-## CRUD factory security and query correctness bundle
-
-These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
-
-- **Full exports keep row scope (#9015).** `?format=…&exportScope=full` now always runs the route's `buildFilters` (with an empty query, or with the before-interceptor's rewritten query when one rewrote it). Rows a caller cannot see in the list (own records only, project membership, deny-all) are no longer exported. **Action:** none; a route whose `buildFilters` needs query params to be correct should handle an empty query.
-- **Advanced filters cannot override route scope (#9016, #9896).** Client `filter[conditions]` are AND-combined with `buildFilters` output (`$and`) instead of spread over it.
-- **List cache partitions (#7579, #7529).** With `ENABLE_CRUD_API_CACHE=true`, the list cache key now includes the resolved translation-overlay locale (or a `none` sentinel), a before-interceptor query rewrite, and an optional route-owned scope. Translation writes and undos drop cached localized lists of the entity. New additive `list.cacheScope(query, ctx)` option on `makeCrudRoute`: return a string to partition the cache, `null` to bypass it for the request, `undefined` for the default key. Staff time-projects uses it to partition by the caller's resolved project access. Existing cache entries simply miss once after the upgrade.
-- **Customers write commands load targets in scope (#7598).** Update/delete commands for people, companies, deals, addresses, comments, tags, pipelines, interactions and todo links look up the target inside the caller's tenant and allowed organizations. An out-of-scope id now answers 404 instead of 403.
-- **WMS commands check features in-command (#7673).** Every WMS write command requires the same feature its HTTP route requires, so notification actions, workflows and AI tools dispatching through the command bus cannot bypass it. `wms.inventory.adjust` accepts `wms.adjust_inventory` or `wms.import`; `wms.putaway-tasks.complete` also requires `wms.adjust_inventory`, as its routes do. Actor-less server dispatches (`auth: null`) are unaffected. **Action:** custom roles that dispatch WMS commands outside the HTTP routes need the matching feature. Catalog product and variant writes with a recognized WMS profile intent require `wms.manage_inventory` before either record changes (#10486). Without the feature, the API returns 403. Catalog-only clients should omit the WMS profile intent header.
-- **Sortable columns (#9548).** List routes whose `sortFieldMap` lacked keys the backend tables send (WMS, deals, staff, resources, planner, catalog products, company/person pickers) map them now, so those columns sort on the server again under the sort-map boundary (#3827).
-- **Security exceptions.** See the [sort-map specification](.ai/specs/2026-11-07-crud-sort-map-boundary.md), [deleted-row access](#explicit-deleted-row-list-access-9154), and [relation labels and global query scope](#issue-9106) for the affected clients and migration steps.
-- **Empty `in` / `not in` (#7637).** Join-column, custom-field and index-doc filters with an empty list compile to never-match / match-all instead of invalid SQL.
-- **Search on plaintext columns (#5803).** With `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` off (default), a search-token match on a column the encryption map reports as plaintext must also contain each search word (case- and accent-folded), so `?search=2026-08` no longer returns `2026-01`. Encrypted columns are unchanged. The folding uses Postgres `normalize()`, which requires a UTF8 database (PostgreSQL 13+).
-
-<a id="issue-9106"></a>
-
->>>>>>> 78ea48b6e6 (security(auth): deny an explicitly empty organization scope without an organization context (#10503))
 ## Relation options and explicit global query scope (#9106)
 
 Generic relation lookups for Staff time projects, tasks, and reports return 403. These records have dedicated access rules, so custom pickers should load options through the Staff timesheet APIs and adapt the authorized records to option values and labels. Review existing relation field `optionsUrl` settings for these targets before upgrading. Stored relation values remain available to the owning modules.

@@ -5,11 +5,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 import * as React from 'react'
-<<<<<<< HEAD
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-=======
-import { act, configure, fireEvent, render, screen, waitFor } from '@testing-library/react'
->>>>>>> 78ea48b6e6 (security(auth): deny an explicitly empty organization scope without an organization context (#10503))
+import { configure, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { LookupSelect } from '../LookupSelect'
 
 configure({ asyncUtilTimeout: 5000 })

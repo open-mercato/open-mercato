@@ -704,24 +704,8 @@ STABLE API and query behavior. Relation options require authorized target reads 
 
 ## 2026-11-24 — Relation options for record-protected targets (#9106)
 
-<<<<<<< HEAD
 The STABLE generic relation options route requires an owning record policy for protected targets. Current clients can use the owning Staff APIs for time projects, tasks, and reports. Preserving generic reads for these targets would retain the authorization bypass. Named maintainer acknowledgment remains required. [Migration](UPGRADE_NOTES.md#relation-options-and-explicit-global-query-scope-9106).
-=======
-STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
-
-## 2026-11-22 — Attachment assignment label authorization (#10336)
-
-The STABLE attachment library API response and the enrichment helper signature retain their shapes. Referenced records contribute optional labels and links only for an authorized read in the selected tenant and organization. Retaining an unrestricted fallback would keep the unauthorized read available. Server callers can supply verified request authorization and clients can fall back to existing assignment metadata. See the [upgrade notes](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [implementation spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
-
-## #10331 #10332 (2026-11-23)
-
-STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
-
-## 2026-11-24 — Trace ingest
-
-STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
 
 ## 2026-11-25 — Empty organization scope (#10503)
 
 STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
->>>>>>> 78ea48b6e6 (security(auth): deny an explicitly empty organization scope without an organization context (#10503))
