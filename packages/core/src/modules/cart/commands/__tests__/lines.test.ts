@@ -8,6 +8,8 @@ jest.mock('../../events', () => ({
   emitCartEvent: jest.fn(async () => undefined),
 }))
 
+import { MikroORM, Reference } from '@mikro-orm/postgresql'
+import * as catalogEntities from '@open-mercato/core/modules/catalog/data/entities'
 import { CatalogProduct, CatalogProductPrice, CatalogProductVariant } from '@open-mercato/core/modules/catalog/data/entities'
 import { Cart, CartLine } from '../../data/entities'
 import { emitCartEvent as mockedEmitCartEvent } from '../../events'
@@ -437,6 +439,28 @@ describe('cart.lines.add', () => {
     expect(seededCartLines).toHaveLength(0)
   })
 
+  it.each(['product-1', 'product-2'])('keeps single-add parent validation for a variant belonging to %s', async (parentId) => {
+    seededVariants = [{
+      id: 'variant-1', product: parentId, tenantId: TENANT_ID, organizationId: ORG_ID,
+      deletedAt: null, isActive: true,
+    }]
+    const em = makeEm()
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const result = await handler.execute({
+      tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID,
+      productId: 'product-1', variantId: 'variant-1', quantity: 1, addedByActorType: 'rep',
+    }, makeCtx({ em }))
+
+    if (parentId === 'product-1') {
+      expect(result.status).toBe('added')
+      expect(seededCartLines).toHaveLength(1)
+      expect(seededCartLines[0]).toMatchObject({ productId: 'product-1', variantId: 'variant-1' })
+    } else {
+      expect(result).toEqual({ status: 'rejected', reason: 'product_unavailable' })
+      expect(em.persist).not.toHaveBeenCalled()
+    }
+  })
+
   it('is rejected by visibility with a product_unavailable warning rather than a thrown error, and creates no line', async () => {
     const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
     const em = makeEm()
@@ -759,7 +783,169 @@ describe('cart.lines.remove', () => {
 })
 
 describe('cart.lines.bulkAdd', () => {
+  let orm: MikroORM
+
+  beforeAll(async () => {
+    orm = await MikroORM.init({ entities: Object.values(catalogEntities), dbName: 'cart_variant_test', connect: false })
+  })
+
+  afterAll(async () => {
+    await orm?.close(true)
+  })
+
   beforeEach(resetFixtures)
+
+  it.each([0, 1])('uses the committed quantity after waiting for the lock with %i initial units', async (initialQuantity) => {
+    const addHandler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const bulkHandler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+    const input = { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', addedByActorType: 'rep' as const }
+    if (initialQuantity) {
+      await addHandler.execute({ ...input, quantity: initialQuantity }, makeCtx({ em: makeEm() }))
+    }
+    const em = makeEm()
+    em.execute.mockImplementationOnce(async () => {
+      seededCartLines = seededCartLines.map((line) => ({ ...line }))
+      await addHandler.execute({ ...input, quantity: 5 }, makeCtx({ em: makeEm() }))
+      return [{ locked: true }]
+    })
+
+    const result = await bulkHandler.execute(
+      { ...input, lines: [{ productId: input.productId, quantity: 2 }] },
+      makeCtx({ em }),
+    )
+
+    expect(result.results[0]).toMatchObject({ status: 'merged', line: { quantity: String(initialQuantity + 7) } })
+    expect(seededCartLines).toHaveLength(1)
+    expect(Number(seededCartLines[0].quantity)).toBe(initialQuantity + 7)
+    expect(seededCarts[0].totals.grandTotalGrossAmount).toBe((initialQuantity + 7) * 12)
+  })
+
+  it('allocates line numbers after a preceding writer commits', async () => {
+    seededProducts.push(makeProductFixture({ id: 'product-2' }))
+    const addHandler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const bulkHandler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+    const scope = { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, addedByActorType: 'rep' as const }
+    const em = makeEm()
+    em.execute.mockImplementationOnce(async () => {
+      await addHandler.execute({ ...scope, productId: 'product-2', quantity: 1 }, makeCtx({ em: makeEm() }))
+      return [{ locked: true }]
+    })
+
+    const result = await bulkHandler.execute(
+      { ...scope, lines: [{ productId: 'product-1', quantity: 2 }] },
+      makeCtx({ em }),
+    )
+
+    expect(result.results[0]).toMatchObject({ status: 'added', line: { lineNumber: 2 } })
+    expect(seededCartLines.map((line) => line.lineNumber)).toEqual([1, 2])
+  })
+
+  it('rejects a variant from another product before quantity rules, pricing or persistence', async () => {
+    seededProducts = [makeProductFixture({ minOrderQty: 10 })]
+    seededVariants = [{
+      id: 'variant-2',
+      product: Reference.create(orm.em.fork().getReference(CatalogProduct, 'product-2')),
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      deletedAt: null,
+      isActive: true,
+    }]
+    const em = makeEm()
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+
+    const result = await handler.execute({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      cartId: CART_ID,
+      addedByActorType: 'rep',
+      lines: [{ productId: 'product-1', variantId: 'variant-2', quantity: 1 }],
+    }, makeCtx({ em, catalogBuyerPricingService: { resolveLinePrice } }))
+
+    expect(result).toEqual({
+      addedCount: 0,
+      rejectedCount: 1,
+      results: [{ index: 0, status: 'rejected', reason: 'product_unavailable' }],
+    })
+    expect(resolveLinePrice).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(seededCartLines).toHaveLength(0)
+    expect(emitCartEventMock.mock.calls.some(([eventId]) => eventId === 'cart.line.added')).toBe(false)
+  })
+
+  it.each([false, true])('keeps valid variant pricing independent of a mismatched entry (invalid first: %s)', async (invalidFirst) => {
+    seededProducts = [makeProductFixture(), makeProductFixture({ id: 'product-2' })]
+    seededVariants = [{
+      id: 'variant-2',
+      product: Reference.create(orm.em.fork().getReference(CatalogProduct, 'product-2')),
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      deletedAt: null,
+      isActive: true,
+    }]
+    seededPriceRows = [
+      { id: 'cheap-price', product: 'product-1', variant: null },
+      { id: 'parent-price', product: 'product-2', variant: null },
+      { id: 'variant-price', product: 'product-2', variant: 'variant-2' },
+    ]
+    const valid = { productId: 'product-2', variantId: 'variant-2', quantity: 2 }
+    const invalid = { productId: 'product-1', variantId: 'variant-2', quantity: 1 }
+    const em = makeEm()
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+
+    const result = await handler.execute({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      cartId: CART_ID,
+      addedByActorType: 'rep',
+      lines: invalidFirst ? [invalid, valid] : [valid, invalid],
+    }, makeCtx({ em, catalogBuyerPricingService: { resolveLinePrice } }))
+
+    expect(result.addedCount).toBe(1)
+    expect(result.rejectedCount).toBe(1)
+    expect(result.results[invalidFirst ? 0 : 1]).toEqual({
+      index: invalidFirst ? 0 : 1, status: 'rejected', reason: 'product_unavailable',
+    })
+    expect(resolveLinePrice).toHaveBeenCalledTimes(1)
+    expect(resolveLinePrice).toHaveBeenCalledWith(
+      em, [seededPriceRows[1], seededPriceRows[2]], expect.objectContaining({ quantity: 2 }),
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORG_ID }),
+    )
+    expect(seededCartLines).toHaveLength(1)
+    expect(seededCartLines[0]).toMatchObject({ productId: 'product-2', variantId: 'variant-2', quantity: '2' })
+  })
+
+  it('does not merge a mismatched variant into an existing line', async () => {
+    seededVariants = [{
+      id: 'variant-2',
+      product: { id: 'product-2' },
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      deletedAt: null,
+      isActive: true,
+    }]
+    seededCartLines = [{
+      id: 'existing-line', cartId: CART_ID, productId: 'product-1', variantId: 'variant-2',
+      quantity: '3', configuration: null, promotionId: null, deletedAt: null, discountTotalNet: null,
+      tenantId: TENANT_ID, organizationId: ORG_ID,
+    }]
+    const before = { ...seededCartLines[0] }
+    const em = makeEm()
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice())
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+
+    const result = await handler.execute({
+      tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, addedByActorType: 'rep',
+      lines: [{ productId: 'product-1', variantId: 'variant-2', quantity: 1 }],
+    }, makeCtx({ em, catalogBuyerPricingService: { resolveLinePrice } }))
+
+    expect(result.results).toEqual([{ index: 0, status: 'rejected', reason: 'product_unavailable' }])
+    expect(seededCartLines).toEqual([before])
+    expect(resolveLinePrice).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+  })
 
   it('partially succeeds with per-entry warnings on a mix of valid and invalid entries', async () => {
     seededProducts = [makeProductFixture({ minOrderQty: 3 })]
@@ -1276,6 +1462,85 @@ describe('cart promotions + totals recompute (Step 8.2, QA F12)', () => {
     expect(result.line.discountTotalNet).toBeNull()
     expect(seededCartLines[0].discountTotalNet).toBeNull()
     expect(seededCarts[0].totals).toMatchObject({ discountTotalAmount: 0, grandTotalNetAmount: 10, grandTotalGrossAmount: 12 })
+  })
+
+  function makeVisibleScopeCtx() {
+    const loadScopedProducts = jest.fn(async () => new Map([['product-1', { id: 'product-1', categoryIds: ['cat-a'], tagIds: [], isActive: true }]]))
+    return makeCtx({ em: makeEm(), catalogScopedProductService: { loadScopedProducts } })
+  }
+
+  it('cart.lines.update clears a stale product_unavailable flag on a line it accepted and counts it in Cart.totals', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 3, assortmentScope: [{ categoryIds: ['cat-a'] }] },
+      makeVisibleScopeCtx(),
+    )
+
+    expect(result.status).toBe('updated')
+    expect(seededCartLines[0].flagState).toBeNull()
+    expect(seededCarts[0].totals).toMatchObject({ grandTotalNetAmount: 30, grandTotalGrossAmount: 36 })
+  })
+
+  it('cart.lines.update keeps a product_unavailable flag when no assortment scope is enforced', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+
+    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 3 }, makeCtx({ em: makeEm() }))
+
+    expect(result.status).toBe('updated')
+    expect(seededCartLines[0].flagState).toBe('product_unavailable')
+  })
+
+  it('cart.lines.add merging into a stale product_unavailable line clears the flag and counts it in Cart.totals', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 3, addedByActorType: 'rep', assortmentScope: [{ categoryIds: ['cat-a'] }] },
+      makeVisibleScopeCtx(),
+    )
+
+    expect(result.status).toBe('merged')
+    expect(seededCartLines).toHaveLength(1)
+    expect(seededCartLines[0].flagState).toBeNull()
+    expect(seededCarts[0].totals).toMatchObject({ grandTotalNetAmount: 50, grandTotalGrossAmount: 60 })
+  })
+
+  it('cart.lines.add merging into a product_unavailable line keeps the flag when no assortment scope is enforced', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity: 3, addedByActorType: 'rep' },
+      makeCtx({ em: makeEm() }),
+    )
+
+    expect(result.status).toBe('merged')
+    expect(seededCartLines[0].flagState).toBe('product_unavailable')
+  })
+
+  it('cart.lines.bulkAdd merging into a stale product_unavailable line clears the flag and counts it in Cart.totals', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+
+    const result = await handler.execute(
+      {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        cartId: CART_ID,
+        addedByActorType: 'rep',
+        assortmentScope: [{ categoryIds: ['cat-a'] }],
+        lines: [{ productId: 'product-1', quantity: 3 }],
+      },
+      makeVisibleScopeCtx(),
+    )
+
+    expect(result.results).toEqual([expect.objectContaining({ index: 0, status: 'merged' })])
+    expect(seededCartLines).toHaveLength(1)
+    expect(seededCartLines[0].flagState).toBeNull()
+    expect(seededCarts[0].totals).toMatchObject({ grandTotalNetAmount: 50, grandTotalGrossAmount: 60 })
   })
 
   // Live repro row 3: deleting the cart's last remaining line must zero every total field,

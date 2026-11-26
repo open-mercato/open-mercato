@@ -56,7 +56,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@open-mercato/ai-assistant": "{{PACKAGE_VERSION}}",
     "@open-mercato/cache": "{{PACKAGE_VERSION}}",
-    "@open-mercato/channel-discord": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-gmail": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-imap": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-apns": "{{PACKAGE_VERSION}}",
@@ -117,7 +116,7 @@
     "lucide-react": "^1.34.0",
     "mammoth": "^1.9.0",
     "newrelic": "^14.3.9",
-    "next": "16.4.1",
+    "next": "16.4.5",
     "pg": "8.23.0",
     "pdfjs-dist": "^6.2.108",
     "react": "19.2.8",
@@ -172,7 +171,7 @@
   "resolutions": {
     "lodash": "4.18.1",
     "lodash-es": "4.18.1",
-    "node-forge": "1.4.1",
+    "node-forge": "1.4.3",
     "sharp": "0.35.5",
     "zod": "4.6.6"
   },

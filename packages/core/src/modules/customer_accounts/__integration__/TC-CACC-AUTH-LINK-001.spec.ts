@@ -1,13 +1,16 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createCustomerUserFixture,
   deleteCustomerUserFixture,
   portalLogin,
+  uniqueSuffix,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
+import { createCompanyFixture, createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 
 /**
  * TC-CACC-AUTH-LINK-001: password-reset and magic-link tokens are delivered by email (#5959)
@@ -53,6 +56,57 @@ async function postJson(request: APIRequestContext, path: string, data: Record<s
 }
 
 test.describe('TC-CACC-AUTH-LINK-001: portal auth links are delivered and redeemable', () => {
+  test('email verification sets the portal password and enables same-organization CRM linking', async ({ request }) => {
+    const stamp = uniqueSuffix()
+    const email = `qa-cacc-verify-${stamp}@test.local`
+    const password = `PortalPassword${stamp}!`
+    const adminToken = await getAuthToken(request, 'admin')
+    const { tenantId, organizationId } = getTokenContext(adminToken)
+    const usersPath = '/api/customer_accounts/admin/users'
+    let customerId: string | null = null
+    let personId: string | null = null
+    let companyId: string | null = null
+
+    try {
+      companyId = await createCompanyFixture(request, adminToken, `Portal verification ${stamp}`)
+      personId = await createPersonFixture(request, adminToken, {
+        firstName: 'Portal',
+        lastName: 'Customer',
+        displayName: `Portal customer ${stamp}`,
+        primaryEmail: email,
+        companyEntityId: companyId,
+      })
+      const signup = await postJson(request, '/api/customer_accounts/signup', {
+        email, displayName: 'Portal customer', tenantId, organizationId,
+      })
+      expect(signup.status()).toBe(202)
+      const list = await apiRequest(request, 'GET', `${usersPath}?search=${encodeURIComponent(email)}`, { token: adminToken })
+      const body = await readJsonSafe<{ items: Array<{ id: string; email: string }> }>(list)
+      customerId = expectId(body?.items.find((item) => item.email === email)?.id, 'signup should create a pending customer')
+      const readCustomer = async () => {
+        const response = await apiRequest(request, 'GET', `${usersPath}/${customerId}`, { token: adminToken })
+        expect(response.status()).toBe(200)
+        return readJsonSafe(response)
+      }
+
+      await drainIntegrationQueue('events')
+      expect(await readCustomer()).toMatchObject({ emailVerifiedAt: null, personEntityId: null, customerEntityId: null })
+
+      const token = await waitForLinkToken(email, '/verify')
+      const verified = await postJson(request, '/api/customer_accounts/email/verify', { token, password })
+      expect(verified.status()).toBe(200)
+      await expect.poll(async () => {
+        await drainIntegrationQueue('events')
+        return readCustomer()
+      }).toMatchObject({ personEntityId: personId, customerEntityId: companyId })
+      expect((await portalLogin(request, { email, password, tenantId })).authToken).toBeTruthy()
+    } finally {
+      await deleteCustomerUserFixture(request, adminToken, customerId)
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
+      await deleteEntityIfExists(request, adminToken, '/api/customers/companies', companyId)
+    }
+  })
+
   test('password reset request emails a working reset link', async ({ request }) => {
     const stamp = Date.now()
     const email = `qa-cacc-reset-${stamp}@test.local`

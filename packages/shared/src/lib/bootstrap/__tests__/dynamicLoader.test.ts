@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createContainer } from 'awilix'
+import { getProcessDiRegistrar } from '../../di/process-registrar'
 
 const generatedExports: Record<string, string> = {
   // Jest evaluates file-URL imports through its CommonJS runtime in this suite.
@@ -66,6 +68,16 @@ describe('loadBootstrapData esbuild lifecycle', () => {
 
   afterEach(() => {
     fs.rmSync(appRoot, { recursive: true, force: true })
+  })
+
+  it('marks the generated app value registrar safe for process bootstrap in CLI and workers', async () => {
+    const data = await loadBootstrapData(appRoot)
+    expect(data.diRegistrars).toHaveLength(1)
+    const registrar = getProcessDiRegistrar(data.diRegistrars[0]!)
+    expect(registrar).not.toBeNull()
+    const container = createContainer()
+    registrar!(container)
+    expect(container.resolve('webResearchAdapterEntries')).toEqual([])
   })
 
   it('stops esbuild after compilation and starts it again for a later changed load', async () => {

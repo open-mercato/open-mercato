@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -8,30 +9,7 @@ import { CurrencyFetchConfig } from './data/entities'
 import { seedExampleCurrencies } from './lib/seeds'
 
 function parseArgs(args: string[]): Record<string, string | boolean> {
-  const result: Record<string, string | boolean> = {}
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2)
-
-      if (arg.includes('=')) {
-        const [k, v] = arg.slice(2).split('=')
-        result[k] = v
-      } else {
-        const nextArg = args[i + 1]
-        if (nextArg && !nextArg.startsWith('--')) {
-          result[key] = nextArg
-          i++
-        } else {
-          result[key] = true
-        }
-      }
-    }
-  }
-
-  return result
+  return parseModuleCliOptions(args)
 }
 
 const fetchRatesCommand: ModuleCli = {

@@ -26,6 +26,7 @@ import { LockMode } from '@mikro-orm/core'
 import { randomUUID } from 'crypto'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { withRequiredFeatures } from './featureGuard'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -1162,6 +1163,9 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
     const result = await runInTransaction(em, async (trx) => {
       const scope = resolveScope(ctx, input)
       const reservation = await requireReservation(trx, ctx, input.reservationId, scope, true)
+      if (reservation.status !== 'active') {
+        throw new CrudHttpError(409, { error: 'invalid_reservation_state' })
+      }
       const metadata = extractReservationMetadata(reservation)
       const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
       const allocationState = metadata.allocationState ?? 'reserved'
@@ -2094,10 +2098,10 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
     }),
 }
 
-registerCommand(reserveInventoryCommand)
-registerCommand(releaseInventoryReservationCommand)
-registerCommand(allocateInventoryReservationCommand)
-registerCommand(adjustInventoryCommand)
-registerCommand(receiveInventoryCommand)
-registerCommand(moveInventoryCommand)
-registerCommand(cycleCountInventoryCommand)
+registerCommand(withRequiredFeatures(reserveInventoryCommand, [['wms.manage_reservations']]))
+registerCommand(withRequiredFeatures(releaseInventoryReservationCommand, [['wms.manage_reservations']]))
+registerCommand(withRequiredFeatures(allocateInventoryReservationCommand, [['wms.manage_reservations']]))
+registerCommand(withRequiredFeatures(adjustInventoryCommand, [['wms.adjust_inventory'], ['wms.import']]))
+registerCommand(withRequiredFeatures(receiveInventoryCommand, [['wms.receive_inventory']]))
+registerCommand(withRequiredFeatures(moveInventoryCommand, [['wms.adjust_inventory']]))
+registerCommand(withRequiredFeatures(cycleCountInventoryCommand, [['wms.cycle_count']]))

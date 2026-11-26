@@ -13,6 +13,7 @@ export type ActionLogExecutionState = 'done' | 'undoing' | 'undone' | 'failed' |
 @Index({ name: 'action_logs_source_key_idx', properties: ['tenantId', 'organizationId', 'sourceKey', 'createdAt'] })
 @Index({ name: 'action_logs_primary_changed_field_idx', properties: ['tenantId', 'organizationId', 'primaryChangedField', 'createdAt'] })
 @Index({ name: 'action_logs_changed_fields_idx', properties: ['changedFields'], type: 'gin' })
+@Index({ name: 'action_logs_correlation_keys_idx', properties: ['correlationKeys'], type: 'gin' })
 @Index({ name: 'action_logs_related_resource_idx', properties: ['tenantId', 'relatedResourceKind', 'relatedResourceId', 'createdAt'] })
 export class ActionLog {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -85,6 +86,9 @@ export class ActionLog {
 
   @Property({ name: 'context_json', type: 'jsonb', nullable: true })
   contextJson: Record<string, unknown> | null = null
+
+  @Property({ name: 'correlation_keys', type: 'text[]', nullable: true })
+  correlationKeys: string[] | null = null
 
   @Property({ name: 'source_key', type: 'text', nullable: true })
   sourceKey: ActionLogSourceKey | null = null

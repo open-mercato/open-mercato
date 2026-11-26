@@ -3,6 +3,7 @@
  */
 
 import { NextRequest } from 'next/server'
+import { asFunction, asValue, createContainer } from 'awilix'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(),
@@ -24,6 +25,7 @@ jest.mock('@open-mercato/queue', () => ({
 import { GET as listFailureQueue, FAILURE_GROUP_SCAN_LIMIT } from '../instances/failure-queue/route'
 import { POST as startBulkReplay } from '../instances/bulk-replay/route'
 import { WorkflowInstance } from '../../data/entities'
+import { createTiedTimestampOrdering, type TiedTimestampOrderOptions } from './helpers/tiedTimestampOrdering'
 
 const tenantId = 'tenant-1'
 const orgId = 'org-1'
@@ -170,6 +172,38 @@ describe('GET /api/workflows/instances/failure-queue', () => {
     expect(body.pagination.limit).toBe(100)
   })
 
+  test('scans in createdAt order with an id tiebreak so the in-memory pages are a total order', async () => {
+    await listFailureQueue(new NextRequest('http://localhost/api/workflows/instances/failure-queue?limit=2&offset=2'))
+
+    expect(mockEm.find.mock.calls[0][2]).toEqual({
+      orderBy: { createdAt: 'DESC', id: 'DESC' },
+      limit: FAILURE_GROUP_SCAN_LIMIT,
+    })
+  })
+
+  test('walks every failure exactly once when instances share a createdAt', async () => {
+    const createdAt = new Date('2026-11-01T10:00:00.000Z')
+    const instances = ['a', 'b', 'c', 'd', 'e'].map((suffix) =>
+      row({ id: `00000000-0000-4000-8000-00000000000${suffix}`, createdAt, errorMessage: 'Gateway timeout' })
+    )
+    const orderPage = createTiedTimestampOrdering(instances)
+    mockEm.find.mockImplementation(async (_entity: unknown, _where: unknown, options: TiedTimestampOrderOptions) =>
+      orderPage(options)
+    )
+    mockEm.count.mockResolvedValue(instances.length)
+
+    const seen: string[] = []
+    for (const offset of [0, 2, 4]) {
+      const response = await listFailureQueue(
+        new NextRequest(`http://localhost/api/workflows/instances/failure-queue?limit=2&offset=${offset}`)
+      )
+      const body = await response.json()
+      seen.push(...body.data.map((instance: { id: string }) => instance.id.slice(-1)))
+    }
+
+    expect(seen).toEqual(['e', 'd', 'c', 'b', 'a'])
+  })
+
   test('401s an unauthenticated caller', async () => {
     const { getAuthFromRequest } = require('@open-mercato/shared/lib/auth/server')
     getAuthFromRequest.mockResolvedValue(null)
@@ -178,6 +212,32 @@ describe('GET /api/workflows/instances/failure-queue', () => {
       new NextRequest('http://localhost/api/workflows/instances/failure-queue')
     )
     expect(response.status).toBe(401)
+  })
+
+  test.each([100001, 100050, 999999999])('rejects offset %i without scanning or counting another page', async (offset) => {
+    const response = await listFailureQueue(
+      new NextRequest(`http://localhost/api/workflows/instances/failure-queue?offset=${offset}&limit=10`),
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
+    expect(mockEm.find).not.toHaveBeenCalled()
+    expect(mockEm.count).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum offset while keeping the grouping scan bounded', async () => {
+    const response = await listFailureQueue(
+      new NextRequest('http://localhost/api/workflows/instances/failure-queue?offset=100000&limit=10'),
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.data).toEqual([])
+    expect(body.pagination).toMatchObject({ limit: 10, offset: 100000, hasMore: false })
+    expect(mockEm.find).toHaveBeenCalledWith(
+      WorkflowInstance,
+      expect.objectContaining({ tenantId, organizationId: { $in: [orgId] } }),
+      expect.objectContaining({ limit: FAILURE_GROUP_SCAN_LIMIT }),
+    )
   })
 })
 
@@ -215,6 +275,36 @@ describe('POST /api/workflows/instances/bulk-replay', () => {
         scope: { tenantId, organizationId: orgId, userId },
       })
     )
+  })
+
+  test('queues the work without a progress job when the progress module is disabled (#9217)', async () => {
+    const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
+    const container = createContainer()
+    container.register({ em: asValue(mockEm), rbacService: asValue(mockRbac) })
+    createRequestContainer.mockResolvedValue(container)
+
+    const response = await startBulkReplay(request({ action: 'retry', ids }))
+    const body = await response.json()
+
+    expect(response.status).toBe(202)
+    expect(body).toEqual({ ok: true, progressJobId: null, message: 'Bulk replay started.' })
+    expect(mockProgress.createJob).not.toHaveBeenCalled()
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ progressJobId: null, action: 'retry', ids }))
+  })
+
+  test('does not enqueue when the registered progress service fails to initialize', async () => {
+    const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
+    const container = createContainer()
+    container.register({
+      rbacService: asValue(mockRbac),
+      progressService: asFunction(() => { throw new Error('[internal] progress service initialization failed') }),
+    })
+    createRequestContainer.mockResolvedValue(container)
+
+    const response = await startBulkReplay(request({ action: 'retry', ids }))
+
+    expect(response.status).toBe(500)
+    expect(enqueue).not.toHaveBeenCalled()
   })
 
   test('deduplicates ids so a double-selected row is not replayed twice', async () => {

@@ -73,6 +73,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
   resolveOrganizationScope: async () => ({ selectedId: 'org', filterIds: ['org'] }),
+  resolveOrganizationScopeForRequest: async () => ({ selectedId: 'org', filterIds: ['org'] }),
   getSelectedOrganizationFromRequest: () => 'org',
 }))
 
@@ -490,7 +491,9 @@ describe('Records API CRUD operations', () => {
       )
       expect(customEntityLookups.length).toBeGreaterThan(0)
       // Every restriction-deciding lookup carries a tenant scope.
-      expect(customEntityLookups[0][1]).toEqual(expect.objectContaining({ tenantId: 't1' }))
+      expect(customEntityLookups[0][1]).toEqual(expect.objectContaining({
+        $or: [{ tenantId: 't1' }, { tenantId: null, organizationId: null }],
+      }))
     })
   })
 })

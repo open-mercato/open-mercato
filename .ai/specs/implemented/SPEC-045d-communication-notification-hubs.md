@@ -1249,6 +1249,41 @@ communication_channels subscriber: channel-outbound-delivery
 Channel delivers to external platform
 ```
 
+**Outbound routing safety (#9739):** Both the bridge and delivery command resolve
+one scoped conversation before selecting a destination. An existing outbound
+`MessageChannelLink` is the explicit mailbox choice and takes precedence over
+inherited source/parent fields. Without it, an external-conversation source and
+the parent's scoped channel link (or source) must agree. A send-as-user source
+identifies a channel, so its parent's link establishes the conversation. Native
+replies inheriting that source enter the bridge only when the existing `replyTo`
+event field matches the persisted parent; the original send-as-user compose
+continues through its dedicated queueing path.
+
+With no conversation provenance, exactly one tenant/organization/thread mapping
+is required. A claimed but missing, mismatched or conflicting conversation never
+falls back to another row. The mapped conversation and channel must agree,
+including provider and link channel type. Ambiguity produces `no_channel_link`
+and a structured routing-refusal diagnostic, without a provider call or new
+link. Terminal delivery links remain idempotent even after mappings disappear.
+The command repeats resolution from current records after queueing. Inputs,
+results, events, adapter contracts and database structure remain unchanged.
+
+Synthetic local regression coverage runs bridge → worker → command and Discord
+conversion, permutes mapping order before/after queueing, checks inbound and
+send-as-user parent provenance with/without a reply link, explicit selection,
+invalid scope/channel/provider records, ambiguity, single-mapping native sends,
+missing explicit mappings, and terminal delivery states.
+
+**Native replies to send-as-user email (#9071):** When the reply link lacks a
+recipient, delivery uses the reply's saved recipient and subject, and derives
+the RFC reply headers from the outbound parent link in the resolved conversation.
+The same lookup applies to retries of failed links. The worker retries when
+the parent is still in flight or its provider-native thread is still being adopted.
+Providers such as SMTP that retain an `outbound:` reference do not wait for
+adoption after the parent has been delivered. Regression coverage runs delivery
+through the Gmail and SMTP converters and checks that the adapter is skipped
+while the reply is waiting to retry.
+
 **Failure handling**: If `sendMessage` fails:
 - `MessageChannelLink.deliveryStatus = 'failed'`
 - Error logged to `integrationLog`
@@ -2313,6 +2348,10 @@ None.
 ---
 
 ## Changelog
+
+- 2026-11-24: Keep SMTP-style replies deliverable when the parent retains its `outbound:` reference; wait only for adoption of provider-native references (#9071).
+- 2026-11-17: Resolve native outbound replies by scoped conversation provenance; refuse ambiguous/conflicting routes and retain explicit mailbox selection (#9739).
+- 2026-11-22: Supply recipient and RFC reply headers for native replies to send-as-user email (#9071).
 
 - 2026-10-29: Block channel-email remote image loads until per-message consent (#7819); preserve safe embedded raster images and add sanitizer, enricher, widget, and browser network-request regression coverage.
 
