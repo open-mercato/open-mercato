@@ -995,6 +995,7 @@ const resolveLineItemCount = (record: unknown): number | null => {
 }
 
 const DEFAULT_QUOTE_VALID_FOR_DAYS = 14
+const QUOTE_CC_SEPARATOR = /[,;]/
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 export function resolveDefaultValidForDays(validUntil: string | null | undefined): number {
@@ -5158,12 +5159,19 @@ export default function SalesDocumentDetailPage({
                 setSendCcError(null)
               }}
               maxTags={QUOTE_SEND_CC_LIMIT}
+              separator={QUOTE_CC_SEPARATOR}
               disabled={sending}
+              className={sendCcError ? '[&>[data-slot=tag-input-error]]:hidden' : undefined}
               aria-invalid={sendCcError ? true : undefined}
               placeholder={t('sales.quotes.send.ccPlaceholder', 'Add an e-mail and press Enter')}
               validate={(tag) => (isQuoteCcAddress(tag) ? true : t('sales.quotes.send.ccInvalid', 'Enter a valid e-mail address'))}
               removeTagLabel={(tag) => t('sales.quotes.send.ccRemove', 'Remove {email}', { email: tag })}
             />
+            <p className="text-xs text-muted-foreground empty:sr-only" role="status">
+              {sendCc.length >= QUOTE_SEND_CC_LIMIT && !sendCcError
+                ? t('sales.quotes.send.ccLimit', 'You can send copies to up to {limit} addresses', { limit: QUOTE_SEND_CC_LIMIT })
+                : null}
+            </p>
             {sendCcError ? (
               <p className="text-xs text-status-error-text" role="alert">
                 {sendCcError}
