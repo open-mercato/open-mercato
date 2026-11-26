@@ -18,6 +18,8 @@ This catalog indexes 198 focused lessons. Route the task first, then read only r
 
 ## Catalog
 
+- [Inspect all test reporters before classifying a truncated run](lessons/inspect-all-test-reporters-before-classifying-truncation.md) — area:testing,debugging; module:create_app; topic:validation-evidence,test-reporters,timeouts,test-prerequisites
+
 - [Preserve peer resolution when copying test dependencies](lessons/preserve-peer-resolution-when-copying-test-dependencies.md) — area:testing,debugging; module:platform; topic:package-runtime,worktrees,peer-dependencies,lockfile
 
 - [Queue triage stops do not complete a fix quota](lessons/queue-triage-stops-do-not-complete-a-fix-quota.md) — area:ai-workflow; module:platform; topic:autofix,triage,completion
@@ -253,7 +255,7 @@ This catalog indexes 198 focused lessons. Route the task first, then read only r
 
 ### framework-context
 
-- [Check pending compatibility disclosures as a union](lessons/check-pending-compatibility-disclosures-as-a-union.md) — area:framework-context,spec-pr,testing; module:create_app,attachments; topic:backward-compatibility,instruction-budget,testing
+- [Check pending compatibility disclosures as a union](lessons/check-pending-compatibility-disclosures-as-a-union.md) — area:framework-context,spec-pr,testing; module:create_app,attachments,agent_orchestrator; topic:backward-compatibility,instruction-budget,testing,merge-conflicts
 - [Docker entrypoints must verify required binaries, not just non-empty node_modules](lessons/docker-entrypoints-must-verify-required-binaries-not.md) — area:framework-context,module-data,architecture; module:cli,create_app; topic:build-output,command-pattern,package-runtime
 - [Standalone agent context must follow the installed package, not the checkout layout](lessons/standalone-agent-context-must-follow-the-installed.md) — area:framework-context,architecture; module:checkout,create_app; topic:generated-files,database-migrations,package-runtime
 - [Standalone source-mirror discovery must remap source extensions to runtime files](lessons/standalone-source-mirror-discovery-must-remap-source.md) — area:framework-context,architecture,umes; module:create_app,cli; topic:access-control,build-output,generated-files
