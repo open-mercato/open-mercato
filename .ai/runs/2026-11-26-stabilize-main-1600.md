@@ -43,6 +43,9 @@ No speculative fixes, weakened checks, production dependencies, architecture cha
 - Runner: local (no running compose app). Docs-only gate: manual reread and `git diff --check` passed; no configured Markdown linter found.
 - Local CI routing/concurrency/coverage regression checks: 45/45 on unchanged retry. No code changes yet; docs-only local gate applies unless reproduced defects require source changes.
 
+- Full PR CI [45863938854](https://github.com/open-mercato/open-mercato/actions/runs/45863938854) passed at `d019dbb0d085f9786861d1abc12e1c65790062ed`: all 15 integration shards, merged coverage, package/app/Docker builds, full typechecking/unit tests, generation, i18n checks, script tests, timezone and multi-instance tests. CodeQL and the scoped mutation/enterprise guard workflows passed. Ready promotion superseded an earlier same-head synchronize run; its cancellation is historical.
+- No source, workflow, dependency, API or database change was necessary. Final-head verification remains required after bookkeeping commits.
+
 ## Progress
 PR: #10794
 
@@ -50,7 +53,7 @@ PR: #10794
 
 ### Phase 1: Diagnose and validate
 
-- [ ] 1.1 Inspect main CI and validate the fixed stabilization PR head
+- [x] 1.1 Inspect main CI and validate the fixed stabilization PR head — d019dbb0d0
 
 ### Phase 2: Review and finish
 
