@@ -22,7 +22,9 @@ import {
 import { useCustomerAddressCustomFields } from '../../../../components/detail/hooks/useCustomerAddressCustomFields'
 import { useCustomerAddressDraftSubmission } from '../../../../components/detail/hooks/useCustomerAddressDraftSubmission'
 import { CustomerAddressDraftRecovery } from '../../../../components/CustomerAddressDraftRecovery'
+import { resolveReturnTo } from '../../../../lib/returnTo'
 
+const LIST_HREF = '/backend/customers/companies'
 const COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 const NON_ADDRESS_GROUPS = ['details', 'profile', 'notes', 'customFields']
 
@@ -37,7 +39,8 @@ export default function CreateCompanyPage() {
   const formSchema = React.useMemo(() => createCompanyFormSchema(), [])
   const fields = React.useMemo(() => createCompanyFormFields(t, { addressDrafts }), [addressDrafts, t])
   const groups = React.useMemo(() => createCompanyFormGroups(t), [t])
-  const returnTo = searchParams.get('returnTo')
+  const requestedReturnTo = searchParams.get('returnTo')
+  const returnTo = requestedReturnTo === null ? null : resolveReturnTo(requestedReturnTo) ?? LIST_HREF
   const initialValues = React.useMemo<Partial<CompanyFormValues>>(() => ({ addresses: [] }), [])
 
   return (
@@ -46,7 +49,7 @@ export default function CreateCompanyPage() {
         <CrudForm<CompanyFormValues>
           title={t('customers.companies.create.title')}
           titleHeadingLevel={1}
-          backHref={returnTo ?? '/backend/customers/companies'}
+          backHref={returnTo ?? LIST_HREF}
           fields={fields}
           groups={groups}
           hiddenGroupIds={recovery ? NON_ADDRESS_GROUPS : undefined}
@@ -66,7 +69,7 @@ export default function CreateCompanyPage() {
           resourceKind="customers.company"
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           submitLabel={t(recovery ? 'customers.people.detail.addresses.retrySave' : 'customers.companies.form.submit')}
-          cancelHref={returnTo ?? '/backend/customers/companies'}
+          cancelHref={returnTo ?? LIST_HREF}
           schema={formSchema}
           onSubmit={async (values) => {
             const newId = await submit(values.addresses, async (organizationId) => {
@@ -94,7 +97,7 @@ export default function CreateCompanyPage() {
           }}
           successRedirect={(_values, result) => {
             const newId = result?.resourceId
-            return returnTo || (newId ? `/backend/customers/companies-v2/${newId}` : '/backend/customers/companies')
+            return returnTo ?? (newId ? `/backend/customers/companies-v2/${newId}` : LIST_HREF)
           }}
         />
       </PageBody>

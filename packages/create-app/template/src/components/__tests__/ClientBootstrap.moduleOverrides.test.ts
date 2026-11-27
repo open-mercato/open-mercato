@@ -77,7 +77,7 @@ describe('client bootstrap module overrides (#5152)', () => {
   it('dispatches only the domains whose registries the browser re-registers', () => {
     // A domain added here without a matching client registration would fill a store
     // nothing reads and report server-wired appliers as unwired in the browser.
-    expect(CLIENT_OVERRIDE_DOMAINS).toEqual(['widgets', 'notifications'])
+    expect(CLIENT_OVERRIDE_DOMAINS).toEqual(['widgets', 'notifications', 'forms'])
   })
 
   it('awaits the dispatch only for the registry groups an override can change', () => {

@@ -15,11 +15,13 @@ import * as React from 'react'
 import { render } from '@testing-library/react'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import type { AddressDataAdapter } from '@open-mercato/ui/backend/detail'
+import type { AddressDataAdapter, AddressTypesAdapter } from '@open-mercato/ui/backend/detail'
+import type { GuardedMutationRunner } from '../hooks/useInteractionMutations'
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (key: string, fallback?: string) => fallback ?? key,
-}))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const translate = (key: string, fallback?: string) => fallback ?? key
+  return { useT: () => translate }
+})
 
 const apiCallOrThrowMock = jest.fn(async () => ({ ok: true, response: new Response(), result: {} }))
 const withScopedApiRequestHeadersMock = jest.fn(
@@ -45,9 +47,11 @@ jest.mock('../hooks/useCustomerAddressCustomFields', () => ({
 
 // Capture the data adapter the customers section hands to the shared section.
 let capturedAdapter: AddressDataAdapter | null = null
+let capturedTypesAdapter: AddressTypesAdapter | null = null
 jest.mock('@open-mercato/ui/backend/detail', () => ({
-  AddressesSection: (props: { dataAdapter: AddressDataAdapter }) => {
+  AddressesSection: (props: { dataAdapter: AddressDataAdapter; addressTypesAdapter: AddressTypesAdapter }) => {
     capturedAdapter = props.dataAdapter
+    capturedTypesAdapter = props.addressTypesAdapter
     return null
   },
 }))
@@ -56,21 +60,25 @@ import { AddressesSection } from '../AddressesSection'
 
 const UPDATED_AT = '2026-06-01T00:00:00.000Z'
 
+function sectionElement(runGuardedMutation?: GuardedMutationRunner) {
+  return React.createElement(AddressesSection, {
+    entityId: 'entity-1',
+    emptyLabel: 'empty',
+    addActionLabel: 'add',
+    emptyState: { title: 't', actionLabel: 'a' },
+    runGuardedMutation,
+  })
+}
+
 function renderSection() {
-  capturedAdapter = null
-  render(
-    React.createElement(AddressesSection, {
-      entityId: 'entity-1',
-      emptyLabel: 'empty',
-      addActionLabel: 'add',
-      emptyState: { title: 't', actionLabel: 'a' },
-    }),
-  )
+  render(sectionElement())
   if (!capturedAdapter) throw new Error('[internal] data adapter not captured')
   return capturedAdapter
 }
 
 beforeEach(() => {
+  capturedAdapter = null
+  capturedTypesAdapter = null
   apiCallOrThrowMock.mockReset()
   apiCallOrThrowMock.mockResolvedValue({ ok: true, response: new Response(), result: {} })
   withScopedApiRequestHeadersMock.mockClear()
@@ -124,5 +132,46 @@ describe('customers AddressesSection adapter — optimistic-lock header', () => 
 
     expect(withScopedApiRequestHeadersMock).not.toHaveBeenCalled()
     expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('the detail mutation guard receives custom field keys without their values', async () => {
+    const events: Record<string, unknown>[] = []
+    render(sectionElement(async (operation, event) => {
+      if (event) events.push(event)
+      return operation()
+    }))
+    if (!capturedAdapter) throw new Error('[internal] data adapter not captured')
+
+    const customValues = { delivery_instructions: 'Private address details' }
+    await capturedAdapter.update({ id: 'addr-1', payload: { ...payload, customValues }, updatedAt: UPDATED_AT })
+
+    expect(events).toEqual([{
+      addressId: 'addr-1',
+      operation: 'updateAddress',
+      customValueKeys: ['delivery_instructions'],
+    }])
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+      '/api/customers/addresses',
+      expect.objectContaining({ body: expect.stringContaining(JSON.stringify(customValues)) }),
+      expect.any(Object),
+    )
+  })
+
+  test('adapters keep their identity and use the latest mutation guard', async () => {
+    const { rerender } = render(sectionElement())
+    const adapter = capturedAdapter
+    const addressTypesAdapter = capturedTypesAdapter
+    if (!adapter || !addressTypesAdapter?.create) throw new Error('[internal] address adapters not captured')
+
+    const blocked = new Error('Blocked by mutation guard')
+    rerender(sectionElement(async () => { throw blocked }))
+    expect(capturedAdapter).toBe(adapter)
+    expect(capturedTypesAdapter).toBe(addressTypesAdapter)
+
+    await expect(adapter.create({ entityId: 'entity-1', payload })).rejects.toBe(blocked)
+    await expect(adapter.update({ id: 'addr-1', payload, updatedAt: UPDATED_AT })).rejects.toBe(blocked)
+    await expect(adapter.delete({ id: 'addr-1', updatedAt: UPDATED_AT })).rejects.toBe(blocked)
+    await expect(addressTypesAdapter.create('Warehouse')).rejects.toBe(blocked)
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
   })
 })

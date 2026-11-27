@@ -1,0 +1,10 @@
+{
+  "assisted_selling.audit.settings.save": "Guardar la configuración de venta asistida",
+  "assisted_selling.errors.conflict": "Otra persona ha modificado este registro. Actualiza e inténtalo de nuevo.",
+  "assisted_selling.errors.invalidInput": "Entrada no válida",
+  "assisted_selling.errors.invalid_store_id": "ID de tienda no válido",
+  "assisted_selling.errors.load_failed": "No se pudo cargar la configuración de venta asistida.",
+  "assisted_selling.errors.save_failed": "No se pudo guardar la configuración de venta asistida.",
+  "assisted_selling.errors.store_not_found": "Tienda no encontrada",
+  "assisted_selling.errors.unauthorized": "No autorizado"
+}

@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     await bus.emitEvent(
       'query_index.purge',
       { entityType, organizationId: auth.orgId, tenantId: auth.tenantId },
-      { persistent: true, deliverInline: false },
+      { persistent: true, deliverInline: false, tenantId: auth.tenantId, organizationId: auth.orgId },
     )
     await recordIndexerLog(
       { em: em ?? undefined },

@@ -1,0 +1,10 @@
+{
+  "assisted_selling.audit.settings.save": "Save assisted selling settings",
+  "assisted_selling.errors.conflict": "This record was changed by someone else. Reload and try again.",
+  "assisted_selling.errors.invalidInput": "Invalid input",
+  "assisted_selling.errors.invalid_store_id": "Invalid store id",
+  "assisted_selling.errors.load_failed": "Failed to load assisted selling settings.",
+  "assisted_selling.errors.save_failed": "Failed to save assisted selling settings.",
+  "assisted_selling.errors.store_not_found": "Store not found",
+  "assisted_selling.errors.unauthorized": "Unauthorized"
+}

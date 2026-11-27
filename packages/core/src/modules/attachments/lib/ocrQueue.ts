@@ -1,5 +1,6 @@
+import { resolveAttachmentPartition } from './partitionScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Attachment, AttachmentPartition } from '../data/entities'
+import { Attachment } from '../data/entities'
 import { OcrService } from './ocrService'
 import type { StorageDriver } from './drivers/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -74,7 +75,7 @@ export async function processAttachmentOcr(
 
   const { filePath, cleanup } = await driver.toLocalPath(partitionCode, storagePath)
   try {
-    const partition = await em.findOne(AttachmentPartition, { code: partitionCode })
+    const partition = await resolveAttachmentPartition(em, partitionCode, payload)
     const resolvedModel = partition?.ocrModel ?? process.env.OCR_MODEL ?? 'gpt-4o'
 
     const ocrService = new OcrService()

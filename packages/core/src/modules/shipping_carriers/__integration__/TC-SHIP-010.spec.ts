@@ -28,7 +28,7 @@ import { defaultOrigin, defaultDestination, defaultPackage } from './helpers/fix
 test.describe('TC-SHIP-010: RBAC — manage feature required for rates, shipments, cancel', () => {
   test('denies rates, shipments and cancel for a view-only user; still allows a view endpoint', async ({ request }) => {
     const stamp = Date.now()
-    const password = 'Secret123!'
+    const password = 'QaSecret123!'
     const userEmail = `tc-ship-010-${stamp}@example.com`
 
     let adminToken: string | null = null

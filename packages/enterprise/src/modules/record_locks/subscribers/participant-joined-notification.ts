@@ -1,5 +1,6 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import { isNotificationsModuleAvailable } from '../lib/notificationsAvailability'
 import { resolveRecordLockNotificationType, resolveRecordResourceLink } from '../lib/notificationHelpers'
 
 export const metadata = {
@@ -28,6 +29,7 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
     : []
   if (!recipientUserIds.length) return
 
+  if (!(await isNotificationsModuleAvailable(ctx))) return
   const notificationService = resolveNotificationService(ctx)
   const typeDef = resolveRecordLockNotificationType('record_locks.participant.joined')
   if (!typeDef) return

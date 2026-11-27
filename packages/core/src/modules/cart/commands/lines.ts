@@ -49,6 +49,7 @@ import type { PolicyResolutionService } from '@open-mercato/core/modules/availab
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
 import type { SalesAdjustmentDraft } from '@open-mercato/core/modules/sales/lib/types'
 
+import { MAX_CART_LINE_QUANTITY } from '../data/validators'
 import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartLineActorType, CartLineOrigin } from '../data/entities'
 import {
@@ -217,8 +218,9 @@ export function checkQuantityRule(rules: QuantityRules, requestedQuantity: numbe
     return { status: 'rejected', reason: 'quantity_below_minimum', nearestValid: bumpToMinimum(minOrderQuantity) }
   }
 
-  if (maxOrderQuantity != null && requestedQuantity > maxOrderQuantity) {
-    return { status: 'accepted_clamped', quantity: maxOrderQuantity, requestedQuantity }
+  const maxQuantity = Math.min(maxOrderQuantity ?? MAX_CART_LINE_QUANTITY, MAX_CART_LINE_QUANTITY)
+  if (requestedQuantity > maxQuantity) {
+    return { status: 'accepted_clamped', quantity: maxQuantity, requestedQuantity }
   }
 
   return { status: 'accepted', quantity: requestedQuantity }
@@ -362,8 +364,8 @@ function applyPriceSnapshot(line: CartLine, resolved: ResolvedLinePrice, pricedA
  * (`line.priceRowId`), not a re-derivation of the whole tier ladder. A single row-by-id
  * lookup (cheap, no row-set fetch, no `catalogBuyerPricingService` call) is enough to
  * answer "did we leave that row's own window" — this is the check `.update` uses to decide
- * whether a re-price is even necessary, so a same-tier quantity change never calls the
- * pricing service at all.
+ * whether a quantity change crosses the stored tier, so an already visible line can
+ * keep its snapshot on a same-tier update.
  */
 async function isWithinStoredPriceTier(
   em: EntityManager,
@@ -1226,14 +1228,10 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     }
 
     const now = new Date()
+    const restoringVisibility = assortmentScope !== undefined && line.flagState === 'product_unavailable'
     const sameTier = await isWithinStoredPriceTier(em, scope, line, finalQuantity)
-    // §5.2 trigger 1 + §5.1's `priceChanges` disclosure (Step 5.1): populated only when the
-    // tier-crossing re-price below actually moved the unit price, never for a same-tier
-    // quantity change. `Cart.lastPriceChangeAt` (§5.3: "the cart records last_price_change_at")
-    // is set on `cart` — already loaded on this same `em` by `loadMutableCart` — so the single
-    // `em.flush()` below persists both the line's new snapshot and the cart's own timestamp.
     const priceChanges: CartPriceChange[] = []
-    if (!sameTier) {
+    if (!sameTier || restoringVisibility) {
       const pricingContext = buildCartPricingRowFilterContext(cart)
       const variantIds = line.variantId ? [line.variantId] : []
       const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [line.productId], variantIds), line.variantId ?? null)
@@ -1265,7 +1263,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
           newUnitPriceNet,
           oldUnitPriceGross,
           newUnitPriceGross,
-          reason: 'tier_change',
+          reason: sameTier ? 'stale_snapshot' : 'tier_change',
         })
         cart.lastPriceChangeAt = now
       }
@@ -1285,7 +1283,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     await withAtomicFlush(em, [
       async () => {
         line.quantity = String(finalQuantity)
-        if (assortmentScope !== undefined && line.flagState === 'product_unavailable') line.flagState = null
+        if (restoringVisibility) line.flagState = null
       },
       ...buildCartPromotionsAndTotalsPhases({
         currencyDecimalPlaces,
@@ -1498,17 +1496,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       : []
     const variantsById = new Map((variants as CatalogProductVariant[]).map((variant) => [variant.id, variant]))
 
-    const existingLines = await findWithDecryption(
-      em,
-      CartLine,
-      { cartId: cart.id, productId: { $in: productIds }, promotionId: null, deletedAt: null, tenantId, organizationId },
-      {},
-      scope,
-    )
     const lineByKey = new Map<string, CartLine>()
-    for (const existingLine of existingLines as CartLine[]) {
-      lineByKey.set(buildMergeKey(existingLine.productId, existingLine.variantId ?? null, existingLine.configuration ?? null), existingLine)
-    }
 
     const pricingContext = buildCartPricingRowFilterContext(cart)
     const priceRows = await fetchPriceRowsBatch(em, scope, pricingContext, productIds, variantIds)
@@ -1526,7 +1514,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         )
       : input.lines.map(() => null)
 
-    let nextLineNumber = await computeStartingLineNumber(em, scope, cart.id)
+    let nextLineNumber = 1
 
     const outcomes: CartLinesBulkAddEntryOutcome[] = new Array(input.lines.length)
     const changedLines: CartLine[] = []
@@ -1688,6 +1676,19 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     // `bulkAdd`/`add` calls on this cart must serialize, not just this call's own entries
     // against each other.
     await withCartLineMutationLock(em, cart.id, [
+      async () => {
+        const existingLines = await findWithDecryption(
+          em,
+          CartLine,
+          { cartId: cart.id, productId: { $in: productIds }, promotionId: null, deletedAt: null, tenantId, organizationId },
+          {},
+          scope,
+        )
+        for (const existingLine of existingLines as CartLine[]) {
+          lineByKey.set(buildMergeKey(existingLine.productId, existingLine.variantId ?? null, existingLine.configuration ?? null), existingLine)
+        }
+        nextLineNumber = await computeStartingLineNumber(em, scope, cart.id)
+      },
       ...phases,
       ...buildCartPromotionsAndTotalsPhases({
         currencyDecimalPlaces,

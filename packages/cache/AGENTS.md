@@ -14,22 +14,33 @@ The `memory` strategy is per process: a write on one instance never invalidates 
 
 ## Memory Strategy Bounds
 
-The memory strategy is bounded so a process-shared instance (`OM_BOOTSTRAP_CACHE`, long-lived workers, memory-backed CRUD list cache) cannot grow without limit on user-controllable key cardinality.
+Bounded so a process-shared instance (`OM_BOOTSTRAP_CACHE`, workers, CRUD list cache) cannot grow with user-controlled key cardinality.
 
-- **LRU cap** — at most `maxEntries` entries are retained (default `50000`). Reads refresh recency (Map re-insertion); the least-recently-used entries are evicted on write once the cap is exceeded.
-- **`CACHE_MEMORY_MAX_ENTRIES`** — env override for the cap, resolved in the cache service. `.env.example` carries a commented `#CACHE_MEMORY_MAX_ENTRIES=50000`. A non-positive value (or an unparseable one — which is ignored, falling back to the default) disables the cap (**unbounded** — only safe for short-lived per-request instances).
-- **Amortized expired-entry sweep** — expired entries are reclaimed by a budgeted sweep that runs every 256 writes (no per-instance timer, so the per-request default stays leak-free). Each pass scans a bounded slice from the LRU head, so it stays `O(budget)` rather than scanning the whole store. Expired entries beyond the budget are still reclaimed on access, by LRU eviction, or via an explicit `cleanup()`.
-- **Observability** — `stats()` on a memory-backed service surfaces `evictions`, `sweeps`, and `lastSweepReclaimed` (process-global counters) alongside the tenant-scoped `size`/`expired`, so operators can tell whether the bound is actively protecting the process. Other backends omit these fields.
+- **LRU cap** — `maxEntries` (default `50000`); reads refresh recency, writes evict the LRU entries past the cap. Override with `CACHE_MEMORY_MAX_ENTRIES` (commented in `.env.example`); a non-positive value disables the cap (**unbounded** — per-request instances only); an unparseable one is ignored.
+- **Amortized sweep** — every 256 writes a budgeted `O(budget)` pass from the LRU head reclaims expired entries (no timer); the rest go on access, eviction or `cleanup()`.
+- **Observability** — memory-backed `stats()` adds process-global `evictions`, `sweeps`, `lastSweepReclaimed` next to tenant-scoped `size`/`expired`; other backends omit them.
 
 ## Value Compression
 
 The redis and sqlite strategies can compress serialized entries (`packages/cache/src/codec.ts`); memory and jsonfile never do.
 
-- **`CACHE_COMPRESSION`** — `off` (default) | `zstd` | `gzip`. zstd runs at level 1, gzip at level 6. A `zstd` setting falls back to `gzip` with one warning on a runtime without zstd (the `node:zlib` zstd API is marked experimental).
-- **`CACHE_COMPRESSION_MIN_BYTES`** — entries smaller than this (default `1024`) stay plain JSON; a compressed form is kept only when it is smaller.
-- **Reads detect the format by magic bytes**, whatever the current setting, so legacy JSON, zstd and gzip entries coexist and switching the setting never strands an entry. Decompression is capped at 64 MiB; a corrupt frame is dropped as a miss.
-- **When to enable:** Redis on another host, or memory-bound Redis — fewer bytes over the network and in memory. Redis on localhost or SQLite saves memory/disk only, at a small read cost.
-- **Rollout:** deploy with compression `off`, enable it only once every instance runs a version with the codec, and set it back to `off` before rolling back to an older version (older versions read compressed entries as misses and delete them).
+- **`CACHE_COMPRESSION`** — `off` (default) | `zstd` (level 1; falls back to `gzip` with one warning when the runtime lacks zstd) | `gzip` (level 6).
+- **`CACHE_COMPRESSION_MIN_BYTES`** — smaller entries (default `1024`) stay plain JSON; compressed form kept only when smaller.
+- **Reads detect the format by magic bytes**, so JSON, zstd and gzip entries coexist across setting changes. Decompression capped at 64 MiB; a corrupt frame is a miss.
+- **Enable** for remote or memory-bound Redis; on localhost Redis/SQLite it only saves memory/disk at a small read cost.
+- **Rollout:** enable only once every instance supports the codec; set `off` before rolling back (older versions drop compressed entries as misses).
+
+## Pluggable providers
+
+An npm package can replace the stock strategies deployment-wide. Docs: `apps/docs/docs/architecture/cache-providers.mdx`.
+
+- **Contract** — server-only `@open-mercato/cache/provider`: `defineCacheProvider` (id `<scope>/<name>`, `safeParse` settings schema, `capability()` → `placement: 'shared' | 'local'`, `create()` → base `CacheStrategy` with required `healthcheck` + `close`), `defineCacheProviderRegistration`, `CacheProviderError` (stable `code`, sanitized message).
+- **Selection** — `src/providers/cache.ts` exports `cacheProviders` (`yarn generate` re-exports it). `CACHE_PROVIDER=<id>` beats `CACHE_STRATEGY`; explicit `strategy` option beats both; `CACHE_PROVIDER_NAMESPACE` required. Unset `CACHE_PROVIDER` ignores registrations (no validation). The selection memo is keyed on (registrations, id, namespace); `setCacheProviderRegistrations` resets it.
+- **Runtime** — every provider operation/close error is rethrown as host-authored `unavailable` (cause non-enumerable); failed init is reused for `CACHE_PROVIDER_RETRY_COOLDOWN_MS` (default 1000); `close()` is terminal (later ops reject `unavailable`, never reconnect). Root `yarn generate` (turbo) passes only `CACHE_*` env — provider settings under other env names must live in `.env`.
+- **MUST NOT fall back to memory** for a provider — rethrow `isCacheProviderError` errors from bootstrap catches. Providers always use the process singleton.
+- Use `describeCacheSelection()`, not `CACHE_STRATEGY`, for readiness, the multi-instance guard and placement warnings.
+- **Provider rules** — keys/tags arrive tenant-scoped; fence by `context.namespace`; `helpers.decode` throws → miss; `deleteByTags`/`cleanup`/`clear` count physical records; apply `context.defaultTtl`.
+- **Verify** with `defineCacheProviderConformance` (`@open-mercato/cache/testing`); reference `fixtures/cache-provider-fixture` + `src/__tests__/provider-fixture.packed.test.ts`.
 
 ## Always
 
@@ -74,9 +85,9 @@ await cache.deleteByTags(['customers'])  // Clears all customer-related cache
 
 ## Consistency vs commit timing
 
-Cache invalidation and query-index side effects (`emitCrudSideEffects`) MUST fire **after** the originating domain write commits — the same rule that keeps them OUTSIDE the `withAtomicFlush` block (see `packages/core/AGENTS.md` → "Entity Update Safety — `withAtomicFlush`"). Because invalidation runs post-commit and the query-index read-projection tail (search tokens, vectors, fulltext, coverage) converges asynchronously, reads can briefly see a short convergence window after a write.
+Cache invalidation and query-index side effects (`emitCrudSideEffects`) MUST fire **after** the domain write commits, OUTSIDE `withAtomicFlush` (see `packages/core/AGENTS.md`). The read-projection tail (search tokens, vectors, fulltext, coverage) converges asynchronously, so reads may briefly lag a write.
 
-The opt-in env flag `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default **OFF**, 100% backward compatible) makes that read-projection tail converge synchronously on write and propagates index-write failures instead of swallowing them — at the cost of added write latency. It does not move query-index side effects into the domain-write transaction. See `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
+Opt-in `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default **OFF**) makes that tail converge synchronously and propagates index-write failures, at added write latency; it does not move side effects into the transaction. See `.ai/specs/2026-06-05-cache-safety-always-consistent.md`.
 
 ## Adding Caching to a Module
 
@@ -88,15 +99,10 @@ The opt-in env flag `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default **OFF**, 100% b
 
 ## Structure
 
-```
-packages/cache/src/
-├── strategies/    # Redis, SQLite, memory implementations
-└── __tests__/
-```
+`src/strategies/` (stock backends), `src/provider.ts` (provider contract), `src/testing/` (conformance kit), `fixtures/` (packed provider fixture).
 
 ## When Modifying This Package
 
-- Follow the strategy pattern — add new strategies in `strategies/` with the same interface
-- Run `yarn test` in `packages/cache` after changes
-- Verify tag invalidation works across all strategies when modifying invalidation logic
-- The DI token and method names quoted in this file and in `.ai/review-checklist.md` are pinned to the real sources by `src/__tests__/cache-di-contract-docs.test.ts` (it re-derives the token from `packages/core/src/bootstrap.ts` and the members from `CacheStrategy`). Renaming the token or a method MUST update both docs in the same change.
+- Follow the strategy pattern — new strategies go in `strategies/` with the same interface
+- Run `yarn test` in `packages/cache`; verify tag invalidation across all strategies when touching invalidation
+- `src/__tests__/cache-di-contract-docs.test.ts` pins the DI token and method names quoted here and in `.ai/review-checklist.md`; renaming either MUST update both docs.

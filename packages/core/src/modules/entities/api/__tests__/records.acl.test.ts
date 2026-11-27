@@ -73,13 +73,20 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: () => ({ sub: 'u1', orgId: 'org', tenantId: 't1', roles: ['admin'] }),
 }))
 
-jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScope: async ({ selectedId }: { selectedId: string }) => ({
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => {
+  const getSelectedOrganizationFromRequest = (req: Request) => req.headers.get('cookie')?.split('=')[1] ?? 'org'
+  const resolveOrganizationScope = async ({ selectedId }: { selectedId: string }) => ({
     selectedId: selectedId === '__all__' ? null : selectedId,
     filterIds: selectedId === '__all__' ? null : [selectedId],
-  }),
-  getSelectedOrganizationFromRequest: (req: Request) => req.headers.get('cookie')?.split('=')[1] ?? 'org',
-}))
+  })
+  return {
+    resolveOrganizationScope,
+    resolveOrganizationScopeForRequest: async ({ request }: { request: Request }) => (
+      resolveOrganizationScope({ selectedId: getSelectedOrganizationFromRequest(request) })
+    ),
+    getSelectedOrganizationFromRequest,
+  }
+})
 
 const VALID_UUID = '123e4567-e89b-12d3-a456-426614174000'
 

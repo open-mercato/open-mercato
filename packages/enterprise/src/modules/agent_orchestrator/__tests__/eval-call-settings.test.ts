@@ -233,7 +233,7 @@ describe('runEvalGate forwards callSettings', () => {
     const { em } = createFakeEm()
     const execute = jest.fn(async (commandId: string) => {
       if (commandId === 'agent_orchestrator.evalRuns.start') return { result: { suiteRunId: 'suite-1', caseRunCount: 1 } }
-      return { result: { suiteRunId: 'suite-1', status: 'completed', outcome: 'passed', passScore: 1 } }
+      return { result: { suiteRunId: 'suite-1', status: 'completed', outcome: 'passed', passScore: 1, errorCount: 0 } }
     })
     const container = { resolve: (name: string) => (name === 'em' ? em : { execute }) } as unknown as AwilixContainer
     try {

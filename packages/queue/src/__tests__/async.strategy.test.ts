@@ -293,3 +293,54 @@ describe('Queue - async strategy', () => {
     })
   })
 })
+
+describe('async producer publication options', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    ;(getRedisUrlOrThrow as jest.Mock).mockReturnValue('redis://localhost:6379')
+  })
+
+  it('passes a stable ID as both the payload identity and BullMQ jobId', async () => {
+    const queue = createQueue('stable-producer', 'async')
+    await queue.enqueue({ value: 1 }, { jobId: 'receipt-one', timeoutMs: 1000 })
+    expect(queueAdd).toHaveBeenCalledWith('receipt-one', expect.objectContaining({ id: 'receipt-one' }),
+      expect.objectContaining({ jobId: 'receipt-one' }))
+    await queue.close()
+  })
+
+  it('bounds coalesced stable-ID publication while forwarding both sets of options', async () => {
+    let complete!: (result: { id: string }) => void
+    queueAdd.mockImplementationOnce(() => new Promise((resolve) => { complete = resolve }))
+    const queue = createQueue('coalesced-stable-producer', 'async', {
+      coalesceBy: () => 'default-key',
+    })
+    try {
+      await expect(queue.enqueue({ value: 1 }, {
+        jobId: 'receipt-coalesced', coalesce: { key: 'override-key' }, timeoutMs: 30,
+      })).rejects.toThrow('outcome is uncertain')
+      expect(queueAdd).toHaveBeenCalledWith('receipt-coalesced', expect.objectContaining({ id: 'receipt-coalesced' }),
+        expect.objectContaining({ jobId: 'receipt-coalesced', deduplication: { id: 'override-key', keepLastIfActive: true } }))
+    } finally {
+      complete({ id: 'receipt-coalesced' })
+      await queue.close()
+    }
+  })
+
+  it('keeps backend rejection distinct from an uncertain publication deadline', async () => {
+    queueAdd.mockRejectedValueOnce(new Error('backend rejected'))
+    const queue = createQueue('rejected-producer', 'async')
+    await expect(queue.enqueue({ value: 1 }, { jobId: 'receipt-rejected', timeoutMs: 1000 })).rejects.toThrow('backend rejected')
+    await queue.close()
+  })
+})
+
+it('shares producer initialization across concurrent first writes and recreates it after close', async () => {
+  jest.clearAllMocks()
+  const queue = createQueue('concurrent-producer', 'async')
+  await Promise.all(Array.from({ length: 8 }, () => queue.enqueue({ value: 1 }, { jobId: 'receipt-concurrent' })))
+  expect(queueCtor).toHaveBeenCalledTimes(1)
+  await queue.close()
+  await queue.enqueue({ value: 2 }, { jobId: 'receipt-next' })
+  expect(queueCtor).toHaveBeenCalledTimes(2)
+  await queue.close()
+})

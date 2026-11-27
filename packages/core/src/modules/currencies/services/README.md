@@ -54,15 +54,45 @@ const result = await exchangeRateService.getRate({
   options: {
     maxDaysBack: 30,      // Maximum days to look back (default: 30)
     autoFetch: true,      // Fetch from providers if not found (default: true)
+    provider: 'nbp_average', // Optional exact registered provider
+    rateType: 'average',  // Optional exact rate type
   },
 })
 ```
+
+### Selecting official NBP average rates
+
+`nbp_average` is an explicit-only provider for official NBP tables A and B. Existing
+unfiltered calls continue to use default providers and do not fetch or return its rows.
+Select it together with the `average` type when a consumer needs the official published
+foreign-currency-to-PLN rate:
+
+```typescript
+const result = await exchangeRateService.getRate({
+  fromCurrencyCode: 'EUR',
+  toCurrencyCode: 'PLN',
+  date: new Date('2026-08-24T00:00:00.000Z'),
+  scope: { tenantId, organizationId },
+  options: { provider: 'nbp_average', rateType: 'average' },
+})
+```
+
+The returned row retains the official NBP publication number in its read-only
+`externalReference` field. Manual create and update payloads intentionally cannot set it.
+Manual create requests using `source: 'nbp_average'` are stored as `manual`; changing
+another source to `nbp_average` through a manual update also keeps the row manual.
+Other source strings, including legacy `NBP`, retain their existing behavior.
+An official lookup requires a nonblank publication reference, so stored rows without
+one do not prevent auto-fetch or fallback to a genuine publication. Re-fetching can
+repair such a row in place. Editing a published fact detaches its source and reference;
+activation, metadata and same-value edits preserve provenance, and undo restores it.
 
 ### Rate Types
 
 Exchange rates include a `type` field indicating the bank's perspective:
 - **`buy`**: Rate when the bank buys foreign currency (from bank's perspective)
 - **`sell`**: Rate when the bank sells foreign currency (from bank's perspective)  
+- **`average`**: Official average rate published by NBP tables A or B
 - **`null`**: Unspecified or not applicable
 
 The type field is informational and helps users understand which perspective a rate represents. Since rates are stored as directional currency pairs (e.g., USD→PLN for "buy" and PLN→USD for "sell"), you select the appropriate rate by specifying the correct currency pair direction:
@@ -89,6 +119,7 @@ const sellRate = await exchangeRateService.getRate({
 
 Providers automatically set the type when fetching rates:
 - **NBP**: Uses bid (buy) and ask (sell) rates - creates two directional pairs
+- **NBP average**: Uses table-A/B `mid` rates - creates only foreign-currency→PLN pairs
 - **Raiffeisen**: Uses buy and sell rates - creates two directional pairs
 - **Manual entries**: Users can specify the type or leave it null
 
@@ -371,3 +402,22 @@ Both services are automatically registered in the DI container:
 const exchangeRateService = container.resolve<ExchangeRateService>('exchangeRateService')
 const rateFetchingService = container.resolve<RateFetchingService>('rateFetchingService')
 ```
+
+### Editing published rates
+
+`PUT /api/currencies/exchange-rates` delegates to `currencies.exchange_rates.update`.
+For a row with an `externalReference`, changing its rate, either currency, effective
+instant, source, or type converts the row to source `manual` and clears the reference.
+The edited row remains available as manual data; an explicit official-provider lookup
+cannot return it as a publication. The resulting manual pair/date/source key is checked
+for duplicates before the write, using the existing conflict response.
+
+Activation and metadata edits preserve publication provenance. Re-submitting the same
+facts also preserves it: rates are compared as exact decimals, dates as instants, and
+currency/source values after the existing input normalization. Audit snapshots retain
+both states. Scoped undo restores the original facts, source, and reference, and queues
+the update side effects after persistence.
+
+During the fetch-rates REST compatibility bridge, provider lists may contain repeated
+entries and more than twenty entries. Both the request and mutation-guard payload retain
+these shapes when forwarded to the fetching service.

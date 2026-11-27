@@ -38,6 +38,9 @@ export class UserMfaMethod {
   @Property({ type: 'text', nullable: true })
   secret?: string | null
 
+  @Property({ name: 'secret_hash', type: 'text', nullable: true })
+  secretHash?: string | null
+
   @Property({ name: 'provider_metadata', type: 'jsonb', nullable: true })
   providerMetadata?: Record<string, unknown> | null
 

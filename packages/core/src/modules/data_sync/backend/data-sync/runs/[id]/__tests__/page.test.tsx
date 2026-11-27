@@ -4,11 +4,12 @@
 import * as React from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { BRIDGE_RECONNECTED_EVENT_ID } from '@open-mercato/ui/backend/injection/useAppEvent'
 
 const apiCallMock = jest.fn()
 
 // Capture the latest handler registered for each app-event pattern so the
-// test can fire an auto-refresh (e.g. om:bridge:reconnected) by hand.
+// test can fire an auto-refresh (e.g. the bridge reconnect event) by hand.
 const appEventHandlers: Record<string, (event: { payload: unknown }) => void> = {}
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -20,6 +21,7 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useAppEvent', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/injection/useAppEvent'),
   useAppEvent: (pattern: string, handler: (event: { payload: unknown }) => void) => {
     appEventHandlers[pattern] = handler
   },
@@ -140,7 +142,7 @@ describe('SyncRunDetailPage logs pagination', () => {
     // Simulate the bridge reconnecting — the handler calls loadLogs() with no
     // argument, which must reuse the live page (logsPageRef), i.e. page 2.
     await act(async () => {
-      appEventHandlers['om:bridge:reconnected']?.({ payload: {} })
+      appEventHandlers[BRIDGE_RECONNECTED_EVENT_ID]?.({ payload: {} })
     })
 
     await waitFor(() => expect(logsCalls().length).toBeGreaterThan(0))

@@ -127,3 +127,70 @@ describe('staff team-members self route mutation guard', () => {
     expect(mockRunStaffMutationGuardAfterSuccess).not.toHaveBeenCalled()
   })
 })
+
+describe('staff team-members self route scoped read', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  it('loads the caller profile in the exact tenant and organization and returns its organization', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    mockResolveOrganizationScope.mockResolvedValue({ tenantId: 'tenant-1', selectedId: 'org-2', filterIds: ['org-2'] })
+    mockFindOneWithDecryption.mockResolvedValue({
+      id: 'member-2', displayName: 'Ada Lovelace', userId: 'user-1', organizationId: 'org-2',
+    })
+    const { GET } = await import('../route')
+    const response = await GET(new Request('http://localhost/api/staff/team-members/self'))
+    expect(mockFindOneWithDecryption.mock.calls[0]?.[2]).toEqual({
+      tenantId: 'tenant-1', organizationId: 'org-2', userId: 'user-1', deletedAt: null,
+    })
+    expect(await response.json()).toEqual({
+      member: {
+        id: 'member-2', displayName: 'Ada Lovelace', userId: 'user-1', organizationId: 'org-2',
+        teamId: null, availabilityRuleSetId: null,
+      },
+    })
+  })
+
+  it('finds the linked profile in another authorized organization when the selection has no profile', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    mockResolveOrganizationScope.mockResolvedValue({
+      tenantId: 'tenant-1', selectedId: 'org-2', filterIds: ['org-2'], allowedIds: ['org-1', 'org-2'],
+    })
+    mockFindOneWithDecryption.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'member-1', displayName: 'Ada Lovelace', userId: 'user-1', organizationId: 'org-1',
+    })
+    const { GET } = await import('../route')
+    const response = await GET(new Request('http://localhost/api/staff/team-members/self'))
+    expect(mockFindOneWithDecryption.mock.calls.map((call) => call[2])).toEqual([
+      { tenantId: 'tenant-1', organizationId: 'org-2', userId: 'user-1', deletedAt: null },
+      { tenantId: 'tenant-1', organizationId: { $in: ['org-1'] }, userId: 'user-1', deletedAt: null },
+    ])
+    expect(await response.json()).toMatchObject({ member: { id: 'member-1', organizationId: 'org-1' } })
+  })
+
+  it('keeps unrestricted organization fallback scoped to the resolved tenant', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-foreign', orgId: null })
+    mockResolveOrganizationScope.mockResolvedValue({ tenantId: 'tenant-1', selectedId: null, filterIds: null, allowedIds: null })
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    const { GET } = await import('../route')
+    const response = await GET(new Request('http://localhost/api/staff/team-members/self'))
+    expect(mockFindOneWithDecryption.mock.calls[0]?.[2]).toEqual({ tenantId: 'tenant-1', userId: 'user-1', deletedAt: null })
+    expect(await response.json()).toEqual({ member: null })
+  })
+
+  it('denies a request with no authorized organizations', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    mockResolveOrganizationScope.mockResolvedValue({ tenantId: 'tenant-1', selectedId: null, filterIds: [], allowedIds: [] })
+    const { GET } = await import('../route')
+    expect((await GET(new Request('http://localhost/api/staff/team-members/self'))).status).toBe(403)
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('does not query a member without an authorized tenant scope', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: null })
+    mockResolveOrganizationScope.mockResolvedValue({ tenantId: null, selectedId: null, filterIds: null, allowedIds: null })
+    const { GET } = await import('../route')
+    const response = await GET(new Request('http://localhost/api/staff/team-members/self'))
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    expect(await response.json()).toEqual({ member: null })
+  })
+})

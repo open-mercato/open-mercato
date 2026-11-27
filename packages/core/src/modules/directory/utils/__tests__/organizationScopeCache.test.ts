@@ -325,23 +325,23 @@ describe('resolveOrganizationScopeForRequest caching (Phase 4)', () => {
     expect((rbac.loadAcl as jest.Mock).mock.calls.length).toBe(expectedAclCalls)
   })
 
-  it('ignores a legacy cached home-org widening and caches the current deny-all scope', async () => {
+  it('ignores earlier cached scope widening and caches the current deny-all scope', async () => {
     process.env.OM_ORG_SCOPE_CACHE_TTL_MS = '60000'
     const em = createMockEm([{ id: 'org-home', descendantIds: [] }])
     const rbac = createMockRbac([])
     const cache = createMemoryCache()
     const container = createContainer(em, rbac, cache)
     const actor = auth()
-    const legacyKey = `org-scope:${actor.sub}:tenant-1:none:none`
-    const currentKey = `org-scope:v2:${actor.sub}:tenant-1:none:none`
+    const legacyKey = `org-scope:v2:${actor.sub}:tenant-1:none:none`
+    const currentKey = `org-scope:v3:${actor.sub}:tenant-1:none:none`
     cache.store.set(legacyKey, {
       value: {
         selectedId: 'org-home',
         filterIds: ['org-home'],
-        allowedIds: ['org-home'],
+        allowedIds: null,
         tenantId: 'tenant-1',
       },
-      tags: [`org-scope:user:${actor.sub}`, 'org-scope:tenant:tenant-1'],
+      tags: [`org-scope:v2:user:${actor.sub}`, 'org-scope:v2:tenant:tenant-1'],
     })
 
     const first = await resolveOrganizationScopeForRequest({ container, auth: actor })

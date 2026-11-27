@@ -21,6 +21,9 @@ import {
 import { useCustomerAddressCustomFields } from '../../../../components/detail/hooks/useCustomerAddressCustomFields'
 import { useCustomerAddressDraftSubmission } from '../../../../components/detail/hooks/useCustomerAddressDraftSubmission'
 import { CustomerAddressDraftRecovery } from '../../../../components/CustomerAddressDraftRecovery'
+import { resolveReturnTo } from '../../../../lib/returnTo'
+
+const LIST_HREF = '/backend/customers/people'
 
 const NON_ADDRESS_GROUPS = ['details', 'notes', 'customFields']
 
@@ -34,7 +37,8 @@ export default function CreatePersonPage() {
   const formSchema = React.useMemo(() => createPersonFormSchema(), [])
   const fields = React.useMemo(() => createPersonFormFields(t, { addressDrafts }), [addressDrafts, t])
   const groups = React.useMemo(() => createPersonFormGroups(t), [t])
-  const returnTo = searchParams.get('returnTo')
+  const requestedReturnTo = searchParams.get('returnTo')
+  const returnTo = requestedReturnTo === null ? null : resolveReturnTo(requestedReturnTo) ?? LIST_HREF
   const companyParam = searchParams.get('companyId')
   const companyEntityId = React.useMemo(() => {
     if (!companyParam) return undefined
@@ -55,7 +59,7 @@ export default function CreatePersonPage() {
         <CrudForm<PersonFormValues>
           title={t('customers.people.create.title')}
           titleHeadingLevel={1}
-          backHref={returnTo ?? '/backend/customers/people'}
+          backHref={returnTo ?? LIST_HREF}
           fields={fields}
           groups={groups}
           hiddenGroupIds={recovery ? NON_ADDRESS_GROUPS : undefined}
@@ -75,7 +79,7 @@ export default function CreatePersonPage() {
           resourceKind="customers.person"
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           submitLabel={t(recovery ? 'customers.people.detail.addresses.retrySave' : 'customers.people.form.submit')}
-          cancelHref={returnTo ?? '/backend/customers/people'}
+          cancelHref={returnTo ?? LIST_HREF}
           schema={formSchema}
           onSubmit={async (values) => {
             const newId = await submit(values.addresses, async (organizationId) => {
@@ -97,7 +101,7 @@ export default function CreatePersonPage() {
           }}
           successRedirect={(_values, result) => {
             const newId = result?.resourceId
-            return returnTo || (newId ? `/backend/customers/people-v2/${newId}` : '/backend/customers/people')
+            return returnTo ?? (newId ? `/backend/customers/people-v2/${newId}` : LIST_HREF)
           }}
         />
       </PageBody>

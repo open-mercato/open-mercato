@@ -62,7 +62,7 @@ test.describe('TC-WC-026: warranty claim customer enricher', () => {
     const { organizationId } = getTokenContext(adminToken)
     const stamp = uniqueLabel('tc-wc-026')
     const noWarrantyEmail = `${stamp}@test.invalid`
-    const noWarrantyPassword = 'Valid1!Pass'
+    const noWarrantyPassword = 'QaValid1!Pass'
 
     let personAId: string | null = null
     let personBId: string | null = null

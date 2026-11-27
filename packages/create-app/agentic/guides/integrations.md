@@ -1,6 +1,6 @@
 # Integration and Provider Engineering
 
-Build provider-owned modules around generic integration, data-sync, webhook, queue, and progress contracts. Never place provider-specific behavior inside a generic host module.
+Build business integration providers with host contracts for sync, webhooks, queues, and progress. Keep provider logic in its package.
 
 ## Provider Family Selector
 
@@ -17,7 +17,7 @@ Build provider-owned modules around generic integration, data-sync, webhook, que
 
 ## Package and Activation
 
-- In this standalone repository, put an app-specific provider under `src/modules/<provider>/` and activate it through `src/modules.ts`. Do not invent a `packages/*` workspace: the scaffold has no workspace topology.
+- In this standalone repository, put an app-specific business integration provider under `src/modules/<provider>/` and activate it through `src/modules.ts`. Do not invent a `packages/*` workspace: the scaffold has no workspace topology.
 - When the user explicitly needs reuse across applications, build a separately published provider package/repository with compatible peer/runtime dependencies, public exports, build/prepack output, and module discovery files; install its packed artifact as an app dependency.
 - Ask before changing repository topology or adding the production dependency. Keep packed-consumer validation on the reusable-package branch only.
 - Register provider services through DI and use an `integration.ts` definition for credentials, health, versions, bundle membership, and detail-page extension spot.

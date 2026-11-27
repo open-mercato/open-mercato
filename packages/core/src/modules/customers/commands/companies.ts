@@ -42,6 +42,11 @@ import {
   type LabelAssignmentRestoreSnapshot,
 } from './entityLabelAssignments'
 import {
+  removeCustomerDeleteDependencies,
+  restoreCustomerDeleteDependencies,
+  type CustomerDeleteDependenciesSnapshot,
+} from './entityDeleteDependencies'
+import {
   companyCreateSchema,
   companyUpdateSchema,
   type CompanyCreateInput,
@@ -49,6 +54,7 @@ import {
 } from '../data/validators'
 import {
   findScopedCustomerCommandRecord,
+  findScopedCustomerCommandTarget,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
@@ -270,6 +276,7 @@ type CompanyUndoPayload = {
   before?: CompanySnapshot | null
   after?: CompanySnapshot | null
   labelAssignments?: LabelAssignmentRestoreSnapshot[]
+  dependencies?: CustomerDeleteDependenciesSnapshot
 }
 
 async function loadCompanySnapshot(
@@ -278,7 +285,7 @@ async function loadCompanySnapshot(
   ctx: CommandRuntimeContext,
   options: { includeInteractionRestoreDetails?: boolean } = {},
 ): Promise<CompanySnapshot | null> {
-  const entity = await findScopedCustomerCommandRecord(em, CustomerEntity, { id, deletedAt: null }, undefined, ctx)
+  const entity = await findScopedCustomerCommandTarget(em, CustomerEntity, { id, deletedAt: null }, undefined, ctx)
   if (!entity || entity.kind !== 'company') return null
   ensureTenantScope(ctx, entity.tenantId)
   ensureOrganizationScope(ctx, entity.organizationId)
@@ -478,10 +485,11 @@ async function setCompanyCustomFields(
   profileId: string,
   organizationId: string,
   tenantId: string,
-  values: Record<string, unknown>
+  values: Record<string, unknown>,
+  transactionalEm?: EntityManager,
 ) {
   if (!values || !Object.keys(values).length) return
-  const em = (ctx.container.resolve('em') as EntityManager)
+  const em = transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
   const routing = await resolveCompanyCustomFieldRouting(em, tenantId, organizationId)
   const entityScoped: Record<string, unknown> = {}
   const profileScoped: Record<string, unknown> = {}
@@ -500,6 +508,7 @@ async function setCompanyCustomFields(
       organizationId,
       tenantId,
       values: entityScoped,
+      transactionalEm,
       notify: false,
     })
   }
@@ -511,6 +520,7 @@ async function setCompanyCustomFields(
       organizationId,
       tenantId,
       values: profileScoped,
+      transactionalEm,
       notify: false,
     })
   }
@@ -596,8 +606,8 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
         em.persist(profile)
       },
       () => syncEntityTags(em, entity, parsed.tags),
+      () => setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom, em),
     ], { transaction: true })
-    await setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -771,7 +781,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     const restoredProfile = profile
 
     await withAtomicFlush(em, [
-      () => syncEntityTags(em, restoredEntity, after.tagIds),
+      () => syncEntityTags(em, restoredEntity, after.tagIds, { ignoreMissing: true }),
     ], { transaction: true })
 
     const restoreValues = buildCustomFieldResetMap(after.custom, undefined)
@@ -798,7 +808,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
   },
 }
 
-const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: string }> = {
+const updateCompanyCommand = {
   id: 'customers.companies.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(companyUpdateSchema, rawInput)
@@ -806,11 +816,15 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const snapshot = await loadCompanySnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
-  async execute(rawInput, ctx) {
+  async execute(
+    rawInput: CompanyUpdateInput,
+    ctx: CommandRuntimeContext,
+    ignoreMissingTags = false,
+  ): Promise<{ entityId: string; updatedAt: Date }> {
     const { parsed: parsedInput, custom } = parseWithCustomFields(companyUpdateSchema, rawInput)
     const parsed = withExactAmounts(parsedInput, rawInput, ['annualRevenue'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await findScopedCustomerCommandRecord(
+    const entity = await findScopedCustomerCommandTarget(
       em,
       CustomerEntity,
       { id: parsed.id, deletedAt: null },
@@ -875,10 +889,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
           record.updatedAt = new Date()
         }
       },
-      () => syncEntityTags(em, record, parsed.tags),
+      () => syncEntityTags(em, record, parsed.tags, { ignoreMissing: ignoreMissingTags }),
+      () => setCompanyCustomFields(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom, em),
     ], { transaction: true })
-
-    await setCompanyCustomFields(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -1016,7 +1029,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     }
 
     await em.flush()
-    await syncEntityTags(em, entity, before.tagIds)
+    await syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true })
     await em.flush()
 
     await em.nativeDelete(CustomerDealCompanyLink, { company: entity })
@@ -1090,11 +1103,14 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       await setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
     }
   },
-}
+  redo({ input, ctx }): Promise<{ entityId: string }> {
+    return updateCompanyCommand.execute(input, ctx, true)
+  },
+} satisfies CommandHandler<CompanyUpdateInput, { entityId: string }>
 
 const deleteCompanyCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
-  { entityId: string; labelAssignments?: LabelAssignmentRestoreSnapshot[] }
+  { entityId: string; labelAssignments?: LabelAssignmentRestoreSnapshot[]; dependencies?: CustomerDeleteDependenciesSnapshot }
 > =
   {
     id: 'customers.companies.delete',
@@ -1109,13 +1125,13 @@ const deleteCompanyCommand: CommandHandler<
       const baseEm = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadCompanySnapshot(baseEm, id, ctx)
 
-      const { record, profile, labelAssignments } = await baseEm.transactional(async (em) => {
+      const { record, profile, labelAssignments, dependencies } = await baseEm.transactional(async (em) => {
         // Lock the entity row first, before any dependent check or child
         // cleanup, so a concurrent insert of a child row (label assignment,
         // person link, deal link, direct person, etc.) serializes behind
         // this transaction instead of racing the final delete with a 409
         // FOREIGN_KEY_VIOLATION. See issue #7613.
-        const entity = await findScopedCustomerCommandRecord(
+        const entity = await findScopedCustomerCommandTarget(
           em,
           CustomerEntity,
           { id, deletedAt: null },
@@ -1174,6 +1190,7 @@ const deleteCompanyCommand: CommandHandler<
         }
         await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
         const labelAssignments = await removeEntityLabelAssignments(em, record)
+        const dependencies = await removeCustomerDeleteDependencies(em, record)
         const txEntity = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -1182,7 +1199,7 @@ const deleteCompanyCommand: CommandHandler<
           { tenantId: record.tenantId, organizationId: record.organizationId },
         )
         if (txEntity) em.remove(txEntity)
-        return { record, profile, labelAssignments }
+        return { record, profile, labelAssignments, dependencies }
       })
 
       const indexDeletes: QueryIndexEventEntry[] = []
@@ -1270,7 +1287,7 @@ const deleteCompanyCommand: CommandHandler<
       await emitQueryIndexDeleteEvents(ctx, labelAssignmentIndexEntries(record, labelAssignments))
       await emitQueryIndexUpsertEvents(ctx, memberUpserts)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
-      return { entityId: record.id, labelAssignments }
+      return { entityId: record.id, labelAssignments, ...(dependencies && { dependencies }) }
     },
     buildLog: async ({ result, snapshots }) => {
       const before = snapshots.before as CompanySnapshot | undefined
@@ -1287,6 +1304,7 @@ const deleteCompanyCommand: CommandHandler<
           undo: {
             before,
             labelAssignments: result?.labelAssignments,
+            dependencies: result?.dependencies,
           } satisfies CompanyUndoPayload,
         },
       }
@@ -1392,7 +1410,7 @@ const deleteCompanyCommand: CommandHandler<
       let restoredLabelAssignments: LabelAssignmentRestoreSnapshot[] = []
 
       await withAtomicFlush(em, [
-        () => syncEntityTags(em, entity, before.tagIds),
+        () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
         async () => {
           const relatedDealIds = new Set<string>()
           for (const link of beforeDeals) relatedDealIds.add(link.dealId)
@@ -1563,6 +1581,7 @@ const deleteCompanyCommand: CommandHandler<
         },
         async () => {
           restoredLabelAssignments = await restoreEntityLabelAssignments(em, entity, payload?.labelAssignments)
+          await restoreCustomerDeleteDependencies(em, entity, payload?.dependencies)
         },
       ], { transaction: true })
 

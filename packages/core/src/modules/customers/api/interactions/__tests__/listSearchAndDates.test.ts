@@ -9,6 +9,14 @@ import {
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const orgId = '22222222-2222-4222-8222-222222222222'
+const secondOrgId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const actorUserId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+
+const resolveScope = jest.fn((): { filterIds: string[]; selectedId: string | null } => ({
+  filterIds: [orgId],
+  selectedId: orgId,
+}))
+const hasRequiredFeatures = jest.fn(async () => true)
 
 const recordedQueries: CompiledQuery[] = []
 
@@ -40,6 +48,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (token: string) => {
       if (token === 'em') return fakeEm
+      if (token === 'rbacService') return { userHasAllFeatures: hasRequiredFeatures }
       return undefined
     },
   }),
@@ -49,13 +58,13 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: async () => ({
     tenantId,
     orgId,
-    sub: null,
+    sub: 'api_key:test',
     isApiKey: true,
   }),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: async () => ({ filterIds: [orgId], selectedId: orgId }),
+  resolveOrganizationScopeForRequest: async () => resolveScope(),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -73,6 +82,8 @@ const rowsQuery = () =>
 
 beforeEach(() => {
   recordedQueries.length = 0
+  resolveScope.mockReturnValue({ filterIds: [orgId], selectedId: orgId })
+  hasRequiredFeatures.mockReset().mockResolvedValue(true)
 })
 
 describe('interactions list — search escaping and date validation (#2734)', () => {
@@ -169,6 +180,89 @@ describe('interactions list — search escaping and date validation (#2734)', ()
     expect(normalizedSql).not.toContain('"scheduled_at" <=')
     expect(normalizedSql).not.toContain('coalesce(occurred_at, scheduled_at, created_at) >=')
     expect(compiled!.parameters).toEqual(expect.arrayContaining([from, to]))
+  })
+})
+
+describe('interaction appointment filters', () => {
+  const from = new Date('2026-03-29T20:00:00Z')
+  const to = new Date('2026-03-29T22:00:00Z')
+
+  test.each([
+    { overlap: 'true' },
+    { overlap: 'true', from: from.toISOString() },
+    { overlap: 'true', from: from.toISOString(), to: from.toISOString() },
+    { overlap: 'true', from: to.toISOString(), to: from.toISOString() },
+    { overlap: 'yes', from: from.toISOString(), to: to.toISOString() },
+    { overlapTimezone: 'not/a/timezone' },
+    { actorUserId: 'invalid' },
+    { organizationId: 'invalid' },
+  ])('returns 400 before querying for invalid inputs %p', async (query) => {
+    const params = new URLSearchParams(Object.entries(query) as [string, string][])
+    const response = await GET(new Request(`https://example.test/api/customers/interactions?${params}`))
+    expect(response.status).toBe(400)
+    expect(rowsQuery()).toBeUndefined()
+  })
+
+  test('applies exact organization and owner-or-attendee predicates to a paged overlap read', async () => {
+    resolveScope.mockReturnValue({ filterIds: [orgId, secondOrgId], selectedId: orgId })
+    const params = new URLSearchParams({
+      actorUserId: actorUserId.toUpperCase(),
+      organizationId: secondOrgId.toUpperCase(),
+      overlap: 'true',
+      overlapTimezone: 'Europe/Warsaw',
+      from: from.toISOString(),
+      to: to.toISOString(),
+      limit: '1',
+    })
+    const response = await GET(new Request(`https://example.test/api/customers/interactions?${params}`))
+    expect(response.status).toBe(200)
+    const compiled = rowsQuery()!
+    expect(compiled.sql).toMatch(/and \(owner_user_id = \$\d+ or exists \(/)
+    expect(compiled.sql).toMatch(/where lower\(attendee ->> 'userId'\) = \$\d+/)
+    expect(compiled.sql).toMatch(/coalesce\(occurred_at, scheduled_at\) < \$\d+/)
+    expect(compiled.sql).toMatch(/make_interval\(mins => coalesce\(duration_minutes, 30\)\) > \$\d+/)
+    expect(compiled.sql).toMatch(/local_day \+ interval '1 day'/)
+    expect(compiled.sql).toMatch(/least\(default_start/)
+    expect(compiled.sql).toMatch(/least\(default_end/)
+    expect(compiled.sql).toMatch(/occurred_at is null and scheduled_at < /)
+    expect(compiled.parameters).toEqual(expect.arrayContaining([tenantId, secondOrgId, actorUserId, from, to, 'Europe/Warsaw', 2]))
+    expect(compiled.parameters).not.toContain(orgId)
+    expect(hasRequiredFeatures).toHaveBeenCalledWith('api_key:test', ['customers.interactions.view'], {
+      tenantId, organizationId: secondOrgId,
+    })
+  })
+
+  test('rejects an organization outside the existing read scope before querying interactions', async () => {
+    const response = await GET(new Request(`https://example.test/api/customers/interactions?organizationId=${secondOrgId}`))
+    expect(response.status).toBe(403)
+    expect(rowsQuery()).toBeUndefined()
+    expect(hasRequiredFeatures).not.toHaveBeenCalled()
+  })
+
+  test('requires the read feature in the requested organization before querying interactions', async () => {
+    resolveScope.mockReturnValue({ filterIds: [orgId, secondOrgId], selectedId: null })
+    hasRequiredFeatures.mockResolvedValue(false)
+    const response = await GET(new Request(`https://example.test/api/customers/interactions?organizationId=${secondOrgId}`))
+    expect(response.status).toBe(403)
+    expect(rowsQuery()).toBeUndefined()
+  })
+
+  test('keeps earlier recurring masters as candidates for client occurrence expansion', async () => {
+    const params = new URLSearchParams({
+      actorUserId,
+      overlap: 'true',
+      recurrenceMasters: 'true',
+      from: from.toISOString(),
+      to: to.toISOString(),
+    })
+    const response = await GET(new Request(`https://example.test/api/customers/interactions?${params}`))
+    expect(response.status).toBe(200)
+    const compiled = rowsQuery()!
+    expect(compiled.sql).toContain('"recurrence_rule" is not null')
+    expect(compiled.sql).toContain('recurrence_end is null or recurrence_end +')
+    expect(compiled.sql).toMatch(/coalesce\(occurred_at, scheduled_at\) < \$\d+/)
+    expect(compiled.sql).not.toMatch(/coalesce\(occurred_at, scheduled_at\) >=/)
+    expect(compiled.parameters).toEqual(expect.arrayContaining([actorUserId, from, to]))
   })
 })
 

@@ -44,6 +44,7 @@ type ComposeOperationParams = {
    * real send: a draft is not delivered, so routing it is meaningless.
    */
   senderChannelId: string
+  attachmentRecordId?: string
   contextObject: MessageComposerContextObject | null
   defaultValues: MessageComposerProps['defaultValues']
   contextActionOptions: Array<{ id: string; label: string }>
@@ -110,6 +111,7 @@ function buildComposePayload(
   input: { attachmentIds: string[]; isDraft: boolean },
 ): Record<string, unknown> {
   const publicMessage = params.visibility === 'public'
+  const senderChannelId = !input.isDraft && publicMessage ? params.senderChannelId || undefined : undefined
   const sourceEntityType = params.contextObject?.sourceEntityType ?? params.defaultValues?.sourceEntityType
   const sourceEntityId = params.contextObject?.sourceEntityId ?? params.defaultValues?.sourceEntityId
   const selectedContextActionOption = params.contextActionOptions.find((option) => option.id === params.contextActionType)
@@ -147,10 +149,9 @@ function buildComposePayload(
     sourceEntityId: sourceEntityId ?? undefined,
     objects: contextObjects,
     attachmentIds: input.attachmentIds.length > 0 ? input.attachmentIds : undefined,
+    ...(senderChannelId && input.attachmentIds.length ? { attachmentRecordId: params.attachmentRecordId } : {}),
     sendViaEmail: params.sendViaEmail,
-    senderChannelId: !input.isDraft && publicMessage && params.senderChannelId
-      ? params.senderChannelId
-      : undefined,
+    senderChannelId,
     isDraft: input.isDraft,
   }
 }

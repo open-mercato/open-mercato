@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipeline card reference proposal</title>
+<style>
+  * { box-sizing: border-box }
+  body { margin: 0; background: #f7f7f8; color: #18181b; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif }
+  main { width: min(380px, calc(100% - 40px)); margin: 24px auto; }
+  article { display: grid; gap: 12px; padding: 14px 16px; background: white; border: 1px solid #e4e4e7; border-radius: 8px; box-shadow: 0 1px 2px #0000000d }
+  header, footer, .value { display: flex; justify-content: space-between; align-items: center; gap: 10px }
+  header { align-items: flex-start; padding-left: 26px }
+  h1 { margin: 0; font-size: 16px; font-weight: 600; line-height: 24px }
+  .reference { display: block; margin-top: 4px; color: #71717a; font-size: 12px }
+  .icons, .company { display: flex; gap: 8px; align-items: center }
+  .icons { color: #71717a }
+  .icons svg { width: 18px; height: 18px; margin: 5px }
+  svg { flex: none; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round }
+  .amount { font-size: 18px; font-weight: 700 }
+  .currency { margin-left: 5px; color: #71717a; font-weight: 600 }
+  .chip { width: fit-content; padding: 3px 10px; border-radius: 6px; font-weight: 600; background: #f4f4f5 }
+  .chance { background: #edf3fc; color: #31517f }
+  footer { padding-top: 12px; border-top: 1px solid #e4e4e7; color: #71717a }
+  footer div { display: flex; align-items: center; gap: 8px }
+  footer strong { color: #27272a }
+</style>
+<main>
+  <article aria-label="Deal: Service renewal">
+    <header>
+      <div><h1>Service renewal</h1><span class="reference">SPD-12</span></div>
+      <svg aria-label="Deal actions" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+    </header>
+    <div class="icons" aria-label="Activity actions">
+      <svg aria-label="Call" viewBox="0 0 24 24"><path d="m6.5 3 3 4-2 3c1.3 2.7 3.3 4.8 6 6l3-2 4 3c-.3 2.5-1.7 4-4.2 3.6C9.6 19.5 4.4 14.2 3.5 7.5 3.2 5.4 4.3 3.7 6.5 3Z"/></svg>
+      <svg aria-label="Email" viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="m3 6 9 7 9-7"/></svg>
+      <svg aria-label="Note" viewBox="0 0 24 24"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h9l7-7V5a2 2 0 0 0-2-2Z"/><path d="M14 21v-5a2 2 0 0 1 2-2h5"/></svg>
+    </div>
+    <div class="value"><div><span class="amount">5,000</span><span class="currency">USD</span></div><span class="chip chance">50%</span></div>
+    <div class="chip company"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 7h1m4 0h1M9 11h1m4 0h1M9 15h1m4 0h1M10 21v-3h4v3"/></svg>Alder Studio</div>
+    <footer><div><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg><strong>Dec 15</strong><span>in 2d</span></div></footer>
+  </article>
+</main>
+</html>

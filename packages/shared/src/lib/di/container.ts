@@ -15,6 +15,7 @@ import { getTelemetryRuntime } from '../telemetry/runtime'
 import { bindRequestScopeContainer, runWithRequestScopeContainer, trackRequestScopeDisposal, runWithRequestScopeAcquisition } from './request-scope'
 import { parseBooleanWithDefault } from '../boolean'
 import { onModulesRegistered } from '../modules/registry'
+import { isCacheProviderError } from '../cache/providers'
 import { asScopedService, getProcessDiRegistrar, isProcessDiRegistrar, runCallerSetups, runProcessActivations } from './process-registrar'
 
 const logger = createLogger('shared').child({ component: 'di' })
@@ -703,7 +704,9 @@ async function buildLegacyRequestContainer(): Promise<AppContainer> {
           await bootstrap(container)
           setBootstrapCache(harvestBootstrapCache(container))
         }
-      } catch { /* optional */ }
+      } catch (error) {
+        if (isCacheProviderError(error)) throw error
+      }
     }
   }
   // App-level DI override. Scaffolded apps register this callback explicitly

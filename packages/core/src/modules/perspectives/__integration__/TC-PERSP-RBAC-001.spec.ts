@@ -25,7 +25,7 @@ test.describe('TC-PERSP-RBAC-001: perspectives.use feature is required', () => {
   test('denies perspectives access to a user without the perspectives.use feature', async ({ request }) => {
     test.slow();
     const stamp = Date.now();
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     const email = `qa-persp-rbac-001-${stamp}@example.com`;
     const tableId = `qa-persp-rbac-001-${stamp}`;
 
