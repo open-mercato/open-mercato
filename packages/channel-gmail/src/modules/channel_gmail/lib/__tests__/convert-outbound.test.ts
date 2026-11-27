@@ -38,6 +38,22 @@ describe('convertOutboundForGmail', () => {
     expect(raw).toContain('References: <root@example.com> <parent@example.com>')
   })
 
+  it('carries List-Unsubscribe into the raw RFC2822 bytes', async () => {
+    const result = await convertOutboundForGmail({
+      body: 'hi',
+      bodyFormat: 'text',
+      channelMetadata: {
+        to: 'bob@example.com',
+        headers: { 'List-Unsubscribe': '<mailto:x@y.test>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+      },
+      fromAddress: 'alice@gmail.com',
+    })
+    const meta = result.metadata as Record<string, unknown>
+    const raw = (meta.rawMessage as Buffer).toString('utf-8')
+    expect(raw).toContain('List-Unsubscribe: <mailto:x@y.test>')
+    expect(raw).toContain('List-Unsubscribe-Post: List-Unsubscribe=One-Click')
+  })
+
   it('passes gmailThreadId through metadata.threadId', async () => {
     const result = await convertOutboundForGmail({
       body: 'hi',

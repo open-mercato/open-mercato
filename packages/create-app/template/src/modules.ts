@@ -254,6 +254,20 @@ if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
   enabledModules.push({ id: 'storage_s3', from: '@open-mercato/storage-s3' })
 }
 
+/**
+ * Marketing automation: a trigger, an audience expression and an ordered list of steps.
+ *
+ * Opt-in, and deliberately so. It is a large optional vertical: 23 tables to migrate and a dispatch
+ * engine whose send steps build tracking/unsubscribe links — but, as of this phase, no public
+ * unauthenticated routes yet serving what those links point at (tracking, unsubscribe, survey, inbound
+ * hooks); `OM_MARKETING_PUBLIC_ROUTES_READY` gates a real send until they land. Audience expressions
+ * reuse the `business_rules` condition evaluator, sends go through the shared email transport, and
+ * tagging goes through the `customers` commands.
+ */
+if (parseBooleanWithDefault(process.env.OM_ENABLE_MARKETING_AUTOMATION, false)) {
+  enabledModules.push({ id: 'marketing_automation', from: '@open-mercato/marketing-automation' })
+}
+
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
 const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
 const enterpriseSecurityEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY, false)
