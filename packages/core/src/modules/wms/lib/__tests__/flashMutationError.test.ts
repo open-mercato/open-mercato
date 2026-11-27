@@ -56,8 +56,8 @@ describe('flashMutationError', () => {
   })
 
   it('keeps flashing other server messages as-is', () => {
-    flashMutationError(new Error('toString'), 'Failed to receive inventory.')
+    flashMutationError(new Error('insufficient_stock'), 'Failed to receive inventory.')
 
-    expect(flash).toHaveBeenCalledWith('toString', 'error')
+    expect(flash).toHaveBeenCalledWith('insufficient_stock', 'error')
   })
 })
