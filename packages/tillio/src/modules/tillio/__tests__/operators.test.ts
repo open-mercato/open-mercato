@@ -278,8 +278,29 @@ describe('detachOperator', () => {
       .resolves.toEqual({ ok: true, detached: true, revoked: true })
     release()
 
-    await expect(slowDetach).resolves.toEqual({ ok: true, detached: true, revoked: false })
+    await expect(slowDetach).resolves.toEqual({ ok: true, detached: true, revoked: true })
     expect(service.getRaw).toHaveBeenLastCalledWith(TILLIO_OPERATORS_INTEGRATION_ID, scope)
+    expect(service.save).toHaveBeenCalledTimes(1)
+    expect(store[TILLIO_OPERATORS_INTEGRATION_ID]).toMatchObject({ operators: [], defaultOperatorId: null })
+  })
+
+  it('preserves a genuine provider failure when a concurrent forced detach only removed the local record', async () => {
+    const providerError = new TillioApiError('nope', 422, 'invalid')
+    const { deleteConfig, release } = gatedDeleteConfig(providerError)
+    mockClient({ deleteConfig })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const slowDetach = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    deleteConfig.mockRejectedValueOnce(providerError)
+    await expect(detachOperator({ credentialsService: service, scope }, 'ringostat-1', { force: true }))
+      .resolves.toEqual({ ok: true, detached: true, revoked: false })
+    release()
+
+    await expect(slowDetach).rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
     expect(service.save).toHaveBeenCalledTimes(1)
     expect(store[TILLIO_OPERATORS_INTEGRATION_ID]).toEqual({ operators: [], defaultOperatorId: null })
   })
@@ -323,8 +344,11 @@ describe('detachOperator', () => {
     expect(service.save).not.toHaveBeenCalled()
   })
 
-  it('preserves the provider failure when the confirmation read rejects', async () => {
+  it.each([false, true])('preserves the provider failure even if confirmation and reporting fail (reporting throws: %s)', async (reportingThrows) => {
     mockReportError.mockClear()
+    if (reportingThrows) {
+      mockReportError.mockImplementationOnce(() => { throw new Error('[internal] telemetry unavailable') })
+    }
     const { deleteConfig, release } = gatedDeleteConfig(new TillioApiError('nope', 422, 'invalid'))
     mockClient({ deleteConfig })
     const { service } = fakeStore({
