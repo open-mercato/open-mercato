@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { SsoConfig } from '../data/entities'
@@ -125,7 +126,7 @@ export class SsoService {
       clientSecret,
     })
 
-    let user: Awaited<ReturnType<AccountLinkingService['resolveUser']>>['user']
+    let user: User
     try {
       ;({ user } = await this.accountLinkingService.resolveUser(config, idpPayload, config.tenantId ?? '', configUpdatedAt))
     } catch (err) {
@@ -133,46 +134,50 @@ export class SsoService {
       throw err
     }
 
-    const userId = String(user.id)
-    await this.rbacService.invalidateUserCache(userId)
-    const tenantId = user.tenantId ?? null
-    const staffTenantId = tenantId || null
-
-    const roles = await this.authService.getUserRoles(user, staffTenantId)
-    await this.authService.updateLastLoginAt(user)
-
-    const sessionLifetime = Number(process.env.REMEMBER_ME_DAYS || '30') * millisecondsPerDay
-    const sessionExpiresAt = new Date(Date.now() + sessionLifetime)
-    const issuance = await this.authService.createSession(user, sessionExpiresAt, {
-      tenantId,
-      organizationId: config.organizationId,
-      ssoConfigId: config.id,
-      configUpdatedAt,
-    })
-
-    const token = issueStaffSessionToken({
-      subject: userId,
-      sessionId: String(issuance.session.id),
-      tenantId: staffTenantId,
-      organizationId: user.organizationId ? String(user.organizationId) : null,
-      email: user.email,
-      roles,
-    })
+    const { token, sessionToken, sessionExpiresAt, tenantId } =
+      await this.issueLinkedAccountSession(user, config, configUpdatedAt)
 
     void emitSsoEvent('sso.login.completed', {
-      id: userId,
+      id: String(user.id),
       tenantId: config.tenantId,
       organizationId: config.organizationId,
     }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return {
       token,
-      sessionToken: issuance.token,
+      sessionToken,
       sessionExpiresAt,
       redirectUrl: flowState.returnUrl || '/backend',
       tenantId,
       organizationId: config.organizationId,
     }
+  }
+
+  private async issueLinkedAccountSession(account: User, config: SsoConfig, configUpdatedAt: number) {
+    const subject = String(account.id)
+    await this.rbacService.invalidateUserCache(subject)
+    const tenantId = account.tenantId ?? null
+    const roles = await this.authService.getUserRoles(account, tenantId || null)
+    await this.authService.updateLastLoginAt(account)
+
+    const sessionLifetime = Number(process.env.REMEMBER_ME_DAYS || '30') * millisecondsPerDay
+    const sessionExpiresAt = new Date(Date.now() + sessionLifetime)
+    // Persist the session through the locked auth service before signing its access token.
+    const { session, token: sessionToken } = await this.authService.createSession(account, sessionExpiresAt, {
+      tenantId,
+      organizationId: config.organizationId,
+      ssoConfigId: config.id,
+      configUpdatedAt,
+    })
+    const token = issueStaffSessionToken({
+      subject,
+      sessionId: String(session.id),
+      tenantId: tenantId || null,
+      organizationId: account.organizationId ? String(account.organizationId) : null,
+      email: account.email,
+      roles,
+    })
+    return { token, sessionToken, sessionExpiresAt, tenantId }
   }
 
   private async decryptClientSecret(config: SsoConfig): Promise<string | undefined> {
