@@ -15,6 +15,8 @@ import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { E } from '#generated/entities.ids.generated'
 
@@ -37,6 +39,7 @@ import { createCustomerNotesAdapter } from '../../../../components/detail/notesA
 import type { InteractionSummary } from '../../../../components/detail/types'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
+import { metadata as pipelineMetadata } from '../pipeline/page.meta'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 
 import { formatCurrency, startOfNextQuarter } from './hooks/formatters'
@@ -54,6 +57,8 @@ import { useScheduleDialog } from './hooks/useScheduleDialog'
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id ?? ''
   const t = useT()
+  const { payload } = useBackendChrome()
+  const canViewPipeline = hasAllFeatures(payload?.grantedFeatures, pipelineMetadata.requireFeatures)
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -294,11 +299,14 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     router.push('/backend')
   }, [closeWonPopup, router])
 
-  const handleBackToPipeline = React.useCallback(() => {
+  const handleBackToDeals = React.useCallback(() => {
     closeWonPopup()
     closeLostPopup()
-    router.push('/backend/customers/deals/pipeline')
-  }, [closeLostPopup, closeWonPopup, router])
+    router.push(canViewPipeline ? '/backend/customers/deals/pipeline' : '/backend/customers/deals')
+  }, [canViewPipeline, closeLostPopup, closeWonPopup, router])
+  const backActionLabel = canViewPipeline
+    ? undefined
+    : t('customers.deals.detail.actions.backToList', 'Back to deals')
 
   const handleScheduleLostFollowUp = React.useCallback(() => {
     if (!data || !selectedActivityEntity) return
@@ -726,7 +734,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           dealTitle={data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
           stats={wonStats}
           onViewDashboard={handleViewDashboard}
-          onBackToPipeline={handleBackToPipeline}
+          onBackToPipeline={handleBackToDeals}
+          backActionLabel={backActionLabel}
         />
 
         <DealLostSummaryDialog
@@ -735,7 +744,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           dealTitle={data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
           lossNotes={data.deal.lossNotes}
           stats={lostStats}
-          onBackToPipeline={handleBackToPipeline}
+          onBackToPipeline={handleBackToDeals}
+          backActionLabel={backActionLabel}
           onScheduleFollowUp={selectedActivityEntity ? handleScheduleLostFollowUp : undefined}
         />
       </PageBody>

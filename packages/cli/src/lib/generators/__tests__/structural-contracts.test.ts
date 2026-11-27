@@ -639,9 +639,9 @@ describe('api-routes.generated.ts', () => {
     expect(content).toMatch(/methods:\s*\[\s*"GET",\s*"POST",\s*"PUT",\s*"DELETE",?\s*\]/)
   })
 
-  it('keeps API handler imports lazy in route entries', () => {
+  it('keeps API handler imports lazy with the shared manifest loader type', () => {
     expect(content).toContain('@open-mercato/core/modules/orders/api')
-    expect(content).toContain('load: async () => import(')
+    expect(content).toContain("load: async (): ReturnType<ApiRouteManifestEntry['load']> => import(")
   })
 })
 

@@ -1,6 +1,12 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import {
+  beginTransactionLifetime,
+  completeTransactionLifetime,
+  onTransactionLifetimeComplete,
+} from '../../commands/transaction-lifetime'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -47,7 +53,7 @@ function makeFixture() {
     },
   } as unknown as AwilixContainer
   const engine = new DefaultDataEngine({} as unknown as EntityManager, container)
-  return { engine, emitted }
+  return { engine, container, emitted }
 }
 
 describe('DataEngine.setCustomFields change signal', () => {
@@ -96,5 +102,45 @@ describe('DataEngine.setCustomFields change signal', () => {
 
     expect(emitted).toEqual([])
     expect(loggerWarn).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['committed', 1],
+    ['rolled_back', 0],
+  ] as const)('uses the explicit manager and handles a %s standalone transaction', async (outcome, expectedSignals) => {
+    const { engine, emitted } = makeFixture()
+    const manager = { isInTransaction: () => true } as unknown as EntityManager
+    const lifetime = beginTransactionLifetime(manager)
+    const fields = { entityId: 'catalog:catalog_product', recordId: 'rec-1', values: { priority: 3 } }
+
+    await engine.setCustomFields({ ...fields, transactionalEm: manager })
+    expect(setRecordCustomFields).toHaveBeenLastCalledWith(manager, expect.objectContaining(fields))
+    expect(emitted).toHaveLength(0)
+
+    await completeTransactionLifetime(manager, lifetime, outcome)
+    expect(emitted).toHaveLength(expectedSignals)
+  })
+
+  it.each([
+    ['committed', false, 1],
+    ['committed', true, 0],
+    ['rolled_back', false, 0],
+  ] as const)('keeps the explicit manager in the %s command scope with skipEvents=%s', async (outcome, skipEvents, expectedSignals) => {
+    const { engine, container, emitted } = makeFixture()
+    const manager = { isInTransaction: () => true } as unknown as EntityManager
+    const lifetime = beginTransactionLifetime(manager)
+    const scope = engine.createCommandTransactionScope(manager, container)
+    onTransactionLifetimeComplete(manager, (result) => scope.complete(result, { skipEvents }))
+
+    await scope.dataEngine.setCustomFields({
+      entityId: 'catalog:catalog_product',
+      recordId: 'rec-1',
+      values: { priority: 3 },
+      transactionalEm: manager,
+    })
+    expect(emitted).toHaveLength(0)
+
+    await completeTransactionLifetime(manager, lifetime, outcome)
+    expect(emitted).toHaveLength(expectedSignals)
   })
 })

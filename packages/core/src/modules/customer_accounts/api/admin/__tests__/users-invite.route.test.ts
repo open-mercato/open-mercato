@@ -7,6 +7,7 @@ const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
 const mockRollbackInvitation = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
+const mockFindInvitationRoles = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockSendCustomerInvitationEmail = jest.fn()
 const mockEm = {
@@ -47,6 +48,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (...args: unknown[]) => mockFindInvitationRoles(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
 }))
@@ -69,6 +74,7 @@ describe('admin customer account user invite route', () => {
     jest.clearAllMocks()
     mockCheckAuthRateLimit.mockResolvedValue({ error: null, compoundKey: null })
     mockUserHasAllFeatures.mockResolvedValue(true)
+    mockFindInvitationRoles.mockResolvedValue([{ id: roleId, customerAssignable: true }])
     mockGetAuthFromRequest.mockResolvedValue({
       sub: `api_key:${apiKeyId}`,
       userId: staffUserId,
@@ -88,6 +94,28 @@ describe('admin customer account user invite route', () => {
     })
     mockRollbackInvitation.mockResolvedValue(undefined)
     mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
+  })
+
+  it('refuses roles outside the invitation organization before minting a token', async () => {
+    mockFindInvitationRoles.mockResolvedValue([])
+    const { POST } = await import('../users-invite')
+
+    expect((await POST(makeInviteRequest())).status).toBe(400)
+    expect(mockFindInvitationRoles).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(),
+      { id: { $in: [roleId] }, tenantId, organizationId, deletedAt: null },
+      undefined, { tenantId, organizationId },
+    )
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+  })
+
+  it('requires role management permission for roles beyond the standard invitation grant', async () => {
+    mockFindInvitationRoles.mockResolvedValue([{ id: roleId, customerAssignable: false }])
+    mockUserHasAllFeatures.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    const { POST } = await import('../users-invite')
+
+    expect((await POST(makeInviteRequest())).status).toBe(403)
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
   })
 
   it('keeps API-key RBAC subject and stores the backing user id as invitedByUserId', async () => {

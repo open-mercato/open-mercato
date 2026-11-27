@@ -561,7 +561,45 @@ curl -H "Authorization: Bearer <token>" \
 
 ---
 
+## Legacy role-assignment repair (#7805)
+
+`mercato dashboards repair-role-widgets --tenant <uuid> (--organization <uuid> | --tenant-wide) [--apply]`
+previews legacy foreign-role assignments in one explicit scope. `--organization`
+selects only that organization after validating it belongs to the tenant.
+`--tenant-wide` selects only rows whose `organization_id IS NULL`; it never
+visits every organization. The scopes are mutually exclusive, the tenant must
+exist and not be deleted, and the command remains read-only unless `--apply` is set.
+
+Apply removes only the selected foreign assignments and restores the matching
+local default role's widgets when no active effective assignment exists. Active
+custom and empty settings, including applicable fallbacks, remain unchanged.
+An exact-scope soft-deleted row is reused for restoration, preserving its ID
+and creation time and clearing its deletion marker. The repair shares the
+existing transactional path and changes no schema or access-filter behavior.
+
+### Migration & Backward Compatibility
+
+The existing organization invocation and preview/apply output remain supported.
+The new optional `--tenant-wide` alternative is additive; omission of both scopes
+still fails closed. No database migration, automatic repair, default role grant,
+API change, or deployment change is required. Operators preview and apply each
+explicit scope separately. Protected personal QA remains required before merge.
+
+### Verification
+
+The self-contained disposable PostgreSQL suite
+`dashboards/__tests__/repair-role-widgets.test.ts` covers preview, apply and repeat
+runs for both scopes; tombstone reuse without uniqueness conflicts; active empty
+fallback preservation; wrong-organization, missing/deleted tenant and ambiguous
+scope rejection; unaffected sibling organization/other-tenant rows; and atomic
+failure when the widget registry is unavailable. This CLI-only repair changes
+no API or browser path; existing widget feature-filter tests cover its consumer.
+
 ## Changelog
+
+### 2026-11-25
+
+- Document the opt-in legacy role repair, explicit tenant-wide scope and exact-scope tombstone restoration.
 
 ### 2026-01-29
 - Documented `lazyDashboardWidget` usage to avoid importing client components during CLI discovery.
