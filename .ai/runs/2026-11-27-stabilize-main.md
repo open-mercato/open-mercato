@@ -25,11 +25,18 @@ One independent read-only main CI investigation; one final independent review af
 ## Risks
 Full-suite CI is expensive and asynchronous. No application defect is established at the initial main head. Draft exception must remain restricted to same-repository stabilization heads. Local dependencies are initially absent; record any local environment blockers without treating them as passes. Main snapshot release is a separate workflow, initially still running.
 
+## Current stabilization baseline and repairs
+Merged current main at 831c65eb7d via 4f35084745 without rewriting history. Main CI 46003897356 at 4284e78548 exposed two confirmed failures: onboarding's setup-container fixture lacked the EntityManager detachment and lease result contracts, and catalog form tests still rejected prices beyond the obsolete 12-integer/4-fraction limits. The existing arbitrary-precision spec explicitly preserves entered catalog amounts. Repair only the fixtures and assertions: prove detachment precedes provisioning, lease completion succeeds, exact amount strings reach create/update, and malformed, negative and oversized values remain rejected. No production behavior or public contract changes are needed.
+
+Source doc: .ai/specs/2026-10-08-arbitrary-precision-money-and-fx.md
+
 ## Validation evidence
-Runner: local (no running compose app found). Immutable install completed with optional native-build warnings. Focused draft/full-scope/concurrency/merge-coverage/batch tests: 77 passed. Configured gate running in order.
+Runner: local (no running compose app found). Immutable install completed with optional native-build warnings. Focused draft/full-scope/concurrency/merge-coverage/batch tests: 77 passed. Onboarding suite: 26 suites / 172 tests passed. Catalog form/page regression tests: 2 suites / 41 tests passed. Configured gate running in order against the updated baseline. Original head 433f6908a5 passed all 15 integration shards in run 45964194589; that does not substitute for CI on the updated head.
 
 ## Run identity
-Claim-Run: f7e6e045-1806-46ec-a606-995a29704b04
+Claim-Run: 48d644e3-9ed1-4059-a436-23d9b0aad094
+Claim-Lock-SHA: 7f1e98a080e27d83670e0539b4be50092247c6e2
+Recovered stopped drivers f7e6e045 and 02bdcafd after the operator renewed autonomous continuation; recovery audit is on PR #10850.
 Branch: stabilize/main-2026-11-27 (explicit operator override of skill branch prefix)
 Engine: om-auto-create-pr (steps: 5, --loop: no)
 
