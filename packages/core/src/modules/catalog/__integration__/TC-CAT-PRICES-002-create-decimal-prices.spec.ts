@@ -289,6 +289,7 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
     await expect(regularInput, 'comma decimal is not swallowed character-by-character').toHaveValue('12,50');
     await saleInput.pressSequentially('2,50');
     await expect(saleInput, 'comma decimal is not swallowed character-by-character').toHaveValue('2,50');
+    await expect(regularInput, 'typing another price kind preserves the first amount').toHaveValue('12,50');
 
     const productId = await submitAndReadProductId(page);
     productIds.push(productId);
