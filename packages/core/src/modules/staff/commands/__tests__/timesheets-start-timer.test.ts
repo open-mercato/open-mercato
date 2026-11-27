@@ -12,6 +12,17 @@ import type { AwilixContainer } from 'awilix'
 
 const mockFindOneWithDecryption = jest.fn()
 const mockEmitStaffEvent = jest.fn()
+const mockResolveProjectAccess = jest.fn()
+const mockGetStaffMemberByUserId = jest.fn()
+
+jest.mock('../../lib/time-tracking/access', () => ({
+  ...jest.requireActual('../../lib/time-tracking/access'),
+  resolveProjectAccess: (...args: unknown[]) => mockResolveProjectAccess(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/staff/lib/staffMemberResolver', () => ({
+  getStaffMemberByUserId: (...args: unknown[]) => mockGetStaffMemberByUserId(...args),
+}))
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   const actual = jest.requireActual('@open-mercato/shared/lib/commands/helpers')
@@ -111,14 +122,14 @@ function makeEm(
   return em
 }
 
-function createCtx(em: unknown) {
+function createCtx(em: unknown, options: { manageAll?: boolean } = {}) {
   return {
     auth: { sub: 'user-1', tenantId: TENANT_ID, orgId: ORG_ID },
     container: {
       resolve: (name: string) => {
         if (name === 'em') return em
         if (name === 'dataEngine') return null
-        if (name === 'rbacService') return { userHasAllFeatures: async () => true }
+        if (name === 'rbacService') return { userHasAllFeatures: async () => options.manageAll !== false }
         return null
       },
     } as unknown as AwilixContainer,
@@ -144,6 +155,58 @@ describe('staff timesheets atomic start-timer (#3311)', () => {
     jest.clearAllMocks()
     mockFindOneWithDecryption.mockResolvedValue(null)
     mockEmitStaffEvent.mockResolvedValue(undefined)
+    mockGetStaffMemberByUserId.mockResolvedValue({ id: STAFF_MEMBER_ID })
+    mockResolveProjectAccess.mockResolvedValue({ canManageAll: false, projectIds: [PROJECT_ID], staffMemberId: STAFF_MEMBER_ID })
+  })
+
+  it.each([
+    { projectIds: [], windows: {}, error: 'You are not assigned to this project.' },
+    {
+      projectIds: [PROJECT_ID],
+      windows: { [PROJECT_ID]: [{ startIndex: 21000, endIndex: null }] },
+      error: 'This date is outside your assignment to this project.',
+    },
+  ])('refuses an unauthorized project/date before creating a timer: $error', async ({ projectIds, windows, error }) => {
+    const { command, StaffTimeEntry, StaffTimeEntrySegment } = await loadStartTimerCommand()
+    mockResolveProjectAccess.mockResolvedValue({
+      canManageAll: false, projectIds, staffMemberId: STAFF_MEMBER_ID, assignmentWindows: windows,
+    })
+    const createCalls: CreateCall[] = []
+    const em = makeEm(createCalls, StaffTimeEntry, StaffTimeEntrySegment)
+
+    await expect(command.execute(startInput(), createCtx(em, { manageAll: false })))
+      .rejects.toMatchObject({ status: 403, body: { error } })
+
+    expect(em.transactional).not.toHaveBeenCalled()
+    expect(createCalls).toEqual([])
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockEmitStaffEvent).not.toHaveBeenCalled()
+    expect(mockResolveProjectAccess).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1', tenantId: TENANT_ID, organizationId: ORG_ID, assignmentGraceDays: 14,
+    }))
+  })
+
+  it('allows a member whose assignment covers the entry date', async () => {
+    const { command, StaffTimeEntry, StaffTimeEntrySegment } = await loadStartTimerCommand()
+    mockResolveProjectAccess.mockResolvedValue({
+      canManageAll: false, projectIds: [PROJECT_ID], staffMemberId: STAFF_MEMBER_ID,
+      assignmentWindows: { [PROJECT_ID]: [{ startIndex: 20000, endIndex: 21000 }] },
+    })
+    const createCalls: CreateCall[] = []
+    const em = makeEm(createCalls, StaffTimeEntry, StaffTimeEntrySegment)
+
+    await expect(command.execute(startInput(), createCtx(em, { manageAll: false })))
+      .resolves.toMatchObject({ timeEntryId: 'entry-1' })
+    expect(createCalls).toHaveLength(2)
+  })
+
+  it('preserves manage-all access without a project membership', async () => {
+    const { command, StaffTimeEntry, StaffTimeEntrySegment } = await loadStartTimerCommand()
+    mockResolveProjectAccess.mockResolvedValue({ canManageAll: false, projectIds: [], staffMemberId: null })
+    const em = makeEm([], StaffTimeEntry, StaffTimeEntrySegment)
+
+    await expect(command.execute(startInput(), createCtx(em)))
+      .resolves.toMatchObject({ timeEntryId: 'entry-1' })
   })
 
   it('creates and starts the timer entry inside a single transaction', async () => {

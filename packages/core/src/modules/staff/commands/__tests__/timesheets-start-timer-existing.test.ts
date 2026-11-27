@@ -23,6 +23,12 @@ const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
 const mockGetStaffMemberByUserId = jest.fn()
 const mockEmitStaffEvent = jest.fn()
+const mockResolveProjectAccess = jest.fn()
+
+jest.mock('../../lib/time-tracking/access', () => ({
+  ...jest.requireActual('../../lib/time-tracking/access'),
+  resolveProjectAccess: (...args: unknown[]) => mockResolveProjectAccess(...args),
+}))
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   const actual = jest.requireActual('@open-mercato/shared/lib/commands/helpers')
@@ -60,6 +66,7 @@ const ENTRY_ID = '55555555-5555-4555-8555-555555555555'
 const SEGMENT_ID = '66666666-6666-4666-8666-666666666666'
 const OTHER_ENTRY_ID = '77777777-7777-4777-8777-777777777777'
 const REPORT_ID = '88888888-8888-4888-8888-888888888888'
+const PROJECT_ID = '99999999-9999-4999-8999-999999999999'
 
 type StartExistingCommand = {
   execute: (input: unknown, ctx: unknown) => Promise<{
@@ -191,6 +198,7 @@ beforeEach(() => {
   flushCalls = 0
   mockGetStaffMemberByUserId.mockResolvedValue({ id: STAFF_MEMBER_ID })
   mockEmitStaffEvent.mockResolvedValue(undefined)
+  mockResolveProjectAccess.mockResolvedValue({ canManageAll: false, projectIds: [PROJECT_ID], staffMemberId: STAFF_MEMBER_ID })
   mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where, opts) => {
     findOneOptions.push(opts as Record<string, unknown> | undefined)
     if (isSiblingRunningTimerQuery(where)) return null
@@ -200,6 +208,68 @@ beforeEach(() => {
 })
 
 describe('start_timer_existing command — transaction and lock (#2416)', () => {
+  it.each([
+    { projectIds: [], windows: {}, error: 'You are not assigned to this project.' },
+    {
+      projectIds: [PROJECT_ID],
+      windows: { [PROJECT_ID]: [{ startIndex: 21000, endIndex: null }] },
+      error: 'This date is outside your assignment to this project.',
+    },
+  ])('refuses the locked entry project/date before opening a segment: $error', async ({ projectIds, windows, error }) => {
+    const command = await loadStartTimerExistingCommand()
+    mockResolveProjectAccess.mockResolvedValue({
+      canManageAll: false, projectIds, staffMemberId: STAFF_MEMBER_ID, assignmentWindows: windows,
+    })
+    const entry = makeEntry()
+    const lockedEntry = makeEntry({ timeProjectId: PROJECT_ID, date: '2026-01-01' })
+    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, _where, options) => (
+      options?.lockMode === LockMode.PESSIMISTIC_WRITE && options.refresh ? lockedEntry : entry
+    ))
+    const em = makeEm()
+
+    await expect(command.execute(startInput(), createCtx(em)))
+      .rejects.toMatchObject({ status: 403, body: { error } })
+
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(lockedEntry.startedAt).toBeNull()
+    expect(mockEmitStaffEvent).not.toHaveBeenCalled()
+  })
+
+  it('preserves owner-only access when the locked entry belongs to a different member', async () => {
+    const command = await loadStartTimerExistingCommand()
+    const entry = makeEntry({ timeProjectId: PROJECT_ID, date: '2026-01-01' })
+    const lockedEntry = makeEntry({
+      staffMemberId: OTHER_STAFF_MEMBER_ID, timeProjectId: PROJECT_ID, date: '2026-01-01',
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, _where, options) => (
+      options?.lockMode === LockMode.PESSIMISTIC_WRITE ? lockedEntry : entry
+    ))
+    const em = makeEm()
+
+    await expect(command.execute(startInput(), createCtx(em, { manageAll: true })))
+      .rejects.toMatchObject({ status: 403, body: { error: 'You can only manage your own time entries.' } })
+
+    expect(em.create).not.toHaveBeenCalled()
+    expect(lockedEntry.startedAt).toBeNull()
+  })
+
+  it('allows an owner whose assignment covers the stored entry date', async () => {
+    const command = await loadStartTimerExistingCommand()
+    const entry = makeEntry({ timeProjectId: PROJECT_ID, date: '2026-01-01' })
+    mockResolveProjectAccess.mockResolvedValue({
+      canManageAll: false, projectIds: [PROJECT_ID], staffMemberId: STAFF_MEMBER_ID,
+      assignmentWindows: { [PROJECT_ID]: [{ startIndex: 20000, endIndex: 21000 }] },
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where) => (
+      isSiblingRunningTimerQuery(where) ? null : entry
+    ))
+
+    await expect(command.execute(startInput(), createCtx(makeEm())))
+      .resolves.toMatchObject({ timeEntryId: ENTRY_ID })
+    expect(entry.startedAt).toBeInstanceOf(Date)
+  })
+
   it('starts the timer and opens a work segment inside one locking transaction', async () => {
     const command = await loadStartTimerExistingCommand()
     const entry = makeEntry()

@@ -24,6 +24,12 @@ const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
 const mockGetStaffMemberByUserId = jest.fn()
 const mockEmitStaffEvent = jest.fn()
+const mockResolveProjectAccess = jest.fn()
+
+jest.mock('../../lib/time-tracking/access', () => ({
+  ...jest.requireActual('../../lib/time-tracking/access'),
+  resolveProjectAccess: (...args: unknown[]) => mockResolveProjectAccess(...args),
+}))
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   const actual = jest.requireActual('@open-mercato/shared/lib/commands/helpers')
@@ -60,6 +66,7 @@ const OTHER_STAFF_MEMBER_ID = '44444444-4444-4444-8444-444444444444'
 const ENTRY_ID = '55555555-5555-4555-8555-555555555555'
 const SEGMENT_ID = '66666666-6666-4666-8666-666666666666'
 const REPORT_ID = '77777777-7777-4777-8777-777777777777'
+const PROJECT_ID = '88888888-8888-4888-8888-888888888888'
 
 const SEGMENT_STARTED_AT = new Date('2026-01-01T08:00:00.000Z')
 
@@ -245,6 +252,21 @@ describe('stop_timer command — transaction and lock (#2416)', () => {
 })
 
 describe('stop_timer command — owner-only authorization', () => {
+  it('lets the owner stop a running timer after losing project access', async () => {
+    const command = await loadStopTimerCommand()
+    const entry = makeEntry({ timeProjectId: PROJECT_ID, date: '2026-01-01' })
+    mockFindOneWithDecryption.mockResolvedValue(entry)
+    mockResolveProjectAccess.mockResolvedValue({
+      canManageAll: false, projectIds: [], staffMemberId: STAFF_MEMBER_ID,
+    })
+
+    await expect(command.execute(stopInput(), createCtx(makeEm())))
+      .resolves.toMatchObject({ timeEntryId: ENTRY_ID })
+
+    expect(entry.endedAt).toBeInstanceOf(Date)
+    expect(mockResolveProjectAccess).not.toHaveBeenCalled()
+  })
+
   it('rejects with 403 when the caller has no linked staff member', async () => {
     const command = await loadStopTimerCommand()
     mockGetStaffMemberByUserId.mockResolvedValue(null)

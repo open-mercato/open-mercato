@@ -1174,6 +1174,11 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
 
     const scopeCtx = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
 
+    await assertEntryProjectAccess(
+      await resolveTimeEntryWriteAccess(em, ctx, parsed.tenantId, parsed.organizationId, settings),
+      { projectId: project?.id ?? null, entryStaffMemberId: effectiveStaffMemberId, date: parsed.date },
+    )
+
     // Create the timer entry AND start it inside a single transaction so a
     // partial failure can never leave an orphaned, never-started timer entry
     // (issue #3311 — the legacy two-request create-then-start flow). The
@@ -1689,11 +1694,13 @@ const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExisting
       ? await getStaffMemberByUserId(em, callerUserId, parsed.tenantId, parsed.organizationId)
       : null
     if (!staffMember || entry.staffMemberId !== staffMember.id) {
-      const { translate } = await resolveTranslations()
       throw new CrudHttpError(403, {
-        error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.'),
+        error: translateTimeEntryWriteDenial('notOwner', lockTranslate),
       })
     }
+
+    const settings = await readEntrySettings(ctx, parsed.tenantId)
+    const writeAccess = await resolveTimeEntryWriteAccess(em, ctx, parsed.tenantId, parsed.organizationId, settings)
 
     // Same transaction + PESSIMISTIC_WRITE shape the route used: re-check
     // startedAt under the lock so two concurrent starts on one entry cannot both
@@ -1707,7 +1714,7 @@ const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExisting
         trx,
         StaffTimeEntry,
         { id: parsed.id, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
-        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
         scopeCtx,
       )
       if (!lockedEntry) {
@@ -1717,6 +1724,16 @@ const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExisting
       // Re-checked under the row lock: a report close committed between the
       // pre-flight read and this transaction would otherwise slip through.
       assertTimeEntryUnlocked(lockedEntry, lockTranslate)
+      if (lockedEntry.staffMemberId !== staffMember.id) {
+        throw new CrudHttpError(403, {
+          error: translateTimeEntryWriteDenial('notOwner', lockTranslate),
+        })
+      }
+      await assertEntryProjectAccess(writeAccess, {
+        projectId: lockedEntry.timeProjectId ?? null,
+        entryStaffMemberId: lockedEntry.staffMemberId,
+        date: lockedEntry.date,
+      })
       if (lockedEntry.startedAt) {
         const { translate } = await resolveTranslations()
         throw new CrudHttpError(409, {
