@@ -1968,6 +1968,8 @@
   "customers.linking.primary.set": "기본으로 설정",
   "customers.linking.primary.setAction": "기본으로 설정",
   "customers.linking.resultsCount": "{{count}}건의 결과",
+  "customers.linking.retrySearch": "다시 시도",
+  "customers.linking.searchFailed": "검색 결과를 불러오지 못했습니다.",
   "customers.linking.searchResults": "검색 결과",
   "customers.linking.searching": "검색 중…",
   "customers.linking.selectEntity": "{{name}} 선택",

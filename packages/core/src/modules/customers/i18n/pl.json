@@ -1968,6 +1968,8 @@
   "customers.linking.primary.set": "Ustaw jako główny",
   "customers.linking.primary.setAction": "Ustaw jako główny",
   "customers.linking.resultsCount": "{{count}} wyników",
+  "customers.linking.retrySearch": "Spróbuj ponownie",
+  "customers.linking.searchFailed": "Nie udało się wczytać wyników wyszukiwania.",
   "customers.linking.searchResults": "Wyniki wyszukiwania",
   "customers.linking.searching": "Wyszukiwanie…",
   "customers.linking.selectEntity": "Wybierz {{name}}",
