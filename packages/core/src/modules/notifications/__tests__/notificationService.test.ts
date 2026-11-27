@@ -402,7 +402,16 @@ describe('notification service', () => {
     expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
-  it('marks all as read, scopes by org, and emits events per notification', async () => {
+  function mockBulkReadDatabase(em: ReturnType<typeof buildEm>) {
+    const db = createCompileKysely()
+    const executeQuery = jest.fn<Promise<{ rows: Array<{ id: string }> }>, [CompiledQuery]>()
+    const executor = db.getExecutor() as unknown as { executeQuery: typeof executeQuery }
+    executor.executeQuery = executeQuery
+    em.getKysely.mockReturnValue(db)
+    return executeQuery
+  }
+
+  it('counts and emits events only for rows each concurrent mark-all-read request updates', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
     const notifications = [
@@ -432,65 +441,35 @@ describe('notification service', () => {
 
     ;(findWithDecryption as jest.Mock).mockResolvedValue(notifications)
 
-    // Kysely-shaped stub for `em.getKysely()`.
-    // `markAllAsRead` first runs a SELECT to collect target rows, then an UPDATE
-    // whose `executeTakeFirst` returns `{ numUpdatedRows }`.
-    const whereCalls: any[] = []
-    const selectWhereChain: any = {
-      where: jest.fn((...args: any[]) => { whereCalls.push(['select', ...args]); return selectWhereChain }),
-      execute: jest.fn(async () => notifications.map((n) => ({
-        id: n.id,
-        organization_id: n.organizationId,
-        recipient_user_id: n.recipientUserId,
-      }))),
-    }
-    const selectChain: any = {
-      select: jest.fn(() => selectWhereChain),
-    }
-    const updateWhereChain: any = {
-      where: jest.fn((...args: any[]) => { whereCalls.push(['update', ...args]); return updateWhereChain }),
-      executeTakeFirst: jest.fn(async () => ({ numUpdatedRows: BigInt(notifications.length) })),
-    }
-    const updateChain: any = {
-      set: jest.fn(() => updateWhereChain),
-    }
-    const kyselyMock = {
-      selectFrom: jest.fn(() => selectChain),
-      updateTable: jest.fn(() => updateChain),
-    }
-
-    em.getKysely.mockReturnValue(kyselyMock)
-
+    const executeQuery = mockBulkReadDatabase(em)
+    executeQuery
+      .mockResolvedValueOnce({ rows: notifications.map(({ id }) => ({ id })) })
+      .mockResolvedValueOnce({ rows: [] })
     const service = createNotificationService({ em, eventBus })
+    const ctx = { ...baseCtx, organizationId: 'org-1' }
 
-    const count = await service.markAllAsRead({ ...baseCtx, organizationId: 'org-1' })
+    await expect(Promise.all([service.markAllAsRead(ctx), service.markAllAsRead(ctx)])).resolves.toEqual([2, 0])
 
-    expect(count).toBe(2)
-    // Ensure scope filters were applied to both the SELECT and the UPDATE.
-    const userWhere = whereCalls.filter((call) => call[1] === 'recipient_user_id')
-    const tenantWhere = whereCalls.filter((call) => call[1] === 'tenant_id')
-    const statusWhere = whereCalls.filter((call) => call[1] === 'status')
-    const orgWhere = whereCalls.filter((call) => call[1] === 'organization_id')
-    expect(userWhere.length).toBeGreaterThanOrEqual(2)
-    expect(tenantWhere.length).toBeGreaterThanOrEqual(2)
-    expect(statusWhere[0]).toEqual(['select', 'status', '=', 'unread'])
-    expect(orgWhere[0]).toEqual(['select', 'organization_id', '=', 'org-1'])
-    // markAllAsRead must scope to the SAME in-app-visible set as the badge (getUnreadCount): a single
-    // raw predicate (`channels IS NULL OR channels @> '["in_app"]'`) applied to BOTH the SELECT that
-    // collects targets and the UPDATE that flips them, so push/email-only rows are never marked read.
-    const rawWhere = whereCalls.filter((call) => call.length === 2)
-    expect(rawWhere.filter((call) => call[0] === 'select')).toHaveLength(1)
-    expect(rawWhere.filter((call) => call[0] === 'update')).toHaveLength(1)
-    const compiledPredicate = (rawWhere[0][1] as { compile: (db: Kysely<any>) => { sql: string } }).compile(
-      createCompileKysely(),
-    )
-    expect(compiledPredicate.sql).toBe('("channels" is null or "channels" @> $1::jsonb)')
+    expect(executeQuery).toHaveBeenCalledTimes(2)
+    for (const [query] of executeQuery.mock.calls) {
+      expect(query.sql).toBe(
+        'update "notifications" set "status" = $1, "read_at" = now() ' +
+        'where "recipient_user_id" = $2 and "tenant_id" = $3 and "status" = $4 ' +
+        'and ("channels" is null or "channels" @> $5::jsonb) and "organization_id" = $6 returning "id"',
+      )
+      expect(query.parameters).toEqual(['read', ctx.userId, ctx.tenantId, 'unread', '["in_app"]', 'org-1'])
+    }
+    expect(findWithDecryption).toHaveBeenCalledTimes(1)
     expect(findWithDecryption).toHaveBeenCalledWith(
       em,
       expect.anything(),
-      { id: { $in: ['note-11', 'note-12'] } },
+      {
+        id: { $in: ['note-11', 'note-12'] },
+        tenantId: ctx.tenantId,
+        recipientUserId: ctx.userId,
+      },
       undefined,
-      { tenantId: baseCtx.tenantId, organizationId: 'org-1' },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
     expect(eventBus.emit).toHaveBeenCalledTimes(4)
     for (const note of notifications) {
@@ -508,6 +487,50 @@ describe('notification service', () => {
         })
       )
     }
+  })
+
+  it.each([
+    {
+      label: 'an organization is selected (selected org plus its child organizations)',
+      organizationId: 'org-1',
+      organizationIds: ['org-1', 'org-1-child'],
+      expectedSql: '("organization_id" in ($6, $7) or "organization_id" is null)',
+      expectedParameters: ['org-1', 'org-1-child'],
+    },
+    {
+      label: 'no single organization is selected and the visible organizations are restricted',
+      organizationId: null,
+      organizationIds: ['org-2', 'org-3'],
+      expectedSql: '("organization_id" in ($6, $7) or "organization_id" is null)',
+      expectedParameters: ['org-2', 'org-3'],
+    },
+    {
+      label: 'the caller can see no organization at all',
+      organizationId: null,
+      organizationIds: [],
+      expectedSql: '"organization_id" is null',
+      expectedParameters: [],
+    },
+  ])('marks all as read in the same organization scope as the unread badge when $label', async ({
+    organizationId,
+    organizationIds,
+    expectedSql,
+    expectedParameters,
+  }) => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const executeQuery = mockBulkReadDatabase(em).mockResolvedValue({ rows: [{ id: 'note-21' }] })
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+    const service = createNotificationService({ em, eventBus })
+
+    await expect(service.markAllAsRead({ ...baseCtx, organizationId, organizationIds })).resolves.toBe(1)
+
+    expect(executeQuery).toHaveBeenCalledTimes(1)
+    const [[query]] = executeQuery.mock.calls
+    expect(query.sql).toContain(`and ${expectedSql} returning "id"`)
+    expect(query.parameters).toEqual([
+      'read', baseCtx.userId, baseCtx.tenantId, 'unread', '["in_app"]', ...expectedParameters,
+    ])
   })
 
   it('counts unread notifications in the selected organization plus tenant-wide scope', async () => {

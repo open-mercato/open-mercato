@@ -26,7 +26,7 @@ The server runs in one of two modes depending on how you intend to use it:
 | Port | **3001** (override with `MCP_DEV_PORT`) | — |
 | Endpoint | `http://localhost:3001/mcp` | — |
 | Health | `http://localhost:3001/health` | — |
-| Auth | A single API key, read **once** at startup | Two-tier: server key + per-user session tokens, checked per tool call |
+| Auth | A single API key, read **once** at startup | Server API key for the connection and a required per-user session token on every tool call |
 | Key source | `.mcp.json` → `mcpServers.open-mercato.headers.x-api-key` (no env fallback) | `MCP_SERVER_API_KEY` env var + session tokens |
 
 :::note
@@ -102,7 +102,7 @@ The dev server filters the available tools by the API key's ACL **at startup**. 
 **Zero-features pitfall:** if your API key has no roles or features, the server starts fine but exposes **only** `context_whoami` — every other tool silently disappears. If Claude Code sees just one tool, your key is missing grants. Bind it to a role such as `admin` (or a role with the relevant `<module>.*` wildcard grants) and reconnect.
 :::
 
-## Stdio server authentication (`mercato ai_assistant mcp:serve`)
+## Stdio server authentication (`mercato ai_assistant mcp:serve`) {#stdio-server-authentication-mercato-ai_assistant-mcpserve}
 
 The `mercato ai_assistant mcp:serve` command runs the MCP server over **stdio** (one process per client, used by some local MCP clients). It is a distinct command from the HTTP servers above — note that the `yarn mcp:serve` script is aliased to `mcp:serve-http`, so this stdio command is reached by invoking the `mercato` CLI directly.
 
@@ -302,3 +302,11 @@ Fix it by adding the route's feature(s) to the tool — **never** by weakening t
 - In Claude Code, `/mcp` shows the current connection state.
 - `yarn mercato ai_assistant mcp:list-tools --verbose` lists all registered tools and their required features.
 :::
+
+### Production HTTP tool authentication
+
+The production MCP HTTP server (`mcp:serve-http`) authenticates the connection with the server's `x-api-key`. Every `tools/call` also requires a valid per-user `_sessionToken` in the tool arguments. The server runs the tool with that user's permissions. A missing token returns `UNAUTHORIZED`, and an invalid or expired token returns `SESSION_EXPIRED`.
+
+Web chat and Code Mode supply the token automatically. If tool calls fail because a token could not be created for the current chat, start a new chat so the first turn can create one.
+
+For unattended automation that uses an API key without a user session, migrate to [the stdio server](#stdio-server-authentication-mercato-ai_assistant-mcpserve). Configure `OPEN_MERCATO_API_KEY` with a key scoped to the automation account, or run `mcp:serve` with an explicit tenant and user context.
