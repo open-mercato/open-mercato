@@ -429,6 +429,43 @@ Shipped implementation (`packages/eslint-plugin-ds/rules/no-off-grid-spacing.js`
 - Flags half steps (`px-2.5`, `gap-1.5`, `-ml-0.5`, also behind variants such as `hover:` or `[&>*]:`) and arbitrary spacing (`p-[13px]`). CSS-variable shorthands such as `pl-(--accordion-indent)` and sizing utilities (`size-3.5`, `w-1.5`) are not spacing and pass.
 - Scope: `packages/ui/src/primitives/**` and `packages/ui/src/blocks/**` at `error`. Structural geometry opts out per line with `eslint-disable-next-line om-ds/no-off-grid-spacing -- <reason>` (today: switch track inset, file-format artwork, avatar stack overlap).
 
+### L.7b `om-ds/prefer-business-block`
+
+**Goal**: Module code reaches for a business block instead of hand-building the same surface again. Advisory (`warn`); it never fails CI in its current form.
+
+Shipped implementation (`packages/eslint-plugin-ds/rules/prefer-business-block.js`):
+
+| Block | Import | Showcase | What the rule recognises |
+|-------|--------|----------|--------------------------|
+| `bulk-action-bar` | `@open-mercato/ui/blocks/bulk-action-bar` | `/blocks/bulk-action-bar/` | Components named `*BulkActionBar`, `*BulkActionsBar`, `*BulkBar`, `*SelectionBar` (also with `Toolbar`) |
+| `entity-header` | `@open-mercato/ui/blocks/entity-header` | `/blocks/entity-header/` | `*DetailHeader`, `*RecordHeader`, `*EntityHeader`, `*HeaderCard` |
+| `list-toolbar` | `@open-mercato/ui/blocks/list-toolbar` | `/blocks/list-toolbar/` | `*FilterBar`, `*FilterBarRow`, `*ListToolbar`, `*TableToolbar` |
+| `form-save-bar` | `@open-mercato/ui/blocks/form-save-bar` | `/blocks/form-save-bar/` | `*SaveBar`, `*UnsavedChangesBar`; or an element pinned to the bottom (`sticky`/`fixed` with a `bottom-*` class) that contains a button and reads a `dirty`/`unsaved` identifier |
+| `timeline` | `@open-mercato/ui/blocks/timeline` | `/blocks/timeline/` | `*Timeline`, `*TimelineItem`, `*TimelineEntry`, `*ActivityFeed` |
+| `kanban` | `@open-mercato/ui/blocks/kanban` | `/blocks/kanban/` | `*KanbanBoard`, `*KanbanPage`, `*KanbanView`, `*PipelineBoard` |
+| `wizard` | `@open-mercato/ui/blocks/wizard` | `/blocks/wizard/` | `*Wizard`, `*WizardDialog`, `*WizardPage`, `*WizardNav`, `*WizardFlow`, `*StepIndicator` |
+| `key-value` | `@open-mercato/ui/blocks/key-value` | `/blocks/key-value/` | `*FactsList`, `*FactsGrid`, `*DetailsList`, `*MetadataList`, `*InfoList`, `*PropertiesList`, `*KeyValue`, `*KeyValueList`; or a raw `<dl>` element |
+
+- A name counts only on a component declaration: a `function` declaration, or a `const` initialised with a function, `memo(...)` or `forwardRef(...)`. Types, constants and imported components are ignored. The `.tsx` file name is checked against the same patterns when no declaration in the file already matched (reported on line 1).
+- Names were tuned against the modules as they are today. Deliberately not matched, because every hit was something else: bare `*Bar` and `*ActionBar` (KPI strips, timers, drop indicators, closure menus), bare `*Header` and `*Toolbar` (calendar chrome, section headers), `*Stepper` (stage paths and status progress, not user-driven flows), `*KanbanColumn`/`*KanbanCard` (parts of a board that is already reported once), `*Editor` variants of key-value names.
+- `stack` has no detection: spacing wrappers have no reliable name or structure.
+- **Adapter exemption**: a file that imports the matching block from `@open-mercato/ui/blocks/<id>` is not reported for that block. A thin module component that maps module data to block props is the intended shape.
+- **Scope** (`preferBusinessBlockScope` in `packages/eslint-plugin-ds/index.js`, registered in `eslint.ds.config.mjs`): `.tsx` under `packages/core/src/modules/**`, `packages/enterprise/src/modules/**` and `apps/mercato/src/modules/**`; tests, generated files, the `design_system` gallery, module `frontend/` pages and `ui/public/` renderers are excluded. `packages/ui` is out of scope.
+- **Opt-out**: `// eslint-disable-next-line om-ds/prefer-business-block -- <reason>` on the reported line, or `/* eslint-disable om-ds/prefer-business-block -- <reason> */` at the top of the file (the only form that covers a file-name finding). The reason is mandatory, as for every `om-ds` rule, and opt-outs are counted by the `DS lint opt-outs` row of the CI report.
+
+**Baseline (ratchet)**: hand-built surfaces that existed when the rule landed are listed in `packages/eslint-plugin-ds/baselines/prefer-business-block.json` as `{ "file": "<repo-relative path>", "block": "<id>" }` pairs. `eslint.ds.config.mjs` passes the list as the rule option `baseline`, and a finding whose file and block are listed is not reported. `yarn lint:ds` is therefore quiet for the listed files and warns when a new hand-built surface appears, including a second block's surface in a file that is listed for another block.
+
+```bash
+# adoption backlog: every finding without the baseline, plus new and stale entries
+node packages/eslint-plugin-ds/scripts/prefer-business-block-baseline.mjs --list
+# remove entries that no longer produce a finding (never adds one)
+node packages/eslint-plugin-ds/scripts/prefer-business-block-baseline.mjs --prune
+# rewrite the baseline from the current findings (only when the rule's patterns change)
+node packages/eslint-plugin-ds/scripts/prefer-business-block-baseline.mjs --write
+```
+
+An entry leaves the baseline when its file adopts the block (the import exempts the file, so the entry becomes stale) or the hand-built component is deleted; run `--prune` in the same change. Do not use `--write` to silence a new finding: adopt the block, or opt out on the line with a reason.
+
 ### L.8 Rules Summary
 
 | Rule | Severity (new code) | Severity (legacy) | Auto-fix |
@@ -441,6 +478,7 @@ Shipped implementation (`packages/eslint-plugin-ds/rules/no-off-grid-spacing.js`
 | `om-ds/no-hardcoded-status-colors` | error | error | Yes (suggestion) |
 | `om-ds/no-legacy-alert-variant` | error | warn | No (suggestions) |
 | `om-ds/no-off-grid-spacing` | error (primitives, blocks) | n/a | No |
+| `om-ds/prefer-business-block` | warn (advisory) | baselined | No |
 
 **Success metric**: 0 warnings on new modules, legacy warnings down 30% per sprint.
 

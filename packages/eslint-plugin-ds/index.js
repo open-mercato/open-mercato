@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import { requireEmptyState } from './rules/require-empty-state.js'
 import { requirePageWrapper } from './rules/require-page-wrapper.js'
 import { noRawTable } from './rules/no-raw-table.js'
@@ -6,6 +7,7 @@ import { requireStatusBadge } from './rules/require-status-badge.js'
 import { noHardcodedStatusColors } from './rules/no-hardcoded-status-colors.js'
 import { noLegacyAlertVariant } from './rules/no-legacy-alert-variant.js'
 import { noOffGridSpacing } from './rules/no-off-grid-spacing.js'
+import { preferBusinessBlock } from './rules/prefer-business-block.js'
 
 const plugin = {
   meta: {
@@ -21,6 +23,7 @@ const plugin = {
     'no-hardcoded-status-colors': noHardcodedStatusColors,
     'no-legacy-alert-variant': noLegacyAlertVariant,
     'no-off-grid-spacing': noOffGridSpacing,
+    'prefer-business-block': preferBusinessBlock,
   },
 }
 
@@ -48,6 +51,30 @@ plugin.configs = {
       'om-ds/no-legacy-alert-variant': 'warn',
     },
   },
+}
+
+const preferBusinessBlockRoots = [
+  'packages/core/src/modules',
+  'packages/enterprise/src/modules',
+  'apps/mercato/src/modules',
+]
+
+const preferBusinessBlockBaseline = createRequire(import.meta.url)('./baselines/prefer-business-block.json')
+
+export const preferBusinessBlockScope = {
+  roots: preferBusinessBlockRoots,
+  baseline: preferBusinessBlockBaseline.findings,
+  files: preferBusinessBlockRoots.map((root) => `${root}/**/*.tsx`),
+  ignores: [
+    '**/__tests__/**',
+    '**/__integration__/**',
+    '**/*.test.tsx',
+    '**/*.spec.tsx',
+    '**/*.generated.*',
+    '**/modules/design_system/**',
+    '**/modules/*/frontend/**',
+    '**/modules/*/ui/public/**',
+  ],
 }
 
 export default plugin

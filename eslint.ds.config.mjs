@@ -11,7 +11,7 @@ import tsParser from '@typescript-eslint/parser'
 import reactHooks from 'eslint-plugin-react-hooks'
 import react from 'eslint-plugin-react'
 import next from '@next/eslint-plugin-next'
-import omDs from '@open-mercato/eslint-plugin-ds'
+import omDs, { preferBusinessBlockScope } from '@open-mercato/eslint-plugin-ds'
 
 // Inline eslint-disable comments in app code reference rules from the main
 // Next.js config that are not part of this ruleset. With inline config
@@ -98,6 +98,19 @@ export default [
     languageOptions,
     plugins,
     rules: { 'om-ds/no-off-grid-spacing': 'error' },
+  },
+  // Business blocks (docs/design-system/lint-rules.md L.7b): advisory. Module
+  // code that hand-builds a surface a block already covers gets a warning.
+  // Known hand-built surfaces sit in the baseline
+  // packages/eslint-plugin-ds/baselines/prefer-business-block.json and stay
+  // quiet until they adopt the block; only additions speak up.
+  {
+    files: preferBusinessBlockScope.files,
+    ignores: preferBusinessBlockScope.ignores,
+    linterOptions,
+    languageOptions,
+    plugins,
+    rules: { 'om-ds/prefer-business-block': ['warn', { baseline: preferBusinessBlockScope.baseline }] },
   },
   // --- escalation overrides — see .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md ---
   // A module enters this list when its counter for the rule reads zero in two

@@ -1,5 +1,6 @@
 import { test } from 'node:test'
-import { RuleTester } from 'eslint'
+import assert from 'node:assert/strict'
+import { Linter, RuleTester } from 'eslint'
 import tsParser from '@typescript-eslint/parser'
 import plugin from '../index.js'
 
@@ -303,4 +304,147 @@ test('no-off-grid-spacing', () => {
       { code: `const c = '[&>*]:px-3.5'`, filename: primitive, errors: [{ messageId: 'offGrid' }] },
     ],
   })
+})
+
+test('prefer-business-block', () => {
+  const moduleFile = (name) => `/repo/packages/core/src/modules/example/components/${name}.tsx`
+  const rule = plugin.rules['prefer-business-block']
+  const hit = (block) => ({
+    message: new RegExp(`use the \`${block}\` block from @open-mercato/ui/blocks/${block} \\(showcase page /blocks/${block}/\\)`),
+  })
+  ruleTester.run('prefer-business-block', rule, {
+    valid: [
+      { code: `export function OrdersPanel() { return <div /> }`, filename: moduleFile('OrdersPanel') },
+      { code: `export function CompanyKpiBar() { return <div /> }`, filename: moduleFile('CompanyKpiBar') },
+      { code: `export function DealClosureActionBar() { return <div /> }`, filename: moduleFile('DealClosureActionBar') },
+      { code: `export function CalendarHeader() { return <h1 /> }`, filename: moduleFile('CalendarHeader') },
+      { code: `export function TimelineItemHeader() { return <div /> }`, filename: moduleFile('TimelineItemHeader') },
+      { code: `export function CalendarToolbar() { return <div /> }`, filename: moduleFile('CalendarToolbar') },
+      { code: `export function PipelineStepper() { return <ol /> }`, filename: moduleFile('PipelineStepper') },
+      { code: `export function KanbanColumn() { return <div /> }`, filename: moduleFile('KanbanColumn') },
+      { code: `export function KeyValueRowsEditor() { return <div /> }`, filename: moduleFile('KeyValueRowsEditor') },
+      { code: `export function SaveIndicator() { return <span /> }`, filename: moduleFile('SaveIndicator') },
+      { code: `type WizardStep = 'one' | 'two'\nconst STEPS: WizardStep[] = ['one', 'two']\nexport function Flow() { return <div>{STEPS.length}</div> }`, filename: moduleFile('Flow') },
+      { code: `const DealTimeline = { limit: 5 }\nexport function Panel() { return <div>{DealTimeline.limit}</div> }`, filename: moduleFile('Panel') },
+      { code: `import { OrderDetailHeader } from './header'\nexport function Panel() { return <OrderDetailHeader /> }`, filename: moduleFile('Panel') },
+      {
+        code: `export function Footer({ onSend }) { return <div className="sticky bottom-0 border-t"><Button onClick={onSend}>Send</Button></div> }`,
+        filename: moduleFile('Footer'),
+      },
+      {
+        code: `export function Hint({ isDirty }) { return <div className="sticky top-0">{isDirty ? 'x' : 'y'}<Button>Save</Button></div> }`,
+        filename: moduleFile('Hint'),
+      },
+      {
+        code: `import { BulkActionBar } from '@open-mercato/ui/blocks/bulk-action-bar'\nexport function BulkActionsBar(props) { return <BulkActionBar {...props} /> }`,
+        filename: moduleFile('BulkActionsBar'),
+      },
+      {
+        code: `import { KeyValue } from '@open-mercato/ui/blocks/key-value'\nexport function OrderFactsList({ items }) { return <KeyValue items={items} /> }`,
+        filename: moduleFile('OrderFactsList'),
+      },
+      {
+        code: `import type { TimelineProps } from '@open-mercato/ui/blocks/timeline/index'\nexport function DealTimeline(props: TimelineProps) { return <div /> }`,
+        filename: moduleFile('DealTimeline'),
+      },
+      {
+        code: `export function OrdersBulkActionsBar() { return <div /> }`,
+        filename: moduleFile('OrdersBulkActionsBar'),
+        options: [{ baseline: [{ file: 'packages/core/src/modules/example/components/OrdersBulkActionsBar.tsx', block: 'bulk-action-bar' }] }],
+      },
+      {
+        code: `export function Facts() { return <dl><dt>Owner</dt><dd>Ada</dd></dl> }`,
+        filename: 'C:\\repo\\packages\\core\\src\\modules\\example\\components\\Facts.tsx',
+        options: [{ baseline: [{ file: 'packages/core/src/modules/example/components/Facts.tsx', block: 'key-value' }] }],
+      },
+    ],
+    invalid: [
+      { code: `export function OrdersBulkActionsBar() { return <div /> }`, filename: moduleFile('OrdersBulkActionsBar'), errors: [hit('bulk-action-bar')] },
+      { code: `export const RowSelectionBar = () => <div />`, filename: moduleFile('RowSelectionBar'), errors: [hit('bulk-action-bar')] },
+      { code: `export function OrderDetailHeader() { return <h1 /> }`, filename: moduleFile('OrderDetailHeader'), errors: [hit('entity-header')] },
+      { code: `export const AgentHeaderCard = React.memo(function Inner() { return <h1 /> })`, filename: moduleFile('AgentHeaderCard'), errors: [hit('entity-header')] },
+      { code: `export function FilterBarRow() { return <div /> }`, filename: moduleFile('FilterBarRow'), errors: [hit('list-toolbar')] },
+      { code: `export function OrdersTableToolbar() { return <div /> }`, filename: moduleFile('OrdersTableToolbar'), errors: [hit('list-toolbar')] },
+      { code: `export function UnsavedChangesBar() { return <div /> }`, filename: moduleFile('UnsavedChangesBar'), errors: [hit('form-save-bar')] },
+      {
+        code: `export function Settings({ isDirty, onSave }) { return <div className={\`sticky bottom-0 border-t \${isDirty ? 'a' : 'b'}\`}><Button disabled={!isDirty} onClick={onSave}>Save</Button></div> }`,
+        filename: moduleFile('Settings'),
+        errors: [hit('form-save-bar')],
+      },
+      {
+        code: `export function Settings({ dirty, onSave }) { return <div className="fixed inset-x-0 bottom-4"><span>{dirty ? 'x' : 'y'}</span><button onClick={onSave}>Save</button></div> }`,
+        filename: moduleFile('Settings'),
+        errors: [hit('form-save-bar')],
+      },
+      { code: `export function ActivityTimeline() { return <ul /> }`, filename: moduleFile('ActivityTimeline'), errors: [hit('timeline')] },
+      { code: `function TimelineItem() { return <li /> }\nexport function History() { return <TimelineItem /> }`, filename: moduleFile('History'), errors: [hit('timeline')] },
+      { code: `export function AccountActivityFeed() { return <ul /> }`, filename: moduleFile('AccountActivityFeed'), errors: [hit('timeline')] },
+      { code: `export function KanbanBoard() { return <div /> }`, filename: moduleFile('KanbanBoard'), errors: [hit('kanban')] },
+      { code: `export default function DealsKanbanPage() { return <div /> }`, filename: '/repo/packages/core/src/modules/example/backend/deals/page.tsx', errors: [hit('kanban')] },
+      { code: `export default function SsoConfigCreateWizard() { return <div /> }`, filename: '/repo/packages/core/src/modules/example/backend/new/page.tsx', errors: [hit('wizard')] },
+      { code: `function ImportStepIndicator() { return <ol /> }\nexport function ImportDialog() { return <ImportStepIndicator /> }`, filename: moduleFile('ImportDialog'), errors: [hit('wizard')] },
+      { code: `export function FactsGrid() { return <div /> }`, filename: moduleFile('ProposalFacts'), errors: [hit('key-value')] },
+      { code: `export function Panel() { return <dl><dt>Owner</dt><dd>Ada</dd></dl> }`, filename: moduleFile('Panel'), errors: [hit('key-value')] },
+      { code: `export function EntryFilterPresets() { return <div /> }`, filename: moduleFile('EntryFilterBar'), errors: [{ ...hit('list-toolbar'), line: 1 }] },
+      {
+        code: `import { Timeline } from '@open-mercato/ui/blocks/timeline'\nexport function DealDetailHeader() { return <Timeline items={[]} /> }`,
+        filename: moduleFile('DealDetailHeader'),
+        errors: [hit('entity-header')],
+      },
+      {
+        code: `export function OrdersBulkActionsBar() { return <dl /> }`,
+        filename: moduleFile('OrdersBulkActionsBar'),
+        options: [{ baseline: [{ file: 'packages/core/src/modules/example/components/OrdersBulkActionsBar.tsx', block: 'bulk-action-bar' }] }],
+        errors: [hit('key-value')],
+      },
+      {
+        code: `export function OrdersBulkActionsBar() { return <div /> }`,
+        filename: '/repo/packages/core/src/modules/other/components/OrdersBulkActionsBar.tsx',
+        options: [{ baseline: [{ file: 'packages/core/src/modules/example/components/OrdersBulkActionsBar.tsx', block: 'bulk-action-bar' }] }],
+        errors: [hit('bulk-action-bar')],
+      },
+    ],
+  })
+})
+
+test('prefer-business-block message and opt-out', () => {
+  const linter = new Linter({ configType: 'flat' })
+  const config = [
+    {
+      files: ['**/*.tsx'],
+      languageOptions: {
+        parser: tsParser,
+        ecmaVersion: 2022,
+        sourceType: 'module',
+        parserOptions: { ecmaFeatures: { jsx: true } },
+      },
+      plugins: { 'om-ds': plugin },
+      rules: { 'om-ds/prefer-business-block': 'warn' },
+    },
+  ]
+  const lint = (code) => linter.verify(code, config, { filename: 'packages/core/src/modules/example/components/Panel.tsx' })
+
+  const reported = lint(`export function OrderTimeline() { return <ul /> }`)
+  assert.equal(reported.length, 1)
+  assert.equal(reported[0].severity, 1)
+  assert.equal(
+    reported[0].message,
+    'Hand-built component `OrderTimeline` — use the `timeline` block from @open-mercato/ui/blocks/timeline (showcase page /blocks/timeline/), or wrap it in a thin adapter.',
+  )
+
+  const lineOptOut = lint(
+    `// eslint-disable-next-line om-ds/prefer-business-block -- renders a chart axis, not an activity history\nexport function OrderTimeline() { return <ul /> }`,
+  )
+  assert.deepEqual(lineOptOut, [])
+
+  const fileOptOut = lint(
+    `/* eslint-disable om-ds/prefer-business-block -- print layout, blocks are screen only */\nexport function OrderTimeline() { return <dl /> }`,
+  )
+  assert.deepEqual(fileOptOut, [])
+
+  const otherLine = lint(
+    `// eslint-disable-next-line om-ds/prefer-business-block -- renders a chart axis, not an activity history\nexport function OrderTimeline() { return <ul /> }\nexport function Facts() { return <dl /> }`,
+  )
+  assert.equal(otherLine.length, 1)
+  assert.match(otherLine[0].message, /`key-value` block/)
 })
