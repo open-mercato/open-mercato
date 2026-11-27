@@ -40,6 +40,7 @@ import { matchesPreviewedValues, resolvePreviewFieldDiff } from './prepare-mutat
 import { readToolAttachmentIds } from './tool-input'
 import {
   planPendingActionExecution,
+  hasNarrowablePendingActionInput,
   resolvePendingActionBatchMessages,
   type PendingActionExecutionPlan,
 } from './pending-action-batch'
@@ -490,7 +491,7 @@ async function refuseChangedPreview(): Promise<PendingActionRecheckFailResult> {
     code: 'schema_drift',
     message: translate(
       'ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody',
-      'The tool signature changed since this preview was generated. Ask the assistant to re-propose the change.',
+      'The tool input or preview changed. Cancel this proposal, then ask the assistant to re-propose the change.',
     ),
   }
 }
@@ -503,6 +504,7 @@ async function checkConfirmationRecords(
 ): Promise<PendingActionConfirmationRecheckResult> {
   const handlerContext = toHandlerContext(ctx)
   const verifyPreviewValues = !isRawToolPendingAction(action)
+  const resolverInput = verifyPreviewValues ? action.normalizedInput ?? {} : toolInput
 
   const records = Array.isArray(action.records) ? action.records : null
   if (records && records.length > 0) {
@@ -511,9 +513,12 @@ async function checkConfirmationRecords(
       if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
       return { ok: true, executionPlan: plan }
     }
-    const currentRows = await tool.loadBeforeRecords(toolInput as never, handlerContext)
+    const currentRows = await tool.loadBeforeRecords(resolverInput as never, handlerContext)
     const currentById = new Map((currentRows ?? []).map((row) => [row.recordId, row]))
     const approvedById = new Map(records.map((record) => [record.recordId, record]))
+    if (!hasNarrowablePendingActionInput(toolInput) && (
+      Array.from(currentById.keys()).some((recordId) => !approvedById.has(recordId))
+    )) return refuseChangedPreview()
     const messages = await resolvePendingActionBatchMessages()
     const stale: AiPendingActionFailedRecord[] = []
     for (const record of records as AiPendingActionRecordDiff[]) {
@@ -565,7 +570,7 @@ async function checkConfirmationRecords(
   if (!tool.loadBeforeRecord) {
     return { ok: true, executionPlan: plan }
   }
-  const before = await tool.loadBeforeRecord(toolInput as never, handlerContext)
+  const before = await tool.loadBeforeRecord(resolverInput as never, handlerContext)
   const targetRecordId = action.targetRecordId
   const captured = action.recordVersion ?? null
   const identityChanged = targetRecordId && before?.recordId !== targetRecordId

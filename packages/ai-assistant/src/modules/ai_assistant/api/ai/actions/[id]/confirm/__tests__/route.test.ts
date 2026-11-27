@@ -307,12 +307,11 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     }
     expect((await response.json()).ok).toBe(true)
     expect(loadBeforeRecords).toHaveBeenCalledWith({
-      unit: 'g',
       records: [
-        { recordId: 'p-1', title: 'Fresh!' },
-        { recordId: 'p-2', title: 'Stale!' },
-        { recordId: 'p-3', title: 'Unpreviewed!' },
-        { recordId: 'p-1', title: 'Repeated!' },
+        { recordId: 'p-1', title: 'Fresh' },
+        { recordId: 'p-2', title: 'Stale' },
+        { recordId: 'p-3', title: 'Unpreviewed' },
+        { recordId: 'p-1', title: 'Repeated' },
       ],
     }, expect.anything())
     expect(handler).toHaveBeenCalledTimes(1)
@@ -342,12 +341,16 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
       description: 'Update product',
       isMutation: true,
       inputSchema,
-      loadBeforeRecord: async () => ({
-        recordId: 'p-1',
-        entityType: 'product',
-        recordVersion: 'v-1',
-        before: { title: 'Old', weight: 0, unit: 'kg' },
-      }),
+      loadBeforeRecord: async (input) => {
+        const parsed = inputSchema.parse(input)
+        return {
+          recordId: parsed.productId,
+          entityType: 'product',
+          recordVersion: 'v-1',
+          before: { title: 'Old', weight: 0, unit: 'kg' },
+          after: parsed.patch,
+        }
+      },
       handler: async (input) => {
         write(inputSchema.parse(input).patch)
         return { recordId: 'p-1' }
@@ -390,6 +393,33 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     } finally {
       getToolRegistry().unregisterTool(tool.name)
     }
+  })
+
+  it('refuses a resolver-derived extra record before dispatching the registered handler', async () => {
+    const handler = jest.fn()
+    getToolMock.mockReturnValueOnce({
+      ...makeTool({ handler }),
+      inputSchema: z.object({ mediaUpdates: z.array(z.object({ mediaId: z.string(), title: z.string() })) }),
+      isBulk: true,
+      loadBeforeRecord: undefined,
+      loadBeforeRecords: async () => ['p-1', 'p-2'].map((recordId) => ({
+        recordId,
+        entityType: 'product',
+        recordVersion: 'v-1',
+        before: {},
+      })),
+    })
+    repoGetByIdMock.mockResolvedValueOnce(makeRow({
+      normalizedInput: { mediaUpdates: [{ mediaId: 'p-1', title: 'New' }] },
+      records: [{ recordId: 'p-1', entityType: 'product', recordVersion: 'v-1', fieldDiff: [] }],
+    }))
+
+    const response = await POST(buildRequest() as Parameters<typeof POST>[0], buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(412)
+    expect(await response.json()).toMatchObject({ code: 'schema_drift' })
+    expect(handler).not.toHaveBeenCalled()
+    expect(repoSetStatusMock).not.toHaveBeenCalled()
   })
 
   it.each(['single', 'batch'])('refuses a %s preview whose empty diff becomes a change', async (kind) => {

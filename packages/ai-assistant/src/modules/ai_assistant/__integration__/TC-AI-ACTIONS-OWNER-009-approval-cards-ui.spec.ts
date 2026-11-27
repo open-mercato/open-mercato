@@ -109,6 +109,42 @@ async function openCard(page: Page, uiPart: string, pendingActionId: string): Pr
 }
 
 test.describe('TC-AI-ACTIONS-OWNER-009: approval cards honour owner scope and the tool feature re-check', () => {
+  test('an obsolete preview explains cancellation and can be cancelled without a write', async ({ page, request }, testInfo) => {
+    const token = await getAuthToken(request, 'admin');
+    const { tenantId, organizationId, userId } = getTokenScope(token);
+    const productId = await createProductFixture(request, token, { title: `IT obsolete preview ${randomUUID()}`, sku: `IT-OBSOLETE-${randomUUID()}` });
+    let pendingActionId: string | null = null;
+    try {
+      const originalTitle = await readCatalogProductTitleInDb(productId);
+      const row = await seedPendingActionInDb({
+        tenantId, organizationId, createdByUserId: userId, agentId: AGENT_ID, toolName: TOOL_NAME,
+        targetRecordId: productId, normalizedInput: { productId, title: 'Current schema value' },
+        fieldDiff: [{ field: 'title', before: originalTitle, after: 'Obsolete preview value' }],
+      });
+      pendingActionId = row.id;
+      await loginWithToken(page, token);
+      await openCard(page, 'mutation-preview-card', row.id);
+      const response = page.waitForResponse((response) => response.url().includes(`/ai/actions/${row.id}/confirm`) && response.request().method() === 'POST');
+      await page.locator('[data-ai-mutation-preview-confirm]').click();
+      expect((await response).status()).toBe(412);
+      const error = page.locator('[data-ai-confirmation-error="schema_drift"]');
+      await expect(error).toBeVisible();
+      await expect(error).toContainText('Cancel this proposal');
+      await page.screenshot({ path: testInfo.outputPath('schema-drift-recovery.png'), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await expect(error).toBeVisible();
+      await page.screenshot({ path: testInfo.outputPath('schema-drift-recovery-mobile.png'), fullPage: true });
+      const cancelled = page.waitForResponse((response) => response.url().includes(`/ai/actions/${row.id}/cancel`) && response.request().method() === 'POST');
+      await page.locator('[data-ai-mutation-preview-cancel]').click();
+      expect((await cancelled).status()).toBe(200);
+      expect((await readPendingActionStateInDb(row.id))?.status).toBe('cancelled');
+      expect(await readCatalogProductTitleInDb(productId)).toBe(originalTitle);
+    } finally {
+      if (pendingActionId) await deletePendingActionInDb(pendingActionId);
+      await deleteCatalogProductIfExists(request, token, productId);
+    }
+  });
+
   test('a non-owner sees an unavailable card and a refused confirm shows the permission alert', async ({ page, request }) => {
     test.slow();
     const adminToken = await getAuthToken(request, 'admin');

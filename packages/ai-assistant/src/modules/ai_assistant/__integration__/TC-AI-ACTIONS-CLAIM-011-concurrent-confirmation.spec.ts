@@ -24,6 +24,8 @@ test('TC-AI-ACTIONS-CLAIM-011: concurrent confirmation creates exactly one comme
       agentId: 'customers.account_assistant',
       toolName: 'customers.manage_record_comment',
       normalizedInput: { operation: 'create', companyId, body: marker },
+      targetRecordId: companyId,
+      fieldDiff: [{ field: 'body', before: null, after: marker }],
     })
     pendingActionId = action.id
     const confirmations = await Promise.all(Array.from({ length: 20 }, () => apiRequest(

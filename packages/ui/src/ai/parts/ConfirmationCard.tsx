@@ -301,7 +301,7 @@ export function ConfirmationErrorAlert({
         <AlertDescription>
           {t(
             'ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody',
-            'The tool signature changed since this preview was generated. Ask the assistant to re-propose the change.',
+            'The tool input or preview changed. Cancel this proposal, then ask the assistant to re-propose the change.',
           )}
         </AlertDescription>
       </Alert>

@@ -120,6 +120,10 @@ function readBatchEntries(input: unknown): unknown[] | null {
   return records.every((entry) => readEntryId(entry) !== null) ? records : null
 }
 
+export function hasNarrowablePendingActionInput(input: unknown): boolean {
+  return readBatchEntries(input) !== null
+}
+
 function collectVersions(
   recordIds: Iterable<string>,
   versionById: Map<string, string | null>,

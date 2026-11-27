@@ -80,6 +80,8 @@ export interface SeedPendingActionInput {
   /** Minutes from now until expiry. Negative => the row is already expired. */
   expiresInMinutes?: number;
   normalizedInput?: Record<string, unknown>;
+  fieldDiff?: Array<{ field: string; before?: unknown; after?: unknown }>;
+  targetRecordId?: string;
   executionResult?: Record<string, unknown> | null;
   idempotencyKey?: string;
   channel?: 'agent' | 'mcp' | 'tools-api';
@@ -111,11 +113,11 @@ export async function seedPendingActionInDb(input: SeedPendingActionInput): Prom
       `insert into ai_pending_actions
          (id, tenant_id, organization_id, agent_id, tool_name, normalized_input,
           field_diff, attachment_ids, idempotency_key, created_by_user_id, status,
-          queue_mode, execution_result, created_at, expires_at, channel, api_key_id)
+          queue_mode, execution_result, created_at, expires_at, channel, api_key_id, target_record_id)
        values
          (gen_random_uuid(), $1, $2, $3, $4, $5::jsonb,
-          '[]'::jsonb, '[]'::jsonb, $6, $7, $8,
-          'inline', $9::jsonb, now(), now() + make_interval(mins => $10::int), $11, $12)
+          $13::jsonb, '[]'::jsonb, $6, $7, $8,
+          'inline', $9::jsonb, now(), now() + make_interval(mins => $10::int), $11, $12, $14)
        returning id`,
       [
         input.tenantId,
@@ -130,6 +132,8 @@ export async function seedPendingActionInDb(input: SeedPendingActionInput): Prom
         expiresInMinutes,
         input.channel ?? 'agent',
         input.apiKeyId ?? null,
+        JSON.stringify(input.fieldDiff ?? []),
+        input.targetRecordId ?? null,
       ],
     );
     return { id: result.rows[0].id, idempotencyKey };

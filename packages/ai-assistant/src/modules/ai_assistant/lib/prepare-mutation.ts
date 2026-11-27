@@ -315,6 +315,7 @@ async function buildSingleRecordDiff(
   tool: AiToolDefinition,
   toolCallArgs: unknown,
   handlerContext: McpToolContext,
+  resolverInput: unknown = toolCallArgs,
 ): Promise<{
   fieldDiff: AiPendingActionFieldDiff[]
   targetEntityType: string | null
@@ -334,7 +335,7 @@ async function buildSingleRecordDiff(
     }
   }
   const before: AiToolLoadBeforeSingleRecord | null = await resolver(
-    toolCallArgs as never,
+    resolverInput as never,
     handlerContext,
   )
   if (!before) {
@@ -359,6 +360,7 @@ async function buildBatchRecords(
   tool: AiToolDefinition,
   toolCallArgs: unknown,
   handlerContext: McpToolContext,
+  resolverInput: unknown = toolCallArgs,
 ): Promise<{
   records: AiPendingActionRecordDiff[] | null
   targetEntityType: string | null
@@ -374,7 +376,7 @@ async function buildBatchRecords(
     }
   }
   const rows: AiToolLoadBeforeRecord[] = await resolver(
-    toolCallArgs as never,
+    resolverInput as never,
     handlerContext,
   )
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -412,9 +414,10 @@ async function buildMutationPreview(
   tool: AiToolDefinition,
   toolCallArgs: unknown,
   handlerContext: McpToolContext,
+  resolverInput: unknown = toolCallArgs,
 ): Promise<MutationPreview> {
   if (tool.isBulk === true) {
-    const batch = await buildBatchRecords(tool, toolCallArgs, handlerContext)
+    const batch = await buildBatchRecords(tool, toolCallArgs, handlerContext, resolverInput)
     return {
       fieldDiff: [],
       records: batch.records,
@@ -424,7 +427,7 @@ async function buildMutationPreview(
       sideEffectsSummary: batch.sideEffectsSummary,
     }
   }
-  const single = await buildSingleRecordDiff(tool, toolCallArgs, handlerContext)
+  const single = await buildSingleRecordDiff(tool, toolCallArgs, handlerContext, resolverInput)
   return {
     fieldDiff: single.fieldDiff,
     records: null,
@@ -482,7 +485,7 @@ export async function prepareMutation(
     targetRecordId,
     recordVersion,
     sideEffectsSummary,
-  } = await buildMutationPreview(tool, previewInput, toolHandlerContext(ctx))
+  } = await buildMutationPreview(tool, previewInput, toolHandlerContext(ctx), normalizedInput)
 
   const conversationId = input.conversationId ?? null
   const idempotencyKey = computeMutationIdempotencyKey({

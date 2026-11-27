@@ -7,6 +7,7 @@
     "verbatimModuleSyntax": false,
     "paths": {
       "@/*": ["./src/*"],
+      "typescript": ["../../node_modules/typescript-js"],
       "@/.mercato/generated/entities/*": ["./.mercato/generated/entities/*/index.ts"],
       "@/.mercato/*": ["./.mercato/*"]
     }

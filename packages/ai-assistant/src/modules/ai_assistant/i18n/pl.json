@@ -214,7 +214,7 @@
   "ai_assistant.chat.mutation_cards.confirmation.invalidStatusBody": "Ta akcja została już potwierdzona, anulowana lub wykonana.",
   "ai_assistant.chat.mutation_cards.confirmation.invalidStatusTitle": "Akcja została już rozstrzygnięta",
   "ai_assistant.chat.mutation_cards.confirmation.notFoundTitle": "Propozycja niedostępna",
-  "ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody": "Sygnatura narzędzia zmieniła się od czasu podglądu. Poproś asystenta o ponowną propozycję zmiany.",
+  "ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody": "Dane narzędzia lub podgląd uległy zmianie. Anuluj tę propozycję, a następnie poproś asystenta o ponowną propozycję zmiany.",
   "ai_assistant.chat.mutation_cards.confirmation.schemaDriftTitle": "Zmienił się schemat",
   "ai_assistant.chat.mutation_cards.confirmation.staleVersionBody": "Co najmniej jeden rekord zmienił się od czasu wygenerowania podglądu. Poproś asystenta o ponowne zaproponowanie zmiany.",
   "ai_assistant.chat.mutation_cards.confirmation.staleVersionTitle": "Wymagana ponowna propozycja",

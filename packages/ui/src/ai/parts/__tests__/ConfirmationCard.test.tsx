@@ -29,7 +29,7 @@ const dict = {
     'One or more records changed since this preview was generated. Ask the assistant to re-propose the change.',
   'ai_assistant.chat.mutation_cards.confirmation.schemaDriftTitle': 'Schema changed',
   'ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody':
-    'The tool signature changed since this preview was generated. Ask the assistant to re-propose the change.',
+    'The tool input or preview changed. Cancel this proposal, then ask the assistant to re-propose the change.',
   'ai_assistant.chat.mutation_cards.confirmation.invalidStatusTitle': 'Action already resolved',
   'ai_assistant.chat.mutation_cards.confirmation.invalidStatusBody':
     'This action has already been confirmed, cancelled, or executed.',
@@ -137,7 +137,7 @@ describe('ConfirmationCard', () => {
     expect(document.querySelectorAll('p ul').length).toBe(0)
   })
 
-  it('renders the schema_drift "Schema changed" alert', () => {
+  it('explains and permits cancellation of an obsolete schema-drift preview', async () => {
     installPollingMock(baseAction({ status: 'pending' }))
     renderWithProviders(
       <ConfirmationCard
@@ -157,6 +157,9 @@ describe('ConfirmationCard', () => {
       document.querySelector('[data-ai-confirmation-error="schema_drift"]'),
     ).not.toBeNull()
     expect(screen.getByText('Schema changed')).toBeInTheDocument()
+    expect(screen.getByText(dict['ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody'])).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(cancelPendingAction).toHaveBeenCalledWith('pa-1', expect.any(Object)))
   })
 
   it.each([

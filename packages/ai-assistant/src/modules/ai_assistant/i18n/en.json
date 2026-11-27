@@ -214,7 +214,7 @@
   "ai_assistant.chat.mutation_cards.confirmation.invalidStatusBody": "This action has already been confirmed, cancelled, or executed.",
   "ai_assistant.chat.mutation_cards.confirmation.invalidStatusTitle": "Action already resolved",
   "ai_assistant.chat.mutation_cards.confirmation.notFoundTitle": "Proposal not available",
-  "ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody": "The tool signature changed since this preview was generated. Ask the assistant to re-propose the change.",
+  "ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody": "The tool input or preview changed. Cancel this proposal, then ask the assistant to re-propose the change.",
   "ai_assistant.chat.mutation_cards.confirmation.schemaDriftTitle": "Schema changed",
   "ai_assistant.chat.mutation_cards.confirmation.staleVersionBody": "One or more records changed since this preview was generated. Ask the assistant to re-propose the change.",
   "ai_assistant.chat.mutation_cards.confirmation.staleVersionTitle": "Re-propose required",
