@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react'
 
 import { cn } from '@open-mercato/shared/lib/utils'
 
@@ -30,6 +31,8 @@ import { cn } from '@open-mercato/shared/lib/utils'
  *   Figma striped block.
  * - `<TableFooter>` — bordered top footer row group.
  * - `<TableCaption>` — accessible caption above the table.
+ * - `<TableSortHead>` / `<TableSortButton>` — sortable column header: a flat
+ *   label with a direction chevron, `aria-sort` on the header cell.
  */
 
 export type TableSize = 'compact' | 'default' | 'comfortable'
@@ -142,6 +145,76 @@ export function TableHead({
       )}
       {...props}
     />
+  )
+}
+
+export type TableSortDirection = 'ascending' | 'descending' | 'none'
+
+export type TableSortButtonProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'type'> & {
+  direction?: TableSortDirection
+  align?: 'left' | 'right'
+}
+
+export function TableSortButton({
+  direction = 'none',
+  align = 'left',
+  className,
+  children,
+  ...props
+}: TableSortButtonProps) {
+  const Icon = direction === 'ascending' ? ChevronUp : direction === 'descending' ? ChevronDown : ChevronsUpDown
+  return (
+    <button
+      type="button"
+      data-slot="table-sort-button"
+      data-direction={direction}
+      className={cn(
+        '-mx-1 inline-flex min-h-8 max-w-full cursor-pointer select-none items-center gap-1 rounded-sm px-1 text-left outline-none transition-colors',
+        'text-muted-foreground hover:text-foreground focus-visible:shadow-focus',
+        'disabled:cursor-not-allowed disabled:text-text-disabled disabled:hover:text-text-disabled',
+        direction !== 'none' ? 'text-foreground' : '',
+        align === 'right' ? 'flex-row-reverse text-right' : '',
+        className,
+      )}
+      {...props}
+    >
+      <span className="truncate">{children}</span>
+      <Icon
+        aria-hidden="true"
+        className={cn('size-3.5 shrink-0', direction === 'none' ? 'opacity-50' : '')}
+      />
+    </button>
+  )
+}
+
+export type TableSortHeadProps = Omit<React.ThHTMLAttributes<HTMLTableCellElement>, 'onClick'> & {
+  direction?: TableSortDirection
+  onSort?: () => void
+  align?: 'left' | 'right'
+  disabled?: boolean
+  ref?: React.Ref<HTMLTableCellElement>
+}
+
+export function TableSortHead({
+  direction = 'none',
+  onSort,
+  align = 'left',
+  disabled,
+  className,
+  children,
+  ...props
+}: TableSortHeadProps) {
+  return (
+    <TableHead
+      scope="col"
+      aria-sort={direction}
+      className={cn(align === 'right' ? 'text-right' : '', className)}
+      {...props}
+    >
+      <TableSortButton direction={direction} align={align} disabled={disabled} onClick={onSort}>
+        {children}
+      </TableSortButton>
+    </TableHead>
   )
 }
 

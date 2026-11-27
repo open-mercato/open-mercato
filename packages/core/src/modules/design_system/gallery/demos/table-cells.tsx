@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -10,7 +10,7 @@ import { Progress } from '@open-mercato/ui/primitives/progress'
 import { Rating } from '@open-mercato/ui/primitives/rating'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
-import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
+import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow, TableSortButton, TableSortHead } from '@open-mercato/ui/primitives/table'
 
 const examples = ['Leading', 'Regular', 'Passive', 'Empty', 'Button', 'ButtonGroup', 'Switch', 'Rating', 'Progress', 'StatusBadge', 'BadgeGroup', 'AvatarStack']
 
@@ -18,7 +18,6 @@ export function TableHeaderExamples() {
   const t = useT()
   const [selected, setSelected] = React.useState(false)
   const [order, setOrder] = React.useState<'none' | 'ascending' | 'descending'>('none')
-  const SortIcon = order === 'ascending' ? ArrowUp : order === 'descending' ? ArrowDown : ArrowUpDown
   return <div className="w-full space-y-3 overflow-x-auto">
     <Table className="w-[576px] table-fixed">
       <TableCaption className="sr-only">{t('design_system.gallery.samples.table.caption')}</TableCaption>
@@ -26,15 +25,15 @@ export function TableHeaderExamples() {
         <TableHead scope="col" aria-sort={order} className="h-9 w-64 bg-muted px-3 py-0">
           <div className="flex items-center gap-2.5">
             <Checkbox checked={selected} onCheckedChange={value => setSelected(value === true)} aria-label={t('design_system.gallery.samples.table.selection')} />
-            <Button size="sm" variant="ghost" className="h-auto gap-0.5 p-0 font-normal" onClick={() => setOrder(value => value === 'none' ? 'ascending' : value === 'ascending' ? 'descending' : 'none')}>
-              {t('design_system.gallery.samples.table.component')}<SortIcon className="size-5" aria-hidden="true" />
-            </Button>
+            <TableSortButton direction={order} onClick={() => setOrder(value => value === 'none' ? 'ascending' : value === 'ascending' ? 'descending' : 'none')}>
+              {t('design_system.gallery.samples.table.component')}
+            </TableSortButton>
           </div>
         </TableHead>
         <TableHead scope="col" className="h-9 w-64 bg-muted px-3 py-0">
           <div className="flex items-center gap-2.5">
             <Checkbox disabled aria-label={t('design_system.gallery.samples.table.selection')} />
-            <Button disabled size="sm" variant="ghost" className="h-auto gap-0.5 p-0 font-normal">{t('design_system.gallery.samples.table.preview')}<ArrowUpDown className="size-5" aria-hidden="true" /></Button>
+            <TableSortButton disabled>{t('design_system.gallery.samples.table.preview')}</TableSortButton>
           </div>
         </TableHead>
         <TableHead scope="col" className="h-9 w-16 bg-muted px-3 py-0"><span className="sr-only">{t('design_system.gallery.samples.table.empty')}</span></TableHead>
@@ -55,7 +54,6 @@ export function TableCellExamples({ rowHeight }: { rowHeight: 48 | 64 }) {
   const [notice, setNotice] = React.useState('')
   const typeLabel = (type: string) => t(`design_system.gallery.samples.table.types.${type}`, type)
   const sorted = order === 'none' ? examples : [...examples].sort((a, b) => order === 'ascending' ? typeLabel(a).localeCompare(typeLabel(b)) : typeLabel(b).localeCompare(typeLabel(a)))
-  const SortIcon = order === 'ascending' ? ArrowUp : order === 'descending' ? ArrowDown : ArrowUpDown
   const label = t('design_system.gallery.samples.table.label')
   function cell(type: string) {
     switch (type) {
@@ -80,7 +78,7 @@ export function TableCellExamples({ rowHeight }: { rowHeight: 48 | 64 }) {
         <TableCaption className="sr-only">{t('design_system.gallery.samples.table.caption')}</TableCaption>
         <TableHeader><TableRow>
           <TableHead className="h-9 w-12 py-1"><span className="sr-only">{t('design_system.gallery.samples.table.selection')}</span></TableHead>
-          <TableHead aria-sort={order} className="h-9 py-1"><Button variant="ghost" size="sm" className="h-auto gap-2 p-0" onClick={() => setOrder(value => value === 'ascending' ? 'descending' : 'ascending')}>{t('design_system.gallery.samples.table.component')}<SortIcon aria-hidden="true" className="size-5" /></Button></TableHead>
+          <TableSortHead direction={order} onSort={() => setOrder(value => value === 'ascending' ? 'descending' : 'ascending')} className="h-9 py-1">{t('design_system.gallery.samples.table.component')}</TableSortHead>
           <TableHead className="h-9 py-1">{t('design_system.gallery.samples.table.preview')}</TableHead>
         </TableRow></TableHeader>
         <TableBody>{sorted.map(type => <TableRow key={type} data-state={selected.includes(type) ? 'selected' : undefined} className="data-[state=selected]:bg-muted">
@@ -96,7 +94,7 @@ export function TableCellExamples({ rowHeight }: { rowHeight: 48 | 64 }) {
 
 export function tableCellExampleCode(rowHeight: 48 | 64) {
   return `import * as React from 'react'
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Avatar, AvatarStack } from '@open-mercato/ui/primitives/avatar'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -106,14 +104,13 @@ import { Progress } from '@open-mercato/ui/primitives/progress'
 import { Rating } from '@open-mercato/ui/primitives/rating'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
-import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@open-mercato/ui/primitives/table'
+import { Table, TableHeader, TableBody, TableHead, TableSortHead, TableRow, TableCell } from '@open-mercato/ui/primitives/table'
 
 function Example() {
   const [rating, setRating] = React.useState(3)
   const [selected, setSelected] = React.useState<string[]>(['Leading'])
   const [action, setAction] = React.useState('')
   const [order, setOrder] = React.useState<'none' | 'ascending' | 'descending'>('none')
-  const SortIcon = order === 'ascending' ? ArrowUp : order === 'descending' ? ArrowDown : ArrowUpDown
   const cells = [
     { name: 'Leading', content: <div className="flex items-center gap-3"><Avatar size={${rowHeight === 48 ? 32 : 40}} label="Wei Chen" /><div><p className="font-medium">Wei Chen</p>${rowHeight === 64 ? '<p className="text-xs text-muted-foreground">Account manager</p>' : ''}</div></div> },
     { name: 'Regular', content: <span>Label</span> },
@@ -131,7 +128,7 @@ function Example() {
   const sorted = order === 'none' ? cells : [...cells].sort((a, b) => order === 'ascending' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name))
   return <div className="w-full overflow-x-auto">
     <Table className="min-w-[600px]">
-      <TableHeader><TableRow><TableHead>Selection</TableHead><TableHead aria-sort={order}><Button size="sm" variant="ghost" onClick={() => setOrder(value => value === 'ascending' ? 'descending' : 'ascending')}>Component<SortIcon /></Button></TableHead><TableHead>Preview</TableHead></TableRow></TableHeader>
+      <TableHeader><TableRow><TableHead>Selection</TableHead><TableSortHead direction={order} onSort={() => setOrder(value => value === 'ascending' ? 'descending' : 'ascending')}>Component</TableSortHead><TableHead>Preview</TableHead></TableRow></TableHeader>
       <TableBody>{sorted.map(cell => <TableRow key={cell.name} data-state={selected.includes(cell.name) ? 'selected' : undefined} className="data-[state=selected]:bg-muted">
         <TableCell className="${rowHeight === 48 ? 'h-12 py-0' : 'h-16 py-0'}"><Checkbox checked={selected.includes(cell.name)} aria-label={\`Select \${cell.name}\`} onCheckedChange={checked => setSelected(value => checked ? [...value, cell.name] : value.filter(name => name !== cell.name))} /></TableCell>
         <TableCell className="font-medium">{cell.name}</TableCell>
