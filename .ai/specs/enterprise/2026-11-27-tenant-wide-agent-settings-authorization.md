@@ -1,6 +1,6 @@
 # Tenant-wide agent settings authorization
 
-Issue: [#10700](https://github.com/open-mercato/open-mercato/issues/10700)  
+Issue: [#10700](https://github.com/open-mercato/open-mercato/issues/10700)<br>
 Review follow-up: [PR #10786](https://github.com/open-mercato/open-mercato/pull/10786)
 
 ## Security invariant
