@@ -4,6 +4,22 @@ import {
   divideDecimals,
   parseDecimal,
 } from '@open-mercato/shared/lib/decimal'
+import type { RateType } from '../../data/validators'
+
+export type { RateType } from '../../data/validators'
+
+export type ProviderSelectionMode = 'default' | 'explicit'
+
+export class RateProviderError extends Error {
+  constructor(
+    readonly i18nKey: string,
+    message: string,
+    readonly i18nParams?: Record<string, string | number>,
+  ) {
+    super(message)
+    this.name = 'RateProviderError'
+  }
+}
 
 export interface RateProviderResult {
   fromCurrencyCode: string
@@ -11,7 +27,8 @@ export interface RateProviderResult {
   rate: string // Numeric string for precision
   source: string
   date: Date
-  type?: 'buy' | 'sell' | null // Rate type from bank's perspective
+  type?: RateType | null // Rate type from bank's perspective
+  externalReference?: string | null
   metadata?: Record<string, unknown> | null // Provider-specific context, e.g. table number
 }
 
@@ -34,6 +51,7 @@ export interface RateProvider {
   readonly name: string
   readonly source: string
   readonly providerBaseCurrency?: string // The base currency for this provider (e.g., 'PLN')
+  readonly selectionMode?: ProviderSelectionMode
 
   fetchRates(
     date: Date,

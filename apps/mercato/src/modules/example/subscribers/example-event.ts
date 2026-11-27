@@ -20,7 +20,8 @@ export type ExamplePingPayload = {
 }
 
 /**
- * Ephemeral subscribers receive a resolver rather than the container itself. Typing the
+ * Subscribers resolve dependencies through `ctx.resolve`; `ctx.container` (the real DI
+ * container) is there only for code that must `register()` overrides. Typing the
  * resolver generically (`<T>(name: string) => T`) instead of defaulting the parameter to
  * `any` is what keeps every `ctx.resolve(...)` call site typed at its use.
  */

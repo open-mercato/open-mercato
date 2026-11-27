@@ -304,7 +304,7 @@ export function TagsInput({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="w-full justify-start font-normal flex flex-col items-start text-xs px-1.5 py-1"
+                className="w-full min-w-0 h-auto min-h-8 justify-start font-normal flex flex-col items-start whitespace-normal text-left text-xs px-1.5 py-1"
                 onMouseDown={(event) => {
                   suppressBlurCommitRef.current = true
                   event.preventDefault()
@@ -316,9 +316,9 @@ export function TagsInput({
                   if (closeSuggestionsOnSelect) setSuggestionsDismissed(true)
                 }}
               >
-                <span>{option.label}</span>
+                <span className="max-w-full wrap-anywhere">{option.label}</span>
                 {option.description ? (
-                  <span className="text-overline text-muted-foreground">{option.description}</span>
+                  <span className="max-w-full wrap-anywhere text-overline text-muted-foreground">{option.description}</span>
                 ) : null}
               </Button>
             ))}

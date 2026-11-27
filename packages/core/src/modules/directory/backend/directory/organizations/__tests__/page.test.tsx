@@ -10,6 +10,8 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 
+let mockOrganizationId = 'org-1'
+
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
@@ -30,7 +32,7 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
       <div data-testid="data-table-title">{props.title}</div>
       <div data-testid="row-actions">
         {props.rowActions?.({
-          id: 'org-1',
+          id: mockOrganizationId,
           name: 'Acme HQ',
           depth: 0,
           updatedAt: '2024-05-06T07:08:09.000Z',
@@ -111,6 +113,7 @@ const { readApiResultOrThrow } = jest.requireMock('@open-mercato/ui/backend/util
 describe('DirectoryOrganizationsPage delete', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockOrganizationId = 'org-1'
     runMutationMock.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
     ;(surfaceRecordConflict as jest.Mock).mockReturnValue(false)
     ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, result: { ok: true, granted: ['directory.organizations.manage'] } })
@@ -128,7 +131,8 @@ describe('DirectoryOrganizationsPage delete', () => {
     const input = runMutationMock.mock.calls[0][0]
     expect(input.context).toEqual(
       expect.objectContaining({
-        formId: 'directory-organizations-list:single-delete',
+        formId: 'directory-organizations-list:single-delete:org-1',
+        operation: 'delete',
         resourceKind: 'directory.organization',
         resourceId: 'org-1',
         retryLastMutation: retryLastMutationMock,
@@ -141,6 +145,29 @@ describe('DirectoryOrganizationsPage delete', () => {
     expect(deleteCall[0]).toBe('/api/directory/organizations?id=org-1')
     expect(deleteCall[1]).toEqual(expect.objectContaining({ method: 'DELETE' }))
     expect(flash).toHaveBeenCalledWith('Organization deleted', 'success')
+  })
+
+  it('isolates row lock state when deleting another organization after a repeat delete', async () => {
+    const { rerender } = renderWithProviders(<DirectoryOrganizationsPage />)
+    const deleteButton = await screen.findByTestId('row-action-delete')
+    fireEvent.click(deleteButton)
+    await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(1))
+    fireEvent.click(deleteButton)
+    await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(2))
+
+    mockOrganizationId = 'org-2'
+    rerender(<DirectoryOrganizationsPage />)
+    fireEvent.click(await screen.findByTestId('row-action-delete'))
+    await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(3))
+
+    const contexts = runMutationMock.mock.calls.map(([input]) => input.context)
+    expect(contexts[0].formId).toBe(contexts[1].formId)
+    expect(contexts[2]).toEqual(expect.objectContaining({
+      formId: 'directory-organizations-list:single-delete:org-2',
+      operation: 'delete',
+      resourceId: 'org-2',
+    }))
+    await waitFor(() => expect(apiCallOrThrow).toHaveBeenCalledTimes(3))
   })
 
   it('surfaces a stale-record 409 conflict through the shared conflict path and skips the generic flash', async () => {

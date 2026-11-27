@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { NextResponse } from 'next/server'
 import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 import { z } from 'zod'
@@ -10,7 +11,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitStaffEvent } from '../../../events'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { buildTimeTrackingSettingsSchema } from '../../../lib/time-tracking/settingKeys'
+import { buildTimeTrackingSettingsSchema, getTimeTrackingSettingKey, type TimeTrackingSettingKeyDefinition } from '../../../lib/time-tracking/settingKeys'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../guards'
 import {
@@ -19,7 +20,10 @@ import {
 } from '../_shared/withTimesheetInterceptors'
 import {
   preserveOmittedSupportSettings,
+  listTimeTrackingSettingKeys,
+  readTimeTrackingSettingValue,
   readTimeTrackingSettings,
+  STAFF_TIME_TRACKING_MODULE_ID,
   writeTimeTrackingSettings,
   type TimeTrackingSettings,
 } from '../../../lib/time-tracking/settings'
@@ -31,6 +35,8 @@ const MANAGE_FEATURE = 'staff.timesheets.settings.manage'
 const RESOURCE_KIND = STAFF_TIME_TRACKING_RESOURCE_KINDS.settings
 const RESOURCE_ID = 'time_tracking'
 const EXPECTED_TENANT_PARAM = 'expectedTenantId'
+const CHANGED_KEYS_PARAM = 'changedKeys'
+const changedKeysSchema = z.array(z.string().min(1)).min(1).describe('Registry keys to update, one changedKeys query parameter per key. Omit for a legacy full settings update.')
 const TENANT_SCOPE_CHANGED_CODE = 'tenant_scope_changed'
 
 export const metadata = {
@@ -118,6 +124,75 @@ function assertExpectedTenant(req: Request, context: SettingsContext): void {
   })
 }
 
+function readChangedKeys(
+  req: Request,
+  body: Record<string, unknown>,
+  translate: (key: string, fallback?: string) => string,
+): TimeTrackingSettingKeyDefinition[] | null {
+  const searchParams = new URL(req.url).searchParams
+  if (!searchParams.has(CHANGED_KEYS_PARAM)) return null
+
+  return z.array(z.string().transform((key, validation) => {
+    const entry = getTimeTrackingSettingKey(key)
+    const group = entry ? body[entry.group] : undefined
+    if (!entry || !group || typeof group !== 'object' || !Object.hasOwn(group, entry.key)) {
+      validation.addIssue({
+        code: 'custom',
+        message: translate(
+          'staff.errors.invalidChangedKey',
+          'Changed keys must be registered and present in the settings body',
+        ),
+      })
+      return z.NEVER
+    }
+    return entry
+  })).parse([...new Set(changedKeysSchema.parse(searchParams.getAll(CHANGED_KEYS_PARAM)))])
+}
+
+/**
+ * A `before` interceptor on this route may add a related setting to the body
+ * under a key the client never listed in `changedKeys` (EP-12). The masked
+ * write below only persists `changedKeys`, so without this an interceptor's
+ * edit to an unselected key would validate, respond 200, and then vanish —
+ * silently discarded instead of written. Comparing the pre- and
+ * post-interceptor body over every registered key, not just `changedKeys`,
+ * finds exactly the keys an interceptor touched so they can be folded into
+ * the write set alongside the client's own selection.
+ */
+function detectInterceptorModifiedKeys(
+  rawBody: Record<string, unknown>,
+  interceptedBody: Record<string, unknown>,
+): TimeTrackingSettingKeyDefinition[] {
+  const modified: TimeTrackingSettingKeyDefinition[] = []
+  for (const entry of listTimeTrackingSettingKeys()) {
+    const beforeGroup = rawBody[entry.group]
+    const afterGroup = interceptedBody[entry.group]
+    const afterHasKey = !!afterGroup && typeof afterGroup === 'object' && Object.hasOwn(afterGroup, entry.key)
+    if (!afterHasKey) continue
+    const beforeHasKey = !!beforeGroup && typeof beforeGroup === 'object' && Object.hasOwn(beforeGroup, entry.key)
+    const afterValue = (afterGroup as Record<string, unknown>)[entry.key]
+    const beforeValue = beforeHasKey ? (beforeGroup as Record<string, unknown>)[entry.key] : undefined
+    if (!beforeHasKey || !isDeepStrictEqual(beforeValue, afterValue)) {
+      modified.push(entry)
+    }
+  }
+  return modified
+}
+
+function mergeSettingKeys(
+  base: TimeTrackingSettingKeyDefinition[],
+  extra: TimeTrackingSettingKeyDefinition[],
+): TimeTrackingSettingKeyDefinition[] {
+  const merged = [...base]
+  const seen = new Set(base.map(({ id }) => id))
+  for (const entry of extra) {
+    if (seen.has(entry.id)) continue
+    seen.add(entry.id)
+    merged.push(entry)
+  }
+  return merged
+}
+
 async function PUT(req: Request) {
   try {
     const context = await resolveSettingsContext(req)
@@ -136,6 +211,7 @@ async function PUT(req: Request) {
     }
     const grantedFeatures = access.grantedFeatures
 
+    const rawBody = await readJsonSafe<Record<string, unknown>>(req, {})
     const interceptors = await runTimesheetInterceptors({
       request: req,
       method: 'PUT',
@@ -147,18 +223,28 @@ async function PUT(req: Request) {
         userFeatures: grantedFeatures,
         tenantGlobal: true,
       },
-      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+      body: rawBody,
     })
     if (!interceptors.ok) return interceptors.response
     const { session } = interceptors
 
     const settingsSchema = buildTimeTrackingSettingsSchema()
-    const requestBody = await preserveOmittedSupportSettings(
-      resolveConfigService(context),
-      { tenantId: context.tenantId },
-      session.body,
-    )
-    const parsed = settingsSchema.parse(requestBody)
+    const configService = resolveConfigService(context)
+    const configScope = { tenantId: context.tenantId }
+    const changedKeys = readChangedKeys(req, session.body, context.translate)
+    const requestBody = changedKeys
+      ? session.body
+      : await preserveOmittedSupportSettings(configService, configScope, session.body)
+    let parsed = settingsSchema.parse(requestBody) as TimeTrackingSettings
+    let effectiveChangedKeys = changedKeys
+    if (changedKeys) {
+      effectiveChangedKeys = mergeSettingKeys(changedKeys, detectInterceptorModifiedKeys(rawBody ?? {}, session.body))
+      const current = await readTimeTrackingSettings(configService, configScope)
+      for (const { id, group, key } of effectiveChangedKeys) {
+        current[group] = { ...current[group], [key]: readTimeTrackingSettingValue(parsed, id) }
+      }
+      parsed = current
+    }
 
     const guardResult = await runRouteMutationGuards({
       container: context.container,
@@ -178,15 +264,42 @@ async function PUT(req: Request) {
     })
     if (!guardResult.ok) return guardResult.response
 
-    const effective = guardResult.modifiedPayload
-      ? settingsSchema.parse({ ...parsed, ...guardResult.modifiedPayload })
-      : parsed
+    const guardPayload = guardResult.modifiedPayload
+    let effective = parsed
+    if (guardPayload) {
+      const merged = { ...parsed, ...guardPayload }
+      if (effectiveChangedKeys) {
+        for (const [group, value] of Object.entries(guardPayload)) {
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            merged[group] = { ...parsed[group], ...value }
+          }
+        }
+      }
+      effective = settingsSchema.parse(merged) as TimeTrackingSettings
+    }
 
-    const settings: TimeTrackingSettings = await writeTimeTrackingSettings(
-      resolveConfigService(context),
-      { tenantId: context.tenantId },
-      effective,
-    )
+    let settings: TimeTrackingSettings
+    if (effectiveChangedKeys) {
+      const writeKeys = new Set(effectiveChangedKeys.map(({ id }) => id))
+      if (guardPayload) {
+        for (const { id } of listTimeTrackingSettingKeys()) {
+          if (!isDeepStrictEqual(readTimeTrackingSettingValue(parsed, id), readTimeTrackingSettingValue(effective, id))) {
+            writeKeys.add(id)
+          }
+        }
+      }
+      const updates = Object.fromEntries(Array.from(writeKeys, (id) => [id, readTimeTrackingSettingValue(effective, id)]))
+      if (configService.setTenantValues) {
+        await configService.setTenantValues(STAFF_TIME_TRACKING_MODULE_ID, updates, context.tenantId)
+      } else {
+        for (const [name, value] of Object.entries(updates)) {
+          await configService.setValue(STAFF_TIME_TRACKING_MODULE_ID, name, value, configScope)
+        }
+      }
+      settings = await readTimeTrackingSettings(configService, configScope)
+    } else {
+      settings = await writeTimeTrackingSettings(configService, configScope, effective)
+    }
 
     await guardResult.runAfterSuccess()
 
@@ -236,7 +349,10 @@ const getDoc: OpenApiMethodDoc = {
 const putDoc: OpenApiMethodDoc = {
   summary: 'Update time tracking settings',
   tags: ['Staff'],
-  query: z.object({ [EXPECTED_TENANT_PARAM]: z.string().uuid().optional() }),
+  query: z.object({
+    [EXPECTED_TENANT_PARAM]: z.string().uuid().optional(),
+    [CHANGED_KEYS_PARAM]: changedKeysSchema.optional(),
+  }),
   get requestBody() {
     return { schema: buildTimeTrackingSettingsSchema() }
   },

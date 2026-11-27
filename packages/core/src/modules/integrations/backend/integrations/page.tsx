@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -135,11 +136,16 @@ function LogSparkline({ counts, className }: { counts: number[]; className?: str
 }
 
 export default function IntegrationsMarketplacePage() {
+  const initialCategory = useSearchParams()?.get('category')
   const [data, setData] = React.useState<ListResponse | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [searchInput, setSearchInput] = React.useState('')
   const [debouncedSearch, setDebouncedSearch] = React.useState('')
-  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [filterValues, setFilterValues] = React.useState<FilterValues>(() =>
+    INTEGRATION_MARKETPLACE_CATEGORIES.some((category) => category === initialCategory)
+      ? normalizeIntegrationMarketplaceFilterValues({ category: initialCategory })
+      : {},
+  )
   const [sortField, setSortField] = React.useState<'title' | 'category' | 'enabledAt' | 'healthStatus'>('title')
   const [sortOrder, setSortOrder] = React.useState<'asc' | 'desc'>('asc')
   const [page, setPage] = React.useState(1)
