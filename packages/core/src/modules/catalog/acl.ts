@@ -33,6 +33,12 @@ export const features = [
   { id: 'catalog.settings.view', title: 'View catalog settings', module: 'catalog' },
   { id: 'catalog.settings.manage', title: 'Manage catalog settings', module: 'catalog' },
   {
+    id: 'catalog.ai_categorization.use',
+    title: 'Use AI category suggestions',
+    module: 'catalog',
+    dependsOn: ['catalog.products.view'],
+  },
+  {
     id: 'catalog.price_history.view',
     title: 'View catalog price history',
     module: 'catalog',

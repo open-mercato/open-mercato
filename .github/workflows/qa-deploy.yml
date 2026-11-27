@@ -54,10 +54,12 @@ jobs:
       - name: Validate PR number (optional)
         if: ${{ github.event.inputs.pr_number != '' }}
         shell: bash
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
         run: |
           set -euo pipefail
-          if ! [[ "${{ github.event.inputs.pr_number }}" =~ ^[0-9]+$ ]]; then
-            echo "pr_number must be numeric"
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,14}$ ]]; then
+            echo "pr_number must be a positive integer"
             exit 1
           fi
 
@@ -79,15 +81,20 @@ jobs:
       - name: Compute image metadata
         id: meta
         shell: bash
+        env:
+          SLOT: ${{ inputs.slot }}
         run: |
           set -euo pipefail
 
-          SLOT="${{ github.event.inputs.slot }}"
+          case "$SLOT" in
+            qa1|qa2|qa3|qa4) ;;
+            *) echo "Invalid QA slot"; exit 1 ;;
+          esac
           SHA="${GITHUB_SHA}"
           SHORT_SHA="${SHA:0:7}"
 
           TAG="${SLOT}-${SHORT_SHA}"
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
 
           echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -107,23 +114,27 @@ jobs:
       - name: Resolve Dokploy applicationId
         id: app
         shell: bash
+        env:
+          SLOT: ${{ steps.meta.outputs.slot }}
+          QA1_APP_ID: ${{ vars.DOKPLOY_APP_ID_QA1 }}
+          QA2_APP_ID: ${{ vars.DOKPLOY_APP_ID_QA2 }}
+          QA3_APP_ID: ${{ vars.DOKPLOY_APP_ID_QA3 }}
+          QA4_APP_ID: ${{ vars.DOKPLOY_APP_ID_QA4 }}
         run: |
           set -euo pipefail
 
-          SLOT="${{ steps.meta.outputs.slot }}"
-
           case "$SLOT" in
             qa1)
-              APP_ID="${{ vars.DOKPLOY_APP_ID_QA1 }}"
+              APP_ID="$QA1_APP_ID"
               ;;
             qa2)
-              APP_ID="${{ vars.DOKPLOY_APP_ID_QA2 }}"
+              APP_ID="$QA2_APP_ID"
               ;;
             qa3)
-              APP_ID="${{ vars.DOKPLOY_APP_ID_QA3 }}"
+              APP_ID="$QA3_APP_ID"
               ;;
             qa4)
-              APP_ID="${{ vars.DOKPLOY_APP_ID_QA4 }}"
+              APP_ID="$QA4_APP_ID"
               ;;
             *)
               echo "Unknown slot: $SLOT"
@@ -189,10 +200,14 @@ jobs:
       - name: Add QA label to PR
         if: ${{ github.event.inputs.pr_number != '' }}
         uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          QA_SLOT: ${{ steps.meta.outputs.slot }}
         with:
           script: |
-            const pr = Number("${{ github.event.inputs.pr_number }}");
-            const slot = "${{ steps.meta.outputs.slot }}";
+            const pr = Number(process.env.PR_NUMBER);
+            if (!Number.isSafeInteger(pr) || pr < 1) throw new Error("Invalid PR number");
+            const slot = process.env.QA_SLOT;
             const label = `qa:${slot}`;
 
             await github.rest.issues.addLabels({
@@ -205,12 +220,18 @@ jobs:
       - name: Comment on PR with QA marker
         if: ${{ github.event.inputs.pr_number != '' }}
         uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          QA_SLOT: ${{ steps.meta.outputs.slot }}
+          QA_IMAGE: ${{ steps.meta.outputs.image_full }}
+          QA_BRANCH: ${{ inputs.branch }}
         with:
           script: |
-            const pr = Number("${{ github.event.inputs.pr_number }}");
-            const slot = "${{ steps.meta.outputs.slot }}";
-            const image = "${{ steps.meta.outputs.image_full }}";
-            const branch = "${{ github.event.inputs.branch }}";
+            const pr = Number(process.env.PR_NUMBER);
+            if (!Number.isSafeInteger(pr) || pr < 1) throw new Error("Invalid PR number");
+            const slot = process.env.QA_SLOT;
+            const image = process.env.QA_IMAGE;
+            const branch = process.env.QA_BRANCH;
 
             // Marker format: DO NOT change lightly (cleanup workflow parses it)
             const marker = `<!-- dokploy-qa slot=${slot} image=${image} -->`;

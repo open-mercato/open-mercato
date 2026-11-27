@@ -38,3 +38,19 @@ The common KMS warning follow-up passes26 focused cases, including the actual bi
 ## Final backup image result
 
 The exact724b6cb37e complete self-contained maintenance image built and passed all7 actual read-only/network-none CLI/configuration/metadata checks with no overlays. Immutable OCI config/index IDs, client versions, nonroot UID and build arguments are recorded in backup-maintenance-image.json and backup-maintenance-smoke.json. Neither image was pushed to a registry. The original exactf1d143-row real SIGINT/fresh-confirmation/same-run proof remains explicitly source-bound, with all6 engine/config/launcher/guard Git objects identical through724. No additional operation/performance claim is inferred from help/configuration smoke checks.
+
+## Four-provider rotation evidence
+
+`vault-provider-matrix.json` records the exactfc34a42fe7 real16-case PostgreSQL16/Vault1.21.4 run (59.932s):3 existing Core cases,1 actual macOS persistent-root/PATH-default case,8 positives covering four provider directions for one/two tenants and4 real Vault failures. The integration harness supplies the app-container factory. macOS clients are trusted test-only wrappers forwarding real PostgreSQL binaries into Docker, not native/Homebrew installation proof. Loopback dev Vault is not production TLS acceptance.
+
+All four routes compare exact mapped/custom/lookup values, ciphertext transitions and timestamps with target-key-only readback. Same-path all-tenant Vault rotation covers mixed1→2 and2→3 versions,4 rows/24 fields/2,502 bytes and retained old versions. Separate prefixes/read credentials also pass. Runtime Vault requests are GET-only. Missing/deleted source versions and denied reads refuse before mutation; observed target-latest drift after writes retains encrypted recovery and trusted failed state with no verified success/fallback.
+
+The cases exposed tenant-only application cache sharing across protected providers; maintenance now opts into isolated per-instance key/inflight caches while normal application defaults remain unchanged. Seven runtime source hashes in the matrix remain equal through the later presentation/build/documentation changes. The KMS banner follow-up changes presentation only, retaining canonical security logging and key math.
+
+Independent source review covers configuration/custody/client discovery, provider routing, cache isolation, current-target checks, completion and all relevant consumers. The official guide/skill explain exact source/target inputs, operator-only Vault provisioning/CAS, retained versions, paused key writers, all-tenant manifests and whole-key-domain cutover. KV-v2 application DEK rotation is distinct from Transit/unseal/root-key rotation. Different source roots require phased offline handling; a scoped pass cannot authorize restarting a mixed incompatible key domain.
+
+## Final rotation presentation/image result
+
+Exact productionb04dc0e2a7 passes all8 configured commands in order under local Node24.22.2; full workspace tests452.628s and production application build62.249s. Tracked production/generated files are unchanged after the gate. Only reports/plan follow.
+
+The exactb04 complete maintenance image builds and passes7 read-only/network-none checks plus human and JSON Core refusals. `packaged-core-refusal-json.json` contains3 existing-schema1 records, no ANSI/decorative icons, full KMS source/persistence and Core acknowledgment/failure warnings, one retained canonical stdout security warning and no synthetic secret bytes. No overlays, database/server startup or acknowledged mutation were used. `packaged-core-json-initial-failure.json` retains the earlier discovered raw-banner contamination; a scoped AsyncLocalStorage presentation fix preserves key math and canonical logging. Its26 focused cases include the actual bin boundary before env/bootstrap.

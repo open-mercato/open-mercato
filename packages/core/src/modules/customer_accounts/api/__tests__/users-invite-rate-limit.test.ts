@@ -48,7 +48,7 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/invitationEmail', ()
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: jest.fn(async () => []),
+  findWithDecryption: jest.fn(async () => [{ id: '11111111-1111-4111-8111-111111111111', customerAssignable: true }]),
   findOneWithDecryption: jest.fn(async () => null),
 }))
 

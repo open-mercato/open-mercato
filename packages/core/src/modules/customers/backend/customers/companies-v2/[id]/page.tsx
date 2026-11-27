@@ -26,6 +26,7 @@ import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { AddressesSection } from '../../../../components/detail/AddressesSection'
 import { DealsSection } from '../../../../components/detail/DealsSection'
 import { ActivityLogTab } from '../../../../components/detail/ActivityLogTab'
 import { CompanyPeopleSection, type CompanyPersonSummary } from '../../../../components/detail/CompanyPeopleSection'
@@ -627,6 +628,21 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     entityId={E.customers.customer_entity}
                     recordId={companyId}
                     title={t('customers.companies.detail.tabs.files', 'Files')}
+                  />
+                )}
+
+                {activeTab === 'addresses' && (
+                  <AddressesSection
+                    entityId={companyId}
+                    emptyLabel={t('customers.companies.detail.empty.addresses', 'No addresses recorded.')}
+                    addActionLabel={t('customers.companies.detail.addresses.add', 'Add address')}
+                    emptyState={{
+                      title: t('customers.companies.detail.emptyState.addresses.title', 'No addresses yet'),
+                      actionLabel: t('customers.companies.detail.emptyState.addresses.action', 'Add address'),
+                    }}
+                    onActionChange={setSectionAction}
+                    translator={detailTranslator}
+                    runGuardedMutation={runMutationWithContext}
                   />
                 )}
 

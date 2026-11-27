@@ -39,6 +39,11 @@ import {
   restoreEntityLabelAssignments,
   type LabelAssignmentRestoreSnapshot,
 } from './entityLabelAssignments'
+import {
+  removeCustomerDeleteDependencies,
+  restoreCustomerDeleteDependencies,
+  type CustomerDeleteDependenciesSnapshot,
+} from './entityDeleteDependencies'
 import { resolvePersonCustomFieldRouting, CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID } from '../lib/customFieldRouting'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
@@ -237,6 +242,7 @@ type PersonUndoPayload = {
   before?: PersonSnapshot | null
   after?: PersonSnapshot | null
   labelAssignments?: LabelAssignmentRestoreSnapshot[]
+  dependencies?: CustomerDeleteDependenciesSnapshot
 }
 
 const personCrudIndexer: CrudIndexerConfig<CustomerEntity> = {
@@ -425,6 +431,16 @@ function serializePersonSnapshot(
     interactions,
     custom,
   }
+}
+
+async function lockPersonRow(em: EntityManager, entity: CustomerEntity): Promise<void> {
+  await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    { id: entity.id, tenantId: entity.tenantId, organizationId: entity.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+  )
 }
 
 async function loadPersonSnapshot(
@@ -1048,6 +1064,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       profile = existingProfile
       const survivingEntity = entity
       await withAtomicFlush(em, [
+        () => lockPersonRow(em, survivingEntity),
         () => {
           survivingEntity.deletedAt = null
           survivingEntity.displayName = after.entity.displayName
@@ -1382,6 +1399,8 @@ const updatePersonCommand = {
               link.employmentStatus = 'ended'
               link.isPrimary = false
             }
+          } else {
+            await lockPersonRow(em, entity)
           }
           entity.displayName = before.entity.displayName
           entity.description = before.entity.description
@@ -1478,6 +1497,7 @@ const deletePersonCommand: CommandHandler<
   {
     entityId: string
     labelAssignments?: LabelAssignmentRestoreSnapshot[]
+    dependencies?: CustomerDeleteDependenciesSnapshot
     companyAssignments?: PersonDeleteCompanyAssignments
   }
 > =
@@ -1516,6 +1536,7 @@ const deletePersonCommand: CommandHandler<
       const profileHolder: { value: CustomerPersonProfile | null } = { value: null }
       const labelAssignmentsHolder: { value: LabelAssignmentRestoreSnapshot[] } = { value: [] }
       let companyAssignments: PersonDeleteCompanyAssignments | undefined
+      let dependencies: CustomerDeleteDependenciesSnapshot | undefined
 
       await withAtomicFlush(em, [
         async () => {
@@ -1553,6 +1574,7 @@ const deletePersonCommand: CommandHandler<
           }
           profileHolder.value = profile
           labelAssignmentsHolder.value = await removeEntityLabelAssignments(em, record)
+          dependencies = await removeCustomerDeleteDependencies(em, record)
           await em.nativeDelete(CustomerEmailConversationShare, { personEntity: record, organizationId: record.organizationId, tenantId: record.tenantId })
           if (profile) em.remove(profile)
           await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
@@ -1648,7 +1670,12 @@ const deletePersonCommand: CommandHandler<
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
       await emitQueryIndexDeleteEvents(ctx, labelAssignmentIndexEntries(record, labelAssignments))
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
-      return { entityId: record.id, labelAssignments, ...(companyAssignments ? { companyAssignments } : {}) }
+      return {
+        entityId: record.id,
+        labelAssignments,
+        ...(companyAssignments ? { companyAssignments } : {}),
+        ...(dependencies ? { dependencies } : {}),
+      }
     },
     buildLog: async ({ result, snapshots }) => {
       const prepared = snapshots.before as PersonSnapshot | undefined
@@ -1674,6 +1701,7 @@ const deletePersonCommand: CommandHandler<
           undo: {
             before,
             labelAssignments: result?.labelAssignments,
+            dependencies: result?.dependencies,
           } satisfies PersonUndoPayload,
         },
       }
@@ -1721,7 +1749,7 @@ const deletePersonCommand: CommandHandler<
             tenantId: before.entity.tenantId,
             organizationId: before.entity.organizationId,
           },
-          {},
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
           decryptionScope,
         )
       if (!entity) {
@@ -1840,6 +1868,7 @@ const deletePersonCommand: CommandHandler<
         () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
       ])
       const restoredLabelAssignments = await restoreEntityLabelAssignments(em, entity, payload?.labelAssignments)
+      await restoreCustomerDeleteDependencies(em, entity, payload?.dependencies)
       await em.flush()
 
       const beforeActivities = (before as { activities?: PersonActivitySnapshot[] }).activities ?? []

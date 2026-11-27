@@ -275,7 +275,7 @@ async function requirePersonProfile(
     em,
     CustomerPersonProfile,
     { entity: person, tenantId: person.tenantId, organizationId: person.organizationId },
-    { populate: ['company'] },
+    { populate: ['company'], refresh: true },
     { tenantId: person.tenantId, organizationId: person.organizationId },
   )
   if (!profile) {
@@ -284,16 +284,25 @@ async function requirePersonProfile(
   return profile
 }
 
-async function clearPrimaryFlagsForPerson(em: EntityManager, person: CustomerEntity, keepLinkId?: string): Promise<void> {
+async function claimActivePrimaryLink(em: EntityManager, person: CustomerEntity, primaryLinkId?: string): Promise<void> {
+  const scope = {
+    person, organizationId: person.organizationId, tenantId: person.tenantId,
+    deletedAt: null, employmentStatus: 'active' as const,
+  }
   await em.nativeUpdate(
     CustomerPersonCompanyLink,
     {
-      person, organizationId: person.organizationId, tenantId: person.tenantId,
-      isPrimary: true, deletedAt: null, employmentStatus: 'active',
-      ...(keepLinkId ? { id: { $ne: keepLinkId } } : {}),
+      ...scope, isPrimary: true,
+      ...(primaryLinkId ? { id: { $ne: primaryLinkId } } : {}),
     },
     { isPrimary: false, updatedAt: new Date() },
   )
+  if (primaryLinkId) {
+    await em.nativeUpdate(
+      CustomerPersonCompanyLink, { ...scope, id: primaryLinkId, isPrimary: false },
+      { isPrimary: true, updatedAt: new Date() },
+    )
+  }
 }
 
 async function restoreCreatePersonCompanyLink(
@@ -400,6 +409,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
+
     let link!: CustomerPersonCompanyLink
     let createBefore!: PersonCompanyLinkCreateBefore
     let changed = false
@@ -430,7 +440,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
           return
         }
         if (makePrimary) {
-          await clearPrimaryFlagsForPerson(em, person, activeLink?.id)
+          await claimActivePrimaryLink(em, person, activeLink?.id)
         }
         link = reusableLink ?? em.create(CustomerPersonCompanyLink, { ...scope, person, company })
         undeleted = Boolean(link.deletedAt)
@@ -601,7 +611,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
           profileCompanyId: getProfileCompanyId(profile),
         }
         if (after.isPrimary) {
-          await clearPrimaryFlagsForPerson(em, person, current?.id)
+          await claimActivePrimaryLink(em, person, current?.id)
           profile.company = company
         }
         link = current ?? em.create(CustomerPersonCompanyLink, {
@@ -691,7 +701,10 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
 
     await withAtomicFlush(em, [
       async () => {
-        if (!await lockPersonForCompanyLinkUpdate(em, personId, scope)) throw notFound('Person not found')
+        if (!await lockPersonForCompanyLinkUpdate(em, personId, scope)) {
+          const { translate } = await resolveTranslations()
+          throw notFound(translate('customers.errors.person_not_found', 'Person not found'))
+        }
         person = await requirePersonEntity(em, personId, scope.tenantId, scope.organizationId)
         const currentLink = await findOneWithDecryption(em, CustomerPersonCompanyLink, linkFilter, { refresh: true }, scope)
         if (!currentLink || currentLink.deletedAt || currentLink.employmentStatus === 'ended') throw notFound('Company link not found')
@@ -711,7 +724,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
               )?.id ?? null,
             }
           }
-          await clearPrimaryFlagsForPerson(em, person, currentLink.id)
+          await claimActivePrimaryLink(em, person, currentLink.id)
           currentLink.isPrimary = true
           profile.company = linkedCompany
         } else {
@@ -861,7 +874,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
           profile.company = previousCompany
           state.restoredPromotion = true
         } else if (before.isPrimary) {
-          await clearPrimaryFlagsForPerson(em, person, link.id)
+          await claimActivePrimaryLink(em, person, link.id)
           link.isPrimary = true
           if (company) profile.company = company
         } else {
@@ -1173,7 +1186,7 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
       async () => {
         const { link } = restored
         if (!link) return
-        if (person && before.isPrimary) await clearPrimaryFlagsForPerson(em, person, link.id)
+        if (person && before.isPrimary) await claimActivePrimaryLink(em, person, link.id)
         link.deletedAt = null
         link.isPrimary = before.isPrimary
         if (before.isPrimary && profile && company) profile.company = company

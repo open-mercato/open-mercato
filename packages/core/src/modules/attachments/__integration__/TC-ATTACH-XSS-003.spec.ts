@@ -55,7 +55,7 @@ test.describe('TC-ATTACH-XSS-003: Cross-org access to private attachment within 
       // Create a user in the second org
       crossOrgUserId = await createUserFixture(request, superadminToken, {
         email: crossOrgUserEmail,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId: crossOrgId,
         roles: ['employee'],
       })
@@ -76,7 +76,7 @@ test.describe('TC-ATTACH-XSS-003: Cross-org access to private attachment within 
       const crossOrgUserToken = await getAuthToken(
         request,
         crossOrgUserEmail,
-        'Valid1!Pass',
+        'QaValid1!Pass',
       )
       const response = await request.fetch(
         `${BASE_URL}/api/attachments/file/${encodeURIComponent(attachmentId)}`,

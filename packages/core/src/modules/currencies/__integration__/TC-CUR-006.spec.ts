@@ -27,7 +27,7 @@ test.describe('TC-CUR-006: currencies.rates.manage RBAC gate', () => {
   test('rates-view user lists exchange rates but cannot create, update, or delete', async ({ request }) => {
     test.slow();
     const stamp = Date.now();
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     const viewerEmail = `tc-cur-006-viewer-${stamp}@example.com`;
 
     let adminToken: string | null = null;

@@ -6,6 +6,7 @@ import { createOrderLineFixture, deleteSalesEntityIfExists } from '@open-mercato
 import {
   cleanupDraftClaimWithLines,
   createClaimFixture,
+  createClaimLine,
   listClaimLines,
   readClaim,
   readClaimEvents,
@@ -19,11 +20,13 @@ test.describe('TC-WC-038: claim order reference integrity', () => {
     const token = await getAuthToken(request, 'admin')
     const stamp = uniqueLabel('tc-wc-038')
     let customerId: string | null = null
+    let otherCustomerId: string | null = null
     const orderIds: string[] = []
     const claimIds: string[] = []
 
     try {
       customerId = await createCompanyFixture(request, token, `WC-038 customer ${stamp}`)
+      otherCustomerId = await createCompanyFixture(request, token, `WC-038 other customer ${stamp}`)
       for (const suffix of ['A', 'B']) {
         const response = await apiRequest(request, 'POST', '/api/sales/orders', {
           token,
@@ -64,6 +67,42 @@ test.describe('TC-WC-038: claim order reference integrity', () => {
       })
       const unlinkedId = expectId(unlinked.id, 'unlinked claim id')
       claimIds.push(unlinkedId)
+      const mismatchedCreate = await apiRequest(request, 'POST', '/api/warranty_claims', {
+        token,
+        data: {
+          claimType: 'return', customerId: otherCustomerId, currencyCode: 'USD',
+          lines: [{ orderLineId, qtyClaimed: 1 }],
+        },
+      })
+      expect(mismatchedCreate.status()).toBe(400)
+      const otherClaim = await createClaimFixture(request, token, {
+        claimType: 'return', customerId: otherCustomerId, currencyCode: 'USD',
+        lines: [{ productName: 'Own manual item', qtyClaimed: 1 }],
+      })
+      const otherClaimId = expectId(otherClaim.id, 'other customer claim id')
+      claimIds.push(otherClaimId)
+      const otherLines = await listClaimLines(request, token, otherClaimId)
+      const otherEvents = await readClaimEvents(request, token, otherClaimId)
+      const mismatchedLineCreate = await createClaimLine(request, token, {
+        claimId: otherClaimId, orderLineId, qtyClaimed: 1,
+      }, otherClaim.updatedAt)
+      expect(mismatchedLineCreate.status()).toBe(400)
+      const mismatchedLineUpdate = await updateClaimLine(request, token, {
+        id: otherLines[0].id, orderLineId, faultDescription: 'Must not persist',
+      }, otherLines[0].updatedAt)
+      expect(mismatchedLineUpdate.status()).toBe(400)
+      expect(await readClaim(request, token, otherClaimId)).toEqual(otherClaim)
+      expect(await listClaimLines(request, token, otherClaimId)).toEqual(otherLines)
+      expect(await readClaimEvents(request, token, otherClaimId)).toEqual(otherEvents)
+      const beforeReassignmentLines = await listClaimLines(request, token, unlinkedId)
+      const beforeReassignmentEvents = await readClaimEvents(request, token, unlinkedId)
+      const mismatchedCustomer = await updateClaim(request, token, {
+        id: unlinkedId, customerId: otherCustomerId,
+      }, unlinked.updatedAt)
+      expect(mismatchedCustomer.status()).toBe(400)
+      expect(await readClaim(request, token, unlinkedId)).toEqual(unlinked)
+      expect(await listClaimLines(request, token, unlinkedId)).toEqual(beforeReassignmentLines)
+      expect(await readClaimEvents(request, token, unlinkedId)).toEqual(beforeReassignmentEvents)
       const wrongLink = await updateClaim(request, token, { id: unlinkedId, orderId: orderBId }, unlinked.updatedAt)
       expect(wrongLink.status()).toBe(400)
       expect(await readClaim(request, token, unlinkedId)).toEqual(unlinked)
@@ -91,6 +130,7 @@ test.describe('TC-WC-038: claim order reference integrity', () => {
       for (const claimId of claimIds.reverse()) await cleanupDraftClaimWithLines(request, token, claimId)
       for (const orderId of orderIds.reverse()) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', customerId)
+      await deleteEntityIfExists(request, token, '/api/customers/companies', otherCustomerId)
     }
   })
 })

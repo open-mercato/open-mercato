@@ -2487,6 +2487,10 @@ export class HybridQueryEngine implements QueryEngine {
           })
           continue
         }
+        if (filter.op === 'not_ilike') {
+          next = next.where(buildNotIlikeJsonPredicate(this.jsonbSqlAlias(alias, String(filter.field)), filter.value))
+          continue
+        }
         if (filter.op === 'overlap') {
           next = next.where(buildJsonbOverlapPredicate(`${alias}.doc`, String(filter.field), filter.value))
           continue
@@ -3066,7 +3070,11 @@ export class HybridQueryEngine implements QueryEngine {
 
     void Promise.resolve().then(async () => {
       try {
-        await bus.emitEvent('query_index.reindex', payload, { persistent: true })
+        await bus.emitEvent('query_index.reindex', payload, {
+          persistent: true,
+          tenantId: payload.tenantId,
+          organizationId: payload.organizationId,
+        })
         if (this.isDebugVerbosity()) this.debug('query:auto-reindex:scheduled', context)
       } catch (err) {
         logger.warn('Failed to schedule auto reindex', { ...context, err })

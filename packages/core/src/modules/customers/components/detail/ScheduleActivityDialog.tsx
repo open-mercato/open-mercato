@@ -363,10 +363,14 @@ export function ScheduleActivityDialog({
         if (!Number.isNaN(localStart.getTime())) {
           params.set('timezoneOffsetMinutes', String(-localStart.getTimezoneOffset()))
         }
-        const data = await readApiResultOrThrow<{
-          hasConflicts: boolean
-          conflicts: Array<{ id: string; title: string | null; startTime: string; endTime: string; type: string }>
+        const envelope = await readApiResultOrThrow<{
+          ok: boolean
+          result: {
+            hasConflicts: boolean
+            conflicts: Array<{ id: string; title: string | null; startTime: string; endTime: string; type: string }>
+          }
         }>(`/api/customers/interactions/conflicts?${params.toString()}`)
+        const data = envelope?.result
         if (data?.hasConflicts && Array.isArray(data.conflicts) && data.conflicts.length > 0) {
           const descriptions = data.conflicts
             .map((c) => `${c.startTime}–${c.endTime}: ${c.title ?? c.type}`)
@@ -644,7 +648,7 @@ export function ScheduleActivityDialog({
         <div className="flex flex-col gap-1.5">
           <label className="text-overline font-semibold text-muted-foreground tracking-wider">
             {getFieldLabel(presentationType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
-            <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+            <span aria-hidden="true" className="ml-1 text-status-error-text">*</span>
           </label>
           <input
             type="text"
