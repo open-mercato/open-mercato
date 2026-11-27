@@ -552,10 +552,11 @@ function buildImportRowReferenceId(importBatchId: string, rowNumber: number): st
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
 
-// A row applied before buildImportRowReferenceId existed posted its movement with a
-// random referenceId, so a retry's deterministic referenceId never matches it and
-// wms.inventory.adjust would post the delta again. Recognize that row by the import
-// batch/row metadata every apply writes, independent of referenceId.
+/**
+ * Recognizes a pre-fix row by its import batch/row metadata, independent of referenceId,
+ * since it was posted before buildImportRowReferenceId existed and a retry's deterministic
+ * referenceId would never match it.
+ */
 async function findExistingImportRowMovement(
   em: EntityManager,
   scope: ImportScope,
