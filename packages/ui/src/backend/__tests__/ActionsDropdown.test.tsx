@@ -33,8 +33,6 @@ describe('ActionsDropdown', () => {
 
     const menu = screen.getByRole('menu')
     expect(menu.className).toContain('w-max')
-    expect(menu.className).toContain('max-w-xs')
-    expect(menu.className).toContain('min-w-52')
     // The original bug was a hard `w-52` cap that truncated longer localized labels.
     expect(menu.className).not.toMatch(/(^|\s)w-52(\s|$)/)
 
@@ -88,6 +86,19 @@ describe('ActionsDropdown — keyboard navigation (#6445)', () => {
     openMenu()
 
     expect(itemNamed('Retry from the beginning')).toHaveFocus()
+  })
+
+  it('keeps a hover-open menu open and focuses its first action on click', () => {
+    renderDropdown(ITEMS)
+
+    fireEvent.mouseEnter(trigger())
+    expect(itemNamed('Retry from the beginning')).not.toHaveFocus()
+
+    fireEvent.click(trigger())
+    expect(itemNamed('Retry from the beginning')).toHaveFocus()
+
+    fireEvent.click(trigger())
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
   it('walks the enabled items with ArrowDown/ArrowUp, wrapping and skipping disabled ones', () => {

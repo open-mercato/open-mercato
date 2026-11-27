@@ -202,6 +202,11 @@ for (const locale of ['en', 'pl'] as const) {
       expect((await submitUser(page, messages[locale].save, 'PUT')).status()).toBe(200)
       await expect(page).toHaveURL(/\/backend\/users(?:\?.*)?$/)
 
+      const query = noticeQuery(recipient.id)
+      const afterReplacement = await listNotifications(request, recipient.token, query)
+      expect(afterReplacement.total).toBe(3)
+      expect((await listNotifications(request, scenario.editorToken, query)).total).toBe(0)
+
       const panel = await openNotifications(scenario.recipientPage, locale)
       for (const text of [
         `${messages[locale].assigned} ${scenario.firstRole.name}`,
@@ -210,11 +215,6 @@ for (const locale of ['en', 'pl'] as const) {
       ]) {
         await expect(panel.getByText(text, { exact: true })).toBeVisible()
       }
-      const query = noticeQuery(recipient.id)
-      const afterReplacement = await listNotifications(request, recipient.token, query)
-      expect(afterReplacement.total).toBe(3)
-      expect((await listNotifications(request, scenario.editorToken, query)).total).toBe(0)
-
       for (let save = 0; save < 2; save += 1) {
         await page.goto(editUrl)
         await expect(roleTag(page, locale, scenario.nextRole.name)).toBeVisible()

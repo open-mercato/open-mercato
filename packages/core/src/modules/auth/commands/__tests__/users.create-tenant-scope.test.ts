@@ -115,7 +115,7 @@ function mockOrganizationInTenant(tenantId: string): void {
 
 const createInput = (organizationId: string) => ({
   email: 'x@evil.com',
-  password: 'P@ssw0rd!23',
+  password: 'TestP@ssw0rd!23',
   organizationId,
 })
 

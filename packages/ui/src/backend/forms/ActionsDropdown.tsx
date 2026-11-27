@@ -223,6 +223,11 @@ export function ActionsDropdown({
 
   if (!items.length) return null
 
+  const gutter = 4
+  const anchorRight = open && anchorRect
+    ? Math.max(gutter, Math.min(anchorRect.right, document.documentElement.clientWidth - gutter))
+    : gutter
+
   return (
     <div
       className="relative inline-block"
@@ -239,10 +244,14 @@ export function ActionsDropdown({
         aria-expanded={open}
         aria-label={resolvedAriaLabel}
         onClick={() => {
+          if (open && deliberateOpenRef.current) {
+            setOpen(false)
+            return
+          }
           focusOnOpenRef.current = true
           deliberateOpenRef.current = true
-          setOpen((prev) => !prev)
-          requestAnimationFrame(updatePosition)
+          setOpen(true)
+          updatePosition()
         }}
       >
         {triggerMode === 'icon' ? (
@@ -272,13 +281,15 @@ export function ActionsDropdown({
         <div
           ref={menuRef}
           role="menu"
-          className="fixed min-w-52 w-max max-w-xs rounded-md border bg-background p-1 shadow-md focus-visible:outline-none z-dropdown"
+          className="fixed w-max rounded-md border bg-background p-1 shadow-md focus-visible:outline-none z-dropdown"
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           style={{
-            top: direction === 'down' ? anchorRect.bottom + 4 : anchorRect.top - 4,
-            left: anchorRect.right,
-            transform: `translate(-100%, ${direction === 'down' ? '0' : '-100%'})`,
+            top: direction === 'down' ? anchorRect.bottom + gutter : anchorRect.top - gutter,
+            left: anchorRight,
+            minWidth: `min(calc(var(--spacing, 0.25rem) * 52), calc(100% - ${gutter * 2}px))`,
+            maxWidth: `min(var(--container-xs, 20rem), calc(100% - ${gutter * 2}px))`,
+            transform: `translate(max(-100%, ${gutter - anchorRight}px), ${direction === 'down' ? '0' : '-100%'})`,
           }}
         >
           {items.map((item, index) => {

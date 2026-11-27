@@ -154,4 +154,66 @@ describe('storeContextService', () => {
     expect(deleteByTags).toHaveBeenCalledTimes(2)
     expect(deleteByTags).toHaveBeenCalledWith(['ecommerce-store:store-1'])
   })
+
+  describe('findStoreForOrganizations', () => {
+    const ORG_ID = '22222222-2222-4222-8222-222222222222'
+    const STORE_ID = '33333333-3333-4333-8333-333333333333'
+
+    function createKyselyEm(row: Record<string, string> | undefined) {
+      const wheres: Array<[string, string, unknown]> = []
+      const builder = {
+        select: jest.fn(() => builder),
+        where: jest.fn((column: string, operator: string, value: unknown) => {
+          wheres.push([column, operator, value])
+          return builder
+        }),
+        executeTakeFirst: jest.fn(async () => row),
+      }
+      const em = { getKysely: () => ({ selectFrom: jest.fn(() => builder) }) }
+      return { em, wheres, builder }
+    }
+
+    it('returns the store ownership scoped to the tenant and organizations', async () => {
+      const { em, wheres } = createKyselyEm({ id: STORE_ID, tenant_id: TENANT_ID, organization_id: ORG_ID })
+      const service = createStoreContextService(createContainer({ em }))
+
+      const result = await service.findStoreForOrganizations!({ tenantId: TENANT_ID, organizationIds: [ORG_ID], storeId: STORE_ID })
+
+      expect(result).toEqual({ id: STORE_ID, tenantId: TENANT_ID, organizationId: ORG_ID })
+      expect(wheres).toEqual([
+        ['id', '=', STORE_ID],
+        ['tenant_id', '=', TENANT_ID],
+        ['deleted_at', 'is', null],
+        ['organization_id', 'in', [ORG_ID]],
+      ])
+    })
+
+    it('skips the organization filter when the caller is unrestricted within the tenant', async () => {
+      const { em, wheres } = createKyselyEm({ id: STORE_ID, tenant_id: TENANT_ID, organization_id: ORG_ID })
+      const service = createStoreContextService(createContainer({ em }))
+
+      await service.findStoreForOrganizations!({ tenantId: TENANT_ID, organizationIds: null, storeId: STORE_ID })
+
+      expect(wheres.map(([column]) => column)).not.toContain('organization_id')
+    })
+
+    it('returns null for an unknown or out-of-scope store', async () => {
+      const { em } = createKyselyEm(undefined)
+      const service = createStoreContextService(createContainer({ em }))
+
+      await expect(
+        service.findStoreForOrganizations!({ tenantId: TENANT_ID, organizationIds: [ORG_ID], storeId: STORE_ID }),
+      ).resolves.toBeNull()
+    })
+
+    it('returns null without querying when the caller has no organizations', async () => {
+      const { em, builder } = createKyselyEm({ id: STORE_ID, tenant_id: TENANT_ID, organization_id: ORG_ID })
+      const service = createStoreContextService(createContainer({ em }))
+
+      await expect(
+        service.findStoreForOrganizations!({ tenantId: TENANT_ID, organizationIds: [], storeId: STORE_ID }),
+      ).resolves.toBeNull()
+      expect(builder.executeTakeFirst).not.toHaveBeenCalled()
+    })
+  })
 })

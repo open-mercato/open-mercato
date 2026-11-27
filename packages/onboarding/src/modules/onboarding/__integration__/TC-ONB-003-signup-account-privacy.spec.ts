@@ -16,7 +16,7 @@ export const integrationMeta = {
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 const EMAIL_CAPTURE_PATH = process.env.OM_TEST_EMAIL_CAPTURE_PATH?.trim() || join(process.cwd(), '.ai', 'qa', 'email-capture.jsonl');
-const EXISTING_ACCOUNT_PASSWORD = 'Valid1!Pass';
+const EXISTING_ACCOUNT_PASSWORD = 'QaValid1!Pass';
 const SUBMITTED_PASSWORD = 'Str0ng!Passw0rd';
 const SUBMITTER_FIRST_NAME = 'Mallory';
 const SUBMITTER_ORGANIZATION = 'Probe Industries';

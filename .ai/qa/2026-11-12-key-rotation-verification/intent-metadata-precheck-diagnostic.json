@@ -1,0 +1,92 @@
+{
+  "diagnosticOnly": true,
+  "releaseAcceptance": false,
+  "serialUsesDirectAwait": true,
+  "metadataLayersMatchProduction": true,
+  "scope": "Missing-name metadata lookups only on owned persistent /bench filesystem; fresh names each pass; no decrypt/data reads or SQL",
+  "node": "v24.22.2",
+  "flags": [
+    "--max-old-space-size=128",
+    "--max-semi-space-size=4"
+  ],
+  "batchRows": 47,
+  "passes": 5,
+  "countPerPass": 32768,
+  "serialMedianMs": 1207.265125,
+  "parallel8MedianMs": 223.78500000000008,
+  "parallelOverSerial": 0.18536524858199652,
+  "records": [
+    {
+      "pass": 0,
+      "concurrency": 1,
+      "count": 32768,
+      "elapsedMs": 1234.629334,
+      "rssMiB": 79.59765625
+    },
+    {
+      "pass": 0,
+      "concurrency": 8,
+      "count": 32768,
+      "elapsedMs": 223.78500000000008,
+      "rssMiB": 88.78515625
+    },
+    {
+      "pass": 1,
+      "concurrency": 8,
+      "count": 32768,
+      "elapsedMs": 223.898958,
+      "rssMiB": 91.1484375
+    },
+    {
+      "pass": 1,
+      "concurrency": 1,
+      "count": 32768,
+      "elapsedMs": 1199.3318760000002,
+      "rssMiB": 91.4296875
+    },
+    {
+      "pass": 2,
+      "concurrency": 1,
+      "count": 32768,
+      "elapsedMs": 1217.2507500000002,
+      "rssMiB": 91.5703125
+    },
+    {
+      "pass": 2,
+      "concurrency": 8,
+      "count": 32768,
+      "elapsedMs": 222.56320899999992,
+      "rssMiB": 92.1328125
+    },
+    {
+      "pass": 3,
+      "concurrency": 8,
+      "count": 32768,
+      "elapsedMs": 222.58083400000032,
+      "rssMiB": 92.86328125
+    },
+    {
+      "pass": 3,
+      "concurrency": 1,
+      "count": 32768,
+      "elapsedMs": 1207.265125,
+      "rssMiB": 92.76171875
+    },
+    {
+      "pass": 4,
+      "concurrency": 1,
+      "count": 32768,
+      "elapsedMs": 1204.338084,
+      "rssMiB": 92.8125
+    },
+    {
+      "pass": 4,
+      "concurrency": 8,
+      "count": 32768,
+      "elapsedMs": 226.8700000000008,
+      "rssMiB": 92.953125
+    }
+  ],
+  "candidateCommit": "48db5f3af0d09d5e8353116796b02b5b52f7b45b",
+  "limitations": "Persistent /bench filesystem missing-name metadata-only diagnostic in fresh empty directories. The serial loop uses direct await and production-like fileIdentity/lstat layers; bounded8 joins each group. Real growing intent directories, decryption and SQL are excluded, so no acceptance result is inferred."
+}
