@@ -204,6 +204,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     }
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const payload = createDictionaryEntrySchema.parse(await req.json().catch(() => ({})))
+    await loadDictionary(context, dictionaryId)
     const guardUserId = resolveDictionaryActorId(context.auth)
     const guardResult = await validateCrudMutationGuard(context.container, {
       tenantId: context.tenantId,
@@ -248,7 +249,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
       DictionaryEntry,
       createdEntryId,
       { populate: ['dictionary'] },
-      { tenantId: context.auth.tenantId ?? null, organizationId: context.auth.orgId ?? null },
+      { tenantId: context.tenantId, organizationId: context.organizationId },
     )
     if (!entry) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_create_failed', 'Failed to create dictionary entry') })
