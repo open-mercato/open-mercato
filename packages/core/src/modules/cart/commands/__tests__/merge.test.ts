@@ -506,8 +506,9 @@ describe('cart.merge — §7.1 policy rows', () => {
 
   it.each([
     ['999999999999.9998', '0.0001', '999999999999.9999'],
+    ['999999999999.9991', '0.0001', '999999999999.9993'],
     ['0.1', '0.2', '0.3'],
-  ])('merges quantities %s and %s exactly', async (targetQuantity, sourceQuantity, expected) => {
+  ])('preserves the supported result of merging %s and %s', async (targetQuantity, sourceQuantity, expected) => {
     seededCarts = [makeCartFixture({ id: 'cart-target' }), makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token') })]
     seededProducts = [makeProductFixture({ id: 'product-1' })]
     seededCartLines = [

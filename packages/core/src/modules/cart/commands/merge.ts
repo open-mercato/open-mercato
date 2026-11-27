@@ -7,7 +7,7 @@ import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError, badRequest, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { addDecimals, compareDecimals } from '@open-mercato/shared/lib/decimal'
+import { compareDecimals } from '@open-mercato/shared/lib/decimal'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
@@ -18,7 +18,7 @@ import type { QuantityRulePolicy } from '@open-mercato/core/modules/availability
 import type { PolicyResolutionService } from '@open-mercato/core/modules/availability/lib/policyResolution'
 
 import { MAX_CART_LINE_QUANTITY } from '../data/validators'
-import { assertCartQuantity, toWritableCartQuantity } from '../lib/quantity'
+import { addCartQuantities, assertCartQuantity, toWritableCartQuantity } from '../lib/quantity'
 import { Cart, CartLine, CartMergeLog } from '../data/entities'
 import type { CartMergeActorType, CartMergeLineDisposition, CartMergeOutcomeEntry, CartMergeStrategy } from '../data/entities'
 import { generateCartToken, hashCartToken } from '../lib/token'
@@ -392,10 +392,10 @@ function buildMergeOutcome(
     }
 
     const previousTargetQuantity = matched.quantity
-    const summedQuantity = addDecimals(matched.quantity, sourceLine.quantity)
+    const summedQuantity = addCartQuantities(matched.quantity, sourceLine.quantity)
     const maxQuantity = Math.min(maxQuantityBySourceLineId.get(sourceLine.id) ?? MAX_CART_LINE_QUANTITY, MAX_CART_LINE_QUANTITY)
     const capped = compareDecimals(summedQuantity, maxQuantity) > 0
-    matched.quantity = toWritableCartQuantity(capped ? maxQuantity : summedQuantity.toFixed())
+    matched.quantity = toWritableCartQuantity(capped ? maxQuantity : summedQuantity)
     updatedLineIds.push(matched.id)
     outcome.push({
       sourceLineId: sourceLine.id,

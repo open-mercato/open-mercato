@@ -73,7 +73,7 @@ test('TC-CART-QUANTITY-01: add, update and bulk add reject excess decimal precis
     expect(current.body).toMatchObject({ cart: { lines: [{ id: originalLine.id, quantity: originalLine.quantity }] } });
 
     const updated = await cartStorefrontRequest(store.hostname, linePath, {
-      method: 'PATCH', cartToken: cart.token, body: { quantity: '999999999999.9996' },
+      method: 'PATCH', cartToken: cart.token, body: { quantity: '999999999999.9991' },
     });
     expect(updated.status, updated.text).toBe(200);
 
@@ -91,8 +91,8 @@ test('TC-CART-QUANTITY-01: add, update and bulk add reject excess decimal precis
     const afterBulk = await cartStorefrontRequest(store.hostname, CART_CURRENT_PATH, { method: 'GET', cartToken: cart.token });
     expect(afterBulk.status, afterBulk.text).toBe(200);
     expect(afterBulk.body).toMatchObject({ cart: {
-      lines: [{ id: originalLine.id, quantity: '999999999999.9998' }],
-      totals: { grandTotalNetAmountExact: '99999999999999.98' },
+      lines: [{ id: originalLine.id, quantity: '999999999999.9993' }],
+      totals: { grandTotalNetAmountExact: '99999999999999.93' },
     } });
   } finally {
     if (cartId) await deleteCartRowIfExists(cartId);

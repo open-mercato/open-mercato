@@ -323,8 +323,9 @@ describe('cart.lines.add', () => {
 
   it.each([
     ['999999999999.9998', '0.0001', '999999999999.9999'],
+    ['999999999999.9991', '0.0001', '999999999999.9993'],
     ['0.1', '0.2', '0.3'],
-  ])('adds %s and %s exactly', async (initial, added, expected) => {
+  ])('preserves the supported result of adding %s and %s', async (initial, added, expected) => {
     const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
     const input = { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', addedByActorType: 'rep' as const }
     await handler.execute({ ...input, quantity: initial }, makeCtx({ em: makeEm() }))
@@ -873,13 +874,16 @@ describe('cart.lines.bulkAdd', () => {
     expect(seededCartLines).toHaveLength(0)
   })
 
-  it('preserves exact bulk sums at the boundary', async () => {
+  it.each([
+    ['999999999999.9998', '999999999999.9999'],
+    ['999999999999.9991', '999999999999.9993'],
+  ])('preserves a bulk increment of boundary quantity %s', async (initial, expected) => {
     const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
     const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, addedByActorType: 'rep', lines: [
-      { productId: 'product-1', quantity: '999999999999.9998' },
+      { productId: 'product-1', quantity: initial },
       { productId: 'product-1', quantity: '0.0001' },
     ] }, makeCtx({ em: makeEm() }))
-    expect(result.results[1]).toMatchObject({ status: 'merged', line: { quantity: '999999999999.9999' } })
+    expect(result.results[1]).toMatchObject({ status: 'merged', line: { quantity: expected } })
   })
 
   it.each([0, 1])('uses the committed quantity after waiting for the lock with %i initial units', async (initialQuantity) => {

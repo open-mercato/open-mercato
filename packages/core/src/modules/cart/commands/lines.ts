@@ -10,7 +10,6 @@ import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { badRequest, conflict, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { addDecimals, decimalToString } from '@open-mercato/shared/lib/decimal'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
@@ -51,7 +50,7 @@ import type { SalesCalculationService } from '@open-mercato/core/modules/sales/s
 import type { SalesAdjustmentDraft } from '@open-mercato/core/modules/sales/lib/types'
 
 import { MAX_CART_LINE_QUANTITY } from '../data/validators'
-import { assertCartQuantity, toWritableCartQuantity } from '../lib/quantity'
+import { addCartQuantities, assertCartQuantity, toWritableCartQuantity } from '../lib/quantity'
 import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartLineActorType, CartLineOrigin } from '../data/entities'
 import {
@@ -972,7 +971,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
 
         if (existing) {
           const before = toCartLineSnapshot(existing)
-          const summedQuantity = decimalToString(addDecimals(existing.quantity, acceptedQuantityExact))
+          const summedQuantity = addCartQuantities(existing.quantity, acceptedQuantityExact)
           const sumCheck = checkQuantityRule(rules, Number(summedQuantity))
           if (sumCheck.status === 'rejected') {
             outcome = { status: 'rejected', reason: sumCheck.reason, nearestValid: sumCheck.nearestValid }
@@ -1577,7 +1576,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
 
       if (existingLine) {
         const before = toCartLineSnapshot(existingLine)
-        const summedQuantity = decimalToString(addDecimals(existingLine.quantity, acceptedQuantityExact))
+        const summedQuantity = addCartQuantities(existingLine.quantity, acceptedQuantityExact)
         const sumCheck = checkQuantityRule(rules, Number(summedQuantity))
         if (sumCheck.status === 'rejected') {
           outcomes[index] = { index, status: 'rejected', reason: sumCheck.reason, nearestValid: sumCheck.nearestValid }

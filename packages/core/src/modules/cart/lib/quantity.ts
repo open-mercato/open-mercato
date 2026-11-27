@@ -1,5 +1,5 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { countDecimalPlaces, parseDecimal } from '@open-mercato/shared/lib/decimal'
+import { addDecimals, countDecimalPlaces, parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 export const CART_QUANTITY_STORAGE_MAX = '999999999999.9999'
 export const CART_QUANTITY_ERROR_KEY = 'cart.errors.quantity_invalid'
@@ -26,4 +26,10 @@ export function assertCartQuantity(value: string | number, { allowZero = false }
 export function toWritableCartQuantity(value: string | number): string {
   const exact = assertCartQuantity(value, { allowZero: true })
   return assertCartQuantity(Number(exact), { allowZero: true })
+}
+
+export function addCartQuantities(left: string, right: string | number): string | number {
+  const sum = addDecimals(left, right)
+  const exact = sum.toFixed()
+  return sum.eq(Number(exact)) ? exact : Number(left) + Number(right)
 }
