@@ -74,8 +74,6 @@ describe('communication_channels message-channel-payload enricher', () => {
     expect(payload.sanitizedHtml as string).not.toContain('alert(1)')
   })
 
-<<<<<<< HEAD
-=======
   it('strips classes from rendered email HTML while preserving the raw provider payload', async () => {
     const rawHtml = '<p class="email-body">Hello</p>'
     findWithDecryptionMock.mockResolvedValue([{
@@ -106,7 +104,6 @@ describe('communication_channels message-channel-payload enricher', () => {
     })
   })
 
->>>>>>> 6c98970ac0 (fix(communication_channels): confine inbound email content to its body (#10614) (#10853))
   it('leaves sanitizedHtml null for non-email payloads', async () => {
     findWithDecryptionMock.mockResolvedValue([
       {

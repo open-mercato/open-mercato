@@ -15,7 +15,7 @@ import sanitizeHtml from 'sanitize-html'
  * Allowlist is tuned for email + chat HTML:
  *   - Preserves typical email layout primitives (table-based layouts, inline images, basic typography).
  *   - Defers network images until the reader explicitly opts in for that message.
- *   - Strips `<script>`, `<style>`, `<iframe>`, all event-handler attributes (`on*`).
+ *   - Strips `<script>`, `<style>`, `<iframe>`, event handlers, and sender-supplied CSS classes.
  *   - Blocks `javascript:` and `data:` URLs except `data:image/*;base64,…` (inline base64 images, common in email).
  */
 
@@ -86,9 +86,9 @@ const SAFE_CSS_BORDER_RADIUS = new RegExp(String.raw`^(?:${SAFE_CSS_LENGTH}|${bo
 const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: ALLOWED_TAGS,
   allowedAttributes: {
-    a: ['href', 'title', 'class'],
-    img: ['src', 'alt', 'title', 'class', 'width', 'height', 'data-channel-remote-src'],
-    '*': ['class', 'style', 'colspan', 'rowspan', 'width', 'height'],
+    a: ['href', 'title'],
+    img: ['src', 'alt', 'title', 'width', 'height', 'data-channel-remote-src'],
+    '*': ['style', 'colspan', 'rowspan', 'width', 'height'],
   },
   allowedSchemes: ALLOWED_SCHEMES,
   allowedSchemesByTag: ALLOWED_SCHEMES_BY_TAG,
