@@ -16,6 +16,7 @@
  * boundary. The Step 5.9 cancel route reuses {@link checkStatusAndExpiry}.
  */
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
@@ -461,12 +462,16 @@ export async function checkRecordVersion(
   return toPublicRecheckResult(await checkConfirmationRecords(action, tool, ctx, checkedInput.toolInput))
 }
 
-function refuseChangedPreview(): PendingActionRecheckFailResult {
+async function refuseChangedPreview(): Promise<PendingActionRecheckFailResult> {
+  const { translate } = await resolveTranslations()
   return {
     ok: false,
     status: 412,
     code: 'schema_drift',
-    message: 'Pending input no longer matches the approved preview.',
+    message: translate(
+      'ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody',
+      'The tool signature changed since this preview was generated. Ask the assistant to re-propose the change.',
+    ),
   }
 }
 
@@ -519,7 +524,7 @@ async function checkConfirmationRecords(
     }
     const plan = planPendingActionExecution(action, tool, stale, toolInput)
     if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
-    const previewChanged = verifyPreviewValues && plan.recordIds.some((recordId) => {
+    const previewChanged = verifyPreviewValues && plan.recordIds?.some((recordId) => {
       const approved = approvedById.get(recordId)
       const current = currentById.get(recordId)
       return approved?.fieldDiff?.length && current && !matchesPreviewedValues(

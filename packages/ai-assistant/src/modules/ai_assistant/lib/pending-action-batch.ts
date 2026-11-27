@@ -25,7 +25,7 @@ export type PendingActionExecutionPlan =
   | {
       kind: 'run'
       input: unknown
-      recordIds: string[]
+      recordIds?: string[]
       expectedRecordVersions: Record<string, string>
       notPreviewedRecordIds: string[]
       droppedDuplicateRecordIds: string[]
@@ -136,7 +136,7 @@ export function planPendingActionExecution(
   action: PlannableAction,
   tool: PlannableTool,
   staleRecords: AiPendingActionFailedRecord[] | null | undefined,
-  toolInput: unknown,
+  toolInput: unknown = action.normalizedInput,
 ): PendingActionExecutionPlan {
   const previewed = Array.isArray(action.records) ? action.records : []
   if (previewed.length === 0) {
