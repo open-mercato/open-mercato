@@ -18,7 +18,18 @@ describe('flat price-rule monetary input', () => {
     expect(normalizePriceFormAmounts({}, 'pl', t)).toEqual({})
   })
 
-  it.each(['12,3,4', '1 2', 'abc', 'NaN', 'Infinity', '1e999', '-1', '−0,01', '1000000000000', '1,23456', '999999999999.12345', '999999999999,12345', '-1e-999', '−1e-999', '0.00001', '1e-999'])('refuses %s with localized errors on both fields', (raw) => {
+  it.each([
+    ['1000000000000', '1000000000000'],
+    ['1,23456', '1.23456'],
+    ['999999999999.12345', '999999999999.12345'],
+    ['999999999999,12345', '999999999999.12345'],
+    ['0.00001', '0.00001'],
+  ])('preserves exact prices beyond the legacy limits (%s)', (raw, exact) => {
+    expect(normalizePriceFormAmounts({ unitPriceNet: raw, unitPriceGross: raw }, 'pl', t))
+      .toEqual({ unitPriceNet: exact, unitPriceGross: exact })
+  })
+
+  it.each(['12,3,4', '1 2', 'abc', 'NaN', 'Infinity', '1e999', '-1', '−0,01', '-1e-999', '−1e-999', '1e-999'])('refuses %s with localized errors on both fields', (raw) => {
     expect(() => normalizePriceFormAmounts({ unitPriceNet: raw, unitPriceGross: raw }, 'pl', t))
       .toThrow(expect.objectContaining({
         message: 'Podaj poprawną, nieujemną cenę.',
