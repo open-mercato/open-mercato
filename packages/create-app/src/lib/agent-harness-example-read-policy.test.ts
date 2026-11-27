@@ -1330,6 +1330,13 @@ test('reachability: every shipped declaring case can afford the entire surface i
         context.diagnostic(`${entry.id}: ${bytes} example bytes / ${declaration.maxBytes} root cap`)
         assert.ok(declaration.maxBytes - bytes >= 164, `${entry.id}: ${bytes} example bytes need ${bytes + 164} with existing headroom`)
       }
+      if (entry.id === 'OMH-223') {
+        assert.equal(entry.maxInitialContextBytes, 98_304)
+        assert.equal(entry.maxTotalContextBytes, 262_144)
+        assert.equal(declaration.maxFiles, 10)
+        assert.ok(declaration.maxBytes < entry.maxTotalContextBytes)
+        context.diagnostic(`${entry.id}: ${bytes} example bytes / ${declaration.maxBytes} root cap / ${entry.maxTotalContextBytes} total cap`)
+      }
       assert.ok(files.length <= declaration.maxFiles, `${entry.id} declares ${files.length} files against maxFiles ${declaration.maxFiles}`)
       assert.ok(bytes <= declaration.maxBytes, `${entry.id} declares ${bytes} bytes against maxBytes ${declaration.maxBytes}`)
 
