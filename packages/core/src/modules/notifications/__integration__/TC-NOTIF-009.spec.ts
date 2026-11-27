@@ -21,7 +21,7 @@ import { expectJsonError } from './helpers/notificationsApi'
 test.describe('TC-NOTIF-009: Users cannot access other users notifications', () => {
   test('hides and rejects read, dismiss, and action attempts for another user notification', async ({ request }) => {
     const stamp = Date.now()
-    const password = 'Valid1!Pass'
+    const password = 'QaValid1!Pass'
     const userOneEmail = `qa-notif-owner-${stamp}@acme.com`
     const userTwoEmail = `qa-notif-other-${stamp}@acme.com`
     const type = `qa.notifications.cross.user.${stamp}`

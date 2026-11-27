@@ -39,7 +39,10 @@ const ORG_B = '44444444-4444-4444-8444-444444444444'
 const ATTACHMENT_ID = '55555555-5555-4555-8555-555555555555'
 
 function matches(row: Row, where: Row): boolean {
-  return Object.entries(where).every(([key, value]) => (row[key] ?? null) === (value ?? null))
+  return Object.entries(where).every(([key, value]) => {
+    if (key === '$or' && Array.isArray(value)) return value.some((branch) => matches(row, branch))
+    return (row[key] ?? null) === (value ?? null)
+  })
 }
 
 function createFakeEm() {

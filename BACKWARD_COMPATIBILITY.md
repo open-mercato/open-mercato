@@ -662,7 +662,7 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 ## Encrypted search contexts (#7872)
 
-STABLE: encrypted custom fields are omitted; missing/failing resolver excludes all. A bridge preserves disclosure; human exception approval is pending. [Contract/migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
+STABLE: omit encrypted custom fields. Missing/failing resolver excludes all. A bridge leaks fields. Named waiver pending. [Migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
 
 ## Compose encryption (2026-11-01, #7231)
 
@@ -675,9 +675,9 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
-`POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
+`POST /api/auth/logout` returns 303 instead of 307, even without cookies ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). It supersedes the October entry. The shared helper defaults to 307.
 
-**Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
+**Migration:** Accept 303 and follow `Location: /login` with GET. Revocation, cookie expiry, route URL/method, auth events and schema are unchanged. [Spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) · UPGRADE_NOTES.md.
 
 ## #7809 2026-11-06
 
@@ -721,11 +721,7 @@ STABLE API: legacy signatures leave organization unverified. Rotate scoped keys 
 
 ## 2026-11-25 — Encrypted custom field writes
 
-STABLE API behavior changes for writes of tenant-scoped encrypted custom fields when the data key is unavailable. Preserving success during the outage would persist unencrypted values. Clients handle HTTP 503 and retry after key access recovers. Operators restore key access and review historical records. [Migration](UPGRADE_NOTES.md) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
-
-## 2026-11-25 — Empty organization scope (#10503)
-
-STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+STABLE API: encrypted tenant custom-field writes return HTTP 503 when the data key is unavailable. Allowing success would persist plaintext. Restore key access, retry, and review historical values. [Migration](UPGRADE_NOTES.md#encrypted-tenant-custom-field-writes-require-a-usable-key) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
 
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
 
@@ -738,6 +734,18 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 ## 2026-11-25 — MCP Code Mode
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## 2026-11-26 — Vector-index entity authorization (#10693)
+
+STABLE `GET /api/search/index` enforces entity view and org scope. A bridge leaks rows. [Migration](UPGRADE_NOTES.md#vector-index-entity-authorization-10693) · [Spec](.ai/specs/2026-11-26-vector-index-entity-authorization.md). Named waiver pending.
+
+## Staff credential email (2026-11-27, #10594)
+
+STABLE superadmin reset and invite email uses the instance provider. Tenant fallback retains exposure. Named waiver pending. [Migration](.ai/specs/2026-06-03-pluggable-email-providers.md).
+
+## 2026-11-27 — Staff and organization boundaries (#10503, #10543)
+
+STABLE APIs §7 require organization grants and return `403` for explicitly empty scope. Grant scope and handle `403`. `PUT /api/auth/profile` requires current-password proof for email changes. Send proof and reauthenticate. ADDITIVE-ONLY schema §8 uses owner-unique partition codes. Rehome incompatible references. Bridging prior behavior retains unscoped access or unverified changes. [Migration and specs](UPGRADE_NOTES.md). Named waiver pending.
 
 ## 2026-11-26 — Audit-log actor visibility (#10788)
 

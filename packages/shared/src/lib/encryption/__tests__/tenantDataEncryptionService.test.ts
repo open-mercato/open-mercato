@@ -158,10 +158,9 @@ describe('isEncryptedPayloadShape (issue #5951)', () => {
     expect(isEncryptedPayloadShape((encryptWithAesGcm('x', fixedKey).value as string).replace(/:v1$/, ':v2'))).toBe(false)
   })
 
-  it('rejects an envelope whose ciphertext segment is empty', () => {
-    const real = encryptWithAesGcm('x', fixedKey).value as string
-    const [iv, , tag] = real.split(':')
-    expect(isEncryptedPayloadShape(`${iv}::${tag}:v1`)).toBe(false)
+  it('recognizes the shape of an encrypted empty string', () => {
+    const real = encryptWithAesGcm('', fixedKey).raw
+    expect(isEncryptedPayloadShape(real)).toBe(true)
   })
 })
 

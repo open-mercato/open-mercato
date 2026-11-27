@@ -20,6 +20,10 @@
       "types": "./src/types.ts",
       "default": "./dist/types.js"
     },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./dist/testing/index.js"
+    },
     "./*": {
       "types": [
         "./src/*.ts"
@@ -55,7 +59,11 @@
     }
   },
   "dependencies": {
-    "@types/better-sqlite3": "^7.6.13"
+    "@open-mercato/cache-provider-jsonfile": "workspace:*",
+    "@open-mercato/cache-provider-kit": "workspace:*",
+    "@open-mercato/cache-provider-memory": "workspace:*",
+    "@open-mercato/cache-provider-redis-legacy": "workspace:*",
+    "@open-mercato/cache-provider-sqlite": "workspace:*"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
