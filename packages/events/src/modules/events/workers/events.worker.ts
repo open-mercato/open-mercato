@@ -1,5 +1,6 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { ScopedResolveContainer } from '@open-mercato/shared/lib/di/scopedContainer'
 import type { EmitOptions, EventBus, QueuedDispatchResult } from '../../../types'
 
 /** An `EventBus` proven at runtime to implement the optional `dispatchQueued`. */
@@ -31,6 +32,8 @@ type EventJobPayload = {
 
 type HandlerContext = {
   resolve: <T = unknown>(name: string) => T
+  /** The per-job REAL container, when `createPerJobWorkerHandler`'s factory has one. */
+  container?: ScopedResolveContainer
   eventName?: string
   tenantId?: string | null
   organizationId?: string | null
@@ -120,6 +123,9 @@ export default async function handle(
   // `ctx.resolve` is the per-job request container `createPerJobWorkerHandler`
   // built for this job. Handing it to the bus keeps subscribers on that job's
   // `em` instead of whichever container happened to construct the bus.
+  // `ctx.container` (when present) is that SAME container with `.register()` —
+  // see `SubscriberContext.container`'s own doc for why a bound resolve alone
+  // cannot support a persistent subscriber's trusted-auth override.
   const results = await bus.dispatchQueued(
     event,
     payload,
@@ -129,6 +135,7 @@ export default async function handle(
       allowAllTenants: options?.allowAllTenants,
     },
     ctx.resolve,
+    ctx.container,
   )
 
   // A resolvable bus with an empty registry is the residual silent-loss path:

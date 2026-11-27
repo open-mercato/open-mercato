@@ -89,13 +89,17 @@ describe('clearAllPerspectiveState (tenant-isolation at the auth identity bounda
       settings: { columnSizing: { name: 210 } },
       updatedAt: 1,
     })
-    localStorage.setItem('om_login_tenant', 'acme')
+    // Two keys the app really writes: the sidebar state (AppShell) and the identity
+    // marker. `om_login_tenant` used to stand here and no longer does - nothing writes it
+    // to localStorage since /login stopped mirroring the query parameter - so it pinned a
+    // contract that had ceased to exist while still passing, because this test seeds it.
+    localStorage.setItem('om:sidebarCollapsed', '1')
     localStorage.setItem('om:auth:identity', '123')
 
     clearAllPerspectiveState()
 
     expect(localStorage.getItem(`${PREFIX}:customers-companies`)).toBeNull()
-    expect(localStorage.getItem('om_login_tenant')).toBe('acme')
+    expect(localStorage.getItem('om:sidebarCollapsed')).toBe('1')
     expect(localStorage.getItem('om:auth:identity')).toBe('123')
   })
 
