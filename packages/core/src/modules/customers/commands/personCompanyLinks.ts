@@ -271,12 +271,38 @@ async function requirePersonProfile(
   return profile
 }
 
-async function clearPrimaryFlagsForPerson(em: EntityManager, person: CustomerEntity): Promise<void> {
+async function claimPrimaryCompanyLink(
+  em: EntityManager,
+  person: CustomerEntity,
+  primaryLinkId: string | null,
+): Promise<void> {
+  const scope = { tenantId: person.tenantId, organizationId: person.organizationId }
+  const locked = await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    { id: person.id, kind: 'person', ...scope, deletedAt: null },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  )
+  if (!locked) {
+    const { translate } = await resolveTranslations()
+    throw notFound(translate('customers.errors.person_not_found', 'Person not found'))
+  }
+  await findOneWithDecryption(
+    em,
+    CustomerPersonProfile,
+    { entity: person, ...scope },
+    { populate: ['company'], refresh: true },
+    scope,
+  )
   await em.nativeUpdate(
     CustomerPersonCompanyLink,
-    { person, organizationId: person.organizationId, tenantId: person.tenantId, isPrimary: true },
+    { person, ...scope, isPrimary: true, ...(primaryLinkId ? { id: { $ne: primaryLinkId } } : {}) },
     { isPrimary: false },
   )
+  if (primaryLinkId) {
+    await em.nativeUpdate(CustomerPersonCompanyLink, { id: primaryLinkId, person, ...scope }, { isPrimary: true })
+  }
 }
 
 async function restoreCreatePersonCompanyLink(
@@ -387,7 +413,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       const changed = makePrimary && !existingLive.isPrimary
       if (changed) {
         await withAtomicFlush(em, [
-          () => clearPrimaryFlagsForPerson(em, person),
+          () => claimPrimaryCompanyLink(em, person, existingLive.id),
           () => {
             existingLive.isPrimary = true
             profile.company = company
@@ -404,7 +430,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
         const deletedLink = await findDeletedPersonCompanyLink(em, person, company)
         if (deletedLink) createBefore.link = snapshotPersonCompanyLink(deletedLink)
         if (makePrimary) {
-          await clearPrimaryFlagsForPerson(em, person)
+          await claimPrimaryCompanyLink(em, person, deletedLink?.id ?? null)
         }
         if (deletedLink) {
           deletedLink.deletedAt = null
@@ -573,7 +599,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
     await withAtomicFlush(em, [
       async () => {
         if (after.isPrimary) {
-          await clearPrimaryFlagsForPerson(em, person)
+          await claimPrimaryCompanyLink(em, person, link?.id ?? null)
         }
         if (!link) {
           link = em.create(CustomerPersonCompanyLink, {
@@ -692,7 +718,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
               )?.id ?? null,
             }
           }
-          await clearPrimaryFlagsForPerson(em, person)
+          await claimPrimaryCompanyLink(em, person, currentLink.id)
           currentLink.isPrimary = true
           profile.company = linkedCompany
         } else {
@@ -833,7 +859,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
           profile.company = previousCompany
           state.restoredPromotion = true
         } else if (before.isPrimary) {
-          await clearPrimaryFlagsForPerson(em, person)
+          await claimPrimaryCompanyLink(em, person, link.id)
           link.isPrimary = true
           if (company) profile.company = company
         } else {
@@ -1140,13 +1166,12 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
         )
       },
       async () => {
+        if (person && before.isPrimary) {
+          await claimPrimaryCompanyLink(em, person, link.id)
+        }
         link.deletedAt = null
         link.isPrimary = before.isPrimary
-        if (person && before.isPrimary) {
-          await clearPrimaryFlagsForPerson(em, person)
-          link.isPrimary = true
-          if (profile && company) profile.company = company
-        }
+        if (before.isPrimary && profile && company) profile.company = company
       },
     ], { transaction: true })
 

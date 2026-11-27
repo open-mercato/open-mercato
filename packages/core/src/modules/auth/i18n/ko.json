@@ -587,6 +587,7 @@
   "auth.password": "비밀번호",
   "auth.password.requirements.digit": "숫자 1개",
   "auth.password.requirements.help": "비밀번호 요구 사항: {requirements}",
+  "auth.password.requirements.maxBytes": "최대 {max}바이트 (UTF-8)",
   "auth.password.requirements.minLength": "최소 {min}자",
   "auth.password.requirements.separator": ", ",
   "auth.password.requirements.special": "특수 문자 1개",

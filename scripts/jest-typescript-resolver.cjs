@@ -1,5 +1,7 @@
 'use strict'
 
+const STOCK_CACHE_PROVIDER = /^@open-mercato\/cache-provider-(?:jsonfile|memory|redis-legacy|sqlite|kit(?:\/[a-zA-Z]+)?)$/
+
 // TEMPORARY (TypeScript 7 migration): redirect test-code `import ts from
 // 'typescript'` to the JS-based TypeScript installed under the `typescript-js`
 // npm alias. Native TS 7 is a Go compiler and no longer ships the JavaScript
@@ -11,6 +13,11 @@
 module.exports = (request, options) => {
   if (request === 'typescript') {
     return options.defaultResolver('typescript-js', options)
+  }
+  if (STOCK_CACHE_PROVIDER.test(request)) {
+    // The host is tested from source. Use each default provider's source export
+    // so the same tests work before the packages are built.
+    return options.defaultResolver(request, { ...options, conditions: ['types', ...(options.conditions ?? [])] })
   }
   return options.defaultResolver(request, options)
 }

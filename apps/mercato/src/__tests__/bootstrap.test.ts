@@ -53,11 +53,13 @@ function mockBootstrapDependencies({
   appModules = [],
   bootstrapModules = [],
   codeWorkflows = [],
+  loadCacheProviderManifest = () => ({ cacheProviders: [] }),
 }: {
   fullModules?: object[]
   appModules?: object[]
   bootstrapModules?: object[]
   codeWorkflows?: CodeWorkflowDefinition[]
+  loadCacheProviderManifest?: () => { cacheProviders: object[] }
 } = {}) {
   jest.doMock('@open-mercato/shared/lib/i18n/server', () => ({
     registerAppDictionaryLoader: registerAppDictionaryLoaderMock,
@@ -86,6 +88,7 @@ function mockBootstrapDependencies({
   jest.doMock('@/.mercato/generated/message-types.generated', () => ({ messageTypes: [] }))
   jest.doMock('@/.mercato/generated/message-objects.generated', () => ({ messageObjectTypes: [] }))
   jest.doMock('@/.mercato/generated/workflows.generated', () => ({ allCodeWorkflows: codeWorkflows }))
+  jest.doMock('@/.mercato/generated/cache-providers.generated', loadCacheProviderManifest, { virtual: true })
   jest.doMock('@/.mercato/generated/bootstrap-registrations.generated', () => ({
     runBootstrapRegistrations: runBootstrapRegistrationsMock,
   }))
@@ -151,5 +154,37 @@ describe('app bootstrap', () => {
     const { getCodeWorkflow } = await import('@open-mercato/core/modules/workflows/lib/code-registry')
     expect(getCodeWorkflow('invalid-workflow')).toBeUndefined()
     expect(getCodeWorkflow('valid-workflow')).toEqual(validWorkflow)
+  })
+
+  it('loads the app cache provider manifest only when a provider is selected', async () => {
+    const previousProvider = process.env.CACHE_PROVIDER
+    const registration = {
+      id: 'acme/example',
+      load: jest.fn(),
+      settings: jest.fn(() => ({})),
+    }
+    const loadManifest = jest.fn(() => ({ cacheProviders: [registration] }))
+    mockBootstrapDependencies({ loadCacheProviderManifest: loadManifest })
+
+    try {
+      delete process.env.CACHE_PROVIDER
+      await import('@/bootstrap-common')
+      const { getCacheProviderRegistrations, prepareCacheProviderSelection } =
+        await import('@open-mercato/shared/lib/cache/providers')
+
+      await expect(prepareCacheProviderSelection()).resolves.toBeNull()
+      expect(loadManifest).not.toHaveBeenCalled()
+
+      await expect(prepareCacheProviderSelection({
+        env: { CACHE_PROVIDER: 'acme/unknown', CACHE_PROVIDER_NAMESPACE: 'fixture' },
+      })).rejects.toMatchObject({ code: 'not_registered' })
+      expect(loadManifest).toHaveBeenCalledTimes(1)
+      expect(getCacheProviderRegistrations()).toEqual([registration])
+      expect(registration.load).not.toHaveBeenCalled()
+      expect(registration.settings).not.toHaveBeenCalled()
+    } finally {
+      if (previousProvider === undefined) delete process.env.CACHE_PROVIDER
+      else process.env.CACHE_PROVIDER = previousProvider
+    }
   })
 })

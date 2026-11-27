@@ -46,6 +46,51 @@ see no organization. Grant the intended organizations in the user's or role's ac
 **Action for integrators:** a client that treated an empty list or a `404` as "nothing visible"
 for such a principal must also handle `403`.
 
+The [maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change.
+
+## Staff authorization and credential changes
+
+Organization-limited administrator grants provide elevated features only inside the granted organizations. Platform-wide administration requires an unrestricted grant. Review automated clients and API keys that rely on a scoped staff grant, and assign each the tenant and organization permissions it needs.
+
+Changing a staff account's sign-in email or password via `PUT /api/auth/profile` requires the existing `currentPassword` field. The update revokes prior access and refresh sessions and clears the browser's authentication cookies. After success, the user must sign in again with the updated credentials. An email change also revokes unused password-reset links. For accounts managed solely by a single sign-on provider, use the operator-managed identity update flow.
+
+New staff passwords default to a minimum of 12 characters and accept at most 72 UTF-8 bytes. Existing passwords still work. Align `OM_PASSWORD_MIN_LENGTH` and `NEXT_PUBLIC_OM_PASSWORD_MIN_LENGTH` if you customize the minimum. Consumers that exhaustively match `PasswordRequirementId` should handle `maxBytes`. Keep staff login forms within 16 KiB and handle HTTP 413 if the form exceeds this limit.
+
+See [Staff identity boundaries](.ai/specs/2026-11-24-staff-identity-boundaries.md) for compatibility and rollout details.
+
+## Scoped resource administration and execution limits
+
+Authorization and vector request shapes and the vector driver signature remain stable. Unsafe delegation, writes, and index resizing are rejected.
+
+- Attachment partition administration follows the caller's organization and limits edits of shared partitions to platform administrators. Staff invitation flows must use roles in their own tenant and organization. Callers that invite users with roles reserved for administrators need an authorized staff identity with `customer_accounts.roles.manage`. Reissue outstanding privileged invitations from an active staff user with the grant.
+- HTTP MCP tool calls require a per-user session token. To delegate to the session, authenticate the transport with the configured `MCP_SERVER_API_KEY` or its file-backed equivalent, or use the session's own ephemeral API key. Managed API key listings omit ephemeral chat credentials.
+- Grouped analytics returns up to 100 groups by default, or 366 for calendar grouping over the matching date-range field. If an implicit cap is exceeded, `value` is the full aggregate and `metadata.truncated` is true. Explicit limits retain the top-bucket behavior. Analytics interceptors can narrow filters for the requested entity.
+- The PostgreSQL vector runtime leaves the shared index intact on dimension changes. Operators should provision and validate a replacement index, then switch settings and reindex in a controlled migration.
+
+## Organization and attachment partition ownership
+
+Organization options, management, and tree responses follow the caller's organization grant. Clients that need an organization outside that grant must use a principal authorized for that organization.
+
+Attachment partition codes are unique within their owning scope. Clients and integrations that query partitions directly should resolve by code and attachment owner, with tenant-wide and platform-wide partitions as fallbacks. Compatible attachments keep their codes, IDs, and storage paths.
+
+Before upgrading, pause attachment writes and workers and back up the database and attachment storage. The migration stops before changing the index if any attachment references a partition outside its owner scope. Run this query as a database operator before you schedule the upgrade:
+
+```sql
+select attachment.id, attachment.partition_code, attachment.tenant_id, attachment.organization_id
+from attachments as attachment
+join attachment_partitions as partition on partition.code = attachment.partition_code
+where not (
+  (partition.tenant_id is null and partition.organization_id is null)
+  or (
+    partition.tenant_id is not null
+    and partition.tenant_id is not distinct from attachment.tenant_id
+    and (partition.organization_id is null or partition.organization_id is not distinct from attachment.organization_id)
+  )
+);
+```
+
+For each result, create a destination partition with a new code in the attachment's authorized scope. Keep the partition private unless the owner has approved public access. Copy the object and its variants to storage configured for that owner, then update the attachment's partition, storage driver, path, and provider metadata as needed in a maintenance transaction. Preserve the attachment ID and owner and retain applicable access policies. Verify downloads and previews as an authorized user and keep the old objects until verification succeeds. Repeat the query, apply the migration once it returns no rows, and upgrade all partition readers before reopening writes. Rolling back after different owners have reused a code requires resolving those duplicates before restoring the previous unique constraint.
+
 ## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
 
 An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
@@ -181,6 +226,12 @@ Two security-hardening narrowings landed on shared request-header parsing and da
 The attachment library automatically fills in assignment labels and links only when the caller can read the referenced entity in the selected tenant and organization. Existing assignment IDs and saved labels and links stay available under the attachment's existing access policy. Supported built-in targets use their owning module's read grants. Custom records require the custom-record view grant and any entity-specific grant. When a target cannot be safely resolved, clients can display the stored label or ID.
 
 Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
+
+## Deployment service access
+
+Full-app Compose publishes LocalStack on loopback. Recreate the container to apply the binding, and use the internal service endpoint for Compose consumers. Set one strong random `OPENCODE_PASSWORD` for the OpenCode service and its callers, then rebuild and recreate both sides. The hybrid starter provisions this local credential automatically.
+
+Production installs seed sample portal accounts only when provided a private `OM_INIT_PORTAL_DEMO_PASSWORD`. Deactivate or reset older sample identities and revoke their active portal sessions. Restrict access to shared development registries and reprovision any registry that previously accepted anonymous writes. Existing external Verdaccio publishers should use a token issued for the provisioned publisher account. The bundled Traefik HTTPS routers now send a host-scoped HSTS policy. See the [deployment migration instructions](docker/README.md#updating-existing-deployments) and [registry authentication notes](config/verdaccio/README.md).
 
 ## Fullapp development agent authentication (#9116)
 
@@ -337,6 +388,10 @@ for values entered before the permission checks, including values on fields
 that are still valid. Remove or replace suspect content through authorized
 translation operations. Rows for unregistered or missing targets require
 operator cleanup. No schema migration is required.
+
+### Staff report-history money permissions (#8595)
+
+Report-sheet event metadata now honors `staff.timesheets.rates.view`. Callers without it receive nonfinancial counts, rounding and export details, with close/unlock totals and currency omitted. This repairs an unauthorized disclosure; authorized output is unchanged. Consumers must treat omitted monetary metadata as unavailable. No database or operator migration is required.
 
 ## SSO configuration and SCIM authority (#9014)
 
@@ -787,6 +842,18 @@ Radix positioning and charts. Inline style **elements** require a nonce. Image
 and font permissions, route/DB contracts and the attachment sandbox are unchanged.
 
 [Implementation specification](.ai/specs/2026-10-29-production-content-security-policy.md).
+
+## Undoing entity translation changes (#9099)
+
+Undo now returns HTTP 409 with code `translations.errors.undoConflict` when
+the current translations conflict with the saved action. The server leaves the
+translations unchanged. Refresh the record and inspect the current values
+before retrying. A successful undo of a delete restores the original row ID.
+No database migration is required.
+
+Actions recorded before the upgrade retain their original snapshots. If a
+translation was edited concurrently with one of those actions, verify its
+history before undoing it.
 
 Open Mercato `0.5.0` is our biggest release so far. It bundles more than 250 fixes and
 improvements that landed after the Hackathon in Sopot, alongside several important
@@ -1305,7 +1372,7 @@ uses exact decimals. Public contracts keep their `number` fields (a float copy) 
 
 ### Encryption maintenance safety confirmations (#6767)
 
-Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for entity key rotation. The deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled.
+Use `TENANT_DATA_ENCRYPTION_OLD_KEY` from your secret manager for key rotation with `entities rotate-encryption-key` and `auth rotate-encryption-key`. On both commands the deprecated `--old-key`/`--oldKey` compatibility bridge now requires `--allow-unsafe-old-key`; it still exposes the secret to operating-system process listings and should be used only for an unavoidable legacy invocation. No removal date is scheduled. `auth rotate-encryption-key` now also refuses an empty or whitespace-only `TENANT_DATA_ENCRYPTION_OLD_KEY` (and an empty `--old-key`) before touching the database.
 
 `entities decrypt-database --deactivate-maps` now requires `--confirm-offline-maintenance <tenantUuid>`. Operators must stop all application, worker and integration writers, run the operation, and restart every replica before resuming writes. The CLI cannot discover every external writer or invalidate another process's cached policy. An organization-only sweep preserves tenant-wide fallback policies; use a complete tenant sweep for their retirement. Concurrent edits, changed policies or remaining ciphertext fail closed and keep policies active.
 
@@ -1772,6 +1839,29 @@ operator configuration or database migration is needed. See the
 Workflow definitions, instances, instance events and global events now reject invalid pagination with HTTP 400. Page sizes are integers from 1 to 100; offsets are integers from 0 to 100,000 (including the offset derived from global-events `page`/`pageSize`). Defaults and response fields are unchanged. Existing task, work-inbox, portal-task, step, would-do and failure-queue lists retain their size clamps and fallback behavior for malformed or negative inputs, but return HTTP 400 when the normalized requested offset exceeds 100,000 rather than returning a different page. The same offset validation applies to `POST /api/workflows/work-inbox/next` before selecting or claiming a task.
 
 **Client action:** split requests larger than 100 into pages, send whole nonnegative offsets, and narrow filters before reaching 100,000. Handle 400 responses for out-of-range offsets on every listed route, including Work Inbox claim-next. The seven fallback/clamping routes return the stable `WORKFLOW_LIST_OFFSET_EXCEEDED` error string; the four strict list endpoints return validation errors and also reject malformed pagination. **Operator action:** deploy the updated application; no database migration or new configuration is required. Definitions now fetch a small DB window around the requested page instead of materializing its entire prefix. Definitions also use consistent UTF-8 byte ordering (`COLLATE "C"` in PostgreSQL): uppercase names precede lowercase names and accented names follow ASCII. This replaces the mixed database/Node locale ordering, so case/accent positions can change; use server-provided ordering across pages.
+
+### Inbound webhook retries resume unfinished receipt stages (#7601)
+
+New inbound receipts track dispatch and received-event publication independently. A provider retry resumes an unfinished stage instead of treating receipt existence alone as completed delivery. Completed stages are preserved; delivery remains at least once, so handlers and persistent subscribers must stay idempotent.
+
+**Operator action:** apply `Migration20261018124142_webhooks` and `Migration20261028234000_webhooks` before deploying this application change. Its additive columns preserve existing receipts as completed and do not recover dispatch failures that happened before the upgrade. No migration is applied automatically by this PR. Older application code resumes its original receipt-existence deduplication behavior on rollback.
+
+Receipt publication now commits a scoped 30-second fenced claim, releases its database
+connection, then enqueues dispatch or publishes the received event with stable job IDs.
+Unfinished concurrent attempts wait outside transactions within a 5-second publication
+budget; a timeout means the outcome is uncertain and the provider must retry. A late
+backend write is not cancelled. Queue IDs deduplicate pending/active work, while handler
+and subscriber idempotency remains required after completion or checkpoint failure.
+The three nullable claim columns require no historical backfill.
+
+Queue callers may opt into `enqueue(data, { jobId, timeoutMs })`; module/event emitters
+may use `{ persistent: true, enqueue: { jobId, timeoutMs } }`. Omitted fields preserve
+existing random identities and publication waiting. IDs accept letters, digits, underscores
+and hyphens and cannot be empty or integer-only; deadlines are positive integer
+milliseconds up to 2^31−1. These options preserve event IDs, trusted scope and inline
+subscriber delivery defaults. A timeout never guarantees cancellation; retries should reuse
+the identity and workers must remain idempotent. Inline callbacks may repeat after an
+uncertain timeout; stable queue IDs do not deduplicate inline callback execution.
 
 ### Inbound webhook receipt deduplication includes verified scope (#7830)
 
@@ -2972,6 +3062,22 @@ not a member of (and does not manage) now gets `404` instead of `200`. This was 
 treat it as the fix it is, not as a behavior to route around. No route path, request shape, or
 response schema changed for an authorized caller.
 
+### Gmail connect requires a resolvable mailbox address (#9498)
+
+Gmail OAuth connect now fails with `exchange_failed` (the translated "Failed to connect channel."
+message) when neither Google userinfo nor the Gmail profile returns the mailbox address. Before, it
+saved a channel with no address, which never matched a Pub/Sub push and sent as `From: me`.
+Userinfo is still tried first; when it fails or has no email, the adapter reads `emailAddress` from
+`users.getProfile`. With the default scopes this only happens when both Google calls fail, and
+retrying the connect is enough.
+
+**Action for operators with custom Gmail scopes:** a scope set that allows neither the userinfo
+email nor `users.getProfile`, such as send-only (`gmail.send`), can no longer connect. Add `email`
+(or `https://www.googleapis.com/auth/userinfo.email`), or one of `mail.google.com`, `gmail.modify`,
+`gmail.compose`, `gmail.readonly` or `gmail.metadata`, then reconnect. Channels already saved
+without an address are not repaired. No database migration or API change is needed;
+`GmailApiClient.getProfile` only gains an optional `options` argument.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
@@ -3206,6 +3312,31 @@ fails, is logged and reported (`customer_accounts.password_reset_email_failed` /
 **Action for module authors:** none, unless your app wraps these two routes (an API interceptor or a
 proxy endpoint) to mint and deliver its own link alongside the call — remove that delivery, or
 customers will receive two emails per request.
+
+### Password-reset and magic-link lookup, token minting and delivery moved to a queue worker (#8889)
+
+`POST /api/customer_accounts/password/reset-request` and `POST /api/customer_accounts/magic-link/request`
+used to look up the account, mint the token and await email delivery inline, all only when the email
+matched an account — an unknown email returned immediately with no work done. That made the response
+time account-dependent: a slow or blocked email transport leaked whether an email was registered. Both
+routes now only validate the request and enqueue `{ email, tenantId, locale }` on a new queue
+(`customer-accounts-password-reset-delivery` / `customer-accounts-magic-link-delivery`), then answer
+`200 { ok: true }` immediately — identically whether the account exists or not. `locale` is resolved
+from the request's cookie/Accept-Language, identically for a known and an unknown account, so the
+worker renders the recovery email in the requester's language instead of always falling back to the
+default locale once delivery moves outside the HTTP request. The lookup, token mint and `sendEmail`
+call now run inside `workers/passwordResetDelivery.ts` / `workers/magicLinkDelivery.ts`; the raw token
+is minted only inside the worker and never serialized into the queue payload.
+
+**Action for operators:** these two queues process like any other `@open-mercato/queue` queue —
+automatically under the local (dev) strategy, or via a running worker process under `QUEUE_STRATEGY=async`
+(`yarn mercato customer_accounts worker customer-accounts-password-reset-delivery` and the magic-link
+equivalent, or `worker --all`). If no worker processes these queues in production, password-reset and
+magic-link emails are silently never sent even though the request still answers `200`.
+
+**Action for module authors:** none, unless your app enqueues directly on these queue names — the
+payload shape (`{ email: string; tenantId: string; locale: Locale }`) is new and additive; it does not
+replace any existing contract.
 
 ### Standalone apps must keep `pdfjs-dist` out of the server bundle (#6398)
 
@@ -4679,15 +4810,16 @@ the environment fallback instead. `SYSTEM_EMAIL_CHANNEL_ID` narrows the lookup t
 without lifting that boundary: the pinned row must be the sending organization's own or the
 tenant-wide (`organization_id IS NULL`) one, and a pin never falls back to the environment.
 
-**The table above describes a (tenant, organization) pair, not a tenant.** A send that carries no
-`organizationId` — a password reset for a user whose `organization_id` is null, which superadmins
-can be — probes only the tenant-wide (`organization_id IS NULL`) channel. The per-organization rows
-the env preset seeds are not visible to it, so such a send lands on the last row of the table and
-uses instance-wide environment credentials with the usual logged warning, even on a tenant that has
-finished configuring its own provider. This is deliberate: a send with no organization has no
-organization's credentials to reach for. If you want every send on a tenant to use that tenant's
-provider, give the tenant a tenant-wide channel row (`organization_id IS NULL`) as well as the
-per-organization ones, or pass `organizationId` from the caller.
+**Tenant-scoped delivery resolves credentials for a tenant and organization pair.** A send with a
+`tenantId` and no `organizationId` probes the tenant-wide (`organization_id IS NULL`) channel. To
+use a tenant provider for that mail, add a tenant-wide channel row alongside the per-organization
+rows. For mail tied to a specific organization, pass its `organizationId` from the caller.
+
+**Password resets and invitations for superadmins use the instance provider.** Configure the
+provider selected by `SYSTEM_EMAIL_PROVIDER` (default `resend`), its deployment credentials, and
+an instance sender address such as `EMAIL_FROM`. This delivery path bypasses tenant channel
+settings, including `SYSTEM_EMAIL_CHANNEL_ID`. Previously issued links retain their original
+expiry.
 
 **An explicit `from` is always honoured.** When the caller passes `from` to `sendEmail`, that
 address is used verbatim; only a send that left `from` to the instance default
@@ -6879,3 +7011,9 @@ must pass trusted scope in emit options. An all-tenant reindex requires
 ## MCP Code Mode execution requires explicit direct mode
 
 MCP hides Code Mode `execute` when the mutation mode is unset, including reads through that tool. Code Mode discovery and typed tools retain their existing exposure rules. Clients can switch to typed read or write tools, including the approval workflow when configured. Operators who intentionally permit direct Code Mode execution can set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. The full-app Compose manifests forward the variable from the project environment to both the app and the MCP sidecar. Hosts supplying an exposure configuration programmatically must set `explicitDirectMode: true` together with `mutationMode: 'direct'`.
+
+## Vector-index entity authorization (#10693)
+
+`GET /api/search/index` requires the view features declared by each returned entity in addition to `search.view`. A request for an unreadable entity returns an empty page. Clients can continue using the existing response shape and paging parameters. Select an authorized organization when entity features are scoped to an organization.
+
+Operators should grant the owning module's view features to diagnostic users and keys that need them. Custom searchable entities declare these features in their `search.ts` configuration. The first-party pgvector driver applies the scope before pagination. Custom vector drivers can honor the additive `entityAccess` list predicate to keep pagination over readable entries. The API filters returned rows regardless of driver support. No database migration or reindex is required.

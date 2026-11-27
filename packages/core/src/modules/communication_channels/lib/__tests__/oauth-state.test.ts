@@ -13,6 +13,7 @@ import {
   createOAuthState,
   emitOAuthStateMemoryCacheStartupWarningIfNeeded,
   resetOAuthStateMemoryCacheStartupWarningForTests,
+  runDeferredOAuthStateCacheWarningCheck,
   decryptOAuthState,
   DEFAULT_OAUTH_RETURN_URL,
   encryptOAuthState,
@@ -393,6 +394,23 @@ describe('emitOAuthStateMemoryCacheStartupWarningIfNeeded', () => {
     emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: 'redis' })
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
+
+  it('treats an unset CACHE_STRATEGY as memory and warns', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({})
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ cacheStrategy: 'memory' })
+  })
+
+  it('warns for a node-local persistent strategy such as sqlite', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: 'sqlite' })
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ cacheStrategy: 'sqlite' })
+  })
+
+  it('normalizes case and whitespace before skipping redis', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: ' Redis ' })
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
 })
 
 describe('OAuth return URL validation', () => {
@@ -412,5 +430,76 @@ describe('OAuth return URL validation', () => {
   ])('rejects unsafe return URL %s', (value) => {
     expect(isSafeOAuthReturnUrl(value)).toBe(false)
     expect(normalizeOAuthReturnUrl(value)).toBe(DEFAULT_OAUTH_RETURN_URL)
+  })
+})
+
+describe('emitOAuthStateMemoryCacheStartupWarningIfNeeded with a registered cache provider', () => {
+  beforeEach(() => {
+    resetOAuthStateMemoryCacheStartupWarningForTests()
+    mockLoggerWarn.mockClear()
+  })
+
+  it('is silent when the selected provider resolves to shared placement', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded(
+      { CACHE_PROVIDER: 'acme/shared', CACHE_STRATEGY: 'memory' },
+      () => ({ kind: 'provider', id: 'acme/shared', placement: 'shared' }),
+    )
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  it('warns once naming CACHE_PROVIDER when the provider resolves to local placement', () => {
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded(
+      { CACHE_PROVIDER: 'acme/local', CACHE_STRATEGY: 'redis' },
+      () => ({ kind: 'provider', id: 'acme/local', placement: 'local' }),
+    )
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn.mock.calls[0][0]).toContain('CACHE_PROVIDER=acme/local')
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ startup: true, cacheProvider: 'acme/local' })
+  })
+
+  it('defers instead of consulting CACHE_STRATEGY when the selection cannot be described', () => {
+    const describeSelection = () => { throw new Error('not prepared') }
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_PROVIDER: 'acme/x', CACHE_STRATEGY: 'memory' }, describeSelection)
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  it('warns after bootstrap prepares a local provider even when a stale CACHE_STRATEGY=redis is set', () => {
+    const env = { CACHE_PROVIDER: 'acme/local', CACHE_STRATEGY: 'redis' }
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded(env, () => { throw new Error('not prepared') })
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+
+    const describeSelection = jest.fn(() => ({ kind: 'provider' as const, id: 'acme/local', placement: 'local' as const }))
+    runDeferredOAuthStateCacheWarningCheck(env, describeSelection)
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ cacheProvider: 'acme/local' })
+
+    runDeferredOAuthStateCacheWarningCheck(env, describeSelection)
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded(env, describeSelection)
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(describeSelection).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays silent after the deferred check resolves a shared provider', () => {
+    const env = { CACHE_PROVIDER: 'acme/shared', CACHE_STRATEGY: 'memory' }
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded(env, () => { throw new Error('not prepared') })
+    const describeSelection = jest.fn(() => ({ kind: 'provider' as const, id: 'acme/shared', placement: 'shared' as const }))
+    runDeferredOAuthStateCacheWarningCheck(env, describeSelection)
+    runDeferredOAuthStateCacheWarningCheck(env, describeSelection)
+    expect(describeSelection).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  it('does nothing in the deferred check when nothing was deferred', () => {
+    const describeSelection = jest.fn(() => ({ kind: 'provider' as const, id: 'acme/x', placement: 'local' as const }))
+    runDeferredOAuthStateCacheWarningCheck({ CACHE_PROVIDER: 'acme/x' }, describeSelection)
+    expect(describeSelection).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+  })
+
+  it('does not describe the selection for stock deployments', () => {
+    const describeSelection = jest.fn(() => ({ kind: 'provider' as const, id: 'acme/x', placement: 'shared' as const }))
+    emitOAuthStateMemoryCacheStartupWarningIfNeeded({ CACHE_STRATEGY: 'memory' }, describeSelection)
+    expect(describeSelection).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
   })
 })
