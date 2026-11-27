@@ -13,9 +13,11 @@ import {
   buildTenantDomain,
   computeEnvFingerprint,
   operatorPluginSchema,
+  operatorsBlobSchema,
   readOperatorsBlob,
   ringostatConfigSchema,
   saveOperatorsBlob,
+  TILLIO_OPERATORS_INTEGRATION_ID,
   type TillioCredentialsService,
   type TillioOperatorPlugin,
   type TillioOperatorRecord,
@@ -252,6 +254,14 @@ export async function detachOperator(
         err,
       })
       if (!options.force) {
+        const raw = await deps.credentialsService.getRaw(TILLIO_OPERATORS_INTEGRATION_ID, deps.scope)
+          .catch(() => null)
+        const current = operatorsBlobSchema.safeParse(raw)
+        if (Array.isArray(raw?.operators) && current.success && !current.data.operators.some(
+          (entry) => entry.id === operatorId || entry.token === operator.token,
+        )) {
+          return { ok: true, detached: true, revoked: false }
+        }
         throw new TillioRevocationFailedError(false)
       }
     }
