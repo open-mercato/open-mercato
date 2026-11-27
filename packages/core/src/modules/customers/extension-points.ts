@@ -18,6 +18,13 @@ const detailHost = (spotId: string, source: string, dataContract?: string) => in
 export const extensionPoints = defineModuleExtensionPoints({
   moduleId: 'customers',
   hosts: {
+    scheduleLinkTypes: injectionExtensionHost({
+      family: 'generic',
+      spotId: 'schedule:customers.link-types',
+      supported: ['headless-widget', 'registry-contribution'],
+      dataContract: 'customers.schedule.link-types.v1',
+      source: 'components/detail/schedule/LinkedEntitiesField.tsx',
+    }),
     companiesTable: dataTableExtensionHost({ tableId: 'customers.companies.list', source: 'backend/customers/companies/page.tsx' }),
     dealsTable: dataTableExtensionHost({ tableId: 'customers.deals.list', source: 'backend/customers/deals/page.tsx' }),
     peopleTable: dataTableExtensionHost({ tableId: 'customers.people.list', source: 'backend/customers/people/page.tsx' }),

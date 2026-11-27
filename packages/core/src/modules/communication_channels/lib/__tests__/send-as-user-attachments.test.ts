@@ -9,7 +9,12 @@ jest.mock('../mutation-guards', () => ({
 
 jest.mock('../queue', () => ({
   COMMUNICATION_CHANNELS_QUEUES: { outbound: 'communication_channels-outbound' },
-  getCommunicationChannelsQueue: jest.fn(() => ({ enqueue: jest.fn(async () => undefined) })),
+  getCommunicationChannelsQueue: jest.fn(() => ({ enqueue: mockEnqueue })),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -17,20 +22,25 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { MailboxComposeTransaction } from '@open-mercato/shared/modules/messages/compose-payload'
 import { MessageChannelLink } from '../../data/entities'
 import { baseEmailCapabilities } from '../email-capabilities'
 import { OUTBOUND_ATTACHMENTS_METADATA_KEY } from '../outbound-attachments'
 import { sendAsUser, type SendAsUserInput } from '../send-as-user'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockEnqueue = jest.fn(async () => undefined)
+const mockReportError = jest.fn()
 
 const ATTACHMENT_ID = '550e8400-e29b-41d4-a716-446655440040'
 const OWNER = { entityId: 'purchase_orders:purchase_order', recordId: 'po-1' }
 const actor = { userId: 'u-1', tenantId: 'tenant-1', organizationId: 'org-1' }
 
-function makeContainer(options: { fileSharing: boolean }) {
+function makeContainer(options: { fileSharing: boolean; maxAttachmentCount?: number }) {
   const created: Array<{ entity: unknown; data: Record<string, unknown> }> = []
-  const em: any = {
+  const em = {
+    fork: () => em,
     create: jest.fn((entity: unknown, data: Record<string, unknown>) => {
       const row = { id: `row-${created.length + 1}`, ...data }
       created.push({ entity, data: row })
@@ -38,10 +48,29 @@ function makeContainer(options: { fileSharing: boolean }) {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
     transactional: jest.fn(async (work: () => Promise<void>) => work()),
   }
-  em.fork = () => em
-  const commandBus = { execute: jest.fn(async () => ({ result: { id: 'msg-1', threadId: 'thread-1' } })) }
+  const commandBus = {
+    execute: jest.fn(async (_commandId: string, { ctx }: { ctx: MailboxComposeTransaction }) => {
+      if (ctx.persistMailboxDelivery) {
+        await em.begin()
+        try {
+          await ctx.persistMailboxDelivery(
+            em as unknown as Parameters<NonNullable<MailboxComposeTransaction['persistMailboxDelivery']>>[0],
+            { messageId: 'msg-1', threadId: 'thread-1' },
+          )
+          await em.commit()
+        } catch (error) {
+          await em.rollback()
+          throw error
+        }
+      }
+      return { result: { id: 'msg-1', threadId: 'thread-1' } }
+    }),
+  }
   const describeScoped = jest.fn(async () => ({
     id: ATTACHMENT_ID,
     fileName: 'order.pdf',
@@ -49,7 +78,7 @@ function makeContainer(options: { fileSharing: boolean }) {
     fileSize: 1000,
     partitionCode: 'privateAttachments',
   }))
-  const adapter = { capabilities: { ...baseEmailCapabilities, fileSharing: options.fileSharing } }
+  const adapter = { capabilities: { ...baseEmailCapabilities, ...options } }
   const container = {
     resolve: (name: string) => {
       if (name === 'em') return em
@@ -58,11 +87,12 @@ function makeContainer(options: { fileSharing: boolean }) {
       if (name === 'attachmentService') return { describeScoped }
       throw new Error(`unexpected resolve: ${name}`)
     },
-  } as any
-  return { container, commandBus, describeScoped, created }
+  } as unknown as Parameters<typeof sendAsUser>[0]
+  return { container, commandBus, describeScoped, created, em }
 }
 
 function primeChannel() {
+  mockEnqueue.mockClear()
   mockFindOne.mockReset()
   mockFindOne.mockResolvedValueOnce({
     id: 'ch-1',
@@ -83,6 +113,121 @@ const baseInput: SendAsUserInput = {
 }
 
 describe('sendAsUser — attachments', () => {
+  const recordId = 'messages-composer:the-session'
+  const objects = [{
+    entityModule: 'customers',
+    entityType: 'person',
+    entityId: '44444444-4444-4444-8444-444444444444',
+  }]
+  const composerPayload = {
+    messageType: 'default',
+    objects,
+    uploads: { recordId, attachmentIds: [ATTACHMENT_ID] },
+  }
+
+  it('uses the temporary owner for preflight and the committed message owner for delivery', async () => {
+    const { container, commandBus, describeScoped, created, em } = makeContainer({ fileSharing: true })
+    primeChannel()
+
+    const result = await sendAsUser(container, actor, { ...baseInput, composerPayload })
+
+    expect(result).toMatchObject({ ok: true, messageId: 'msg-1' })
+    expect(describeScoped).toHaveBeenCalledWith(expect.objectContaining({
+      attachmentId: ATTACHMENT_ID,
+      expectedOwner: { entityId: 'attachments:library', recordId },
+    }))
+    expect(commandBus.execute).toHaveBeenCalledWith('messages.messages.compose', {
+      input: expect.objectContaining({
+        objects,
+        mailboxComposeMessageType: 'default',
+        mailboxComposeUpload: composerPayload.uploads,
+        sendViaEmail: false,
+      }),
+      ctx: expect.objectContaining({ persistMailboxDelivery: expect.any(Function) }),
+    })
+    const link = created.find((row) => row.entity === MessageChannelLink)
+    expect(link?.data.channelMetadata).toMatchObject({
+      [OUTBOUND_ATTACHMENTS_METADATA_KEY]: [{
+        attachmentId: ATTACHMENT_ID,
+        owner: { entityId: 'messages:message', recordId: 'msg-1' },
+      }],
+    })
+    expect(link?.data.channelMetadata).not.toHaveProperty('objects')
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(mockEnqueue.mock.invocationCallOrder[0])
+  })
+
+  it('refuses an unavailable compose upload before writing or queuing', async () => {
+    const { container, commandBus, describeScoped } = makeContainer({ fileSharing: true })
+    primeChannel()
+    describeScoped.mockRejectedValueOnce(new CrudHttpError(404, { error: 'Attachment not found' }))
+
+    const result = await sendAsUser(container, actor, { ...baseInput, composerPayload })
+
+    expect(result).toMatchObject({ ok: false, status: 422, code: 'attachment_not_found' })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(mockEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('rolls back the composer transaction if the outbound link write fails', async () => {
+    const { container, em } = makeContainer({ fileSharing: true })
+    primeChannel()
+    em.flush.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('[internal] link write failed'))
+
+    const result = await sendAsUser(container, actor, { ...baseInput, composerPayload })
+
+    expect(result).toMatchObject({ ok: false, status: 500 })
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(mockEnqueue).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('preserves the committed link after enqueue throws (accepted: %s)', async (accepted) => {
+    const { container, created, commandBus, em } = makeContainer({ fileSharing: true })
+    primeChannel()
+    const failure = new Error('[internal] Queue acknowledgement unavailable')
+    mockEnqueue.mockImplementationOnce(async () => {
+      expect(em.commit).toHaveBeenCalledTimes(1)
+      const link = created.find((row) => row.entity === MessageChannelLink)!
+      if (accepted) link.data.deliveryStatus = 'sent'
+      throw failure
+    })
+
+    await expect(sendAsUser(container, actor, { ...baseInput, composerPayload })).resolves.toEqual({
+      ok: true, messageId: 'msg-1', threadId: 'thread-1', channelId: 'ch-1', providerKey: 'gmail',
+      deliveryEnqueueStatus: 'unconfirmed',
+    })
+
+    const link = created.find((row) => row.entity === MessageChannelLink)!
+    expect(link.data.deliveryStatus).toBe(accepted ? 'sent' : 'pending')
+    expect(link.data.channelMetadata).toMatchObject({
+      [OUTBOUND_ATTACHMENTS_METADATA_KEY]: [{ attachmentId: ATTACHMENT_ID, owner: { entityId: 'messages:message', recordId: 'msg-1' } }],
+    })
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'communication_channels', code: 'communication_channels.delivery_enqueue_unconfirmed',
+      attributes: { tenantId: actor.tenantId, organizationId: actor.organizationId, channelId: 'ch-1', channelLinkId: link.data.id, messageId: 'msg-1' },
+    })
+    expect(em.rollback).not.toHaveBeenCalled()
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+    expect(mockEnqueue).toHaveBeenCalledTimes(1)
+  })
+
+  it('honors an adapter count limit before reading compose uploads', async () => {
+    const secondAttachment = '550e8400-e29b-41d4-a716-446655440041'
+    const { container, describeScoped, commandBus } = makeContainer({ fileSharing: true, maxAttachmentCount: 1 })
+    primeChannel()
+
+    const result = await sendAsUser(container, actor, {
+      ...baseInput,
+      composerPayload: {
+        uploads: { recordId, attachmentIds: [ATTACHMENT_ID, secondAttachment] },
+      },
+    })
+
+    expect(result).toMatchObject({ ok: false, status: 422, code: 'too_many_attachments' })
+    expect(describeScoped).not.toHaveBeenCalled()
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
   it('refuses attachments on an adapter without file sharing before composing anything', async () => {
     const { container, commandBus, describeScoped } = makeContainer({ fileSharing: false })
     primeChannel()

@@ -193,7 +193,7 @@ export const deliveryWindowCreateSchema = scoped.extend({
     .toLowerCase()
     .regex(/^[a-z0-9\-_]+$/)
     .max(120),
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   leadTimeDays: z.coerce.number().int().min(0).max(365).optional(),
   cutoffTime: z.string().trim().regex(/^\d{2}:\d{2}$/).optional(),
   timezone: z.string().trim().max(120).optional(),
@@ -216,7 +216,7 @@ const paymentMethodBaseSchema = scoped.extend({
     .toLowerCase()
     .regex(/^[a-z0-9\-_]+$/)
     .max(120),
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   providerKey: z.string().trim().max(120).optional(),
   terms: z.string().trim().max(4000).optional(),
   isActive: z.boolean().optional(),

@@ -12,6 +12,7 @@ import {
 } from '@open-mercato/shared/modules/overrides'
 import { getComponentOverrides, registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import { useComponentOverridesReadiness } from '@open-mercato/ui/backend/injection/ComponentOverrideProvider'
 import { resetModuleOverridesAppliedForTests } from '../ClientBootstrap'
 import { ComponentOverridesBootstrap } from '../ComponentOverridesBootstrap'
 
@@ -124,8 +125,10 @@ describe('ComponentOverridesBootstrap', () => {
     function StatefulChild() {
       const [count, setCount] = React.useState(0)
       const ResolvedLabel = useRegisteredComponent<{ label: string }>('test', Label)
+      const readiness = useComponentOverridesReadiness()
       return (
         <>
+          <output aria-label="Override registry state">{readiness}</output>
           <button type="button" onClick={() => setCount((value) => value + 1)}>
             Count {count}
           </button>
@@ -141,10 +144,12 @@ describe('ComponentOverridesBootstrap', () => {
     )
 
     expect(screen.getByText('Fallback active')).toBeInTheDocument()
+    expect(screen.getByLabelText('Override registry state')).toHaveTextContent('pending')
     fireEvent.click(screen.getByRole('button', { name: 'Count 0' }))
     expect(screen.getByRole('button', { name: 'Count 1' })).toBeEnabled()
     await waitFor(() => expect(getComponentOverrides('test')).toHaveLength(1))
     await waitFor(() => expect(screen.getByText('Override active')).toBeInTheDocument())
+    expect(screen.getByLabelText('Override registry state')).toHaveTextContent('ready')
     expect(screen.getByRole('button', { name: 'Count 1' })).toBeEnabled()
   })
 

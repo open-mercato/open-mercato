@@ -25,7 +25,7 @@ export function resolveWebhookBodyLimitBytes(
 
 export async function readBoundedRequestBytes(
   request: Request,
-  options?: { maxBytes?: number },
+  options?: { maxBytes?: number; awaitCancellation?: boolean },
 ): Promise<Uint8Array> {
   const configuredLimit = options?.maxBytes ?? resolveWebhookBodyLimitBytes()
   const maxBytes = Number.isSafeInteger(configuredLimit) && configuredLimit > 0
@@ -51,7 +51,8 @@ export async function readBoundedRequestBytes(
       if (done) break
       totalBytes += value.byteLength
       if (totalBytes > maxBytes) {
-        await reader.cancel().catch(() => undefined)
+        const cancellation = reader.cancel().catch(() => undefined)
+        if (options?.awaitCancellation !== false) await cancellation
         throw new WebhookBodyTooLargeError(maxBytes)
       }
       chunks.push(value)

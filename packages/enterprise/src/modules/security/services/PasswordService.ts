@@ -1,6 +1,6 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode, type EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { PasswordReset, Session, User } from '@open-mercato/core/modules/auth/data/entities'
 import { validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitSecurityEvent } from '../events'
@@ -41,44 +41,62 @@ export class PasswordService {
     return compare(password, user.passwordHash)
   }
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
-    const user = await this.findUserById(userId)
-    if (!user) {
-      throw new PasswordServiceError('User not found', 404)
-    }
-    if (!user.passwordHash) {
-      throw new PasswordServiceError('Password authentication is not available for this user', 400)
-    }
-
-    const currentPasswordValid = await compare(currentPassword, user.passwordHash)
-    if (!currentPasswordValid) {
-      throw new PasswordServiceError('Current password is invalid', 400, undefined, 'currentPassword')
-    }
-
-    const policyValidation = this.validatePasswordPolicy(newPassword)
-    if (!policyValidation.valid) {
-      throw new PasswordServiceError(
-        'Password does not meet the requirements',
-        400,
-        policyValidation.errors,
-        'newPassword',
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    currentSessionId?: string | null,
+  ): Promise<void> {
+    const eventPayload = await this.em.transactional(async (em) => {
+      const user = await findOneWithDecryption(
+        em,
+        User,
+        { id: userId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        {},
       )
-    }
+      if (!user) {
+        throw new PasswordServiceError('User not found', 404)
+      }
+      if (!user.passwordHash) {
+        throw new PasswordServiceError('Password authentication is not available for this user', 400)
+      }
 
-    const sameAsCurrent = await compare(newPassword, user.passwordHash)
-    if (sameAsCurrent) {
-      throw new PasswordServiceError('New password must be different from current password', 400, undefined, 'newPassword')
-    }
+      const currentPasswordValid = await compare(currentPassword, user.passwordHash)
+      if (!currentPasswordValid) {
+        throw new PasswordServiceError('Current password is invalid', 400, undefined, 'currentPassword')
+      }
 
-    user.passwordHash = await hash(newPassword, BCRYPT_COST)
-    await this.em.flush()
-    const changedAt = new Date().toISOString()
-    const eventPayload = {
-      userId,
-      tenantId: user.tenantId ?? null,
-      organizationId: user.organizationId ?? null,
-      changedAt,
-    }
+      const policyValidation = this.validatePasswordPolicy(newPassword)
+      if (!policyValidation.valid) {
+        throw new PasswordServiceError(
+          'Password does not meet the requirements',
+          400,
+          policyValidation.errors,
+          'newPassword',
+        )
+      }
+
+      const sameAsCurrent = await compare(newPassword, user.passwordHash)
+      if (sameAsCurrent) {
+        throw new PasswordServiceError('New password must be different from current password', 400, undefined, 'newPassword')
+      }
+
+      const changedAt = new Date()
+      user.passwordHash = await hash(newPassword, BCRYPT_COST)
+      await em.nativeDelete(Session, {
+        user: userId,
+        ...(currentSessionId ? { id: { $ne: currentSessionId } } : {}),
+      })
+      await em.nativeUpdate(PasswordReset, { user: userId, usedAt: null }, { usedAt: changedAt })
+      await em.flush()
+      return {
+        userId,
+        tenantId: user.tenantId ?? null,
+        organizationId: user.organizationId ?? null,
+        changedAt: changedAt.toISOString(),
+      }
+    })
     await emitSecurityEvent('security.password.changed', eventPayload)
     await emitSecurityEvent('security.password.notification_requested', eventPayload)
   }
