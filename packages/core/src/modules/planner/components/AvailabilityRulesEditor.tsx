@@ -14,6 +14,8 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -85,6 +87,13 @@ export type AvailabilityScheduleItemBuilder = (params: {
   translate: (key: string, fallback?: string) => string
 }) => ScheduleItem[]
 
+type ScheduleOverlayResult = { items: ScheduleItem[]; truncated: boolean }
+
+type ScheduleOverlay = {
+  load(range: ScheduleRange, signal: AbortSignal): Promise<ScheduleOverlayResult | null>
+  labels: { loading: string; unavailable: string; partial: string }
+}
+
 export type AvailabilityRulesEditorProps = {
   subjectType: AvailabilitySubjectType
   subjectId: string
@@ -96,6 +105,7 @@ export type AvailabilityRulesEditorProps = {
   allowRuleSetDelete?: boolean
   buildScheduleItems: AvailabilityScheduleItemBuilder
   loadBookedEvents?: (range: ScheduleRange) => Promise<AvailabilityBookedEvent[]>
+  scheduleOverlay?: ScheduleOverlay
   readOnly?: boolean
   allowUnavailability?: boolean
 }
@@ -406,6 +416,7 @@ export function AvailabilityRulesEditor({
   allowRuleSetDelete,
   buildScheduleItems,
   loadBookedEvents,
+  scheduleOverlay,
   readOnly,
   allowUnavailability,
 }: AvailabilityRulesEditorProps) {
@@ -449,6 +460,35 @@ export function AvailabilityRulesEditor({
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
     return { start, end }
   })
+  const loadOverlay = scheduleOverlay?.load
+  const rangeStart = range.start.getTime()
+  const rangeEnd = range.end.getTime()
+  const [overlay, setOverlay] = React.useState<{
+    load: ScheduleOverlay['load']
+    start: number
+    end: number
+    result: ScheduleOverlayResult | null
+  }>()
+  const overlayResult = overlay?.load === loadOverlay && overlay?.start === rangeStart && overlay.end === rangeEnd
+    ? overlay.result
+    : undefined
+  React.useEffect(() => {
+    if (!loadOverlay || viewMode !== 'calendar') return
+    const controller = new AbortController()
+    async function refreshOverlay(load: ScheduleOverlay['load']) {
+      let result: ScheduleOverlayResult | null = null
+      try {
+        result = await load({ start: new Date(rangeStart), end: new Date(rangeEnd) }, controller.signal)
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          reportTelemetryError(error, { module: 'planner', code: 'planner.schedule_overlay_load_failed' })
+        }
+      }
+      if (!controller.signal.aborted) setOverlay({ load, start: rangeStart, end: rangeEnd, result })
+    }
+    void refreshOverlay(loadOverlay)
+    return () => controller.abort()
+  }, [loadOverlay, rangeStart, rangeEnd, viewMode])
   const [timezone, setTimezone] = React.useState<string>(
     () => initialTimezone ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
   )
@@ -503,8 +543,11 @@ export function AvailabilityRulesEditor({
     })
   }, [activeRules])
   const scheduleItems = React.useMemo(
-    () => buildScheduleItems({ availabilityRules: scheduleRules, bookedEvents, translate: t }),
-    [bookedEvents, buildScheduleItems, scheduleRules, t],
+    () => [
+      ...buildScheduleItems({ availabilityRules: scheduleRules, bookedEvents, translate: t }),
+      ...(overlayResult?.items ?? []),
+    ],
+    [bookedEvents, buildScheduleItems, overlayResult, scheduleRules, t],
   )
 
   const listLabels = React.useMemo(() => {
@@ -1485,7 +1528,7 @@ export function AvailabilityRulesEditor({
   const handleItemClick = React.useCallback((item: ScheduleItem) => {
     if (usingRuleSet || isReadOnly) return
     const rule = item.metadata?.rule as AvailabilityRule | undefined
-    if (!rule) return
+    if (!rule || !activeRules.some((activeRule) => activeRule.id === rule.id)) return
     const window = parseAvailabilityRuleWindow(rule)
     if (window.repeat === 'weekly') {
       const weekday = window.startAt.getDay()
@@ -1617,17 +1660,29 @@ export function AvailabilityRulesEditor({
           ) : error ? (
             <ErrorMessage label={error} />
           ) : viewMode === 'calendar' ? (
-            <ScheduleView
-              items={scheduleItems}
-              view={scheduleView}
-              range={range}
-              timezone={timezone}
-              onRangeChange={setRange}
-              onViewChange={setScheduleView}
-              onTimezoneChange={handleTimezoneChange}
-              onItemClick={handleItemClick}
-              onSlotClick={handleSlotClick}
-            />
+            <>
+              {scheduleOverlay && overlayResult === undefined ? (
+                <LoadingMessage className="mb-4" label={scheduleOverlay.labels.loading} />
+              ) : null}
+              {scheduleOverlay && (overlayResult === null || overlayResult?.truncated) ? (
+                <Alert status="information" size="sm" className="mb-4">
+                  <AlertDescription>
+                    {overlayResult === null ? scheduleOverlay.labels.unavailable : scheduleOverlay.labels.partial}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+              <ScheduleView
+                items={scheduleItems}
+                view={scheduleView}
+                range={range}
+                timezone={timezone}
+                onRangeChange={setRange}
+                onViewChange={setScheduleView}
+                onTimezoneChange={handleTimezoneChange}
+                onItemClick={handleItemClick}
+                onSlotClick={handleSlotClick}
+              />
+            </>
           ) : (
             <div className="grid gap-6 lg:grid-cols-2">
               {usingRuleSet ? (

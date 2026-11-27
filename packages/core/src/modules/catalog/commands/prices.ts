@@ -4,7 +4,7 @@ import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, e
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CatalogOffer, CatalogProduct, CatalogProductPrice, CatalogProductVariant, CatalogPriceKind } from '../data/entities'
+import { CatalogOffer, CatalogProduct, CatalogProductPrice, CatalogProductVariant, CatalogPriceKind, CatalogPriceHistoryEntry } from '../data/entities'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -82,6 +82,7 @@ type PriceSnapshot = {
   createdAt: string
   updatedAt: string
   custom: Record<string, unknown> | null
+  omnibusAnnounced?: false
 }
 
 type PriceUndoPayload = {
@@ -145,6 +146,7 @@ async function loadPriceSnapshot(
   em: EntityManager,
   id: string,
   scopeWhere: Record<string, unknown> = {},
+  captureAnnouncement = false,
 ): Promise<PriceSnapshot | null> {
   const record = await findOneWithDecryption(
     em,
@@ -188,11 +190,25 @@ async function loadPriceSnapshot(
   }
   const priceKindCode =
     typeof priceKind === 'object' && priceKind ? priceKind.code : record.kind
+  const offerId = typeof record.offer === 'string' ? record.offer : record.offer?.id ?? null
+  const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
+  const latestHistory = captureAnnouncement && offerId
+    ? await findOneWithDecryption(
+      em,
+      CatalogPriceHistoryEntry,
+      { priceId: record.id, ...scope },
+      { orderBy: { recordedAt: 'desc', id: 'desc' } },
+      scope,
+    )
+    : null
   return {
     id: record.id,
     variantId,
     productId,
-    offerId: typeof record.offer === 'string' ? record.offer : record.offer ? record.offer.id : null,
+    offerId,
+    ...(latestHistory?.offerId === offerId && latestHistory?.isAnnounced === false
+      ? { omnibusAnnounced: false as const }
+      : {}),
     organizationId: record.organizationId,
     tenantId: record.tenantId,
     currencyCode: record.currencyCode,
@@ -586,7 +602,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx))
+    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx), true)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -852,6 +868,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     const historyAfter = priceHistoryInputFromRecord(record)
     if (hasPriceHistoryRelevantChange(historyBefore, historyAfter)) {
       await capturePriceHistoryEntry(em, historyAfter, 'update', {
+        announce: parsed.announce === false && targetPriceKind.isPromotion ? undefined : parsed.announce,
         cache: resolveOmnibusCache(ctx.container),
         invalidatePrices: [historyBefore],
         previous: historyBefore,
@@ -932,6 +949,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     applyPriceSnapshot(em, record, before)
     await em.flush()
     await capturePriceHistoryEntry(em, before, 'undo', {
+      announce: before.omnibusAnnounced,
       metadata: { undoneCommand: 'catalog.prices.update' },
       cache: resolveOmnibusCache(ctx.container),
       invalidatePrices: [after],
@@ -962,7 +980,7 @@ const deletePriceCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx))
+    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx), true)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -1072,6 +1090,7 @@ const deletePriceCommand: CommandHandler<
     applyPriceSnapshot(em, record, before)
     await em.flush()
     await capturePriceHistoryEntry(em, before, 'undo', {
+      announce: before.omnibusAnnounced,
       metadata: { undoneCommand: 'catalog.prices.delete' },
       cache: resolveOmnibusCache(ctx.container),
     })

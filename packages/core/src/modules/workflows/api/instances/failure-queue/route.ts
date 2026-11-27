@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
     // Grouping first, over a bounded scan, so the group counts describe the
     // same set the caller is paging through.
     const scanned = (await em.find(WorkflowInstance, where, {
-      orderBy: { createdAt: 'DESC' },
+      orderBy: { createdAt: 'DESC', id: 'DESC' },
       limit: FAILURE_GROUP_SCAN_LIMIT,
     })) as WorkflowInstance[]
     const scannedInputs = scanned.map(toTriageInput)

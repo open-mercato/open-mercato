@@ -40,18 +40,19 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { getTransactionLifetime } from '@open-mercato/shared/lib/commands/transaction-lifetime'
-import { Role, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { PasswordReset, Role, Session, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const userId = '33333333-3333-4333-8333-333333333333'
 const oldRoleId = '44444444-4444-4444-8444-444444444444'
 const newRoleId = '55555555-5555-4555-8555-555555555555'
+const userEmail = 'role-notifications@example.com'
 
-function buildHarness() {
+function buildHarness(storedEmail = userEmail) {
   const user = {
     id: userId,
-    email: 'role-notifications@example.com',
+    email: userEmail,
     name: 'Role Notifications',
     isConfirmed: true,
     organizationId,
@@ -65,7 +66,7 @@ function buildHarness() {
   let inTransaction = false
   const em = {
     findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
-      if (entity === User) return user
+      if (entity === User) return where.id === userId ? user : null
       if (entity === Role) {
         return [oldRole, newRole].find((role) => (
           (typeof where.id !== 'string' || role.id === where.id)
@@ -97,7 +98,9 @@ function buildHarness() {
   }
   const dataEngine = {
     updateOrmEntity: jest.fn(async ({ apply }: { apply: (entity: User) => void }) => {
-      apply(user)
+      const storedUser = { ...user, email: storedEmail } as User
+      apply(storedUser)
+      Object.assign(user, storedUser)
       return user
     }),
     setCustomFields: jest.fn(async () => undefined),
@@ -129,12 +132,41 @@ describe('auth.users.update role notifications', () => {
     mockCreateNotification.mockClear()
   })
 
-  it('preserves immediate notification delivery for ordinary committed updates', async () => {
+  it('identifies the assigned and revoked roles in the notifications sent after a committed update', async () => {
     const { ctx } = buildHarness()
 
     await handler.execute({ id: userId, roles: [newRoleId] }, ctx)
 
     expect(mockCreateNotification).toHaveBeenCalledTimes(2)
+    expect(mockCreateNotification).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      type: 'auth.role.assigned',
+      bodyKey: 'auth.notifications.role.assigned.bodyWithRoles',
+      bodyVariables: { roles: 'new-role' },
+      recipientUserId: userId,
+    }), { tenantId, organizationId })
+    expect(mockCreateNotification).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      type: 'auth.role.revoked',
+      bodyKey: 'auth.notifications.role.revoked.bodyWithRoles',
+      bodyVariables: { roles: 'old-role' },
+      recipientUserId: userId,
+    }), { tenantId, organizationId })
+  })
+
+  it('preserves sessions and reset links when a role edit resubmits an unchanged encrypted email', async () => {
+    const { ctx, em } = buildHarness('encrypted email')
+
+    await handler.execute({ id: userId, email: userEmail, roles: [newRoleId] }, ctx)
+
+    expect(em.nativeDelete).not.toHaveBeenCalled()
+  })
+
+  it('revokes sessions and reset links when the email actually changes', async () => {
+    const { ctx, em } = buildHarness('encrypted email')
+
+    await handler.execute({ id: userId, email: 'new-role-notifications@example.com' }, ctx)
+
+    expect(em.nativeDelete).toHaveBeenCalledWith(Session, { user: userId })
+    expect(em.nativeDelete).toHaveBeenCalledWith(PasswordReset, { user: userId, usedAt: null })
   })
 
   it('defers role notifications to the owning transaction commit', async () => {
