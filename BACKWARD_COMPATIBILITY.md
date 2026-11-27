@@ -706,7 +706,7 @@ STABLE command/API: unrestricted attribution permits forgery; a bridge retains i
 
 ## 2026-11 — CRUD security (#3827, #9154, #9106)
 
-STABLE API: restrict sort keys, deleted-row reads, relation labels and global reads. Legacy behavior keeps leaks open. Named waiver pending. [Migration](UPGRADE_NOTES.md#crud-factory-security-and-query-correctness-bundle).
+STABLE API limits sorts, deleted rows, labels and global reads. 2026-11-24: relation options need owner policies. Bridges leak data. Use Staff timesheet APIs. Named waiver pending. [Upgrade](UPGRADE_NOTES.md).
 
 ## 2026-11-19 — Entity translation authorization (#9139)
 
@@ -743,3 +743,7 @@ STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver
 ## Workflow events (2026-11-20, #9134)
 
 STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
+
+## 2026-11-25 — MCP Code Mode
+
+STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
