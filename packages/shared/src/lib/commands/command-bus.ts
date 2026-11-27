@@ -11,9 +11,9 @@ import type {
   CommandRuntimeContext,
   CommandUndoLogEntry,
 } from './types'
-import { defaultUndoToken } from './types'
-import type { AwilixContainer } from 'awilix'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { ambientCommandExecutionMarker, defaultUndoToken } from './types'
+import { asValue, type AwilixContainer } from 'awilix'
+import type { CommandTransactionDataEngine, DataEngine } from '@open-mercato/shared/lib/data/engine'
 import {
   canonicalizeResourceTag,
   deriveResourceFromCommandId,
@@ -34,14 +34,22 @@ import { CommandInterceptorError } from './errors'
 import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
 import { createLogger } from '../logger'
 import { withAtomicFlush } from './flush'
+import {
+  authorizeCrudFormSectionSinkUndo,
+  readCrudFormSectionSinkSnapshots,
+  restoreCrudFormSectionSinks,
+} from '../crud/form-sections/extension-sinks'
+import { getCrudFormSectionManifest } from '../crud/form-sections/manifest'
+import { CrudHttpError } from '../crud/errors'
 import { getAmbientAuditCorrelation } from './auditCorrelationScope'
-import { getTelemetryRuntime } from '../telemetry/runtime'
+import { getTelemetryRuntime, reportTelemetryError } from '../telemetry/runtime'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   getTransactionLifetime,
   onTransactionLifetimeComplete,
   ownsTransactionLifetime,
   type TransactionLifetime,
+  type TransactionOutcome,
 } from './transaction-lifetime'
 
 const logger = createLogger('shared').child({ component: 'commands' })
@@ -85,6 +93,64 @@ function bindReplayTransactionContext(
     throw new Error('[internal] Atomic replay transaction lifetime owner changed before replay')
   }
   return { ...ctx, transactionalEm: em, transactionLifetime }
+}
+
+type AmbientCommandTransaction = {
+  em: EntityManager
+  lifetime: TransactionLifetime
+  context: CommandRuntimeContext
+  dataEngineScope?: CommandTransactionDataEngine
+}
+
+function requireOwnedCommandTransaction(ctx: CommandRuntimeContext): {
+  em: EntityManager
+  lifetime: TransactionLifetime
+} {
+  const { transactionalEm, transactionLifetime } = ctx
+  if (!transactionalEm || !isInTransaction(transactionalEm) || !ownsTransactionLifetime(transactionalEm, transactionLifetime)) {
+    throw new Error('[internal] Ambient command execution requires its active transaction lifetime owner')
+  }
+  return { em: transactionalEm, lifetime: transactionLifetime }
+}
+
+async function bindAmbientCommandTransaction(commandId: string, ctx: CommandRuntimeContext): Promise<AmbientCommandTransaction> {
+  const { em, lifetime } = requireOwnedCommandTransaction(ctx)
+  const container = ctx.container.createScope()
+  try {
+    container.register('em', asValue(em))
+    let dataEngineScope: CommandTransactionDataEngine | undefined
+    if (ctx.container.hasRegistration('dataEngine')) {
+      const dataEngine = ctx.container.resolve<DataEngine>('dataEngine')
+      dataEngineScope = dataEngine.createCommandTransactionScope?.(em, container)
+      if (!dataEngineScope || dataEngineScope.dataEngine === dataEngine) {
+        throw new Error('[internal] Ambient command execution requires an isolated data engine scope')
+      }
+      container.register('dataEngine', asValue(dataEngineScope.dataEngine))
+    }
+    return { em, lifetime, context: { ...ctx, container }, dataEngineScope }
+  } catch (error) {
+    await disposeAmbientCommandScope(commandId, container)
+    throw error
+  }
+}
+
+function reportAmbientCompletionFailure(commandId: string, reason: string): void {
+  try {
+    logger.error('Ambient command completion failed', { commandId, reason })
+  } catch {}
+  try {
+    reportTelemetryError(new Error('[internal] Ambient command completion failed'), {
+      module: 'shared', code: 'shared.ambient_command_completion_failed', attributes: { commandId, reason },
+    })
+  } catch {}
+}
+
+async function disposeAmbientCommandScope(commandId: string, container: AwilixContainer): Promise<void> {
+  try {
+    await container.dispose()
+  } catch {
+    reportAmbientCompletionFailure(commandId, 'scope_disposal')
+  }
 }
 
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
@@ -305,13 +371,39 @@ export class CommandBus {
     commandId: string,
     options: CommandExecutionOptions<TInput>
   ): Promise<CommandExecuteResult<TResult>> {
-    const handler = await this.resolveHandler<TInput, TResult>(commandId)
-
     const replayLogEntry = options.redoLogEntry ?? null
+    const ambient = !replayLogEntry && options.ctx.transactionLifetime !== undefined
+      ? await bindAmbientCommandTransaction(commandId, options.ctx)
+      : null
+    let finalizeAmbient: (() => Promise<void>) | undefined
+    let ambientOutcome: TransactionOutcome | undefined
+    if (ambient) {
+      onTransactionLifetimeComplete(ambient.em, async (outcome) => {
+        const completed = outcome === 'committed' && finalizeAmbient !== undefined
+        try {
+          if (completed) await finalizeAmbient?.()
+        } catch {
+          reportAmbientCompletionFailure(commandId, 'post_commit_hook')
+        } finally {
+          try {
+            await ambient.dataEngineScope?.complete(completed ? 'committed' : 'rolled_back', options.ctx.bulkImport)
+          } catch {
+            reportAmbientCompletionFailure(commandId, 'crud_effects')
+          } finally {
+            await disposeAmbientCommandScope(commandId, ambient.context.container)
+            ambientOutcome = completed ? 'committed' : 'rolled_back'
+          }
+        }
+      })
+    }
+    const handler = await this.resolveHandler<TInput, TResult>(commandId)
+    if (replayLogEntry && readCrudFormSectionSinkSnapshots(replayLogEntry).length) {
+      throw new CrudHttpError(409, { error: 'extension_policy_mismatch', code: 'extension_policy_mismatch' })
+    }
     const isAtomicReplay = replayLogEntry !== null && handler.atomicReplay === true
     const allInterceptors = getAllCommandInterceptorInstances()
     let interceptorMetadata = new Map<string, Record<string, unknown>>()
-    let effectiveOptions = options
+    let effectiveOptions = ambient ? { ...options, ctx: ambient.context } : options
     let userFeatures: string[] = []
     const runBeforeExecuteInterceptors = async (baseOptions: CommandExecutionOptions<TInput>) => {
       const resolvedUserFeatures = allInterceptors.length
@@ -365,7 +457,7 @@ export class CommandBus {
     }
 
     if (!isAtomicReplay) {
-      const prepared = await runBeforeExecuteInterceptors(options)
+      const prepared = await runBeforeExecuteInterceptors(effectiveOptions)
       effectiveOptions = prepared.effectiveOptions
       interceptorMetadata = prepared.metadata
       userFeatures = prepared.userFeatures
@@ -374,7 +466,8 @@ export class CommandBus {
     const executeCore = async (coreOptions: CommandExecutionOptions<TInput>) => {
       const snapshots: { before?: unknown } = {}
       let executionOptions = coreOptions
-      if (handler.prepareSnapshotInsideTransaction && handler.prepare) {
+      let finalInput: { value: TInput } | undefined
+      if (ambient || (handler.prepareSnapshotInsideTransaction && handler.prepare)) {
         const prepare = handler.prepare
         const originalCtx = coreOptions.ctx
         const originalBeforeTransactionalWrite = originalCtx.beforeTransactionalWrite
@@ -383,25 +476,39 @@ export class CommandBus {
         transactionalCtx = {
           ...originalCtx,
           beforeTransactionalWrite: async (em, input) => {
+            if (ambient) {
+              finalInput = undefined
+              if (em !== ambient.em || !isInTransaction(em) || !ownsTransactionLifetime(em, ambient.lifetime) || input === undefined) {
+                throw new Error('[internal] Ambient command write requires final input and the owned transaction')
+              }
+            }
             await originalBeforeTransactionalWrite?.(em, input)
-            if (prepared) return
-            Object.assign(
-              snapshots,
-              (await prepare(coreOptions.input, { ...transactionalCtx, transactionalEm: em })) ?? {},
-            )
-            prepared = true
+            if (!prepared && prepare) {
+              Object.assign(snapshots, await prepare(
+                ambient ? input as TInput : coreOptions.input,
+                { ...transactionalCtx, transactionalEm: em },
+              ) ?? {})
+              prepared = true
+            }
+            if (ambient) finalInput = { value: input as TInput }
           },
         }
         executionOptions = { ...coreOptions, ctx: transactionalCtx }
       } else {
         Object.assign(snapshots, await this.prepareSnapshots(handler, coreOptions))
       }
-      effectiveOptions = executionOptions
       const sourceLog = executionOptions.redoLogEntry ?? null
       const result =
         sourceLog && typeof handler.redo === 'function'
           ? await handler.redo({ input: executionOptions.input, ctx: executionOptions.ctx, logEntry: sourceLog })
           : await handler.execute(executionOptions.input, executionOptions.ctx)
+      if (ambient) {
+        if (!finalInput || !isInTransaction(ambient.em) || !ownsTransactionLifetime(ambient.em, ambient.lifetime)) {
+          throw new Error('[internal] Ambient command returned without checking its final transactional input')
+        }
+        executionOptions = { ...executionOptions, input: finalInput.value }
+      }
+      effectiveOptions = executionOptions
       const afterSnapshot = await this.captureAfter(handler, executionOptions, result)
       const snapshotsWithAfter = { ...snapshots, after: afterSnapshot }
       const logMeta = await this.buildLog(handler, executionOptions, result, snapshotsWithAfter)
@@ -547,6 +654,7 @@ export class CommandBus {
         const afterResult = await runCommandInterceptorsAfter(
           allInterceptors, commandId, effectiveOptions.input, result, interceptorCtx,
           userFeatures, interceptorMetadata,
+          ambient ? () => reportAmbientCompletionFailure(commandId, 'after_execute_interceptor') : undefined,
         )
         if (afterResult.modifiedResult && typeof result === 'object' && result) {
           finalResult = { ...(result as object), ...afterResult.modifiedResult } as Awaited<TResult>
@@ -554,13 +662,13 @@ export class CommandBus {
       }
 
       if (!effectiveOptions.skipCacheInvalidation) {
-        await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
+        await this.invalidateCacheAfterExecute(commandId, effectiveOptions, ambient ? result : finalResult, mergedMeta)
       }
       // Bulk-import backfills defer heavy per-record side effects: the ctx flags are read here and
       // threaded as a local into the flush (never stored on the shared dataEngine), so a concurrent
       // command with different flags can't observe them. Reindex is restored by the caller's
       // end-of-run `query_index rebuild`. Mirrors `skipCacheInvalidation` above.
-      await this.flushCrudSideEffects(effectiveOptions.ctx.container, effectiveOptions.ctx?.bulkImport)
+      if (!ambient) await this.flushCrudSideEffects(effectiveOptions.ctx.container, effectiveOptions.ctx.bulkImport)
       return finalResult
     }
 
@@ -568,6 +676,26 @@ export class CommandBus {
       result,
       logEntry,
       replaySourceFinalized,
+    }
+    if (ambient) {
+      executionResult.ambient = Object.freeze({
+        [ambientCommandExecutionMarker]: true as const,
+        tentativeResult: result,
+        logEntry,
+        ...(handler.atomicReplay === true && handler.undo && this.isUndoable(handler)
+          ? { supportsAtomicUndo: true as const }
+          : {}),
+        finalizedResult() {
+          if (ambientOutcome !== 'committed') {
+            throw new Error('[internal] Ambient command has no committed result')
+          }
+          return executionResult.result
+        },
+      })
+      finalizeAmbient = async () => {
+        executionResult.result = await runPostCommit()
+      }
+      return executionResult
     }
     if (ambientReplay?.joinsAmbient) {
       if (!replayTransactionLifetime || !ownsTransactionLifetime(ambientReplay.em, replayTransactionLifetime)) {
@@ -595,6 +723,23 @@ export class CommandBus {
     }
 
     const isAtomicReplay = handler.atomicReplay === true
+    const sinkSnapshots = readCrudFormSectionSinkSnapshots(log)
+    const sinkAuth = ctx.auth
+    const sinkTenant = log.tenantId
+    const sinkOrganization = log.organizationId ?? null
+    if (sinkSnapshots.length) {
+      const organizationScope = ctx.organizationScope
+      const selectedId = organizationScope ? organizationScope.selectedId : ctx.selectedOrganizationId ?? sinkAuth?.orgId
+      const restrictions = [ctx.organizationIds, organizationScope?.filterIds, organizationScope?.allowedIds]
+        .filter((ids): ids is string[] => Array.isArray(ids))
+      const scopedOrganization = restrictions.length
+        ? restrictions.every((ids) => ids.length && (sinkOrganization === null || ids.includes(sinkOrganization)))
+        : (organizationScope && selectedId === null) || sinkOrganization === selectedId
+      if (!isAtomicReplay || !sinkAuth || !sinkTenant || sinkAuth.tenantId !== sinkTenant || !scopedOrganization
+          || (organizationScope && (organizationScope.tenantId !== sinkTenant || organizationScope.selectionRejected))) {
+        throw new CrudHttpError(409, { error: 'extension_policy_mismatch', code: 'extension_policy_mismatch' })
+      }
+    }
     const allInterceptors = getAllCommandInterceptorInstances()
     let undoInterceptorMetadata = new Map<string, Record<string, unknown>>()
     let userFeatures: string[] = []
@@ -651,12 +796,17 @@ export class CommandBus {
         : await service.claimForUndo(log.id)
       if (!claimed) throw new Error('[internal] Undo token already consumed')
     }
-    const finishUndo = async (replayCtx: CommandRuntimeContext, replayEm?: EntityManager) => {
+    const finishUndo = async (
+      replayCtx: CommandRuntimeContext,
+      replayEm?: EntityManager,
+      sinkUndo?: Parameters<typeof restoreCrudFormSectionSinks>,
+    ) => {
       await handler.undo!({
         input: log.commandPayload as Parameters<NonNullable<typeof handler.undo>>[0]['input'],
         ctx: replayCtx,
         logEntry: log,
       })
+      if (sinkUndo) await restoreCrudFormSectionSinks(...sinkUndo)
       const traceLog = this.buildUndoTraceLog(log, replayCtx)
       if (replayEm) {
         await service.markUndone(log.id, traceLog, replayEm)
@@ -697,8 +847,19 @@ export class CommandBus {
             logEntry: log,
           })
         }
+        let sinkUndo: Parameters<typeof restoreCrudFormSectionSinks> | undefined
+        if (sinkSnapshots.length && sinkTenant && sinkAuth) {
+          const context = {
+            auth: sinkAuth, scope: { tenantId: sinkTenant, organizationId: sinkOrganization },
+            em: replayEm, container: replayCtx.container,
+          }
+          const work = await authorizeCrudFormSectionSinkUndo({
+            snapshots: sinkSnapshots, context, commandId: log.commandId, manifest: getCrudFormSectionManifest(),
+          })
+          sinkUndo = [work, context]
+        }
         await claimUndo(replayEm)
-        await finishUndo(replayCtx, replayEm)
+        await finishUndo(replayCtx, replayEm, sinkUndo)
       }], {
         transaction: true,
         label: `${log.commandId}.undo`,

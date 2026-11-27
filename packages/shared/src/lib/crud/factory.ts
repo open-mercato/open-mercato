@@ -1,3 +1,4 @@
+import { crudSectionOperationMethods, rememberCrudRouteSectionSource, type CrudRouteSectionSource } from './form-sections/factory-route-source'
 import { z } from 'zod'
 import type { AwilixContainer } from 'awilix'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -7,10 +8,12 @@ import type { QueryEngine, Where, Sort, Page, QueryCustomFieldSource, QueryJoinE
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isRecord } from '../utils'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import {
   runMutationGuards,
   bridgeLegacyGuard,
@@ -19,6 +22,7 @@ import {
 } from './mutation-guard-registry'
 import { getAllMutationGuardInstances } from './mutation-guard-store'
 import { getAllSyncSubscribers } from './sync-subscriber-store'
+import { getApiInterceptorsForRoute } from './interceptor-registry'
 import { collectSyncSubscribers, runSyncBeforeEvent, runSyncAfterEvent } from './sync-event-runner'
 import type { SyncCrudEventPayload } from './sync-event-types'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
@@ -549,6 +553,8 @@ export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
   enrichers?: {
     /** Entity ID for enricher matching (e.g., 'customers.person') */
     entityId: string
+    /** Opt in to fresh detail enrichment for a one-record list request. */
+    detailRequest?: (query: TList) => boolean
   }
 }
 
@@ -604,9 +610,9 @@ const SELECTED_ORG_COOKIE = 'om_selected_org'
 // back to the caller's home org. Attributes mirror how the switcher sets it.
 const CLEAR_SELECTED_ORG_COOKIE = `${SELECTED_ORG_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`
 
-function attachOperationHeader(res: Response, logEntry: any) {
+function attachOperationHeader(res: Response, logEntry: unknown) {
   if (!res || !(res instanceof Response)) return res
-  if (!logEntry || typeof logEntry !== 'object') return res
+  if (!isRecord(logEntry)) return res
   const undoToken = typeof logEntry.undoToken === 'string' ? logEntry.undoToken : null
   const id = typeof logEntry.id === 'string' ? logEntry.id : null
   const commandId = typeof logEntry.commandId === 'string' ? logEntry.commandId : null
@@ -670,6 +676,24 @@ function classifyCrudError(err: unknown): { code: CrudErrorCode; pgSqlState: str
   return { code: 'INTERNAL_ERROR', pgSqlState: null }
 }
 
+/**
+ * Translates a `z.ZodError`'s `issues` before they reach the client. Every other error path
+ * in this factory (CrudHttpError, the interceptor rejection, the DB-error branches below)
+ * already routes its message through `translate()` — this covers a `.refine()`/`superRefine`
+ * issue whose `params` opts in via `i18nKey`/`i18nFallback`. An issue with no `i18nKey` (zod's
+ * own built-in messages included) is left exactly as it was. See "Zod .refine()/superRefine
+ * messages" in `packages/shared/AGENTS.md` for the full convention and rationale.
+ */
+function translateZodIssues(issues: z.ZodIssue[], translate: TranslateWithFallbackFn): z.ZodIssue[] {
+  return issues.map((issue) => {
+    const params = (issue as { params?: unknown }).params as Record<string, unknown> | undefined
+    const i18nKey = typeof params?.i18nKey === 'string' ? params.i18nKey : undefined
+    if (!i18nKey) return issue
+    const fallback = typeof params?.i18nFallback === 'string' ? params.i18nFallback : issue.message
+    return { ...issue, message: translate(i18nKey, fallback) }
+  })
+}
+
 async function handleError(err: unknown, request?: Request): Promise<Response> {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) {
@@ -685,7 +709,7 @@ async function handleError(err: unknown, request?: Request): Promise<Response> {
   }
   const { translate } = await resolveTranslations()
   if (err instanceof z.ZodError) {
-    return json({ error: translate('errors.invalid_input', 'Invalid input'), details: err.issues }, { status: 400 })
+    return json({ error: translate('errors.invalid_input', 'Invalid input'), details: translateZodIssues(err.issues, translate) }, { status: 400 })
   }
   if (isTransientDbError(err)) {
     // Transient DB unavailability (pool exhausted, `max_connections` reached, DB
@@ -789,6 +813,7 @@ function buildSyncPayload(
     tenantId: string
     em: EntityManager
     request: Request
+    crudFormSectionPolicy?: true
   },
   extra?: {
     payload?: Record<string, unknown>
@@ -1831,8 +1856,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return opts.list.buildFilters({} as TList, ctx)
       }
 
+      const singleDetail = !exportRequested && opts.enrichers?.detailRequest?.(validated) === true
       const cacheCandidate =
-        isCrudCacheEnabled() && !exportRequested && !opts.list?.disableListCache
+        isCrudCacheEnabled() && !exportRequested && !singleDetail && !opts.list?.disableListCache
       const routeCacheScope = cacheCandidate && opts.list.cacheScope
         ? await opts.list.cacheScope(validated as TList, ctx)
         : undefined
@@ -1921,6 +1947,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       //   enrichment is ever embedded in the shared cache entry (avoids stale
       //   cross-module output and cross-cohort ACL leaks).
       const enrichAndStorePayload = async (payload: any) => {
+        if (singleDetail && Array.isArray(payload.items) && payload.items.length === 1) {
+          payload.items = [await enrichSingleRecord(payload.items[0], ctx)]
+          return
+        }
         if (enricherCachePlan.skipEnrichersOnCacheHit) {
           await enrichListPayload(payload, ctx, profiler)
           await maybeStoreCrudCache(payload)
@@ -1943,6 +1973,10 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       const respondWithPayload = (payload: any, extraHeaders?: Record<string, string>) => {
         const headers: Record<string, string> = extraHeaders ? { ...extraHeaders } : {}
+        if (singleDetail) {
+          headers['cache-control'] = 'private, no-store'
+          headers.vary = 'Cookie, Authorization'
+        }
         const warning = payload && typeof payload === 'object' && payload.meta?.partialIndexWarning
         if (warning) {
           headers['x-om-partial-index'] = JSON.stringify({
@@ -2508,7 +2542,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       return response
     } catch (e) {
       finishProfile({ result: 'error' })
-      return handleError(e, request)
+      return await handleError(e, request)
     }
   }
 
@@ -2826,7 +2860,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       payload = await enrichSingleRecord(payload, ctx)
       return json(payload, { status: 201 })
     } catch (e) {
-      return handleError(e, request)
+      return await handleError(e, request)
     }
   }
 
@@ -3168,7 +3202,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       return json(payload)
     } catch (e) {
-      return handleError(e, request)
+      return await handleError(e, request)
     }
   }
 
@@ -3461,9 +3495,120 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       return json(payload)
     } catch (e) {
-      return handleError(e, request)
+      return await handleError(e, request)
     }
   }
 
-  return { metadata, GET, POST, PUT, DELETE }
+  const route = { metadata, GET, POST, PUT, DELETE }
+  if (opts.actions?.create || opts.actions?.update || opts.actions?.delete) {
+    const actions: CrudRouteSectionSource['actions'] = {}
+    for (const operation of ['create', 'update', 'delete'] as const) {
+      const action = opts.actions?.[operation]
+      if (!action) continue
+      actions[operation] = {
+        commandId: action.commandId,
+        schema: action.schema,
+        status: action.status,
+        hasCustomMetadata: Boolean(action.metadata),
+        response: action.response,
+      }
+    }
+    rememberCrudRouteSectionSource(route, {
+      metadata, orm: ormCfg, actions, resourceKind,
+      hasWriteHooks: Boolean(opts.hooks?.beforeCreate || opts.hooks?.afterCreate || opts.hooks?.beforeUpdate
+        || opts.hooks?.afterUpdate || opts.hooks?.beforeDelete || opts.hooks?.afterDelete),
+      hasCustomIdentifiers: Boolean(opts.resolveIdentifiers),
+      requestContext: withCtx,
+      hasFacadeOnlyInterceptors(operation, originalPath, facadePath) {
+        const method = crudSectionOperationMethods[operation]
+        const original = getApiInterceptorsForRoute(originalPath.replace(/^\/+/, ''), method)
+        return getApiInterceptorsForRoute(facadePath.replace(/^\/+/, ''), method)
+          .some((entry) => (entry.interceptor.before || entry.interceptor.after) && !original.includes(entry))
+      },
+      async prepareCommand({ operation, raw, directDelete, context: ctx, request, resourceId, readPreviousRecord }) {
+        const action = opts.actions?.[operation]
+        if (!action || !ctx.auth?.tenantId) throw new Error('[internal] Missing derived CRUD command context')
+        const method = crudSectionOperationMethods[operation]
+        const orgId = ctx.selectedOrganizationId
+        const { sub: userId, tenantId } = ctx.auth
+        const em = ctx.container.resolve<EntityManager>('em')
+        const inputQuery = operation === 'delete' ? { id: resourceId } : undefined
+        const parsed = action.schema ? await action.schema.parseAsync(raw) : raw
+        const interceptorBody = operation === 'delete' && !directDelete
+          ? isRecord(parsed) && isRecord(parsed.body) ? parsed.body : raw.body
+          : parsed
+        const intercepted = await applyInterceptorsBefore({
+          ctx, request, method, body: isRecord(interceptorBody) ? interceptorBody : undefined,
+          query: inputQuery,
+        })
+        if (intercepted.errorResponse) {
+          throw new CrudHttpError(intercepted.errorResponse.status, await intercepted.errorResponse.json())
+        }
+        if (JSON.stringify(intercepted.requestPayload.query) !== JSON.stringify(inputQuery)) {
+          throw new CrudHttpError(409, { error: 'extension_policy_mismatch', code: 'extension_policy_mismatch' })
+        }
+        const interceptedBody = intercepted.requestPayload.body ?? {}
+        const interceptedRaw = operation === 'delete' && !directDelete ? { body: interceptedBody, query: inputQuery } : interceptedBody
+        const reparsed = action.schema ? await action.schema.parseAsync(interceptedRaw) : interceptedRaw
+        let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedRaw, ctx }) : reparsed
+        const eventAction = operation === 'create' ? 'created' : operation === 'update' ? 'updated' : 'deleted'
+        const { beforeEventId, afterEventId, entity } = deriveLifecycleEventIds(eventsConfig, eventAction)
+        const subscribers = getAllSyncSubscribers()
+        const before = beforeEventId ? collectSyncSubscribers(subscribers, beforeEventId) : []
+        const after = afterEventId ? collectSyncSubscribers(subscribers, afterEventId) : []
+        const previous = operation === 'update' && (before.length || after.length) ? await readPreviousRecord() : null
+        if (operation === 'update' && (before.length || after.length) && !previous) {
+          throw new CrudHttpError(404, { error: 'not_found' })
+        }
+        const previousData = snapshotEntity(previous)
+        const eventContext = { resourceId, operation, userId, organizationId: orgId, tenantId, em, request, crudFormSectionPolicy: true as const }
+        if (beforeEventId && entity && before.length) {
+          const beforePayload = buildSyncPayload({ ...eventContext, eventId: beforeEventId, entity, timing: 'before' }, {
+            ...(operation !== 'delete' && isRecord(input) ? { payload: input } : {}),
+            previousData: snapshotEntity(previousData),
+          })
+          const outcome = await runSyncBeforeEvent(before, beforePayload, ctx.container)
+          if (!outcome.ok) throw new CrudHttpError(outcome.errorStatus ?? 422, outcome.errorBody ?? { error: 'Operation blocked' })
+          if (operation !== 'delete' && outcome.modifiedPayload && isRecord(input)) {
+            input = { ...input, ...outcome.modifiedPayload }
+          }
+        }
+        return {
+          input,
+          async afterCommit({ input, resourceId, status, body }) {
+            if (afterEventId && entity && after.length) {
+              await runSyncAfterEvent(after, buildSyncPayload({
+                ...eventContext, resourceId, eventId: afterEventId, entity, timing: 'after',
+              }, { payload: operation === 'delete' ? undefined : input, previousData }), ctx.container)
+            }
+            if (!isRecord(body) || Array.isArray(body)) return null
+            return applyInterceptorsAfter({
+              ctx, request, method, statusCode: status, body,
+              requestPayload: intercepted.requestPayload, metadataByInterceptor: intercepted.metadataByInterceptor,
+            })
+          },
+        }
+      },
+      attachCommittedOperation: attachOperationHeader,
+      async execute(operation, input, ctx) {
+        const action = actions[operation]
+        if (!action) throw new Error('[internal] Missing derived CRUD command')
+        const event = operation === 'create' ? 'created' : operation === 'update' ? 'updated' : 'deleted'
+        const commandBus = ctx.container.resolve<CommandBus>('commandBus')
+        return withRouteIndexerDeclaration(ctx, event, action.commandId, () =>
+          commandBus.execute(action.commandId, {
+            input,
+            ctx,
+            metadata: {
+              tenantId: ctx.auth?.tenantId ?? null,
+              organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+              resourceKind,
+              context: { cacheAliases: resourceTargets },
+            },
+          }),
+        )
+      },
+    })
+  }
+  return route
 }

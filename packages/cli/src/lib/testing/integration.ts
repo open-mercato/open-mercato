@@ -2,7 +2,8 @@ import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import { createHash, randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
@@ -13,7 +14,13 @@ import { isUnsafeJwtSecret } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveEnvironment } from '../resolver'
 import { resolveInitSuperadminCredentials } from '../init-secrets'
 import { resolveSpawnCommand } from '../spawn'
-import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
+import {
+  APP_ONLY_INTEGRATION_ENV_VAR,
+  SKIP_METADATA_FILTERS_INTEGRATION_ENV_VAR,
+  DISCOVERY_SELECTION_REPORT_INTEGRATION_ENV_VAR,
+  discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared,
+  isAppOwnedIntegrationSpecPath,
+} from './integration-discovery'
 import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
 
 type EphemeralRuntimeOptions = {
@@ -47,7 +54,37 @@ type IntegrationOptions = {
   verbose: boolean
   forceRebuild: boolean
   reuseExisting: boolean
+  appOnly: boolean
+  help: boolean
 }
+
+type IntegrationSuiteOptions = IntegrationOptions & {
+  appOnlySpecPaths: string[] | null
+}
+
+export const NO_APP_OWNED_INTEGRATION_SPECS_MESSAGE = 'No app-owned integration specs found'
+export const UNREPORTED_APP_OWNED_INTEGRATION_SPECS_MESSAGE =
+  'the Playwright config does not report its spec files through discoverIntegrationSpecFiles, so app-owned specs are resolved after the environment starts'
+export const NO_RUNNABLE_APP_OWNED_INTEGRATION_SPECS_MESSAGE =
+  'No app-owned integration specs are runnable in the ephemeral environment: every one is skipped by its requiredModules/requiredEnvVars metadata'
+
+export const INTEGRATION_TEST_USAGE = [
+  'Usage: mercato test:integration [filter] [options]',
+  '',
+  'Boots an ephemeral environment (Postgres, built app) and runs the Playwright integration suite.',
+  '',
+  'Options:',
+  '  --filter <pattern>   Run only specs matching the pattern (also accepted as a bare first argument)',
+  '  --app-only           Run only app-owned specs (outside node_modules/). Exits 0 without starting',
+  '                       anything when the app has none',
+  '  --keep               Leave the app and database running after the suite finishes',
+  '  --screenshots        Capture screenshots for every test (default outside CI)',
+  '  --no-screenshots     Capture screenshots only on failure (default in CI)',
+  '  --verbose            Stream build and server output',
+  '  --force-rebuild      Rebuild the app even when cached build artifacts are fresh',
+  '  --no-reuse-env       Always boot a fresh ephemeral environment',
+  '  -h, --help           Show this help',
+].join('\n')
 
 type EphemeralAppOptions = {
   verbose: boolean
@@ -2454,11 +2491,21 @@ export function parseOptions(rawArgs: string[]): IntegrationOptions {
   let verbose = false
   let forceRebuild = false
   let reuseExisting = true
+  let appOnly = false
+  let help = false
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const argument = rawArgs[index]
     if (argument === '--keep') {
       keep = true
+      continue
+    }
+    if (argument === '--app-only') {
+      appOnly = true
+      continue
+    }
+    if (argument === '--help' || argument === '-h') {
+      help = true
       continue
     }
     if (argument === '--screenshots') {
@@ -2515,7 +2562,40 @@ export function parseOptions(rawArgs: string[]): IntegrationOptions {
     verbose,
     forceRebuild,
     reuseExisting,
+    appOnly,
+    help,
   }
+}
+
+function matchesPlaywrightFileFilter(relativePath: string, filter: string): boolean {
+  let pattern: RegExp
+  try {
+    pattern = new RegExp(filter, 'i')
+  } catch {
+    return relativePath.toLowerCase().includes(filter.toLowerCase())
+  }
+  return pattern.test(relativePath)
+}
+
+export function resolveAppOwnedIntegrationSpecPaths(
+  discoveredSpecs: ReadonlyArray<{ path: string }>,
+  filter: string | null,
+): string[] {
+  const appOwned = discoveredSpecs
+    .map((entry) => entry.path)
+    .filter((specPath) => isAppOwnedIntegrationSpecPath(specPath))
+  if (!filter) {
+    return appOwned
+  }
+  const matching = appOwned.filter((specPath) => matchesPlaywrightFileFilter(specPath, filter))
+  if (appOwned.length > 0 && matching.length === 0) {
+    throw new Error(`No app-owned integration specs match filter "${filter}"`)
+  }
+  return matching
+}
+
+export function buildAppOnlyPlaywrightFileFilters(specPaths: readonly string[]): string[] {
+  return specPaths.map((specPath) => `/${specPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
 }
 
 export function parseEphemeralAppOptions(rawArgs: string[]): EphemeralAppOptions {
@@ -2813,6 +2893,166 @@ function normalizePath(filePath: string): string {
 
 async function discoverIntegrationSpecFiles(): Promise<DiscoveredIntegrationSpecFile[]> {
   return discoverIntegrationSpecFilesShared(projectRootDirectory, LEGACY_INTEGRATION_TEST_ROOT)
+}
+
+export type PlaywrightSpecLister = (environment: NodeJS.ProcessEnv, fileFilters: readonly string[]) => Promise<string[]>
+
+export type PlaywrightConfigSelectionLister = (environment: NodeJS.ProcessEnv) => Promise<string[] | null>
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function parsePlaywrightListedSpecPaths(report: unknown, projectRoot: string): string[] {
+  if (!isRecord(report) || !Array.isArray(report.suites)) {
+    throw new Error('[internal] Playwright --list report has no suites')
+  }
+  const rootDir = isRecord(report.config) && typeof report.config.rootDir === 'string'
+    ? report.config.rootDir
+    : projectRoot
+  const listed = new Set<string>()
+  for (const suite of report.suites) {
+    if (!isRecord(suite) || typeof suite.file !== 'string' || suite.file.length === 0) continue
+    listed.add(normalizePath(path.relative(projectRoot, path.resolve(rootDir, suite.file))))
+  }
+  return Array.from(listed).sort((left, right) => left.localeCompare(right))
+}
+
+function runQuietNpxCommand(args: string[], environment: NodeJS.ProcessEnv, cwd: string): Promise<void> {
+  const binary = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  return new Promise((resolve, reject) => {
+    const resolvedSpawn = resolveSpawnCommand(binary, args)
+    const command = spawn(resolvedSpawn.command, resolvedSpawn.args, {
+      cwd,
+      env: environment,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      ...resolvedSpawn.spawnOptions,
+    })
+    let stderr = ''
+    command.stderr?.on('data', (chunk: Buffer | string) => {
+      stderr += chunk.toString()
+    })
+    command.on('error', reject)
+    command.on('exit', (code) => {
+      if (code === 0) {
+        resolve()
+        return
+      }
+      reject(new Error(`Command failed: npx ${args.join(' ')} (exit ${code ?? 'unknown'})\n${stderr.trim()}`))
+    })
+  })
+}
+
+export function parseDiscoverySelectionReport(report: unknown, projectRoot: string): string[] {
+  if (!isRecord(report) || !Array.isArray(report.paths)) {
+    throw new Error('[internal] Integration discovery selection report has no paths')
+  }
+  const reportRoot = typeof report.projectRoot === 'string' ? report.projectRoot : projectRoot
+  const selected = new Set<string>()
+  for (const entry of report.paths) {
+    if (typeof entry !== 'string' || entry.length === 0) continue
+    selected.add(normalizePath(path.relative(projectRoot, path.resolve(reportRoot, entry))))
+  }
+  return Array.from(selected).sort((left, right) => left.localeCompare(right))
+}
+
+export type PlaywrightListTarget = {
+  projectRoot: string
+  configPath: string
+}
+
+const DEFAULT_PLAYWRIGHT_LIST_TARGET: PlaywrightListTarget = {
+  projectRoot: projectRootDirectory,
+  configPath: PLAYWRIGHT_INTEGRATION_CONFIG_PATH,
+}
+
+const PLAYWRIGHT_NO_SPEC_FILE_FILTER = '/__om_app_only_preflight_no_spec__$'
+
+async function runPlaywrightList<T>(
+  environment: NodeJS.ProcessEnv,
+  fileFilters: readonly string[],
+  target: PlaywrightListTarget,
+  readResult: (files: { listFile: string; selectionFile: string }) => Promise<T>,
+): Promise<T> {
+  const outputDirectory = await mkdtemp(path.join(os.tmpdir(), 'om-integration-list-'))
+  const files = {
+    listFile: path.join(outputDirectory, 'list.json'),
+    selectionFile: path.join(outputDirectory, 'selection.json'),
+  }
+  try {
+    await runQuietNpxCommand(
+      ['playwright', 'test', '--config', target.configPath, '--list', '--reporter=json', '--pass-with-no-tests', ...fileFilters],
+      {
+        ...environment,
+        PLAYWRIGHT_JSON_OUTPUT_FILE: files.listFile,
+        [DISCOVERY_SELECTION_REPORT_INTEGRATION_ENV_VAR]: files.selectionFile,
+      },
+      target.projectRoot,
+    )
+    return await readResult(files)
+  } finally {
+    await rm(outputDirectory, { recursive: true, force: true }).catch(() => undefined)
+  }
+}
+
+export function listPlaywrightSelectedSpecPaths(
+  environment: NodeJS.ProcessEnv,
+  fileFilters: readonly string[] = [],
+  target: PlaywrightListTarget = DEFAULT_PLAYWRIGHT_LIST_TARGET,
+): Promise<string[]> {
+  return runPlaywrightList(environment, fileFilters, target, async ({ listFile }) =>
+    parsePlaywrightListedSpecPaths(JSON.parse(await readFile(listFile, 'utf8')), target.projectRoot),
+  )
+}
+
+export function listPlaywrightConfigSelectedSpecPaths(
+  environment: NodeJS.ProcessEnv,
+  target: PlaywrightListTarget = DEFAULT_PLAYWRIGHT_LIST_TARGET,
+): Promise<string[] | null> {
+  return runPlaywrightList(environment, [PLAYWRIGHT_NO_SPEC_FILE_FILTER], target, async ({ selectionFile }) =>
+    existsSync(selectionFile)
+      ? parseDiscoverySelectionReport(JSON.parse(await readFile(selectionFile, 'utf8')), target.projectRoot)
+      : null,
+  )
+}
+
+function buildAppOnlyEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...environment, [APP_ONLY_INTEGRATION_ENV_VAR]: '1' }
+}
+
+export async function listAppOwnedIntegrationSpecCandidates(
+  listConfigSelection: PlaywrightConfigSelectionLister = listPlaywrightConfigSelectedSpecPaths,
+): Promise<Array<{ path: string }> | null> {
+  const environment = { ...buildAppOnlyEnvironment(process.env), [SKIP_METADATA_FILTERS_INTEGRATION_ENV_VAR]: '1' }
+  const selected = await listConfigSelection(environment)
+  return selected ? selected.map((specPath) => ({ path: specPath })) : null
+}
+
+export type AppOnlySuiteRun = {
+  fileFilters: string[]
+  commandEnvironment: NodeJS.ProcessEnv
+}
+
+export async function resolveAppOnlySuiteRun(
+  appOnlySpecPaths: readonly string[] | null,
+  environment: Pick<EphemeralEnvironmentHandle, 'commandEnvironment'>,
+  listSpecs: PlaywrightSpecLister = listPlaywrightSelectedSpecPaths,
+  filter: string | null = null,
+): Promise<AppOnlySuiteRun | null> {
+  const commandEnvironment = buildAppOnlyEnvironment(environment.commandEnvironment)
+  const fileFilters = appOnlySpecPaths ? buildAppOnlyPlaywrightFileFilters(appOnlySpecPaths) : filter ? [filter] : []
+  const listed = await listSpecs(commandEnvironment, fileFilters)
+  const runnable = new Set(listed)
+  const selected = appOnlySpecPaths
+    ? appOnlySpecPaths.filter((specPath) => runnable.has(specPath))
+    : resolveAppOwnedIntegrationSpecPaths(listed.map((specPath) => ({ path: specPath })), null)
+  if (selected.length === 0) {
+    if (!appOnlySpecPaths && filter) {
+      throw new Error(`No app-owned integration specs match filter "${filter}"`)
+    }
+    return null
+  }
+  return { fileFilters: buildAppOnlyPlaywrightFileFilters(selected), commandEnvironment }
 }
 
 async function extractSpecDescription(relativePath: string): Promise<string> {
@@ -3365,13 +3605,27 @@ type IntegrationTestRunResult = {
 
 async function runIntegrationTestSuiteOnce(
   environment: EphemeralEnvironmentHandle,
-  options: IntegrationOptions,
+  options: IntegrationSuiteOptions,
 ): Promise<void> {
   const testArgs = ['test:integration']
-  if (options.filter) {
+  let commandEnvironment = environment.commandEnvironment
+  if (options.appOnly) {
+    const appOnlyRun = await resolveAppOnlySuiteRun(
+      options.appOnlySpecPaths,
+      environment,
+      listPlaywrightSelectedSpecPaths,
+      options.filter,
+    )
+    if (!appOnlyRun) {
+      console.log(`[integration] ${NO_RUNNABLE_APP_OWNED_INTEGRATION_SPECS_MESSAGE}.`)
+      return
+    }
+    testArgs.push(...appOnlyRun.fileFilters)
+    commandEnvironment = appOnlyRun.commandEnvironment
+  } else if (options.filter) {
     testArgs.push(options.filter)
   }
-  await runYarnCommandWithOutputMonitoring(testArgs, environment.commandEnvironment, {
+  await runYarnCommandWithOutputMonitoring(testArgs, commandEnvironment, {
     detectEnvironmentUnavailable: true,
     abortOnEnvironmentUnavailable: true,
     playwrightFailureHealthCheck: {
@@ -3398,7 +3652,7 @@ function normalizeError(error: unknown): Error {
 
 async function runIntegrationTestAttempt(
   environment: EphemeralEnvironmentHandle,
-  integrationOptions: IntegrationOptions,
+  integrationOptions: IntegrationSuiteOptions,
   prepareTestEnvironment: (environment: EphemeralEnvironmentHandle) => Promise<void>,
 ): Promise<Error | null> {
   try {
@@ -3426,7 +3680,7 @@ async function detectEnvironmentFailure(
 
 async function runIntegrationTestSuiteWithRecovery(
   startOptions: Pick<EphemeralRuntimeOptions, 'verbose' | 'captureScreenshots' | 'forceRebuild' | 'reuseExisting'>,
-  integrationOptions: IntegrationOptions,
+  integrationOptions: IntegrationSuiteOptions,
   prepareTestEnvironment: (environment: EphemeralEnvironmentHandle) => Promise<void>,
 ): Promise<{
   environment: EphemeralEnvironmentHandle
@@ -3905,8 +4159,36 @@ async function keepEnvironmentRunningForever(): Promise<void> {
   await new Promise<void>(() => {})
 }
 
-export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[]): Promise<void> {
+export type IntegrationTestRunDependencies = {
+  discoverSpecs?: () => Promise<ReadonlyArray<{ path: string }> | null>
+  runSuiteWithRecovery?: typeof runIntegrationTestSuiteWithRecovery
+}
+
+export async function runIntegrationTestsInEphemeralEnvironment(
+  rawArgs: string[],
+  dependencies: IntegrationTestRunDependencies = {},
+): Promise<void> {
   const options = parseOptions(rawArgs)
+  if (options.help) {
+    console.log(INTEGRATION_TEST_USAGE)
+    return
+  }
+  let appOnlySpecPaths: string[] | null = null
+  if (options.appOnly) {
+    const discoverSpecs = dependencies.discoverSpecs ?? (() => listAppOwnedIntegrationSpecCandidates())
+    const candidates = await discoverSpecs()
+    if (candidates) {
+      appOnlySpecPaths = resolveAppOwnedIntegrationSpecPaths(candidates, options.filter)
+      if (appOnlySpecPaths.length === 0) {
+        console.log(NO_APP_OWNED_INTEGRATION_SPECS_MESSAGE)
+        return
+      }
+      console.log(`[integration] --app-only enabled: running ${appOnlySpecPaths.length} app-owned spec file(s).`)
+    } else {
+      console.log(`[integration] --app-only enabled: ${UNREPORTED_APP_OWNED_INTEGRATION_SPECS_MESSAGE}.`)
+    }
+  }
+  const runSuiteWithRecovery = dependencies.runSuiteWithRecovery ?? runIntegrationTestSuiteWithRecovery
   const startOptions: Pick<EphemeralRuntimeOptions, 'verbose' | 'captureScreenshots' | 'forceRebuild' | 'reuseExisting'> = {
     verbose: options.verbose,
     captureScreenshots: options.captureScreenshots,
@@ -3923,9 +4205,9 @@ export async function runIntegrationTestsInEphemeralEnvironment(rawArgs: string[
     } else {
       console.log('[integration] --no-reuse-env enabled: always booting a fresh ephemeral environment.')
     }
-    const environmentState = await runIntegrationTestSuiteWithRecovery(
+    const environmentState = await runSuiteWithRecovery(
       startOptions,
-      options,
+      { ...options, appOnlySpecPaths },
       async (runtimeEnvironment) => {
         console.log('[integration] Ensuring Playwright Chromium is installed...')
         await runNpxCommand(['playwright', 'install', 'chromium'], runtimeEnvironment.commandEnvironment)
