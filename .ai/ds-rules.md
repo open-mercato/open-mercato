@@ -318,6 +318,22 @@ const dealStatusMap: StatusMap<'open' | 'won' | 'lost'> = {
 - USE `SectionHeader` for detail page section headers (title + count + action)
 - USE `CollapsibleSection` when section content should be collapsible
 
+## Tables
+- Lists of records in the backend use `DataTable`. Use the `Table` primitive for small static or embedded tables. Never hand-roll `<table>` markup
+- **Header**: one row, sentence case, muted text, the same horizontal padding as the cells, so each label lines up with its column content. A column without a text label (selection, row actions) still gets an `sr-only` label
+- **Sorting**: a column is sortable whenever people compare or look up its values: names, dates, amounts, counts, statuses. Selection, action, avatar and free-text columns are not sortable. Use `TableSortHead` (`TableSortButton` when the header cell holds another control) or `sortable` on `DataTable`
+  - The label is the control: flat text with a small chevron after it, no button background. A faint two-way chevron means sortable and unsorted, a single chevron shows the direction, and the sorted label takes `text-foreground`
+  - `aria-sort` goes on the header cell. One column is sorted at a time, and a default sort shows its direction on load
+  - Lists paged on the server sort on the server (`DataTable` `sorting` with `onSortingChange`). Never sort only the rows of the current page
+- **Alignment**: text and status left. Numbers, amounts and durations right with `tabular-nums`, and their header right too (`align="right"`). Row actions sit in the last column
+- **Rows**: 32 / 40 / 48 px through `size` (`compact`, `default`, `comfortable`) with 16 px cell padding. Never set row heights by hand. One line per cell, truncated with the full value in a tooltip; only the leading identity cell may take a second, muted line
+- **Selection**: the checkbox column comes first. Bulk actions go to the `bulk-action-bar` block, not into the header row
+- **Row actions**: `RowActions` in the last column. At most one inline action, the rest in the menu, destructive ones always in the menu
+- **States**: loading keeps the header and shows skeleton rows (`isLoading`). Empty keeps the header and shows `EmptyState` in the body. A failed load shows `ErrorMessage` with a retry
+- **Footer**: pagination under the table with the result count; page size at most 100
+- **Frame**: the table container is the frame. See "Frames: one level only"
+- **Narrow screens**: the table scrolls sideways inside its container. Keep the identity column in view (`stickyFirstColumn`) and hide low-priority columns before considering any other layout
+
 ## Components — quick reference
 | I need to… | Use this |
 |---|---|

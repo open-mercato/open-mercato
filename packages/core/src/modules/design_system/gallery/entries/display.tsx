@@ -1468,6 +1468,21 @@ const tableEntry: GalleryEntry = {
   title: 'Table',
   importPath: '@open-mercato/ui/primitives/table',
   figmaNodeId: '167144:147544',
+  usage: {
+    do: [
+      'Small static or embedded tables; lists of records in the backend use DataTable.',
+      'Make a column sortable with TableSortHead whenever people compare or look up its values: names, dates, amounts, counts, statuses.',
+      'Right-align numbers and amounts with tabular-nums, and right-align their header too.',
+      'Set row height through size (compact, default, comfortable).',
+      'Keep the header and show EmptyState in the body when there are no rows.',
+    ],
+    dont: [
+      'Do not build a sortable header from a Button; the label itself is the control.',
+      'Do not sort only the rows of the current page when the list is paged on the server.',
+      'Do not wrap the table in a Card; the table container is the frame.',
+      'Do not write headers in uppercase.',
+    ],
+  },
   variants: [
     {
       id: 'header-states',

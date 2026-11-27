@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Bell, Inbox, MoreHorizontal, Pencil, Search } from 'lucide-react'
+import { ArrowDown, Bell, ChevronDown, Inbox, MoreHorizontal, Pencil, Search } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Alert } from '@open-mercato/ui/primitives/alert'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
@@ -134,6 +134,23 @@ function HeaderLabel({ uppercase }: { uppercase: boolean }) {
       style={uppercase ? { fontSize: 10, lineHeight: '16px', textTransform: 'uppercase', letterSpacing: '0.1em' } : undefined}
     >
       <T c={SAMPLE.customer} />
+    </span>
+  )
+}
+
+function SortHeader({ flat }: { flat: boolean }) {
+  if (flat) {
+    return (
+      <span className="flex items-center gap-1 whitespace-nowrap text-xs leading-4 text-foreground">
+        <T c={SAMPLE.customer} />
+        <ChevronDown className="size-3" />
+      </span>
+    )
+  }
+  return (
+    <span className="-ml-1 flex items-center gap-1 whitespace-nowrap rounded-md bg-background px-1 text-xs leading-4 text-foreground shadow-xs">
+      <T c={SAMPLE.customer} />
+      <ArrowDown className="size-4" />
     </span>
   )
 }
@@ -499,6 +516,7 @@ export const COMPONENT_PAIRS: UsagePairGroup = {
     {
       id: 'table-is-frame',
       title: copy('design.usageVisuals.table.frame.title', 'The table is the frame'),
+      covers: ['Do not wrap the table in a Card; the table container is the frame.'],
       do: {
         caption: copy('design.usageVisuals.table.frame.do', 'A table straight on the page'),
         specimen: <TableMock />,
@@ -511,6 +529,7 @@ export const COMPONENT_PAIRS: UsagePairGroup = {
     {
       id: 'header-case',
       title: copy('design.usageVisuals.table.header.title', 'Sentence case headers'),
+      covers: ['Do not write headers in uppercase.'],
       do: {
         caption: copy('design.usageVisuals.table.header.do', 'A header in sentence case'),
         specimen: <TableMock header={<HeaderLabel uppercase={false} />} />,
@@ -518,6 +537,19 @@ export const COMPONENT_PAIRS: UsagePairGroup = {
       avoid: {
         caption: copy('design.usageVisuals.table.header.avoid', 'Uppercase with wide tracking'),
         specimen: <TableMock header={<HeaderLabel uppercase />} />,
+      },
+    },
+    {
+      id: 'sort-in-header',
+      title: copy('design.usageVisuals.table.sort.title', 'The header label sorts'),
+      covers: ['Do not build a sortable header from a Button; the label itself is the control.'],
+      do: {
+        caption: copy('design.usageVisuals.table.sort.do', 'A flat label with a small chevron'),
+        specimen: <TableMock header={<SortHeader flat />} />,
+      },
+      avoid: {
+        caption: copy('design.usageVisuals.table.sort.avoid', 'A button with a large arrow'),
+        specimen: <TableMock header={<SortHeader flat={false} />} />,
       },
     },
   ],
