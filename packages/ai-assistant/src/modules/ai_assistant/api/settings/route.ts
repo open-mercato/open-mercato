@@ -19,7 +19,7 @@ import {
 import { AiAgentRuntimeOverrideRepository, AiAgentRuntimeOverrideValidationError } from '../../data/repositories/AiAgentRuntimeOverrideRepository'
 import { resolveModerationPolicy } from '../../lib/moderation-policy'
 import { AiTenantModelAllowlistRepository } from '../../data/repositories/AiTenantModelAllowlistRepository'
-import { isBaseurlAllowlisted, readBaseurlAllowlist, resolveAllowlistedBaseurl } from '../../lib/baseurl-allowlist'
+import { isBaseurlAllowlisted, readBaseurlAllowlist, resolveStoredAiBaseUrl } from '../../lib/baseurl-allowlist'
 import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
 import { createModelFactory, resolveAllowRuntimeOverride } from '../../lib/model-factory'
 import {
@@ -231,6 +231,7 @@ export async function GET(req: NextRequest) {
       providerId: string
       modelId: string
       baseURL: string | null
+      baseURLBlocked?: true
       source: string
     }> = []
 
@@ -238,6 +239,7 @@ export async function GET(req: NextRequest) {
       providerId: string
       modelId: string
       baseURL: string | null
+      baseURLBlocked?: true
       source: string
     } | null = null
 
@@ -269,11 +271,13 @@ export async function GET(req: NextRequest) {
           organizationId,
         })
 
+        const baseUrlAllowlist = readBaseurlAllowlist(env)
+        const tenantEndpoint = resolveStoredAiBaseUrl(tenantOverride?.baseURL, baseUrlAllowlist)
         const effectiveTenantOverride = tenantOverride
           ? {
               providerId: tenantOverride.providerId,
               modelId: tenantOverride.modelId,
-              baseURL: resolveAllowlistedBaseurl(tenantOverride.baseURL),
+              baseURL: tenantEndpoint.baseURL,
             }
           : undefined
         const factory = createModelFactory(container)
@@ -284,7 +288,8 @@ export async function GET(req: NextRequest) {
         resolvedDefault = {
           providerId: defaultResolution.providerId,
           modelId: defaultResolution.modelId,
-          baseURL: defaultResolution.baseURL ?? null,
+          baseURL: tenantEndpoint.blocked ? null : defaultResolution.baseURL ?? null,
+          ...(tenantEndpoint.blocked ? { baseURLBlocked: true as const } : {}),
           source: defaultResolution.source,
         }
 
@@ -296,11 +301,16 @@ export async function GET(req: NextRequest) {
             organizationId,
             agentId: agent.id,
           })
+          const allowRuntimeOverride = resolveAllowRuntimeOverride(agent)
+          const agentEndpoint = agentOverrideRow
+            ? resolveStoredAiBaseUrl(agentOverrideRow.baseUrl, baseUrlAllowlist)
+            : tenantEndpoint
+          const baseURLBlocked = allowRuntimeOverride && agentEndpoint.blocked
           const agentTenantOverride = agentOverrideRow
             ? {
                 providerId: agentOverrideRow.providerId ?? null,
                 modelId: agentOverrideRow.modelId ?? null,
-                baseURL: resolveAllowlistedBaseurl(agentOverrideRow.baseUrl),
+                baseURL: agentEndpoint.baseURL,
               }
             : effectiveTenantOverride
           const agentResolution = factory.resolveModel({
@@ -308,7 +318,7 @@ export async function GET(req: NextRequest) {
             agentDefaultModel: agent.defaultModel,
             agentDefaultProvider: agent.defaultProvider,
             agentDefaultBaseUrl: agent.defaultBaseUrl,
-            allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
+            allowRuntimeOverride,
             tenantOverride: agentTenantOverride,
             tenantAllowlist: tenantAllowlistSnapshot,
           })
@@ -346,8 +356,8 @@ export async function GET(req: NextRequest) {
           return {
             agentId: agent.id,
             moduleId: agent.moduleId,
-            allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
-            allowRuntimeModelOverride: resolveAllowRuntimeOverride(agent),
+            allowRuntimeOverride,
+            allowRuntimeModelOverride: allowRuntimeOverride,
             codeDefaultProviderId: agent.defaultProvider ?? null,
             codeDefaultModelId: agent.defaultModel ?? null,
             override: agentOverrideRow
@@ -371,7 +381,8 @@ export async function GET(req: NextRequest) {
             },
             providerId: agentResolution.providerId,
             modelId: agentResolution.modelId,
-            baseURL: agentResolution.baseURL ?? null,
+            baseURL: baseURLBlocked ? null : agentResolution.baseURL ?? null,
+            ...(baseURLBlocked ? { baseURLBlocked: true as const } : {}),
             source: agentResolution.source,
             moderation: {
               // `untrustedInput` agents enforce moderation; the UI renders a

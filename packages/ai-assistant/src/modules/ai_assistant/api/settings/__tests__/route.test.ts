@@ -16,6 +16,7 @@ const getDefaultMock = jest.fn()
 const getExactMock = jest.fn()
 const resolveModelMock = jest.fn()
 const listAgentsMock = jest.fn()
+const resolveAllowRuntimeOverrideMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
@@ -48,8 +49,8 @@ const isBaseurlAllowlistedMock = jest.fn()
 jest.mock('../../../lib/baseurl-allowlist', () => ({
   readBaseurlAllowlist: (...args: unknown[]) => readBaseurlAllowlistMock(...args),
   isBaseurlAllowlisted: (...args: unknown[]) => isBaseurlAllowlistedMock(...args),
-  resolveAllowlistedBaseurl: (...args: [string | null | undefined, string[]?]) =>
-    jest.requireActual('../../../lib/baseurl-allowlist').resolveAllowlistedBaseurl(...args),
+  resolveStoredAiBaseUrl: (...args: [string | null | undefined, string[]?]) =>
+    jest.requireActual('../../../lib/baseurl-allowlist').resolveStoredAiBaseUrl(...args),
 }))
 
 jest.mock('../../../data/repositories/AiTenantModelAllowlistRepository', () => ({
@@ -85,9 +86,10 @@ jest.mock('../../../lib/model-factory', () => ({
   createModelFactory: jest.fn(() => ({
     resolveModel: (...args: unknown[]) => resolveModelMock(...args),
   })),
-  resolveAllowRuntimeOverride: jest.fn(() => true),
+  resolveAllowRuntimeOverride: (...args: unknown[]) => resolveAllowRuntimeOverrideMock(...args),
 }))
 
+import { NextRequest } from 'next/server'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { GET, PUT, DELETE } from '../route'
 
@@ -97,6 +99,7 @@ const actualBaseurlAllowlist = jest.requireActual<typeof import('../../../lib/ba
 
 beforeEach(() => {
   listAgentsMock.mockReturnValue([])
+  resolveAllowRuntimeOverrideMock.mockImplementation((agent: { allowRuntimeOverride?: boolean }) => agent.allowRuntimeOverride !== false)
   resolveModelMock.mockImplementation(() => ({
     providerId: 'openai',
     modelId: 'gpt-4o-mini',
@@ -398,6 +401,7 @@ describe('GET /api/ai_assistant/settings', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     originalEnv = { ...process.env }
+    readBaseurlAllowlistMock.mockImplementation(actualBaseurlAllowlist.readBaseurlAllowlist)
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
     authMock.mockResolvedValue({ sub: 'user-1', tenantId: null, orgId: null })
     createRequestContainerMock.mockResolvedValue({ resolve: () => null })
@@ -472,10 +476,16 @@ describe('GET /api/ai_assistant/settings', () => {
       listAgentsMock.mockReturnValue([{ id: 'customers.assistant', moduleId: 'customers' }])
     })
 
-    it('resolves without a stored baseURL the allowlist no longer permits, but still shows the saved value', async () => {
+    it('reports blocked saved endpoints and preserves the saved values', async () => {
       process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com'
+      resolveModelMock.mockReturnValue({
+        providerId: 'openai',
+        modelId: 'gpt-4o-mini',
+        baseURL: 'https://api.openai.com/v1',
+        source: 'provider_default',
+      })
 
-      const response = await GET(new Request('http://localhost/api/ai_assistant/settings') as any)
+      const response = await GET(new NextRequest('http://localhost/api/ai_assistant/settings'))
       const json = await response.json()
 
       expect(response.status).toBe(200)
@@ -486,12 +496,33 @@ describe('GET /api/ai_assistant/settings', () => {
       expect(tenantOverrides.map((override) => override?.baseURL)).toEqual([null, null])
       expect(json.tenantOverride.baseURL).toBe('http://api.openai.com/v1')
       expect(json.agents[0].override.baseURL).toBe('https://api.openai.com:8443/v1')
+      expect(json.resolvedDefault).toMatchObject({ baseURL: null, baseURLBlocked: true })
+      expect(json.agents[0]).toMatchObject({ baseURL: null, baseURLBlocked: true })
+    })
+
+    it('reports an inherited block only for agents that use runtime overrides', async () => {
+      process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com'
+      getExactMock.mockResolvedValue(null)
+      listAgentsMock.mockReturnValue([
+        { id: 'customers.assistant', moduleId: 'customers' },
+        { id: 'customers.fixed', moduleId: 'customers', allowRuntimeOverride: false },
+      ])
+
+      const response = await GET(new NextRequest('http://localhost/api/ai_assistant/settings'))
+      const { agents } = await response.json()
+
+      expect(agents[0]).toMatchObject({ baseURL: null, baseURLBlocked: true, override: null })
+      expect(agents[1]).toMatchObject({ allowRuntimeOverride: false, override: null })
+      expect(agents[1]).not.toHaveProperty('baseURLBlocked')
     })
 
     it('keeps a stored baseURL that still matches an explicit origin entry', async () => {
       process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'http://api.openai.com,https://api.openai.com:8443'
 
-      await GET(new Request('http://localhost/api/ai_assistant/settings') as any)
+      const response = await GET(new NextRequest('http://localhost/api/ai_assistant/settings'))
+      const json = await response.json()
+      expect(json.resolvedDefault).not.toHaveProperty('baseURLBlocked')
+      expect(json.agents[0]).not.toHaveProperty('baseURLBlocked')
 
       const resolvedBaseUrls = resolveModelMock.mock.calls.map(
         ([input]) => (input as { tenantOverride?: { baseURL?: string | null } }).tenantOverride?.baseURL,

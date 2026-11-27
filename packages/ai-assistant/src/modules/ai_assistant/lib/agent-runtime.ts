@@ -47,7 +47,7 @@ import {
   readSynthesizedResultMetadata,
   type ModelCallObserverHooks,
 } from './agent-call-observer'
-import { isBaseurlAllowlisted, readBaseurlAllowlist, StoredAiBaseUrlNotAllowlistedError } from './baseurl-allowlist'
+import { resolveStoredAiBaseUrl, StoredAiBaseUrlNotAllowlistedError } from './baseurl-allowlist'
 import { reportAiAssistantError } from './report-ai-assistant-error'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
 import { llmProviderRegistry } from './llm-registry'
@@ -1234,13 +1234,11 @@ function resolveAgentModel(
   endUserIdentifier?: string,
 ): ResolvedAgentModel {
   const allowRuntimeOverride = resolveAllowRuntimeOverride(agent)
-  const savedBaseUrl = tenantOverride?.baseURL?.trim()
   if (
     allowRuntimeOverride &&
-    savedBaseUrl &&
     !requestOverride?.baseURL?.trim() &&
     !baseUrlOverride?.trim() &&
-    !isBaseurlAllowlisted(savedBaseUrl, readBaseurlAllowlist())
+    resolveStoredAiBaseUrl(tenantOverride?.baseURL).blocked
   ) {
     throw new StoredAiBaseUrlNotAllowlistedError()
   }

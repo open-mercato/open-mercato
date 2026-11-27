@@ -119,7 +119,14 @@ export function resolveAllowlistedBaseurl(
   baseUrl: string | null | undefined,
   allowlist: string[] = readBaseurlAllowlist(),
 ): string | null {
-  const trimmed = baseUrl?.trim() ?? ''
-  if (!trimmed) return null
-  return isBaseurlAllowlisted(trimmed, allowlist) ? trimmed : null
+  return resolveStoredAiBaseUrl(baseUrl, allowlist).baseURL
+}
+
+export function resolveStoredAiBaseUrl(
+  baseUrl: string | null | undefined,
+  allowlist: string[] = readBaseurlAllowlist(),
+): { baseURL: string | null; blocked: boolean } {
+  const saved = baseUrl?.trim() || null
+  const blocked = saved !== null && !isBaseurlAllowlisted(saved, allowlist)
+  return { baseURL: blocked ? null : saved, blocked }
 }

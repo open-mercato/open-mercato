@@ -650,6 +650,7 @@
   "ai_assistant.settings.saveError": "Failed to save override.",
   "ai_assistant.settings.saveOverride": "Save override",
   "ai_assistant.settings.saveSuccess": "Default model override saved.",
+  "ai_assistant.settings.savedEndpointBlocked": "The saved AI endpoint is blocked by the allowlist. Update or clear the endpoint override.",
   "ai_assistant.settings.selectModel": "Select model",
   "ai_assistant.settings.selectProvider": "Select provider",
   "ai_assistant.settings.sessionKeyDescription": "Generate a temporary token for programmatic LLM access. Expires after 2 hours.",

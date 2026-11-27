@@ -8,6 +8,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { AI_ASSISTANT_LAUNCHER_OPEN_EVENT } from '@open-mercato/ui/ai/AiAssistantLauncher'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -59,6 +60,7 @@ type SettingsResponse = {
     providerId: string
     modelId: string
     baseURL: string | null
+    baseURLBlocked?: true
     source: string
   } | null
   tenantOverride: TenantOverride | null
@@ -69,9 +71,11 @@ type AgentResolution = {
   agentId: string
   moduleId: string
   allowRuntimeOverride: boolean
+  override?: { baseURL: string | null } | null
   providerId: string
   modelId: string
   baseURL: string | null
+  baseURLBlocked?: true
   source: string
 }
 
@@ -199,14 +203,16 @@ function GlobalOverrideForm({
           'Set a tenant-wide default provider and model. Agents with a per-agent override or specific defaultModel will take precedence.',
         )}
       </p>
-      {tenantOverride && (tenantOverride.providerId || tenantOverride.modelId) ? (
+      {tenantOverride && (tenantOverride.providerId || tenantOverride.modelId || tenantOverride.baseURL) ? (
         <div className="mb-4 flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
           <span className="text-muted-foreground">
             {t('ai_assistant.settings.currentOverride', 'Current override:')}
           </span>
-          <span className="font-medium">
-            {tenantOverride.providerId ?? '—'} / {tenantOverride.modelId ?? '—'}
-          </span>
+          {tenantOverride.providerId || tenantOverride.modelId ? (
+            <span className="font-medium">
+              {tenantOverride.providerId ?? '—'} / {tenantOverride.modelId ?? '—'}
+            </span>
+          ) : null}
           <Button
             type="button"
             variant="ghost"
@@ -364,7 +370,8 @@ function PerAgentOverrideList({
           </thead>
           <tbody>
             {agents.map((agent) => {
-              const hasOverride = overriddenAgents.some((a) => a.agentId === agent.agentId)
+              const hasOverride = overriddenAgents.some((candidate) => candidate.agentId === agent.agentId)
+                || (agent.baseURLBlocked && Boolean(agent.override?.baseURL))
               return (
                 <tr
                   key={agent.agentId}
@@ -372,9 +379,13 @@ function PerAgentOverrideList({
                   data-ai-settings-agent-row={agent.agentId}
                 >
                   <td className="py-2 pr-4 font-mono">{agent.agentId}</td>
-                  <td className="py-2 pr-4">{agent.providerId}</td>
-                  <td className="py-2 pr-4">{agent.modelId}</td>
-                  <td className="py-2 pr-4 text-muted-foreground">{agent.source}</td>
+                  <td className="py-2 pr-4">{agent.baseURLBlocked ? '—' : agent.providerId}</td>
+                  <td className="py-2 pr-4">{agent.baseURLBlocked ? '—' : agent.modelId}</td>
+                  <td className="py-2 pr-4 text-muted-foreground">
+                    {agent.baseURLBlocked
+                      ? <span className="text-status-warning-text">{t('ai_assistant.settings.savedEndpointBlocked')}</span>
+                      : agent.source}
+                  </td>
                   <td className="py-2">
                     {hasOverride ? (
                       <Button
@@ -540,6 +551,12 @@ function AiAssistantSettingsContent({
         launchMode={launchMode}
         showVisibilityControl={showVisibilityControl}
       />
+
+      {settings?.resolvedDefault?.baseURLBlocked ? (
+        <Alert status="warning">
+          <AlertDescription>{t('ai_assistant.settings.savedEndpointBlocked')}</AlertDescription>
+        </Alert>
+      ) : null}
 
       {settings ? (
         <GlobalOverrideForm

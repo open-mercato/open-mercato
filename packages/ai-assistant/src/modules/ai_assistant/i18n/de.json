@@ -650,6 +650,7 @@
   "ai_assistant.settings.saveError": "Überschreibung konnte nicht gespeichert werden.",
   "ai_assistant.settings.saveOverride": "Überschreibung speichern",
   "ai_assistant.settings.saveSuccess": "Standard-Modell-Überschreibung gespeichert.",
+  "ai_assistant.settings.savedEndpointBlocked": "Die Positivliste blockiert den gespeicherten KI-Endpunkt. Aktualisieren oder löschen Sie die Endpunktüberschreibung.",
   "ai_assistant.settings.selectModel": "Modell auswählen",
   "ai_assistant.settings.selectProvider": "Anbieter auswählen",
   "ai_assistant.settings.sessionKeyDescription": "Temporären Token für programmatischen LLM-Zugriff generieren. Läuft nach 2 Stunden ab.",

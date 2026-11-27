@@ -650,6 +650,7 @@
   "ai_assistant.settings.saveError": "재정의 저장에 실패했습니다.",
   "ai_assistant.settings.saveOverride": "재정의 저장",
   "ai_assistant.settings.saveSuccess": "기본 모델 재정의가 저장되었습니다.",
+  "ai_assistant.settings.savedEndpointBlocked": "저장된 AI 엔드포인트가 허용 목록에 의해 차단되었습니다. 엔드포인트 재정의 설정을 변경하거나 지우세요.",
   "ai_assistant.settings.selectModel": "모델 선택",
   "ai_assistant.settings.selectProvider": "제공업체 선택",
   "ai_assistant.settings.sessionKeyDescription": "프로그래밍 방식 LLM 액세스를 위한 임시 토큰을 생성합니다. 2시간 후 만료됩니다.",
