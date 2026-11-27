@@ -121,6 +121,27 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     expect(await getCustomerAuthFromRequest(request)).toBeNull()
   })
 
+  it.each([[-100, false], [100, true]])('checks session creation at millisecond precision after bulk revocation (%s ms)', async (offset, authorized) => {
+    const revokedAt = new Date(Math.floor(Date.now() / 1000) * 1000 + 500)
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId,
+      tenantId,
+      organizationId: orgId,
+      sessionsRevokedAt: revokedAt,
+      isActive: true,
+    })
+    findActiveSessionForClaims.mockResolvedValueOnce({
+      id: sessionId,
+      createdAt: new Date(revokedAt.getTime() + offset),
+    })
+
+    const auth = await getCustomerAuthFromRequest(new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    }))
+    expect(Boolean(auth)).toBe(authorized)
+  })
+
   it('accepts a valid customer token and looks up the referenced session', async () => {
     const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
     const req = new Request('http://localhost/api/customer/me', {

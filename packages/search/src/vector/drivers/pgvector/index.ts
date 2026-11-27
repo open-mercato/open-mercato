@@ -440,9 +440,23 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): PgVector
       typeof params.organizationId === 'string' && params.organizationId.trim().length > 0
         ? params.organizationId.trim()
         : null
+    const normalizedOrganizationIds = normalizedOrganizationId === null && Array.isArray(params.organizationIds)
+      ? Array.from(new Set(
+          params.organizationIds
+            .map((value) => (typeof value === 'string' ? value.trim() : ''))
+            .filter((value) => value.length > 0),
+        ))
+      : null
+    if (normalizedOrganizationIds && normalizedOrganizationIds.length === 0) {
+      return []
+    }
     if (normalizedOrganizationId !== null) {
       conditions.push(`organization_id = $${nextParam}::uuid`)
       values.push(normalizedOrganizationId)
+      nextParam += 1
+    } else if (normalizedOrganizationIds) {
+      conditions.push(`organization_id = ANY($${nextParam}::uuid[])`)
+      values.push(normalizedOrganizationIds)
       nextParam += 1
     }
 

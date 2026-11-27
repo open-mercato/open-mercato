@@ -1,10 +1,17 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ModuleConfigService } from './lib/module-config-service'
+import { restoreInstanceDefaultsStrict } from './lib/module-config-service'
+import { collectInstanceConfigDefaults } from './lib/instance-defaults'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG, NOTIFICATIONS_DELIVERY_CONFIG_KEY } from '../notifications/lib/deliveryConfig'
+import {
+  envDisablesAutoIndexing,
+  SEARCH_AUTO_INDEX_CONFIG_KEY,
+  SEARCH_AUTO_INDEX_CONFIG_MODULE,
+} from '@open-mercato/shared/lib/search/auto-indexing'
 import { Tenant } from '../directory/data/entities'
 import {
   collectCacheStats,
@@ -28,22 +35,7 @@ type CacheScope = {
 }
 
 function parseArgs(rest: string[]): ParsedArgs {
-  const args: ParsedArgs = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part?.startsWith('--')) continue
-    const [rawKey, rawValue] = part.slice(2).split('=')
-    if (!rawKey) continue
-    if (rawValue !== undefined) {
-      args[rawKey] = rawValue
-    } else if (i + 1 < rest.length && !rest[i + 1]!.startsWith('--')) {
-      args[rawKey] = rest[i + 1]!
-      i += 1
-    } else {
-      args[rawKey] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { skipEmptyKeys: true, consumeEmptyValues: true })
 }
 
 function stringOption(args: ParsedArgs, ...keys: string[]): string | undefined {
@@ -296,57 +288,53 @@ async function runStructuralCachePurge(args: ParsedArgs) {
   }
 }
 
-function envDisablesAutoIndexing(): boolean {
-  const raw =
-    process.env.OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING ??
-    process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
-  if (!raw) return false
-  return parseBooleanToken(raw) === true
-}
-
 const restoreDefaults: ModuleCli = {
   databaseAccess: 'tenant-or-maintenance' as const,
   command: 'restore-defaults',
   async run() {
+    const entries = collectInstanceConfigDefaults()
+    if (entries.length === 0) {
+      console.log('[configs] No enabled modules declared instance configuration defaults.')
+      return
+    }
+
     const container = await createRequestContainer()
     try {
       let service: ModuleConfigService
       try {
-        service = (container.resolve('moduleConfigService') as ModuleConfigService)
+        service = container.resolve('moduleConfigService') as ModuleConfigService
       } catch {
-        console.error('[configs] moduleConfigService is not registered in the container.')
-        return
+        throw new Error('[configs] moduleConfigService is not registered in the container.')
       }
 
-      const disabledByEnv = envDisablesAutoIndexing()
-      const defaultEnabled = !disabledByEnv
-      await service.restoreDefaults(
-        [
-          {
-            moduleId: 'vector',
-            name: 'auto_index_enabled',
-            value: defaultEnabled,
-          },
-          {
-            moduleId: 'notifications',
-            name: NOTIFICATIONS_DELIVERY_CONFIG_KEY,
-            value: STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
-          },
-        ],
-        { force: true },
+      const restored =
+        typeof service.restoreDefaultsStrict === 'function'
+          ? await service.restoreDefaultsStrict(entries, { force: true })
+          : await restoreInstanceDefaultsStrict(container, entries, { force: true })
+
+      const vectorEntry = entries.find(
+        (entry) =>
+          entry.moduleId === SEARCH_AUTO_INDEX_CONFIG_MODULE &&
+          entry.name === SEARCH_AUTO_INDEX_CONFIG_KEY,
       )
+      if (vectorEntry) {
+        const defaultEnabled = vectorEntry.value === true
+        const disabledByEnv = !defaultEnabled && envDisablesAutoIndexing()
+        console.log(
+          `[configs] Vector auto-indexing default set to ${defaultEnabled ? 'enabled' : 'disabled'}${
+            disabledByEnv
+              ? ' (forced by OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING or legacy DISABLE_VECTOR_SEARCH_AUTOINDEXING)'
+              : ''
+          }.`,
+        )
+      }
+
+      const restoredKeys = entries.map((entry) => `${entry.ownerModuleId}:${entry.moduleId}.${entry.name}`).join(', ')
       console.log(
-        `[configs] Vector auto-indexing default set to ${defaultEnabled ? 'enabled' : 'disabled'}${
-          disabledByEnv
-            ? ' (forced by OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING or legacy DISABLE_VECTOR_SEARCH_AUTOINDEXING)'
-            : ''
-        }.`,
+        `[configs] Restored ${restored.length} instance configuration default(s) (${restoredKeys}).`,
       )
     } finally {
-      const disposable = container as unknown as { dispose?: () => Promise<void> }
-      if (typeof disposable.dispose === 'function') {
-        await disposable.dispose()
-      }
+      await disposeContainer(container)
     }
   },
 }

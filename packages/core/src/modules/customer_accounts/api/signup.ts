@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server'
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { compare as bcryptCompare } from 'bcryptjs'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { signupSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
-import { CustomerRole, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { CustomerRole, CustomerUser, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import CustomerSignupVerificationEmail from '@open-mercato/core/modules/customer_accounts/emails/CustomerSignupVerificationEmail'
 import CustomerExistingAccountEmail from '@open-mercato/core/modules/customer_accounts/emails/CustomerExistingAccountEmail'
@@ -28,14 +29,14 @@ import {
 } from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
 import { urlForCustomerOrg } from '@open-mercato/core/modules/customer_accounts/lib/customerUrl'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { pendingSignup, signupExpiryCutoff } from '../lib/pendingSignup'
 
 const logger = createLogger('customer_accounts').child({ component: 'signup' })
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 // Precomputed bcrypt cost-10 hash of an unknowable random 32-byte input; used to equalize
-// response latency between the existing-user and new-user signup branches so the endpoint's
-// 202-for-both contract is not undone by a timing side channel.
+// response latency between new and existing registrations.
 const TIMING_EQUALIZATION_HASH = '$2b$10$.F2A6UHFzk.d8trNdfqt4OLz05Nf3IOuMmN6VJKflhD4.rz.prR8i'
 function resolvePortalLoginUrl(baseUrl: string, organizationSlug?: string | null): string {
   return organizationSlug
@@ -57,6 +58,7 @@ export async function POST(req: Request) {
     ipConfig: customerSignupIpRateLimitConfig,
     compoundConfig: customerSignupRateLimitConfig,
     compoundIdentifier: rateLimitEmail,
+    isolateByIdentifierWithoutTrustedIp: true,
   })
   if (rateLimitError) return rateLimitError
 
@@ -103,29 +105,43 @@ export async function POST(req: Request) {
     throw error
   }
 
-  const container = await createRequestContainer()
-  const bootstrapEm = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+  const bootstrapContainer = await createRequestContainer()
+  const bootstrapEm = bootstrapContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
   const orgRow = await findOrganizationInTenant(bootstrapEm, organizationId, tenantId)
   if (!orgRow) {
     return NextResponse.json({ ok: false, error: 'Registration could not be completed' }, { status: 400 })
   }
 
   return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId, source: 'public-token', operation: 'customer-signup' }, async () => {
-    const tenantContainer = await createRequestContainer()
+    const container = await createRequestContainer()
     try {
-      const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
-      const customerTokenService = tenantContainer.resolve('customerTokenService') as CustomerTokenService
-      const em = tenantContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+      const customerUserService = container.resolve('customerUserService') as CustomerUserService
+      const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
+      const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
       const { translate } = await resolveTranslations()
-      const existing = await customerUserService.findByEmail(email, tenantId)
+
+      let existing = await customerUserService.findByEmail(email, tenantId)
+      await bcryptCompare(password ?? '', TIMING_EQUALIZATION_HASH)
+      const now = new Date()
+      const cutoff = signupExpiryCutoff(now)
+      if (existing?.isActive && !existing.emailVerifiedAt
+        && !existing.lastLoginAt && existing.createdAt <= cutoff) {
+        const retired = await em.nativeUpdate(CustomerUser, {
+          id: existing.id,
+          tenantId,
+          organizationId: existing.organizationId,
+          ...pendingSignup,
+          createdAt: { $lte: cutoff },
+        }, { deletedAt: now, isActive: false, passwordHash: null, sessionsRevokedAt: now })
+        existing = retired === 1 ? null : await customerUserService.findByEmail(email, tenantId)
+      }
       if (existing) {
-        await bcryptCompare(password, TIMING_EQUALIZATION_HASH)
         const existingOrg = await findOrganizationInTenant(em, existing.organizationId, tenantId)
         // Prefer the org's active custom domain when available; fall back to the
         // platform login URL preserved by `resolvePortalLoginUrl`.
         let loginUrl = resolvePortalLoginUrl(baseUrl, existingOrg?.slug ?? null)
         try {
-          loginUrl = await urlForCustomerOrg(existing.organizationId, '/login', { container: tenantContainer })
+          loginUrl = await urlForCustomerOrg(existing.organizationId, '/login', { container })
         } catch {
           // Fall back to platform URL on any resolution issue.
         }
@@ -157,29 +173,27 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true }, { status: 202 })
       }
 
-      const user = await customerUserService.createUser(email, password, displayName, { tenantId, organizationId })
-
-      const defaultRole = await em.findOne(CustomerRole, {
-        tenantId,
-        isDefault: true,
-        deletedAt: null,
+      const signupScope = { tenantId, organizationId }
+      const signup = await em.transactional(async (tx) => {
+        const defaultRole = await tx.findOne(CustomerRole, { tenantId, isDefault: true, deletedAt: null })
+        const user = await customerUserService.createUser(email, null, displayName, signupScope)
+        if (defaultRole) tx.persist(tx.create(CustomerUserRole, { user, role: defaultRole, createdAt: new Date() }))
+        await tx.persist(user).flush()
+        const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId, user.createdAt, tx)
+        return { user, verificationToken }
+      }).catch(async (error: unknown) => {
+        if (error instanceof UniqueConstraintViolationException
+          && (await customerUserService.findByEmail(email, tenantId))) {
+          return null
+        }
+        throw error
       })
-      if (defaultRole) {
-        const userRole = em.create(CustomerUserRole, {
-          user,
-          role: defaultRole,
-          createdAt: new Date(),
-        } as any)
-        em.persist(userRole)
-      }
-
-      await em.persist(user).flush()
-
-      const verificationToken = await customerTokenService.createEmailVerification(user.id, tenantId)
+      if (!signup) return NextResponse.json({ ok: true }, { status: 202 })
+      const { user, verificationToken } = signup
       let verifyUrl = resolvePortalVerifyUrl(baseUrl, verificationToken, orgRow.slug)
       try {
         verifyUrl = await urlForCustomerOrg(organizationId, `/verify?token=${encodeURIComponent(verificationToken)}`, {
-          container: tenantContainer,
+          container,
         })
       } catch {
         // Fall back to the platform-derived URL on any resolution issue.
@@ -218,7 +232,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json({ ok: true }, { status: 202 })
     } finally {
-      await tenantContainer.dispose()
+      await container.dispose()
     }
   })
 }
@@ -236,7 +250,7 @@ const methodDoc: OpenApiMethodDoc = {
   tags: ['Customer Authentication'],
   requestBody: {
     schema: signupSchema,
-    description: 'Signup payload with email, password, and display name.',
+    description: 'Signup payload with email and display name. Passwords are set during email verification.',
   },
   responses: [
     { status: 202, description: 'Signup accepted', schema: signupAcceptedSchema },

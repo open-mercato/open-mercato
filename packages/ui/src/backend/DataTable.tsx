@@ -1248,23 +1248,23 @@ function ViewSwitcherDropdown({
         variant="ghost"
         size="sm"
         onClick={onOpenSidebar}
-        className="h-full rounded-none rounded-l-md px-3 font-medium"
+        className="h-full rounded-none rounded-l-md px-2 font-medium has-[>svg]:px-2 sm:px-3 sm:has-[>svg]:px-2.5"
       >
-        <SlidersHorizontal className="size-4 mr-1.5" />
-        {t('ui.dataTable.perspectives.button', 'Views')}
+        <SlidersHorizontal className="size-4 sm:mr-1.5" />
+        <span>{t('ui.dataTable.perspectives.button', 'Views')}</span>
       </Button>
-      <div className="h-5 w-px bg-border" />
+      <div className="h-5 w-px shrink-0 bg-border" />
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-full min-w-0 max-w-48 shrink rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
+            className="h-full min-w-0 max-w-48 shrink rounded-none rounded-r-md px-2 font-normal text-muted-foreground has-[>svg]:px-2 sm:px-3 sm:has-[>svg]:px-2.5"
             title={activeLabel}
           >
-            <span className="truncate">{activeLabel}</span>
-            <ChevronDown className="size-3.5 shrink-0 ml-1.5" />
+            <span className="min-w-0 truncate">{activeLabel}</span>
+            <ChevronDown className="size-3.5 shrink-0 sm:ml-1.5" />
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[220px] p-1">
@@ -1816,7 +1816,9 @@ function DataTableImpl<T extends RowData>({
     return result
   }, [columns, injectedColumnDefs])
   const resolvedRowActions = React.useCallback((row: T) => {
-    const injectedItems: (RowActionItem & { placement?: InjectionRowActionDefinition['placement'] })[] = injectedRowActions.map((action) => ({
+    const injectedItems: (RowActionItem & { placement?: InjectionRowActionDefinition['placement'] })[] = injectedRowActions
+      .filter((action) => !action.isVisible || action.isVisible(row))
+      .map((action) => ({
       id: action.id,
       label: t(action.label, action.label),
       onSelect: () => action.onSelect(row, { navigate: (href: string) => router.push(href) }),
@@ -3755,7 +3757,7 @@ function DataTableImpl<T extends RowData>({
                 {renderToolbarInline ? builtToolbar : titleContent}
               </div>
               {shouldRenderActionsWrapper ? (
-                <div className="flex flex-wrap items-center gap-2 min-h-[2.25rem] sm:ml-auto sm:justify-end">
+                <div className="flex min-h-9 min-w-0 max-w-full flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
                   {refreshButtonConfig ? (
                     <Button
                       type="button"

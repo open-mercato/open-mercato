@@ -2,6 +2,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Message, MessageObject, MessageRecipient, type MessageActionData, type RecipientStatus } from '../data/entities'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
+import { isAttachmentsModuleAvailable } from '../lib/optionalModules'
+import {
+  deleteMessageAttachmentRows,
+  enqueueMessageAttachmentSectionCleanup,
+  type DeletedMessageAttachmentRows,
+} from '../lib/attachments'
 
 export type MessageCommandExecuteResult = {
   id: string
@@ -101,6 +107,7 @@ export async function getAttachmentIdsForMessage(
   messageId: string,
   scope: { tenantId: string; organizationId: string | null },
 ): Promise<string[]> {
+  if (!(await isAttachmentsModuleAvailable(em))) return []
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
   const attachments = await em.find(Attachment, {
     entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
@@ -188,16 +195,19 @@ export async function restoreMessageAggregateSnapshot(
   em: EntityManager,
   snapshot: MessageAggregateSnapshot,
 ): Promise<void> {
+  let deletedAttachments: DeletedMessageAttachmentRows | null = null
   await withAtomicFlush(em, [async () => {
     // Resolve every read before mutating: a query issued between a scalar
     // mutation and the flush can silently reset the Unit of Work (SPEC-018
     // Problem 1). withAtomicFlush flushes once at the end, so ordering is ours.
-    const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+    const AttachmentEntity = (await isAttachmentsModuleAvailable(em))
+      ? (await import('@open-mercato/core/modules/attachments/data/entities')).Attachment
+      : null
     const existingMessage = await em.findOne(Message, { id: snapshot.message.id })
     const existingRecipients = await em.find(MessageRecipient, { messageId: snapshot.message.id })
     const existingObjects = await em.find(MessageObject, { messageId: snapshot.message.id })
-    const attachmentsToRelink = snapshot.attachmentIds.length > 0
-      ? await em.find(Attachment, {
+    const attachmentsToRelink = AttachmentEntity && snapshot.attachmentIds.length > 0
+      ? await em.find(AttachmentEntity, {
           id: { $in: snapshot.attachmentIds },
           tenantId: snapshot.message.tenantId,
           organizationId: snapshot.message.organizationId,
@@ -326,18 +336,18 @@ export async function restoreMessageAggregateSnapshot(
       existing.entitySnapshot = object.entitySnapshot
     }
 
-    await em.nativeDelete(Attachment, {
-      entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-      recordId: snapshot.message.id,
+    deletedAttachments = await deleteMessageAttachmentRows(em, {
+      messageId: snapshot.message.id,
       tenantId: snapshot.message.tenantId,
       organizationId: snapshot.message.organizationId,
-      id: { $nin: snapshot.attachmentIds.length > 0 ? snapshot.attachmentIds : ['00000000-0000-0000-0000-000000000000'] },
+      excludeIds: snapshot.attachmentIds,
     })
     for (const attachment of attachmentsToRelink) {
       attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
       attachment.recordId = snapshot.message.id
     }
   }], { transaction: true })
+  if (deletedAttachments) await enqueueMessageAttachmentSectionCleanup(deletedAttachments)
 }
 
 export function buildCommandLogBase(

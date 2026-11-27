@@ -75,7 +75,7 @@ export function AssignRoleDialog({
   const activeOrgId = useCurrentOrganization()?.id ?? null
   const [step, setStep] = React.useState<StepId>(1)
   const [selectedRoleType, setSelectedRoleType] = React.useState('')
-  const [selectedUser, setSelectedUser] = React.useState<StaffMember | null>(null)
+  const [pickedUser, setPickedUser] = React.useState<StaffMember | null>(null)
   const [searchQuery, setSearchQuery] = React.useState('')
   const [users, setUsers] = React.useState<StaffMember[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -102,6 +102,15 @@ export function AssignRoleDialog({
   }, [open, saving])
 
   const isEditing = editingAssignment !== null
+  const editingAssignmentId = editingAssignment?.id
+  const editingRoleType = editingAssignment?.roleType
+  const editingUserId = editingAssignment?.userId
+  const selectedUser = React.useMemo(() => pickedUser ?? (editingAssignment ? {
+    id: editingAssignment.userId,
+    displayName: editingAssignment.userName ?? editingAssignment.userEmail ?? editingAssignment.userId,
+    email: editingAssignment.userEmail ?? null,
+    teamName: null,
+  } : null), [editingAssignment, pickedUser])
   const availableRoleTypes = React.useMemo(
     () =>
       roleTypes.filter(
@@ -116,7 +125,7 @@ export function AssignRoleDialog({
     if (!open) {
       setStep(1)
       setSelectedRoleType('')
-      setSelectedUser(null)
+      setPickedUser(null)
       setSearchQuery('')
       setUsers([])
       setActiveTeam('all')
@@ -127,23 +136,10 @@ export function AssignRoleDialog({
       requestSequenceRef.current = 0
       return
     }
-    const resolvedInitialRoleType = editingAssignment
-      ? editingAssignment.roleType
-      : typeof initialRoleType === 'string' && initialRoleType.trim().length > 0
-        ? initialRoleType.trim()
-        : ''
+    const resolvedInitialRoleType = editingRoleType ?? (typeof initialRoleType === 'string' ? initialRoleType.trim() : '')
     setStep(resolvedInitialRoleType ? 2 : 1)
     setSelectedRoleType(resolvedInitialRoleType)
-    setSelectedUser(
-      editingAssignment
-        ? {
-            id: editingAssignment.userId,
-            displayName: editingAssignment.userName ?? editingAssignment.userEmail ?? editingAssignment.userId,
-            email: editingAssignment.userEmail ?? null,
-            teamName: null,
-          }
-        : null,
-    )
+    setPickedUser(null)
     setSearchQuery('')
     setUsers([])
     setActiveTeam('all')
@@ -152,7 +148,7 @@ export function AssignRoleDialog({
     setHasMore(false)
     setCurrentPage(1)
     requestSequenceRef.current = 0
-  }, [editingAssignment, initialRoleType, open])
+  }, [editingAssignmentId, editingRoleType, editingUserId, initialRoleType, open])
 
   const searchUsers = React.useCallback(
     async ({
@@ -625,7 +621,7 @@ export function AssignRoleDialog({
                           key={user.id}
                           type="button"
                           variant="ghost"
-                          onClick={() => setSelectedUser(user)}
+                          onClick={() => setPickedUser(user)}
                           className={`h-auto flex w-full items-center gap-3 whitespace-normal break-words rounded-lg border px-4 py-3 text-left transition-colors ${
                             isSelected
                               ? 'border-foreground bg-background shadow-sm'
@@ -718,7 +714,7 @@ export function AssignRoleDialog({
             <p className="text-xs text-muted-foreground sm:max-w-2xs">
               {t(
                 'customers.roles.dialog.footerNote',
-                'One person per role · can be changed at any time',
+                'One person per role. Can be changed at any time.',
               )}
             </p>
           }

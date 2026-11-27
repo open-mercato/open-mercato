@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/enterprise",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "main": "./dist/index.js",
@@ -74,16 +74,21 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/scheduler": "workspace:*",
+    "@open-mercato/telemetry": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@open-mercato/web-research": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
     "@simplewebauthn/types": "^12.0.0",
+    "@types/pg": "^8.23.1",
     "@types/qrcode": "^1.5.5",
+    "age-encryption": "0.3.1",
     "ai": "^7.0.4",
     "openid-client": "^6.8.4",
     "otpauth": "9.5.1",
-    "qrcode": "^1.5.4"
+    "pg": "8.23.0",
+    "qrcode": "^1.5.4",
+    "yaml": "2.9.0"
   },
   "peerDependencies": {
     "@mikro-orm/core": "^7.0.14",
@@ -112,5 +117,8 @@
     "type": "git",
     "url": "https://github.com/open-mercato/open-mercato",
     "directory": "packages/enterprise"
+  },
+  "bin": {
+    "mercato-backup": "./bin/mercato-backup.mjs"
   }
 }

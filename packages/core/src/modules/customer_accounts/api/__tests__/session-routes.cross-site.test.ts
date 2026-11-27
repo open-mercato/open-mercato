@@ -17,7 +17,7 @@ const mockContainer = {
     if (token === 'customerSessionService') return { createSession: mockCreateSession }
     if (token === 'customerUserService') return {}
     if (token === 'customerRbacService') return { getEffectiveFeatures: jest.fn(async () => []) }
-    if (token === 'em') return {}
+    if (token === 'em') return { transactional: (operation: (tx: object) => unknown) => operation({}) }
     return null
   }),
 }

@@ -246,7 +246,7 @@ describe('runDeferredProvisioning single-flight claim', () => {
       expect(emitEvent).toHaveBeenCalledWith(
         'query_index.reindex',
         expect.objectContaining({ entityType }),
-        { persistent: true, deliverInline: false },
+        { persistent: true, deliverInline: false, tenantId: RUN_ARGS.tenantId },
       )
     }
     expect(markPreparationCompleted).toHaveBeenCalledTimes(1)

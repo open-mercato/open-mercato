@@ -213,6 +213,7 @@ async function handleGet(req: Request) {
 
   try {
     const setupResult = await setupInitialTenant(em, {
+      container,
       orgName: request.organizationName,
       includeDerivedUsers: false,
       failIfUserExists: true,

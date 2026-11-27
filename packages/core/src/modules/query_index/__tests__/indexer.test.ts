@@ -1,6 +1,21 @@
 import { buildIndexDoc, upsertIndexRow, markDeleted, reindexSearchTokensForRecord } from '../../query_index/lib/indexer'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import type { AggregateSearchOptions } from '../lib/document'
+import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
+import { getEntityIds, registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import handleDeleteOne from '../subscribers/delete_one'
+
+jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
+  recordIndexerError: jest.fn(async () => undefined),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  reportTelemetryError: jest.fn(),
+}))
 
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: jest.fn(),
@@ -27,6 +42,7 @@ type TableData = {
   cfValues: any[]
   cfDefs?: any[]
   indexRows?: any[]
+  tokenDeleteError?: Error
 }
 
 function createFakeKysely(data: TableData) {
@@ -35,6 +51,7 @@ function createFakeKysely(data: TableData) {
   const deletes: any[] = []
   const transactions: any[] = []
   const indexRows = Array.isArray(data.indexRows) ? [...data.indexRows] : []
+  let tokenDeleteError = data.tokenDeleteError
 
   const makeExecutor = (onResolve: () => any): any => {
     const exec = async () => onResolve()
@@ -110,6 +127,7 @@ function createFakeKysely(data: TableData) {
     const chain: any = {
       where: (...args: any[]) => { entry.where.push(args); return chain },
       execute: async () => {
+        if (table === 'search_tokens' && tokenDeleteError) throw tokenDeleteError
         if (table === 'entity_indexes') indexRows.length = 0
         return [{ numDeletedRows: 1n }]
       },
@@ -130,7 +148,7 @@ function createFakeKysely(data: TableData) {
     }),
   }
 
-  return { db, inserts, updates, deletes, transactions }
+  return { db, inserts, updates, deletes, transactions, clearTokenDeleteError: () => { tokenDeleteError = undefined } }
 }
 
 const resolveEncryptionMock = resolveTenantEncryptionService as jest.Mock
@@ -139,6 +157,8 @@ describe('Indexer', () => {
   beforeEach(() => {
     resolveEncryptionMock.mockReset()
     mockAggregateOverride = null
+    jest.mocked(recordIndexerError).mockClear()
+    jest.mocked(reportTelemetryError).mockClear()
   })
 
   test('buildIndexDoc composes base row and custom fields (singleton and arrays)', async () => {
@@ -397,6 +417,61 @@ describe('Indexer', () => {
     expect(tokenInserts.length).toBeGreaterThan(0)
   })
 
+  describe('reindexSearchTokensForRecord with a shouldIndex gate', () => {
+    const runGated = async (shouldIndex: (ctx: any) => boolean | Promise<boolean>) => {
+      const fake = createFakeKysely({ baseTable: 'todos', baseRows: [{ id: '1', title: 'x' }], cfValues: [] })
+      const em: any = { getKysely: () => fake.db }
+      const gate = jest.fn(shouldIndex)
+      registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo', shouldIndex: gate }] }])
+      try {
+        await reindexSearchTokensForRecord(em, {
+          entityType: 'example:todo',
+          recordId: '1',
+          organizationId: 'org1',
+          tenantId: 't1',
+          doc: { id: '1', title: 'x' },
+          searchTokenDoc: { title: 'Plain Title', 'cf:priority': 'high' },
+        })
+      } finally {
+        registerSearchModuleConfigs([])
+      }
+      return {
+        gate,
+        tokenInserts: fake.inserts.filter((entry) => entry.table === 'search_tokens'),
+        tokenDeletes: fake.deletes.filter((entry) => entry.table === 'search_tokens'),
+      }
+    }
+
+    test('writes tokens for a record the gate accepts, passing a search build context', async () => {
+      const { gate, tokenInserts } = await runGated(() => true)
+
+      expect(tokenInserts.length).toBeGreaterThan(0)
+      expect(gate).toHaveBeenCalledTimes(1)
+      const context = gate.mock.calls[0][0]
+      expect(context.record).toEqual(expect.objectContaining({ title: 'Plain Title' }))
+      expect(context.customFields).toEqual({ priority: 'high' })
+      expect(context.tenantId).toBe('t1')
+      expect(context.organizationId).toBe('org1')
+      expect(typeof context.queryEngine?.query).toBe('function')
+    })
+
+    test('deletes the tokens of a record the gate rejects', async () => {
+      const { tokenInserts, tokenDeletes } = await runGated(() => false)
+
+      expect(tokenInserts).toHaveLength(0)
+      expect(tokenDeletes.length).toBeGreaterThan(0)
+    })
+
+    test('fails closed when the gate throws', async () => {
+      const { tokenInserts, tokenDeletes } = await runGated(() => {
+        throw new Error('lookup failed')
+      })
+
+      expect(tokenInserts).toHaveLength(0)
+      expect(tokenDeletes.length).toBeGreaterThan(0)
+    })
+  })
+
   test('reindexSearchTokensForRecord reuses an injected transaction for token replacement', async () => {
     const fake = createFakeKysely({ baseTable: 'todos', baseRows: [{ id: '1', title: 'x' }], cfValues: [] })
     const em: any = { getKysely: () => fake.db }
@@ -500,6 +575,98 @@ describe('Indexer', () => {
     await markDeleted(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1' })
     const del = fake.deletes[fake.deletes.length - 1]
     expect(del.table).toBe('entity_indexes')
+  })
+
+  test('delete subscriber preserves the projection for retry when token cleanup fails', async () => {
+    const failure = new Error('token cleanup unavailable')
+    const fake = createFakeKysely({
+      baseTable: 'todos', baseRows: [], cfValues: [],
+      indexRows: [{ deleted_at: null }], tokenDeleteError: failure,
+    })
+    const metadata = {
+      className: 'Todo', tableName: 'todos',
+      properties: {
+        tenantId: { fieldNames: ['tenant_id'] },
+        organizationId: { fieldNames: ['organization_id'] },
+      },
+    }
+    const em = {
+      getKysely: () => fake.db,
+      getMetadata: () => ({ getAll: () => new Map([['Todo', metadata]]) }),
+    }
+    const emitEvent = jest.fn(async () => undefined)
+    const ctx = {
+      resolve: <Service>(name: string): Service => {
+        if (name === 'em') return em as Service
+        if (name === 'eventBus') return { emitEvent } as Service
+        throw new Error(`[internal] Unexpected service: ${name}`)
+      },
+    }
+    const previousEntityIds = getEntityIds(false)
+    registerEntityIds({ example: { todo: 'example:todo' } })
+    const payload = {
+      entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1',
+      suppressCoverage: true, coverageBaseDelta: 0, coverageIndexDelta: 0,
+    }
+    try {
+      await expect(handleDeleteOne(payload, ctx)).rejects.toBe(failure)
+      expect(recordIndexerError).toHaveBeenCalledWith({ em }, expect.objectContaining({
+        handler: 'event:query_index.delete_one', error: failure, tenantId: 't1', organizationId: 'org1',
+      }))
+      expect(emitEvent).not.toHaveBeenCalled()
+      expect(fake.deletes.filter((entry) => entry.table === 'entity_indexes')).toHaveLength(0)
+
+      fake.clearTokenDeleteError()
+      await handleDeleteOne(payload, ctx)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+
+      expect(fake.deletes.map((entry) => entry.table)).toEqual(['search_tokens', 'search_tokens', 'entity_indexes'])
+      expect(emitEvent).toHaveBeenCalledWith('search.delete_record', {
+        entityId: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1',
+      })
+    } finally {
+      registerEntityIds(previousEntityIds)
+    }
+  })
+
+  test.each([false, true])('reports best-effort token maintenance failures with missing source %s', async (missingSource) => {
+    const failure = new Error('token cleanup unavailable')
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: missingSource ? [] : [{ id: '1', title: 'Private title' }],
+      cfValues: [],
+      indexRows: [{ deleted_at: null }],
+      tokenDeleteError: failure,
+    })
+    const em = { getKysely: () => fake.db } as unknown as EntityManager
+    const scope = { entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1' }
+
+    await expect(upsertIndexRow(em, scope)).resolves.toBeDefined()
+    expect(recordIndexerError).toHaveBeenCalledWith({ em }, expect.objectContaining({
+      source: 'query_index',
+      error: failure,
+      ...scope,
+    }))
+    expect(jest.mocked(recordIndexerError).mock.calls[0][1]).not.toHaveProperty('payload')
+    expect(reportTelemetryError).toHaveBeenCalledWith(failure, expect.objectContaining({
+      module: 'query_index', code: 'query_index.search_token_maintenance_failed',
+    }))
+  })
+
+  test('transactional token maintenance errors propagate without best-effort error writes', async () => {
+    const failure = new Error('token cleanup unavailable')
+    const fake = createFakeKysely({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'Private title' }],
+      cfValues: [],
+      tokenDeleteError: failure,
+    })
+    const em = { getKysely: () => fake.db } as unknown as EntityManager
+
+    await expect(upsertIndexRow(em, {
+      entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1', trx: fake.db,
+    })).rejects.toBe(failure)
+    expect(recordIndexerError).not.toHaveBeenCalled()
   })
 
   test('markDeleted reuses an injected transaction for projection and token deletion', async () => {

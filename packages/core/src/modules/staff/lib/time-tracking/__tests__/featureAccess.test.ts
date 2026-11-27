@@ -1,9 +1,17 @@
+const mockReportError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 import { resolveFeatureAccess } from '../featureAccess'
 
 const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
 const container = (rbac: unknown) => ({ resolve: () => rbac })
 
 describe('resolveFeatureAccess', () => {
+  beforeEach(() => mockReportError.mockClear())
+
   it('answers from the service and returns the grants alongside', async () => {
     const rbac = {
       userHasAllFeatures: async () => true,
@@ -26,6 +34,10 @@ describe('resolveFeatureAccess', () => {
     }
     const access = await resolveFeatureAccess(container(rbac), 'u1', ['staff.x'], scope)
     expect(access).toEqual({ allowed: false, grantedFeatures: [], resolved: false })
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] rbac down' }),
+      { module: 'staff', code: 'staff.feature_access_check_failed' },
+    )
   })
 
   it('keeps the decision when only the grant list fails', async () => {
@@ -38,6 +50,10 @@ describe('resolveFeatureAccess', () => {
     const access = await resolveFeatureAccess(container(rbac), 'u1', ['staff.x'], scope)
     expect(access.allowed).toBe(true)
     expect(access.resolved).toBe(false)
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] list unavailable' }),
+      { module: 'staff', code: 'staff.feature_access_grant_list_failed' },
+    )
     expect(access.grantedFeatures).toEqual([])
   })
 
@@ -76,5 +92,9 @@ describe('resolveFeatureAccess', () => {
   it('denies when resolving the container throws', async () => {
     const bad = { resolve: () => { throw new Error('[internal] no container') } }
     await expect(resolveFeatureAccess(bad, 'u1', ['x'], scope)).resolves.toMatchObject({ allowed: false, resolved: false })
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: '[internal] no container' }),
+      { module: 'staff', code: 'staff.feature_access_rbac_unavailable' },
+    )
   })
 })

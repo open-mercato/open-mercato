@@ -14,6 +14,7 @@ const mockFlush = jest.fn()
 const mockPersist = jest.fn()
 const mockCreate = jest.fn()
 const mockExecute = jest.fn()
+const mockNativeUpdate = jest.fn()
 
 const mockCustomerUserService = {
   findByEmail: mockFindByEmail,
@@ -33,6 +34,7 @@ const mockEm = {
   ),
   create: mockCreate,
   persist: mockPersist,
+  nativeUpdate: mockNativeUpdate,
 }
 
 const mockContainer = {
@@ -40,7 +42,7 @@ const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'customerUserService') return mockCustomerUserService
     if (token === 'customerTokenService') return mockCustomerTokenService
-    if (token === 'em') return mockEm
+    if (token === 'em') return { ...mockEm, transactional: (operation: (tx: typeof mockEm) => unknown) => operation(mockEm) }
     return null
   }),
 }
@@ -120,6 +122,8 @@ describe('POST /api/customer_accounts/signup', () => {
       id: newUserId,
       email: 'new@example.com',
       displayName: 'New User',
+      passwordHash: null,
+      createdAt: new Date(),
     })
   })
 
@@ -155,7 +159,6 @@ describe('POST /api/customer_accounts/signup', () => {
 
     const res = await POST(makeRequest({
       email: 'new@example.com',
-      password: 'Secret123!',
       displayName: 'New User',
       tenantId,
       organizationId,
@@ -166,11 +169,12 @@ describe('POST /api/customer_accounts/signup', () => {
     expect(body).toEqual({ ok: true })
     expect(mockCreateUser).toHaveBeenCalledWith(
       'new@example.com',
-      'Secret123!',
+      null,
       'New User',
       { tenantId, organizationId },
     )
-    expect(mockCreateEmailVerification).toHaveBeenCalledWith(newUserId, tenantId)
+    expect(mockCreateEmailVerification).toHaveBeenCalledWith(newUserId, tenantId, expect.any(Date), mockEm)
+    expect(mockPersist).toHaveBeenCalledWith(expect.objectContaining({ id: newUserId, passwordHash: null }))
     expect(mockEmitCustomerAccountsEvent).toHaveBeenCalledWith('customer_accounts.user.created', {
       id: newUserId,
       email: 'new@example.com',
@@ -205,4 +209,27 @@ describe('POST /api/customer_accounts/signup', () => {
     expect((await response).status).toBe(202)
   })
 
+
+  test('releases the email from an expired same-organization pending registration', async () => {
+    mockFindByEmail.mockResolvedValueOnce({
+      id: existingUserId,
+      organizationId,
+      isActive: true,
+      emailVerifiedAt: null,
+      lastLoginAt: null,
+      createdAt: new Date(0),
+    })
+    mockNativeUpdate.mockResolvedValueOnce(1)
+
+    const res = await POST(makeRequest({
+      email: 'new@example.com', password: 'Secret123!', displayName: 'New User', tenantId, organizationId,
+    }))
+    expect(res.status).toBe(202)
+    expect(mockNativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: existingUserId, tenantId, organizationId, emailVerifiedAt: null, lastLoginAt: null }),
+      expect.objectContaining({ isActive: false, passwordHash: null, deletedAt: expect.any(Date) }),
+    )
+    expect(mockCreateEmailVerification).toHaveBeenCalledWith(newUserId, tenantId, expect.any(Date), mockEm)
+  })
 })

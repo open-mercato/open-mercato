@@ -77,7 +77,7 @@ const optionChoiceSchema = z.object({
 const optionDefinitionSchema = z.object({
   code: slugSchema,
   label: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   inputType: z.enum(['select', 'text', 'textarea', 'number']),
   isRequired: z.boolean().optional(),
   isMultiple: z.boolean().optional(),
@@ -86,8 +86,8 @@ const optionDefinitionSchema = z.object({
 
 const optionSchema = z.object({
   version: z.number().int().min(1).optional(),
-  name: z.string().trim().max(255).optional(),
-  description: z.string().trim().max(4000).optional(),
+  name: z.string().trim().max(255).nullable().optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   options: z.array(optionDefinitionSchema).max(64),
 })
 
@@ -96,7 +96,7 @@ const tagLabelSchema = z.string().trim().min(1).max(100)
 const offerBaseSchema = z.object({
   channelId: uuid(),
   title: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(4000).optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   defaultMediaId: uuid().optional().nullable(),
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
   metadata: metadataSchema,
@@ -193,7 +193,7 @@ function productUomCrossFieldRefinement(
 const productBaseSchema = scoped.extend({
   title: z.string().trim().min(1).max(255),
   subtitle: z.string().trim().max(255).nullable().optional(),
-  description: z.string().trim().max(4000).optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   sku: skuSchema.nullable().optional(),
   handle: handleSchema.optional(),
   taxRateId: uuid().nullable().optional(),
@@ -445,7 +445,7 @@ export const variantUpdateSchema = z
 export const optionSchemaTemplateCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   code: slugSchema.optional(),
-  description: z.string().trim().max(4000).optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   schema: optionSchema,
   metadata: metadataSchema,
   isActive: z.boolean().optional(),
@@ -478,6 +478,12 @@ export const priceKindUpdateSchema = z
   })
 
 // Base schema without refinements (used for .partial() in the update schema).
+// `null` (or an empty string) clears a date; z.coerce.date() would turn it into the epoch.
+const nullableDateSchema = z.preprocess(
+  (value) => (value === null || value === '' ? null : value),
+  z.union([z.null(), z.coerce.date()]),
+)
+
 const priceBaseSchema = scoped.extend({
   variantId: uuid().optional(),
   productId: uuid().optional(),
@@ -496,8 +502,8 @@ const priceBaseSchema = scoped.extend({
   customerId: uuid().optional(),
   customerGroupId: uuid().optional(),
   metadata: metadataSchema,
-  startsAt: z.coerce.date().optional(),
-  endsAt: z.coerce.date().optional(),
+  startsAt: nullableDateSchema.optional(),
+  endsAt: nullableDateSchema.optional(),
 })
 
 // Both checks only fire when both sides of the comparison are present in this
@@ -522,7 +528,7 @@ const priceQuantityRangeRefinement = (
 }
 
 const priceValidityWindowRefinement = (
-  input: { startsAt?: Date; endsAt?: Date },
+  input: { startsAt?: Date | null; endsAt?: Date | null },
   ctx: z.RefinementCtx,
 ) => {
   if (input.startsAt && input.endsAt && input.endsAt < input.startsAt) {
@@ -541,6 +547,7 @@ export const priceCreateSchema = priceBaseSchema
 export const priceUpdateSchema = z
   .object({
     id: uuid(),
+    announce: z.boolean().optional(),
   })
   .merge(priceBaseSchema.partial())
   .superRefine(priceQuantityRangeRefinement)
@@ -549,7 +556,7 @@ export const priceUpdateSchema = z
 export const categoryCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   slug: slugSchema.optional().nullable(),
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   parentId: uuid().optional().nullable(),
   isActive: z.boolean().optional(),
 })

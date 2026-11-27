@@ -6,7 +6,7 @@ const mockUpdatePassword = jest.fn()
 const mockRevokeAllUserSessions = jest.fn()
 const mockNativeUpdate = jest.fn()
 const mockTransactional = jest.fn(async (cb: (trx: unknown) => Promise<unknown>) =>
-  cb({ nativeUpdate: (...args: unknown[]) => mockNativeUpdate(...args) }),
+  cb({ findOne: mockFindById, nativeUpdate: (...args: unknown[]) => mockNativeUpdate(...args) }),
 )
 const mockEmit = jest.fn(async () => undefined)
 
@@ -65,12 +65,12 @@ describe('customer /api/customer_accounts/password/reset-confirm — atomicity a
   beforeEach(() => {
     jest.clearAllMocks()
     mockVerifyPasswordResetToken.mockResolvedValue({ userId, tenantId })
-    mockFindById.mockResolvedValue({ id: userId, tenantId, organizationId: orgId, email: 'user@example.com' })
+    mockFindById.mockResolvedValue({ id: userId, tenantId, organizationId: orgId, email: 'user@example.com', isActive: true, emailVerifiedAt: new Date() })
     mockUpdatePassword.mockResolvedValue(undefined)
     mockRevokeAllUserSessions.mockResolvedValue(undefined)
     mockNativeUpdate.mockResolvedValue(undefined)
     mockTransactional.mockImplementation(async (cb) =>
-      cb({ nativeUpdate: (...args: unknown[]) => mockNativeUpdate(...args) }),
+      cb({ findOne: mockFindById, nativeUpdate: (...args: unknown[]) => mockNativeUpdate(...args) }),
     )
     mockEmit.mockResolvedValue(undefined)
   })
@@ -125,7 +125,7 @@ describe('customer /api/customer_accounts/password/reset-confirm — atomicity a
     )
 
     expect(res.status).toBe(400)
-    expect(mockTransactional).not.toHaveBeenCalled()
+    expect(mockUpdatePassword).not.toHaveBeenCalled()
     expect(mockEmit).not.toHaveBeenCalled()
   })
 
@@ -139,7 +139,7 @@ describe('customer /api/customer_accounts/password/reset-confirm — atomicity a
 
     expect(res.status).toBe(400)
     expect(body).toEqual({ ok: false, error: 'Invalid or expired token' })
-    expect(mockTransactional).not.toHaveBeenCalled()
+    expect(mockUpdatePassword).not.toHaveBeenCalled()
     expect(mockEmit).not.toHaveBeenCalled()
   })
 

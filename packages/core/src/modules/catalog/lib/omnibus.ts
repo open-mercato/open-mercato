@@ -4,6 +4,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { CatalogPriceHistoryEntry } from '../data/entities'
 import type { CatalogPriceKind, CatalogProductPrice } from '../data/entities'
 import type { PriceHistoryChangeType, PriceHistoryEntryInput, PriceHistorySource } from './omnibusTypes'
@@ -94,11 +95,9 @@ export function isOmnibusTrackedPrice(
 
 function normalizeDecimal(value: string | number | null | undefined): string | number | null {
   if (value === null || value === undefined) return null
-  if (typeof value === 'number') return value
-  const trimmed = value.trim()
-  if (!trimmed.length) return null
-  const numeric = Number(trimmed)
-  return Number.isNaN(numeric) ? trimmed : numeric
+  const trimmed = typeof value === 'string' ? value.trim() : value
+  if (trimmed === '') return null
+  return parseDecimal(trimmed)?.toString() ?? trimmed
 }
 
 function normalizeTimestamp(value: Date | string | null | undefined): number | string | null {
@@ -160,7 +159,7 @@ export function resolvePriceHistoryAnnounced(
   price: Pick<PriceHistoryPriceInput, 'startsAt' | 'offerId'>,
   announce?: boolean,
 ): boolean {
-  return Boolean(price.startsAt) || Boolean(price.offerId) || announce === true
+  return Boolean(price.startsAt) || (announce ?? Boolean(price.offerId))
 }
 
 function toDateOrNull(value: Date | string | null | undefined): Date | null {

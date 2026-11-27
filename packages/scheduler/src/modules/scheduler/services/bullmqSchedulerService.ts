@@ -5,6 +5,7 @@ import { ScheduledJob } from '../data/entities.js'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { parseCronExpression } from '../lib/cronParser'
 import { resolveScheduleIntervalMs } from '../lib/intervalParser'
+import { isScheduleSourceModuleDisabled } from '../lib/sourceModuleAvailability'
 import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -328,7 +329,7 @@ export class BullMQSchedulerService {
 
     // Get enabled schedules from database in batches to avoid unbounded loads
     const BATCH_SIZE = 500
-    const dbSchedules: ScheduledJob[] = []
+    const enabledSchedules: ScheduledJob[] = []
     let offset = 0
     let batch: ScheduledJob[]
     do {
@@ -336,10 +337,18 @@ export class BullMQSchedulerService {
         isEnabled: true,
         deletedAt: null,
       }, { limit: BATCH_SIZE, offset })
-      dbSchedules.push(...batch)
+      enabledSchedules.push(...batch)
       offset += BATCH_SIZE
     } while (batch.length === BATCH_SIZE)
 
+    const dbSchedules = enabledSchedules.filter((schedule) => {
+      if (!isScheduleSourceModuleDisabled(schedule)) return true
+      logger.info('Not registering schedule of a disabled source module', {
+        scheduleId: schedule.id,
+        sourceModule: schedule.sourceModule,
+      })
+      return false
+    })
     const dbScheduleIds = new Set(dbSchedules.map(s => s.id))
 
     // Register schedules that exist in DB but not in BullMQ

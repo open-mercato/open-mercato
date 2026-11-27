@@ -1,5 +1,9 @@
 import { isDatabaseRuntimeEnabled } from '@open-mercato/shared/lib/db/runtime'
 import { asClass } from 'awilix'
+import { asScopedService, defineProcessDiRegistrar, registerCallerSetup, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
+import { runInRequestScope, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { EntityManager } from '@mikro-orm/core'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { createQueue } from '@open-mercato/queue'
 import { SchedulerService } from './services/schedulerService.js'
@@ -13,6 +17,42 @@ const logger = createLogger('scheduler')
 // Process-level guard: ensures BullMQ sync runs at most once per process lifetime.
 let schedulerSynced = false
 
+async function reconcileScheduler(): Promise<void> {
+  if (isDatabaseRuntimeEnabled()) {
+    const service = new BullMQSchedulerService(() => { throw new Error('[internal] Scheduler discovery requires a fresh maintenance EntityManager') })
+    try {
+      await service.syncAll()
+      logger.info('BullMQ cold start sync complete')
+    } finally {
+      await service.destroy()
+    }
+    return
+  }
+  const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+  const scope = await createRequestContainer()
+  try {
+    await runWithRequestScopeContainer(scope, () => scope.resolve<BullMQSchedulerService>('bullmqSchedulerService').syncAll())
+    logger.info('BullMQ cold start sync complete')
+  } finally {
+    try {
+      scope.resolve<EntityManager>('em').clear()
+    } finally {
+      await scope.dispose()
+    }
+  }
+}
+
+function scheduleReconciliation(): void {
+  if (schedulerSynced) return
+  schedulerSynced = true
+  setImmediate(() => {
+    void runInRequestScope(reconcileScheduler).catch((error: unknown) => {
+      logger.error('BullMQ cold start sync failed', { err: error })
+      getTelemetryRuntime()?.reportError(error, { module: 'scheduler', code: 'scheduler.cold_start_failed' })
+    })
+  })
+}
+
 /**
  * Scheduler module DI registration
  * 
@@ -22,7 +62,7 @@ let schedulerSynced = false
  * 
  * Set QUEUE_STRATEGY=async for production use.
  */
-export function register(container: AppContainer) {
+function registerLegacy(container: AppContainer) {
   const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
   if (queueStrategy === 'async') {
@@ -50,18 +90,7 @@ export function register(container: AppContainer) {
 
     // Cold start sync: reconcile DB schedules with BullMQ repeatable jobs.
     // Deferred so it doesn't block DI registration. Runs once per process.
-    if (!schedulerSynced) {
-      schedulerSynced = true
-      setImmediate(() => {
-        const service = isDatabaseRuntimeEnabled()
-          ? new BullMQSchedulerService(() => { throw new Error('[internal] Scheduler discovery requires a fresh maintenance EntityManager') })
-          : container.resolve('bullmqSchedulerService') as BullMQSchedulerService
-        service.syncAll()
-          .then(() => logger.info('BullMQ cold start sync complete'))
-          .catch((err: Error) => logger.error('BullMQ cold start sync failed', { err }))
-          .finally(async () => { if (isDatabaseRuntimeEnabled()) await service.destroy() })
-      })
-    }
+    scheduleReconciliation()
   } else {
     // Register local scheduler service for development (no Redis required)
     const queueFactory = (name: string) => createQueue(name, 'local')
@@ -92,3 +121,39 @@ export function register(container: AppContainer) {
       })),
   })
 }
+
+
+export const register = defineProcessDiRegistrar((container: AppContainer) => {
+  const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+  if (queueStrategy === 'async') {
+    container.register({
+      bullmqSchedulerService: asScopedService((scope) =>
+        new BullMQSchedulerService(() => scope.resolve<EntityManager>('em')),
+      ).disposer((service) => service.destroy()),
+    })
+    registerCallerSetup(container, (scope) => {
+      const em = scope.resolve<EntityManager>('em')
+      const subscriber = new ScheduledJobSubscriber()
+      subscriber.setContainer(scope)
+      em.getEventManager().registerSubscriber(subscriber)
+    })
+    registerProcessActivation(container, () => {
+      scheduleReconciliation()
+    })
+  } else {
+    container.register({
+      localSchedulerService: asScopedService((scope) => new LocalSchedulerService(
+        () => scope.resolve<EntityManager>('em'),
+        (name: string) => createQueue(name, 'local'),
+        scope.resolve('rbacService'),
+        { pollIntervalMs: parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10) },
+      )).disposer((service) => service.stop()),
+    })
+  }
+  container.register({
+    schedulerService: asScopedService((scope) => new SchedulerService(
+      () => scope.resolve<EntityManager>('em'),
+      queueStrategy === 'async' ? scope.resolve<BullMQSchedulerService>('bullmqSchedulerService') : undefined,
+    )),
+  })
+}, { legacy: registerLegacy })

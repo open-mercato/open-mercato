@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { magicLinkVerifySchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
@@ -8,8 +9,8 @@ import { CustomerTokenService } from '@open-mercato/core/modules/customer_accoun
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
-import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import { emitCustomerEmailVerified, verifyCustomerEmail } from '../../lib/verifyCustomerEmail'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
@@ -33,33 +34,37 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid token' }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
-  const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
-  const customerUserService = container.resolve('customerUserService') as CustomerUserService
+  const result = await runWithDatabaseExecutionContext(
+    { kind: 'identity', tenantId: null, source: 'identity', operation: 'customer-magic-link-identity' },
+    () => runInOwnedRequestScope(async () => {
+      const container = await createRequestContainer()
+      const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
+      const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
+      const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const result = await customerTokenService.verifyEmailToken(parsed.data.token, 'magic_link')
+      return em.transactional(async (tx) => {
+        const identity = await customerTokenService.verifyEmailToken(parsed.data.token, 'magic_link', undefined, tx)
+        if (!identity) return null
+        return { account: await verifyCustomerEmail(tx, identity, customerSessionService) }
+      })
+    }),
+  )
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
 
-  const user = await customerUserService.findById(result.userId, result.tenantId)
-  if (!user || !user.isActive) {
+  if (!result.account) {
     return NextResponse.json({ ok: false, error: 'Account not found or deactivated' }, { status: 401 })
   }
 
-  return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: user.tenantId, source: 'public-token', operation: 'customer-magic-link' }, async () => {
-    const tenantContainer = await createRequestContainer()
-    try {
-      const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
-      const customerSessionService = tenantContainer.resolve('customerSessionService') as CustomerSessionService
-      const customerRbacService = tenantContainer.resolve('customerRbacService') as CustomerRbacService
-      const em = tenantContainer.resolve('em') as import('@mikro-orm/postgresql').EntityManager
-
-      // Auto-verify email on magic link login
-      if (!user.emailVerifiedAt) {
-        await em.nativeUpdate(CustomerUser, { id: user.id }, { emailVerifiedAt: new Date() })
-        user.emailVerifiedAt = new Date()
-      }
+  const { user, newlyVerified } = result.account
+  return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: user.tenantId, source: 'public-token', operation: 'customer-magic-link' },
+    () => runInOwnedRequestScope(async () => {
+      const container = await createRequestContainer()
+      const customerUserService = container.resolve('customerUserService') as CustomerUserService
+      const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
+      const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
+      if (newlyVerified) await emitCustomerEmailVerified(user)
 
       await customerUserService.resetFailedAttempts(user)
       await customerUserService.updateLastLoginAt(user)
@@ -107,10 +112,8 @@ export async function POST(req: Request) {
       })
 
       return res
-    } finally {
-      await tenantContainer.dispose()
-    }
-  })
+    }),
+  )
 }
 
 const loginSuccessSchema = z.object({

@@ -1,8 +1,8 @@
 ---
 title: "Verify integration fixture cleanup against the actual endpoint"
-modules: ["resources","entities","customers","sales","warranty_claims","channel_discord","catalog"]
+modules: ["resources","entities","customers","sales","warranty_claims","channel_discord","catalog","workflows","security"]
 areas: ["testing","integration"]
-topics: ["testing","fixture-cleanup","fixture-setup","api-contracts","schema-validation","proposal-origin"]
+topics: ["testing","fixture-cleanup","fixture-setup","api-contracts","proposal-origin","error-handling"]
 ---
 
 # Verify integration fixture cleanup against the actual endpoint
@@ -20,3 +20,11 @@ Evidence: `packages/core/src/modules/entities/api/definitions.ts` DELETE; `packa
 After merging authorization changes, also verify that setup reaches the intended guard. Discord refusal fixtures must be created as admin and authenticated with `stampSystemProposalFixture`; ordinary client cards fail the origin check before source-read validation. Keep forged-card coverage separate, use a unique scenario ID, and scope cleanup to records owned by the test. Evidence: PR #7356 review and `TC-CHANNEL-DISCORD-013`/`TC-CHANNEL-DISCORD-014`.
 
 Catalog dictionary authorization coverage in PR #9218 initially stopped at user creation: a UUID password lacks the uppercase character required by the default password policy. Generate fixture passwords satisfying every current policy requirement so denied-read assertions reach the authorization boundary. Evidence: `TC-CAT-046-dictionary-access-scope.spec.ts`, `auth/api/users/route.ts` and `shared/lib/auth/passwordPolicy.ts`.
+
+Review of #9156 found that the generic sales cleanup helper sends only an ID, while `DELETE /api/sales/shipments` also requires `orderId`. Send both fields and assert successful deletion, including for unexpectedly accepted creates in refusal tests. Put the remaining fixture cleanup in a nested `finally` so a failed cleanup assertion still reaches order cascade and reference teardown. Evidence: `sales/api/shipments/route.ts` delete `mapInput` and `TC-SALES-9156-reference-scope.spec.ts`.
+
+Review of #9657 found that an order's updated status does not prove its approval workflow is ready for cancellation: the stock async event activity can leave the instance in `WAITING_FOR_ACTIVITIES`, while the cancel endpoint accepts only `RUNNING` or `PAUSED`. Drain the integration queues with the shared bounded helpers, refresh owned instances before cancellation, and retry transient non-cancellable states within the shared polling budget. Cancel workflows before deleting their target records, and attempt versioned definition deletion in `finally` even when cancellation fails. Evidence: `TC-WC-040-replacement-order-undo.spec.ts`, `sales/workflows.ts`, and `workflows/api/instances/[id]/cancel/route.ts`.
+
+The subsequent hosted trace showed that empty queues still did not prove the fixture's notification transition had advanced. For undo coverage that asserts the status command and its audit history, configure notification dispatch inline in the isolated copied definition; retain the real domain event trigger, scoped grant, status mutation and undo assertions. Do not make fixture teardown depend on unrelated asynchronous notification scheduling. Queue-specific workflow tests retain their async execution configuration. Evidence: PR #9657 run 43825646616 shard 13, retry trace for `TC-WC-040`.
+
+PR #9753's global-wildcard MFA case stopped before its enforcement assertions because API-key creation intentionally forbids ordinary users from granting `*`, even when their own feature ACL is `*`. The grant helper also removes runtime `*` from all delegable features, so changing only the requested key role to `sales.*` still fails. Read the complete grant boundary before changing setup. Keep the tested cookie principal unchanged and issue the scoped key through a separate explicitly granted user in the same organization. Verify the issuer's overdue cookie is denied while its key works; clean both issuer user and role plus the separate key role. Evidence: `TC-SEC-016-api-enrollment.spec.ts`, `auth/lib/grantChecks.ts`, and shard15 key-create403 responses in runs44099607461 and44106213651.

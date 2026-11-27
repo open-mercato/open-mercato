@@ -20,6 +20,9 @@ import { createServer } from 'node:http'
 import { once } from 'node:events'
 import type { AwilixContainer } from 'awilix'
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
+import '../../events'
+import '../../../payment_gateways/events'
+import '../../../query_index/events'
 import { WorkflowInstance } from '../../data/entities'
 import * as activityExecutor from '../activity-executor'
 import type { ActivityDefinition, ActivityContext } from '../activity-executor'
@@ -36,6 +39,7 @@ global.fetch = jest.fn()
 createModuleEvents({
   moduleId: 'workflow_emit_security_test',
   events: [
+    { id: 'test.event', label: 'Test event', workflowEmittable: true },
     {
       id: 'workflow_emit_security_test.private_coordination',
       label: 'Private coordination',
@@ -326,6 +330,9 @@ describe('Activity Executor (Unit Tests)', () => {
           payload: {
             orderId: 'order-123',
             status: 'pending',
+            tenantId: 'untrusted-tenant',
+            organizationId: 'untrusted-org',
+            organizationIds: ['untrusted-org'],
           },
         },
       }
@@ -340,11 +347,14 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.emitted).toBe(true)
       expect(result.output.eventName).toBe('order.created')
+      expect(result.output.payload).not.toHaveProperty('organizationIds')
       expect(mockEventBus.emitEvent).toHaveBeenCalledWith(
         'order.created',
         expect.objectContaining({
           orderId: 'order-123',
           status: 'pending',
+          tenantId: testTenantId,
+          organizationId: testOrgId,
           _workflow: expect.objectContaining({
             workflowInstanceId: testInstanceId,
             tenantId: testTenantId,
@@ -442,6 +452,17 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.error).toContain('cannot emit private cross-process event')
       expect(mockEventBus.emitEvent).not.toHaveBeenCalled()
     })
+
+    test.each(['unknown.event', 'query_index.purge', 'payment_gateways.payment.captured'])(
+      'refuses event %s without emission permission',
+      async (eventName) => {
+        const emitEvent = jest.fn()
+        mockContainer.resolve.mockReturnValue({ emitEvent })
+        await expect(activityExecutor.executeEmitEvent({ eventName }, mockContext, mockContainer))
+          .rejects.toThrow('cannot emit event')
+        expect(emitEvent).not.toHaveBeenCalled()
+      },
+    )
 
     test('should fail EMIT_EVENT when a payload value stays unresolved', async () => {
       // The original bug was invisible because nothing objected. On the emit path
@@ -774,6 +795,118 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(false)
       expect(result.error).toContain('metadata.approvedBy')
       expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
+    describe('audit correlation', () => {
+      const instanceUuid = '11111111-1111-4111-8111-111111111111'
+      const proposalUuid = '22222222-2222-4222-8222-222222222222'
+
+      type BridgeStub = { verifyProposalForInstance?: jest.Mock } | 'absent'
+
+      function runUpdateEntity(workflowContext: Record<string, unknown>, bridge: BridgeStub = 'absent') {
+        const execute = jest.fn().mockResolvedValue({ result: { id: 'order-123' }, logEntry: { id: 'log-1' } })
+        registerWorkflowSafeCommands([
+          { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'], defaultEnabled: true },
+        ])
+        mockContainer.resolve.mockImplementation((name: string) => {
+          if (name === 'rbacService') return { userHasAllFeatures: jest.fn().mockResolvedValue(true) } as never
+          if (name === 'commandBus') return { execute } as never
+          if (name === 'agentWorkflowBridge' && bridge !== 'absent') return bridge as never
+          throw new Error(`Unexpected service: ${name}`)
+        })
+        const activity: ActivityDefinition = {
+          activityId: 'activity-correlation',
+          activityName: 'Apply Proposal',
+          activityType: 'UPDATE_ENTITY',
+          config: { commandId: 'sales.orders.update', input: { id: 'order-123' } },
+        }
+        return activityExecutor
+          .executeActivity(mockEm, mockContainer, activity, { ...mockContext, workflowContext })
+          .then((result) => ({ result, execute }))
+      }
+
+      function executedCtx(execute: jest.Mock): Record<string, unknown> {
+        const [, options] = execute.mock.calls[0] as [string, { ctx: Record<string, unknown> }]
+        return options.ctx
+      }
+
+      beforeEach(() => {
+        mockInstance.id = instanceUuid as WorkflowInstance['id']
+      })
+
+      test('stamps the disposed proposal id once the peer verifies it belongs to this instance', async () => {
+        const verifyProposalForInstance = jest.fn().mockResolvedValue(true)
+        const { result, execute } = await runUpdateEntity(
+          { proposalId: proposalUuid, disposition: 'approved' },
+          { verifyProposalForInstance },
+        )
+        expect(result.success).toBe(true)
+        expect(verifyProposalForInstance).toHaveBeenCalledWith({
+          proposalId: proposalUuid,
+          workflowInstanceId: instanceUuid,
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+        })
+        expect(executedCtx(execute).auditCorrelation).toEqual({
+          workflowInstanceId: instanceUuid,
+          proposalId: proposalUuid,
+        })
+      })
+
+      test('falls back to the inline agentProposalId key', async () => {
+        const verifyProposalForInstance = jest.fn().mockResolvedValue(true)
+        const { execute } = await runUpdateEntity({ agentProposalId: proposalUuid }, { verifyProposalForInstance })
+        expect(executedCtx(execute).auditCorrelation).toEqual({
+          workflowInstanceId: instanceUuid,
+          proposalId: proposalUuid,
+        })
+      })
+
+      test('drops a proposal id the peer does not verify for this instance', async () => {
+        const verifyProposalForInstance = jest.fn().mockResolvedValue(false)
+        const { result, execute } = await runUpdateEntity({ proposalId: proposalUuid }, { verifyProposalForInstance })
+        expect(result.success).toBe(true)
+        expect(executedCtx(execute).auditCorrelation).toEqual({ workflowInstanceId: instanceUuid })
+      })
+
+      test('drops the proposal id when the agent_orchestrator peer is absent', async () => {
+        const { execute } = await runUpdateEntity({ proposalId: proposalUuid })
+        expect(executedCtx(execute).auditCorrelation).toEqual({ workflowInstanceId: instanceUuid })
+      })
+
+      test('drops the proposal id when the peer bridge has no verification method', async () => {
+        const { execute } = await runUpdateEntity({ proposalId: proposalUuid }, {})
+        expect(executedCtx(execute).auditCorrelation).toEqual({ workflowInstanceId: instanceUuid })
+      })
+
+      test('drops the proposal id and still writes when verification throws', async () => {
+        const verifyProposalForInstance = jest.fn().mockRejectedValue(new Error('db down'))
+        const { result, execute } = await runUpdateEntity({ proposalId: proposalUuid }, { verifyProposalForInstance })
+        expect(result.success).toBe(true)
+        expect(executedCtx(execute).auditCorrelation).toEqual({ workflowInstanceId: instanceUuid })
+      })
+
+      test('never asks the peer about a proposal id that is not a uuid', async () => {
+        const verifyProposalForInstance = jest.fn().mockResolvedValue(true)
+        const { execute } = await runUpdateEntity({ proposalId: 'not-a-uuid' }, { verifyProposalForInstance })
+        expect(verifyProposalForInstance).not.toHaveBeenCalled()
+        expect(executedCtx(execute).auditCorrelation).toEqual({ workflowInstanceId: instanceUuid })
+      })
+
+      test('stamps only the instance when no proposal is in the context', async () => {
+        const verifyProposalForInstance = jest.fn().mockResolvedValue(true)
+        const { execute } = await runUpdateEntity({ proposalId: 42, agentProposalId: '' }, { verifyProposalForInstance })
+        expect(verifyProposalForInstance).not.toHaveBeenCalled()
+        expect(executedCtx(execute).auditCorrelation).toEqual({ workflowInstanceId: instanceUuid })
+      })
+
+      test('stamps nothing when the instance has no id, even with a proposal in the context', async () => {
+        mockInstance.id = '' as WorkflowInstance['id']
+        const verifyProposalForInstance = jest.fn().mockResolvedValue(true)
+        const { execute } = await runUpdateEntity({ proposalId: proposalUuid }, { verifyProposalForInstance })
+        expect(verifyProposalForInstance).not.toHaveBeenCalled()
+        expect(executedCtx(execute)).not.toHaveProperty('auditCorrelation')
+      })
     })
 
     test('should fail UPDATE_ENTITY if command is not workflow-safe', async () => {
@@ -2420,7 +2553,7 @@ describe('Activity Executor (Unit Tests)', () => {
           activityId: 'activity-timeout-emit',
           activityName: 'Slow emit',
           activityType: 'EMIT_EVENT',
-          config: { eventName: 'customers.person.created', payload: {} },
+          config: { eventName: 'test.event', payload: {} },
           timeoutMs: 20,
         },
         mockContext

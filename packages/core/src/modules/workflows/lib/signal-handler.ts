@@ -483,6 +483,7 @@ export async function sendSignal(
 
   // Find valid transitions
   const transitionContext = {
+    container,
     workflowContext: instance.context,
     userId,
   }
@@ -523,11 +524,21 @@ export async function sendSignal(
   )
 
   if (!transitionResult.success) {
-    throw new SignalError(
-      'Transition failed after signal',
-      'TRANSITION_FAILED',
-      { error: transitionResult.error }
-    )
+    const { handleTransitionFailure } = await import('./workflow-executor')
+    const failure = await handleTransitionFailure(em, container, instance, transitionResult, {
+      evalContext: transitionContext,
+      fromStepId: firstValidTransition.transition.fromStepId,
+      toStepId: firstValidTransition.transition.toStepId,
+      source: 'signal',
+    })
+    if (failure.kind === 'parked') return
+    if (failure.kind === 'failed') {
+      throw new SignalError(
+        'Transition failed after signal',
+        'TRANSITION_FAILED',
+        { error: transitionResult.error }
+      )
+    }
   }
 
   // Resume workflow execution

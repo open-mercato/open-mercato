@@ -45,6 +45,8 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — per-entity encryption-map admin config; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/entities/api/definitions.batch.ts':
     'OSS-only — entity field-definition batch save is an admin schema-config surface (issue #3152) guarded by an aggregate updated_at version, not a per-row record; the OSS floor guards the two-tab schema-edit race. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/entities/api/definitions.ts':
+    'OSS-only — deleting a field definition checks the admin schema aggregate version used by batch save, so a stale draft cannot delete a field after another part of the schema changed. The existing per-definition mutation guard still runs.',
   'packages/core/src/modules/integrations/api/[id]/credentials/route.ts':
     'OSS-only — integration credentials are single-admin config keyed by bundle id (integrations.integration); OSS floor guards concurrent admin edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/integrations/api/[id]/state/route.ts':
@@ -75,6 +77,10 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'Exempt — proposal dispose guards the HUMAN dispose path on updated_at only (the auto/threshold path holds no client token and cannot race a stale modal); pending→terminal is a one-shot transition with an idempotent same-verdict re-dispose. record_locks seam migration deferred.',
   'packages/enterprise/src/modules/agent_orchestrator/commands/grants.ts':
     'Exempt — delegation-grant revoke guards updated_at against the caller-supplied expectedUpdatedAt (re-revoke is idempotent, gone-record maps to structured 409); a one-shot revocation, not a collaborative edit surface. record_locks seam migration deferred.',
+  'packages/enterprise/src/modules/agent_orchestrator/commands/traceCapture.ts':
+    'Exempt — trace capture policy update writes one tenant-scoped module_configs row guarded on its updated_at; a single-admin settings form, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
+  'packages/enterprise/src/modules/agent_orchestrator/commands/otelExport.ts':
+    'Exempt — OTel export settings update writes one tenant-scoped module_configs row guarded on its updated_at; a single-admin settings form, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
   'packages/enterprise/src/modules/agent_orchestrator/api/agents/[id]/settings/route.ts':
     'Exempt — per-agent icon setting write guards the AgentSetting row on its own updated_at only when a row already exists (first write has nothing to conflict with); a single-admin cosmetic config surface, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
   'packages/core/src/modules/devices/api/deviceOps.ts':

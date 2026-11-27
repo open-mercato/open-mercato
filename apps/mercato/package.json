@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/app",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "dev:classic": "node ./scripts/dev.mjs --classic",
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "dev:reset": "node ./scripts/dev-reset.mjs",
-    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 next build",
+    "build": "node ./scripts/build-next.mjs",
     "mercato": "node ./scripts/mercato-cli.mjs",
     "start": "yarn mercato server start",
     "lint": "eslint .",
@@ -82,7 +82,7 @@
     "dotenv": "^17.4.2",
     "lucide-react": "^1.34.0",
     "newrelic": "^14.3.9",
-    "next": "16.4.1",
+    "next": "16.4.5",
     "pdfjs-dist": "^6.2.108",
     "pg": "8.23.0",
     "react": "19.2.8",

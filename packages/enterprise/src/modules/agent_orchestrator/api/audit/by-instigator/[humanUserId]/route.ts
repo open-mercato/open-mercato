@@ -4,6 +4,15 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveActionAgentAttribution } from '../../../../lib/identity/actionAgentAttribution'
+import {
+  RUN_CORRELATION_KEY,
+  parseCorrelationKeys,
+  readCorrelationValue,
+} from '../../../../lib/identity/runActionCorrelation'
 
 /**
  * Audit chain by instigator (Agent Identity & On-Behalf-Of, Wave 4 P2).
@@ -14,6 +23,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
  * through the audited Command path — there is no parallel audit store. Org-scoped:
  * every row is filtered by the caller's `organization_id`, so org B can never read
  * org A's chain. RBAC-gated by `agent_orchestrator.identity.read`.
+ *
+ * The filter runs through Kysely, but `command_id` / `action_label` are encrypted
+ * columns, so their values are re-read via `findWithDecryption` before responding.
  */
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.identity.read'] },
@@ -41,6 +53,11 @@ const entrySchema = z.object({
   createdAt: z.string().nullable(),
   /** `'direct'` when the human is the actor; `'via_agent'` when an agent acted on their behalf. */
   via: z.enum(['direct', 'via_agent']),
+  agentRunId: z.string().nullable(),
+  proposalId: z.string().nullable(),
+  /** The agent behind the entry: stamped on it, else its run, else a proposal of the same workflow instance; null when unverifiable. */
+  agentId: z.string().nullable(),
+  agentVersion: z.string().nullable(),
 })
 
 export const responseSchema = z.object({
@@ -61,8 +78,13 @@ export async function GET(req: Request, ctx: RouteContext) {
   const parsedQuery = querySchema.safeParse({ limit: url.searchParams.get('limit') ?? undefined })
   if (!parsedQuery.success) return NextResponse.json({ error: 'Invalid query' }, { status: 400 })
 
-  const organizationId = auth.orgId ?? null
   const container = await createRequestContainer()
+  const { scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  const scopedOrganizationIds = scope.selectedId ? [scope.selectedId] : scope.filterIds
+  const organizationId = scopedOrganizationIds?.length === 1 ? scopedOrganizationIds[0] : null
+  if (Array.isArray(scopedOrganizationIds) && scopedOrganizationIds.length === 0) {
+    return NextResponse.json({ humanUserId: parsedId.data, items: [], total: 0 })
+  }
   const em = (container.resolve('em') as EntityManager).fork()
 
   let query = (em.getKysely<Record<string, never>>() as any)
@@ -78,6 +100,7 @@ export async function GET(req: Request, ctx: RouteContext) {
       'action_logs.actor_user_id as actorUserId',
       'action_logs.on_behalf_of_user_id as onBehalfOfUserId',
       'action_logs.created_at as createdAt',
+      'action_logs.correlation_keys as correlationKeys',
     ])
     .where('action_logs.deleted_at', 'is', null)
     .where('action_logs.tenant_id', '=', auth.tenantId)
@@ -88,8 +111,9 @@ export async function GET(req: Request, ctx: RouteContext) {
       ]),
     )
 
-  // Org-scope: pin the caller's organization so a human's chain never crosses orgs.
-  if (organizationId) query = query.where('action_logs.organization_id', '=', organizationId)
+  if (Array.isArray(scopedOrganizationIds)) {
+    query = query.where('action_logs.organization_id', 'in', scopedOrganizationIds)
+  }
 
   const rows = await query
     .orderBy('action_logs.created_at', 'desc')
@@ -97,14 +121,39 @@ export async function GET(req: Request, ctx: RouteContext) {
     .limit(parsedQuery.data.limit)
     .execute()
 
-  const items = (rows as Array<Record<string, unknown>>).map((row) => {
+  const typedRows = rows as Array<Record<string, unknown>>
+  const decryptedById = new Map<string, ActionLog>()
+  const ids = typedRows.map((row) => String(row.id))
+  if (ids.length > 0) {
+    const entries = await findWithDecryption(
+      em,
+      ActionLog,
+      { id: { $in: ids }, tenantId: auth.tenantId },
+      undefined,
+      { tenantId: auth.tenantId, organizationId },
+    )
+    for (const entry of entries) decryptedById.set(entry.id, entry)
+  }
+
+  const readKeys = (row: Record<string, unknown>): string[] | null =>
+    Array.isArray(row.correlationKeys) ? (row.correlationKeys as string[]) : null
+  const attributions = await resolveActionAgentAttribution(
+    em,
+    { tenantId: auth.tenantId, organizationId, organizationIds: scopedOrganizationIds ?? undefined },
+    typedRows.map((row) => parseCorrelationKeys(readKeys(row))),
+  )
+
+  const items = typedRows.map((row, index) => {
+    const decrypted = decryptedById.get(String(row.id))
     const onBehalfOf = (row.onBehalfOfUserId as string | null) ?? null
     const createdAt = row.createdAt
+    const correlationKeys = readKeys(row)
+    const agentRunId = readCorrelationValue(correlationKeys, RUN_CORRELATION_KEY)
     return {
       id: String(row.id),
-      commandId: (row.commandId as string | null) ?? null,
+      commandId: decrypted ? decrypted.commandId : (row.commandId as string | null) ?? null,
       actionType: (row.actionType as string | null) ?? null,
-      actionLabel: (row.actionLabel as string | null) ?? null,
+      actionLabel: decrypted ? decrypted.actionLabel ?? null : (row.actionLabel as string | null) ?? null,
       sourceKey: (row.sourceKey as string | null) ?? null,
       resourceKind: (row.resourceKind as string | null) ?? null,
       resourceId: (row.resourceId as string | null) ?? null,
@@ -117,6 +166,10 @@ export async function GET(req: Request, ctx: RouteContext) {
             ? String(createdAt)
             : null,
       via: onBehalfOf === parsedId.data ? ('via_agent' as const) : ('direct' as const),
+      agentRunId,
+      proposalId: attributions[index]?.verifiedProposalId ?? null,
+      agentId: attributions[index]?.agentId ?? null,
+      agentVersion: attributions[index]?.agentVersion ?? null,
     }
   })
 
@@ -130,7 +183,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List actions a human caused directly and via agents',
       description:
-        'Returns ActionLog entries where the human is either the direct actor or the on-behalf-of principal of an agent action, joined on action_logs.on_behalf_of_user_id. Org-scoped; gated by agent_orchestrator.identity.read.',
+        'Returns ActionLog entries where the human is either the direct actor or the on-behalf-of principal of an agent action, joined on action_logs.on_behalf_of_user_id. `agentRunId` carries the run correlation recorded on the entry, or null. `proposalId` carries the proposal correlation only when a server record verifies it (the proposal belongs to the run or to the workflow instance named on the entry); an unverified id is returned as null. `agentId` / `agentVersion` name the agent and version behind the entry: stamped on it, else read from its run, else from a proposal that belongs to the same workflow instance as the entry; null when none can be verified. `via` keeps its on-behalf-of meaning. Org-scoped; gated by agent_orchestrator.identity.read.',
       responses: [{ status: 200, description: 'Instigator audit chain', schema: responseSchema }],
       errors: [
         { status: 400, description: 'Invalid query', schema: errorSchema },

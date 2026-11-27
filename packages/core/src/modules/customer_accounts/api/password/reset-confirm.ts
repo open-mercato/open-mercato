@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { passwordResetConfirmSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
@@ -7,9 +8,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
-import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { emitCustomerEmailVerified, verifyCustomerEmail } from '../../lib/verifyCustomerEmail'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -26,36 +27,34 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
-  const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
-  const customerUserService = container.resolve('customerUserService') as CustomerUserService
+  const result = await runWithDatabaseExecutionContext(
+    { kind: 'identity', tenantId: null, source: 'identity', operation: 'customer-password-reset-identity' },
+    () => runInOwnedRequestScope(async () => {
+      const container = await createRequestContainer()
+      const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
+      const customerUserService = container.resolve('customerUserService') as CustomerUserService
+      const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
 
-  const result = await customerTokenService.verifyPasswordResetToken(parsed.data.token)
+      const em = container.resolve('em') as EntityManager
+      return em.transactional(async (tx) => {
+        const identity = await customerTokenService.verifyPasswordResetToken(parsed.data.token, undefined, tx)
+        if (!identity) return null
+        return verifyCustomerEmail(tx, identity, customerSessionService, {
+          password: parsed.data.password,
+          users: customerUserService,
+          reset: true,
+        })
+      })
+    }),
+  )
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
-
-  const user = await customerUserService.findById(result.userId, result.tenantId)
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
-  }
-
-  return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: user.tenantId, source: 'public-token', operation: 'customer-password-reset' }, async () => {
-    const tenantContainer = await createRequestContainer()
-    try {
-      const customerUserService = tenantContainer.resolve('customerUserService') as CustomerUserService
-      const customerSessionService = tenantContainer.resolve('customerSessionService') as CustomerSessionService
-
-      const em = tenantContainer.resolve('em') as EntityManager
-      await em.transactional(async (trx) => {
-        await customerUserService.updatePassword(user, parsed.data.password, trx)
-        await customerSessionService.revokeAllUserSessions(user.id, trx)
-        await trx.nativeUpdate(
-          CustomerUser,
-          { id: user.id, emailVerifiedAt: null },
-          { emailVerifiedAt: new Date() },
-        )
-      })
+  const { user, newlyVerified } = result
+  return runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: user.tenantId, source: 'public-token', operation: 'customer-password-reset' },
+    () => runInOwnedRequestScope(async () => {
+      await createRequestContainer()
+      if (newlyVerified) await emitCustomerEmailVerified(user)
 
       await emitCustomerAccountsEvent('customer_accounts.password.changed', {
         userId: user.id,
@@ -67,10 +66,8 @@ export async function POST(req: Request) {
       }).catch(() => undefined)
 
       return NextResponse.json({ ok: true })
-    } finally {
-      await tenantContainer.dispose()
-    }
-  })
+    }),
+  )
 }
 
 const successSchema = z.object({ ok: z.literal(true) })

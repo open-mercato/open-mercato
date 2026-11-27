@@ -6,6 +6,7 @@ import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from 
 import { performance } from 'node:perf_hooks'
 import { getSslConfig } from './ssl'
 import { beginDatabaseInitialization, configureDatabasePool, currentDatabaseExecutionContext, resolveDatabaseConnectionUrl, type DatabasePoolLifecycle, type DatabaseTableMetadata } from './runtime'
+import { transactionCommitSubscriber } from './afterCommit'
 import { createLogger } from '../logger'
 import {
   getTelemetryRuntime,
@@ -416,6 +417,7 @@ async function initializeOrm(purpose: OrmPurpose, state: OrmState): Promise<AppM
     driver: PostgreSqlDriver,
     clientUrl,
     entities,
+    subscribers: [transactionCommitSubscriber],
     debug: false,
     // v7 no longer defaults to ReflectMetadataProvider. Entities in this repo use
     // `@mikro-orm/decorators/legacy`, which relies on TypeScript `emitDecoratorMetadata`

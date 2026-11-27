@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction, asValue } from 'awilix'
 import { Pool } from 'pg'
 import { resolveDatabaseConnectionUrl } from '@open-mercato/shared/lib/db/runtime'
@@ -166,6 +167,8 @@ export function register(container: AppContainer) {
     vectorDrivers: asValue(drivers),
     vectorIndexQueue: asValue(vectorIndexQueue),
     fulltextIndexQueue: asValue(fulltextIndexQueue),
-    embeddingProviderProbe: asValue(createEmbeddingProviderProbe(container)),
+    embeddingProviderProbe: asScopedService(createEmbeddingProviderProbe),
   })
 }
+
+defineProcessDiRegistrar(register)

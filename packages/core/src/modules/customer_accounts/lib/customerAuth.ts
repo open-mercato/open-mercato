@@ -31,15 +31,14 @@ async function resolveSessionService(): Promise<
   return container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
 }
 
-async function assertSessionStillActive(input: {
+async function findSessionStillActive(input: {
   sessionId: string
   userId: string
   tenantId: string
   organizationId: string
-}): Promise<boolean> {
+}) {
   const service = await resolveSessionService()
-  const session = await service.findActiveSessionForClaims(input)
-  return session !== null
+  return service.findActiveSessionForClaims(input)
 }
 
 /**
@@ -86,6 +85,7 @@ export async function validateUserState(
   tenantId: string,
   orgId: string,
   iat: unknown,
+  sessionCreatedAt?: Date,
 ): Promise<UserValidationResult> {
   const [{ createRequestContainer }, { CustomerUser }] = await Promise.all([
     import('@open-mercato/shared/lib/di/container'),
@@ -99,7 +99,8 @@ export async function validateUserState(
   if (!user) return { valid: false }
   if (user.deletedAt) return { valid: false }
   if (!user.isActive) return { valid: false }
-  if (user.sessionsRevokedAt && typeof iat === 'number' && iat * 1000 < user.sessionsRevokedAt.getTime()) {
+  const issuedAt = sessionCreatedAt?.getTime() ?? (typeof iat === 'number' ? iat * 1000 : undefined)
+  if (user.sessionsRevokedAt && issuedAt !== undefined && issuedAt < user.sessionsRevokedAt.getTime()) {
     return { valid: false }
   }
   if (!(await isCustomerTenantActive(em, tenantId))) return { valid: false }
@@ -179,21 +180,22 @@ async function readCustomerAuthFromRequest(req: Request): Promise<CustomerAuthCo
       { kind: 'identity', tenantId, source: 'identity', operation: 'customer-session-authentication' },
       async () => {
         try {
-          const stillActive = sid
-            ? await assertSessionStillActive({
+          const session = sid
+            ? await findSessionStillActive({
                 sessionId: sid,
                 userId,
                 tenantId,
                 organizationId,
               })
-            : await assertUserStillHasActiveSession({ userId, tenantId, organizationId })
-          if (!stillActive) return null
+            : null
+          if (sid ? !session : !(await assertUserStillHasActiveSession({ userId, tenantId, organizationId }))) return null
 
           const userState = await validateUserState(
             userId,
             tenantId,
             organizationId,
             payload.iat,
+            session?.createdAt,
           )
           if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
 

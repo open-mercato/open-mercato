@@ -26,6 +26,8 @@ jest.mock('@open-mercato/core/modules/dictionaries/data/entities', () => ({
 }))
 
 import { applyLocalizedContent } from '@open-mercato/shared/lib/localization/resolver'
+import { registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
+import { translatableFields } from '@open-mercato/core/modules/dictionaries/translations'
 import { registerTranslationOverlayPlugin } from '@open-mercato/shared/lib/localization/overlay-plugin'
 import { resolveLocaleFromRequest } from '@open-mercato/core/modules/translations/lib/locale'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -51,8 +53,10 @@ async function readEntries(response: Response) {
 }
 
 describe('catalog dictionary lookup — entry translations (#6951)', () => {
-  const overlay = jest.fn(async (items: Record<string, unknown>[], options: { locale: string }) =>
-    items.map((item) => applyLocalizedContent(item, storedTranslations[String(item.id)] ?? null, options.locale)),
+  beforeAll(() => registerTranslatableFields(translatableFields))
+
+  const overlay = jest.fn(async (items: Record<string, unknown>[], options: { locale: string; entityType: string }) =>
+    items.map((item) => applyLocalizedContent(item, storedTranslations[String(item.id)] ?? null, options.locale, options.entityType)),
   )
 
   beforeEach(() => {
@@ -106,9 +110,9 @@ describe('catalog dictionary lookup — entry translations (#6951)', () => {
   })
 
   it('matches translated labels to entries by id regardless of overlay order', async () => {
-    overlay.mockImplementationOnce(async (items: Record<string, unknown>[], options: { locale: string }) =>
+    overlay.mockImplementationOnce(async (items: Record<string, unknown>[], options: { locale: string; entityType: string }) =>
       items
-        .map((item) => applyLocalizedContent(item, storedTranslations[String(item.id)] ?? null, options.locale))
+        .map((item) => applyLocalizedContent(item, storedTranslations[String(item.id)] ?? null, options.locale, options.entityType))
         .reverse(),
     )
 

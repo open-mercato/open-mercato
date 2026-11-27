@@ -1,5 +1,6 @@
 import type { JobContext, JobHandler, QueuedJob } from '@open-mercato/queue'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { resolveDeclaredDatabaseJobContext, validateDeclaredDatabaseBinding } from '@open-mercato/shared/lib/db/declarations'
 import { isDatabaseRuntimeEnabled, runWithFreshDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 
@@ -8,14 +9,14 @@ type SearchWorker<T> = (job: QueuedJob<T>, context: JobContext, container: Pick<
 
 export function createSearchWorkerHandler<T>(handler: SearchWorker<T>): JobHandler<T> {
   return async (job, context) => {
-    const execute = async () => {
+    const execute = () => runInOwnedRequestScope(async () => {
       const container = await createRequestContainer()
       try {
-        await handler(job, context, { resolve: container.resolve.bind(container) })
+        await runWithRequestScopeContainer(container, () => handler(job, context, { resolve: container.resolve.bind(container) }))
       } finally {
         await container.dispose()
       }
-    }
+    })
     if (!isDatabaseRuntimeEnabled()) return execute()
     const execution = await resolveDeclaredDatabaseJobContext({ queue: context.queueName, workerIds: [], payload: job.payload, metadata: job.metadata })
     if (execution.kind === 'tenant') {

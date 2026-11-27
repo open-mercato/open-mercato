@@ -4,10 +4,12 @@ import { isDatabaseRuntimeEnabled } from '@open-mercato/shared/lib/db/runtime'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
+  CustomerUser,
   CustomerUserEmailVerification,
   CustomerUserPasswordReset,
   CustomerUserInvitation,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { pendingSignup, signupExpiryCutoff } from '../lib/pendingSignup'
 
 export const metadata: WorkerMeta = {
   queue: 'customer-accounts-cleanup-tokens',
@@ -24,6 +26,12 @@ export default async function handle(job: QueuedJob, ctx: HandlerContext): Promi
   const now = new Date()
 
   const cleanup = async (scopedEm: EntityManager, tenantId?: string) => {
+    await scopedEm.nativeUpdate(CustomerUser, {
+      ...(tenantId ? { tenantId } : {}),
+      ...pendingSignup,
+      createdAt: { $lte: signupExpiryCutoff(now) },
+    }, { deletedAt: now, isActive: false, passwordHash: null, sessionsRevokedAt: now })
+
     // Cleanup expired email verifications
     await scopedEm.nativeDelete(CustomerUserEmailVerification, {
       ...(tenantId ? { tenantId } : {}),
@@ -53,7 +61,7 @@ export default async function handle(job: QueuedJob, ctx: HandlerContext): Promi
     })
   }
   if (!isDatabaseRuntimeEnabled()) return cleanup(em)
-  const tenants: unknown = await em.getConnection().execute("select distinct tenant_id from customer_user_email_verifications union select distinct tenant_id from customer_user_password_resets union select distinct tenant_id from customer_user_invitations")
+  const tenants: unknown = await em.getConnection().execute("select distinct tenant_id from customer_user_email_verifications union select distinct tenant_id from customer_user_password_resets union select distinct tenant_id from customer_user_invitations union select distinct tenant_id from customer_users")
   if (!Array.isArray(tenants)) throw new Error('[internal] Invalid customer cleanup tenant discovery result')
   for (const row of tenants as Array<{ tenant_id: string }>) {
     try {

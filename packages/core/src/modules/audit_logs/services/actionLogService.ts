@@ -23,6 +23,7 @@ import {
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { toOptionalString } from '@open-mercato/shared/lib/string/coerce'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   ACTION_LOG_ACTOR_SUBJECT_CONTEXT_KEY,
   actionLogBelongsToSubject,
@@ -63,6 +64,9 @@ const SYSTEM_ACTOR_CONTEXT_KEY = 'systemActor'
 const SYSTEM_ACTOR_REFERENCE_MAX_LENGTH = 255
 const REPLAY_QUERY_BATCH_SIZE = 100
 export const REPLAY_ENCRYPTED_SCAN_MAX_PAGES = 10
+export const CORRELATION_LIST_MAX_PAGE_SIZE = 100
+const CORRELATION_KEY_MAX_LENGTH = 300
+const CORRELATION_KEYS_MAX_COUNT = 100
 
 type ApiKeyReplayEntryKind = 'canonical' | 'legacy' | 'invalid'
 
@@ -120,6 +124,7 @@ type BackfillRow = {
   changed_fields: string[] | null
   changes_json: Record<string, unknown> | null
   command_id: string
+  correlation_keys: string[] | null
   context_json: Record<string, unknown> | null
   created_at: Date
   id: string
@@ -174,13 +179,61 @@ function stringArraysEqual(left: string[] | null, right: string[]): boolean {
   return left.every((value, index) => value === right[index])
 }
 
+export type AuditHistoryOrganizationScope =
+  | { mode: 'exact'; organizationId: string | null }
+  | { mode: 'tenant-level-fallback'; organizationIds: readonly string[] | 'all-authorized' }
+
+export type AuditHistoryResource = {
+  tenantId: string
+  resourceKind: string
+  resourceId: string
+}
+
+type AuditHistoryQuery = AuditHistoryResource & { organization: AuditHistoryOrganizationScope }
+
+type AuditHistoryRow = {
+  id: string
+  tenant_id: string | null
+  organization_id: string | null
+  resource_kind: string | null
+  resource_id: string | null
+  actor_user_id: string | null
+  deleted_at: Date | null
+  created_at: Date
+  changes_json: unknown
+  snapshot_before: unknown
+  snapshot_after: unknown
+}
+
+export type AuditHistoryEntry = {
+  id: string
+  actorUserId: string | null
+  createdAt: Date
+  changesJson: Record<string, unknown> | null
+  snapshotBefore: Record<string, unknown> | null
+  snapshotAfter: Record<string, unknown> | null
+}
+
+export type ActionLogHistoryService = Pick<
+  ActionLogService,
+  'findLatestResourceHistory' | 'findLatestActorHistory' | 'findResourceHistoryById'
+>
+
+function readAuditHistoryRecord(value: unknown): Record<string, unknown> | null {
+  const parsed = typeof value === 'string' ? parseDecryptedFieldValue(value) : value
+  return isRecord(parsed) ? parsed : null
+}
+
 export class ActionLogService {
   constructor(
     private readonly em: EntityManager,
     private readonly tenantEncryptionService?: TenantDataEncryptionService,
   ) {}
 
-  private async decryptEntryPayload<T extends Record<string, unknown>>(entry: T): Promise<T> {
+  private async decryptEntryPayload<T extends Record<string, unknown>>(
+    entry: T,
+    options?: { throwOnFailure?: boolean },
+  ): Promise<T> {
     if (!this.tenantEncryptionService?.isEnabled()) return entry
 
     try {
@@ -239,6 +292,7 @@ export class ActionLogService {
 
       return merged as T
     } catch (err) {
+      if (options?.throwOnFailure) throw err
       if (!decryptionWarningLogged) {
         decryptionWarningLogged = true
         logger.warn('Failed to decrypt action log entry', { err })
@@ -352,6 +406,7 @@ export class ActionLogService {
       changesJson: isRecord(data.changes) ? data.changes : null,
       changedFields: projection.changedFields,
       primaryChangedField: projection.primaryChangedField,
+      correlationKeys: projection.correlationKeys,
       contextJson: isRecord(data.context) ? data.context : null,
       sourceKey: projection.sourceKey,
       createdAt: new Date(),
@@ -491,6 +546,9 @@ export class ActionLogService {
     if (parsed.tenantId) query = query.where('action_logs.tenant_id', '=', parsed.tenantId)
     if (parsed.organizationId) query = query.where('action_logs.organization_id', '=', parsed.organizationId)
 
+    const ids = Array.from(new Set(parsed.ids ?? []))
+    if (ids.length > 0) query = query.where('action_logs.id', 'in', ids)
+
     if (parsed.actorSubject) {
       const actor = canonicalizeActorSubject(parsed.actorSubject)
       if (!actor) return query.where(sql<boolean>`false`)
@@ -543,6 +601,11 @@ export class ActionLogService {
     const fieldNames = this.resolveFieldNames(parsed)
     if (fieldNames.length === 1) query = query.where('action_logs.primary_changed_field', '=', fieldNames[0])
     if (fieldNames.length > 1) query = query.where('action_logs.primary_changed_field', 'in', fieldNames)
+
+    const correlationKeys = Array.from(new Set(parsed.correlationKeys ?? []))
+    if (correlationKeys.length > 0) {
+      query = query.where(sql<boolean>`action_logs.correlation_keys && array[${sql.join(correlationKeys)}]::text[]`)
+    }
 
     const actionTypes = this.resolveActionTypes(parsed)
     if (actionTypes.length === 1) query = query.where('action_logs.action_type', '=', actionTypes[0])
@@ -600,6 +663,30 @@ export class ActionLogService {
     ])
     const totalPages = Math.max(1, Math.ceil((total || 0) / (pageSize || 1)))
     return { items, total, page, pageSize, totalPages }
+  }
+
+  async listByCorrelationKeys(params: {
+    tenantId: string
+    organizationId: string
+    keys: string[]
+    page?: number
+    pageSize?: number
+  }) {
+    const keys = Array.from(new Set(params.keys.map((key) => key.trim())))
+      .filter((key) => key.length > 0 && key.length <= CORRELATION_KEY_MAX_LENGTH)
+      .slice(0, CORRELATION_KEYS_MAX_COUNT)
+    const page = params.page && params.page > 0 ? Math.floor(params.page) : 1
+    const pageSize = Math.min(CORRELATION_LIST_MAX_PAGE_SIZE, params.pageSize && params.pageSize > 0 ? Math.floor(params.pageSize) : 50)
+    if (!params.tenantId || !params.organizationId || keys.length === 0) {
+      return { items: [] as ActionLog[], total: 0, page, pageSize, totalPages: 1 }
+    }
+    return this.list({
+      tenantId: params.tenantId,
+      organizationId: params.organizationId,
+      correlationKeys: keys,
+      page,
+      pageSize,
+    })
   }
 
   private classifyApiKeyReplayEntry(entry: ActionLog, actorSubject: string): ApiKeyReplayEntryKind {
@@ -762,6 +849,87 @@ export class ActionLogService {
     return entry
   }
 
+  async findLatestResourceHistory(query: AuditHistoryQuery): Promise<AuditHistoryEntry | null> {
+    return this.readResourceHistory(query, {})
+  }
+
+  async findLatestActorHistory(query: AuditHistoryQuery, actorUserId: string): Promise<AuditHistoryEntry | null> {
+    if (!isSchemaUuid(actorUserId)) return null
+    return this.readResourceHistory(query, { actorUserId })
+  }
+
+  async findResourceHistoryById(
+    query: AuditHistoryResource & { organization: Extract<AuditHistoryOrganizationScope, { mode: 'exact' }> },
+    id: string,
+  ): Promise<AuditHistoryEntry | null> {
+    if (query.organization?.mode !== 'exact' || !isSchemaUuid(id)) return null
+    return this.readResourceHistory(query, { id })
+  }
+
+  private async readResourceHistory(
+    query: AuditHistoryQuery,
+    filters: { actorUserId?: string; id?: string },
+  ): Promise<AuditHistoryEntry | null> {
+    const { tenantId, resourceKind, resourceId, organization } = query
+    if (!tenantId || !resourceKind || !resourceId || !organization) return null
+
+    let lookup = this.em.getKysely<{ action_logs: AuditHistoryRow }>()
+      .selectFrom('action_logs')
+      .select(['id', 'tenant_id', 'organization_id', 'actor_user_id', 'created_at', 'changes_json', 'snapshot_before', 'snapshot_after'])
+      .where('tenant_id', '=', tenantId)
+      .where('resource_kind', '=', resourceKind)
+      .where('resource_id', '=', resourceId)
+      .where('deleted_at', 'is', null)
+
+    switch (organization.mode) {
+      case 'exact':
+        if (organization.organizationId === undefined) return null
+        lookup = organization.organizationId === null
+          ? lookup.where('organization_id', 'is', null)
+          : lookup.where('organization_id', '=', organization.organizationId)
+        break
+      case 'tenant-level-fallback':
+        if (organization.organizationIds === 'all-authorized') {
+          lookup = lookup.where('organization_id', 'is not', null)
+        } else {
+          if (!organization.organizationIds?.length) return null
+          lookup = lookup.where('organization_id', 'in', organization.organizationIds)
+        }
+        break
+      default:
+        return null
+    }
+
+    if (filters.actorUserId) lookup = lookup.where('actor_user_id', '=', filters.actorUserId)
+    lookup = filters.id ? lookup.where('id', '=', filters.id) : lookup.orderBy('created_at', 'desc')
+
+    const row = await lookup.limit(1).executeTakeFirst()
+    if (!row) return null
+
+    const entry = { id: row.id, actorUserId: row.actor_user_id, createdAt: row.created_at }
+    try {
+      const decrypted = await this.decryptEntryPayload({
+        tenantId: row.tenant_id,
+        organizationId: row.organization_id,
+        changesJson: row.changes_json,
+        snapshotBefore: row.snapshot_before,
+        snapshotAfter: row.snapshot_after,
+      }, { throwOnFailure: true })
+      return {
+        ...entry,
+        changesJson: readAuditHistoryRecord(decrypted.changesJson),
+        snapshotBefore: readAuditHistoryRecord(decrypted.snapshotBefore),
+        snapshotAfter: readAuditHistoryRecord(decrypted.snapshotAfter),
+      }
+    } catch {
+      getTelemetryRuntime()?.reportError(new Error('[internal] Audit history payload could not be decrypted'), {
+        module: 'audit_logs',
+        code: 'audit_logs.history_decryption_failed',
+      })
+      return { ...entry, changesJson: null, snapshotBefore: null, snapshotAfter: null }
+    }
+  }
+
   async latestUndoableForResource(params: {
     actorUserId: string
     tenantId?: string | null
@@ -850,7 +1018,7 @@ export class ActionLogService {
     let cursorId: string | null = null
 
     while (true) {
-      const rowsQuery = (this.em.getKysely<any>() as any)
+      let rowsQuery = (this.em.getKysely<any>() as any)
         .selectFrom('action_logs')
         .select([
           'action_logs.id',
@@ -866,25 +1034,27 @@ export class ActionLogService {
           'action_logs.source_key',
           'action_logs.changed_fields',
           'action_logs.primary_changed_field',
+          'action_logs.correlation_keys',
           'action_logs.created_at',
         ])
         .where('action_logs.deleted_at', 'is', null) as any
 
-      if (options.tenantId) rowsQuery.where('action_logs.tenant_id', '=', options.tenantId)
-      if (options.organizationId) rowsQuery.where('action_logs.organization_id', '=', options.organizationId)
+      if (options.tenantId) rowsQuery = rowsQuery.where('action_logs.tenant_id', '=', options.tenantId)
+      if (options.organizationId) rowsQuery = rowsQuery.where('action_logs.organization_id', '=', options.organizationId)
 
       if (!options.force) {
-        rowsQuery.where((eb: any) =>
+        rowsQuery = rowsQuery.where((eb: any) =>
           eb.or([
             eb('action_logs.action_type', 'is', null),
             eb('action_logs.source_key', 'is', null),
             eb('action_logs.changed_fields', 'is', null),
+            eb('action_logs.correlation_keys', 'is', null),
           ])
         )
       }
 
       if (cursorCreatedAt && cursorId) {
-        rowsQuery.where((eb: any) =>
+        rowsQuery = rowsQuery.where((eb: any) =>
           eb.or([
             eb('action_logs.created_at', '>', cursorCreatedAt),
             eb.and([
@@ -895,10 +1065,11 @@ export class ActionLogService {
         )
       }
 
-      const rows = await rowsQuery
-        .orderBy('created_at', 'asc')
-        .orderBy('id', 'asc')
+      const rows: BackfillRow[] = await rowsQuery
+        .orderBy('action_logs.created_at', 'asc')
+        .orderBy('action_logs.id', 'asc')
         .limit(batchSize)
+        .execute()
 
       if (rows.length === 0) break
 
@@ -921,6 +1092,7 @@ export class ActionLogService {
             || row.source_key !== projection.sourceKey
             || row.primary_changed_field !== projection.primaryChangedField
             || !stringArraysEqual(row.changed_fields, projection.changedFields)
+            || !stringArraysEqual(row.correlation_keys, projection.correlationKeys)
 
           if (!needsUpdate) {
             result.skipped += 1
@@ -933,6 +1105,7 @@ export class ActionLogService {
               action_type: projection.actionType,
               changed_fields: projection.changedFields,
               primary_changed_field: projection.primaryChangedField,
+              correlation_keys: projection.correlationKeys,
               source_key: projection.sourceKey,
             })
             .where('id', '=', row.id)

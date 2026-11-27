@@ -21,16 +21,15 @@ const logger = createLogger('customer_accounts').child({ component: 'customer-au
 
 export type { CustomerAuthContext }
 
-async function assertSessionStillActive(input: {
+async function findSessionStillActive(input: {
   sessionId: string
   userId: string
   tenantId: string
   organizationId: string
-}): Promise<boolean> {
+}) {
   const container = await createRequestContainer()
   const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
-  const session = await service.findActiveSessionForClaims(input)
-  return session !== null
+  return service.findActiveSessionForClaims(input)
 }
 
 /**
@@ -74,19 +73,20 @@ async function readCustomerAuthFromCookies(
       { kind: 'identity', tenantId, source: 'identity', operation: 'customer-cookie-authentication' },
       async () => {
         try {
-          const stillActive = await assertSessionStillActive({
+          const session = await findSessionStillActive({
             sessionId: sid,
             userId,
             tenantId,
             organizationId,
           })
-          if (!stillActive) return null
+          if (!session) return null
 
           const userState = await validateUserState(
             userId,
             tenantId,
             organizationId,
             payload.iat,
+            session.createdAt,
           )
           if (!userState.valid || !userState.tenantId || !userState.organizationId) return null
 

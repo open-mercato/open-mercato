@@ -10,6 +10,11 @@ import {
 } from '../events'
 import { AiPendingActionStateError } from '../lib/pending-action-types'
 import { runAiMaintenanceTenant } from '../database'
+import {
+  clearPendingActionNotifications,
+  isPendingActionNotifiable,
+  type PendingActionNotifyContainer,
+} from '../lib/pending-action-notify'
 
 const logger = createLogger('ai_assistant')
 
@@ -89,7 +94,14 @@ export interface PendingActionCleanupRunOptions {
   pageSize?: number
   /** Injectable tenant-discovery seam for unit tests. */
   discoverTenants?: (em: EntityManager, now: Date) => Promise<TenantScope[]>
+  container?: PendingActionNotifyContainer
+  clearNotifications?: PendingActionCleanupNotificationClearer
 }
+
+export type PendingActionCleanupNotificationClearer = (
+  pendingActionId: string,
+  scope: TenantScope,
+) => Promise<void>
 
 export interface PendingActionCleanupSummary {
   tenantsScanned: number
@@ -167,7 +179,6 @@ export async function runPendingActionCleanup(
   const emitter = options.emitEvent ?? defaultEmitter
   const pageSize = Math.max(1, Math.min(500, options.pageSize ?? DEFAULT_PAGE_SIZE))
   const discoverTenants = options.discoverTenants ?? discoverTenantsDefault
-
   const summary: PendingActionCleanupSummary = {
     tenantsScanned: 0,
     rowsProcessed: 0,
@@ -187,7 +198,11 @@ export async function runPendingActionCleanup(
   if (!tenants.length) return summary
 
   for (const scope of tenants) {
-    await runAiMaintenanceTenant(scope, options.em, async (em) => {
+    await runAiMaintenanceTenant(scope, options.em, async (em, tenantContainer) => {
+      const notifyContainer = tenantContainer ?? options.container
+      const clearNotifications = options.clearNotifications ?? (notifyContainer
+        ? (pendingActionId: string, scope: TenantScope) => clearPendingActionNotifications(notifyContainer, pendingActionId, scope)
+        : null)
       const repo = options.repo ?? new AiPendingActionRepository(em)
       summary.tenantsScanned += 1
       for (let page = 0; page < MAX_PAGES_PER_TENANT; page += 1) {
@@ -229,6 +244,13 @@ export async function runPendingActionCleanup(
             } catch (emitError) {
               logger.warn('Failed to emit ai.action.expired', { pendingActionId: row.id, err: emitError })
             }
+            if (clearNotifications && isPendingActionNotifiable(updated)) {
+              try {
+                await clearNotifications(updated.id, scope)
+              } catch (clearError) {
+                logger.warn('Failed to clear pending action notifications', { pendingActionId: row.id, err: clearError })
+              }
+            }
           } catch (error) {
             if (error instanceof AiPendingActionStateError) {
               summary.rowsSkipped += 1
@@ -257,5 +279,8 @@ export default async function handle(
   ctx: HandlerContext,
 ): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
-  await runPendingActionCleanup({ em })
+  await runPendingActionCleanup({
+    em,
+    container: { resolve: (name: string) => ctx.resolve(name) },
+  })
 }
