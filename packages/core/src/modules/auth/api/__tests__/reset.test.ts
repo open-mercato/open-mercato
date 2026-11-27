@@ -1,9 +1,17 @@
 import { POST } from '@open-mercato/core/modules/auth/api/reset'
+import { createElement } from 'react'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { SendEmailOptions } from '@open-mercato/shared/lib/email/send'
+import { clearRegisteredEmailTransportForTests, registerEmailTransport } from '@open-mercato/shared/lib/email/transport'
+import { sendSystemEmail } from '@open-mercato/core/modules/communication_channels/lib/system-email'
+import { registerSystemEmailProviderConfigResolver } from '@open-mercato/core/modules/communication_channels/lib/system-email-provider-config'
 
 const mockRequestPasswordReset = jest.fn()
 const mockSendEmail = jest.fn()
 const mockCheckAuthRateLimit = jest.fn()
-const mockResetPasswordEmail = jest.fn((props: { resetUrl: string }) => props)
+const mockIsUserEffectivelySuperAdmin = jest.fn()
+const mockFindOneWithDecryption = jest.fn()
+const mockResetPasswordEmail = jest.fn<unknown, [{ resetUrl: string }]>((props) => props)
 const mockEmitAuthEvent = jest.fn(async (_eventId: string, _payload: Record<string, unknown>, _options?: Record<string, unknown>) => undefined)
 
 const mockContainer = {
@@ -23,6 +31,14 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/email/send', () => ({
   sendEmail: jest.fn((args: unknown) => mockSendEmail(args)),
+}))
+
+jest.mock('@open-mercato/core/modules/auth/lib/grantChecks', () => ({
+  isUserEffectivelySuperAdmin: (...args: unknown[]) => mockIsUserEffectivelySuperAdmin(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/auth/emails/ResetPasswordEmail', () => ({
@@ -69,6 +85,12 @@ jest.mock('@open-mercato/core/modules/auth/events', () => ({
 }))
 
 const originalEnv = process.env
+const tenantUser = {
+  id: 'user-1',
+  email: 'staff@example.com',
+  tenantId: 'tenant-1',
+  organizationId: 'org-1',
+}
 
 function makeResetRequest(url: string, headers: Record<string, string> = {}) {
   const body = new URLSearchParams()
@@ -90,6 +112,7 @@ describe('POST /api/auth/reset', () => {
       APP_ALLOWED_ORIGINS: undefined,
     }
     mockCheckAuthRateLimit.mockResolvedValue({ error: null })
+    mockIsUserEffectivelySuperAdmin.mockResolvedValue(false)
     mockRequestPasswordReset.mockResolvedValue({
       user: {
         id: 'user-1',
@@ -240,6 +263,82 @@ describe('POST /api/auth/reset', () => {
     expect(res.status).toBe(200)
     expect(body).toEqual({ ok: true })
     expect(mockRequestPasswordReset).toHaveBeenCalledWith('staff@example.com')
+  })
+
+  test('keeps the generic reset response and skips delivery when the privilege check fails', async () => {
+    mockRequestPasswordReset.mockResolvedValueOnce({ user: tenantUser, token: 'test-token' })
+    mockIsUserEffectivelySuperAdmin.mockRejectedValueOnce(new Error('ACL unavailable'))
+
+    const response = await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+    expect(await response.json()).toEqual({ ok: true })
+    expect(response.status).toBe(200)
+    expect(mockSendEmail).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    { isSuperAdmin: true, expectedRef: 'instance', expectedFrom: 'operator@example.com' },
+    { isSuperAdmin: false, expectedRef: 'organization', expectedFrom: 'organization@example.com' },
+  ])('delivers the reset with $expectedRef credentials (superadmin=$isSuperAdmin)', async ({
+    isSuperAdmin, expectedRef, expectedFrom,
+  }) => {
+    process.env = {
+      ...process.env,
+      SYSTEM_EMAIL_PROVIDER: 'reset-test',
+      SYSTEM_EMAIL_CHANNEL_ID: 'organization-channel',
+      NOTIFICATIONS_EMAIL_FROM: 'operator@example.com',
+      OM_DISABLE_EMAIL_DELIVERY: 'false',
+      OM_TEST_MODE: 'false',
+    }
+    mockRequestPasswordReset.mockResolvedValueOnce({ user: tenantUser, token: 'test-token' })
+    mockIsUserEffectivelySuperAdmin.mockResolvedValueOnce(isSuperAdmin)
+    mockResetPasswordEmail.mockReturnValueOnce(createElement('p', null, 'Password reset'))
+    mockFindOneWithDecryption.mockResolvedValueOnce({
+      providerKey: 'reset-test',
+      channelType: 'email',
+      organizationId: tenantUser.organizationId,
+      isActive: true,
+      status: 'connected',
+    })
+    registerSystemEmailProviderConfigResolver({
+      providerKey: 'reset-test',
+      isConfigured: () => true,
+      resolveCredentials: ({ fromAddress }) => ({ reference: 'instance', fromAddress }),
+    })
+    const resolveCredentials = jest.fn(async () => ({ reference: 'organization', fromAddress: 'organization@example.com' }))
+    const sendMessage = jest.fn(async () => ({ status: 'sent' }))
+    const convertOutbound = jest.fn(async () => ({ content: { text: 'Password reset' }, metadata: {} }))
+    const services: Record<string, unknown> = {
+      em: { fork: () => ({}) },
+      channelAdapterRegistry: { get: () => ({ sendMessage, convertOutbound }) },
+      integrationCredentialsService: { resolve: resolveCredentials },
+    }
+    const container = { resolve: (name: string) => services[name] } as unknown as AppContainer
+    registerEmailTransport({ id: 'reset-test', send: (payload) => sendSystemEmail(container, payload) })
+    const { sendEmail } = jest.requireActual<{ sendEmail: (options: SendEmailOptions) => Promise<void> }>(
+      '@open-mercato/shared/lib/email/send',
+    )
+    mockSendEmail.mockImplementationOnce(sendEmail)
+
+    try {
+      const response = await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+
+      expect(await response.json()).toEqual({ ok: true })
+      expect(sendMessage).toHaveBeenCalledTimes(1)
+      expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        credentials: { reference: expectedRef, fromAddress: expectedFrom },
+      }))
+      expect(convertOutbound).toHaveBeenCalledWith(expect.objectContaining({
+        channelMetadata: expect.objectContaining({ to: tenantUser.email, from: expectedFrom }),
+      }))
+      expect(resolveCredentials).toHaveBeenCalledTimes(isSuperAdmin ? 0 : 1)
+      expect(mockResetPasswordEmail).toHaveBeenCalledWith(expect.objectContaining({
+        resetUrl: 'https://app.example.com/reset/test-token?tenant=tenant-1',
+      }))
+    } finally {
+      clearRegisteredEmailTransportForTests()
+      mockFindOneWithDecryption.mockReset()
+    }
   })
 
   describe('tenant continuity in the reset link', () => {

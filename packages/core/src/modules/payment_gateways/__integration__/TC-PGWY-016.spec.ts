@@ -26,7 +26,7 @@ import { createPaymentSession } from './helpers/fixtures'
  *                                                    which the route maps to a gateway error)
  * The owning user is unaffected and can still read and capture their own transaction.
  */
-const PASSWORD = 'Qa!2026Pgwy'
+const PASSWORD = 'Qa!2026Pgwys'
 const PAYMENT_FEATURES = [
   'payment_gateways.view',
   'payment_gateways.manage',

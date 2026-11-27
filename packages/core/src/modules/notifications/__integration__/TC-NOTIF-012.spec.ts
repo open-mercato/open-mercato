@@ -42,7 +42,7 @@ test.describe('TC-NOTIF-012: admin preference scoping across organizations', () 
   test('an org-restricted admin can manage in-org users but is refused out-of-org users', async ({ request }) => {
     test.slow()
     const stamp = Date.now()
-    const password = 'Secret123!'
+    const password = 'QaSecret123!'
     const superAdminToken = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenScope(superAdminToken)
 

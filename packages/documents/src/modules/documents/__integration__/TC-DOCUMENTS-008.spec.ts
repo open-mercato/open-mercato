@@ -68,7 +68,7 @@ type DocumentsTestUser = {
 
 const DOCUMENTS_LIMITED_FEATURES = ['documents.view', 'documents.create']
 const DOCUMENTS_VIEW_FEATURES = ['documents.view']
-const VALID_PASSWORD = 'Valid1!Pass'
+const VALID_PASSWORD = 'QaValid1!Pass'
 const BASE_URL = process.env.BASE_URL?.trim() || null
 
 function resolveUrl(path: string): string {

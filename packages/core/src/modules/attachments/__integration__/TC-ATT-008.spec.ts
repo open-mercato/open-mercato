@@ -42,11 +42,11 @@ test.describe('TC-ATT-008: Attachment RBAC and feature gates', () => {
       // An authenticated principal with no roles → no attachments.* features.
       unprivilegedUserId = await createUserFixture(request, adminToken, {
         email: unprivilegedEmail,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId,
         roles: [],
       })
-      const unprivilegedToken = await getAuthToken(request, unprivilegedEmail, 'Valid1!Pass')
+      const unprivilegedToken = await getAuthToken(request, unprivilegedEmail, 'QaValid1!Pass')
 
       // Seed an attachment as admin so the detail-route checks have a real target.
       const uploaded = await uploadAttachmentFixture(request, adminToken, {

@@ -28,7 +28,7 @@ test.describe('TC-PERSP-RBAC-002: perspectives.role_defaults gates role operatio
   test('allows personal save but blocks applyToRoles for a user lacking perspectives.role_defaults', async ({ request }) => {
     test.slow();
     const stamp = Date.now();
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     const email = `qa-persp-rbac-002-${stamp}@example.com`;
     const tableId = `qa-persp-rbac-002-${stamp}`;
 
