@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHmac } from 'node:crypto'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
@@ -231,7 +231,7 @@ export type DetachOperatorOptions = {
 }
 
 function revocationFingerprint(operator: TillioOperatorRecord, environment: TillioResolvedEnvironment): string {
-  return createHash('sha256')
+  return createHmac('sha256', environment.apiKey)
     .update(JSON.stringify([
       operator.id,
       operator.plugin,
@@ -239,7 +239,6 @@ function revocationFingerprint(operator: TillioOperatorRecord, environment: Till
       operator.tenantDomain,
       operator.envFingerprint,
       environment.apiUrl,
-      environment.apiKey,
       environment.tenantSystemId,
     ]))
     .digest('hex')

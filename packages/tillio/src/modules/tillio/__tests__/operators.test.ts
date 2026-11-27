@@ -284,6 +284,25 @@ describe('detachOperator', () => {
     expect(store[TILLIO_OPERATORS_INTEGRATION_ID]).toMatchObject({ operators: [], defaultOperatorId: null })
   })
 
+  it('does not acknowledge revocation confirmed under a different provider API key', async () => {
+    const { deleteConfig, release } = gatedDeleteConfig(new TillioApiError('nope', 422, 'invalid'))
+    mockClient({ deleteConfig })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const slowDetach = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    store[TILLIO_INTEGRATION_ID] = { ...readyEnv, apiKey: 'rotated-provider-key' }
+    await expect(detachOperator({ credentialsService: service, scope }, 'ringostat-1'))
+      .resolves.toEqual({ ok: true, detached: true, revoked: true })
+    release()
+
+    await expect(slowDetach).rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
+    expect(service.save).toHaveBeenCalledTimes(1)
+  })
+
   it('preserves a genuine provider failure when a concurrent forced detach only removed the local record', async () => {
     const providerError = new TillioApiError('nope', 422, 'invalid')
     const { deleteConfig, release } = gatedDeleteConfig(providerError)
