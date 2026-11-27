@@ -264,14 +264,14 @@ Code from a pull request runs on the runner that executes the workflow. The fork
 
 ### Memory
 
-The gate is sized for a standard GitHub-hosted Linux runner (2 vCPU, 7 GB RAM); `typecheck` alone peaks at about 6.5 GB. Next.js normally type-checks again during `next build`, and that second pass does not fit in 7 GB next to the compiled app. Because `typecheck` has already passed, `yarn ci` runs its `build` step with `OM_SKIP_NEXT_BUILD_TYPECHECK=1`, which makes `next.config.ts` skip that second check (`typescript.ignoreBuildErrors`). `yarn ci` also sets `OM_NEXT_BUILD_NODE_OPTIONS=--max-old-space-size=4096`, which the template's `build` script appends after its 8 GB default heap: with the 8 GB ceiling a cold build lets the heap grow until a 7 GB runner kills it. The same flag turns off Turbopack's build cache (`experimental.turbopackFileSystemCacheForBuild`): a CI build starts cold and throws the cache away, and writing it keeps the compiler's memory alive while Next generates pages. A plain `yarn build` still type-checks, keeps the 8 GB default and keeps the build cache.
+The gate is sized for a standard GitHub-hosted Linux runner (2 vCPU, 7 GB RAM); `typecheck` alone peaks at about 6.5 GB. Next.js normally type-checks again during `next build`, and that second pass does not fit in 7 GB next to the compiled app. Because `typecheck` has already passed, `yarn ci` runs its `build` step with `OM_SKIP_NEXT_BUILD_TYPECHECK=1`, which makes `next.config.ts` skip that second check (`typescript.ignoreBuildErrors`). `yarn ci` also sets `OM_BUILD_NODE_OPTIONS=--max-old-space-size=4096`, which the template's `scripts/build-next.mjs` uses in place of its default 8 GB heap: with the 8 GB ceiling a cold build lets the heap grow until a 7 GB runner kills it. The same flag turns off Turbopack's build cache (`experimental.turbopackFileSystemCacheForBuild`): a CI build starts cold and throws the cache away, and writing it keeps the compiler's memory alive while Next generates pages. A plain `yarn build` still type-checks, keeps the 8 GB default and keeps the build cache.
 
 ### Integration tests workflow
 
 `integration.yml` installs dependencies, prepares `.env` with `node scripts/ci.mjs --prepare-env`, installs Chromium, and runs `yarn test:integration:ephemeral --app-only`. That command boots a disposable Postgres container and a built copy of the app, then runs only the specs your app owns. The platform specs inside `node_modules/@open-mercato/*` are skipped (see [`--app-only`](../cli/test-integration#app-owned-specs-only)).
 
 - **Where specs go:** `src/modules/<module>/__integration__/*.spec.ts`. A new app has none, so the workflow prints `No app-owned integration specs found` and passes after install without starting Docker.
-- **Memory:** the test step sets the same `OM_SKIP_NEXT_BUILD_TYPECHECK=1` and `OM_NEXT_BUILD_NODE_OPTIONS=--max-old-space-size=4096` that `yarn ci` uses for its build (see [Memory](#memory)), so the app build fits a 7 GB runner. `ci.yml` type-checks the same commit.
+- **Memory:** the test step sets the same `OM_SKIP_NEXT_BUILD_TYPECHECK=1` and `OM_BUILD_NODE_OPTIONS=--max-old-space-size=4096` that `yarn ci` uses for its build (see [Memory](#memory)), so the app build fits a 7 GB runner. `ci.yml` type-checks the same commit.
 - **Docker:** the ephemeral environment needs a Docker daemon. GitHub's `ubuntu-latest` runners have one; a self-hosted runner must have Docker installed and usable by the runner user.
 - **Runner:** set the repository variable `OM_CI_INTEGRATION_RUNS_ON` to pick a runner for this workflow only. Without it, the workflow uses `OM_CI_RUNS_ON`, then `ubuntu-latest`. Pull requests from forks always run on `ubuntu-latest`.
 - **Failures:** the Playwright results in `.ai/qa/test-results` are uploaded as the `playwright-report` artifact when the run fails.
@@ -298,7 +298,7 @@ Apps scaffolded before CI was added do not get it automatically. Scaffold a thro
 
 - `scripts/ci.mjs`
 - the `"ci": "node ./scripts/ci.mjs"` entry in `package.json` `scripts`
-- the `build` script in `package.json`: it must append `${OM_NEXT_BUILD_NODE_OPTIONS:-}` after its `--max-old-space-size` flag (for example `NODE_OPTIONS="--max-old-space-size=8192 ${OM_NEXT_BUILD_NODE_OPTIONS:-}"`), otherwise `yarn ci` cannot lower the build heap and the build runs out of memory on a 7 GB runner
+- `scripts/build-next.mjs` and the `build` entry in `package.json` that calls it (`cross-env NODE_ENV=production node ./scripts/build-next.mjs`). The wrapper reads `OM_BUILD_NODE_OPTIONS` so CI can lower the build heap to 4 GB.
 - the `isCiGateBuild` constant in `next.config.ts` and the two settings that use it (`typescript.ignoreBuildErrors` and `experimental.turbopackFileSystemCacheForBuild`)
 - `.github/workflows/ci.yml`
 - `.github/workflows/integration.yml` (needs a `@open-mercato/cli` version that supports `mercato test:integration --app-only`)
