@@ -98,7 +98,7 @@ test.describe('TC-CGRP-026: membership customers are scoped to the caller organi
     const { tenantId } = getTokenContext(adminToken);
     const stamp = uniqueStamp();
     const email = `qa-cgrp-026-${stamp}@test.invalid`;
-    const password = 'Valid1!Pass';
+    const password = 'QaValid1!Pass';
 
     let orgAId: string | null = null;
     let orgBId: string | null = null;

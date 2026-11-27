@@ -149,9 +149,10 @@ export default function TimeTrackingReportsPage() {
       },
       {
         id: 'period',
+        meta: { truncate: false },
         header: t('staff.time_tracking.reports.list.period', 'Period'),
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">
+          <span className="whitespace-normal text-sm text-muted-foreground">
             {row.original.periodFrom} – {row.original.periodTo}
           </span>
         ),

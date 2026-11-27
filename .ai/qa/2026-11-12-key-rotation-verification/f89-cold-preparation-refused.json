@@ -1,0 +1,51 @@
+{
+  "runtimeCommit": "f89de9e887f98863b9f943ed0b016088e1ffc678",
+  "measurementStarted": false,
+  "productionCodeChanged": false,
+  "attempts": [
+    {
+      "label": "f89-1g-cold",
+      "volumeMountMode": "read-only",
+      "helperExitCode": 1,
+      "envelope": {
+        "runtimeCommit": "f89de9e887f98863b9f943ed0b016088e1ffc678",
+        "bundleSha256": "f58d62b0ff47cf1ade82a79d0fa20b601ec7fa476f90b2902cb375552b249cd3",
+        "root": "/bench/run-1g-5086ecd2",
+        "gib": 1,
+        "cacheCase": "cold",
+        "artifactStorage": "persistent named volume",
+        "clockPolicy": "Full verifier duration, including header/fence/chunk checks and owned cleanup; no source-clock subtraction",
+        "nodeFlags": [
+          "--max-old-space-size=128",
+          "--max-semi-space-size=4"
+        ],
+        "gateSource": "f89de9e887f98863b9f943ed0b016088e1ffc678",
+        "measuredRunStarted": false
+      }
+    },
+    {
+      "label": "f89-1g-cold-retry",
+      "volumeMountMode": "read-write",
+      "helperExitCode": 1,
+      "envelope": {
+        "runtimeCommit": "f89de9e887f98863b9f943ed0b016088e1ffc678",
+        "bundleSha256": "f58d62b0ff47cf1ade82a79d0fa20b601ec7fa476f90b2902cb375552b249cd3",
+        "root": "/bench/run-1g-5086ecd2",
+        "gib": 1,
+        "cacheCase": "cold",
+        "artifactStorage": "persistent named volume",
+        "clockPolicy": "Full verifier duration, including header/fence/chunk checks and owned cleanup; no source-clock subtraction",
+        "nodeFlags": [
+          "--max-old-space-size=128",
+          "--max-semi-space-size=4"
+        ],
+        "gateSource": "f89de9e887f98863b9f943ed0b016088e1ffc678",
+        "measuredRunStarted": false
+      }
+    }
+  ],
+  "confirmedCause": "The persistent PostgreSQL data_directory is the named volume root at /var/lib/postgresql/data. The fixed helper accepts only /var/lib/postgresql/data/pgdata, while the initial helper container mounted the volume at its parent; that subdirectory did not exist. Both modes failed before any measurement; no read-only mount cause is inferred.",
+  "recovery": "Finally blocks restarted only the owned PostgreSQL container. No rotation backup or baseline existed in the untouched fixture. The corrected helper view mounts the exact owned volume root at /var/lib/postgresql/data/pgdata; its nftw/open(O_RDONLY)/posix_fadvise helper then confirmed clean-file eviction, followed by a fresh server restart. No global flush or unrelated data access.",
+  "successfulMeasuredCase": "f89-semi4-1g-cold.json",
+  "perRunAcceptance": false
+}

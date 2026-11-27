@@ -32,4 +32,13 @@ describe('PriceWithCurrency — provider is optional', () => {
     )
     expect(normalize(screen.getByText(/1234/).textContent ?? '')).toBe('1234,50 USD')
   })
+
+  it.each([
+    ['0.00037035', 'BTC', '0,00037035 BTC'],
+    ['1.123456789012345681', 'ETH', '1,123456789012345681 ETH'],
+    ['4073.85', 'JPY', '4074 JPY'],
+    ['8.6418', 'KWD', '8,642 KWD'],
+  ])('renders %s %s at the currency display precision', (amount, currency, expected) => {
+    expect(normalize(formatPriceWithCurrency(amount, currency, '—', 'pl-PL'))).toBe(expected)
+  })
 })

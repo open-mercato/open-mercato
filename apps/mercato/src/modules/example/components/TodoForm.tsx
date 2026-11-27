@@ -116,6 +116,8 @@ export function TodoCreateForm() {
       titleHeadingLevel={1}
       backHref={LIST_HREF}
       entityId={ENTITY_ID}
+      formVariant="default"
+      formOperation="create"
       fields={fields}
       groups={groups}
       submitLabel={t('example.todos.form.create.submit')}
@@ -241,6 +243,9 @@ export function TodoEditForm({ id }: { id: string }) {
         />
       )}
       entityId={ENTITY_ID}
+      formVariant="default"
+      formOperation="update"
+      resourceId={id}
       fields={fields}
       groups={groups}
       initialValues={initial ?? fallbackInitialValues}
