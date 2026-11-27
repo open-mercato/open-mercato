@@ -57,6 +57,12 @@ line with `git branch -r --list 'origin/release/v*'`.
 - A backport PR is reviewed as a real PR: CI green *and* the change still fits the line's code.
   Backport copies category, priority, risk, `needs-qa` and `skip-qa`; it never copies
   `qa-approved`, so the QA gate applies to the line again.
+- Backport deliberately does not copy `needs-human-qa` either: the original PR already passed the
+  human-QA gate on `main`, and every backport is covered by the release-line QA pass that runs
+  before each release (§ Daily batch QA). Automatic QA still runs, because `needs-qa` is copied.
+  Exception: when the cherry-pick conflicted and the conflict was resolved by hand, the backport
+  is no longer the code the tester saw, so the reviewer MUST add `needs-human-qa` to the backport
+  PR by hand, and the QA-approval merge gate applies.
 - Auto-skills never push to `release/v*`, never merge into it outside a reviewed PR, and never
   dispatch Release cut, Release or Release publish, and never create or delete `v*` tags (a tag
   starts a publish) — those are maintainer actions.
@@ -250,7 +256,10 @@ next batch. Everything else (cosmetics, translations, small UX issues) is an iss
 
 When nobody tests on a given day, no new batch is cut while one is open; the open batch grows
 with `main` until a tester claims it. The same pass, with an upgrade from the previous version
-and migrations, runs on a release line before each release.
+and migrations, runs on a release line before each release. That pass is what covers backports,
+which do not carry `needs-human-qa` over from the original PR; a backport whose cherry-pick
+conflict was resolved by hand gets `needs-human-qa` from the reviewer (§ Release lines and
+backports).
 
 ## Auto-skill protocol
 
