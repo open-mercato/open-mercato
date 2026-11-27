@@ -675,9 +675,9 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
-`POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
+`POST /api/auth/logout` returns 303 instead of 307, even without cookies ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). It supersedes the October entry. The shared helper defaults to 307.
 
-**Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
+**Migration:** Accept 303 and follow `Location: /login` with GET. Revocation, cookie expiry, route URL/method, auth events and schema are unchanged. [Spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) · UPGRADE_NOTES.md.
 
 ## #7809 2026-11-06
 
@@ -747,3 +747,7 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 ## 2026-11-25 — MCP Code Mode
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## Staff credential email (2026-11-27, #10594)
+
+STABLE superadmin reset and invite email uses the instance provider. Tenant fallback retains exposure. Named waiver pending. [Migration](.ai/specs/2026-06-03-pluggable-email-providers.md).
