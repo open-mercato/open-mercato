@@ -17,6 +17,7 @@ export const metadata = {
 export default async function handler(
   payload: SyncCrudEventPayload,
 ): Promise<SyncCrudEventResult | void> {
+  if (payload.crudFormSectionPolicy) return
   const body = payload.payload
   if (body && typeof body === 'object' && !('priority' in body)) {
     return {

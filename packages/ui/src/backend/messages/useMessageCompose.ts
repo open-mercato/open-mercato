@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { MESSAGE_COMPOSER_UPLOAD_PREFIX } from '@open-mercato/shared/modules/messages/compose-payload'
 import { flash } from '../FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '../utils/apiCall'
 import { buildOptimisticLockHeader } from '../utils/optimisticLock'
@@ -67,7 +68,7 @@ function createTemporaryAttachmentRecordId(): string {
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-  return `messages-composer:${randomPart}`
+  return `${MESSAGE_COMPOSER_UPLOAD_PREFIX}${randomPart}`
 }
 
 export type UseMessageComposeParams = MessageComposerProps
@@ -534,6 +535,7 @@ export function useMessageCompose({
 
   const composeSendOperation = useComposeSendOperation({
     senderChannelId: effectiveSenderChannelId,
+    attachmentRecordId,
     t,
     messageType,
     createableMessageTypes,
@@ -693,7 +695,7 @@ export function useMessageCompose({
           : {}
 
         const call = await withScopedApiRequestHeaders(lockHeaders, () =>
-          apiCall<{ id?: string }>(endpoint, {
+          apiCall<{ id?: string; deliveryEnqueueStatus?: 'unconfirmed' }>(endpoint, {
             method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -719,10 +721,18 @@ export function useMessageCompose({
           }
           shouldReturnFalse = true
         } else {
-          flash(operation.successMessage, 'success')
+          const deliveryEnqueueStatus = call.result?.deliveryEnqueueStatus
+          if (deliveryEnqueueStatus === 'unconfirmed') {
+            flash(t('messages.flash.deliveryUnconfirmed', 'Message saved. Delivery could not be confirmed.'), 'warning')
+          } else {
+            flash(operation.successMessage, 'success')
+          }
           keepSubmitLock = true
 
-          onSuccess?.({ id: call.result?.id })
+          onSuccess?.({
+            id: call.result?.id,
+            ...(deliveryEnqueueStatus ? { deliveryEnqueueStatus } : {}),
+          })
 
           if (!inline) {
             onOpenChange?.(false)

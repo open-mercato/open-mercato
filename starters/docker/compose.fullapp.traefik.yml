@@ -71,6 +71,7 @@ services:
       - "traefik.http.routers.platform.entrypoints=websecure"
       - "traefik.http.routers.platform.tls=true"
       - "traefik.http.routers.platform.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.platform.middlewares=secure-transport"
       - "traefik.http.routers.platform.service=app-upstream"
       # Catch-all router for custom customer domains. Goes through the
       # inject-secret + domain-check middlewares so unmapped hostnames are
@@ -81,13 +82,14 @@ services:
       - "traefik.http.routers.customer.tls=true"
       - "traefik.http.routers.customer.tls.certresolver=letsencrypt"
       - "traefik.http.routers.customer.service=app-upstream"
-      - "traefik.http.routers.customer.middlewares=inject-domain-check-secret,domain-check"
+      - "traefik.http.routers.customer.middlewares=secure-transport,inject-domain-check-secret,domain-check"
       # Inject the shared secret onto the request so ForwardAuth can forward
       # it to the app. The header is also delivered to the upstream app, but
       # the app ignores X-Domain-Check-Secret outside the domain-check route.
       # `:?` makes compose fail fast when the secret is unset — a bare
       # interpolation would silently inject an empty header and neuter the
       # custom-domain gate.
+      - "traefik.http.middlewares.secure-transport.headers.stsseconds=31536000"
       - "traefik.http.middlewares.inject-domain-check-secret.headers.customrequestheaders.X-Domain-Check-Secret=${DOMAIN_CHECK_SECRET:?DOMAIN_CHECK_SECRET must be set when the traefik overlay is used}"
       # Verification endpoint — Traefik forwards X-Forwarded-Host (the
       # original Host) which the app's domain-check route accepts.

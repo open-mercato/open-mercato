@@ -24,14 +24,14 @@ export function createCliPresentation({ mode, output = process.stderr, suspend =
   }
   const rule = (kind: StatusKind) => paint(colors[kind], (rich ? '─' : '-').repeat(Math.max(8, Math.min(60, (output.columns ?? 80) - 4))))
   return {
-    title(text: string) { if (mode !== 'none') write(['', `   ${paint(36, clean(text))}`]) },
+    title(text: string) { if (mode !== 'none') write([paint(36, clean(text))]) },
     step(index: number, total: number, title: string, expected?: string) {
       if (mode === 'none') return
-      write(['', `   ${paint(1, paint(34, `${rich ? '──' : '--'} ${backupTranslation('backups.presentation.step')} ${index}/${total}`))} ${paint(1, clean(title))}`, ...(expected ? [`   ${paint(33, backupTranslation('backups.presentation.expected') + ':')} ${clean(expected)}`] : [])])
+      write([`${paint(1, paint(34, `${rich ? '──' : '--'} ${backupTranslation('backups.presentation.step')} ${index}/${total}`))} ${paint(1, clean(title))}`, ...(expected ? [`${paint(33, backupTranslation('backups.presentation.expected') + ':')} ${clean(expected)}`] : [])])
     },
-    status(kind: StatusKind, text: string) { if (mode !== 'none' || kind === 'fail' || kind === 'warn') write([`   ${prefix(kind)} ${paint(colors[kind], clean(text))}`]) },
-    result(title: string, lines: string[], kind: 'ok' | 'warn' = 'ok') { write(['', `   ${rule(kind)}`, `   ${prefix(kind)} ${paint(colors[kind], paint(1, clean(title)))}`, ...lines.map(line => `   ${clean(line)}`), `   ${rule(kind)}`, '']) },
-    error(title: string, lines: string[]) { write(['', `   ${rule('fail')}`, `   ${prefix('fail')} ${paint(31, paint(1, clean(title)))}`, ...lines.map(line => `   ${clean(line)}`), `   ${rule('fail')}`, '']) },
-    notice(text: string) { write([`   ${clean(text)}`]) },
+    status(kind: StatusKind, text: string) { if (mode !== 'none' || kind === 'fail' || kind === 'warn') write([`${prefix(kind)} ${paint(colors[kind], clean(text))}`]) },
+    result(title: string, lines: string[], kind: 'ok' | 'warn' = 'ok') { write([rule(kind), `${prefix(kind)} ${paint(colors[kind], paint(1, clean(title)))}`, ...lines.map(clean), rule(kind)]) },
+    error(title: string, lines: string[]) { write([rule('fail'), `${prefix('fail')} ${paint(31, paint(1, clean(title)))}`, ...lines.map(clean), rule('fail')]) },
+    notice(text: string) { write([clean(text)]) },
   }
 }

@@ -23,11 +23,13 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 
 - Every new route: from tenant B, request tenant A's ids and expect 404.
 - Check "All organizations" on reads and on writes. The symptom can be an endless reload, not an error.
+- On a fresh login, start editing while the organization switcher is loading. An edit survives initialization of the same scope, and switching scopes rechecks the form policy.
 - Seeded `employee` is not a no-permission role for sales. Build a narrow role.
 - A role that cannot use an action must not see it, and direct URLs must be refused too.
 - Run a negative control, so that "still visible" proves something.
 - A new role feature reaches existing tenants only after sync.
 - A security fix needs a test that failed before the fix, not a random token.
+- Compare organization list views with the switcher for a restricted role, and verify that partition codes can be reused by independent owners.
 
 ## Encryption
 
@@ -52,6 +54,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 - A cleared number field must stay empty until typed, not snap back to a default.
 - Invalid text must not turn into 0.
 - Compare single date and date range pickers, because they resolve the locale differently.
+- Verify grouped dashboard totals against the ungrouped metric and include a daily series longer than 100 days.
 - A select left empty must not show a raw enum code.
 
 ## Translations
@@ -67,6 +70,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 - A secondary write path must apply the same validation as the main form.
 - Migrations: test on a database with existing data, and check derived fields and existing tenants.
 - Custom fields: test list and detail, and typed values after import.
+- Submit a new record while custom-field definitions are loading. The first save should use the configured defaults for untouched fields.
 
 ## Lists and tables
 
@@ -80,6 +84,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 - Long operations need polling while active, plus a manual refresh.
 - Persistent events run with a delay. Wait before reporting that a trigger did not fire.
 - An async workflow step must resume in a separate worker process.
+- For external form delivery, test an organization that predates integration setup. Verify that a credential-free integration saves and syncs without stored credentials and provisions its recovery schedule.
 
 ## Optional modules
 
@@ -92,6 +97,8 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 - A refused undo must leave the data unchanged and say why.
 
 ## Keyboard and dialogs
+
+- Verify password input autocomplete and the accessible description of password requirements.
 
 - Escape in a nested layer closes only that layer.
 - Cmd/Ctrl+Enter submits and Escape cancels in every dialog, also after an error.

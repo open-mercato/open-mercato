@@ -446,6 +446,7 @@
   "resources.resources.detail.untitled": "Nienazwany zasób",
   "resources.resources.errors.resourceTypeDeleted": "Spowodowałoby to przypisanie zasobu do usuniętego typu zasobu. Najpierw przywróć typ zasobu.",
   "resources.resources.errors.resourceTypeUnavailable": "Wybrany typ zasobu nie jest już dostępny.",
+  "resources.resources.flash.created": "Zasób został utworzony.",
   "resources.resources.flash.createdAvailability": "Zapisano. Możesz teraz ustawić dostępność.",
   "resources.resources.form.actions.create": "Utwórz",
   "resources.resources.form.appearance.colorClear": "Wyczyść kolor",

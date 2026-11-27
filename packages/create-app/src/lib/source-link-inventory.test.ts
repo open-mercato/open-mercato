@@ -268,15 +268,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  assert.equal(inventory.derived.sourceRequiredCount, 135)
-  assert.equal(inventory.records.length, 161)
-  assert.equal(inventory.derived.renderedLinkCount, 137)
+  assert.equal(inventory.derived.sourceRequiredCount, 143)
+  assert.equal(inventory.records.length, 169)
+  assert.equal(inventory.derived.renderedLinkCount, 145)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 135)
+  assert.equal(sourceRequired.length, 143)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -408,7 +408,7 @@ test('records carry the derived joins the spec names, with exact values', () => 
   assert.equal(form.targetKind, 'canonical-example')
   assert.equal(form.moduleId, 'example')
   assert.equal(form.heading, 'Canonical example source')
-  assert.deepEqual(form.capabilityIds, ['ui.form-create', 'ui.form-edit'])
+  assert.deepEqual(form.capabilityIds, ['example.crud-form-extensions.c12', 'ui.form-create', 'ui.form-edit'])
 
   // The join, not the surface inventory's contents: every spec the record's own capabilities
   // name, deduplicated and sorted. Pinned as a literal it churned on each new `TC-EXAMPLE-*`
@@ -460,7 +460,7 @@ test('capability joins come from the example surface inventory, not from the top
       assert.ok(capability.sourcePaths.includes(record.resolvedPath))
     }
   }
-  assert.equal(joined, 100)
+  assert.equal(joined, 103)
 
   const unjoined = inventory.records.filter(
     (record) => record.requirement === 'source-required' && record.capabilityIds.length === 0,
@@ -469,7 +469,9 @@ test('capability joins come from the example surface inventory, not from the top
     [...new Set(unjoined.map((record) => record.resolvedPath))].sort(),
     [
       '.ai/guides/customers-calendar.md',
-        '.ai/skills/om-data-model-design/references/sensitive-data.md',
+      '.ai/guides/infrastructure-providers.md',
+      '.ai/skills/om-data-model-design/references/sensitive-data.md',
+      '.ai/skills/om-system-extension/references/extension-branches.md',
       'node_modules/@open-mercato/cli/src/lib/eject.ts',
       'node_modules/@open-mercato/cli/src/lib/module-identity.ts',
       'node_modules/@open-mercato/cli/src/lib/module-install.ts',
@@ -497,6 +499,9 @@ test('capability joins come from the example surface inventory, not from the top
       'src/modules/example/README.md',
       'src/modules/example/references/surface-inventory.json',
       'src/modules/example/references/surface-map.md',
+      'src/providers/cache.ts',
+      'src/providers/kms.example.ts',
+      'src/providers/queue.example.ts',
     ],
   )
 })

@@ -5,17 +5,13 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ProductFormValues } from './productForm'
+import { CategorySuggestionCard } from './CategorySuggestionCard'
+import { formatCategoryLabel } from './categoryPickerLabel'
 
 export type ProductCategorizePickerOption = {
   value: string
   label: string
   description?: string | null
-}
-
-const formatCategoryLabel = (name: string | null | undefined, fallback: string, parentName?: string | null) => {
-  const base = typeof name === 'string' && name.trim().length ? name.trim() : fallback
-  const parent = typeof parentName === 'string' && parentName.trim().length ? parentName.trim() : null
-  return parent ? `${base} / ${parent}` : base
 }
 
 type ProductCategorizeSectionProps = {
@@ -25,6 +21,10 @@ type ProductCategorizeSectionProps = {
   initialCategoryOptions?: ProductCategorizePickerOption[]
   initialChannelOptions?: ProductCategorizePickerOption[]
   initialTagOptions?: ProductCategorizePickerOption[]
+  /** Product id; the AI category suggestion card is hidden for a not-yet-created (draft) product. */
+  productId?: string
+  /** Snapshot of categoryIds at load time, to disable Accept while the field is dirty. */
+  initialCategoryIds?: string[]
 }
 
 export function ProductCategorizeSection({
@@ -34,6 +34,8 @@ export function ProductCategorizeSection({
   initialCategoryOptions,
   initialChannelOptions,
   initialTagOptions,
+  productId,
+  initialCategoryIds,
 }: ProductCategorizeSectionProps) {
   const t = useT()
   const [categoryOptionsMap, setCategoryOptionsMap] = React.useState<Record<string, ProductCategorizePickerOption>>({})
@@ -78,6 +80,10 @@ export function ProductCategorizeSection({
     }
   }, [initialTagOptions, registerPickerOptions])
 
+  const registerCategoryOptions = React.useCallback(
+    (options: ProductCategorizePickerOption[]) => registerPickerOptions(setCategoryOptionsMap, options),
+    [registerPickerOptions],
+  )
   const resolveCategoryLabel = React.useCallback(
     (id: string) => categoryOptionsMap[id]?.label ?? id,
     [categoryOptionsMap],
@@ -222,6 +228,16 @@ export function ProductCategorizeSection({
         </p>
         {errors.categoryIds ? <p className="text-xs text-status-error-text">{errors.categoryIds}</p> : null}
       </div>
+
+      {productId ? (
+        <CategorySuggestionCard
+          productId={productId}
+          categoryIds={Array.isArray(values.categoryIds) ? values.categoryIds : []}
+          initialCategoryIds={initialCategoryIds ?? []}
+          setValue={setValue}
+          registerCategoryOptions={registerCategoryOptions}
+        />
+      ) : null}
 
       <div className="space-y-2">
         <Label>{t('catalog.products.create.organize.channelsLabel', 'Sales channels')}</Label>

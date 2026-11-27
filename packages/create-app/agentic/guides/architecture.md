@@ -26,7 +26,7 @@ Facts identify existing identifiers and surfaces; exact installed source shows h
 | App-specific domain capability | Create `src/modules/<id>/` and register `{ id, from: '@app' }` in `src/modules.ts`. |
 | Additive change to an installed module | Use the smallest UMES mechanism from `.ai/guides/extensions.md`. |
 | Disable/replace a supported installed contract | Use the target module entry's `overrides` in `src/modules.ts`. |
-| Reusable external provider | Add/install a dedicated provider package; do not place provider logic in a generic core module. |
+| Reusable external provider | Install its own npm package. Register infrastructure in `src/providers/`. |
 | Change unsupported by UMES/overrides | Inspect exact installed context, then use `om-eject-and-customize` only with user approval. |
 | Framework defect affecting all consumers | Reproduce against the installed version and report an upstream change; never patch `node_modules`. |
 
@@ -105,7 +105,7 @@ To save an app template or create an app from one, read `.ai/guides/template-too
 
 ## Completion Check
 
-1. Verify app code is under `src/modules/` and installed packages remain unchanged.
+1. Verify module code is under `src/modules/` and installed packages remain unchanged.
 2. Verify every new discovered file uses its exact filename/export contract.
 3. Run `yarn generate` and inspect warnings and the affected generated registration.
 4. Run focused type/tests, then exercise every relevant runtime bootstrap.

@@ -62,7 +62,7 @@ test.describe('TC-AI-SESSION-KEY-006: Session key generation', () => {
     const adminToken = await getAuthToken(request, 'admin');
     const { organizationId } = getTokenScope(adminToken);
     const stamp = randomUUID().slice(0, 8);
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
 
     const anon = await playwrightRequest.newContext({ baseURL });
     try {

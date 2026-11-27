@@ -1039,7 +1039,7 @@ describe('RecordLockService.emitIncomingChangesNotificationAfterMutation', () =>
         changedFields: '-',
         changedRowsJson: '',
       }),
-      { tenantId: '60000000-0000-4000-8000-000000000001', organizationId: '70000000-0000-4000-8000-000000000777' },
+      { tenantId: organizationId ? mutation.tenantId : null, organizationId },
     )
   })
 

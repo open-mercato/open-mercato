@@ -45,11 +45,14 @@ export function readRequestOrganizationScope(): OrganizationScopeChangedDetail |
   return hasOrganizationCookie ? readPersistedScope() : null
 }
 
-export function emitOrganizationScopeChanged(detail: OrganizationScopeChangedDetail): void {
+export function emitOrganizationScopeChanged(
+  detail: OrganizationScopeChangedDetail,
+  initialServerScope?: OrganizationScopeChangedDetail,
+): void {
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return
   
   // Detect actual changes
-  const previousScope = hasEmitted ? currentScope : initialPersistedScope
+  const previousScope = hasEmitted ? currentScope : (initialServerScope ?? initialPersistedScope)
   const hasChanged = 
     previousScope.organizationId !== detail.organizationId ||
     previousScope.tenantId !== detail.tenantId

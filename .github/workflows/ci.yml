@@ -78,6 +78,9 @@ env:
 # `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
 # `main`, and while it is absent from these lists no job is scheduled for them at all.
 # Drop the entry once its stack has landed on `main`.
+# `stabilize/**` is a pull_request base only: fix PRs into the daily batch
+# (`stabilize/main-<date>`, CONTRIBUTING.md § Daily batch) get the normal scoped run. The batch
+# PR itself has a `stabilize/` head, so FORCE_FULL_SUITE keeps it on the full suite.
 on:
   push:
     branches:
@@ -92,6 +95,7 @@ on:
       - main
       - 'release/v*'
       - feat/wms
+      - 'stabilize/**'
 
 # PR runs: a new push cancels the in-progress run, so only the latest commit is tested.
 # Branch pushes (main, release lines): never cancel a running suite. A full run takes about
@@ -905,6 +909,36 @@ jobs:
         # suite unconditionally here so template drift fails the PR, not main.
         run: yarn workspace create-mercato-app test
 
+      - name: Scaffold-and-lint DS module UI (always, unfiltered)
+        # Spec .ai/specs/2026-07-05-ds-module-ui-scaffold.md §Testing layer 3:
+        # scaffold a throwaway module with the real CLI, regenerate, DS-lint the
+        # generated pages with the repo eslint.ds config at --max-warnings 0,
+        # typecheck, then remove the module and require a clean tree. This
+        # exercises the real repo wiring (path aliases, tsconfig, lint:ds
+        # surface) that the temp-dir golden/contract tests cannot. The probe
+        # uses --target packages/core because the backend-page rules in
+        # eslint.ds.config.mjs scope their `files` globs to packages/**, so an
+        # apps-target probe would skip them.
+        run: |
+          trap 'rm -rf packages/core/src/modules/scaffold_ci' EXIT
+          yarn mercato module scaffold scaffold_ci --entity ci_probe --fields "name:text:required,status:select(open|closed),notes:textarea" --with-ui --target packages/core
+          yarn generate
+          node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/eslint.js --config eslint.ds.config.mjs packages/core/src/modules/scaffold_ci --max-warnings 0
+          yarn typecheck
+          rm -rf packages/core/src/modules/scaffold_ci
+          # The probe's create page uses the `plus` icon string, which the ui
+          # build adds to the committed icon registry. Restore it so the check
+          # below only fails on files the scaffold itself left behind.
+          git checkout -- packages/ui/src/backend/icons/lucideRegistry.generated.tsx
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Scaffold CI probe left the tree dirty:"
+            git status --porcelain
+            exit 1
+          fi
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
       - name: Run repo-wide audit guards (always, unfiltered)
         # Same class as the create-app parity step above, generalized (#4534). A handful of
         # tests are repo-wide AUDITS rather than package unit tests: they deliberately scan
@@ -997,6 +1031,29 @@ jobs:
   documents-multi-instance:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      webhook_postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: webhook_durability
+          POSTGRES_USER: webhook_durability
+          POSTGRES_PASSWORD: webhook_durability
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U webhook_durability -d webhook_durability"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      webhook_redis:
+        image: redis:7-alpine
+        ports:
+          - 6379/tcp
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
@@ -1074,6 +1131,31 @@ jobs:
       - name: Run webhook delivery claim suite against real Postgres
         if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/webhooks test:pg-integration
+
+      - name: Install Redis durability test client
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y redis-tools
+
+      - name: Run webhook receipt and queue durability against real services
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        env:
+          OM_WEBHOOKS_TEST_DATABASE_URL: postgresql://webhook_durability:webhook_durability@127.0.0.1:${{ job.services.webhook_postgres.ports[5432] }}/webhook_durability
+          OM_QUEUE_TEST_REDIS_URL: redis://127.0.0.1:${{ job.services.webhook_redis.ports[6379] }}
+        run: |
+          command -v redis-cli
+          mkdir -p .ai/qa/test-results/webhook-durability
+          node node_modules/jest/bin/jest.js --config packages/webhooks/jest.config.cjs --runInBand --runTestsByPath packages/webhooks/src/modules/webhooks/lib/__tests__/inbound-receipt.postgres.test.ts --verbose --json --outputFile=.ai/qa/test-results/webhook-durability/receipts.json
+          node node_modules/jest/bin/jest.js --config packages/queue/jest.config.cjs --runInBand --runTestsByPath packages/queue/src/__tests__/publication.test.ts --verbose --json --outputFile=.ai/qa/test-results/webhook-durability/queues.json
+          node scripts/ci/check-webhook-durability-results.mjs .ai/qa/test-results/webhook-durability/receipts.json .ai/qa/test-results/webhook-durability/queues.json
+
+      - name: Upload webhook durability results
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: webhook-durability-results
+          path: .ai/qa/test-results/webhook-durability/
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: Check OAuth grant import paths resolve against the built dist
         if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}

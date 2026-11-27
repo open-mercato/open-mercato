@@ -99,6 +99,21 @@ describe('admin demo portal accounts route', () => {
     expect(JSON.stringify(json)).not.toContain(alice.password)
   })
 
+  it('omits demo credentials in production after authenticating the staff caller', async () => {
+    const replacedEnv = jest.replaceProperty(process, 'env', { ...process.env, NODE_ENV: 'production' })
+    try {
+      const { GET } = await import('../demo-accounts')
+      const response = await GET(makeRequest())
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true, items: [] })
+      expect(mockUserHasAllFeatures).toHaveBeenCalledTimes(1)
+      expect(mockFindWithDecryption).not.toHaveBeenCalled()
+    } finally {
+      replacedEnv.restore()
+    }
+  })
+
   it('returns only the seeded accounts that exist, with their real role names', async () => {
     const aliceUser = makeSeededUser(alice.email, '66666666-6666-4666-8666-666666666666')
     mockFindWithDecryption
