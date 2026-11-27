@@ -8,7 +8,8 @@ import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { Alert } from '@open-mercato/ui/primitives/alert'
-import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -76,6 +77,11 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
     },
     [configId, retryLastMutation, runMutation],
   )
+  const runConfigMutation = <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>) =>
+    runMutationWithContext(
+      () => withScopedApiRequestHeaders(buildOptimisticLockHeader(config?.updatedAt), operation),
+      mutationPayload,
+    )
 
   // General tab form state
   const [name, setName] = React.useState('')
@@ -102,6 +108,8 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
       setName(c.name ?? '')
       setIssuer(c.issuer ?? '')
       setClientId(c.clientId ?? '')
+      setNewClientSecret('')
+      setShowSecretField(false)
       setJitEnabled(c.jitEnabled)
       setAutoLinkByEmail(c.autoLinkByEmail)
       setSaveError(null)
@@ -123,7 +131,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
       const payload: Record<string, unknown> = { name, issuer, clientId, jitEnabled, autoLinkByEmail }
       if (newClientSecret) payload.clientSecret = newClientSecret
 
-      await runMutationWithContext(
+      await runConfigMutation(
         () => apiCallOrThrow<SsoConfigDetail>(
           `/api/sso/config/${configId}`,
           {
@@ -136,9 +144,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
         payload,
       )
       flash(t('sso.admin.saved', 'SSO configuration saved'), 'success')
-      setNewClientSecret('')
-      setShowSecretField(false)
-      fetchConfig()
+      await fetchConfig()
     } catch (err) {
       setSaveError(surfaceSsoAdminError(err, t, t('sso.admin.error.saveFailed', 'Failed to save SSO configuration'), { onRefresh: fetchConfig }))
     } finally {
@@ -151,7 +157,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
     setActivationError(null)
     setIsActivating(true)
     try {
-      await runMutationWithContext(
+      await runConfigMutation(
         () => apiCallOrThrow(
           `/api/sso/config/${configId}/activate`,
           {
@@ -170,7 +176,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
         'success',
       )
       setShowActivationBanner(false)
-      fetchConfig()
+      await fetchConfig()
     } catch (err) {
       const message = err instanceof Error ? err.message : ''
       const isNoDomains = message.toLowerCase().includes('no allowed domains')
@@ -221,7 +227,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
     if (!confirmed) return
 
     try {
-      await runMutationWithContext(
+      await runConfigMutation(
         () => apiCallOrThrow(`/api/sso/config/${configId}`, { method: 'DELETE' }, {
           errorMessage: t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'),
         }),
@@ -246,7 +252,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
     }
 
     try {
-      await runMutationWithContext(
+      await runConfigMutation(
         () => apiCallOrThrow(
           `/api/sso/config/${configId}/domains`,
           {
@@ -260,7 +266,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
       )
       setDomainInput('')
       setDomainError('')
-      fetchConfig()
+      await fetchConfig()
     } catch (err) {
       surfaceSsoAdminError(err, t, t('sso.admin.error.domainAddFailed', 'Failed to add domain'), { onRefresh: fetchConfig })
     }
@@ -268,7 +274,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
 
   const handleRemoveDomain = async (domain: string) => {
     try {
-      await runMutationWithContext(
+      await runConfigMutation(
         () => apiCallOrThrow(
           `/api/sso/config/${configId}/domains?domain=${encodeURIComponent(domain)}`,
           { method: 'DELETE' },
@@ -276,7 +282,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
         ),
         { domain },
       )
-      fetchConfig()
+      await fetchConfig()
     } catch (err) {
       surfaceSsoAdminError(err, t, t('sso.admin.error.domainRemoveFailed', 'Failed to remove domain'), { onRefresh: fetchConfig })
     }
@@ -436,8 +442,9 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">{t('sso.admin.field.clientId', 'Client ID')}</label>
+                  <label htmlFor="sso-config-client-id" className="block text-sm font-medium mb-1">{t('sso.admin.field.clientId', 'Client ID')}</label>
                   <input
+                    id="sso-config-client-id"
                     type="text"
                     className="w-full rounded-md border px-3 py-2 text-sm"
                     value={clientId}
@@ -560,7 +567,7 @@ export default function SsoConfigDetailPage({ params }: { params?: { id?: string
                 configId={configId}
                 appRoleMappings={config.appRoleMappings ?? {}}
                 onSaved={fetchConfig}
-                runMutationWithContext={runMutationWithContext}
+                runConfigMutation={runConfigMutation}
               />
             </div>
           )}
@@ -587,12 +594,12 @@ function RoleMappingsTab({
   configId,
   appRoleMappings,
   onSaved,
-  runMutationWithContext,
+  runConfigMutation,
 }: {
   configId: string
   appRoleMappings: Record<string, string>
-  onSaved: () => void
-  runMutationWithContext: <T>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>) => Promise<T>
+  onSaved: () => Promise<void>
+  runConfigMutation: <T>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>) => Promise<T>
 }) {
   const t = useT()
   const [mappings, setMappings] = React.useState<Record<string, string>>(appRoleMappings)
@@ -665,7 +672,7 @@ function RoleMappingsTab({
     setIsSaving(true)
     setSaveError(null)
     try {
-      await runMutationWithContext(
+      await runConfigMutation(
         () => apiCallOrThrow(
           `/api/sso/config/${configId}`,
           {
@@ -678,7 +685,7 @@ function RoleMappingsTab({
         { appRoleMappings: mappings },
       )
       flash(t('sso.admin.roles.saved', 'Role mappings saved'), 'success')
-      onSaved()
+      await onSaved()
     } catch (err) {
       setSaveError(surfaceSsoAdminError(err, t, t('sso.admin.roles.error.saveFailed', 'Failed to save role mappings'), { onRefresh: onSaved }))
     } finally {

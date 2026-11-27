@@ -25,7 +25,7 @@ export async function POST(req: Request, ctx: RouteContext) {
 
     const container = await createRequestContainer()
     const service = container.resolve<SsoConfigService>('ssoConfigService')
-    const config = await service.activate(scope, id, parsed.data.active)
+    const config = await service.activate(scope, id, parsed.data.active, { container, request: req })
 
     return NextResponse.json(config)
   } catch (err) {
@@ -47,6 +47,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Activation failed — no domains or discovery failed' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Config not found' },
+        { status: 409, description: 'Configuration changed since it was loaded, or a domain is already claimed' },
       ],
     },
   },

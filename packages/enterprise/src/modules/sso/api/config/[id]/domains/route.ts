@@ -46,7 +46,7 @@ export async function POST(req: Request, ctx: RouteContext) {
 
     const container = await createRequestContainer()
     const service = container.resolve<SsoConfigService>('ssoConfigService')
-    const config = await service.addDomain(scope, id, parsed.data.domain)
+    const config = await service.addDomain(scope, id, parsed.data.domain, { container, request: req })
 
     return NextResponse.json({ domains: config.allowedDomains })
   } catch (err) {
@@ -67,7 +67,7 @@ export async function DELETE(req: Request, ctx: RouteContext) {
 
     const container = await createRequestContainer()
     const service = container.resolve<SsoConfigService>('ssoConfigService')
-    const config = await service.removeDomain(scope, id, domain)
+    const config = await service.removeDomain(scope, id, domain, { container, request: req })
 
     return NextResponse.json({ domains: config.allowedDomains })
   } catch (err) {
@@ -94,6 +94,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid domain or limit reached' },
         { status: 404, description: 'Config not found' },
+        { status: 409, description: 'Configuration changed since it was loaded, or the domain is already claimed' },
       ],
     },
     DELETE: {
@@ -101,7 +102,10 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Pass domain as query parameter: ?domain=example.com',
       tags: ['SSO'],
       responses: [{ status: 200, description: 'Domain removed' }],
-      errors: [{ status: 404, description: 'Config not found' }],
+      errors: [
+        { status: 404, description: 'Config not found' },
+        { status: 409, description: 'Configuration changed since it was loaded' },
+      ],
     },
   },
 }

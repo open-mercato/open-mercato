@@ -51,7 +51,12 @@ export class SsoConfig {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  @Property({
+    name: 'updated_at',
+    type: Date,
+    onCreate: () => new Date(),
+    onUpdate: (config: SsoConfig) => new Date(Math.max(Date.now(), config.updatedAt.getTime() + 1)),
+  })
   updatedAt: Date = new Date()
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })

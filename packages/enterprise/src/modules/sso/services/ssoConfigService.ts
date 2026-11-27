@@ -1,5 +1,6 @@
 import { LockMode, type FilterQuery, type RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
+import type { AwilixContainer } from 'awilix'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -12,10 +13,29 @@ import { isBrandedSsoHttpError, type SsoErrorTranslation, type SsoErrorTranslati
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLockWithGuards, readOptimisticLockExpected } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SsoAuthorizationService } from './ssoAuthorizationService'
 
 const logger = createLogger('sso').child({ component: 'config' })
+
+type SsoConfigWriteContext = {
+  container: AwilixContainer
+  request: Request
+}
+
+async function enforceConfigVersion(config: SsoConfig, context?: SsoConfigWriteContext): Promise<void> {
+  if (!context) return
+  const expected = readOptimisticLockExpected(context.request)
+  if (!expected) return
+
+  await enforceCommandOptimisticLockWithGuards(context.container, {
+    resourceKind: 'sso.sso_config',
+    resourceId: config.id,
+    current: config.updatedAt,
+    expected,
+  })
+}
 
 function reportSsoEventFailure(eventError: unknown): void {
   logger.error('SSO event emit failed', { err: eventError })
@@ -178,13 +198,14 @@ export class SsoConfigService {
     return result
   }
 
-  async update(scope: SsoAdminScope, id: string, input: SsoConfigAdminUpdateInput): Promise<SsoConfigPublic> {
+  async update(scope: SsoAdminScope, id: string, input: SsoConfigAdminUpdateInput, context?: SsoConfigWriteContext): Promise<SsoConfigPublic> {
     const result = await this.em.transactional(async (tx) => {
       const config = await this.resolveConfig(scope, id, tx, true)
       await this.authorizeConfiguration(tx, {
         ...config,
         appRoleMappings: input.appRoleMappings ?? config.appRoleMappings,
       } as SsoConfig, scope)
+      await enforceConfigVersion(config, context)
 
       if (input.jitEnabled === true && await tx.count(ScimToken, { ssoConfigId: id, isActive: true }) > 0) {
         throw new SsoConfigError('Cannot enable JIT provisioning while SCIM directory sync is active. Revoke all SCIM tokens first.', 409, { key: 'sso.errors.jitBlockedByScim' })
@@ -223,15 +244,19 @@ export class SsoConfigService {
     return result
   }
 
-  async delete(scope: SsoAdminScope, id: string): Promise<void> {
-    const config = await this.resolveConfig(scope, id)
+  async delete(scope: SsoAdminScope, id: string, context?: SsoConfigWriteContext): Promise<void> {
+    const config = await this.em.transactional(async (tx) => {
+      const config = await this.resolveConfig(scope, id, tx, true)
+      await enforceConfigVersion(config, context)
 
-    if (config.isActive) {
-      throw new SsoConfigError('Cannot delete an active SSO configuration — deactivate it first', 400, { key: 'sso.admin.error.deleteActive' })
-    }
+      if (config.isActive) {
+        throw new SsoConfigError('Cannot delete an active SSO configuration — deactivate it first', 400, { key: 'sso.admin.error.deleteActive' })
+      }
 
-    config.deletedAt = new Date()
-    await this.em.flush()
+      config.deletedAt = new Date()
+      await tx.flush()
+      return config
+    })
 
     void emitSsoEvent('sso.config.deleted', {
       id: config.id,
@@ -240,14 +265,16 @@ export class SsoConfigService {
     }).catch(reportSsoEventFailure)
   }
 
-  async activate(scope: SsoAdminScope, id: string, active: boolean): Promise<SsoConfigPublic> {
+  async activate(scope: SsoAdminScope, id: string, active: boolean, context?: SsoConfigWriteContext): Promise<SsoConfigPublic> {
     return this.em.transactional(async (txEm) => {
       const tx = txEm as EntityManager
       await this.lockActiveDomainMutation(tx, id)
       const config = await this.resolveConfig(scope, id, tx, true)
 
+      if (active) await this.authorizeConfiguration(tx, config, scope)
+      await enforceConfigVersion(config, context)
+
       if (active) {
-        await this.authorizeConfiguration(tx, config, scope)
         if (config.allowedDomains.length === 0) {
           throw new SsoConfigError('Cannot activate SSO configuration with no allowed domains', 400, { key: 'sso.admin.error.noDomainsForActivation' })
         }
@@ -292,7 +319,7 @@ export class SsoConfigService {
     return this.testConnectionInternal(config)
   }
 
-  async addDomain(scope: SsoAdminScope, id: string, domain: string): Promise<SsoConfigPublic> {
+  async addDomain(scope: SsoAdminScope, id: string, domain: string, context?: SsoConfigWriteContext): Promise<SsoConfigPublic> {
     const normalized = normalizeDomain(domain)
     const validation = validateDomain(normalized)
     if (!validation.valid) throw invalidDomainError(normalized, validation)
@@ -303,6 +330,7 @@ export class SsoConfigService {
       const config = await this.resolveConfig(scope, id, tx, true)
 
       await this.authorizeConfiguration(tx, config, scope)
+      await enforceConfigVersion(config, context)
 
       if (config.allowedDomains.some((d) => normalizeDomain(d) === normalized)) {
         return this.toPublic(config)
@@ -335,11 +363,12 @@ export class SsoConfigService {
     })
   }
 
-  async removeDomain(scope: SsoAdminScope, id: string, domain: string): Promise<SsoConfigPublic> {
+  async removeDomain(scope: SsoAdminScope, id: string, domain: string, context?: SsoConfigWriteContext): Promise<SsoConfigPublic> {
     const normalized = normalizeDomain(domain)
     const result = await this.em.transactional(async (tx) => {
       const config = await this.resolveConfig(scope, id, tx, true)
       await this.authorizeConfiguration(tx, config, scope)
+      await enforceConfigVersion(config, context)
       config.authorizationUserId = scope.actorUserId
 
       config.allowedDomains = config.allowedDomains.filter((d) => d !== normalized)
