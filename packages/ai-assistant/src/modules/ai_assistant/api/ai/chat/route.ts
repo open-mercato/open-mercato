@@ -67,6 +67,7 @@ const pageContextSchema = z
   .object({
     pageId: z.string().nullable().optional(),
     entityType: z.string().nullable().optional(),
+    recordType: z.string().nullable().optional(),
     recordId: z.string().nullable().optional(),
   })
   .passthrough()

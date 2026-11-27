@@ -113,8 +113,17 @@ const logger = createLogger('ai_assistant').child({ component: 'agent-runtime' }
 export interface AgentRequestPageContext {
   pageId?: string | null
   entityType?: string | null
+  /** Alias for `entityType`, sent by the backend/portal AI trigger widgets. */
+  recordType?: string | null
   recordId?: string | null
   [key: string]: unknown
+}
+
+function readPageContextEntityType(pageContext: AgentRequestPageContext | undefined): string | null {
+  for (const candidate of [pageContext?.entityType, pageContext?.recordType]) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) return candidate
+  }
+  return null
 }
 
 export interface RunAiAgentTextInput {
@@ -1418,7 +1427,7 @@ async function resolveTenantAllowlistSnapshot(
 /**
  * Composes the effective system prompt for a run. When the agent declares a
  * `resolvePageContext` callback AND the incoming request carries both
- * `entityType` and `recordId`, the callback is invoked and its return value
+ * `entityType` (or its `recordType` alias) and `recordId`, the callback is invoked and its return value
  * is appended to `agent.systemPrompt`. Throwing callbacks are caught and
  * logged without failing the request — the spec allows hydration to be
  * best-effort until Step 5.2 wires a stricter contract.
@@ -1503,9 +1512,9 @@ export async function composeSystemPromptWithMeta(
   }
   const resolve = agent.resolvePageContext
   if (!resolve) return unhydrated
-  const entityType = pageContext?.entityType
+  const entityType = readPageContextEntityType(pageContext)
   const recordId = pageContext?.recordId
-  if (typeof entityType !== 'string' || entityType.length === 0) return unhydrated
+  if (!entityType) return unhydrated
   if (typeof recordId !== 'string' || recordId.length === 0) return unhydrated
   if (!container) {
     logger.warn('Agent declares resolvePageContext but no container was passed to runAiAgentText; skipping hydration', { agentId: agent.id })
