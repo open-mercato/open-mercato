@@ -1055,7 +1055,7 @@
   "wms.backend.putaway.complete.form.serialConfirm": "Confirm serial",
   "wms.backend.putaway.complete.form.serialConfirmHint": "Scan or type the serial on the unit. It must match this task.",
   "wms.backend.putaway.complete.form.target": "Target location",
-  "wms.backend.putaway.complete.form.targetPlaceholder": "Select destination bin",
+  "wms.backend.putaway.complete.form.targetPlaceholder": "Select destination location",
   "wms.backend.putaway.description": "Open and in-progress putaway tasks from accepted receipts.",
   "wms.backend.putaway.empty.description": "Tasks appear after ASN lines are received with QC pass.",
   "wms.backend.putaway.empty.title": "No putaway tasks",

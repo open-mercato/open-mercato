@@ -296,7 +296,7 @@ describe('CompletePutawayTaskDialog', () => {
       />,
     )
 
-    const loadSuggestions = capturedLoadSuggestions['Select destination bin']
+    const loadSuggestions = capturedLoadSuggestions['Select destination location']
     expect(loadSuggestions).toBeTruthy()
 
     const options = await loadSuggestions!('R2')

@@ -340,7 +340,7 @@ export function CompletePutawayTaskDialog({
                 resolveLabel={resolveTargetLocationLabel}
                 placeholder={t(
                   'wms.backend.putaway.complete.form.targetPlaceholder',
-                  'Select destination bin',
+                  'Select destination location',
                 )}
                 allowCustomValues={false}
                 disabled={submitting}
