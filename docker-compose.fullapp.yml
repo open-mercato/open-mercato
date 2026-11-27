@@ -64,6 +64,7 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_PASSWORD:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
@@ -102,7 +103,7 @@ services:
     # Visibility only (compose ps / smoke tests): the entrypoint owns the
     # wait-for-MCP-and-key sequencing.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:4096/global/health"]
+      test: ["CMD-SHELL", 'curl -fsS --max-time 5 -u "opencode:$$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/global/health']
       interval: 30s
       timeout: 6s
       retries: 20
@@ -129,6 +130,7 @@ services:
     volumes:
       - mcp_shared:/run/mcp-shared
     environment:
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       <<: *tenant-encryption-environment
       # The image (Dockerfile `runner` stage) is a production build installed with
       # `yarn workspaces focus --production`. The Next server child is insulated (the CLI forces
@@ -166,6 +168,7 @@ services:
       # point of view. mcp:serve-http defaults to binding 127.0.0.1 (issue #2659); this
       # opts into 0.0.0.0 explicitly. The network is internal and the port is not published.
       MCP_HTTP_HOST: "0.0.0.0"
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
       MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
       MCP_DEBUG: ${MCP_DEBUG:-false}
@@ -240,6 +243,7 @@ services:
     # socket don't accidentally pick them up.
     environment:
       <<: *tenant-encryption-environment
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       # The image (Dockerfile `runner` stage) is a production build installed with
       # `yarn workspaces focus --production`. The Next server child is insulated (the CLI forces
       # NODE_ENV=production for it), but pinning `development` here still leaked into every other
@@ -303,6 +307,7 @@ services:
       # Point OpenCode clients at the sibling opencode service (the code default
       # http://localhost:4096 is unreachable from inside the app container).
       OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
+      OPENCODE_PASSWORD: ${OPENCODE_PASSWORD:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
@@ -344,6 +349,7 @@ services:
       OM_INIT_ADMIN_PASSWORD: ${OM_INIT_ADMIN_PASSWORD:-}
       OM_INIT_EMPLOYEE_EMAIL: ${OM_INIT_EMPLOYEE_EMAIL:-}
       OM_INIT_EMPLOYEE_PASSWORD: ${OM_INIT_EMPLOYEE_PASSWORD:-}
+      OM_INIT_PORTAL_DEMO_PASSWORD: ${OM_INIT_PORTAL_DEMO_PASSWORD:-}
       SSO_FORCE_ROLE_ON_LOGIN: employee
       # Custom-domain routing (Phase 1–3 of portal-custom-domain spec).
       DOMAIN_CHECK_SECRET: ${DOMAIN_CHECK_SECRET:-}

@@ -1,4 +1,5 @@
 import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
+import { parseRotationFieldValue } from '@open-mercato/shared/lib/encryption/rotationJson'
 import { getCliModules, getDefaultEncryptionMaps, type Module, type ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
@@ -17,12 +18,15 @@ import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { createKmsService, type KmsService, type TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import {
   decryptWithAesGcm,
   decryptWithAesGcmStrict,
   isEncryptedPayloadShape,
+  isRotationCiphertextShape,
+  hashForLookup,
   TenantDataEncryptionError,
   TenantDataEncryptionErrorCode,
 } from '@open-mercato/shared/lib/encryption/aes'
@@ -39,6 +43,9 @@ import { Organization } from '../directory/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 import { z } from 'zod'
+import type { RotationProtectionService, RotationKeyProviders } from '@open-mercato/shared/lib/encryption/rotationProtection'
+import { rotationNotice, protectKeyRotation, UNPROTECTED_ROTATION_ACKNOWLEDGMENT } from './lib/rotation-protection'
+import { readMaintenanceBatches, writeMaintenanceRow, verifyMaintenanceBatch, quoteMaintenanceIdentifier } from './lib/rotation-maintenance'
 
 function parseArgs(rest: string[]) {
   return parseModuleCliOptions(rest)
@@ -488,6 +495,7 @@ function classifyEncryptionMap(
 function resolveMapsOrFail(
   maps: EncryptionMap[],
   metaByEntityId: ReturnType<typeof buildEntityMetaRegistry>,
+  warn: (message: string) => void = message => console.warn(message),
 ): Array<{ map: EncryptionMap; mapMeta: EncryptionMapMeta }> {
   const resolved: Array<{ map: EncryptionMap; mapMeta: EncryptionMapMeta }> = []
   const unresolvable: string[] = []
@@ -498,7 +506,7 @@ function resolveMapsOrFail(
       continue
     }
     if (resolution.status === 'nothing-to-process') {
-      console.warn(`Skipping ${String(map.entityId)}: ${resolution.reason}.`)
+      warn(`Skipping ${String(map.entityId)}: ${resolution.reason}.`)
       continue
     }
     unresolvable.push(`  ${String(map.entityId)} (encryption_maps.id=${String(map.id)}): ${resolution.reason}`)
@@ -527,20 +535,68 @@ function formatValueForColumn(prop: any, value: unknown): unknown {
   return JSON.stringify(value)
 }
 
+function formatDecryptedValueForColumn(decrypted: string, isJson: boolean): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(decrypted)
+  } catch {
+    return isJson ? JSON.stringify(decrypted) : decrypted
+  }
+  if (typeof parsed === 'string') return isJson ? JSON.stringify(parsed) : parsed
+  if (isJson && (parsed === null || typeof parsed !== 'object')) return JSON.stringify(decrypted)
+  return decrypted
+}
+
+type EncryptionColumns = Map<string, 'json' | 'jsonb' | null>
+
+function resolveEncryptionColumns(
+  meta: unknown,
+  primaryKeys: string[],
+  fields: EncryptionMapMeta['fields'],
+): EncryptionColumns {
+  const columns: EncryptionColumns = new Map(primaryKeys.map((key) => [key, null]))
+  for (const field of fields.flatMap(({ field, hashField }) => hashField ? [field, hashField] : [field])) {
+    const { columnName, prop } = resolveProperty(meta, field)
+    if (!columnName) continue
+    const type = String(prop?.columnTypes?.[0] ?? prop?.type ?? '').toLowerCase()
+    columns.set(columnName, type === 'json' || type === 'jsonb' ? type : null)
+  }
+  return columns
+}
+
+function selectEncryptionColumns(columns: EncryptionColumns): string {
+  return Array.from(columns, ([column, type]) => type ? `"${column}"::text AS "${column}"` : `"${column}"`).join(', ')
+}
+
+function decodeEncryptionRow(originalRow: Record<string, unknown>, columns: EncryptionColumns): Record<string, unknown> {
+  const row = { ...originalRow }
+  for (const [column, type] of columns) {
+    const original = originalRow[column]
+    if (type && typeof original === 'string') row[column] = JSON.parse(original)
+  }
+  return row
+}
+
 async function updateEncryptionColumns(
   connection: { execute: (query: string, parameters: unknown[]) => Promise<unknown> },
   table: string,
   primaryKey: string,
-  row: Record<string, unknown>,
+  originalRow: Record<string, unknown>,
+  columnTypes: EncryptionColumns,
   updates: Record<string, unknown>,
   scope: { tenantId: string; organizationId: string | null },
 ): Promise<void> {
   const columns = Object.keys(updates)
   const assignments = columns.map((column) => `"${column}" = ?`).join(', ')
-  const unchanged = columns.map((column) => `"${column}" IS NOT DISTINCT FROM ?`).join(' AND ')
+  const unchanged = columns.map((column) => {
+    const type = columnTypes.get(column)
+    const originalColumn = type === 'json' ? `"${column}"::text` : `"${column}"`
+    const originalValue = type === 'jsonb' ? '?::jsonb' : '?'
+    return `${originalColumn} IS NOT DISTINCT FROM ${originalValue}`
+  }).join(' AND ')
   const result = await connection.execute(
     `UPDATE ${table} SET ${assignments} WHERE "${primaryKey}" = ? AND tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? AND ${unchanged} RETURNING "${primaryKey}"`,
-    [...Object.values(updates), row[primaryKey], scope.tenantId, scope.organizationId, ...columns.map((column) => row[column])],
+    [...Object.values(updates), originalRow[primaryKey], scope.tenantId, scope.organizationId, ...columns.map((column) => originalRow[column])],
   )
   if (!Array.isArray(result) || result.length !== 1) {
     failCli('[internal] A row changed concurrently during encryption maintenance. No stale values were written; retry after stopping writers.')
@@ -568,17 +624,17 @@ const rotateEncryptionKey: ModuleCli = {
       failCli(`--old-key is deprecated because process listings expose it. Use ${OLD_ENCRYPTION_KEY_ENV}; the compatibility bridge requires --allow-unsafe-old-key.`)
     }
     if (oldKeyArgument) {
-      console.warn(
+      rotationNotice(
         `Passing key material through --old-key can expose it in shell history and process listings. Set ${OLD_ENCRYPTION_KEY_ENV} through your secret manager instead.`,
       )
     }
     const oldKey = oldKeyEnvironment || oldKeyArgument
     const dryRun = Boolean(args['dry-run'] || args.dry)
     const debug = Boolean(args.debug)
-    const rotate = Boolean(oldKey)
-    if (rotate && !tenantIdArg) {
-      console.warn(
-        '⚠️  Rotating with one previous key across all tenants. A single previous key should normally target one tenant; consider --tenant.',
+    if (oldKey && !tenantIdArg) {
+      const { translate } = await resolveTranslations()
+      rotationNotice(
+        '⚠️  ' + translate('entities.rotation.allTenantsDerivedRootWarning', 'All selected tenants must share the declared previous derived root. Use --tenant when previous roots differ.'),
       )
     }
     if (!isTenantDataEncryptionEnabled()) {
@@ -587,13 +643,24 @@ const rotateEncryptionKey: ModuleCli = {
 
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    const conn: any = em?.getConnection?.()
+    const protection = resolve<RotationProtectionService | undefined>('rotationProtectionService', { allowUnregistered: true })
+    const protectedSystemEntities = protection ? await getSystemScopedEntityIds() : undefined
+    return protectKeyRotation(
+      { tenantId: tenantIdArg, organizationId: organizationIdArg, dryRun, entityManager: em, previousKey: oldKey, ...(protectedSystemEntities ? { systemScopedEntityIds: [...protectedSystemEntities] } : {}) },
+      args[UNPROTECTED_ROTATION_ACKNOWLEDGMENT],
+      protection,
+      async (providers?: RotationKeyProviders) => {
+    const rotate = Boolean(oldKey) || Boolean(providers?.previousKms) || (dryRun && Boolean(protection))
+    const isCiphertext = providers ? isRotationCiphertextShape : isEncryptedPayloadShape
+    const conn: any = providers?.signal
+      ? { execute: (sql: string, parameters: unknown[]) => em.execute(sql, parameters, { signal: providers.signal, inflightQueryAbortStrategy: 'cancel query' }) }
+      : em?.getConnection?.()
     if (!conn || typeof conn.execute !== 'function') {
       failCli('Unable to access raw connection; aborting.')
     }
 
-    const encryptionService = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
-    const oldKms = rotate && oldKey ? new DerivedKeyKmsService(oldKey) : null
+    const encryptionService = new TenantDataEncryptionService(em as any, { kms: providers?.kms ?? createKmsService(), isolatedKeyCache: Boolean(providers) })
+    const oldKms = providers ? providers.previousKms : rotate && oldKey ? new DerivedKeyKmsService(oldKey) : null
     if (!encryptionService.isEnabled()) {
       failCli('Encryption service is not enabled (KMS unhealthy or no DEK). Aborting.')
     }
@@ -612,19 +679,26 @@ const rotateEncryptionKey: ModuleCli = {
     const where: any = { deletedAt: null }
     if (tenantIdArg) where.tenantId = tenantIdArg
     if (organizationIdArg) where.organizationId = organizationIdArg
-    const allMaps = await em.find(EncryptionMap, where)
-    const systemScopedEntityIds = await getSystemScopedEntityIds()
+    const allMaps = await em.find(EncryptionMap, where, { limit: 5001, ...(providers ? { refresh: true } : {}), ...(providers?.signal ? { signal: providers.signal, inflightQueryAbortStrategy: 'cancel query' } : {}) })
+    if (allMaps.length > 5000) failCli('[internal] Encryption map scope exceeds supported maintenance bound')
+    const systemScopedEntityIds = protectedSystemEntities ?? await getSystemScopedEntityIds()
     const maps = allMaps.filter((map: EncryptionMap) => {
       if (!systemScopedEntityIds.has(String(map.entityId))) return true
-      console.warn(
+      rotationNotice(
         `Skipping ${map.entityId}: system-scoped entity. Its ciphertext is sealed under a system key and cannot be rotated with a tenant key — use "mercato entities backfill-system-encryption" instead.`,
       )
       return false
     })
-    const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId)
+    const resolvedMaps = resolveMapsOrFail(maps, metaByEntityId, rotationNotice)
     const customDocuments = await rotateCustomEntityDocuments(em, {
       encryptionService,
       oldKms,
+      resumeCursor: providers?.resumeCursor,
+      checkpointBatch: providers?.checkpointBatch,
+      timestampForWrite: providers?.timestampForWrite,
+      timestampForBatchWrite: providers?.timestampForBatchWrite,
+      signal: providers?.signal,
+      batchSize: providers?.batchSize,
       tenantId: tenantIdArg,
       organizationId: organizationIdArg,
       dryRun,
@@ -638,7 +712,8 @@ const rotateEncryptionKey: ModuleCli = {
     }
     const resolveScopes = async (tenantId: string, organizationId: string | null) => {
       if (organizationId) return [{ tenantId, organizationId }]
-      const orgs = await em.find(Organization, { tenant: tenantId })
+      const orgs = await em.find(Organization, { tenant: tenantId }, { limit: 1001 })
+      if (orgs.length > 1000) failCli('[internal] Organization scope exceeds supported maintenance bound')
       const scopes = orgs.map((org: Organization) => ({
         tenantId,
         organizationId: String(org.id),
@@ -651,7 +726,8 @@ const rotateEncryptionKey: ModuleCli = {
     // Rows this run could not rotate because their ciphertext opens under neither
     // the previous nor the current tenant key — surfaced in the closing summary so an
     // operator does not have to grep console.warn output for a batch of thousands.
-    const unrecoverableRows: Array<{ entityId: string; field: string; rowId: unknown }> = []
+    const unrecoverableRows: Array<{ entityId: string; field: string }> = []
+    let unrecoverableCount = 0
     // A dry run must not provision key material. `encryptEntityPayload` creates and
     // persists a tenant DEK in KMS/Vault the first time it runs for a tenant, so a
     // read-only preview would silently mutate KMS state (#5950). Probe read-only
@@ -667,45 +743,41 @@ const rotateEncryptionKey: ModuleCli = {
       const available = Boolean(await encryptionService.getDek(tenantId))
       dekAvailability.set(tenantId, available)
       if (!available) {
-        console.warn(
+        rotationNotice(
           `[dry-run] Tenant ${tenantId} has no data-encryption key yet. Reporting the rows a real run would encrypt; no key material was provisioned.`,
         )
       }
       return available
     }
     const processScope = async (
+      operationId: string,
       entityId: string,
       meta: any,
       fields: Array<{ field: string; hashField?: string | null }>,
       scope: { tenantId: string; organizationId: string | null },
     ): Promise<number> => {
-      const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
-      const columns = new Set<string>()
-      columns.add(pk)
-      for (const rule of fields) {
-        const resolved = resolveProperty(meta, rule.field)
-        if (resolved?.columnName) columns.add(resolved.columnName)
-        if (rule.hashField) {
-          const resolvedHash = resolveProperty(meta, rule.hashField)
-          if (resolvedHash?.columnName) columns.add(resolvedHash.columnName)
-        }
-      }
-      const columnList = Array.from(columns)
-      if (!columnList.length) return 0
+      const primaryKeys: string[] = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length
+        ? meta.primaryKeys.map((key: string) => resolveProperty(meta, key).columnName ?? key)
+        : ['id']
+      const columns = resolveEncryptionColumns(meta, primaryKeys, fields)
       const tableName = meta?.tableName
       if (!tableName) return 0
-      const schema = meta?.schema
-      const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
-      const selectSql = `select ${columnList.map((c) => `"${c}"`).join(', ')} from ${qualifiedTable} where tenant_id = ? and organization_id is not distinct from ?`
-      const rows = await conn.execute(selectSql, [scope.tenantId, scope.organizationId])
-      const list = Array.isArray(rows) ? rows : []
-      if (!list.length) return 0
+      const schema = meta?.schema ?? (providers ? 'public' : undefined)
+      const qualifiedTable = schema
+        ? `${quoteMaintenanceIdentifier(schema)}.${quoteMaintenanceIdentifier(tableName)}`
+        : quoteMaintenanceIdentifier(tableName)
+      let updated = 0
+      const resumedCursor = providers?.resumeCursor ? await providers.resumeCursor(operationId) : null
+      for await (const batch of readMaintenanceBatches(conn, qualifiedTable, columns, primaryKeys, scope, providers?.batchSize, resumedCursor)) {
+      const committedWrites: Array<{ row: Record<string, unknown>; updates: Record<string, unknown> }> = []
       const dekAvailable = dryRun ? await hasExistingDek(scope.tenantId) : true
       // The scope pins one tenant, so the current DEK is the same for every row here.
       const currentDek = rotate && oldKms ? await encryptionService.getDek(scope.tenantId) : null
-      let updated = 0
-      for (const row of list) {
+      for (const originalRow of batch) {
+        providers?.signal?.throwIfAborted()
+        const row = decodeEncryptionRow(originalRow, columns)
         const payload: Record<string, unknown> = {}
+        const lookupOverrides = new Map<string, string>()
         for (const rule of fields) {
           const resolved = resolveProperty(meta, rule.field)
           const col = resolved?.columnName
@@ -717,7 +789,7 @@ const rotateEncryptionKey: ModuleCli = {
           // correctly encrypted or sealed under a foreign DEK — either way, handing it
           // to encryptEntityPayload would either no-op or throw WRONG_KEY and abort the
           // whole run (#5951); mirror the filter the update path already applies below.
-          if (isEncryptedPayloadShape(rawValue) ? !rotate : rotate) {
+          if (isCiphertext(rawValue) ? !rotate : rotate) {
             continue
           }
           payload[rule.field] = rawValue
@@ -738,10 +810,14 @@ const rotateEncryptionKey: ModuleCli = {
           }
           for (const rule of fields) {
             const value = payload[rule.field]
-            if (typeof value !== 'string' || !isEncryptedPayloadShape(value)) continue
+            if (typeof value !== 'string' || !isCiphertext(value)) continue
             const decrypted = decryptWithOldKey(value, oldDek)
             if (decrypted !== null) {
-              payload[rule.field] = parseDecryptedFieldValue(decrypted)
+              payload[rule.field] = providers ? parseRotationFieldValue(decrypted) : decrypted
+              if (providers && rule.hashField) {
+                const lookupValue = parseDecryptedFieldValue(decrypted)
+                lookupOverrides.set(rule.hashField, hashForLookup(typeof lookupValue === 'string' ? lookupValue : JSON.stringify(lookupValue)))
+              }
               continue
             }
             // The old key did not open it. If the current key does, the row was already
@@ -752,9 +828,10 @@ const rotateEncryptionKey: ModuleCli = {
             if (currentDek && decryptWithAesGcm(value, currentDek.key) !== null) continue
             delete payload[rule.field]
             if (rule.hashField) delete payload[rule.hashField]
-            unrecoverableRows.push({ entityId, field: rule.field, rowId: row[pk] })
-            console.warn(
-              `Skipping ${entityId}.${rule.field} for row ${row[pk]}: its ciphertext opens under neither the previous nor the current tenant key. Re-run with the key that sealed it.`,
+            unrecoverableCount += 1
+            if (unrecoverableRows.length < 20) unrecoverableRows.push({ entityId, field: rule.field })
+            rotationNotice(
+              `Skipping ${entityId}.${rule.field}: its ciphertext opens under neither the previous nor the current tenant key. Re-run with the key that sealed it.`,
             )
           }
         }
@@ -767,7 +844,7 @@ const rotateEncryptionKey: ModuleCli = {
             if (!col) return false
             const value = row[col]
             if (value === null || value === undefined) return false
-            return rotate ? isEncryptedPayloadShape(value) : !isEncryptedPayloadShape(value)
+            return rotate ? isCiphertext(value) : !isCiphertext(value)
           })
           if (wouldChange) updated += 1
           continue
@@ -786,13 +863,13 @@ const rotateEncryptionKey: ModuleCli = {
           if (!col) continue
           const nextValue = (encrypted as any)[rule.field]
           if (nextValue !== undefined && nextValue !== row[col]) {
-            if (!rotate && isEncryptedPayloadShape(row[col])) continue
+            if (!rotate && isCiphertext(row[col])) continue
             updates[col] = formatValueForColumn(resolved?.prop, nextValue)
           }
           if (rule.hashField) {
             const resolvedHash = resolveProperty(meta, rule.hashField)
             const hashCol = resolvedHash?.columnName
-            const hashValue = (encrypted as any)[rule.hashField]
+            const hashValue = lookupOverrides.get(rule.hashField) ?? (encrypted as any)[rule.hashField]
             if (hashCol && hashValue !== undefined && hashValue !== row[hashCol]) {
               updates[hashCol] = formatValueForColumn(resolvedHash?.prop, hashValue)
             }
@@ -800,9 +877,13 @@ const rotateEncryptionKey: ModuleCli = {
         }
         if (!Object.keys(updates).length) continue
         if (!dryRun) {
-          await updateEncryptionColumns(conn, qualifiedTable, pk, row, updates, scope)
+          await writeMaintenanceRow(conn, qualifiedTable, primaryKeys, originalRow, updates, scope, false, columns)
+          if (providers) committedWrites.push({ row: originalRow, updates })
         }
         updated += 1
+      }
+      if (providers && committedWrites.length) await verifyMaintenanceBatch(conn, qualifiedTable, primaryKeys, committedWrites, scope, columns)
+      if (!dryRun && providers?.checkpointBatch) await providers.checkpointBatch({ operationId, cursor: primaryKeys.map((key) => String(batch[batch.length - 1]![key])), readRows: batch.length, writtenRows: committedWrites.length })
       }
       return updated
     }
@@ -812,7 +893,8 @@ const rotateEncryptionKey: ModuleCli = {
       const { entityId, meta, fields, tenantId } = mapMeta
       const scopes = await resolveScopes(tenantId, map.organizationId ? String(map.organizationId) : null)
       for (const scope of scopes) {
-        const updated = await processScope(entityId, meta, fields, scope)
+        const operationId = JSON.stringify(['mapped-v1', String(map.id), meta.schema ?? 'public', meta.tableName, scope.tenantId, scope.organizationId])
+        const updated = await processScope(operationId, entityId, meta, fields, scope)
         if (updated > 0) {
           console.log(
             `${dryRun ? '[dry-run] ' : ''}Encrypted ${updated} record(s) for ${entityId} org=${scope.organizationId ?? 'null'}`
@@ -827,23 +909,25 @@ const rotateEncryptionKey: ModuleCli = {
     } else {
       console.log('All mapped entity fields already encrypted for the selected scope.')
     }
-    if (unrecoverableRows.length) {
+    if (unrecoverableCount) {
       const maxListed = 20
       console.log(
-        `\n⚠️  ${unrecoverableRows.length} field(s) could not be rotated — their ciphertext opens under neither `
+        `\n⚠️  ${unrecoverableCount} field(s) could not be rotated — their ciphertext opens under neither `
           + 'the previous nor the current tenant key, so they were left untouched. See '
           + '"Key management" in apps/docs/docs/architecture/data-encryption.mdx for how to resolve these manually.',
       )
       for (const row of unrecoverableRows.slice(0, maxListed)) {
-        console.log(`  - ${row.entityId}.${row.field} row=${String(row.rowId)}`)
+        console.log(`  - ${row.entityId}.${row.field}`)
       }
-      if (unrecoverableRows.length > maxListed) {
-        console.log(`  ... and ${unrecoverableRows.length - maxListed} more`)
+      if (unrecoverableCount > maxListed) {
+        console.log(`  ... and ${unrecoverableCount - maxListed} more`)
       }
       failCli(
-        `${unrecoverableRows.length} encrypted field(s) could not be rotated. The command left them untouched and did not complete successfully.`,
+        `${unrecoverableCount} encrypted field(s) could not be rotated. The command left them untouched and did not complete successfully.`,
       )
     }
+      },
+    )
   },
 }
 
@@ -1067,11 +1151,8 @@ const decryptDatabase: ModuleCli = {
       const tableName = meta.tableName
       const schema = meta?.schema
       const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
-      const fieldCols = fields.flatMap((field) => [
-        resolveProperty(meta, field.field).columnName,
-        field.hashField ? resolveProperty(meta, field.hashField).columnName : null,
-      ].filter((column): column is string => Boolean(column)))
-      const colList = Array.from(new Set([pk, ...fieldCols]))
+      const columns = resolveEncryptionColumns(meta, [pk], fields)
+      const selectList = selectEncryptionColumns(columns)
       totalEntitiesProcessed++
 
       const scopes = [scope]
@@ -1081,7 +1162,7 @@ const decryptDatabase: ModuleCli = {
         let scopeMalformedCount = 0
 
         while (true) {
-          let selectSql = `SELECT ${colList.map((c: string) => `"${c}"`).join(', ')} FROM ${qualifiedTable} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?`
+          let selectSql = `SELECT ${selectList} FROM ${qualifiedTable} WHERE tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?`
           const selectParams: unknown[] = [scope.tenantId, scope.organizationId]
           if (lastId !== null) {
             selectSql += ` AND "${pk}" > ?`
@@ -1101,7 +1182,8 @@ const decryptDatabase: ModuleCli = {
           await conn.execute('BEGIN')
           let batchCommitted = false
           try {
-            for (const row of batch) {
+            for (const originalRow of batch) {
+              const row = decodeEncryptionRow(originalRow, columns)
               const updates: Record<string, unknown> = {}
               let rowDecrypted = false
 
@@ -1113,14 +1195,7 @@ const decryptDatabase: ModuleCli = {
                 if (rawValue === null || rawValue === undefined) continue
                 try {
                   const decrypted = decryptWithAesGcmStrict(String(rawValue), dek.key)
-                  let valueToWrite: string
-                  try {
-                    const parsed = JSON.parse(decrypted)
-                    valueToWrite = typeof parsed === 'string' ? parsed : decrypted
-                  } catch {
-                    valueToWrite = decrypted
-                  }
-                  updates[col] = valueToWrite
+                  updates[col] = formatDecryptedValueForColumn(decrypted, Boolean(columns.get(col)))
                   rowDecrypted = true
                 } catch (error: unknown) {
                   if (error instanceof TenantDataEncryptionError) {
@@ -1160,7 +1235,7 @@ const decryptDatabase: ModuleCli = {
 
               if (Object.keys(updates).length > 0) {
                 if (!dryRun) {
-                  await updateEncryptionColumns(conn, qualifiedTable, pk, row, updates, scope)
+                  await updateEncryptionColumns(conn, qualifiedTable, pk, originalRow, columns, updates, scope)
                 }
                 totalRowsUpdated++
               }

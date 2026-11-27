@@ -88,7 +88,7 @@ test.describe('TC-SHIP-016: tracking GET is read-only; refresh is a guarded writ
 
   test('POST /tracking/refresh requires shipping_carriers.manage', async ({ request }) => {
     const stamp = Date.now()
-    const password = 'Secret123!'
+    const password = 'QaSecret123!'
     const userEmail = `tc-ship-016-${stamp}@example.com`
 
     let adminToken: string | null = null

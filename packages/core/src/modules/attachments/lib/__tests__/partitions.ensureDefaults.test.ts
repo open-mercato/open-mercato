@@ -27,7 +27,7 @@ type SeededRow = {
 function makeMockEm(initialRows: { code: string }[] = []) {
   const rows: SeededRow[] = []
   const repo = {
-    findAll: jest.fn(async (_options?: unknown) => initialRows),
+    find: jest.fn(async (_scope: unknown, _options: unknown) => initialRows),
     create: jest.fn((data: Partial<SeededRow>) => {
       const row: SeededRow = {
         code: data.code ?? '',

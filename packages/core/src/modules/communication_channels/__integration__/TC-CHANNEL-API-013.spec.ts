@@ -111,7 +111,7 @@ test.describe('TC-CHANNEL-API-013: reassign undo keeps a newer reassignment', ()
       })
 
       const secondEmail = `tc-channel-api-013-${stamp}@example.com`
-      const secondPassword = 'Valid1!Pass'
+      const secondPassword = 'QaValid1!Pass'
       secondUserId = await createUserFixture(request, firstToken, {
         email: secondEmail,
         password: secondPassword,
@@ -220,7 +220,7 @@ test.describe('TC-CHANNEL-API-013: reassign undo keeps a newer reassignment', ()
         organizations: [adminScope.organizationId],
       })
       const operatorEmail = `tc-channel-api-013-ui-${stamp}@example.com`
-      const operatorPassword = 'Valid1!Pass'
+      const operatorPassword = 'QaValid1!Pass'
       operatorId = await createUserFixture(request, superadminToken, {
         email: operatorEmail,
         password: operatorPassword,

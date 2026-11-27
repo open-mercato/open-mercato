@@ -206,8 +206,11 @@ export async function filterVisibleDocumentSections(ctx: SearchResultVisibilityC
   if (auth.isSuperAdmin !== true && auth.tenantId !== ctx.tenantId) return []
   const sectionIds = Array.from(new Set(ctx.results.map((result) => result.recordId).filter((id) => UUID_PATTERN.test(id))))
   if (!sectionIds.length) return []
-  const [{ Attachment, AttachmentDocumentSection, AttachmentPartition }, { createAttachmentAccessContext, evaluateAttachmentAccess }] =
-    await Promise.all([import('./data/entities'), import('./lib/access-runner')])
+  const [
+    { Attachment, AttachmentDocumentSection, AttachmentPartition },
+    { createAttachmentAccessContext, evaluateAttachmentAccess },
+    { attachmentPartitionVisibility, indexAttachmentPartitions },
+  ] = await Promise.all([import('./data/entities'), import('./lib/access-runner'), import('./lib/partitionScope')])
   const em = container.resolve<EntityManager>('em')
   const decryptionScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId ?? null }
   const sections = await findWithDecryption(
@@ -229,17 +232,13 @@ export async function filterVisibleDocumentSections(ctx: SearchResultVisibilityC
   )
   const partitionCodes = Array.from(new Set(attachments.map((attachment) => attachment.partitionCode)))
   const partitions = partitionCodes.length
-    ? await findWithDecryption(em, AttachmentPartition, { code: { $in: partitionCodes } }, undefined, decryptionScope)
+    ? await findWithDecryption(em, AttachmentPartition, { code: { $in: partitionCodes }, ...attachmentPartitionVisibility(decryptionScope, true) }, undefined, decryptionScope)
     : []
-  const partitionByCode = new Map(
-    partitions
-      .filter((partition) => (partition.tenantId ?? null) === null || partition.tenantId === ctx.tenantId)
-      .map((partition) => [partition.code, partition]),
-  )
+  const partitionByCode = indexAttachmentPartitions(partitions)
   const accessContext = createAttachmentAccessContext(container)
   const visibleAttachments = new Set<string>()
   for (const attachment of attachments) {
-    const partition = partitionByCode.get(attachment.partitionCode)
+    const partition = partitionByCode(attachment.partitionCode, attachment)
     if (!partition || attachment.tenantId !== ctx.tenantId) continue
     const organizationId = attachment.organizationId ?? null
     if (!isOrganizationVisible(ctx, organizationId)) continue

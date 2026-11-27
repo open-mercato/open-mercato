@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Response } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createTestCustomer, createTestTimeProject, type TestCustomerFixture, type TestTimeProjectFixture } from './fixtures'
@@ -79,11 +79,12 @@ test.describe('TC-TT-017: No access to a project', () => {
             await route.continue()
           })
         }
-        const deniedRead = page.waitForResponse((response) =>
+        const projectId = project.id
+        const isProjectRead = (response: Response) =>
           response.url().includes('/api/staff/timesheets/time-projects?')
-          && response.url().includes(project!.id),
-        )
-        await page.goto(`/backend/staff/time-tracking/projects/${project.id}`, { waitUntil: 'domcontentloaded' })
+          && response.url().includes(projectId)
+        const deniedRead = page.waitForResponse(isProjectRead)
+        await page.goto(`/backend/staff/time-tracking/projects/${projectId}`, { waitUntil: 'domcontentloaded' })
         const deniedResponse = await deniedRead
         expect(deniedResponse.status()).toBe(404)
         const resolvedTenant = deniedResponse.headers()['x-om-project-scope-tenant-id']
@@ -128,28 +129,15 @@ test.describe('TC-TT-017: No access to a project', () => {
         expect(accessRequest.ok(), `POST ${ACCESS_REQUEST_ENDPOINT} should succeed: ${accessRequest.status()}`).toBeTruthy()
 
         await expect(page.getByText('Your request has been sent to the Team Leaders.')).toBeVisible()
-        // This acknowledgement survives a same-scope organization-bootstrap reload
-        // (`page.accessRequest.test.tsx` → "retains the acknowledgement throughout a
-        // same-scope organization bootstrap") that can legitimately fire moments after
-        // this click on every real login, not just the delayedScope/freshSession
-        // scenarios below — give it the same generous budget as the other
-        // network-dependent assertions in this spec (lines above use 30_000ms) instead
-        // of Playwright's implicit default, which this assertion alone lacked.
+        // The acknowledgement stays visible while organization bootstrap completes.
         await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled({ timeout: 30_000 })
         if (scenario.delayedScope) {
           const scopeBootstrap = page.waitForResponse((response) =>
             response.url().includes('/api/directory/organization-switcher'),
           )
-          const reloadedProject = scenario.freshSession
-            ? page.waitForResponse((response) =>
-                response.url().includes('/api/staff/timesheets/time-projects?')
-                && response.url().includes(project!.id),
-              )
-            : null
           releaseScope()
           expect((await scopeBootstrap).ok()).toBe(true)
           await expect(page.getByRole('button', { name: /^Organization:/ })).toBeVisible()
-          if (reloadedProject) expect((await reloadedProject).status()).toBe(404)
           if (scenario.freshSession) {
             await expect
               .poll(async () => (await page.context().cookies()).some((cookie) => cookie.name === 'om_selected_org'))
@@ -159,6 +147,14 @@ test.describe('TC-TT-017: No access to a project', () => {
           expect(scopeCookies.find((cookie) => cookie.name === 'om_selected_tenant')?.value).toBe(resolvedTenant)
           expect(scopeCookies.find((cookie) => cookie.name === 'om_selected_org')?.value).toBe(resolvedOrganization)
           await expect(page.getByRole('button', { name: 'Request sent' })).toBeDisabled({ timeout: 30_000 })
+          const confirmedRead = page.waitForResponse(isProjectRead)
+          await page.reload({ waitUntil: 'domcontentloaded' })
+          const confirmedDenial = await confirmedRead
+          expect(confirmedDenial.status()).toBe(404)
+          expect(await confirmedDenial.json()).toMatchObject({ reason: 'no_project_access' })
+          await expect(page.getByText('You do not have access to this project')).toBeVisible()
+          await expect(body).not.toContainText(projectName)
+          await expect(body).not.toContainText(customerName)
         }
         await expect(page.getByText('Could not send the access request.')).toHaveCount(0)
       } finally {

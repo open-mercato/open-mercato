@@ -99,10 +99,11 @@ describe('customers api utils - withScopedPayload', () => {
     })
   })
 
-  it('prefers payload organizationId when provided', () => {
+  it('prefers a payload organizationId within the actor scope', () => {
     const ctx = {
       auth: { tenantId: 'tenant-1', orgId: 'auth-org' },
       selectedOrganizationId: 'selected-org',
+      organizationScope: { tenantId: 'tenant-1', allowedIds: ['selected-org', 'payload-org'] },
     }
     const scoped = withScopedPayload(
       { organizationId: 'payload-org' },
