@@ -20,7 +20,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InteractionSummary, SectionAction, TabEmptyStateConfig, TodoLinkSummary, Translator } from './types'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { formatDate, resolveTodoHref } from './utils'
+import { buildCustomerTasksHref, formatDate, resolveTodoHref } from './utils'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { TaskDialog } from './TaskDialog'
@@ -492,7 +492,7 @@ export function TasksSection({
         {!isInitialLoading && !error && !hasTasks ? (
           <TabEmptyState title={emptyState.title}>
             <Button asChild variant="outline" size="sm" className="mt-2">
-              <Link href="/backend/customer-tasks">
+              <Link href={buildCustomerTasksHref(entityId)}>
                 {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
               </Link>
             </Button>
@@ -638,7 +638,7 @@ export function TasksSection({
         {!isInitialLoading && hasTasks ? (
           <div className="flex justify-center">
             <Button asChild variant="outline" size="sm">
-              <Link href="/backend/customer-tasks">
+              <Link href={buildCustomerTasksHref(entityId)}>
                 {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
               </Link>
             </Button>

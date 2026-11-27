@@ -2487,6 +2487,10 @@ export class HybridQueryEngine implements QueryEngine {
           })
           continue
         }
+        if (filter.op === 'not_ilike') {
+          next = next.where(buildNotIlikeJsonPredicate(this.jsonbSqlAlias(alias, String(filter.field)), filter.value))
+          continue
+        }
         if (filter.op === 'overlap') {
           next = next.where(buildJsonbOverlapPredicate(`${alias}.doc`, String(filter.field), filter.value))
           continue

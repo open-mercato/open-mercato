@@ -120,6 +120,7 @@ These changes close row-level leaks and wrong results in the shared CRUD factory
 
 - **Full exports keep row scope (#9015).** `?format=…&exportScope=full` now always runs the route's `buildFilters` (with an empty query, or with the before-interceptor's rewritten query when one rewrote it). Rows a caller cannot see in the list (own records only, project membership, deny-all) are no longer exported. **Action:** none; a route whose `buildFilters` needs query params to be correct should handle an empty query.
 - **Advanced filters cannot override route scope (#9016, #9896).** Client `filter[conditions]` are AND-combined with `buildFilters` output (`$and`) instead of spread over it.
+- **CRUD lists apply v2 advanced filters (#10701).** When a list route passes advanced filter parameters through its query schema, the factory now applies `filter[v]=2&filter[root][...]` alongside the route's own predicates. Legacy v1 filters still work, and a valid v2 tree takes precedence when both formats are present. If a custom route already merges v2 filters, delegate that merge to the factory or use `consumeAdvancedFilterState` with `mergeAdvancedFilterTree` at the route boundary. Keep the original filter state available to hooks that use it for aggregates. Cached advanced-filter responses are recomputed on the first request after upgrading.
 - **List cache partitions (#7579, #7529).** With `ENABLE_CRUD_API_CACHE=true`, the list cache key now includes the resolved translation-overlay locale (or a `none` sentinel), a before-interceptor query rewrite, and an optional route-owned scope. Translation writes and undos drop cached localized lists of the entity. New additive `list.cacheScope(query, ctx)` option on `makeCrudRoute`: return a string to partition the cache, `null` to bypass it for the request, `undefined` for the default key. Staff time-projects uses it to partition by the caller's resolved project access. Existing cache entries simply miss once after the upgrade.
 - **Customers write commands load targets in scope (#7598).** Update/delete commands for people, companies, deals, addresses, comments, tags, pipelines, interactions and todo links look up the target inside the caller's tenant and allowed organizations. An out-of-scope id now answers 404 instead of 403.
 - **WMS commands check features in-command (#7673).** Every WMS write command requires the same feature its HTTP route requires, so notification actions, workflows and AI tools dispatching through the command bus cannot bypass it. `wms.inventory.adjust` accepts `wms.adjust_inventory` or `wms.import`; `wms.putaway-tasks.complete` also requires `wms.adjust_inventory`, as its routes do. Actor-less server dispatches (`auth: null`) are unaffected. **Action:** custom roles that dispatch WMS commands outside the HTTP routes need the matching feature. Catalog product and variant writes with a recognized WMS profile intent require `wms.manage_inventory` before either record changes (#10486). Without the feature, the API returns 403. Catalog-only clients should omit the WMS profile intent header.
@@ -356,11 +357,48 @@ feature to intended custom roles. Superadministrator access is preserved. Client
 that link to the backend page must allow for permission denial. No database
 migration, environment change, or startup-command change is required.
 
+## Payment gateway scoped not-found responses (#9441)
+
+Capture, refund and cancel now return HTTP 404 when the transaction is missing,
+deleted or outside the caller's tenant/organization scope. Previously the scoped
+lookup failure was reported as a provider 502. Missing and foreign records share
+the same localized not-found response, before provider calls or operation writes.
+Treat this 404 as a final invalid transaction/scope request rather than retrying it
+as a provider outage; genuine provider errors remain 502. Status refresh also
+preserves the scoped not-found 404 if the transaction disappears after its first
+read. Missing-adapter and unrelated typed provider failures retain their previous
+502 response. A capture reservation first observed under the cancellation lock
+returns the documented `payment_cancel_captured_funds` code with the existing
+reservation message.
+No schema, configuration, route or successful-payment migration is required.
+The capture/cancel serialization fix from #8224 is included: cancellation holds
+the transaction lock through provider completion, and capture reserves its exact
+amount against that same row. Protected current-head financial QA remains open.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
 
 `backfillDealLossReasonDictionary` and `BackfillDealLossReasonDictionaryResult` exported from `sales/lib/dictionaries` are deprecated (removal no earlier than 0.12.0); import them from `@open-mercato/core/modules/customers/lib/dealLossReasons`.
+
+## Event subscribers and worker jobs receive the real DI container (eComm Release 5, step F2)
+
+**Additive (`events`, `cli`, `shared`).** `SubscriberContext` gains an optional `container`: the real DI container behind `ctx.resolve`. Its lifetime is the scope that `ctx.resolve` already uses:
+
+- **Inline delivery:** the container of the caller that resolved the event bus — the current API request or queue job container, also when `OM_BOOTSTRAP_CACHE` replays the bus into later requests and under `OM_PROCESS_CONTAINER_ROOT`. It is never the container that ran `bootstrap`, except for an emit outside any request or job scope through the global bus. The emitter and every other inline subscriber of that request share this container. A `register()` call on it therefore stays for the rest of that request or job, and is not undone when the handler returns.
+- **Queued delivery (events worker):** the job's own per-job container, created for that job and dropped after it. When no job container is passed, the bus's container is used only if the bus's own resolver is used too, so `ctx.resolve` and `ctx.container` always share one scope.
+
+`CreateBusOptions.container`, the optional second argument of the `createScopedEventBusFactory` caller factory, and the fifth `EventBus.dispatchQueued(..., container?)` argument carry it. A queue worker's job context gets `container` too, but only when the per-job container factory returns one with `register()` (`WorkerJobContainer.register?` is new and optional). Queued subscribers for the same event run concurrently and share the job container. Only change a registration from a queued subscriber if the change is safe for every subscriber in that job. A subscriber that needs a private override before nested command resolution cannot get one by changing a registration in this shared container. Inline subscribers must not override registrations on `ctx.container` unless the change may apply to the entire emitter scope. For private registrations on a real Awilix container, create a child with `createScope()`, register the override there, resolve scoped services such as `promotionsService` from that child, and dispose it when finished. The parent and sibling scopes keep their own registrations. `@open-mercato/shared/lib/di/scopedContainer` adds `buildScopedContainerFromResolve(resolve)`, a fallback overlay for callers that only hold a bound `resolve`. Its `register()` is visible only to its own callers, not to services already bound to the real container. Subscribers that read only `ctx.resolve` are unchanged.
+
+**Behaviour change (`forms`).** Three `forms` subscribers read `ctx.container` and never got one. `forms.pdf-snapshot.submitted` failed with a `TypeError` on every delivery; the other two swallowed the error and did nothing. They now run:
+
+- `forms.pdf-snapshot.submitted` (`forms.submission.submitted`) enqueues the PDF snapshot of a submitted form. The snapshot is stored as a submission attachment of `kind: 'snapshot'`, so it appears in the submission's attachments and in the GDPR export.
+- `forms.consent-projector.submitted` (`forms.submission.submitted`) writes consent records for submitted consent fields and emits `forms.consent.recorded`.
+- `forms.invitation-email` (`forms.invitation.sent`) sends the reminder e-mail. It sends it only for `forms.invitation.send` (send and resend). `forms.invitation.create` already e-mails the personal link and now marks its `forms.invitation.sent` payload with the additive optional field `source: 'create'`, which the subscriber skips; send and resend emit `source: 'send'`.
+
+The Forms emitters pass the persisted tenant and organization in event options. Invitation reminders, consent projection and snapshot generation require both identifiers and load the record within that scope. Queued events created before this change can lack those options and are skipped by these handlers.
+
+If you relied on a submission having no attachments, filter out `kind: 'snapshot'`. If you consume `forms.invitation.sent` and want to tell the two paths apart, read `source` (absent on events emitted before this release).
 
 ## Notification mark-all-read follows the bell scope (#9244)
 
@@ -1338,6 +1376,28 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
 
+### Currencies adds opt-in official NBP average rates
+
+The `currencies` module now provides the explicit-only `nbp_average` provider for NBP
+tables A and B. It persists official `average` rates as foreign-currency-to-PLN values and
+stores the NBP publication number in the nullable `exchange_rates.external_reference` column.
+The migration is additive and existing `NBP` table-C buy/sell behavior is unchanged.
+
+**Action for consumers:** existing unfiltered `ExchangeRateService` calls retain their
+default-provider behavior. To request an official rate, call it with
+`options: { provider: 'nbp_average', rateType: 'average' }`. Enable the separate
+`nbp_average` fetch configuration only for organizations that should ingest these rates.
+`externalReference` is provider-owned provenance and is deliberately read-only in manual
+exchange-rate create/update payloads. The machine-readable `nbp_average` source is intentional;
+the existing `NBP` and `Raiffeisen Bank Polska` source values remain frozen legacy spellings.
+
+`POST /api/currencies/fetch-rates` keeps its previous request shapes during a bridge release: a
+date-only `date` such as `2026-08-24`, an empty `providers` list (which continues to select the
+default providers) and unknown request properties are still accepted, and unknown properties are
+ignored instead of rejected. Arbitrary string provider entries, duplicate names and lists longer
+than twenty entries remain accepted. Non-string entries and unparseable dates are rejected. A later
+release will require a complete RFC 3339 timestamp, reject unknown properties and reject an empty
+provider list; update callers that still send the legacy shapes before upgrading past the bridge.
 ### Money and exchange-rate amounts are arbitrary precision (exact decimals)
 
 Money columns and `exchange_rates.rate` are now unconstrained `numeric`, and all built-in money math
@@ -1634,6 +1694,39 @@ No tool input or result-field migration is required.
 Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
 
 An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
+### QueryEngine rejects empty OR and unsupported filter operators (#7831)
+
+`BasicQueryEngine` and `HybridQueryEngine` now throw `TypeError` for `{ $or: [] }`
+(including nested occurrences) and unsupported field operators in object or array
+filters. These predicates previously could be discarded, returning every otherwise
+visible row. Objects mixing supported and unsupported operators are rejected too.
+
+Module authors: omit an optional OR condition when no restriction is intended;
+use `{ id: { $in: [] } }` to match nothing. Replace unsupported operators with
+supported `FilterOp` values. Absent filters, `{}`, `[]`, and `{ $and: [] }` retain
+their existing unconstrained meaning. Operators: audit custom modules and saved
+filter presets before upgrading. No database migration or configuration change
+is required. See the [filter specification](.ai/specs/implemented/2026-04-03-advanced-datatable-ux.md#migration--backward-compatibility).
+
+### Advanced-filter all-of and staff role filters (PR #7996)
+
+The built-in advanced-filter compilers now emit supported `$overlap` predicates
+for `has_all_of`. Staff role filtering uses the same operator. Native SQL arrays,
+JSONB string arrays, and custom-field value rows preserve their storage-specific
+membership semantics. No schema migration or configuration change is required.
+
+The approved additive `FilterOp` member `not_ilike` also accepts the existing
+field-level `{ $not: { $ilike: pattern } }` compiler output. Plaintext patterns
+retain PostgreSQL ILIKE wildcard/escaping semantics. Encrypted fields use scoped
+hashed-token exclusion, including the tokenizer's minimum-length/prefix behavior
+and order-independent multiword matching; arbitrary encrypted substring matching
+is not promised. Known encrypted base fields reject unindexable terms or disabled
+search. Custom-field/document plaintext remains literal, while encrypted values
+without usable scoped evidence are excluded. Missing values and empty arrays do
+not satisfy negation. Other negative forms remain unsupported and throw TypeError.
+Downstream exhaustive switches over `FilterOp` must account for `not_ilike`; no
+existing union member or signature is removed. There is no new HTTP 400 mapping.
 
 ### Workflow webhook responses have resource limits (#7814)
 

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import {
   deserializeAdvancedFilter,
   deserializeTree,
@@ -10,13 +11,16 @@ import { createLogger } from '../logger'
 const logger = createLogger('shared').child({ component: 'crud' })
 
 /**
- * Parse advanced filter query params and merge with existing Where filters.
+ * Parse advanced filter query params (v2 tree, or legacy v1 flat) and merge with existing Where filters.
  * Call this in buildFilters callback to support advanced filter query params.
  */
 export function mergeAdvancedFilters(
   existingFilters: Record<string, unknown>,
   query: Record<string, unknown>,
 ): Record<string, unknown> {
+  const tree = deserializeTree(query)
+  if (tree) return mergeAdvancedFilterTree(existingFilters, tree)
+
   const advancedState = deserializeAdvancedFilter(query)
   if (!advancedState) return existingFilters
 
@@ -44,6 +48,10 @@ export function mergeAdvancedFilterTree(
   const treeWhere = compileTreeToWhere(tree)
   if (!treeWhere) return routeFilters
   if (Object.keys(routeFilters).length === 0) return treeWhere
+  if (isDeepStrictEqual(routeFilters, treeWhere)) return routeFilters
+  if (Array.isArray(routeFilters.$and) && routeFilters.$and.some((clause) => isDeepStrictEqual(clause, treeWhere))) {
+    return routeFilters
+  }
   // AND-combine via $and so any nested $and/$or in either side reaches normalize unchanged.
   return { $and: [routeFilters, treeWhere] }
 }

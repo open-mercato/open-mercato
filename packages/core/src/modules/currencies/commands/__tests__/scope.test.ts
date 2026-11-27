@@ -73,6 +73,7 @@ function buildEm(record: Record<string, unknown> | null = null) {
     isInTransaction: jest.fn(() => em.begin.mock.calls.length > em.commit.mock.calls.length + em.rollback.mock.calls.length),
   }
   em.fork = jest.fn().mockReturnValue(em)
+  em.transactional = jest.fn((work: (manager: typeof em) => Promise<unknown>) => work(em))
   return em
 }
 
@@ -400,12 +401,17 @@ describe('currency command tenant and organization scope', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 
-  it('does not capture a foreign-tenant exchange-rate snapshot during update preparation', async () => {
+  it('checks scope before reading the rate for locked update snapshots', async () => {
     const command = loadCommand('exchange-rates', 'currencies.exchange_rates.update')
     const em = buildEm({ ...foreignExchangeRate, organizationId: ACTOR_ORG })
     const { ctx } = buildCtx(em)
 
-    await expect(command.prepare?.({ id: RECORD_ID }, ctx)).resolves.toEqual({ before: null })
+    await expect(command.execute({ id: RECORD_ID, rate: '0.95' }, ctx)).rejects.toMatchObject({ status: 404 })
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ id: RECORD_ID, tenantId: ACTOR_TENANT }),
+      expect.objectContaining({ lockMode: expect.any(Number) }),
+    )
   })
 
   it('does not capture a foreign-organization exchange-rate snapshot during delete preparation', async () => {
