@@ -7,6 +7,7 @@ import type { DatabaseExecutionContext } from '@open-mercato/shared/lib/db/runti
 
 const mockScopes = new AsyncLocalStorage<DatabaseExecutionContext>()
 const mockRunContext = jest.fn((context: DatabaseExecutionContext, callback: () => unknown) => mockScopes.run(context, callback))
+const mockFindTokenTenant = jest.fn()
 const mockVerifyToken = jest.fn()
 const mockFindUser = jest.fn()
 const mockWrite = jest.fn()
@@ -17,6 +18,7 @@ const tenantId = '11111111-1111-4111-8111-111111111111'
 const userId = '22222222-2222-4222-8222-222222222222'
 
 jest.mock('@open-mercato/shared/lib/db/runtime', () => ({
+  isDatabaseRuntimeEnabled: () => true,
   runWithDatabaseExecutionContext: (context: DatabaseExecutionContext, callback: () => unknown) => mockRunContext(context, callback),
 }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -27,9 +29,9 @@ jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
 }))
 
 const endpoints = [
-  { handler: verifyMagicLink, operation: 'customer-magic-link' },
-  { handler: verifyEmail, operation: 'customer-email-verification' },
-  { handler: resetPassword, operation: 'customer-password-reset' },
+  { handler: verifyMagicLink, operation: 'customer-magic-link', events: ['customer_accounts.email.verified', 'customer_accounts.login.success'] },
+  { handler: verifyEmail, operation: 'customer-email-verification', events: ['customer_accounts.email.verified'] },
+  { handler: resetPassword, operation: 'customer-password-reset', events: ['customer_accounts.email.verified', 'customer_accounts.password.changed'] },
 ]
 
 function request() {
@@ -39,22 +41,29 @@ function request() {
   })
 }
 
-describe.each(endpoints)('$operation verified tenant continuation', ({ handler, operation }) => {
+describe.each(endpoints)('$operation verified tenant continuation', ({ handler, operation, events }) => {
+  const discoveryScope = { kind: 'identity', tenantId: null, source: 'identity', operation: `${operation}-identity` }
+  const tenantScope = { kind: 'tenant', tenantId, source: 'public-token', operation }
+
   beforeEach(() => {
     jest.clearAllMocks()
-    mockDispose.mockImplementation(async () => { expect(mockScopes.getStore()).toMatchObject({ kind: 'tenant', tenantId }) })
+    mockDispose.mockImplementation(async () => mockScopes.getStore())
+    mockFindTokenTenant.mockImplementation(async () => {
+      expect(mockScopes.getStore()).toEqual(discoveryScope)
+      return tenantId
+    })
     mockVerifyToken.mockImplementation(async () => {
-      expect(mockScopes.getStore()).toBeUndefined()
+      expect(mockScopes.getStore()).toEqual(tenantScope)
       return { tenantId, userId }
     })
-    mockFindUser.mockResolvedValue({ id: userId, tenantId, email: 'user@example.test', isActive: true, emailVerifiedAt: null })
+    mockFindUser.mockResolvedValue({ id: userId, tenantId, email: 'user@example.test', isActive: true, emailVerifiedAt: null, createdAt: new Date() })
     mockWrite.mockImplementation(async () => { expect(mockScopes.getStore()).toMatchObject({ kind: 'tenant', tenantId }) })
     mockEvent.mockImplementation(async () => { expect(mockScopes.getStore()).toMatchObject({ kind: 'tenant', tenantId }) })
-    const manager = { nativeUpdate: mockWrite }
+    const manager = { findOne: mockFindUser, nativeUpdate: mockWrite }
     mockContainers.mockImplementation(async () => ({
       dispose: mockDispose,
       resolve: (name: string) => {
-        if (name === 'customerTokenService') return { verifyEmailToken: mockVerifyToken, verifyPasswordResetToken: mockVerifyToken }
+        if (name === 'customerTokenService') return { findActiveTokenTenant: mockFindTokenTenant, verifyEmailToken: mockVerifyToken, verifyPasswordResetToken: mockVerifyToken }
         if (name === 'customerUserService') return {
           findById: mockFindUser, resetFailedAttempts: mockWrite, updateLastLoginAt: mockWrite, updatePassword: mockWrite,
         }
@@ -72,18 +81,29 @@ describe.each(endpoints)('$operation verified tenant continuation', ({ handler, 
   it('uses persisted token authority before resolving tenant services and writing', async () => {
     const response = await handler(request())
     expect(response.status).toBe(200)
-    expect(mockRunContext).toHaveBeenCalledWith({ kind: 'tenant', tenantId, source: 'public-token', operation }, expect.any(Function))
+    expect(mockRunContext).toHaveBeenNthCalledWith(1, discoveryScope, expect.any(Function))
+    expect(mockRunContext).toHaveBeenNthCalledWith(2, tenantScope, expect.any(Function))
     expect(mockContainers).toHaveBeenCalledTimes(2)
     expect(mockWrite).toHaveBeenCalled()
-    expect(mockEvent).toHaveBeenCalledTimes(1)
-    expect(mockDispose).toHaveBeenCalledTimes(1)
+    expect(mockEvent.mock.calls.map(([event]) => event)).toEqual(events)
+    expect(await Promise.all(mockDispose.mock.results.map(({ value }) => value))).toEqual([discoveryScope, tenantScope])
     expect(mockScopes.getStore()).toBeUndefined()
   })
 
   it('does not promote an invalid token or request tenant hint', async () => {
+    mockFindTokenTenant.mockResolvedValue(null)
+    expect((await handler(request())).status).toBe(400)
+    expect(mockRunContext).toHaveBeenCalledTimes(1)
+    expect(mockRunContext).toHaveBeenCalledWith(discoveryScope, expect.any(Function))
+    expect(mockVerifyToken).not.toHaveBeenCalled()
+    expect(mockWrite).not.toHaveBeenCalled()
+    expect(mockEvent).not.toHaveBeenCalled()
+  })
+
+  it('rechecks the token in the tenant transaction before applying writes', async () => {
     mockVerifyToken.mockResolvedValue(null)
     expect((await handler(request())).status).toBe(400)
-    expect(mockRunContext).not.toHaveBeenCalled()
+    expect(mockVerifyToken).toHaveBeenCalledTimes(1)
     expect(mockWrite).not.toHaveBeenCalled()
     expect(mockEvent).not.toHaveBeenCalled()
   })
@@ -100,7 +120,7 @@ describe.each(endpoints)('$operation verified tenant continuation', ({ handler, 
     })
     let responded = false
     const response = handler(request()).then((result) => { responded = true; return result })
-    await eventStarted
+    await Promise.race([eventStarted, response.then(() => { throw new Error('[internal] Response finished before event dispatch') })])
     expect(responded).toBe(false)
     finish?.()
     expect((await response).status).toBe(200)

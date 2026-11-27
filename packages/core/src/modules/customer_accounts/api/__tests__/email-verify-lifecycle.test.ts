@@ -2,13 +2,23 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { registerDatabaseRuntimeAdapter, type DatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 
 const storage = new AsyncLocalStorage<{ context: DatabaseExecutionContext; active: boolean }>()
+const mockFindTokenTenant = jest.fn()
 const mockVerifyToken = jest.fn()
 const mockUpdate = jest.fn()
 const mockDisposals: { active: boolean; tenantId: string | null }[] = []
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: async () => {
   const scope = storage.getStore()
+  const transaction = {
+    findOne: async () => ({ id: 'user', tenantId: 'tenant', isActive: true, createdAt: new Date() }),
+    nativeUpdate: mockUpdate,
+  }
   return {
-    resolve: (name: string) => name === 'customerTokenService' ? { verifyEmailToken: mockVerifyToken } : { nativeUpdate: mockUpdate },
+    resolve: (name: string) => {
+      if (name === 'customerTokenService') return { findActiveTokenTenant: mockFindTokenTenant, verifyEmailToken: mockVerifyToken }
+      if (name === 'customerSessionService') return { revokeAllUserSessions: async () => undefined }
+      if (name === 'em') return { transactional: async (callback: (tx: typeof transaction) => Promise<unknown>) => callback(transaction) }
+      throw new Error('[internal] Unexpected email verification service')
+    },
     dispose: async () => {
       await Promise.resolve()
       expect(storage.getStore()).toBe(scope)
@@ -36,6 +46,7 @@ beforeAll(() => {
 beforeEach(() => {
   jest.clearAllMocks()
   mockDisposals.length = 0
+  mockFindTokenTenant.mockResolvedValue('tenant')
   mockVerifyToken.mockResolvedValue({ userId: 'user', tenantId: 'tenant' })
   mockUpdate.mockResolvedValue(1)
 })
@@ -46,13 +57,14 @@ it.each(['success', 'failure'])('disposes the owned token continuation on %s whi
   }))
   if (outcome === 'failure') await expect(response).rejects.toThrow('write failed')
   else expect((await response).status).toBe(200)
-  expect(mockDisposals).toEqual([{ active: true, tenantId: 'tenant' }])
+  expect(mockDisposals).toEqual([{ active: true, tenantId: null }, { active: true, tenantId: 'tenant' }])
 })
 it('does not allocate a tenant container for an invalid token', async () => {
-  mockVerifyToken.mockResolvedValueOnce(null)
+  mockFindTokenTenant.mockResolvedValueOnce(null)
   const response = await POST(new Request('https://app.example.test/api/customer_accounts/email/verify', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: 'a'.repeat(64) }),
   }))
   expect(response.status).toBe(400)
-  expect(mockDisposals).toEqual([])
+  expect(mockDisposals).toEqual([{ active: true, tenantId: null }])
+  expect(mockVerifyToken).not.toHaveBeenCalled()
 })
