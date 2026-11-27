@@ -8,8 +8,14 @@ export const metadata = {
   id: 'checkout-gateway-payment-authorized',
 }
 
-export default async function handle(payload: { paymentId?: string; organizationId?: string; tenantId?: string; transactionId?: string }) {
-  if (!payload.paymentId || !payload.organizationId || !payload.tenantId) return
+export default async function handle(
+  payload: { paymentId?: string; transactionId?: string },
+  { organizationId, tenantId }: { organizationId?: string | null; tenantId?: string | null },
+) {
+  if (!payload.paymentId) return
+  if (!organizationId || !tenantId) {
+    throw new Error('[internal] Checkout gateway status update requires trusted event scope')
+  }
   const container = await createRequestContainer()
   const commandBus = container.resolve('commandBus') as CommandBus
   await commandBus.execute('checkout.transaction.updateStatus', {
@@ -18,20 +24,20 @@ export default async function handle(payload: { paymentId?: string; organization
       status: 'completed',
       paymentStatus: 'authorized',
       gatewayTransactionId: payload.transactionId ?? null,
-      organizationId: payload.organizationId,
-      tenantId: payload.tenantId,
+      organizationId,
+      tenantId,
     },
     ctx: {
       container,
       auth: null,
       organizationScope: null,
-      selectedOrganizationId: payload.organizationId,
-      organizationIds: [payload.organizationId],
+      selectedOrganizationId: organizationId,
+      organizationIds: [organizationId],
     },
   }).catch((error) => reportGatewayStatusSyncFailure(error, {
     event: metadata.event,
     paymentId: payload.paymentId,
-    organizationId: payload.organizationId,
-    tenantId: payload.tenantId,
+    organizationId,
+    tenantId,
   }))
 }

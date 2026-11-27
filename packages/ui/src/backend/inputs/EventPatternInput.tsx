@@ -18,6 +18,7 @@ export interface EventPatternInputProps {
   disabled?: boolean
   categories?: Array<'crud' | 'lifecycle' | 'system' | 'custom'>
   modules?: string[]
+  workflowEmittableOnly?: boolean
 }
 
 export function EventPatternInput({
@@ -27,19 +28,22 @@ export function EventPatternInput({
   disabled,
   categories,
   modules,
+  workflowEmittableOnly = false,
 }: EventPatternInputProps) {
   const t = useT()
   const resolvedPlaceholder = placeholder ?? t('ui.inputs.eventPatternInput.placeholder', 'sales.orders.created')
-  const { events } = useAvailableEvents({ categories, modules })
+  const { events } = useAvailableEvents({ categories, modules, excludeTriggerExcluded: !workflowEmittableOnly })
 
   const suggestions = React.useMemo<ComboboxOption[]>(
     () =>
-      events.map(event => ({
+      events.filter(event => !workflowEmittableOnly || (
+        event.workflowEmittable === true && !event.portalBroadcast && !event.crossProcessBroadcast
+      )).map(event => ({
         value: event.id,
         label: event.label,
         description: event.id,
       })),
-    [events]
+    [events, workflowEmittableOnly]
   )
 
   return (

@@ -834,11 +834,15 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       throw new Error('No recipients available for reply')
     }
 
+    const channelSource = original.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
+      && original.sourceEntityId
+      ? { externalConversationId: original.sourceEntityId }
+      : { messageThreadId: original.threadId ?? original.id }
     const channelThread = !input.sendViaEmail && original.visibility === 'public'
       ? await resolveMessageChannelThreadAccess(
         ctx.container,
         { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
-        { messageThreadId: original.threadId ?? original.id },
+        channelSource,
         { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
       )
       : null

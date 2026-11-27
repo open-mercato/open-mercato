@@ -28,6 +28,8 @@ import { z } from 'zod'
 import type { AiAgentDefinition } from '../../lib/ai-agent-definition'
 import type { AiToolDefinition } from '../../lib/types'
 
+const ORG_ID = '10000000-0000-4000-8000-000000000001'
+
 const streamTextMock = jest.fn()
 
 jest.mock('ai', () => {
@@ -109,7 +111,7 @@ function makeCtx(overrides: Partial<{
 }> = {}) {
   return {
     tenantId: 'tenant-a',
-    organizationId: 'org-a',
+    organizationId: ORG_ID,
     userId: 'user-a',
     container: { resolve: jest.fn() },
     userFeatures: ['ai_assistant.view'],
@@ -186,7 +188,7 @@ describe('WS-C integration — tool-pack coverage', () => {
       const [query, options] = searchMock.mock.calls[0] as [string, Record<string, unknown>]
       expect(query).toBe('hello')
       expect(options.tenantId).toBe('tenant-a')
-      expect(options.organizationId).toBe('org-a')
+      expect(options.organizationId).toBe(ORG_ID)
       expect(options.limit).toBe(10)
     })
   })
@@ -283,7 +285,7 @@ describe('WS-C integration — tool-pack coverage', () => {
         agentId: 'multi.reader',
         authContext: {
           tenantId: 'tenant-a',
-          organizationId: 'org-a',
+          organizationId: ORG_ID,
           userId: 'user-a',
           features: ['*'],
           isSuperAdmin: true,
