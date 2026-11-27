@@ -29,7 +29,7 @@ import {
   type McpExposureCaller,
   type McpExposureConfig,
 } from './mcp-exposure'
-import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
+import { deriveApiKeySessionId } from './log-redaction'
 import { runWithMcpToolExecutionObserver } from './mcp-tool-execution-observer'
 import {
   CORRELATION_ID_HEADER,
@@ -143,7 +143,7 @@ async function resolveSessionContext(
     const sessionResult = await findSessionApiKeyWithSecret(em, sessionToken)
     if (!sessionResult) {
       if (debug) {
-        logger.debug('Session token not found, expired, or secret unavailable', { sessionToken: redactSecretForLog(sessionToken) })
+        logger.debug('Session token not found, expired, or secret unavailable')
       }
       return null
     }
