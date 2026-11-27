@@ -1847,8 +1847,11 @@ describe('module command secret output', () => {
 
   it('redacts secrets from rotation failure progress without changing the JSON event contract', async () => {
     process.env.OM_ROTATION_PROGRESS = 'json'
-    const args = ['--old-key', 'fixture-rotation-key']
-    const handler = jest.fn().mockRejectedValue(new Error('Cannot rotate fixture-rotation-key'))
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'fixture-rotation-env-key'
+    const args = ['--old-key', 'fixture-rotation-arg-key']
+    const handler = jest.fn().mockRejectedValue(
+      new Error('Cannot rotate fixture-rotation-env-key or fixture-rotation-arg-key'),
+    )
     const stderr = jest.spyOn(process.stderr, 'write').mockReturnValue(true)
     const mercato = await import('../mercato')
     mercato.registerCliModules([
@@ -1860,13 +1863,14 @@ describe('module command secret output', () => {
     expect(stderr).toHaveBeenCalledTimes(1)
     const eventLine = String(stderr.mock.calls[0][0])
     expect(eventLine.endsWith('\n')).toBe(true)
-    expect(eventLine).not.toContain('fixture-rotation-key')
+    expect(eventLine).not.toContain('fixture-rotation-env-key')
+    expect(eventLine).not.toContain('fixture-rotation-arg-key')
     expect(JSON.parse(eventLine)).toMatchObject({
       schemaVersion: 1,
       type: 'phase.changed',
       runId: 'rotation',
       phase: 'rotation.failed',
-      entity: 'Cannot rotate ****',
+      entity: 'Cannot rotate **** or ****',
     })
   })
 

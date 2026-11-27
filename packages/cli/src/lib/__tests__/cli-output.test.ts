@@ -69,11 +69,12 @@ describe('CLI output redaction', () => {
       .toBe('[****]')
   })
 
-  it('redacts versioned and fallback credential keys', () => {
-    expect(redactCliText('Rejected fixture-versioned-secret fixture-fallback-key', [], {
+  it('redacts versioned, fallback, and old encryption credential keys', () => {
+    expect(redactCliText('Rejected fixture-versioned-secret fixture-fallback-key fixture-old-key', [], {
       DOCUMENTS_COLLAB_JWT_SECRET_V2: 'fixture-versioned-secret',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'fixture-fallback-key',
-    })).toBe('Rejected **** ****')
+      TENANT_DATA_ENCRYPTION_OLD_KEY: 'fixture-old-key',
+    })).toBe('Rejected **** **** ****')
   })
 
   it('redacts known CLI and environment credentials from exception messages', () => {

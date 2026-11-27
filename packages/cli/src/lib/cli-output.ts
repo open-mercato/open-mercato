@@ -1,4 +1,4 @@
-const SECRET_OPTION_PATTERN = /(?:password|passwd|passphrase|secret|token|credentials?|authorization|bearer|(?:api|private|signing|encryption(?:fallback)?|access|client)key|databaseurl|redisurl|connectionstring)(?:v\d+)?$/i
+const SECRET_OPTION_PATTERN = /(?:password|passwd|passphrase|secret|token|credentials?|authorization|bearer|(?:api|private|signing|encryption(?:fallback|old)?|access|client)key|databaseurl|redisurl|connectionstring)(?:v\d+)?$/i
 const REDACTED = '****'
 
 function isSecretName(name: string): boolean {
