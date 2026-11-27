@@ -38,7 +38,7 @@ const API = {
   catalog: '/api/dashboards/analytics/catalog',
 }
 
-const PASSWORD = 'Str0ng!Pass'
+const PASSWORD = 'Str0ng!Passw0rd'
 const SALES_ORDER_SOURCE_FEATURE = 'sales.orders.view'
 
 const CATALOG_FEATURES = [

@@ -51,7 +51,7 @@ const API = {
   layout: '/api/dashboards/layout',
 }
 
-const PASSWORD = 'Str0ng!Pass'
+const PASSWORD = 'Str0ng!Passw0rd'
 
 const CONFIGURE_FEATURES = [
   'dashboards.view',

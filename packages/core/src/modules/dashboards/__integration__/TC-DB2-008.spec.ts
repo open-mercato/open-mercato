@@ -35,7 +35,7 @@ const API = {
   ai: '/api/dashboards/analytics/custom-metric/ai',
 }
 
-const PASSWORD = 'Str0ng!Pass'
+const PASSWORD = 'Str0ng!Passw0rd'
 
 const CATALOG_FEATURES = [
   'dashboards.view',
