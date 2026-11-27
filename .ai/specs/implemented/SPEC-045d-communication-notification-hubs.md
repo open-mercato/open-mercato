@@ -1008,60 +1008,23 @@ function mapSlackActionsToMessageActions(blocks: SlackBlock[]): MessageActionDat
 
 Channel payloads can contain HTML (Slack rich-text, email MIME, future channel types). The Messages module's `channel-payload-renderer` widget injects the payload into the DOM via `dangerouslySetInnerHTML`. Without sanitization, an inbound channel message becomes a stored-XSS vector.
 
-**Canonical sanitizer**: `packages/core/src/modules/communication_channels/lib/sanitize-channel-html.ts`. The hub owns the function; every widget (in the hub and in downstream provider packages) that renders channel-supplied HTML imports this helper. The Messages module's `channel-payload-renderer` widget calls it before render.
+**Canonical sanitizer**: `packages/core/src/modules/communication_channels/lib/sanitize-channel-html.ts`. The hub owns this `sanitize-html` allowlist. The server-side message-channel enricher applies it to email bodies and exposes `sanitizedHtml`; the client widget never imports the sanitizer or renders raw `channelPayload.html`.
 
-<<<<<<< HEAD
-```typescript
-// communication_channels/lib/sanitize-channel-html.ts
-import DOMPurify from 'isomorphic-dompurify'
-=======
 **Email body containment (#10614).** The sanitizer drops out-of-range inline font sizes, spacing, border widths, and corner radii. The widget confines painting to the email body and lets readers scroll wide email tables horizontally within it.
 
 **Image privacy (#7819)**: The sanitizer removes active network image sources before the HTML reaches a browser. Validated HTTP(S) URLs are stored in an inert `data-channel-remote-src` attribute, regenerated from `src` so a sender cannot forge it. Protocol-relative sources are normalized to HTTPS and deferred. Uncontrolled relative, CID, and unsupported schemes remain blocked. Safe base64 PNG, JPEG, GIF, and WebP images retain their source and render without a request; resolving attached CID images is outside this existing path.
->>>>>>> 6c98970ac0 (fix(communication_channels): confine inbound email content to its body (#10614) (#10853))
 
-/**
- * Allowlist tuned for HTML payloads from email + chat channels.
- * - Strips <script>, all event-handler attributes (onclick, onerror, …).
- * - Strips javascript: and data: URLs (except data:image/* for inline base64 images).
- * - Preserves email layout primitives (table-based layouts), inline images, basic typography.
- */
-export function sanitizeChannelHtml(html: string): string {
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: [
-      'a', 'img',
-      'table', 'thead', 'tbody', 'tr', 'td', 'th',
-      'p', 'br', 'hr',
-      'ul', 'ol', 'li',
-      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-      'strong', 'em', 'b', 'i', 'u', 's',
-      'blockquote', 'code', 'pre',
-      'span', 'div',
-    ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'style', 'width', 'height'],
-    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:|data:image\/(?:png|jpe?g|gif|webp);base64,)/i,
-    FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
-    FORBID_ATTR: [
-      'onerror', 'onload', 'onclick', 'onmouseover', 'onmouseout', 'onfocus', 'onblur',
-      'onkeydown', 'onkeyup', 'onkeypress', 'onchange', 'onsubmit',
-    ],
-    KEEP_CONTENT: true,
-  })
-}
-```
+The email widget displays a translated privacy notice and **Load remote images** action only when deferred images exist. Explicit consent activates the validated URLs with `referrerPolicy="no-referrer"`. Consent is local to that message rendering and resets when the message ID or sanitized content changes. Opening another message or reopening the widget requires consent again. The raw payload, API fields, exported sanitizer signature, and database schema remain unchanged.
 
 **Phase 1 acceptance** requires unit tests covering:
 - `<script>alert(1)</script>` → stripped
-- `<img src="x" onerror="alert(1)">` → `<img src="x">` (event handler stripped)
+- `<img src="x" onerror="alert(1)">` → `<img>` (uncontrolled relative source and event handler stripped)
 - `<a href="javascript:alert(1)">x</a>` → `<a>x</a>` (href stripped)
 - `<a href="data:text/html,...">x</a>` → `<a>x</a>` (data:text/html stripped, but `data:image/png;base64,…` preserved)
 - Allowed tags (`<table>`, `<img src="data:image/png;…">`, `<a href="mailto:...">`) preserved verbatim
 - Integration test: post an HTML payload containing a malicious snippet through the inbound webhook → assert the rendered DOM in `/backend/messages/[id]` contains neither `<script>` nor any `on*` attribute
-<<<<<<< HEAD
-=======
 - Image privacy regression: sanitizer and enricher tests assert no active remote `src` escapes to the browser, safe embedded raster images survive, and forged deferred attributes are removed. `TC-CHANNEL-EMAIL-032-remote-images.spec.ts` mounts the production widget and i18n provider in Chromium with server-sanitized HTML, intercepts image requests, and proves no request before consent, loading after consent, inline-image rendering, omitted referrers, and consent reset across messages/content changes. This component-browser test does not require seeded data or an application server.
 - Body containment regression: sanitizer tests check style limits and preservation of ordinary formatting. The browser fixture verifies that wide email tables scroll inside the message body without widening the page. `TC-CHANNEL-EMAIL-020.spec.ts` verifies the sanitized detail response and the inbox widget through the application routes.
->>>>>>> 6c98970ac0 (fix(communication_channels): confine inbound email content to its body (#10614) (#10853))
 
 The email integration spec ([2026-05-21-email-integration-foundation.md](../2026-05-21-email-integration-foundation.md)) gates its Phase 1 acceptance on this helper being present in the hub.
 
@@ -2380,6 +2343,8 @@ None.
 ## Changelog
 
 - 2026-11-17: Resolve native outbound replies by scoped conversation provenance; refuse ambiguous/conflicting routes and retain explicit mailbox selection (#9739).
+
+- 2026-10-29: Block channel-email remote image loads until per-message consent (#7819); preserve safe embedded raster images and add sanitizer, enricher, widget, and browser network-request regression coverage.
 
 | Date | Change |
 |------|--------|

@@ -3,6 +3,8 @@
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { Button } from '@open-mercato/ui/primitives/button'
 
 type ChannelPayloadEnrichment = {
   channelContentType: string | null
@@ -19,8 +21,6 @@ type MessageWithPayload = Record<string, unknown> & {
   _channelPayload?: ChannelPayloadEnrichment | null
 }
 
-<<<<<<< HEAD
-=======
 function EmailPayload({ html }: { html: string }) {
   const t = useT()
   const bodyRef = React.useRef<HTMLDivElement>(null)
@@ -66,7 +66,6 @@ function EmailPayload({ html }: { html: string }) {
   )
 }
 
->>>>>>> 6c98970ac0 (fix(communication_channels): confine inbound email content to its body (#10614) (#10853))
 export default function ChannelPayloadRendererWidget({
   data,
 }: InjectionWidgetComponentProps<Record<string, unknown>, MessageWithPayload>) {
@@ -76,19 +75,8 @@ export default function ChannelPayloadRendererWidget({
 
   const { channelContentType, channelPayload, sanitizedHtml } = payload
 
-  // Email / HTML — render the HTML the server already sanitized.
   if (channelContentType.startsWith('email/') && typeof sanitizedHtml === 'string') {
-    return (
-      <section
-        className="rounded-md border bg-card p-4 text-sm"
-        aria-label={t(
-          'communication_channels.channelPayload.email.aria',
-          'Channel payload — email',
-        )}
-      >
-        <div dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
-      </section>
-    )
+    return <EmailPayload key={`${data?.id ?? ''}:${sanitizedHtml}`} html={sanitizedHtml} />
   }
 
   // Provider-specific payloads (Slack Block Kit, WhatsApp interactive) —
