@@ -4,8 +4,9 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { emailVerifySchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
-import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
+import type { CustomerSessionService } from '../../services/customerSessionService'
+import type { CustomerUserService } from '../../services/customerUserService'
+import { emitCustomerEmailVerified, verifyCustomerEmail } from '../../lib/verifyCustomerEmail'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -26,18 +27,21 @@ export async function POST(req: Request) {
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const result = await customerTokenService.verifyEmailToken(parsed.data.token, 'email_verification')
+  const sessions = container.resolve<CustomerSessionService>('customerSessionService')
+  const { token, password } = parsed.data
+  const result = await em.transactional(async (tx) => {
+    const identity = await customerTokenService.verifyEmailToken(token, 'email_verification', undefined, tx)
+    if (!identity) return null
+    const credentials = password === undefined
+      ? undefined
+      : { password, users: container.resolve<CustomerUserService>('customerUserService') }
+    return verifyCustomerEmail(tx, identity, sessions, credentials)
+  })
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
 
-  await em.nativeUpdate(CustomerUser, { id: result.userId, tenantId: result.tenantId }, { emailVerifiedAt: new Date() })
-
-  void emitCustomerAccountsEvent('customer_accounts.email.verified', {
-    userId: result.userId,
-    recipientUserId: result.userId,
-    tenantId: result.tenantId,
-  }).catch(() => undefined)
+  if (result.newlyVerified) emitCustomerEmailVerified(result.user)
 
   return NextResponse.json({ ok: true })
 }
@@ -47,7 +51,7 @@ const errorSchema = z.object({ ok: z.literal(false), error: z.string() })
 
 const methodDoc: OpenApiMethodDoc = {
   summary: 'Verify customer email address',
-  description: 'Validates the email verification token and marks the email as verified.',
+  description: 'Verifies the email and optionally sets a password chosen by the email recipient.',
   tags: ['Customer Authentication'],
   requestBody: {
     schema: emailVerifySchema,

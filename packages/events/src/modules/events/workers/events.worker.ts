@@ -1,7 +1,7 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ScopedResolveContainer } from '@open-mercato/shared/lib/di/scopedContainer'
-import type { EventBus, QueuedDispatchResult } from '../../../types'
+import type { EmitOptions, EventBus, QueuedDispatchResult } from '../../../types'
 
 /** An `EventBus` proven at runtime to implement the optional `dispatchQueued`. */
 type DispatchCapableBus = EventBus & Required<Pick<EventBus, 'dispatchQueued'>>
@@ -21,10 +21,7 @@ export const metadata: WorkerMeta = {
 type EventJobPayload = {
   event: string
   payload: unknown
-  options?: {
-    tenantId?: string | null
-    organizationId?: string | null
-  }
+  options?: Pick<EmitOptions, 'tenantId' | 'organizationId' | 'allowAllTenants'>
   /**
    * Producer stamp: the emitting process already ran the persistent subscribers
    * inline because single-delivery was reconciled off there. Dispatching again
@@ -133,8 +130,9 @@ export default async function handle(
     event,
     payload,
     {
-      tenantId: options?.tenantId ?? null,
-      organizationId: options?.organizationId ?? null,
+      tenantId: options?.tenantId,
+      organizationId: options?.organizationId,
+      allowAllTenants: options?.allowAllTenants,
     },
     ctx.resolve,
     ctx.container,

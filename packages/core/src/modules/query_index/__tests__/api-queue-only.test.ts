@@ -57,7 +57,7 @@ describe('query_index API persistent job dispatch', () => {
         tenantId: 'tenant-1',
         organizationId: 'org-1',
       }),
-      { persistent: true, deliverInline: false },
+      { persistent: true, deliverInline: false, tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 
@@ -72,7 +72,7 @@ describe('query_index API persistent job dispatch', () => {
         tenantId: 'tenant-1',
         organizationId: 'org-1',
       },
-      { persistent: true, deliverInline: false },
+      { persistent: true, deliverInline: false, tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 

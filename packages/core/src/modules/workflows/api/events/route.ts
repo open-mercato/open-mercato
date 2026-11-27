@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
       WorkflowEvent,
       where,
       {
-        orderBy: { [sortField]: sortDir },
+        orderBy: { [sortField]: sortDir, id: sortDir },
         limit: pageSize,
         offset,
       }

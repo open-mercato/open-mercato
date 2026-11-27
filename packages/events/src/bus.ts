@@ -30,6 +30,7 @@ import type {
   EventBus,
   CreateBusOptions,
   SubscriberHandler,
+  SubscriberContext,
   SubscriberDescriptor,
   EventPayload,
   EmitOptions,
@@ -73,6 +74,15 @@ const GLOBAL_EVENT_TAPS_KEY = '__openMercatoEventBusGlobalTaps__'
 
 function hasTrustedTenantScope(options?: EmitOptions): boolean {
   return typeof options?.tenantId === 'string' && options.tenantId.trim().length > 0
+}
+
+function readSubscriberEventScope(options?: EmitOptions): SubscriberContext['eventScope'] {
+  if (options?.tenantId === undefined) return undefined
+  return {
+    tenantId: options.tenantId,
+    organizationId: options.organizationId,
+    ...(options.tenantId === null && options.allowAllTenants === true ? { allowAllTenants: true } : {}),
+  }
 }
 
 function normalizePayloadScope(value: unknown): string | null {
@@ -482,6 +492,7 @@ function createEventBusWithState(
               eventName: event,
               tenantId: options?.tenantId ?? null,
               organizationId: options?.organizationId ?? null,
+              eventScope: readSubscriberEventScope(options),
             }),
           )
         } catch (error) {
@@ -582,6 +593,7 @@ function createEventBusWithState(
             eventName: event,
             tenantId: options?.tenantId ?? null,
             organizationId: options?.organizationId ?? null,
+            eventScope: readSubscriberEventScope(options),
           }),
         ),
       ),

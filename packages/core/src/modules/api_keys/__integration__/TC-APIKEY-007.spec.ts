@@ -188,17 +188,23 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
         { token: actorToken },
       )
       const emptyScopeList = await readJsonSafe<KeyListBody>(emptyScopeProbe)
-      expect(emptyScopeProbe.status(), 'Deny-all actor should pass the API-key view feature guard').toBe(200)
-      expect(emptyScopeList?.items ?? [], 'organizations=[] should resolve to an empty visible key set').toEqual([])
+      expect(
+        emptyScopeProbe.status(),
+        'A deny-all actor is stopped at the feature guard: an empty organization scope is deny-all',
+      ).toBe(403)
+      expect(emptyScopeList?.items, 'A denied list must not carry any key').toBeUndefined()
 
-      const unknownResponse = await apiRequest(
+      const denyAllUnknownResponse = await apiRequest(
         request,
         'DELETE',
         `/api/api_keys/keys?id=${encodeURIComponent(randomUUID())}`,
         { token: actorToken },
       )
-      const unknownBody = await readJsonSafe<ErrorBody>(unknownResponse)
-      expect(unknownResponse.status(), 'Unknown id establishes the non-enumerating response').toBe(404)
+      const denyAllUnknownBody = await readJsonSafe<ErrorBody>(denyAllUnknownResponse)
+      expect(
+        denyAllUnknownResponse.status(),
+        'Unknown id establishes the non-enumerating response: the deny happens before any key lookup',
+      ).toBe(403)
 
       const denyAllResponse = await apiRequest(
         request,
@@ -212,8 +218,8 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
       expect(
         denyAllResponse.status(),
         'organizations=[] must deny a known organization-bound key like an unknown id',
-      ).toBe(unknownResponse.status())
-      expect(denyAllBody, 'Deny-all response must not disclose whether the key exists').toEqual(unknownBody)
+      ).toBe(denyAllUnknownResponse.status())
+      expect(denyAllBody, 'Deny-all response must not disclose whether the key exists').toEqual(denyAllUnknownBody)
       expect(denyAllSurvival.status(), 'Rejected deny-all deletion must leave the key for superadmin cleanup').toBe(200)
 
       // Widen the same non-superadmin to exactly one organization. This proves
@@ -223,6 +229,17 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
         features: ['api_keys.view', 'api_keys.delete'],
         organizations: [allowedOrganizationId],
       })
+      // With a visible organization the actor passes the feature guard again, so
+      // the non-enumerating baseline is now the route's own not-found response.
+      const unknownResponse = await apiRequest(
+        request,
+        'DELETE',
+        `/api/api_keys/keys?id=${encodeURIComponent(randomUUID())}`,
+        { token: actorToken },
+      )
+      const unknownBody = await readJsonSafe<ErrorBody>(unknownResponse)
+      expect(unknownResponse.status(), 'Unknown id establishes the non-enumerating response').toBe(404)
+
       const allowedKeyId = await createKey(
         `QA TC-APIKEY-007 allowed ${stamp}`,
         actorTenantId,
