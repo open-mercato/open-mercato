@@ -12,6 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -20,7 +21,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
-import { gateTaskAction } from '../../../../lib/task-visibility-request'
+import { gateTaskAction, TASK_NOT_FOUND_BODY } from '../../../../lib/task-visibility-request'
 import { serializeUserTask } from '../../serialize'
 import { UserTask } from '../../../../data/entities'
 import {
@@ -59,6 +60,10 @@ export async function POST(
         { error: 'Missing tenant or organization context' },
         { status: 400 }
       )
+    }
+
+    if (!z.guid().safeParse(params.id).success) {
+      return NextResponse.json(TASK_NOT_FOUND_BODY, { status: 404 })
     }
 
     // §6.4 first, so a caller with no relationship to the task cannot tell a

@@ -6,13 +6,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
-import { gateTaskAction } from '../../../../lib/task-visibility-request'
+import { gateTaskAction, TASK_NOT_FOUND_BODY } from '../../../../lib/task-visibility-request'
 import {
   workflowsTag,
   userTaskClaimResponseSchema,
@@ -58,6 +59,10 @@ export async function POST(
         { error: 'Missing tenant or organization context' },
         { status: 400 }
       )
+    }
+
+    if (!z.guid().safeParse(params.id).success) {
+      return NextResponse.json(TASK_NOT_FOUND_BODY, { status: 404 })
     }
 
     // §6.4 runs BEFORE the handler, and that ordering is the disclosure fix:
