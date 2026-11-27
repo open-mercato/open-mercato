@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { expect, test, type BrowserContext, type Page, type Response } from '@playwright/test'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createRoleFixture,
@@ -112,5 +113,53 @@ test('a refused stale Sales inline save retains its draft and preserves the othe
     if (quoteId) await deleteSalesEntityIfExists(request, adminToken, '/api/sales/quotes', quoteId)
     for (const userId of userIds.reverse()) await deleteUserIfExists(request, adminToken, userId)
     if (roleId) await deleteRoleIfExists(request, adminToken, roleId)
+  }
+})
+
+
+test('submitting a nested Sales line dialog does not create its parent document', async ({ page, request, context }) => {
+  test.setTimeout(90_000)
+  const token = await getAuthToken(request, 'admin')
+  const createdResponses: Response[] = []
+  const observeCreatedOrder = (response: Response) => {
+    if (response.url().endsWith('/api/sales/orders') && response.request().method() === 'POST') {
+      createdResponses.push(response)
+    }
+  }
+  page.on('response', observeCreatedOrder)
+  try {
+    await login(page, 'admin')
+    await context.addCookies([{ name: 'locale', value: 'pl', url: new URL(page.url()).origin }])
+    await page.goto('/backend/sales/documents/create', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('button', { name: 'Wygeneruj', exact: true })).toBeEnabled()
+    await page.getByRole('button', { name: 'Zamówienie', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Pozycje', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Dodaj pozycję', exact: true }).first().click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('button', { name: 'Pozycja niestandardowa', exact: true }).click()
+    const name = `QA nested line ${randomUUID()}`
+    const nameInput = dialog.getByRole('textbox', { name: 'Opcjonalna nazwa pozycji', exact: true })
+    await nameInput.fill(name)
+    await dialog.getByRole('textbox', { name: '0.00', exact: true }).fill('10,25')
+    await dialog.getByRole('textbox', { name: '1', exact: true }).fill('2')
+    await nameInput.press('Control+Enter')
+    await expect(dialog).toBeHidden()
+    await expect(page.getByRole('row').filter({ hasText: name })).toBeVisible()
+    await page.waitForTimeout(1_000)
+    expect(createdResponses).toHaveLength(0)
+    expect(page.url()).toContain('/documents/create')
+    const created = page.waitForResponse((response) => response.url().endsWith('/api/sales/orders') && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Utwórz', exact: true }).first().click()
+    expect((await created).status()).toBe(201)
+    expect(createdResponses).toHaveLength(1)
+  } finally {
+    page.off('response', observeCreatedOrder)
+    for (const response of createdResponses) {
+      if (response.status() !== 201) continue
+      const body: unknown = await response.json()
+      if (typeof body === 'object' && body !== null && 'id' in body && typeof body.id === 'string') {
+        await deleteSalesEntityIfExists(request, token, '/api/sales/orders', body.id)
+      }
+    }
   }
 })

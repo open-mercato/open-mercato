@@ -3052,6 +3052,7 @@ export function LineItemDialog({
         className="sm:max-w-5xl"
         ref={dialogContentRef}
         onKeyDown={handleKeyDown}
+        onSubmit={(event) => event.stopPropagation()}
       >
         <DialogHeader>
           <DialogTitle>
