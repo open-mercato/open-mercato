@@ -240,7 +240,7 @@ export async function createSecondTenantCartActor(
     organizations: [organizationId],
   });
   const email = `qa-cart-${stamp}@test.invalid`;
-  const password = 'Valid1!Pass';
+  const password = 'QaValid1!Pass';
   const userId = await createUserFixture(request, superadminToken, {
     email,
     password,

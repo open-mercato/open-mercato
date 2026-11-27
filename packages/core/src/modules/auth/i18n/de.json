@@ -583,6 +583,7 @@
   "auth.password": "Passwort",
   "auth.password.requirements.digit": "Eine Zahl",
   "auth.password.requirements.help": "Passwortanforderungen: {requirements}",
+  "auth.password.requirements.maxBytes": "Höchstens {max} Byte (UTF-8)",
   "auth.password.requirements.minLength": "Mindestens {min} Zeichen",
   "auth.password.requirements.separator": ", ",
   "auth.password.requirements.special": "Ein Sonderzeichen",

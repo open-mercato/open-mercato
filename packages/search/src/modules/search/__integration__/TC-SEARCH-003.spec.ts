@@ -24,7 +24,7 @@ import {
  * but NOT search.reindex must therefore be provisioned explicitly to prove the
  * granular reindex gate (employee cannot stand in — it lacks search.view too).
  */
-const VALID_PASSWORD = 'Valid1!Pass'
+const VALID_PASSWORD = 'QaValid1!Pass'
 
 test.describe('TC-SEARCH-003: search API auth & feature gates (401/403)', () => {
   test('gates search.view and search.reindex by authentication and feature', async ({ request }) => {

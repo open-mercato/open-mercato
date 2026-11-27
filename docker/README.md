@@ -20,6 +20,11 @@ Run the entire stack in Docker with live reload:
 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
+<<<<<<< HEAD
+=======
+Every published development port binds to `127.0.0.1` by default. `INFRA_BIND_HOST` explicitly overrides that host binding for all published services. OpenCode requires HTTP Basic authentication as user `opencode`; the compose stack passes `OPENCODE_PASSWORD` to the app and as `OPENCODE_SERVER_PASSWORD` to the server. Missing or empty passwords stop compose before containers start. For a local probe, use `curl -u "opencode:$OPENCODE_PASSWORD" http://127.0.0.1:4096/global/health`. The same authentication applies to the production and hybrid agent services. The hybrid starter generates a local credential for the app and its OpenCode container. For direct Compose use and standalone agent profiles, set `OPENCODE_PASSWORD` before starting OpenCode.
+
+>>>>>>> 9934e0940a (fix(security): harden platform authorization and deployment defaults (#10543))
 The app container mounts the repo, runs `yarn dev` (packages watch + Next.js dev server), and does init/migrate + generate on start. Named volumes keep `node_modules` and `.next` in the container.
 
 ### AI assistant services in the fullapp stacks (mcp + opencode)
@@ -38,11 +43,18 @@ Wiring smoke test from the host (dev stack):
 
 ```bash
 curl http://localhost:3001/health          # {"status":"ok","tools":N}
-curl http://localhost:4096/global/health   # {"healthy":true,...}
-curl http://localhost:4096/mcp             # {"open-mercato":{"status":"connected"}}
+curl -u "opencode:$OPENCODE_PASSWORD" http://localhost:4096/global/health
+curl -u "opencode:$OPENCODE_PASSWORD" http://localhost:4096/mcp
 ```
 
 Two operational notes: OpenCode reads the key **once at startup** — after a DB reset, `mcp:ensure-api-key --rotate`, or anything else that rotates the key, run `docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart opencode` (swap in the fullapp file for the prod stack). And after restarting only the `app` container (which re-runs install/build in the shared volumes), restart `mcp` too once the app is back up.
+
+### Updating existing deployments
+
+- Rebuild and recreate the OpenCode service and app so both use the same `OPENCODE_PASSWORD`. Keep the OpenCode listener internal to the trust boundary. If an unauthenticated agent listener was reachable, review its logs and rotate the MCP integration key and any provider credentials exposed to that runtime.
+- Recreate LocalStack from the updated full-app Compose file. The host mapping now uses loopback. Services in the same Compose network can continue to use the internal endpoint.
+- Production bootstrap skips the sample portal accounts by default. To seed them in a dedicated demo installation, supply `OM_INIT_PORTAL_DEMO_PASSWORD` with a unique random secret of at least 24 characters and at most 72 UTF-8 bytes. Production rejects the public example credentials and omits them from the admin demo-account view. Disable or reset previously seeded demo accounts and revoke their existing portal sessions.
+- The bundled Traefik HTTPS routers send a host-scoped HSTS policy. On deployments that terminate TLS elsewhere, configure HSTS at that proxy.
 
 ## Quick Start
 

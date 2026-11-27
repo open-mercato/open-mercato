@@ -938,8 +938,17 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 | Scope | Default |
 |---|---|
 | `CART_CREATE` | 20 / min / IP |
+<<<<<<< HEAD
 | `CART_MUTATE` (lines, promotions, merge, reprice) | 60 / min / token |
 | `CART_READ` | 120 / min / token |
+=======
+| `CART_MUTATE` (lines, promotions, merge, reprice; rev 10: `request-approval`, `proposals/:id/{preview,accept,reject}`) | 60 / min per source and 60 / min per cart token |
+| `CART_READ` (rev 10: includes `GET /proposals`) | 120 / min per source and 120 / min per cart token |
+
+On deployed storefront cart routes, source and cart-token budgets are independent. A request without a trusted client address counts against the resolved store's source budget at ten times the configured point allowance. Configure `RATE_LIMIT_TRUST_PROXY_DEPTH` to use individual source budgets behind a trusted proxy. A configured limiter outage returns 503.
+
+Staff routes (`/carts/*`, `POST /proposals`) are authenticated and use the platform's standard API limits, not the `CART_*` buckets.
+>>>>>>> 9934e0940a (fix(security): harden platform authorization and deployment defaults (#10543))
 
 ---
 
@@ -958,7 +967,11 @@ Via the shared `ratelimit` module (`checkRateLimit`, `readEndpointRateLimitConfi
 
 **2026-10-27 contention response (user-approved):** existing route URLs, request bodies, successful response schemas and database structure are unchanged. `POST /api/cart/current/lines` and `/lines/bulk` add the documented `503 cart_busy` response after 15 seconds of top-level lock contention. Clients should respect `Retry-After: 1` and retry the same body/idempotency key; they must not treat a generic 500 or an uncertain commit outcome as this safe pre-mutation rejection. The timeout does not undo existing preflight cart activity/reactivation or context-triggered repricing; its guarantee covers only the requested line add/bulk-add phases. Normal optimistic-lock checks still apply on retry. No database or server configuration migration is required.
 
+<<<<<<< HEAD
 `cart` is greenfield: no implementation exists anywhere in the repository, so no deprecation protocol is triggered and no bridge is owed for any rename this revision makes.
+=======
+**2026-11-24 cart boundaries:** bearer-token lookup requires trusted store context for a stored storefront cart. Internal lookups by ID retain tenant and organization scope. Merge and undo lock both baskets in stable order and recheck current state before writing. Under contention clients can retry a 503 `cart_busy` response using `Retry-After`. Line quantity strings must fit the existing `numeric(16,4)` column. Request URLs and database structure are unchanged.
+>>>>>>> 9934e0940a (fix(security): harden platform authorization and deployment defaults (#10543))
 
 - **Module id.** `cart` stays singular (C9/D-R4-17) — a recorded exception to the root `AGENTS.md` "modules plural" rule, alongside the existing `ecommerce` and `checkout` exceptions. Frozen on first release.
 - **Contract freeze.** Every `cart.*` event id, every `/api/cart/*` route, every table name, every ACL feature id and every DI key this spec names becomes **STABLE** per `BACKWARD_COMPATIBILITY.md` the moment Phase 1 ships. The additive DI keys this release also mints on `catalog` (`catalogBuyerPricingService`, `catalogScopedProductService`) and `availability` (the quantity-rule derivation) are **ADDITIVE-ONLY** and were called out to the owner as a multi-module change (D-R4-3) before this revision landed — the owner's approval is recorded there, not re-requested here.

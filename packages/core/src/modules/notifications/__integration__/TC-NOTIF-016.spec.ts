@@ -269,7 +269,7 @@ test.describe('TC-NOTIF-016: Notification type catalogue + channel preferences',
     const superadminToken = await getAuthToken(request, 'superadmin')
     const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const email = `qa-notif-groups-${stamp}@test.invalid`
-    const password = 'Valid1!Pass'
+    const password = 'QaValid1!Pass'
     let tenantId: string | null = null
     let organizationId: string | null = null
     let roleId: string | null = null

@@ -27,7 +27,8 @@ export type { OrganizationScope }
 // (every ACL/role grant change goes through it — see buildOrgScopeUserCacheTag)
 // and per-tenant entries by the directory.organization.* subscriber plus
 // RbacService.invalidateTenantCache (role-ACL changes).
-const ORG_SCOPE_CACHE_KEY_PREFIX = 'org-scope:v2'
+const ORG_SCOPE_CACHE_KEY_PREFIX = 'org-scope:v3'
+const ORG_SCOPE_CACHE_TAG_PREFIX = 'org-scope:v2'
 // Phase 4 default-off until the same readiness probe (`GET /api/customers/people`)
 // stays green with the cache layer engaged. Set `OM_ORG_SCOPE_CACHE_TTL_MS=60000`
 // (or any positive integer) to opt in once cross-request safety is re-verified.
@@ -59,11 +60,11 @@ function buildOrgScopeCacheKey(parts: {
 // cache entries without re-deriving the tag format. Keeping the format in one
 // place is what lets the TTL be enabled safely (issue #2259).
 export function buildOrgScopeUserCacheTag(userId: string): string {
-  return `${ORG_SCOPE_CACHE_KEY_PREFIX}:user:${userId}`
+  return `${ORG_SCOPE_CACHE_TAG_PREFIX}:user:${userId}`
 }
 
 export function buildOrgScopeTenantCacheTag(tenantId: string): string {
-  return `${ORG_SCOPE_CACHE_KEY_PREFIX}:tenant:${tenantId}`
+  return `${ORG_SCOPE_CACHE_TAG_PREFIX}:tenant:${tenantId}`
 }
 
 function buildOrgScopeCacheTags(parts: { userId: string; effectiveTenantId: string; ownerUserId: string | null }): string[] {
