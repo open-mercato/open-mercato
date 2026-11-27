@@ -747,3 +747,7 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 ## 2026-11-25 — MCP Code Mode
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## 2026-11-27 — Privileged staff credential email delivery (#10594)
+
+STABLE staff reset and invitation delivery behavior changes for effective superadmins. Auth uses the instance email provider and sender for these recipients. Other staff retain scoped delivery and issued links retain their expiration. Keeping a compatibility fallback to tenant-managed transport would preserve the credential exposure this fix removes. Configure the deployment provider and sender as described in the [upgrade notes](UPGRADE_NOTES.md#outbound-system-email-now-routes-through-the-communications-hub) and [migration spec](.ai/specs/2026-06-03-pluggable-email-providers.md#migration--backward-compatibility). Named maintainer approval of the Emergency Security Exception is pending.

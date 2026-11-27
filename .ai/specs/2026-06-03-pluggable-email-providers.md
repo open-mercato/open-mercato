@@ -99,7 +99,7 @@ Environment variables:
 
 - Existing `sendEmail()` imports continue to work.
 - Existing Resend deployments continue to work when `RESEND_API_KEY` and a sender address are set, because `SYSTEM_EMAIL_PROVIDER` defaults to `resend`.
-- Deployments that previously relied on a tenant channel for superadmin resets or invitations must configure the instance provider and sender. If that provider is unavailable, delivery fails without falling back to tenant credentials. Other recipients retain the existing routing rules. Previously issued links retain their original expiry.
+- Deployments that previously relied on a tenant channel for superadmin resets or invitations must configure the instance provider and sender. If that provider is unavailable, delivery fails without falling back to tenant credentials. A compatibility fallback would keep privileged credential email inside the tenant-managed delivery boundary, so this path requires the Emergency Security Exception and named maintainer acceptance. Other recipients retain the existing routing rules. API clients continue using the existing reset and invite requests, and previously issued links retain their original expiry.
 - `shared` no longer contains provider delivery code or provider dependencies.
 - SES is additive through `@open-mercato/channel-ses`; generic SMTP is additive through `@open-mercato/channel-smtp`.
 - `@open-mercato/channel-imap`'s `isInternalHost` and `resolveSafeHostAddress` keep their existing import paths and behaviour; both now delegate to `@open-mercato/shared/lib/host-pinning`.
