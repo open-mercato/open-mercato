@@ -6,6 +6,11 @@ export type DocumentSharePrincipalType = 'user' | 'role'
 export type DocumentSharePermission = 'viewer' | 'commenter' | 'editor'
 export type DocumentEntityLinkCustomerKind = 'person' | 'company'
 export type DocumentEntityLinkSource = 'chip' | 'template' | 'related-panel'
+export type DocumentFindingSource = 'ai' | 'import'
+export type DocumentFindingSeverity = 'blocking' | 'warning' | 'info'
+export type DocumentFindingStatus = 'open' | 'applied' | 'kept' | 'superseded'
+export type DocumentFindingAnchorStatus = 'located' | 'unlocated'
+export type DocumentReviewRuleSeverity = DocumentFindingSeverity
 
 @Entity({ tableName: 'documents' })
 @Index({ name: 'documents_scope_idx', properties: ['organizationId', 'tenantId', 'deletedAt'] })
@@ -616,6 +621,278 @@ export class DocumentEntityLink {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'document_review_playbooks' })
+@Index({ name: 'document_review_playbooks_scope_idx', properties: ['organizationId', 'tenantId', 'deletedAt'] })
+@Index({
+  name: 'document_review_playbooks_code_uq',
+  expression:
+    'create unique index "document_review_playbooks_code_uq" on "document_review_playbooks" ("tenant_id", "organization_id", "code") where "deleted_at" is null',
+})
+export class DocumentReviewPlaybook {
+  [OptionalProps]?: 'description' | 'instructions' | 'version' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'varchar', length: 64 })
+  code!: string
+
+  @Property({ type: 'varchar', length: 200 })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  instructions?: string | null
+
+  @Property({ type: 'int', default: 1 })
+  version: number = 1
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: preserveMonotonicDocumentVersionOnUpdate })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'document_review_rules' })
+@Index({ name: 'document_review_rules_scope_idx', properties: ['organizationId', 'tenantId', 'deletedAt'] })
+@Index({ name: 'document_review_rules_playbook_idx', properties: ['playbookId', 'sortOrder'] })
+@Index({
+  name: 'document_review_rules_code_uq',
+  expression:
+    'create unique index "document_review_rules_code_uq" on "document_review_rules" ("playbook_id", "code") where "deleted_at" is null',
+})
+export class DocumentReviewRule {
+  [OptionalProps]?: 'topic' | 'preferredWording' | 'sortOrder' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => DocumentReviewPlaybook, { fieldName: 'playbook_id', mapToPk: true, deleteRule: 'cascade' })
+  playbookId!: string
+
+  @Property({ type: 'varchar', length: 64 })
+  code!: string
+
+  @Property({ type: 'varchar', length: 200 })
+  title!: string
+
+  @Property({ type: 'varchar', length: 120, nullable: true })
+  topic?: string | null
+
+  @Property({ type: 'text' })
+  position!: string
+
+  @Property({ name: 'preferred_wording', type: 'text', nullable: true })
+  preferredWording?: string | null
+
+  @Property({ type: 'varchar', length: 16 })
+  severity!: DocumentReviewRuleSeverity
+
+  @Property({ name: 'sort_order', type: 'int', default: 0 })
+  sortOrder: number = 0
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: preserveMonotonicDocumentVersionOnUpdate })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'document_review_playbook_references' })
+@Index({ name: 'document_review_playbook_references_scope_idx', properties: ['organizationId', 'tenantId', 'deletedAt'] })
+@Index({ name: 'document_review_playbook_references_document_idx', properties: ['documentId'] })
+@Index({
+  name: 'document_review_playbook_references_uq',
+  expression:
+    'create unique index "document_review_playbook_references_uq" on "document_review_playbook_references" ("playbook_id", "document_id") where "deleted_at" is null',
+})
+export class DocumentReviewPlaybookReference {
+  [OptionalProps]?: 'sortOrder' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => DocumentReviewPlaybook, { fieldName: 'playbook_id', mapToPk: true, deleteRule: 'cascade' })
+  playbookId!: string
+
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
+  documentId!: string
+
+  @Property({ name: 'sort_order', type: 'int', default: 0 })
+  sortOrder: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: preserveMonotonicDocumentVersionOnUpdate })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'document_findings' })
+@Index({
+  name: 'document_findings_document_status_idx',
+  expression:
+    'create index "document_findings_document_status_idx" on "document_findings" ("document_id", "status", "severity") where "deleted_at" is null',
+})
+@Index({ name: 'document_findings_scope_idx', properties: ['organizationId', 'tenantId', 'deletedAt'] })
+@Index({ name: 'document_findings_review_idx', properties: ['reviewId'] })
+export class DocumentFinding {
+  [OptionalProps]?:
+    | 'sourceWorkflowInstanceId'
+    | 'sourceAgentRunId'
+    | 'playbookId'
+    | 'playbookVersion'
+    | 'ruleId'
+    | 'ruleCode'
+    | 'sectionLabel'
+    | 'occurrence'
+    | 'suggestedText'
+    | 'anchor'
+    | 'appliedText'
+    | 'decisionNote'
+    | 'decidedByUserId'
+    | 'decidedAt'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
+  documentId!: string
+
+  @Property({ name: 'review_id', type: 'uuid' })
+  reviewId!: string
+
+  @Property({ type: 'varchar', length: 16 })
+  source!: DocumentFindingSource
+
+  @Property({ name: 'source_workflow_instance_id', type: 'varchar', length: 64, nullable: true })
+  sourceWorkflowInstanceId?: string | null
+
+  @Property({ name: 'source_agent_run_id', type: 'varchar', length: 64, nullable: true })
+  sourceAgentRunId?: string | null
+
+  @ManyToOne(() => DocumentReviewPlaybook, {
+    fieldName: 'playbook_id',
+    mapToPk: true,
+    nullable: true,
+    deleteRule: 'set null',
+  })
+  playbookId?: string | null
+
+  @Property({ name: 'playbook_version', type: 'int', nullable: true })
+  playbookVersion?: number | null
+
+  @ManyToOne(() => DocumentReviewRule, {
+    fieldName: 'rule_id',
+    mapToPk: true,
+    nullable: true,
+    deleteRule: 'set null',
+  })
+  ruleId?: string | null
+
+  @Property({ name: 'rule_code', type: 'varchar', length: 64, nullable: true })
+  ruleCode?: string | null
+
+  @Property({ type: 'varchar', length: 16 })
+  severity!: DocumentFindingSeverity
+
+  @Property({ type: 'varchar', length: 200 })
+  title!: string
+
+  @Property({ type: 'text' })
+  explanation!: string
+
+  @Property({ name: 'section_label', type: 'varchar', length: 256, nullable: true })
+  sectionLabel?: string | null
+
+  @Property({ type: 'text' })
+  quote!: string
+
+  @Property({ type: 'smallint', default: 1 })
+  occurrence: number = 1
+
+  @Property({ name: 'suggested_text', type: 'text', nullable: true })
+  suggestedText?: string | null
+
+  @Property({ type: 'json', nullable: true })
+  anchor?: Record<string, unknown> | null
+
+  @Property({ name: 'anchor_status', type: 'varchar', length: 16 })
+  anchorStatus!: DocumentFindingAnchorStatus
+
+  @Property({ type: 'varchar', length: 16 })
+  status!: DocumentFindingStatus
+
+  @Property({ name: 'applied_text', type: 'text', nullable: true })
+  appliedText?: string | null
+
+  @Property({ name: 'decision_note', type: 'text', nullable: true })
+  decisionNote?: string | null
+
+  @Property({ name: 'decided_by_user_id', type: 'uuid', nullable: true })
+  decidedByUserId?: string | null
+
+  @Property({ name: 'decided_at', type: Date, nullable: true })
+  decidedAt?: Date | null
+
+  @Property({ name: 'created_by_user_id', type: 'uuid' })
+  createdByUserId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: preserveMonotonicDocumentVersionOnUpdate })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 export default [
   Document,
   DocumentContent,
@@ -628,4 +905,8 @@ export default [
   DocumentAttachment,
   DocumentTemplate,
   DocumentEntityLink,
+  DocumentFinding,
+  DocumentReviewPlaybook,
+  DocumentReviewRule,
+  DocumentReviewPlaybookReference,
 ]

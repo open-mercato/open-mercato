@@ -232,6 +232,24 @@ describe('<AiChat>', () => {
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
   })
 
+  it('pre-fills the composer from composerPrefill without sending, once per request id', async () => {
+    const { rerender } = renderWithProviders(
+      <AiChat agent="customers.account_assistant" composerPrefill={{ text: 'Why was this flagged?', requestId: 1 }} />,
+      { dict },
+    )
+    const textarea = screen.getByLabelText('Message composer') as HTMLTextAreaElement
+    await waitFor(() => expect(textarea.value).toBe('Why was this flagged?'))
+    expect(document.activeElement).toBe(textarea)
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    fireEvent.change(textarea, { target: { value: 'My own question' } })
+    rerender(<AiChat agent="customers.account_assistant" composerPrefill={{ text: 'Why was this flagged?', requestId: 1 }} />)
+    expect(textarea.value).toBe('My own question')
+
+    rerender(<AiChat agent="customers.account_assistant" composerPrefill={{ text: 'What are my options?', requestId: 2 }} />)
+    await waitFor(() => expect(textarea.value).toBe('What are my options?'))
+  })
+
   it('clears a stale stored model picker value back to the agent default', async () => {
     const apiCallMock = apiCall as unknown as jest.Mock
     apiCallMock.mockResolvedValueOnce({

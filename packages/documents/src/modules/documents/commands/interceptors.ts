@@ -33,6 +33,10 @@ const PROJECTED_COMMAND_IDS = [
   'documents.document.archive',
   'documents.document.unarchive',
   'documents.document.duplicate',
+  'documents.finding.ingest',
+  'documents.finding.apply',
+  'documents.finding.keep',
+  'documents.finding.reopen',
 ] as const
 
 type DocumentsNotificationService = {
@@ -326,6 +330,10 @@ const ARCHIVED_UNDO_GUARDED_COMMAND_IDS = [
   'documents.link.create',
   'documents.link.delete',
   'documents.version.restore',
+  'documents.finding.ingest',
+  'documents.finding.apply',
+  'documents.finding.keep',
+  'documents.finding.reopen',
 ] as const
 
 type UndoLogEntryShape = {

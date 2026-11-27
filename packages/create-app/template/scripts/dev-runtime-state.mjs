@@ -149,6 +149,18 @@ const RUNTIME_CLASSIFIERS = [
     detail: () => 'The browser closed the connection before a streamed page finished rendering (for example a navigation, reload, or back/forward). This is expected and does not indicate a runtime fault.',
     severity: 'warning',
   },
+  {
+    // Next.js logs this when a route handler's streamed body (server-sent
+    // events such as `/api/events/stream`, or a streamed AI chat response)
+    // loses its client mid-stream. Closing a tab, navigating away or a dev
+    // reload all do that, so it is expected and does not indicate a runtime
+    // fault.
+    code: 'route_stream_cancelled',
+    pattern: /failed to pipe response/i,
+    title: 'Streamed API response cancelled',
+    detail: () => 'The browser closed a streamed API response (for example live updates) before it finished, usually after a navigation, reload or closed tab. This is expected and does not indicate a runtime fault.',
+    severity: 'warning',
+  },
 ]
 
 const SOURCE_FALLBACKS = {

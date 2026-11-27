@@ -64,10 +64,7 @@ export function CommentsRail({
   return (
     <>
       <section className="rounded-lg border border-border bg-card p-3 sm:p-4">
-        <div className="mb-4 flex items-center gap-2">
-          <MessageSquare className="size-4 text-muted-foreground" aria-hidden="true" />
-          <h2 className="text-sm font-semibold">{t('documents.comments.title')}</h2>
-        </div>
+        <h2 className="sr-only">{t('documents.comments.title')}</h2>
         <div className="space-y-4">
           {comments.state.status === 'loading' ? <LoadingMessage label={t('documents.comments.loading')} /> : null}
           {comments.state.status === 'error' ? (

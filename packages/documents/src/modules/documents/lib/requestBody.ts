@@ -21,6 +21,7 @@ export const DOCUMENTS_JSON_BODY_LIMITS = {
   standard: 128 * KIBIBYTE,
   template: 4 * MEBIBYTE,
   templateRender: 4 * MEBIBYTE,
+  findingIngest: 4 * MEBIBYTE,
   content: (
     JSON_ESCAPE_EXPANSION
     * (DOCUMENTS_MAX_CONTENT_HTML_BYTES + DOCUMENTS_MAX_CONTENT_TEXT_BYTES)

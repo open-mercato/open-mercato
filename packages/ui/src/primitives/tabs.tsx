@@ -308,7 +308,7 @@ export function TabsTrigger({
           {leading}
         </span>
       ) : null}
-      <span>{children}</span>
+      <span className="min-w-0 truncate">{children}</span>
       {count !== undefined ? (
         <span
           data-slot="tabs-trigger-count"
