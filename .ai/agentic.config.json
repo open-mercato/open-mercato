@@ -28,11 +28,11 @@
   "qaGate": true,
   "qaGateLabel": "needs-qa",
   "qaReadyLabel": null,
-  "ci": { "maxWaitMinutes": 40 },
   "prTriage": {
     "ciScopeFile": ".github/ci-scope.json",
     "areaLabelPrefix": "ci-area:"
   },
+  "ci": { "maxWaitMinutes": 40 },
   "autofix": { "label": "cez-autofix", "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] } },
   "automerge": {
     "label": "automerge",
