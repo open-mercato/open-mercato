@@ -814,6 +814,21 @@ describe('structured generator inputs', () => {
     expect(plan.registryOutputs).toEqual(['registry.search', 'registry.notifications'])
   })
 
+  it('plans cache-provider generation only when the manifest appears or disappears', () => {
+    const manifest = path.join(root, 'app/src/providers/cache.ts')
+    options.cacheProviderInputs = [manifest]
+    const before = capture()
+    write(manifest, 'export const cacheProviders = []')
+    const added = capture()
+    expect(planGenerateWatchChanges(diffGenerateWatchStructureSnapshots(before, added)).groups).toEqual(['cache-providers'])
+
+    write(manifest, 'export const cacheProviders = [fixture]')
+    expect(changesSince(added).changes).toEqual([])
+
+    fs.unlinkSync(manifest)
+    expect(planGenerateWatchChanges(changesSince(added).changes).groups).toEqual(['cache-providers'])
+  })
+
   it('plans OpenAPI helpers and adapter manifests without a full fallback', () => {
     const openapiInput = path.join(root, 'app/src/openapi.ts')
     const openapiHelper = path.join(root, 'app/src/openapi-helper.ts')

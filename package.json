@@ -39,7 +39,7 @@
     "test": "cross-env NODE_OPTIONS=--max-old-space-size=1024 turbo run test --concurrency=2",
     "start": "turbo run start --filter=@open-mercato/app",
     "documents:collab": "node ./packages/documents/dist/server/documents-collab-server.js",
-    "generate": "turbo run generate --filter=@open-mercato/app",
+    "generate": "turbo run generate --filter=@open-mercato/app --env-mode=loose",
     "reinstall": "turbo run reinstall --filter=@open-mercato/app",
     "db:generate": "yarn workspace @open-mercato/app db:generate",
     "db:migrate": "turbo run db:migrate --filter=@open-mercato/app",

@@ -105,6 +105,11 @@ services:
       - pkg_ui_dist:/app/packages/ui/dist
       - pkg_cli_dist:/app/packages/cli/dist
       - pkg_cache_dist:/app/packages/cache/dist
+      - pkg_cache_provider_jsonfile_dist:/app/packages/cache-provider-jsonfile/dist
+      - pkg_cache_provider_kit_dist:/app/packages/cache-provider-kit/dist
+      - pkg_cache_provider_memory_dist:/app/packages/cache-provider-memory/dist
+      - pkg_cache_provider_redis_legacy_dist:/app/packages/cache-provider-redis-legacy/dist
+      - pkg_cache_provider_sqlite_dist:/app/packages/cache-provider-sqlite/dist
       - pkg_content_dist:/app/packages/content/dist
       - pkg_checkout_dist:/app/packages/checkout/dist
       - pkg_events_dist:/app/packages/events/dist
@@ -246,6 +251,11 @@ services:
       - pkg_ui_dist:/app/packages/ui/dist
       - pkg_cli_dist:/app/packages/cli/dist
       - pkg_cache_dist:/app/packages/cache/dist
+      - pkg_cache_provider_jsonfile_dist:/app/packages/cache-provider-jsonfile/dist
+      - pkg_cache_provider_kit_dist:/app/packages/cache-provider-kit/dist
+      - pkg_cache_provider_memory_dist:/app/packages/cache-provider-memory/dist
+      - pkg_cache_provider_redis_legacy_dist:/app/packages/cache-provider-redis-legacy/dist
+      - pkg_cache_provider_sqlite_dist:/app/packages/cache-provider-sqlite/dist
       - pkg_content_dist:/app/packages/content/dist
       - pkg_checkout_dist:/app/packages/checkout/dist
       - pkg_events_dist:/app/packages/events/dist
@@ -561,6 +571,16 @@ volumes:
     name: mercato-pkg-cli-dist-${DEPLOY_ENV:-local}
   pkg_cache_dist:
     name: mercato-pkg-cache-dist-${DEPLOY_ENV:-local}
+  pkg_cache_provider_jsonfile_dist:
+    name: mercato-pkg-cache-provider-jsonfile-dist-${DEPLOY_ENV:-local}
+  pkg_cache_provider_kit_dist:
+    name: mercato-pkg-cache-provider-kit-dist-${DEPLOY_ENV:-local}
+  pkg_cache_provider_memory_dist:
+    name: mercato-pkg-cache-provider-memory-dist-${DEPLOY_ENV:-local}
+  pkg_cache_provider_redis_legacy_dist:
+    name: mercato-pkg-cache-provider-redis-legacy-dist-${DEPLOY_ENV:-local}
+  pkg_cache_provider_sqlite_dist:
+    name: mercato-pkg-cache-provider-sqlite-dist-${DEPLOY_ENV:-local}
   pkg_content_dist:
     name: mercato-pkg-content-dist-${DEPLOY_ENV:-local}
   pkg_checkout_dist:

@@ -268,15 +268,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  assert.equal(inventory.derived.sourceRequiredCount, 135)
-  assert.equal(inventory.records.length, 161)
-  assert.equal(inventory.derived.renderedLinkCount, 137)
+  assert.equal(inventory.derived.sourceRequiredCount, 139)
+  assert.equal(inventory.records.length, 165)
+  assert.equal(inventory.derived.renderedLinkCount, 141)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 135)
+  assert.equal(sourceRequired.length, 139)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -469,7 +469,8 @@ test('capability joins come from the example surface inventory, not from the top
     [...new Set(unjoined.map((record) => record.resolvedPath))].sort(),
     [
       '.ai/guides/customers-calendar.md',
-        '.ai/skills/om-data-model-design/references/sensitive-data.md',
+      '.ai/guides/infrastructure-providers.md',
+      '.ai/skills/om-data-model-design/references/sensitive-data.md',
       'node_modules/@open-mercato/cli/src/lib/eject.ts',
       'node_modules/@open-mercato/cli/src/lib/module-identity.ts',
       'node_modules/@open-mercato/cli/src/lib/module-install.ts',
@@ -497,6 +498,9 @@ test('capability joins come from the example surface inventory, not from the top
       'src/modules/example/README.md',
       'src/modules/example/references/surface-inventory.json',
       'src/modules/example/references/surface-map.md',
+      'src/providers/cache.ts',
+      'src/providers/kms.example.ts',
+      'src/providers/queue.example.ts',
     ],
   )
 })
