@@ -43,6 +43,27 @@ type CalendarContext = { card: Locator; dates: Locator; entityId: string; intera
 
 test.use({ locale: 'en-US', timezoneId: 'Europe/Warsaw', hasTouch: true })
 
+async function openActivityTab(page: Page, kind: CustomerKind): Promise<void> {
+  if (kind === 'people') {
+    const activityZone = page.getByRole('tablist', { name: 'Zone selector' })
+      .getByRole('tab', { name: 'Activity', exact: true })
+    if (await activityZone.isVisible()) await activityZone.click()
+  }
+  const heading = page.getByRole('heading', { name: 'Log activity', level: 3, exact: true })
+  const name = kind === 'companies' ? /^Activity log/ : /^Activities\b/
+  const tab = page.getByRole('tab', { name })
+  const more = page.getByTestId('detail-tabs-more')
+  await expect(heading.or(tab).or(more).first()).toBeVisible()
+  if (await heading.isVisible()) return
+  if (await tab.isVisible()) {
+    await tab.click()
+  } else {
+    await more.click()
+    await page.getByRole('menuitem', { name }).click()
+  }
+  await expect(heading).toBeVisible()
+}
+
 async function withCalendar(
   page: Page,
   account: CalendarAccount,
@@ -88,11 +109,7 @@ async function withCalendar(
     await page.evaluate(() => new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
     }))
-    const activityTab = page.getByRole('tab', { name: kind === 'companies' ? /^Activity log/ : /^Activities\b/, exact: true })
-    if (kind === 'companies' || page.viewportSize()!.width === 390) {
-      await expect(activityTab).toBeVisible()
-      await activityTab.click()
-    }
+    await openActivityTab(page, kind)
     const card = page.getByRole('heading', { name: 'Log activity', level: 3, exact: true }).locator('../..')
     const showPreview = card.getByRole('button', { name: 'Show week preview', exact: true })
     if (await showPreview.isVisible()) await showPreview.click()
@@ -282,7 +299,7 @@ for (const kind of ['companies', 'people'] as const) {
           expect(rejection.request().headers()[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(initial.updatedAt)
           expect(await readRecord()).toEqual(beforeSave)
           await page.reload()
-          await page.getByRole('tab', { name: kind === 'companies' ? /^Activity log/ : /^Activities\b/, exact: true }).click()
+          await openActivityTab(page, kind)
           await page.getByRole('button', { name: /Concurrent title/ }).last().click()
           await dialog.getByPlaceholder('Add location or meeting link...').fill('Updated room')
         }
