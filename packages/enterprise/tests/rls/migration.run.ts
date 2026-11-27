@@ -54,7 +54,7 @@ mock.module(import.meta.resolve('@open-mercato/shared/lib/di/container'), { name
         return { emitEvent: async (event: string, payload: Record<string, unknown>, options: unknown) => {
           assert.equal(reconciled, true, 'Protected reindex must follow successful reconciliation')
           assert.equal(event, 'query_index.reindex')
-          assert.deepEqual(options, { persistent: true })
+          assert.deepEqual(options, { persistent: true, tenantId: null, allowAllTenants: true })
           assert.equal(payload.allowAllTenants, true)
           assert.equal(payload.force, false)
           emitted.push(String(payload.entityType))
