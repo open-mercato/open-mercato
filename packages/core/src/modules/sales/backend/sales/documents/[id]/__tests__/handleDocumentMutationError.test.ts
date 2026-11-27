@@ -23,7 +23,7 @@ describe('handleDocumentMutationError', () => {
     mockSurfaceRecordConflict.mockReset()
   })
 
-  it('surfaces the conflict, refreshes, and returns true for an optimistic-lock 409', () => {
+  it('surfaces the conflict without refreshing until the user explicitly requests it', () => {
     mockSurfaceRecordConflict.mockReturnValue(true)
     const refresh = jest.fn()
     const err = new Error('optimistic_lock_conflict')
@@ -33,7 +33,25 @@ describe('handleDocumentMutationError', () => {
     expect(handled).toBe(true)
     expect(mockSurfaceRecordConflict).toHaveBeenCalledTimes(1)
     expect(mockSurfaceRecordConflict).toHaveBeenCalledWith(err, t, { onRefresh: refresh })
+    expect(refresh).not.toHaveBeenCalled()
+    mockSurfaceRecordConflict.mock.calls[0][2].onRefresh()
     expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('localizes the rejected conflict without losing its transport details', () => {
+    mockSurfaceRecordConflict.mockReturnValue(true)
+    const details = { error: 'record_modified', currentUpdatedAt: '2026-11-22T20:00:00.000Z' }
+    const error = Object.assign(new Error('record_modified'), { status: 409, details })
+    const translate = jest.fn(() => 'Ten rekord został zmieniony. Odśwież i spróbuj ponownie.')
+
+    expect(handleDocumentMutationError(error, translate, jest.fn())).toBe(true)
+    expect(error.message).toBe('Ten rekord został zmieniony. Odśwież i spróbuj ponownie.')
+    expect(translate).toHaveBeenCalledWith(
+      'ui.forms.flash.recordModified',
+      'This record was modified by someone else. Refresh and try again.',
+    )
+    expect(error.status).toBe(409)
+    expect(error.details).toBe(details)
   })
 
   it('returns false and does not refresh for a non-conflict error', () => {
@@ -79,6 +97,8 @@ describe('handleQuoteActionError', () => {
     mockSurfaceRecordConflict.mockReturnValue(true)
     const refresh = jest.fn()
     handleQuoteActionError(new Error('record_modified'), t, refresh, 'Action failed')
+    expect(refresh).not.toHaveBeenCalled()
+    mockSurfaceRecordConflict.mock.calls[0][2].onRefresh()
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(mockFlash).not.toHaveBeenCalled()
   })
