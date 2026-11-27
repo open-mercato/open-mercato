@@ -19,6 +19,54 @@ type MessageWithPayload = Record<string, unknown> & {
   _channelPayload?: ChannelPayloadEnrichment | null
 }
 
+<<<<<<< HEAD
+=======
+function EmailPayload({ html }: { html: string }) {
+  const t = useT()
+  const bodyRef = React.useRef<HTMLDivElement>(null)
+  const [remoteImagesAllowed, setRemoteImagesAllowed] = React.useState(false)
+  const hasRemoteImages = html.includes('data-channel-remote-src=')
+
+  React.useEffect(() => {
+    if (!remoteImagesAllowed) return
+    for (const image of bodyRef.current?.querySelectorAll<HTMLImageElement>('img[data-channel-remote-src]') ?? []) {
+      const source = image.getAttribute('data-channel-remote-src')
+      if (source && /^https?:\/\//i.test(source)) {
+        image.referrerPolicy = 'no-referrer'
+        image.src = source.replace(/[<>"']/g, (character) => `%${character.charCodeAt(0).toString(16)}`)
+      }
+    }
+  }, [remoteImagesAllowed])
+
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4 text-sm"
+      aria-label={t('communication_channels.channelPayload.email.aria')}
+    >
+      {hasRemoteImages && !remoteImagesAllowed ? (
+        <Alert
+          status="information"
+          style="lighter"
+          className="mb-4"
+          action={(
+            <Button type="button" variant="outline" size="sm" onClick={() => setRemoteImagesAllowed(true)}>
+              {t('communication_channels.channelPayload.email.loadRemoteImages')}
+            </Button>
+          )}
+        >
+          {t('communication_channels.channelPayload.email.remoteImagesBlocked')}
+        </Alert>
+      ) : null}
+      <div
+        ref={bodyRef}
+        className="contain-paint overflow-x-auto"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </section>
+  )
+}
+
+>>>>>>> 6c98970ac0 (fix(communication_channels): confine inbound email content to its body (#10614) (#10853))
 export default function ChannelPayloadRendererWidget({
   data,
 }: InjectionWidgetComponentProps<Record<string, unknown>, MessageWithPayload>) {

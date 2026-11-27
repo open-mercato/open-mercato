@@ -139,6 +139,7 @@ const ingestInboundSchema = z.object({
   senderDisplayName: z.string().max(255).optional(),
   subject: z.string().max(500).optional(),
   body: z.string().max(50_000).optional(),
+  html: z.string().max(50_000).optional(),
   externalMessageId: z.string().min(1).max(255),
   externalConversationId: z.string().min(1).max(255),
 })
@@ -550,6 +551,7 @@ export async function POST(req: Request): Promise<Response> {
           senderDisplayName: body.senderDisplayName,
           ...(body.subject !== undefined ? { subject: body.subject } : {}),
           body: body.body ?? '',
+          ...(body.html !== undefined ? { html: body.html } : {}),
         },
         eventType: 'message',
         metadata: {},

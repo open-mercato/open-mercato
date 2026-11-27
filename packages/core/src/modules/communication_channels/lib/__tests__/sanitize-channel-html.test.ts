@@ -99,6 +99,22 @@ describe('sanitizeChannelHtml', () => {
     expect(named).toMatch(/color:red/)
   })
 
+  it.each([
+    ['font-size', '125%', '500%'],
+    ['font-size', '2.5em', '5em'],
+    ['padding', '0 12px 0.5em 4%', '100px'],
+    ['padding', '0 12px', '0 12px 50%'],
+    ['margin', '.5rem .25% 008px', '5rem'],
+    ['border', '1px solid gray', 'solid gray 10px'],
+    ['border', '0 solid', '1em solid'],
+    ['border-radius', '100%', '101%'],
+  ])('keeps bounded %s values and discards out-of-range declarations', (property, allowed, rejected) => {
+    expect(sanitizeChannelHtml(`<p style="${property}:${allowed}">Hello</p>`))
+      .toBe(`<p style="${property}:${allowed}">Hello</p>`)
+    expect(sanitizeChannelHtml(`<p style="${property}:${rejected};color:blue">Hello</p>`))
+      .toBe('<p style="color:blue">Hello</p>')
+  })
+
   it('strips CSS url() beacons from color/background-color', () => {
     const out = sanitizeChannelHtml(
       '<p style="background-color:url(\'https://evil.com/pixel.gif\')">hi</p>',
