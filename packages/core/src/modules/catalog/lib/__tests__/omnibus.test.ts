@@ -125,6 +125,8 @@ describe('buildHistoryEntry', () => {
     ['starts_at + offer_id + announce', { startsAt: new Date(), offerId: '88888888-8888-4888-8888-888888888888' }, { announce: true }, true],
     ['no signal', {}, {}, false],
     ['announce=false without other signals', {}, { announce: false }, false],
+    ['ordinary offer price edit', { offerId: '88888888-8888-4888-8888-888888888888' }, { announce: false }, false],
+    ['dated offer price edit', { startsAt: RECORDED_AT }, { announce: false }, true],
   ])('is_announced for %s', (_label, overrides, options, expected) => {
     const entry = buildHistoryEntry({ ...PRICE, ...overrides }, 'update', { recordedAt: RECORDED_AT, ...options })
     expect(entry.isAnnounced).toBe(expected)

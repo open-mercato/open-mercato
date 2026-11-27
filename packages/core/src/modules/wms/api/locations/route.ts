@@ -64,6 +64,10 @@ const crud = makeCrudRoute({
     sortFieldMap: {
       code: 'code',
       type: 'type',
+      capacity_units: 'capacity_units',
+      capacityUnits: 'capacity_units',
+      is_active: 'is_active',
+      isActive: 'is_active',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },

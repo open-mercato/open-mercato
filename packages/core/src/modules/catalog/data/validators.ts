@@ -19,6 +19,7 @@ import {
   omnibusMinimizationAxisSchema,
   omnibusNoChannelModeSchema,
 } from '../lib/omnibusTypes'
+import { CATALOG_PRODUCT_AI_CATEGORIZE_MAX_PRODUCTS } from '../lib/aiCategorization/bulkLimits'
 
 const uuid = () => z.string().uuid()
 
@@ -77,7 +78,7 @@ const optionChoiceSchema = z.object({
 const optionDefinitionSchema = z.object({
   code: slugSchema,
   label: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   inputType: z.enum(['select', 'text', 'textarea', 'number']),
   isRequired: z.boolean().optional(),
   isMultiple: z.boolean().optional(),
@@ -86,8 +87,8 @@ const optionDefinitionSchema = z.object({
 
 const optionSchema = z.object({
   version: z.number().int().min(1).optional(),
-  name: z.string().trim().max(255).optional(),
-  description: z.string().trim().max(4000).optional(),
+  name: z.string().trim().max(255).nullable().optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   options: z.array(optionDefinitionSchema).max(64),
 })
 
@@ -445,7 +446,7 @@ export const variantUpdateSchema = z
 export const optionSchemaTemplateCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   code: slugSchema.optional(),
-  description: z.string().trim().max(4000).optional(),
+  description: z.string().trim().max(4000).nullable().optional(),
   schema: optionSchema,
   metadata: metadataSchema,
   isActive: z.boolean().optional(),
@@ -478,6 +479,12 @@ export const priceKindUpdateSchema = z
   })
 
 // Base schema without refinements (used for .partial() in the update schema).
+// `null` (or an empty string) clears a date; z.coerce.date() would turn it into the epoch.
+const nullableDateSchema = z.preprocess(
+  (value) => (value === null || value === '' ? null : value),
+  z.union([z.null(), z.coerce.date()]),
+)
+
 const priceBaseSchema = scoped.extend({
   variantId: uuid().optional(),
   productId: uuid().optional(),
@@ -496,8 +503,8 @@ const priceBaseSchema = scoped.extend({
   customerId: uuid().optional(),
   customerGroupId: uuid().optional(),
   metadata: metadataSchema,
-  startsAt: z.coerce.date().optional(),
-  endsAt: z.coerce.date().optional(),
+  startsAt: nullableDateSchema.optional(),
+  endsAt: nullableDateSchema.optional(),
 })
 
 // Both checks only fire when both sides of the comparison are present in this
@@ -522,7 +529,7 @@ const priceQuantityRangeRefinement = (
 }
 
 const priceValidityWindowRefinement = (
-  input: { startsAt?: Date; endsAt?: Date },
+  input: { startsAt?: Date | null; endsAt?: Date | null },
   ctx: z.RefinementCtx,
 ) => {
   if (input.startsAt && input.endsAt && input.endsAt < input.startsAt) {
@@ -541,6 +548,7 @@ export const priceCreateSchema = priceBaseSchema
 export const priceUpdateSchema = z
   .object({
     id: uuid(),
+    announce: z.boolean().optional(),
   })
   .merge(priceBaseSchema.partial())
   .superRefine(priceQuantityRangeRefinement)
@@ -549,7 +557,7 @@ export const priceUpdateSchema = z
 export const categoryCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   slug: slugSchema.optional().nullable(),
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   parentId: uuid().optional().nullable(),
   isActive: z.boolean().optional(),
 })
@@ -722,3 +730,36 @@ export type OmnibusPreviewQuery = z.infer<typeof omnibusPreviewQuerySchema>
 export type OmnibusConfigPatch = z.infer<typeof omnibusConfigPatchSchema>
 export type OmnibusBackfillOptionsInput = z.input<typeof omnibusBackfillOptionsSchema>
 export type OmnibusBackfillOptions = z.infer<typeof omnibusBackfillOptionsSchema>
+
+// AI category suggestions (spec 2026-10-28-catalog-ai-product-categorization.md).
+// `applyMode` / `autoApplyThreshold` take effect in Phase 3, `autoSuggestOnCreate`
+// in Phase 4 — the full schema ships in Phase 1 so later phases change no stored shape.
+export const aiCategorizationSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  applyMode: z.enum(['suggest', 'auto_apply']).default('suggest'),
+  autoApplyThreshold: z.number().min(0.5).max(0.99).default(0.85),
+  autoSuggestOnCreate: z.boolean().default(false),
+})
+export type AiCategorizationSettings = z.infer<typeof aiCategorizationSettingsSchema>
+
+export const aiCategorizationBulkSchema = z.object({
+  productIds: z.array(uuid()).min(1).max(CATALOG_PRODUCT_AI_CATEGORIZE_MAX_PRODUCTS),
+  scope: z.enum(['selected', 'filtered']).default('selected'),
+})
+export type AiCategorizationBulkInput = z.infer<typeof aiCategorizationBulkSchema>
+
+export const categorySuggestionAcceptSchema = z.object({
+  categoryId: uuid().optional(),
+  makeMain: z.boolean().default(false),
+})
+export type CategorySuggestionAcceptInput = z.infer<typeof categorySuggestionAcceptSchema>
+
+export const categorySuggestionListQuerySchema = z.object({
+  status: z.enum(['pending', 'accepted', 'rejected', 'auto_applied', 'superseded']).optional(),
+  productId: uuid().optional(),
+  ids: z.string().optional(),
+  minConfidence: z.coerce.number().min(0).max(1).optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+})
+export type CategorySuggestionListQuery = z.infer<typeof categorySuggestionListQuerySchema>

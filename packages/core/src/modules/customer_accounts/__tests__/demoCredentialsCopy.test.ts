@@ -2,7 +2,7 @@
 
 import path from 'path'
 import fs from 'fs'
-import { EXAMPLE_PORTAL_ACCOUNTS } from '@open-mercato/core/modules/customer_accounts/lib/exampleAccounts'
+import { EXAMPLE_PORTAL_ACCOUNTS, isPublicExamplePortalCredential, resolveExamplePortalSeedPassword } from '@open-mercato/core/modules/customer_accounts/lib/exampleAccounts'
 
 type LocaleMap = Record<string, string>
 
@@ -25,6 +25,28 @@ describe('customer_accounts demo credential copy (regressions for issues #3198 a
   it('keeps the seeded example account list intact', () => {
     expect(alice).toBeDefined()
     expect(alice!.password).toBe('Password123!')
+  })
+
+  it('requires an explicitly supplied production demo password and excludes public credentials', () => {
+    expect(resolveExamplePortalSeedPassword(alice!, { NODE_ENV: 'production' })).toBeUndefined()
+    expect(() => resolveExamplePortalSeedPassword(alice!, {
+      NODE_ENV: 'production',
+      OM_INIT_PORTAL_DEMO_PASSWORD: alice!.password,
+    })).toThrow('OM_INIT_PORTAL_DEMO_PASSWORD')
+    const operatorPassword = 'test-only-supplied-strong-demo-password'
+    expect(resolveExamplePortalSeedPassword(alice!, {
+      NODE_ENV: 'production',
+      OM_INIT_PORTAL_DEMO_PASSWORD: operatorPassword,
+    })).toBe(operatorPassword)
+    expect(resolveExamplePortalSeedPassword(alice!, { NODE_ENV: 'development' })).toBe(alice!.password)
+    const replacedEnv = jest.replaceProperty(process, 'env', { NODE_ENV: 'production' })
+    try {
+      expect(isPublicExamplePortalCredential(alice!.email, alice!.password)).toBe(true)
+      expect(isPublicExamplePortalCredential(alice!.email, operatorPassword)).toBe(false)
+      expect(isPublicExamplePortalCredential('other@example.test', alice!.password)).toBe(false)
+    } finally {
+      replacedEnv.restore()
+    }
   })
 
   it('seeds portal example users from the shared account list rather than an inline copy (#3198)', () => {

@@ -2,12 +2,14 @@ import type { Kysely } from 'kysely'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EventBus } from '@open-mercato/events'
+import type { CacheStrategy } from '@open-mercato/cache'
 import { asScopedService, defineProcessDiRegistrar, registerProcessEventSetup } from '@open-mercato/shared/lib/di/process-registrar'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY } from '@open-mercato/shared/lib/crud/types'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
@@ -18,8 +20,10 @@ import {
   resolveQueryIndexRecordScope,
   resolveQueryIndexSourceMetadata,
 } from './lib/subscriber-scope'
+import { isSearchDebugEnabled } from './lib/search-tokens'
 
 const logger = createLogger('query_index').child({ component: 'crud-bridge' })
+const LEGACY_BUS_SETUP_MAX_ATTEMPTS = 50
 
 function hasOwn(value: unknown, key: string): boolean {
   return !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key)
@@ -79,13 +83,24 @@ async function resolveBridgeRecordScope(
 
 async function recordBridgeError(input: {
   em: EntityManager | null
-  handler: 'upsert' | 'delete'
+  handler: 'upsert' | 'delete' | 'custom_field_gate'
   error: unknown
   entityType: string
   recordId: string
-  payload: unknown
+  payload?: unknown
+  tenantId?: string | null
+  organizationId?: string | null
 }): Promise<void> {
   const handler = `event:query_index.crud_bridge.${input.handler}`
+  try {
+    reportTelemetryError(input.error, {
+      module: 'query_index',
+      code: 'query_index.crud_bridge_failed',
+      attributes: { handler, entityType: input.entityType, recordId: input.recordId },
+    })
+  } catch (telemetryError) {
+    logger.warn('Failed to report CRUD bridge error', { err: telemetryError })
+  }
   if (!input.em) {
     logger.error('CRUD bridge event failed before the entity manager was resolved', {
       handler,
@@ -103,7 +118,9 @@ async function recordBridgeError(input: {
       error: input.error,
       entityType: input.entityType,
       recordId: input.recordId,
-      payload: input.payload,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      ...(input.payload === undefined ? {} : { payload: input.payload }),
     },
   ).catch((loggingError) => {
     logger.error('Failed to record CRUD bridge error', {
@@ -159,7 +176,17 @@ const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any)
         cfQuery = cfQuery.where('tenant_id' as any, 'is', null as any)
       }
       hasCustomFields = !!await cfQuery.executeTakeFirst()
-    } catch {}
+    } catch (error) {
+      await recordBridgeError({
+        em,
+        handler: 'custom_field_gate',
+        error,
+        entityType,
+        recordId: id,
+        tenantId,
+        organizationId: orgId,
+      })
+    }
     if (hasCustomFields === false) {
       if (!sourceValidated) {
         await resolveBridgeRecordScope(
@@ -170,6 +197,14 @@ const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any)
           'upsert',
           { validateCompletePayload: true },
         )
+      }
+      if (isSearchDebugEnabled()) {
+        logger.debug('Skipping CRUD index update: no active custom fields in scope', {
+          entityType,
+          recordId: id,
+          tenantId,
+          organizationId: orgId,
+        })
       }
       return
     }
@@ -240,16 +275,32 @@ function registerLegacy(container: AppContainer) {
           return null
         }
       },
+      () => {
+        try {
+          return container.resolve<CacheStrategy>('cache')
+        } catch {
+          return null
+        }
+      },
     )
     // Replace existing registration
     ;(container as any).register({ queryEngine: { resolve: () => hybrid } })
   } catch {}
 
   // Subscribe to CRUD events and forward to query_index subscribers for unified handling
+  let setupAttempts = 0
   const setup = () => {
     let bus: any
     try { bus = (container.resolve('eventBus') as any) } catch { bus = null }
-    if (!bus) { setTimeout(setup, 0); return }
+    if (!bus) {
+      setupAttempts += 1
+      if (setupAttempts >= LEGACY_BUS_SETUP_MAX_ATTEMPTS) {
+        logger.warn('Event bus never registered; query index CRUD bridge not wired for this container', { attempts: setupAttempts })
+        return
+      }
+      setTimeout(setup, Math.min(setupAttempts * 10, 1000))
+      return
+    }
 
 
     // Build list of entity ids to subscribe to
@@ -360,6 +411,7 @@ function registerProcess(container: AppContainer): void {
         () => scope.hasRegistration('eventBus') ? scope.resolve<EventBus>('eventBus') : null,
         () => scope.hasRegistration('vectorIndexService') ? scope.resolve<VectorIndexService>('vectorIndexService') : null,
         encryption,
+        () => scope.hasRegistration('cache') ? scope.resolve<CacheStrategy>('cache') : null,
       )
     }),
   })
