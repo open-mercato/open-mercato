@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { ModuleEntry, PackageResolver } from '../../resolver'
 import { runGenerateWatchSuite } from '../../generate-watch-runner'
 import { generateOpenApi, getOpenApiGeneratorDependencies, getOpenApiWatchInputs } from '../openapi'
+import { generatedDerivedCrudRouteIndex } from '../form-sections'
 
 describe('resolveOpenApiGeneratorProjectRoot', () => {
   it('resolves the monorepo root from a POSIX module URL', async () => {
@@ -115,6 +116,28 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
+  it('loads generated section-policy docs and fails closed when the qualified route cannot load', async () => {
+    const resolver = createMockResolver([{ id: 'example', from: '@app' }])
+    const outputDir = resolver.getOutputDir()
+    const fileName = 'crud-form-section-route-0123456789abcdef.generated.ts'
+    touchFile(path.join(outputDir, generatedDerivedCrudRouteIndex), JSON.stringify([{
+      moduleId: 'example', routePath: '/example/records/section-policy', fileName, methods: ['PUT'],
+    }]))
+    const routePath = path.join(outputDir, fileName)
+    touchFile(routePath, `
+      export const metadata = { PUT: { requireAuth: true } }
+      export const PUT = () => new Response()
+      export const openApi = { PUT: { summary: 'Update the bound record', requestBody: { required: true } } }
+    `)
+    await generateOpenApi({ resolver, quiet: true })
+    const generated = JSON.parse(fs.readFileSync(path.join(outputDir, 'openapi.generated.json'), 'utf8'))
+    expect(generated.paths['/api/example/records/section-policy']).toEqual({
+      put: { summary: 'Update the bound record', requestBody: { required: true } },
+    })
+    touchFile(routePath, "throw new Error('Cannot derive CrudForm section host: fixture qualifier failed')")
+    await expect(generateOpenApi({ resolver, quiet: true })).rejects.toThrow(/fixture qualifier failed/)
+  })
+
   it('watches transitive sources, including deleted inputs, without watching generated outputs', () => {
     const delegate = createMockResolver([{ id: 'demo', from: '@open-mercato/core' }])
     const packageGeneratedRoot = path.join(tmpDir, 'packages', 'core', 'generated')
@@ -127,7 +150,7 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     const similarlyNamedSource = path.join(tmpDir, 'packages', 'core', 'generated-sources', 'schema.ts')
     touchFile(source, 'export const schema = {}')
     touchFile(path.join(resolver.getOutputDir(), 'openapi.generated.inputs.json'), JSON.stringify({
-      version: 1,
+      version: 2,
       inputPaths: [
         source,
         path.join(resolver.getOutputDir(), 'entities.generated.ts'),
@@ -150,12 +173,12 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     expect(getOpenApiGeneratorDependencies(resolver)).toBeNull()
     touchFile(manifestPath, '{')
     expect(getOpenApiWatchInputs(resolver)).toEqual([])
-    touchFile(manifestPath, JSON.stringify({ version: 2, inputPaths: ['/stale.ts'] }))
+    touchFile(manifestPath, JSON.stringify({ version: 1, inputPaths: ['/stale.ts'] }))
     expect(getOpenApiWatchInputs(resolver)).toEqual([])
-    touchFile(manifestPath, JSON.stringify({ version: 1, inputPaths: [123] }))
+    touchFile(manifestPath, JSON.stringify({ version: 2, inputPaths: [123] }))
     expect(getOpenApiWatchInputs(resolver)).toEqual([])
     expect(getOpenApiGeneratorDependencies(resolver)).toBeNull()
-    touchFile(manifestPath, JSON.stringify({ version: 1, inputPaths: [] }))
+    touchFile(manifestPath, JSON.stringify({ version: 2, inputPaths: [] }))
     expect(getOpenApiGeneratorDependencies(resolver)).toEqual([])
   })
 
@@ -205,28 +228,52 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     expect(openApiDoc.paths['/api/demo/details']?.get?.summary).toBe('package details')
   })
 
-  it('bundles into a per-run file and leaves no bundle behind', async () => {
+  it('uses the runtime metadata path for routes published outside their module prefix', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'policy', 'route.ts'),
+      [
+        'export async function POST() { return new Response() }',
+        "export const metadata = { path: '/extensions/example/resolve', POST: { requireAuth: true } }",
+        "export const openApi = { POST: { summary: 'resolve example policy' } }",
+      ].join('\n'),
+    )
+    const resolver = createMockResolver([{ id: 'demo', from: '@open-mercato/core' }])
+    const result = await generateOpenApi({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+    const generatedPath = path.join(tmpDir, 'output', 'generated', 'openapi.generated.json')
+    const document = JSON.parse(fs.readFileSync(generatedPath, 'utf8')) as {
+      paths: Record<string, { post?: { summary?: string } }>
+    }
+    expect(document.paths['/api/extensions/example/resolve']?.post?.summary).toBe('resolve example policy')
+    expect(document.paths['/api/demo/policy']).toBeUndefined()
+  })
+
+  it('bundles from generated output and leaves the protected dependency cache untouched', async () => {
+    const dependency = path.join(tmpDir, 'node_modules', 'openapi-fixture')
+    touchFile(path.join(dependency, 'package.json'), '{"type":"module","exports":"./index.js"}')
+    touchFile(path.join(dependency, 'index.js'), "export const summary = 'package health'\n")
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'demo', 'api', 'health', 'route.ts'),
       [
+        "import { summary } from 'openapi-fixture'",
         'export async function GET() { return new Response("pkg-health") }',
-        'export const openApi = {',
-        "  GET: { summary: 'package health' }",
-        '}',
+        'export const openApi = { GET: { summary } }',
         '',
       ].join('\n'),
     )
-    const cacheDir = path.join(tmpDir, 'node_modules', '.cache')
-    touchFile(path.join(cacheDir, '_openapi-bundle.mjs'), 'export {}\n')
+    const dependencyCache = path.join(tmpDir, 'node_modules', '.cache')
+    touchFile(dependencyCache, 'protected dependency cache')
+    const resolver = createMockResolver([{ id: 'demo', from: '@open-mercato/core' }])
 
-    const result = await generateOpenApi({ resolver: createMockResolver([{ id: 'demo', from: '@open-mercato/core' }]), quiet: true })
+    const result = await generateOpenApi({ resolver, quiet: true })
 
     expect(result.errors).toEqual([])
     const openApiDoc = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, 'output', 'generated', 'openapi.generated.json'), 'utf8'),
+      fs.readFileSync(path.join(resolver.getOutputDir(), 'openapi.generated.json'), 'utf8'),
     ) as { paths: Record<string, { get?: { summary?: string } }> }
     expect(openApiDoc.paths['/api/demo/health']?.get?.summary).toBe('package health')
-    expect(fs.readdirSync(cacheDir).filter((name) => name.startsWith('_openapi-bundle'))).toEqual([])
+    expect(fs.readFileSync(dependencyCache, 'utf8')).toBe('protected dependency cache')
+    expect(fs.readdirSync(resolver.getOutputDir()).filter((name) => name.startsWith('.openapi-'))).toEqual([])
   })
 
   it('skips route discovery and bundling when all tracked inputs are unchanged', async () => {

@@ -14,7 +14,8 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
 import { readInvalidFormFields } from '../../../../lib/task-form-schema'
-import { gateTaskAction } from '../../../../lib/task-visibility-request'
+import { gateTaskAction, TASK_NOT_FOUND_BODY } from '../../../../lib/task-visibility-request'
+import { userTaskIdParamSchema } from '../../../../data/validators'
 import {
   workflowsTag,
   completeTaskRequestSchema as openApiCompleteTaskSchema,
@@ -99,6 +100,10 @@ export async function POST(
     }
 
     const { formData, comments, decisionId } = parseResult.data
+
+    if (!userTaskIdParamSchema.safeParse(params.id).success) {
+      return NextResponse.json(TASK_NOT_FOUND_BODY, { status: 404 })
+    }
 
     // §6.4 replaces the bare tenant/organization check that used to stand here.
     // The narrowing D-1 keeps `workflows.tasks.complete` on the route and still

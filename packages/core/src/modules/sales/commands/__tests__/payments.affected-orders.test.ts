@@ -1,10 +1,13 @@
 /** @jest-environment node */
 
 import { LockMode } from '@mikro-orm/core'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { SalesOrder, SalesPayment, SalesPaymentAllocation } from '../../data/entities'
+import { enforceSalesDocumentOptimisticLock } from '../shared'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -127,6 +130,7 @@ function buildEm(world: World) {
     flush: jest.fn(async () => { world.calls.push({ kind: 'flush' }) }),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     transactional: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(em)),
+    nativeUpdate: jest.fn().mockResolvedValue(1),
   }
   return em
 }
@@ -361,6 +365,36 @@ describe('sales.payments.update — before/after order union', () => {
     )
     expect(expectLocksScopedAndOrdered(world)).toEqual([ORDER_A, ORDER_C])
     expect(invalidatedOrderIds().sort()).toEqual([ORDER_A, ORDER_C])
+    for (const orderId of [ORDER_A, ORDER_C]) {
+      const write = em.nativeUpdate.mock.calls.find(([, filter]) => filter.id === orderId)
+      expect(write).toEqual([SalesOrder, { id: orderId, organizationId: ORG, tenantId: TENANT }, { updatedAt: expect.any(Date) }])
+      expect(write?.[2].updatedAt.getTime()).toBeGreaterThan(world.orders.get(orderId)!.updatedAt.getTime())
+    }
+  })
+
+  it('rejects an edit when the order version advanced before the row lock was acquired', async () => {
+    const staleVersion = new Date('2026-01-01T12:00:00.000Z')
+    const savedVersion = new Date('2026-01-01T12:00:00.001Z')
+    const payment = { ...livePayment(ORDER_A), order: { ...order(ORDER_A), updatedAt: staleVersion } }
+    const world = buildWorld([], payment)
+    world.orders.get(ORDER_A)!.updatedAt = savedVersion
+    const em = buildEm(world)
+    const request = new Request('http://localhost/api/sales/payments', {
+      headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: staleVersion.toISOString() },
+    })
+    jest.mocked(enforceSalesDocumentOptimisticLock).mockImplementationOnce(
+      jest.requireActual<typeof import('../shared')>('../shared').enforceSalesDocumentOptimisticLock,
+    )
+
+    await expect(commandRegistry.get('sales.payments.update')!.execute(
+      { id: PAYMENT_ID, tenantId: TENANT, organizationId: ORG, paymentReference: 'stale' },
+      { ...buildCtx(em), request } as unknown as CommandRuntimeContext,
+    )).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'optimistic_lock_conflict', currentUpdatedAt: savedVersion.toISOString() },
+    })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
   })
 
   it('never locks or invalidates a cross-tenant allocation order', async () => {

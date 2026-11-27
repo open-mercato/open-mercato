@@ -520,7 +520,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 135168,
+    "maxTotalContextBytes": 139384,
     "relatedCases": [
       "OMH-008"
     ]
@@ -1736,7 +1736,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 122880,
+    "maxTotalContextBytes": 126895,
     "relatedCases": [
       "OMH-023"
     ]
@@ -2431,7 +2431,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 137702,
+    "maxTotalContextBytes": 142348,
     "relatedCases": [
       "OMH-031"
     ]
@@ -3839,7 +3839,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 131072,
+    "maxTotalContextBytes": 137216,
     "relatedCases": [
       "OMH-047"
     ]
@@ -4556,7 +4556,7 @@
     ],
     "maxContextFiles": 5,
     "maxInitialContextBytes": 40960,
-    "maxTotalContextBytes": 128000,
+    "maxTotalContextBytes": 132015,
     "relatedCases": [
       "OMH-058"
     ],
@@ -5147,7 +5147,7 @@
     ],
     "maxContextFiles": 8,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 135168,
+    "maxTotalContextBytes": 139384,
     "relatedCases": [
       "OMH-065"
     ]
@@ -6004,7 +6004,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 13,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 69922,
     "maxTotalContextBytes": 446464,
     "relatedCases": [
       "OMH-020",
@@ -6414,7 +6414,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 15,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 69922,
     "maxTotalContextBytes": 839680,
     "relatedCases": [
       "OMH-016",
@@ -6828,7 +6828,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 13,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 70198,
     "maxTotalContextBytes": 524288,
     "relatedCases": [
       "OMH-042",
@@ -8280,7 +8280,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 12,
-    "maxInitialContextBytes": 66560,
+    "maxInitialContextBytes": 67100,
     "maxTotalContextBytes": 548864,
     "relatedCases": [
       "OMH-018",
@@ -8648,7 +8648,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 274432,
     "relatedCases": [
       "OMH-017",
@@ -8825,7 +8825,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 274432,
     "relatedCases": [
       "OMH-012",
@@ -9022,7 +9022,7 @@
       "oracle.business.command"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 335872,
     "relatedCases": [
       "OMH-031",
@@ -9432,7 +9432,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 57344,
+    "maxInitialContextBytes": 57670,
     "maxTotalContextBytes": 315392,
     "relatedCases": [
       "OMH-019",
@@ -9625,7 +9625,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 11,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 69922,
     "maxTotalContextBytes": 618496,
     "relatedCases": [
       "OMH-060",
@@ -10195,7 +10195,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 348160,
     "relatedCases": [
       "OMH-010",
@@ -10286,7 +10286,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 204800,
     "relatedCases": [
       "OMH-009",
@@ -10861,7 +10861,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 348160,
     "relatedCases": [
       "OMH-012",
@@ -11223,7 +11223,7 @@
       "oracle.business.async-operation"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 196608,
     "relatedCases": [
       "OMH-012",
@@ -11424,7 +11424,7 @@
       "oracle.business.ui-surface"
     ],
     "maxContextFiles": 10,
-    "maxInitialContextBytes": 58368,
+    "maxInitialContextBytes": 58890,
     "maxTotalContextBytes": 344064,
     "relatedCases": [
       "OMH-034",
@@ -12482,7 +12482,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 11,
-    "maxInitialContextBytes": 66560,
+    "maxInitialContextBytes": 67100,
     "maxTotalContextBytes": 307200,
     "relatedCases": [
       "OMH-053",
@@ -13664,7 +13664,7 @@
       "src/modules/erp_sync/workers/**"
     ],
     "maxContextFiles": 15,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 70198,
     "maxTotalContextBytes": 638976,
     "relatedCases": [
       "OMH-042",
@@ -13831,7 +13831,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 12,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 70198,
     "maxTotalContextBytes": 311296,
     "relatedCases": [
       "OMH-018",
@@ -15023,7 +15023,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 11,
-    "maxInitialContextBytes": 69632,
+    "maxInitialContextBytes": 69860,
     "maxTotalContextBytes": 286720,
     "relatedCases": [
       "OMH-005",
@@ -16066,7 +16066,7 @@
             "runtime.bulk-operation-progress"
           ],
           "maxFiles": 10,
-          "maxBytes": 180224
+          "maxBytes": 238258
         }
       ],
       "forbidden": [
@@ -18292,7 +18292,7 @@
             "umes.injection-table"
           ],
           "maxFiles": 6,
-          "maxBytes": 180224
+          "maxBytes": 205184
         }
       ],
       "installedVersionFallback": {
@@ -19657,7 +19657,7 @@
             "data.custom-fields"
           ],
           "maxFiles": 10,
-          "maxBytes": 180224
+          "maxBytes": 216984
         }
       ]
     },
@@ -19695,7 +19695,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 254844,
     "relatedCases": [
       "OMH-004",
       "OMH-087",
@@ -19774,7 +19774,7 @@
             "umes.injection.datatable-bulk-action"
           ],
           "maxFiles": 10,
-          "maxBytes": 180224
+          "maxBytes": 203709
         }
       ]
     },
@@ -19816,7 +19816,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 57344,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 244916,
     "relatedCases": [
       "OMH-026",
       "OMH-027",
@@ -19897,7 +19897,7 @@
             "ui.form-edit"
           ],
           "maxFiles": 12,
-          "maxBytes": 196608
+          "maxBytes": 241196
         }
       ]
     },
@@ -19941,7 +19941,7 @@
     ],
     "maxContextFiles": 14,
     "maxInitialContextBytes": 98304,
-    "maxTotalContextBytes": 212992,
+    "maxTotalContextBytes": 218964,
     "relatedCases": [
       "OMH-026",
       "OMH-220"
@@ -20020,7 +20020,7 @@
             "events.crud-indexer-bridge"
           ],
           "maxFiles": 8,
-          "maxBytes": 180224
+          "maxBytes": 237842
         }
       ]
     },
@@ -20060,7 +20060,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 73728,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 277248,
     "relatedCases": [
       "OMH-031",
       "OMH-219"
@@ -20141,7 +20141,7 @@
             "data.entities"
           ],
           "maxFiles": 10,
-          "maxBytes": 245760
+          "maxBytes": 261444
         }
       ],
       "sourceReferenceIds": [
@@ -20414,7 +20414,7 @@
             "runtime.bulk-operation-progress"
           ],
           "maxFiles": 10,
-          "maxBytes": 180224
+          "maxBytes": 236027
         }
       ]
     },
@@ -20455,7 +20455,7 @@
     ],
     "maxContextFiles": 12,
     "maxInitialContextBytes": 65536,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 265573,
     "relatedCases": [
       "OMH-187",
       "OMH-220"
@@ -20528,7 +20528,7 @@
             "ai.agent-extension"
           ],
           "maxFiles": 6,
-          "maxBytes": 180224
+          "maxBytes": 215357
         }
       ]
     },
@@ -20568,7 +20568,7 @@
     ],
     "maxContextFiles": 10,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 180224,
+    "maxTotalContextBytes": 238137,
     "relatedCases": [
       "OMH-050",
       "OMH-219"
@@ -22095,7 +22095,7 @@
             "umes.component-replacement"
           ],
           "maxFiles": 9,
-          "maxBytes": 204800
+          "maxBytes": 222367
         }
       ],
       "sourceReferenceIds": [
@@ -22126,12 +22126,1391 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 73728,
-    "maxTotalContextBytes": 356736,
+    "maxInitialContextBytes": 77824,
+    "maxTotalContextBytes": 385024,
     "relatedCases": [
       "OMH-030",
       "OMH-088",
       "OMH-089"
     ]
+  },
+  {
+    "id": "OMH-244",
+    "title": "Hide a required title on edit while retaining the stored title",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "On the Todo showcase edit form, hide the title so staff can update only the visible details. A saved edit must preserve the existing title and remain safe if another user updates or deletes the Todo. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/todo-showcase-update.client.ts"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c1"
+          ],
+          "maxFiles": 4,
+          "maxBytes": 151552
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "exact-form-variant-and-operation",
+      "preserve-required-leaf-from-locked-record",
+      "scoped-bound-mutation-and-parent-version",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "synthesize-required-title-in-browser"
+    ],
+    "requiredDecisions": [
+      "exact-form-variant-and-operation",
+      "preserve-required-leaf-from-locked-record",
+      "scoped-bound-mutation-and-parent-version",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 196608,
+    "relatedCases": [
+      "OMH-221",
+      "OMH-245"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-245",
+    "title": "Assign a server title default for the new Todo form",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "On the Todo showcase create form, hide the title and assign the usual label on the server. The value must be present for authoritative validation, and editing an existing Todo must keep its own title. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/todo-showcase-create.client.ts"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c2"
+          ],
+          "maxFiles": 4,
+          "maxBytes": 151552
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "exact-create-target",
+      "server-default-for-hidden-required-leaf",
+      "default-does-not-apply-to-update",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "let-the-client-own-the-hidden-default"
+    ],
+    "requiredDecisions": [
+      "exact-create-target",
+      "server-default-for-hidden-required-leaf",
+      "default-does-not-apply-to-update",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 7,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 196608,
+    "relatedCases": [
+      "OMH-221",
+      "OMH-244"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-246",
+    "title": "Resolve a form-blocking error caused by hiding an uncovered required field",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "My configured create form fails to load after I hide a field that the server still requires. Diagnose the blocked state and describe a valid recipe that keeps the underlying command requirements and prevents submissions until the policy is accepted. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes",
+        "debugging"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension",
+      "om-troubleshooter"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/testing-debugging.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-troubleshooter/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/references/crud-form-extensions/required-coverage.md"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts",
+        "om-system-extension/extension-branches:references/crud-form-extensions/required-coverage.md"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c3"
+          ],
+          "maxFiles": 4,
+          "maxBytes": 151552
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "uncovered-required-leaf-fails-closed",
+      "no-partially-active-mutation-controls",
+      "restore-required-output-or-declare-coverage",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "enable-legacy-submit-while-resolving-policy"
+    ],
+    "requiredDecisions": [
+      "uncovered-required-leaf-fails-closed",
+      "no-partially-active-mutation-controls",
+      "restore-required-output-or-declare-coverage",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 61440,
+    "maxTotalContextBytes": 208896,
+    "relatedCases": [
+      "OMH-030",
+      "OMH-247"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-247",
+    "title": "Replace a section and keep emitting its required completion value",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Replace the Todo showcase completion section with a clearer control. Keep the required completion value through the existing authorized server projection and submission. Use the completion replacement recipe to identify its paired browser runtime and capability. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes",
+        "backend-ui"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension",
+      "om-backend-ui-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/todo-showcase-status.client.ts"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md",
+        "src/modules/example/references/crud-form-extensions/status-primitives.reference.ts"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c4"
+          ],
+          "maxFiles": 5,
+          "maxBytes": 153216
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "compatible-required-leaf-in-replacement",
+      "literal-browser-runtime-loader",
+      "exact-server-capability-and-client-round-trip",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "replace-only-the-renderer-without-projection"
+    ],
+    "requiredDecisions": [
+      "compatible-required-leaf-in-replacement",
+      "literal-browser-runtime-loader",
+      "exact-server-capability-and-client-round-trip",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 61440,
+    "maxTotalContextBytes": 221184,
+    "relatedCases": [
+      "OMH-220",
+      "OMH-246"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-248",
+    "title": "Relabel priority, omit notes, and reject a scoped invalid value",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Relabel priority and remove notes from the Todo showcase only. Add a server rule that rejects an unsuitable priority for the selected organization. Keep previously entered notes and surface the rejection at the priority field. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes",
+        "backend-ui"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension",
+      "om-backend-ui-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/todo-showcase-sections.client.ts"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c5"
+          ],
+          "maxFiles": 4,
+          "maxBytes": 152714
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "field-granular-modify",
+      "preserve-removed-leaf",
+      "scoped-server-field-rule-and-inline-error",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "client-only-validation-is-authoritative"
+    ],
+    "requiredDecisions": [
+      "field-granular-modify",
+      "preserve-removed-leaf",
+      "scoped-server-field-rule-and-inline-error",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 65536,
+    "maxTotalContextBytes": 221184,
+    "relatedCases": [
+      "OMH-243",
+      "OMH-249"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-249",
+    "title": "Store a showcase preference through a scoped Custom Field",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Add a season selector to the Todo showcase and save it through the existing Custom Fields storage. Show it on reopen in the selected scope and keep standard Todo forms as they are. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes",
+        "backend-ui",
+        "module-data"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension",
+      "om-backend-ui-design",
+      "om-data-model-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/todo-showcase-sections.client.ts"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c6"
+          ],
+          "maxFiles": 4,
+          "maxBytes": 152714
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "native-custom-field-store",
+      "exact-scoped-definition-set",
+      "preserve-default-form",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "new-table-for-native-custom-field"
+    ],
+    "requiredDecisions": [
+      "native-custom-field-store",
+      "exact-scoped-definition-set",
+      "preserve-default-form",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 11,
+    "maxInitialContextBytes": 77824,
+    "maxTotalContextBytes": 229376,
+    "relatedCases": [
+      "OMH-221",
+      "OMH-248"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-250",
+    "title": "Save an extension field in a separately versioned table",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In my existing app module, add a brand field to the Todo showcase, backed by the module’s own table. Read it back on edit, reject stale brand edits even with a current Todo version, and roll back the whole write when storage fails. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes",
+        "backend-ui",
+        "module-data"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension",
+      "om-backend-ui-design",
+      "om-data-model-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/guides/contracts.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-data-model-design/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/data/entities.ts",
+        "src/modules/example/components/TodoShowcaseForm.tsx"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c7"
+          ],
+          "maxFiles": 5,
+          "maxBytes": 163840
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "own-table-sink-and-scoped-identity",
+      "independent-sink-version",
+      "host-transaction-with-rollback-and-read-back",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "use-only-the-parent-version-for-extension-edits"
+    ],
+    "requiredDecisions": [
+      "own-table-sink-and-scoped-identity",
+      "independent-sink-version",
+      "host-transaction-with-rollback-and-read-back",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 86016,
+    "maxTotalContextBytes": 241664,
+    "relatedCases": [
+      "OMH-221",
+      "OMH-251"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-251",
+    "title": "Report an optional observer failure after a successful save",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Run an optional observer after a Todo showcase edit commits. If it fails, the new Todo values should still be saved and the form should show a localized warning without displaying internal error data. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes",
+        "backend-ui"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension",
+      "om-backend-ui-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/components/TodoShowcaseForm.tsx"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c8"
+          ],
+          "maxFiles": 4,
+          "maxBytes": 155648
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "explicit-after-commit-sink",
+      "retain-committed-host-write",
+      "safe-extension-warning",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "rollback-committed-host-when-optional-observer-fails"
+    ],
+    "requiredDecisions": [
+      "explicit-after-commit-sink",
+      "retain-committed-host-write",
+      "safe-extension-warning",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 65536,
+    "maxTotalContextBytes": 221184,
+    "relatedCases": [
+      "OMH-220",
+      "OMH-250"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-252",
+    "title": "Queue a fenced external delivery with visible retry",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "Review the existing Todo showcase ERP sink for its two configured fields. Explain how its read-only supplier check, queued delivery, retry display and revision handling work together, including what happens when deliveries overlap or a job is lost. Use the existing local fake as the provider recipe. Keep the review within the form policy, integration and retry UI guidance, and follow the single matching Example recipe.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes",
+        "backend-ui",
+        "integration"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension",
+      "om-backend-ui-design",
+      "om-integration-builder"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/guides/integrations.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        ".ai/skills/om-integration-builder/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/lib/exampleExternalErp.ts",
+        "src/modules/example/components/TodoShowcaseSync.tsx"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c9"
+          ],
+          "maxFiles": 5,
+          "maxBytes": 156307
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "transactional-intent-and-post-commit-outbox",
+      "read-only-precommit-validation",
+      "fenced-monotonic-idempotent-retries",
+      "bounded-scoped-provider-and-credential-boundary",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "deliver-to-provider-inside-host-transaction"
+    ],
+    "requiredDecisions": [
+      "transactional-intent-and-post-commit-outbox",
+      "read-only-precommit-validation",
+      "fenced-monotonic-idempotent-retries",
+      "bounded-scoped-provider-and-credential-boundary",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 12,
+    "maxInitialContextBytes": 81920,
+    "maxTotalContextBytes": 237568,
+    "relatedCases": [
+      "OMH-220",
+      "OMH-253"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-253",
+    "title": "Disable only the chosen form override in application configuration",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "medium",
+    "prompt": "Disable the observer section on the Todo showcase edit form in the app’s module configuration while keeping the season field available and saving correctly. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/references/module-overrides.reference.ts"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts",
+        "om-system-extension/extension-branches:references/module-overrides.reference.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c10"
+          ],
+          "maxFiles": 4,
+          "maxBytes": 159744
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "exact-forms-sections-null-selector",
+      "regenerate-final-policy-facts",
+      "keep-unrelated-overrides-active",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "disable-entire-extension-module"
+    ],
+    "requiredDecisions": [
+      "exact-forms-sections-null-selector",
+      "regenerate-final-policy-facts",
+      "keep-unrelated-overrides-active",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 6,
+    "maxInitialContextBytes": 49152,
+    "maxTotalContextBytes": 204800,
+    "relatedCases": [
+      "OMH-030",
+      "OMH-252"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-254",
+    "title": "Reject invalid policy metadata and unknown extension fields without a write",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "Verify a scoped Todo showcase update rejects an unknown extension field, stale policy fingerprint, and modified protected target binding. The record, its version and extension data must stay unchanged. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes",
+        "testing"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension",
+      "om-integration-tests"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/testing-debugging.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/api/todos/route.ts",
+        "src/modules/example/lib/todoShowcaseClient.ts"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c11"
+          ],
+          "maxFiles": 5,
+          "maxBytes": 167936
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "recompute-exact-policy-and-request-binding",
+      "reject-unknown-and-stale-with-conflict",
+      "only-authorized-scope-and-no-side-effects",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "accept-client-projection-without-server-policy"
+    ],
+    "requiredDecisions": [
+      "recompute-exact-policy-and-request-binding",
+      "reject-unknown-and-stale-with-conflict",
+      "only-authorized-scope-and-no-side-effects",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 9,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 241664,
+    "relatedCases": [
+      "OMH-030",
+      "OMH-255"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
+  },
+  {
+    "id": "OMH-255",
+    "title": "Keep standard Todo forms compatible when adding an opted-in variant",
+    "family": "umes",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "Introduce a separate Todo showcase form with new sections and keep the regular create and edit pages unchanged. Identify how to check their existing endpoints, validation, fields, headers and behavior. Plan from the routed CrudForm section policy and its exact canonical Todo example sources for this task. Explain the relevant decisions and validation without editing, running the QA fixtures, or reading unrelated example files.",
+    "tags": [
+      "umes",
+      "crud-form-section-policy",
+      "canonical-example",
+      "reference-read"
+    ],
+    "owner": {
+      "kind": "skill",
+      "path": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-02",
+        "BC-06"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "umes",
+        "backend-ui"
+      ],
+      "allowedExtra": []
+    },
+    "requiredSkills": [
+      "om-system-extension",
+      "om-backend-ui-design"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/extensions.md",
+        ".ai/skills/om-system-extension/references/extension-branches.md",
+        ".ai/guides/backend-ui.md",
+        ".ai/skills/om-system-extension/SKILL.md",
+        ".ai/skills/om-backend-ui-design/SKILL.md",
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/components/TodoForm.tsx",
+        "src/modules/example/backend/todos/create/page.tsx",
+        "src/modules/example/backend/todos/[id]/edit/page.tsx"
+      ],
+      "allowedExtra": [
+        ".ai/skills/om-system-extension/references/mechanism-selector.md",
+        ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+        ".ai/skills/om-backend-ui-design/references/quality-states.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**",
+        ".ai/qa/**",
+        "src/modules/example/__integration__/**",
+        "src/modules/example/__tests__/**"
+      ],
+      "sourceReferenceIds": [
+        "om-system-extension/extension-branches:form-sections.ts"
+      ],
+      "exampleRoots": [
+        {
+          "root": "src/modules/example",
+          "entrypoints": [
+            "form-sections.ts"
+          ],
+          "allowedCapabilityIds": [
+            "example.crud-form-extensions.c12"
+          ],
+          "maxFiles": 6,
+          "maxBytes": 159797
+        }
+      ]
+    },
+    "decisionVocabulary": [
+      "isolated-showcase-variant",
+      "legacy-no-policy-endpoints-and-headers",
+      "existing-ui-and-validation-regression",
+      "capability-scoped-example-read",
+      "example-root-read-only",
+      "apply-policy-client-to-legacy-default-form"
+    ],
+    "requiredDecisions": [
+      "isolated-showcase-variant",
+      "legacy-no-policy-endpoints-and-headers",
+      "existing-ui-and-validation-regression",
+      "capability-scoped-example-read",
+      "example-root-read-only"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 11,
+    "maxInitialContextBytes": 73728,
+    "maxTotalContextBytes": 225280,
+    "relatedCases": [
+      "OMH-221",
+      "OMH-254"
+    ],
+    "source": {
+      "paths": [
+        ".ai/specs/2026-10-22-crudform-section-overrides-framework.md"
+      ]
+    }
   }
 ]
