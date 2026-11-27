@@ -70,9 +70,10 @@ describe('planGenerateWatchChanges', () => {
     const plan = planGenerateWatchChanges([
       change('openapi', '/app/src/openapi.ts'),
       change('web-research-adapters', '/packages/adapter/package.json'),
+      change('cache-providers', '/app/src/providers/cache.ts'),
     ])
     expect(plan.mode).toBe('incremental')
-    expect(plan.groups).toEqual(['web-research-adapters', 'openapi'])
+    expect(plan.groups).toEqual(['web-research-adapters', 'cache-providers', 'openapi'])
     expect(plan.registryOutputs).toEqual([])
     expect(plan.reasons).toEqual([])
   })
@@ -81,7 +82,7 @@ describe('planGenerateWatchChanges', () => {
     const path = '/customers/dependency.ts'
     const plan = planGenerateWatchChanges([change('api-route', '/customers/api/route.ts'), change(category, path)])
     expect(plan.mode).toBe('full')
-    expect(plan.groups).toEqual(['entity-ids', 'registry', 'entities', 'di', 'package-sources', 'web-research-adapters', 'openapi'])
+    expect(plan.groups).toEqual(['entity-ids', 'registry', 'entities', 'di', 'package-sources', 'web-research-adapters', 'cache-providers', 'openapi'])
     expect(plan.reasons).toEqual([expect.stringContaining(path)])
   })
 

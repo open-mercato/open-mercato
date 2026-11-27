@@ -121,6 +121,7 @@
   "dictionaries.errors.invalid_key": "Usa letras minúsculas, números, guion, guion bajo o un punto entre segmentos.",
   "dictionaries.errors.not_found": "Diccionario no encontrado",
   "dictionaries.errors.organization_required": "Se requiere un contexto de organización",
+  "dictionaries.errors.system_protected": "No se pueden cambiar las claves de los diccionarios del sistema ni desactivar o eliminar dichos diccionarios.",
   "dictionaries.errors.unauthorized": "No autorizado",
   "dictionaries.form.colorClear": "Limpiar color",
   "dictionaries.form.colorHelp": "Seleccione un color de resaltado para esta entrada.",

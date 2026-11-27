@@ -512,7 +512,7 @@ describe('RbacService', () => {
       expect(acl.isSuperAdmin).toBe(true)
     })
 
-    it('does not apply a role-level super-admin grant outside its organization', async () => {
+    it('keeps a role-level super-admin grant local to its organization', async () => {
       const roleA: Partial<Role> = { id: 'role-a' }
       const roleB: Partial<Role> = { id: 'role-b' }
       const links: Array<Partial<UserRole>> = [{ role: roleA as any }, { role: roleB as any }]
@@ -529,6 +529,15 @@ describe('RbacService', () => {
         if (entity === UserRole && where?.user === baseUser.id) return links
         if (entity === RoleAcl && where?.tenantId === 'tenant-1') return racls
         return []
+      })
+
+      await expect(service.loadAcl(baseUser.id!, {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })).resolves.toEqual({
+        isSuperAdmin: false,
+        features: ['*'],
+        organizations: ['org-1', 'org-2'],
       })
 
       await expect(service.loadAcl(baseUser.id!, {
@@ -1196,7 +1205,7 @@ describe('RbacService', () => {
       expect(ok).toBe(false)
     })
 
-    it('keeps the super admin organization bypass while still enforcing enabled modules', async () => {
+    it('keeps elevated features within the direct ACL organization and enabled modules', async () => {
       jest.spyOn(enabledModulesRegistry, 'hasEnabledModulesRegistry').mockReturnValue(true)
       jest.spyOn(enabledModulesRegistry, 'getEnabledModuleIds').mockReturnValue(['auth'])
 
@@ -1213,8 +1222,23 @@ describe('RbacService', () => {
         return null
       })
 
-      const ok = await service.userHasAllFeatures(baseUser.id!, ['auth.users.list'], { tenantId: null, organizationId: 'org-1' })
-      expect(ok).toBe(true)
+      await expect(service.userHasAllFeatures(
+        baseUser.id!, ['auth.users.list'], { tenantId: null, organizationId: 'org-1' },
+      )).resolves.toBe(false)
+      await expect(service.userHasAllFeatures(
+        baseUser.id!, ['auth.users.list'], { tenantId: null, organizationId: 'org-2' },
+      )).resolves.toBe(true)
+      await expect(service.userHasAllFeatures(
+        baseUser.id!, ['search.global'], { tenantId: null, organizationId: 'org-2' },
+      )).resolves.toBe(false)
+      await expect(service.loadAcl(baseUser.id!, {
+        tenantId: 'tenant-1', organizationId: 'org-2',
+      })).resolves.toEqual({ isSuperAdmin: false, features: ['*'], organizations: ['org-2'] })
+      const access = await service.resolveFeatureOrganizationAccess(
+        baseUser.id!, ['auth.users.list'], { tenantId: 'tenant-1' },
+      )
+      expect(access.unrestricted).toBe(false)
+      expect(access.filterOrganizationIds([{ id: 'org-1' }, { id: 'org-2' }])).toEqual(['org-2'])
     })
 
     it('checks wildcard "*" grants all', async () => {
@@ -1413,11 +1437,11 @@ describe('RbacService', () => {
       await expect(service.getEffectiveFeatures(baseUser.id!, noOrganization)).resolves.toEqual(['entities.definitions.manage'])
     })
 
-    it('keeps granting a super-admin user ACL with an empty organization list', async () => {
+    it('does not grant platform access from a super-admin user ACL with an empty organization list', async () => {
       mockUserAcl([], true)
 
       await expect(service.userHasAllFeatures(baseUser.id!, ['entities.definitions.manage'], noOrganization))
-        .resolves.toBe(true)
+        .resolves.toBe(false)
     })
   })
 

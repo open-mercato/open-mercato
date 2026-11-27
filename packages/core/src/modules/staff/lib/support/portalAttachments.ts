@@ -16,6 +16,9 @@ const logger = createLogger('staff').child({ component: 'lib/support/portalAttac
 export type PortalAttachmentsApi = {
   Attachment: typeof import('@open-mercato/core/modules/attachments/data/entities').Attachment
   AttachmentPartition: typeof import('@open-mercato/core/modules/attachments/data/entities').AttachmentPartition
+  attachmentPartitionVisibility: typeof import('@open-mercato/core/modules/attachments/lib/partitionScope').attachmentPartitionVisibility
+  indexAttachmentPartitions: typeof import('@open-mercato/core/modules/attachments/lib/partitionScope').indexAttachmentPartitions
+  resolveAttachmentPartition: typeof import('@open-mercato/core/modules/attachments/lib/partitionScope').resolveAttachmentPartition
   StorageDriverFactory: typeof import('@open-mercato/core/modules/attachments/lib/drivers').StorageDriverFactory
   checkAttachmentAccess: typeof import('@open-mercato/core/modules/attachments/lib/access').checkAttachmentAccess
   attachmentCrudEvents: typeof import('@open-mercato/core/modules/attachments/lib/crud').attachmentCrudEvents
@@ -51,7 +54,7 @@ export type PortalSupportAttachmentItem = z.infer<typeof portalSupportAttachment
 export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi | null> {
   if (!getEntityIds(false).attachments?.attachment) return null
   try {
-    const [entities, drivers, access, crud, metadataLib, imageUrls, thumbnails, limits, uploadService, storageReferences] = await Promise.all([
+    const [entities, drivers, access, crud, metadataLib, imageUrls, thumbnails, limits, uploadService, storageReferences, partitions] = await Promise.all([
       import('@open-mercato/core/modules/attachments/data/entities'),
       import('@open-mercato/core/modules/attachments/lib/drivers'),
       import('@open-mercato/core/modules/attachments/lib/access'),
@@ -62,10 +65,14 @@ export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi |
       import('@open-mercato/core/modules/attachments/lib/upload-limits'),
       import('@open-mercato/core/modules/attachments/lib/scoped-upload-service'),
       import('@open-mercato/core/modules/attachments/lib/storageReferences'),
+      import('@open-mercato/core/modules/attachments/lib/partitionScope'),
     ])
     return {
       Attachment: entities.Attachment,
       AttachmentPartition: entities.AttachmentPartition,
+      attachmentPartitionVisibility: partitions.attachmentPartitionVisibility,
+      indexAttachmentPartitions: partitions.indexAttachmentPartitions,
+      resolveAttachmentPartition: partitions.resolveAttachmentPartition,
       StorageDriverFactory: drivers.StorageDriverFactory,
       checkAttachmentAccess: access.checkAttachmentAccess,
       attachmentCrudEvents: crud.attachmentCrudEvents,
@@ -133,12 +140,14 @@ export async function listCustomerVisibleAttachments(
     decryptionScope,
   )
   const codes = Array.from(new Set(attachments.map((attachment) => attachment.partitionCode)))
-  const partitions = codes.length ? await scope.em.find(api.AttachmentPartition, { code: { $in: codes } }) : []
-  const partitionByCode = new Map(partitions.map((partition) => [partition.code, partition]))
+  const partitions = codes.length
+    ? await scope.em.find(api.AttachmentPartition, { code: { $in: codes }, ...api.attachmentPartitionVisibility(decryptionScope) })
+    : []
+  const partitionFor = api.indexAttachmentPartitions(partitions)
   const auth = portalAttachmentAuth(scope)
   return attachments
     .filter((attachment) => {
-      const partition = partitionByCode.get(attachment.partitionCode)
+      const partition = partitionFor(attachment.partitionCode, attachment)
       if (!partition) return false
       if (!readAttachmentTags(api, attachment).includes(CUSTOMER_VISIBLE_ATTACHMENT_TAG)) return false
       return api.checkAttachmentAccess(auth, attachment, partition, { requireAuthForPublic: true }).ok

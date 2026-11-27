@@ -11,7 +11,7 @@ test.describe('TC-AUTH-011: Delete User Account', () => {
     const email = `qa-auth-011-${Date.now()}@acme.com`;
 
     await login(page, 'admin');
-    await createUserViaUi(page, { email, password: 'Valid1!Pass', role: 'employee' });
+    await createUserViaUi(page, { email, password: 'QaValid1!Pass', role: 'employee' });
 
     const row = page.getByRole('row', { name: new RegExp(email, 'i') });
     await expect(row).toBeVisible();

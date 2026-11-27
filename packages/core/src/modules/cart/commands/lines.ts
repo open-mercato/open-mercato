@@ -49,6 +49,7 @@ import type { PolicyResolutionService } from '@open-mercato/core/modules/availab
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
 import type { SalesAdjustmentDraft } from '@open-mercato/core/modules/sales/lib/types'
 
+import { MAX_CART_LINE_QUANTITY } from '../data/validators'
 import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartLineActorType, CartLineOrigin } from '../data/entities'
 import {
@@ -217,8 +218,9 @@ export function checkQuantityRule(rules: QuantityRules, requestedQuantity: numbe
     return { status: 'rejected', reason: 'quantity_below_minimum', nearestValid: bumpToMinimum(minOrderQuantity) }
   }
 
-  if (maxOrderQuantity != null && requestedQuantity > maxOrderQuantity) {
-    return { status: 'accepted_clamped', quantity: maxOrderQuantity, requestedQuantity }
+  const maxQuantity = Math.min(maxOrderQuantity ?? MAX_CART_LINE_QUANTITY, MAX_CART_LINE_QUANTITY)
+  if (requestedQuantity > maxQuantity) {
+    return { status: 'accepted_clamped', quantity: maxQuantity, requestedQuantity }
   }
 
   return { status: 'accepted', quantity: requestedQuantity }

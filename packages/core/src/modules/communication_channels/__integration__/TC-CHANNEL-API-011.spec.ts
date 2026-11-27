@@ -60,7 +60,7 @@ test.describe('TC-CHANNEL-API-011: set-primary refuses a disconnected channel', 
       })
 
       const userEmail = `qa-channel-api-011-${stamp}@acme.com`
-      const userPassword = 'Valid1!Pass'
+      const userPassword = 'QaValid1!Pass'
       userId = await createUserFixture(request, adminToken, {
         email: userEmail,
         password: userPassword,

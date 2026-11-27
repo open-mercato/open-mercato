@@ -14,14 +14,8 @@ import {
 /**
  * TC-AUTH-049 [P2]: Role ACL organization visibility (#2464)
  *
- * PUT /api/auth/roles/acl persists the role's `organizations` visibility list and GET reads it
- * back (null = no restriction = all orgs). This is the real, verified contract.
- *
- * NOTE on the issue's end-to-end premise: GET /api/directory/organizations is filtered by the
- * caller's TENANT only — it does NOT apply the role's stored `organizations` ACL (verified in
- * directory/api/organizations/route.ts). So a user whose role is restricted to org1 still sees
- * every org in the tenant. This spec asserts that real behaviour rather than the issue's
- * (incorrect) "user sees only org1" assertion.
+ * The role ACL stores the organization grant and the directory returns only
+ * organizations visible to the caller. Null removes the role's restriction.
  */
 type RoleAclResponse = { isSuperAdmin?: boolean; features?: string[]; organizations?: string[] | null };
 type OrganizationListResponse = { items?: Array<{ id?: string | null }> };
@@ -29,7 +23,7 @@ type OrganizationListResponse = { items?: Array<{ id?: string | null }> };
 const sorted = (values: string[]): string[] => [...values].sort();
 
 test.describe('TC-AUTH-049: role ACL organization visibility (#2464)', () => {
-  test('persists and round-trips the org visibility list; directory list stays tenant-scoped', async ({ request }) => {
+  test('persists the org visibility list and applies it to the directory', async ({ request }) => {
     const superadminToken = await getAuthToken(request, 'superadmin');
     const stamp = `${Date.now()}-${randomInt(1_000_000)}`;
     const userEmail = `qa-tc-auth-049-${stamp}@example.com`;
@@ -79,8 +73,6 @@ test.describe('TC-AUTH-049: role ACL organization visibility (#2464)', () => {
       expect(restricted.organizations ?? [], 'org visibility should persist as [org1]').toEqual([org1Id]);
       expect(restricted.features ?? [], 'granted feature should round-trip').toContain('directory.*');
 
-      // End-to-end: an org1 user with the org-restricted role still sees BOTH tenant orgs,
-      // because the directory list is tenant-scoped and ignores the role's org ACL.
       userId = await createUserFixture(request, superadminToken, {
         email: userEmail,
         password: userPassword,
@@ -95,8 +87,7 @@ test.describe('TC-AUTH-049: role ACL organization visibility (#2464)', () => {
       expect(dirRes.status(), 'org-restricted user can list directory organizations').toBe(200);
       const dirBody = await readJsonSafe<OrganizationListResponse>(dirRes);
       const visibleOrgIds = (dirBody?.items ?? []).map((item) => item.id ?? '');
-      expect(visibleOrgIds, 'restricted org should be visible').toContain(org1Id);
-      expect(visibleOrgIds, 'non-restricted org is still visible (ACL not enforced on list)').toContain(org2Id);
+      expect(visibleOrgIds, 'directory should list only the granted organization').toEqual([org1Id]);
 
       // Clearing the restriction (null) means "all orgs".
       await setRoleAcl(null);

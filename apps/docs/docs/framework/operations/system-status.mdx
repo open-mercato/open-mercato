@@ -112,6 +112,16 @@ Toggles the CRUD API response cache layer. When enabled, GET requests served by 
 **Default:** `memory`  
 Selects the cache backend. Supported values include `memory` (in-process) and `sqlite`. Related docs: [Cache tuning](https://docs.openmercato.com/docs/framework/performance/cache).
 
+### CACHE_PROVIDER {#cache_provider}
+**Default:** _(unset)_
+
+Selects a cache provider registered by the application in `src/providers/cache.ts`, by its `<scope>/<name>` id. When set it overrides `CACHE_STRATEGY`; an unknown or misconfigured provider fails startup instead of falling back to memory. Related docs: [Cache providers](https://docs.openmercato.com/docs/architecture/cache-providers).
+
+### CACHE_PROVIDER_NAMESPACE {#cache_provider_namespace}
+**Default:** _(unset)_
+
+Stable deployment namespace (1-64 letters, digits, `.`, `_` or `-`) required whenever `CACHE_PROVIDER` is set. Providers use it to fence this deployment's records from other deployments sharing the same backend.
+
 ### CACHE_TTL {#cache_ttl}
 **Default:** _(unset)_  
 Optional override for cache time-to-live in milliseconds. Leave blank to use per-handler defaults.
@@ -127,7 +137,8 @@ TTL in milliseconds for the outbound webhook dispatcher's per-tenant active-subs
 ## Authentication {#authentication}
 
 ### OM_PASSWORD_MIN_LENGTH {#om_password_min_length}
-**Default:** `6`  
+**Default:** `12`
+
 Minimum length enforced for new passwords (onboarding, user CRUD, password reset, CLI). To keep the frontend requirement hint aligned, set `NEXT_PUBLIC_OM_PASSWORD_MIN_LENGTH` to the same value.
 
 ### OM_PASSWORD_REQUIRE_DIGIT {#om_password_require_digit}
