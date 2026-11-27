@@ -37,27 +37,39 @@ jest.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
 }))
 
+const capturedLoadSuggestions: Record<string, (query?: string) => Promise<unknown>> = {}
+
 jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
   ComboboxInput: ({
     placeholder,
     value,
     onChange,
+    loadSuggestions,
   }: {
     placeholder: string
     value: string
     onChange: (v: string) => void
-  }) => (
-    <input
-      placeholder={placeholder}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      data-testid={`combobox-${placeholder}`}
-    />
-  ),
+    loadSuggestions?: (query?: string) => Promise<unknown>
+  }) => {
+    if (loadSuggestions) capturedLoadSuggestions[placeholder] = loadSuggestions
+    return (
+      <input
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        data-testid={`combobox-${placeholder}`}
+      />
+    )
+  },
 }))
 
+const mockLoadPutawayTargetLocationOptions = jest.fn(async () => [
+  { value: 'loc-1', label: 'BIN-1' },
+  { value: 'loc-2', label: 'R2' },
+])
+
 jest.mock('../inventoryMutationLoaders', () => ({
-  loadBinLocationOptions: jest.fn(async () => [{ value: 'loc-1', label: 'BIN-1' }]),
+  loadPutawayTargetLocationOptions: (...args: unknown[]) => mockLoadPutawayTargetLocationOptions(...args),
   resolveLocationLabel: jest.fn(async () => 'BIN-1'),
 }))
 
@@ -272,5 +284,26 @@ describe('CompletePutawayTaskDialog', () => {
     fireEvent.click(screen.getByTestId('complete-putaway-submit'))
     await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
     expect(String(mockApiCall.mock.calls[0][0])).toContain(task.id)
+  })
+
+  it('suggests target locations via the putaway-target loader (all types the server accepts, not just bins)', async () => {
+    render(
+      <CompletePutawayTaskDialog
+        open
+        onOpenChange={jest.fn()}
+        access={access}
+        task={task}
+      />,
+    )
+
+    const loadSuggestions = capturedLoadSuggestions['Select destination bin']
+    expect(loadSuggestions).toBeTruthy()
+
+    const options = await loadSuggestions!('R2')
+    expect(mockLoadPutawayTargetLocationOptions).toHaveBeenCalledWith(task.warehouseId, 'R2')
+    expect(options).toEqual([
+      { value: 'loc-1', label: 'BIN-1' },
+      { value: 'loc-2', label: 'R2' },
+    ])
   })
 })

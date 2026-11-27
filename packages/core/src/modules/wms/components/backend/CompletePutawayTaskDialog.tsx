@@ -28,7 +28,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
-  loadBinLocationOptions,
+  loadPutawayTargetLocationOptions,
   resolveLocationLabel,
 } from './inventoryMutationLoaders'
 import type { WmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
@@ -98,7 +98,7 @@ export function CompletePutawayTaskDialog({
   // arrow would recreate each render and can starve the fetch, leaving the
   // portaled list stuck on "Loading suggestions…" with no selectable options.
   const loadTargetLocationSuggestions = React.useCallback(
-    async (query?: string) => (warehouseId ? loadBinLocationOptions(warehouseId, query) : []),
+    async (query?: string) => (warehouseId ? loadPutawayTargetLocationOptions(warehouseId, query) : []),
     [warehouseId],
   )
 
