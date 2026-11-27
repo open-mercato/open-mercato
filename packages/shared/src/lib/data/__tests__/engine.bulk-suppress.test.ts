@@ -125,6 +125,23 @@ describe('DefaultDataEngine bulk-import suppression', () => {
     expect(indexed).toHaveLength(4)
   })
 
+  it.each([
+    ['enqueue-only' as const, { persistent: false, deliverInline: false, skipInlineDispatch: true }],
+    ['inline-only' as const, { persistent: false, skipPersistentSubscribersInline: true }],
+  ])('keeps %s dispatch, skipReindex and rethrowEventErrors when effects are deferred to commit', async (eventDispatch, expected) => {
+    const { engine, em, container, emitEvent, emittedNames } = buildEngine()
+    const failure = new Error('[internal] Event enqueue rejected')
+    emitEvent.mockRejectedValue(failure)
+    const scope = engine.createCommandTransactionScope(em, container)
+    scope.dataEngine.markOrmEntityChange({ action: 'updated', entity: {}, events: EVENTS, indexer: INDEXER, identifiers: IDENTIFIERS })
+    await scope.dataEngine.flushOrmEntityChanges({ eventDispatch, skipReindex: true, rethrowEventErrors: true })
+    expect(emitEvent).not.toHaveBeenCalled()
+
+    await expect(scope.complete('committed')).rejects.toMatchObject({ errors: [failure] })
+    expect(emittedNames()).toEqual(['sales.order.updated'])
+    expect(emitEvent.mock.calls[0][2]).toMatchObject(expected)
+  })
+
   it('continues to fail fast on legacy always-consistent flushes', async () => {
     jest.mocked(isReadProjectionAlwaysConsistent).mockReturnValue(true)
     const { engine, emitEvent } = buildEngine()

@@ -8,6 +8,7 @@ import {
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { requiresAttachmentAccessScan } from './access-query'
 import { mergeAttachmentMetadata, readAttachmentMetadata, type AttachmentAssignment } from './metadata'
+import { attachmentPartitionVisibility } from './partitionScope'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const PARTICIPANT_ID = 'attachments.deal-records'
@@ -139,9 +140,16 @@ export function registerAttachmentDealMergeParticipant(): () => void {
     id: PARTICIPANT_ID,
     entityId: DEAL_ENTITY_ID,
     previewFeatures: ATTACHMENT_DEAL_MERGE_PREVIEW_FEATURES,
-    previewAvailable: async ({ em }) => {
+    previewAvailable: async ({ em, tenantId, organizationId }) => {
       if (requiresAttachmentAccessScan([])) return false
-      const partitions = await findWithDecryption(em, AttachmentPartition, {}, { fields: ['accessResolverRequirements'] })
+      const scope = { tenantId, organizationId }
+      const partitions = await findWithDecryption(
+        em,
+        AttachmentPartition,
+        attachmentPartitionVisibility(scope),
+        { fields: ['accessResolverRequirements'] },
+        scope,
+      )
       return !requiresAttachmentAccessScan(partitions)
     },
     preview: previewAttachmentDealRecords,

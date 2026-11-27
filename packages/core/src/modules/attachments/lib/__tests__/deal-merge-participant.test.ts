@@ -171,4 +171,19 @@ describe('attachments Deal merge participant', () => {
     })).resolves.toEqual([])
     expect(manager.execute).not.toHaveBeenCalled()
   })
+
+  it('reads only partitions visible to the merge scope', async () => {
+    registerAttachmentDealMergeParticipant()
+    const manager = harness(rows)
+    await collectEntityMergeParticipantPreviews({ ...scope, em: manager.em, callerHasFeatures: async () => true })
+    const partitionCall = mockFindWithDecryption.mock.calls.find(([, entity]) => entity === AttachmentPartition)
+    expect(partitionCall?.[2]).toEqual({
+      $or: [
+        { tenantId: null, organizationId: null },
+        { tenantId: scope.tenantId, organizationId: null },
+        { tenantId: scope.tenantId, organizationId: scope.organizationId },
+      ],
+    })
+    expect(partitionCall?.[4]).toEqual({ tenantId: scope.tenantId, organizationId: scope.organizationId })
+  })
 })
