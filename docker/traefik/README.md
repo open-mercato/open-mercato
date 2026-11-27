@@ -119,7 +119,7 @@ The legacy root `docker-compose.fullapp*.yml` invocation has the same behavior.
 Deployments using an external proxy or deliberate direct access can continue
 to **omit the Traefik overlay**: the base files retain their `APP_PORT` mapping.
 Restrict that listener to the intended proxy or operator network and reproduce
-the TLS and ForwardAuth controls in the external proxy. A proxy attached to
+the TLS, host-scoped HSTS and ForwardAuth controls in the external proxy. A proxy attached to
 the Compose network can use `app:3000` without any host publication.
 
 For a host-local proxy or temporary operator diagnostics with bundled Traefik,

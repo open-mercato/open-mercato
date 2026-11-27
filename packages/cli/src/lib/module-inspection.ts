@@ -63,6 +63,26 @@ function isModernYarnProject(appDir: string): boolean {
   }
 }
 
+const YARN_SETTING_UNREADABLE = 'YARN_SETTING_UNREADABLE'
+
+function yarnSettingError(message: string): Error {
+  return Object.assign(new Error(message), { code: YARN_SETTING_UNREADABLE })
+}
+
+function isYarnSettingError(error: unknown): error is Error {
+  return error instanceof Error && 'code' in error && error.code === YARN_SETTING_UNREADABLE
+}
+
+function parseYarnConfigValue(setting: string, stdout: string): unknown {
+  const output = stdout.trim()
+  if (output === '' || output === 'undefined') return undefined
+  try {
+    return JSON.parse(output)
+  } catch {
+    throw yarnSettingError(`Yarn setting ${setting} returned output that is not JSON.`)
+  }
+}
+
 function yarnNpmConfiguration(appDir: string, packageName: string, temporaryDir: string): string[] {
   if (!isModernYarnProject(appDir)) return []
   const settings = new Map<string, unknown>()
@@ -70,8 +90,8 @@ function yarnNpmConfiguration(appDir: string, packageName: string, temporaryDir:
     const result = spawn.sync(process.platform === 'win32' ? 'yarn.cmd' : 'yarn', ['config', 'get', setting, '--json', '--no-redacted'], {
       cwd: appDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15_000,
     })
-    if (result.error || result.status !== 0) throw new Error('Cannot inspect project package registry configuration')
-    settings.set(setting, JSON.parse(result.stdout))
+    if (result.error || result.status !== 0) throw yarnSettingError(`Yarn setting ${setting} could not be read (exit ${result.status ?? 'none'}).`)
+    settings.set(setting, parseYarnConfigValue(setting, result.stdout))
   }
   const scope = packageName.startsWith('@') ? packageName.slice(1).split('/')[0] : undefined
   const scopeSettings = scope ? record(record(settings.get('npmScopes'))[scope]) : {}
@@ -125,7 +145,7 @@ export function inspectNpmModuleTarget(packageSpec: string, packageName: string,
     if (inspected.version !== packed.version) throw new Error('Packed artifact version disagrees with resolution')
     return { packageName, packageSpec, ...inspected, locator: `npm:${packageName}` }
   } catch (error) {
-    const safeDetail = isModulePackageExportError(error) && error instanceof Error ? ` ${error.message}` : ''
+    const safeDetail = (isModulePackageExportError(error) || isYarnSettingError(error)) && error instanceof Error ? ` ${error.message}` : ''
     throw new Error(`Cannot inspect the exact module artifact for "${packageName}" while trying to ${inspectionStep}.${safeDetail} Check project registry credentials, package access and shipped src/dist module descriptors before retrying. No package was installed.`)
   } finally {
     fs.rmSync(temporaryDir, { recursive: true, force: true })

@@ -51,12 +51,13 @@ async function fetchCurrencyDictionary(): Promise<CurrencyDictionaryPayload> {
   return { id, entries }
 }
 
-export function useCurrencyDictionary() {
+export function useCurrencyDictionary(enabled = true) {
   const [, forceRender] = React.useReducer((c) => c + 1, 0)
-  const entry = cache.get(CACHE_KEY)
+  const entry = enabled ? cache.get(CACHE_KEY) : undefined
   const result = entry?.client.getQueryState<CurrencyDictionaryPayload>(QUERY_KEY)
 
   React.useEffect(() => {
+    if (!enabled) return
     if (entry?.client.getQueryData(QUERY_KEY)) {
       forceRender()
       return
@@ -64,11 +65,16 @@ export function useCurrencyDictionary() {
     const client = entry?.client ?? new QueryClient()
     const promise = entry?.promise ?? client.fetchQuery({ queryKey: QUERY_KEY, queryFn: fetchCurrencyDictionary, staleTime: STALE_TIME, gcTime: STALE_TIME })
     if (!entry) cache.set(CACHE_KEY, { promise, client })
-    promise.finally(() => { forceRender() })
-  }, [])
+    let active = true
+    const refresh = () => {
+      if (active) forceRender()
+    }
+    void promise.then(refresh, refresh)
+    return () => { active = false }
+  }, [enabled])
 
   const data = entry?.client.getQueryData<CurrencyDictionaryPayload>(QUERY_KEY) ?? null
-  const isLoading = !data && !(result && result.status === 'error')
+  const isLoading = enabled && !data && !(result && result.status === 'error')
   const error = (result && result.status === 'error') ? result.error ?? null : null
   const refetch = React.useCallback(async () => {
     const current = cache.get(CACHE_KEY)

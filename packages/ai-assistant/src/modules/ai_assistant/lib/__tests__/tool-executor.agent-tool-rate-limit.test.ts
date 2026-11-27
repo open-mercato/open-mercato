@@ -106,6 +106,23 @@ describe('executeTool agent-tool rate limit (C-3)', () => {
     expect(agentHandler).toHaveBeenCalledTimes(2)
   })
 
+  it('limits direct Code Mode search before calling its sandbox handler', async () => {
+    mockRegisteredTools.set('search', {
+      name: 'search',
+      description: 'Search runtime metadata',
+      inputSchema: z.object({ code: z.string() }),
+      handler: plainHandler,
+    })
+    const context = buildContext(buildContainer({ registered: true, limiter: enabledLimiter() }))
+    const options: ExecuteToolOptions = { channel: 'tools-api', requester: { userId: 'user-1', apiKeyId: null } }
+    await executeTool('search', { code: 'normal search expression' }, context, options)
+    await executeTool('search', { code: 'normal search expression' }, context, options)
+    const third = await executeTool('search', { code: 'normal search expression' }, context, options)
+
+    expect(third).toMatchObject({ success: false, errorCode: 'RATE_LIMITED' })
+    expect(plainHandler).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps separate buckets per API key, per session user and per tenant', async () => {
     const limiter = enabledLimiter()
     const context = buildContext(buildContainer({ registered: true, limiter }))

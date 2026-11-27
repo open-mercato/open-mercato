@@ -38,7 +38,8 @@ The DI registrar exposes a singleton `moduleConfigService` with the following su
 
 - `getValue(moduleId, name, { defaultValue })` → fetches and caches the JSON value.
 - `setValue(moduleId, name, value)` → upserts the record and invalidates cache entries.
-- `restoreDefaults([{ moduleId, name, value }], { force })` → seed or reset baseline values.
+- `restoreDefaults([{ moduleId, name, value }], { force })` → best-effort helper to seed or reset baseline values for programmatic callers.
+- `restoreDefaultsStrict([{ moduleId, name, value }], { force })` → transactional instance-scope restore on a fresh `EntityManager` that validates all entries before writing, retries unique-index conflicts, rolls back on any error, and refreshes cache entries only after commit.
 - `invalidate(moduleId, name?)` → drop cache entries for a specific key or the entire module.
 
 Every call automatically resolves the request-scoped `EntityManager` and the configured cache strategy (memory/Redis/sqlite/JSON). Consumers can safely call these helpers from APIs, subscribers, or CLIs without managing transactions or cache keys manually.
@@ -55,9 +56,25 @@ Module telemetry is collected in-process for API routes, event subscribers, queu
 
 ## Default seeding & automation
 
-- `yarn mercato configs restore-defaults` seeds module defaults. The command runs automatically during `mercato init` after database migrations complete.
+- `yarn mercato configs restore-defaults` discovers instance-level defaults from enabled modules' `setup.ts` (`ModuleSetupConfig.instanceConfigDefaults`) and force-restores them strictly in a single transaction. The command runs automatically during `mercato init` after database migrations and before `auth setup` (skipped when `configs` is disabled).
+- Modules declare their own instance defaults by adding an optional synchronous `instanceConfigDefaults` provider to `setup.ts`:
+
+```ts title="packages/core/src/modules/my_module/setup.ts"
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+
+export const setup: ModuleSetupConfig = {
+  instanceConfigDefaults: () => [
+    { name: 'feature_defaults', value: { enabled: true } },
+  ],
+}
+
+export default setup
+```
+
+- Providers must be synchronous, return finite JSON values, and run without an `EntityManager`, tenant, credentials, or network I/O. They may read environment variables at invocation time.
+- Ownership is derived from the module's ID so modules can write only into their own namespace. Disabled modules contribute no defaults and any pre-existing rows they own remain untouched.
+- **Legacy namespace exception:** `legacyStorageNamespace: 'vector'` is reserved exclusively for `search`'s `auto_index_enabled` entry so existing `vector.auto_index_enabled` rows and `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING` / `DISABLE_VECTOR_SEARCH_AUTOINDEXING` precedence stay backward-compatible. All other cross-namespace writes and duplicate normalized keys are rejected before any database write.
 - Environment flags can override values. Example: `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true` forces the `vector.auto_index_enabled` toggle off and prevents the API/UI from re-enabling it. The legacy alias `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` still works for older deployments.
-- Additional defaults can be registered by other modules via `restoreDefaults` (e.g., inside their CLI bootstrap or migrations).
 
 ## Usage example: vector search auto-indexing
 

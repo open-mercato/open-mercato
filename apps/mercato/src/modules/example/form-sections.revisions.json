@@ -1,0 +1,72 @@
+{
+  "example.todo-extensions.showcase.create.brand": {
+    "n": 1,
+    "baseRoundTripId": null,
+    "patchHash": "2a3aeb60fd41f9e02835570b702587256afd86a90333bbb6704b1f34ffe95fd7"
+  },
+  "example.todo-extensions.showcase.create.details": {
+    "n": 3,
+    "baseRoundTripId": "example.todo-details@v2",
+    "patchHash": "5b80956eccea940f40308f2e7403b81ad7a0c609dff6e3b7412dbd3a53046763"
+  },
+  "example.todo-extensions.showcase.create.erp": {
+    "n": 5,
+    "baseRoundTripId": null,
+    "patchHash": "6c9c6a276a34a9330c3a53b13f04bd5eb34fb4e83adaa938b5d40ded59cdfe86"
+  },
+  "example.todo-extensions.showcase.create.observer": {
+    "n": 3,
+    "baseRoundTripId": null,
+    "patchHash": "f272108351328e5e8165bfe1acb5a102478274d7792002b06650998e695cb939"
+  },
+  "example.todo-extensions.showcase.create.season": {
+    "n": 1,
+    "baseRoundTripId": null,
+    "patchHash": "560537c9767b065ab62c30c8af39d1eb57713707bb4e92e80576a8a290a2fadb"
+  },
+  "example.todo-extensions.showcase.create.status": {
+    "n": 4,
+    "baseRoundTripId": "example.todo-status@v1",
+    "patchHash": "51ce5e4da65eaf637bcd79243b6255f6b1ffb60b963f1dae1993d72a78b3e384"
+  },
+  "example.todo-extensions.showcase.create.title": {
+    "n": 1,
+    "baseRoundTripId": "example.todo-title@v1",
+    "patchHash": "63f45e4565fa63949a907ab54da30892382f4a1b17c379cb64468402fe85bd1d"
+  },
+  "example.todo-extensions.showcase.update.brand": {
+    "n": 1,
+    "baseRoundTripId": null,
+    "patchHash": "2a3aeb60fd41f9e02835570b702587256afd86a90333bbb6704b1f34ffe95fd7"
+  },
+  "example.todo-extensions.showcase.update.details": {
+    "n": 3,
+    "baseRoundTripId": "example.todo-details@v2",
+    "patchHash": "5b80956eccea940f40308f2e7403b81ad7a0c609dff6e3b7412dbd3a53046763"
+  },
+  "example.todo-extensions.showcase.update.erp": {
+    "n": 5,
+    "baseRoundTripId": null,
+    "patchHash": "6c9c6a276a34a9330c3a53b13f04bd5eb34fb4e83adaa938b5d40ded59cdfe86"
+  },
+  "example.todo-extensions.showcase.update.observer": {
+    "n": 3,
+    "baseRoundTripId": null,
+    "patchHash": "f272108351328e5e8165bfe1acb5a102478274d7792002b06650998e695cb939"
+  },
+  "example.todo-extensions.showcase.update.season": {
+    "n": 1,
+    "baseRoundTripId": null,
+    "patchHash": "560537c9767b065ab62c30c8af39d1eb57713707bb4e92e80576a8a290a2fadb"
+  },
+  "example.todo-extensions.showcase.update.status": {
+    "n": 4,
+    "baseRoundTripId": "example.todo-status@v1",
+    "patchHash": "51ce5e4da65eaf637bcd79243b6255f6b1ffb60b963f1dae1993d72a78b3e384"
+  },
+  "example.todo-extensions.showcase.update.title": {
+    "n": 1,
+    "baseRoundTripId": "example.todo-title@v1",
+    "patchHash": "63f45e4565fa63949a907ab54da30892382f4a1b17c379cb64468402fe85bd1d"
+  }
+}

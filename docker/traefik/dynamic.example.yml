@@ -22,6 +22,8 @@ http:
       entryPoints:
         - websecure
       service: app-upstream
+      middlewares:
+        - secure-transport
       tls:
         certResolver: letsencrypt
 
@@ -34,12 +36,17 @@ http:
         - websecure
       service: app-upstream
       middlewares:
+        - secure-transport
         - inject-domain-check-secret
         - domain-check
       tls:
         certResolver: letsencrypt
 
   middlewares:
+    secure-transport:
+      headers:
+        stsSeconds: 31536000
+
     # Adds the shared secret to the original request so ForwardAuth can pass
     # it through to the app's domain-check endpoint. Replace
     # DOMAIN_CHECK_SECRET_HERE with the same value used in the app

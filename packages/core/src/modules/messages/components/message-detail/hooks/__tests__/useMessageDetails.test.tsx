@@ -30,12 +30,13 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useAppEvent', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/injection/useAppEvent'),
   useAppEvent: (...args: unknown[]) => mockUseAppEvent(...args),
 }))
 
 jest.mock('../useMessageDetailsQueries', () => ({
   useMessageDetailsQueries: () => ({
-    detailQuery: { refetch: jest.fn() },
+    refetchDetail: jest.fn(),
     detail: null,
     isLoadingDetail: false,
     loadErrorMessage: 'load error',

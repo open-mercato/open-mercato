@@ -15,9 +15,11 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { countByCategory } from '../../lib/calendar/categories'
 import { findConflicts } from '../../lib/calendar/conflicts'
 import { getVisibleRange } from '../../lib/calendar/range'
+import { calendarStaffAvailabilityCandidates, findStaffAvailabilityConflicts, formatStaffAvailabilityConflict } from '../../lib/calendar/staffAvailability'
 import { AgendaList } from './AgendaList'
 import { CalendarFooter } from './CalendarFooter'
 import { CalendarHeader } from './CalendarHeader'
@@ -28,6 +30,7 @@ import { ShortcutsDialog } from './ShortcutsDialog'
 import { TimeGrid } from './TimeGrid'
 import { UpcomingCards } from './UpcomingCards'
 import { CalendarSettingsModal } from './CalendarSettingsModal'
+import { useStaffAvailability } from './useStaffAvailability'
 import { useCalendarPreferences } from './useCalendarPreferences'
 import { MAX_WINDOW_ITEMS, useCalendarItems } from './useCalendarItems'
 import type {
@@ -116,6 +119,7 @@ export type CalendarScreenProps = {
 
 export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }: CalendarScreenProps = {}) {
   const t = useT()
+  const activeOrganizationId = useCurrentOrganization()?.id ?? null
   const [view, setView] = React.useState<CalendarView>('week')
   const [anchor, setAnchor] = React.useState<Date>(() => new Date())
   const [agendaHorizonDays, setAgendaHorizonDays] = React.useState(DEFAULT_AGENDA_HORIZON_DAYS)
@@ -215,7 +219,35 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
     () => findConflicts(baseItems, { scope: preferences.conflictScope, currentUserId }),
     [baseItems, preferences.conflictScope, currentUserId],
   )
-  const conflictIds = React.useMemo(() => new Set(conflictMap.keys()), [conflictMap])
+  const staffCandidates = React.useMemo(
+    () => preferences.conflictWarnings ? calendarStaffAvailabilityCandidates(baseItems, preferences.conflictScope, currentUserId) : [],
+    [baseItems, preferences.conflictScope, preferences.conflictWarnings, currentUserId],
+  )
+  const staffRange = React.useMemo(() => (
+    staffCandidates.length ? {
+      from: new Date(Math.min(...staffCandidates.map(({ item }) => item.start.getTime()))),
+      to: new Date(Math.max(...staffCandidates.map(({ item }) => item.end.getTime()))),
+    } : null
+  ), [staffCandidates])
+  const availability = useStaffAvailability({
+    userIds: staffCandidates.flatMap(({ people }) => people.map((person) => person.userId)),
+    range: staffRange,
+    organizationId: activeOrganizationId,
+  })
+  const staffConflicts = React.useMemo(() => {
+    return new Map(staffCandidates.flatMap(({ item, people, organizationId }) => {
+      const conflicts = findStaffAvailabilityConflicts(availability, { from: item.start, to: item.end }, organizationId, people)
+      return conflicts.length ? [[item.id, conflicts] as const] : []
+    }))
+  }, [availability, staffCandidates])
+  const conflictDescriptions = React.useMemo(() => {
+    return new Map([...staffConflicts].map(([itemId, conflicts]) => {
+      const labels = conflicts.map((conflict) => formatStaffAvailabilityConflict(conflict, t))
+      if (conflictMap.has(itemId)) labels.unshift(t('customers.calendar.availability.eventOverlap', 'Overlaps with a calendar event'))
+      return [itemId, labels.join(' · ')]
+    }))
+  }, [conflictMap, staffConflicts, t])
+  const conflictIds = React.useMemo(() => new Set([...conflictMap.keys(), ...staffConflicts.keys()]), [conflictMap, staffConflicts])
 
   const upcomingCards = React.useMemo<UpcomingCard[]>(() => {
     const now = new Date()
@@ -225,7 +257,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
       .sort((first, second) => first.start.getTime() - second.start.getTime())
       .slice(0, UPCOMING_CARDS_COUNT)
       .map((item) => {
-        const conflictCount = preferences.conflictWarnings ? (conflictMap.get(item.id)?.length ?? 0) : 0
+        const conflictCount = preferences.conflictWarnings ? (conflictMap.get(item.id)?.length ?? 0) + (staffConflicts.get(item.id)?.length ?? 0) : 0
         const kind: UpcomingCard['kind'] =
           item.status === 'canceled'
             ? 'cancelled'
@@ -236,7 +268,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
                 : 'future'
         return { item, kind, conflictCount }
       })
-  }, [baseItems, conflictMap, preferences.conflictWarnings])
+  }, [baseItems, conflictMap, staffConflicts, preferences.conflictWarnings])
 
   const typeOptions = React.useMemo(() => {
     const values = new Set<string>(Object.keys(typeLabels))
@@ -496,7 +528,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
     viewArea = <LoadingMessage label={t('customers.calendar.loading', 'Loading calendar…')} />
   } else if (view === 'month') {
     viewArea = (
-      <MonthGrid anchor={anchor} items={viewItems} onItemClick={openEditEditor} onDayOpen={handleDayOpen} />
+      <MonthGrid anchor={anchor} items={viewItems} conflictDescriptions={conflictDescriptions} onItemClick={openEditEditor} onDayOpen={handleDayOpen} />
     )
   } else if (view === 'agenda') {
     viewArea = (
@@ -504,6 +536,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
         anchor={anchor}
         horizonDays={agendaHorizonDays}
         items={viewItems}
+        conflictDescriptions={conflictDescriptions}
         typeLabels={typeLabels}
         onItemClick={openEditEditor}
       />
@@ -515,6 +548,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
         anchor={anchor}
         items={viewItems}
         conflictIds={conflictIds}
+        conflictDescriptions={conflictDescriptions}
         showWeekends={preferences.showWeekends}
         showConflicts={preferences.conflictWarnings}
         aiSummaries={preferences.aiSummaries}
