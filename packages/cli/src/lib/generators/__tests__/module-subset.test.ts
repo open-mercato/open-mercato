@@ -2108,7 +2108,7 @@ describe('all generated files are valid with varying subsets', () => {
     await generateModuleRegistry({ resolver: disabledResolver, quiet: true })
     expect(fs.existsSync(outputPath)).toBe(false)
     expect(fs.existsSync(checksumPath)).toBe(false)
-    expect(fs.existsSync(manifestPath)).toBe(false)
+    expect(JSON.parse(fs.readFileSync(manifestPath, 'utf8'))).toEqual(['database-declarations.generated.ts'])
   })
 
   it('notifications.generated.ts uses typed fallback for legacy "types" export', async () => {

@@ -229,7 +229,7 @@ it('preserves unselected plugin ownership and reconciles it on the next full gen
   const full = capture()
   expect(full['extra.generated.ts']).toBeUndefined()
   expect(full['extra.generated.checksum']).toBeUndefined()
-  expect(full['.generator-plugin-outputs.json']).toBeUndefined()
+  expect(JSON.parse(full['.generator-plugin-outputs.json'].content)).toEqual(['database-declarations.generated.ts'])
 })
 
 it('emits the aggregate command loader once without unrelated registry families', async () => {

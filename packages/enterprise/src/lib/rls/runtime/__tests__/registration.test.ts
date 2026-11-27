@@ -77,14 +77,12 @@ it('fails closed on unintegrated pool purposes and undeclared primary metadata',
   lifecycle.dispose()
 })
 
-it('registers module declarations and runtime through the generator bootstrap hook', async () => {
+it('leaves neutral declarations to the CLI and registers the enterprise runtime through the bootstrap hook', async () => {
   const { generatorPlugins } = await import('../../../../modules/tenant_boundaries/generators')
   const runtime = generatorPlugins.find((plugin) => plugin.id === 'tenant_boundaries.bootstrap')!
   expect(runtime.conventionFile).toBe('index.ts')
   expect(runtime.buildOutput({ importSection: '', entriesLiteral: '' })).toContain('version: 1')
   expect(runtime.bootstrapRegistration?.buildCall('tenantBoundaryRegistration')).toBe('registerTenantBoundaryRuntime(tenantBoundaryRegistration)')
-  const declarations = generatorPlugins.find((plugin) => plugin.id === 'tenant_boundaries.declarations')!
-  expect(declarations.configExpr('EXTERNAL', 'extension')).toContain("moduleId: 'extension'")
-  expect(declarations.buildOutput({ importSection: 'import external from "extension"', entriesLiteral: 'external' })).toContain('databaseModuleDeclarations')
-  expect(declarations.bootstrapRegistration?.buildCall('entries')).toBe('registerDatabaseModuleDeclarations(entries)')
+  expect(generatorPlugins).toHaveLength(1)
+  expect(generatorPlugins.some((plugin) => plugin.conventionFile === 'database.ts')).toBe(false)
 })
