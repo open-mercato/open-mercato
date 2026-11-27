@@ -111,9 +111,9 @@ describe('invoice and credit memo service lines', () => {
   })
 
   it.each([
-    ['sales.invoices.create', 'SalesInvoiceLine', { invoiceNumber: 'INV-1' }],
-    ['sales.credit_memos.create', 'SalesCreditMemoLine', { creditMemoNumber: 'CM-1' }],
-  ])('%s keeps the line kind and service reference', async (commandId, lineEntity, numbering) => {
+    ['sales.invoices.create', 'SalesInvoiceLine'],
+    ['sales.credit_memos.create', 'SalesCreditMemoLine'],
+  ])('%s keeps the line kind and service reference', async (commandId, lineEntity) => {
     const handler = commandRegistry.get(commandId)
     expect(handler).toBeTruthy()
     const { ctx, created } = buildCtx()
@@ -123,7 +123,6 @@ describe('invoice and credit memo service lines', () => {
         organizationId: ORG_ID,
         tenantId: TENANT_ID,
         currencyCode: 'USD',
-        ...numbering,
         lines: [serviceLine, { name: 'Freeform', quantity: 1, currencyCode: 'USD' }],
       },
       ctx,
@@ -136,9 +135,9 @@ describe('invoice and credit memo service lines', () => {
   })
 
   it.each([
-    ['sales.invoices.create', 'SalesInvoiceLine', { invoiceNumber: 'INV-1' }],
-    ['sales.credit_memos.create', 'SalesCreditMemoLine', { creditMemoNumber: 'CM-1' }],
-  ])('%s rejects a non-service line that references a service', async (commandId, lineEntity, numbering) => {
+    ['sales.invoices.create', 'SalesInvoiceLine'],
+    ['sales.credit_memos.create', 'SalesCreditMemoLine'],
+  ])('%s rejects a non-service line that references a service', async (commandId, lineEntity) => {
     const handler = commandRegistry.get(commandId)
     expect(handler).toBeTruthy()
     const { ctx, created } = buildCtx()
@@ -149,8 +148,7 @@ describe('invoice and credit memo service lines', () => {
           organizationId: ORG_ID,
           tenantId: TENANT_ID,
           currencyCode: 'USD',
-          ...numbering,
-          lines: [
+            lines: [
             { name: 'Freeform', quantity: 1, currencyCode: 'USD' },
             { ...serviceLine, kind: 'product' },
           ],
@@ -167,19 +165,19 @@ describe('invoice and credit memo service lines', () => {
   })
 
   const documentCommands = [
-    ['sales.invoices.create', 'SalesInvoiceLine', { invoiceNumber: 'INV-1' }],
-    ['sales.credit_memos.create', 'SalesCreditMemoLine', { creditMemoNumber: 'CM-1' }],
+    ['sales.invoices.create', 'SalesInvoiceLine'],
+    ['sales.credit_memos.create', 'SalesCreditMemoLine'],
   ] as const
 
   it.each(documentCommands)(
     '%s keeps a service that was archived after the order line was sold',
-    async (commandId, lineEntity, numbering) => {
+    async (commandId, lineEntity) => {
       setCatalogServices([catalogServiceRow(SERVICE_ID, SCOPE, new Date('2026-10-01T00:00:00.000Z'))])
       const handler = commandRegistry.get(commandId)
       const { ctx, created } = buildCtx()
 
       await handler!.execute(
-        { organizationId: ORG_ID, tenantId: TENANT_ID, currencyCode: 'USD', ...numbering, lines: [serviceLine] },
+        { organizationId: ORG_ID, tenantId: TENANT_ID, currencyCode: 'USD', lines: [serviceLine] },
         ctx,
       )
 
@@ -193,7 +191,7 @@ describe('invoice and credit memo service lines', () => {
 
   it.each(documentCommands)(
     '%s rejects a service that does not exist in the organization',
-    async (commandId, lineEntity, numbering) => {
+    async (commandId, lineEntity) => {
       setCatalogServices([catalogServiceRow(UNKNOWN_SERVICE_ID, { tenantId: TENANT_ID, organizationId: OTHER_ORG_ID })])
       const handler = commandRegistry.get(commandId)
       const { ctx, created } = buildCtx()
@@ -204,8 +202,7 @@ describe('invoice and credit memo service lines', () => {
             organizationId: ORG_ID,
             tenantId: TENANT_ID,
             currencyCode: 'USD',
-            ...numbering,
-            lines: [serviceLine, { ...serviceLine, serviceId: UNKNOWN_SERVICE_ID }],
+                lines: [serviceLine, { ...serviceLine, serviceId: UNKNOWN_SERVICE_ID }],
           },
           ctx,
         ),

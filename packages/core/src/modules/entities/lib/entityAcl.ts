@@ -48,6 +48,10 @@ const ENTITY_ACL_REQUIREMENTS: Record<string, EntityAclRequirement> = {
     view: ['catalog.categories.view'],
     manage: ['catalog.categories.manage'],
   },
+  'catalog:catalog_service': {
+    view: ['catalog.services.view'],
+    manage: ['catalog.services.manage'],
+  },
   'sales:sales_order': {
     view: ['sales.orders.view'],
     manage: ['sales.orders.manage'],
