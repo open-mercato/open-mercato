@@ -5,7 +5,8 @@ import {
   type EntityMergeParticipantPreview,
   type EntityMergeParticipantResult,
 } from '@open-mercato/shared/lib/entities/merge-participants'
-import { Attachment } from '../data/entities'
+import { Attachment, AttachmentPartition } from '../data/entities'
+import { requiresAttachmentAccessScan } from './access-query'
 import { mergeAttachmentMetadata, readAttachmentMetadata, type AttachmentAssignment } from './metadata'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
@@ -138,6 +139,11 @@ export function registerAttachmentDealMergeParticipant(): () => void {
     id: PARTICIPANT_ID,
     entityId: DEAL_ENTITY_ID,
     previewFeatures: ATTACHMENT_DEAL_MERGE_PREVIEW_FEATURES,
+    previewAvailable: async ({ em }) => {
+      if (requiresAttachmentAccessScan([])) return false
+      const partitions = await findWithDecryption(em, AttachmentPartition, {}, { fields: ['accessResolverRequirements'] })
+      return !requiresAttachmentAccessScan(partitions)
+    },
     preview: previewAttachmentDealRecords,
     merge: mergeAttachmentDealRecords,
   })

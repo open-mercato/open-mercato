@@ -1,0 +1,214 @@
+/** @jest-environment node */
+
+import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { JobContext, QueuedJob } from '@open-mercato/queue'
+import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
+import handle from '../../workers/deal-merge-effects'
+import { markDealMergeEffects, type DealMergeEffectsJob } from '../dealMergeEffects'
+
+const tenantId = 'tenant-1'
+const organizationId = 'org-1'
+const companyId = 'company-1'
+const interactionId = 'interaction-1'
+const commentId = 'comment-1'
+const dealA = 'deal-a'
+const dealB = 'deal-b'
+const dealC = 'deal-c'
+const firstMergeVersion = '2026-11-26T10:00:00.123456Z'
+const secondMoveVersion = '2026-11-26T10:00:05.654321Z'
+
+type StoredRow = {
+  table: string
+  id: string
+  entity_id: string
+  deal_id: string
+  interaction_type?: string
+  status?: string
+  source?: string | null
+  updated_at: string
+  deleted: boolean
+}
+
+function buildStore(rows: StoredRow[]) {
+  const execute = jest.fn(async (sql: string, params: unknown[]) => {
+    const table = /from (customer_\w+)/.exec(sql)?.[1]
+    const versioned = sql.includes('updated_at = ?::timestamptz')
+    const version = versioned ? String(params[0]) : null
+    const [scopeTenant, scopeOrganization, idsJson] = params.slice(versioned ? 1 : 0)
+    expect(scopeTenant).toBe(tenantId)
+    expect(scopeOrganization).toBe(organizationId)
+    const ids = JSON.parse(String(idsJson)) as string[]
+    return rows
+      .filter((row) => row.table === table && ids.includes(row.id) && !(row.deleted && sql.includes('deleted_at is null')))
+      .map((row) => ({
+        id: row.id,
+        entity_id: row.entity_id,
+        deal_id: row.deal_id,
+        ...(row.table === 'customer_interactions'
+          ? { interaction_type: row.interaction_type, status: row.status, source: row.source ?? null }
+          : {}),
+        is_current: version === null ? true : row.updated_at === version,
+      }))
+  })
+  const em = { fork: () => em, execute }
+  return { em, execute }
+}
+
+function buildEngine() {
+  const emitEvent = jest.fn().mockResolvedValue(undefined)
+  const container = {
+    resolve: (token: string) => {
+      if (token === 'eventBus') return { emitEvent }
+      throw new Error(`[internal] unexpected resolve(${token})`)
+    },
+  } as unknown as AwilixContainer
+  const engine = new DefaultDataEngine({} as EntityManager, container)
+  const calls = () => emitEvent.mock.calls.map(([name, payload]) => ({ name: name as string, payload: payload as Record<string, unknown> }))
+  return { engine, calls }
+}
+
+function firstMergeJob(movedVersion?: string): DealMergeEffectsJob {
+  return {
+    tenantId,
+    organizationId,
+    moved: {
+      activities: [],
+      comments: [{ id: commentId, payload: { entityId: companyId, dealId: dealB } }],
+      interactions: [{
+        id: interactionId,
+        payload: { entityId: companyId, interactionType: 'call', status: 'done', source: null, dealId: dealB },
+      }],
+    },
+    ...(movedVersion === undefined ? {} : { movedVersion }),
+  }
+}
+
+async function runWorker(engine: DefaultDataEngine, em: { fork: () => unknown }, payload: DealMergeEffectsJob) {
+  const job = { id: 'job-1', payload, createdAt: new Date().toISOString() } as QueuedJob<DealMergeEffectsJob>
+  const context = { jobId: 'job-1', attemptNumber: 1, queueName: 'customers-deal-merge-effects' } as JobContext
+  const resolve = <T,>(name: string) => (name === 'em' ? em : engine) as T
+  await handle(job, { ...context, resolve })
+}
+
+function interactionRow(dealId: string, updatedAt: string): StoredRow {
+  return {
+    table: 'customer_interactions',
+    id: interactionId,
+    entity_id: companyId,
+    deal_id: dealId,
+    interaction_type: 'call',
+    status: 'done',
+    source: null,
+    updated_at: updatedAt,
+    deleted: false,
+  }
+}
+
+function commentRow(dealId: string, updatedAt: string): StoredRow {
+  return { table: 'customer_comments', id: commentId, entity_id: companyId, deal_id: dealId, updated_at: updatedAt, deleted: false }
+}
+
+function interactionEvents(calls: Array<{ name: string; payload: Record<string, unknown> }>) {
+  return calls.filter((call) => call.name === 'customers.interaction.updated' && call.payload.id === interactionId)
+}
+
+function upsertsFor(calls: Array<{ name: string; payload: Record<string, unknown> }>, entityType: string, recordId: string) {
+  return calls.filter((call) => call.name === 'query_index.upsert_one'
+    && call.payload.entityType === entityType && call.payload.recordId === recordId)
+}
+
+describe('deferred deal merge effects carry the moved version', () => {
+  let warnSpy: jest.SpyInstance
+  beforeAll(() => { warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined) })
+  afterAll(() => { warnSpy.mockRestore() })
+
+  it('suppresses the superseded event when a later move published first, so the last published Deal is C', async () => {
+    const { engine, calls } = buildEngine()
+    const { em } = buildStore([interactionRow(dealC, secondMoveVersion), commentRow(dealB, firstMergeVersion)])
+
+    markDealMergeEffects(engine, {
+      tenantId,
+      organizationId,
+      moved: {
+        activities: [],
+        comments: [],
+        interactions: [{ id: interactionId, payload: { entityId: companyId, interactionType: 'call', status: 'done', source: null, dealId: dealC } }],
+      },
+      movedVersion: secondMoveVersion,
+    })
+    await engine.flushOrmEntityChanges()
+    await runWorker(engine, em, firstMergeJob(firstMergeVersion))
+
+    const published = interactionEvents(calls())
+    expect(published).toHaveLength(1)
+    expect(published.at(-1)?.payload).toMatchObject({ id: interactionId, dealId: dealC })
+    expect(published.some((call) => call.payload.dealId === dealB)).toBe(false)
+    expect(upsertsFor(calls(), 'customers:customer_interaction', interactionId)).toHaveLength(2)
+  })
+
+  it('refreshes the query index for a superseded record without publishing its CRUD event', async () => {
+    const { engine, calls } = buildEngine()
+    const { em } = buildStore([interactionRow(dealC, secondMoveVersion), commentRow(dealB, firstMergeVersion)])
+
+    await runWorker(engine, em, firstMergeJob(firstMergeVersion))
+
+    expect(interactionEvents(calls())).toEqual([])
+    expect(upsertsFor(calls(), 'customers:customer_interaction', interactionId)).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ tenantId, organizationId, crudAction: 'updated' }) }),
+    ])
+    const commentEvents = calls().filter((call) => call.name === 'customers.comment.updated')
+    expect(commentEvents).toHaveLength(1)
+    expect(commentEvents[0].payload).toMatchObject({ id: commentId, dealId: dealB, entityId: companyId, tenantId, organizationId })
+  })
+
+  it('publishes the current row, not the queued snapshot, when the version still matches', async () => {
+    const { engine, calls } = buildEngine()
+    const current = { ...interactionRow(dealB, firstMergeVersion), status: 'planned', source: 'manual' }
+    const { em, execute } = buildStore([current])
+
+    await runWorker(engine, em, firstMergeJob(firstMergeVersion))
+
+    const published = interactionEvents(calls())
+    expect(published).toHaveLength(1)
+    expect(published[0].payload).toMatchObject({
+      id: interactionId,
+      dealId: dealB,
+      status: 'planned',
+      source: 'manual',
+      tenantId,
+      organizationId,
+    })
+    expect(upsertsFor(calls(), 'customers:customer_interaction', interactionId)).toHaveLength(1)
+    for (const [sql, params] of execute.mock.calls) {
+      expect(sql).toContain('tenant_id = ? and organization_id = ?')
+      expect(params[0]).toBe(firstMergeVersion)
+    }
+  })
+
+  it('never publishes the stale snapshot of a legacy job without a version', async () => {
+    const { engine, calls } = buildEngine()
+    const { em, execute } = buildStore([interactionRow(dealC, secondMoveVersion), commentRow(dealB, firstMergeVersion)])
+
+    await runWorker(engine, em, firstMergeJob())
+
+    const published = interactionEvents(calls())
+    expect(published.every((call) => call.payload.dealId === dealC)).toBe(true)
+    expect(published.some((call) => call.payload.dealId === dealB)).toBe(false)
+    expect(upsertsFor(calls(), 'customers:customer_interaction', interactionId)).toHaveLength(1)
+    for (const [sql] of execute.mock.calls) expect(sql).not.toContain('updated_at = ?')
+  })
+
+  it('skips records deleted after the merge and stays idempotent across a retried job', async () => {
+    const { engine, calls } = buildEngine()
+    const { em } = buildStore([{ ...interactionRow(dealB, firstMergeVersion), deleted: true }, commentRow(dealB, firstMergeVersion)])
+
+    await runWorker(engine, em, firstMergeJob(firstMergeVersion))
+    await runWorker(engine, em, firstMergeJob(firstMergeVersion))
+
+    expect(interactionEvents(calls())).toEqual([])
+    expect(upsertsFor(calls(), 'customers:customer_interaction', interactionId)).toEqual([])
+    const commentEvents = calls().filter((call) => call.name === 'customers.comment.updated')
+    expect(commentEvents.map((call) => call.payload.dealId)).toEqual([dealB, dealB])
+  })
+})

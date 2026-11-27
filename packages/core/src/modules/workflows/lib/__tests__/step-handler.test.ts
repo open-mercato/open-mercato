@@ -1,12 +1,10 @@
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import * as stepHandler from '../step-handler'
-import { WorkflowEvent } from '../../data/entities'
+import { StepInstance, UserTask, WorkflowEvent } from '../../data/entities'
 import type {
   WorkflowDefinition,
   WorkflowInstance,
-  StepInstance,
-  UserTask,
 } from '../../data/entities'
 
 describe('Step Handler (Unit Tests)', () => {
@@ -606,6 +604,63 @@ describe('Step Handler (Unit Tests)', () => {
       expect(result.waitReason).toBe('USER_TASK')
       expect(result.outputData).toBeDefined()
       expect(result.outputData.userTaskId).toBe('user-task-1')
+    })
+
+    test('fails the step before creating a task when its Deal binding no longer exists', async () => {
+      const dealId = '00000000-0000-4000-8000-000000000005'
+      const stepId = 'user-task-step'
+      const definition: Partial<WorkflowDefinition> = {
+        ...mockDefinition,
+        definition: {
+          steps: [{
+            stepId,
+            stepName: 'Review Deal',
+            stepType: 'USER_TASK',
+            userTaskConfig: {
+              assignedTo: 'manager@example.com',
+              entityBindings: [{ entityType: 'customers:customer_deal', idPath: 'context.dealId' }],
+            },
+          }],
+          transitions: [],
+        },
+      }
+      const stepInstance = {
+        id: 'step-instance-1',
+        workflowInstanceId: testInstanceId,
+        stepId,
+        stepType: 'USER_TASK',
+        status: 'ACTIVE',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      } as StepInstance
+      const execute = jest.fn(async (_sql: string, _params: unknown[]) => [])
+      const rollback = jest.fn(async () => {})
+      const commit = jest.fn(async () => {})
+      Object.assign(mockEm, { execute, rollback, commit, begin: jest.fn(async () => {}) })
+      mockEm.findOne
+        .mockResolvedValueOnce(definition)
+        .mockResolvedValueOnce(definition)
+        .mockResolvedValueOnce(stepInstance)
+      mockEm.create.mockImplementation(((entity: unknown, payload: Record<string, unknown>) =>
+        entity === StepInstance ? stepInstance : payload) as never)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        { ...mockInstance } as WorkflowInstance,
+        stepId,
+        { workflowContext: { dealId } },
+      )
+
+      expect(execute).toHaveBeenLastCalledWith(expect.stringContaining('from customer_deals'), [
+        dealId, testTenantId, testOrgId,
+      ])
+      expect(result.status).toBe('FAILED')
+      expect(stepInstance.status).toBe('FAILED')
+      expect(rollback).toHaveBeenCalledTimes(1)
+      expect(commit).not.toHaveBeenCalled()
+      expect(mockEm.create).not.toHaveBeenCalledWith(UserTask, expect.anything())
+      expect(mockEm.create).toHaveBeenCalledWith(WorkflowEvent, expect.objectContaining({ eventType: 'STEP_FAILED' }))
+      expect(mockEm.create).not.toHaveBeenCalledWith(WorkflowEvent, expect.objectContaining({ eventType: 'USER_TASK_CREATED' }))
     })
 
     // Dry-run isolation (spec section 8.2): the USER_TASK step is the one place

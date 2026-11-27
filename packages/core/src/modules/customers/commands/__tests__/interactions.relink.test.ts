@@ -158,6 +158,7 @@ function createHarness(interaction: CustomerInteraction, entities: CustomerEntit
     create: jest.fn((ctor: unknown, payload: Record<string, unknown>) => ({ __entity: ctor, ...payload })),
     persist: jest.fn(() => {}),
     flush: jest.fn(async () => {}),
+    execute: jest.fn(async () => [{ updated_at: interaction.updatedAt }]),
     transactional: jest.fn(async (fn: (inner: unknown) => Promise<unknown>) => fn(em)),
     begin: jest.fn(async () => {}),
     commit: jest.fn(async () => {}),

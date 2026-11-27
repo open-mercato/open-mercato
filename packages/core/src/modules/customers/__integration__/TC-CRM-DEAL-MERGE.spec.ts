@@ -36,6 +36,7 @@ type MergeRecordPreview = {
   updatedAt: string
   fields: Record<string, unknown>
   customFields: Record<string, unknown>
+  counts: { interactions: number }
 }
 
 type MergeParticipantPreview = { participantId: string; sourceCount: number; survivorCount: number }
@@ -787,29 +788,47 @@ test.describe('TC-CRM-DEAL-MERGE: merge two Deals', () => {
     }
   })
 
-  test('a view-only caller can preview but cannot merge, and both Deals stay unchanged', async ({ request }) => {
+  test('a view-only caller can preview only visible records but cannot merge', async ({ request }) => {
     test.setTimeout(120_000)
     const stamp = randomUUID().slice(0, 8)
     const password = `QA-${randomUUID()}!aA1`
     let superadminToken: string | null = null
+    let ownerToken: string | null = null
     let homeOrganizationId: string | null = null
     let roleId: string | null = null
     let userId: string | null = null
+    let companyId: string | null = null
+    let documentId: string | null = null
     const dealIds: string[] = []
+    const interactionIds: string[] = []
 
     try {
       superadminToken = await getAuthToken(request, 'superadmin')
-      const context = getTokenContext(superadminToken)
+      ownerToken = await getAuthToken(request, 'admin')
+      const context = getTokenContext(ownerToken)
       homeOrganizationId = context.organizationId
       const survivorId = await createDealInOrganization(request, superadminToken, homeOrganizationId, `QA merge view-only survivor ${stamp}`)
       dealIds.push(survivorId)
       const sourceId = await createDealInOrganization(request, superadminToken, homeOrganizationId, `QA merge view-only source ${stamp}`)
       dealIds.push(sourceId)
 
+      companyId = await createCompanyFixture(request, ownerToken, `QA merge visibility ${stamp}`)
+      for (const visibility of ['shared', 'private']) {
+        interactionIds.push(await createRelatedRecord(request, ownerToken, '/api/customers/interactions', {
+          entityId: companyId,
+          dealId: sourceId,
+          interactionType: 'email',
+          title: `QA merge preview ${visibility} email ${stamp}`,
+          visibility,
+        }))
+      }
+      documentId = await createDocument(request, ownerToken, `QA merge private document ${stamp}`)
+      await linkDocumentToDeal(request, ownerToken, documentId, sourceId, `QA merge view-only source ${stamp}`)
+
       roleId = await createRoleFixture(request, superadminToken, { name: `qa-deal-merge-view-${stamp}`, tenantId: context.tenantId })
       await setRoleAclFeatures(request, superadminToken, {
         roleId,
-        features: ['customers.deals.view'],
+        features: ['customers.deals.view', 'customers.interactions.view', 'documents.view'],
         organizations: [homeOrganizationId],
       })
       const email = `qa-deal-merge-view-${stamp}@example.com`
@@ -821,10 +840,17 @@ test.describe('TC-CRM-DEAL-MERGE: merge two Deals', () => {
       const survivorBefore = await readDealState(request, superadminToken, homeOrganizationId, survivorId)
       const sourceBefore = await readDealState(request, superadminToken, homeOrganizationId, sourceId)
 
+      const ownerPreview = await loadMergePreview(request, ownerToken, survivorId, sourceId)
+      expect(ownerPreview.right.counts.interactions).toBe(2)
+      expect(ownerPreview.participants).toEqual(expect.arrayContaining([
+        expect.objectContaining({ participantId: 'documents.deal-links', sourceCount: 1 }),
+      ]))
+
       const preview = await loadMergePreview(request, viewerToken, survivorId, sourceId)
+      expect(preview.right.counts.interactions, 'the non-author can count only the shared email').toBe(1)
       expect(
         preview.participants.map((entry) => entry.participantId),
-        'a caller without documents.view must not receive the documents participant counts',
+        'documents.view alone does not grant access to this unshared document or its count',
       ).not.toContain('documents.deal-links')
 
       const merge = await apiRequest(request, 'POST', MERGE_PATH, {
@@ -839,6 +865,11 @@ test.describe('TC-CRM-DEAL-MERGE: merge two Deals', () => {
       expect(await readDealState(request, superadminToken, homeOrganizationId, survivorId)).toEqual(survivorBefore)
       expect(await readDealState(request, superadminToken, homeOrganizationId, sourceId)).toEqual(sourceBefore)
     } finally {
+      if (ownerToken) {
+        for (const id of interactionIds) await deleteEntityIfExists(request, ownerToken, '/api/customers/interactions', id)
+        await deleteEntityIfExists(request, ownerToken, '/api/customers/companies', companyId)
+        if (documentId) await apiRequest(request, 'DELETE', `/api/documents/${documentId}`, { token: ownerToken }).catch(() => undefined)
+      }
       for (const id of dealIds.reverse()) await deleteDealInOrganization(request, superadminToken, homeOrganizationId, id)
       await deleteUserIfExists(request, superadminToken, userId)
       await deleteRoleIfExists(request, superadminToken, roleId)

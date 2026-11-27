@@ -236,7 +236,11 @@ function makeHarness() {
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),
     rollback: jest.fn(async () => undefined),
-    execute: jest.fn(async () => []),
+    execute: jest.fn(async (sql: string, params: unknown[]) => {
+      if (!sql.includes('from customer_interactions')) return []
+      const row = interactions.get(String(params[0]))
+      return row && !row.deletedAt ? [{ updated_at: row.updatedAt }] : []
+    }),
     findOne: jest.fn(async (entity: unknown, where: Row) => mockRead(entity, where)[0] ?? null),
     count: jest.fn(async (entity: unknown, where: Row) => mockRead(entity, where).length),
     createQueryBuilder: jest.fn(() => ({

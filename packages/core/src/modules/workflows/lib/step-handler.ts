@@ -12,7 +12,7 @@
 import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as SqlEntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { collectTaskDealIds, lockLiveTaskDealBindings } from './dealReferenceGuard'
+import { collectTaskDealIds, lockTaskDealReferences } from './dealReferenceGuard'
 import {
   WorkflowInstance,
   WorkflowBranchInstance,
@@ -1035,59 +1035,51 @@ async function handleUserTaskStep(
     }
   }
 
-  const userTask = em.create(UserTask, {
-    workflowInstanceId: instance.id,
-    stepInstanceId: stepInstance.id,
-    branchInstanceId: branch ? branch.id : null,
-    taskName,
-    description: flattenTaskText(instructions) ?? stepDef.description ?? null,
-    status: 'PENDING',
-    formSchema: userTaskConfig.formSchema || null,
-    formData: null,
-    assignedTo: assignment.assignedTo,
-    // Decided by `resolveTaskAssignment` from the authored `assigneeKind`, and
-    // `'customer'` only when an individual assignee actually resolved. Written
-    // explicitly rather than left to the column default so the discriminator is
-    // a decision at every creation site, not an accident.
-    assigneeKind: assignment.assigneeKind,
-    assignedToRoles: assignment.assignedToRoles,
-    entityBindings: bindings.length ? bindings : null,
-    // Denormalized from the SAME resolved bindings, so the two can never drift.
-    // Null for a task about nothing, which is what the vacuous-pass rule reads.
-    entityTypes: bindings.length ? collectResolvedEntityTypes(bindings) : null,
-    priority: userTaskConfig.priority ?? null,
-    dueDate: deadlineDuration
-      ? resolveUserTaskDeadline(stepDef.stepId, deadlineDuration)
-      : null,
-    tenantId: instance.tenantId,
-    organizationId: instance.organizationId,
-    createdAt: now,
-    updatedAt: now,
-  })
-
-  let taskBindings = bindings
-  const bindsDeal = collectTaskDealIds(bindings).length > 0
+  const dealIds = collectTaskDealIds(bindings)
   const sqlEm = em as unknown as SqlEntityManager
+  let userTask!: UserTask
   await withAtomicFlush(sqlEm, [async () => {
-    if (bindsDeal) {
-      const live = await lockLiveTaskDealBindings(sqlEm, bindings, {
+    if (dealIds.length) {
+      const missingDeals = await lockTaskDealReferences(sqlEm, dealIds, {
         tenantId: instance.tenantId,
         organizationId: instance.organizationId,
       })
-      if (live.droppedDealIds.length) {
-        logger.warn('Task entity bindings skipped because their Deal no longer exists', {
-          component: 'step-handler',
-          stepId: stepDef.stepId,
-          workflowInstanceId: instance.id,
-          droppedDealIds: live.droppedDealIds,
-        })
-        taskBindings = live.bindings
-        userTask.entityBindings = taskBindings.length ? taskBindings : null
-        userTask.entityTypes = taskBindings.length ? collectResolvedEntityTypes(taskBindings) : null
+      if (missingDeals.length) {
+        throw new StepExecutionError('[internal] Task creation requires a live Deal binding', 'TASK_DEAL_BINDING_NOT_FOUND')
       }
     }
+
+    userTask = em.create(UserTask, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: stepInstance.id,
+      branchInstanceId: branch ? branch.id : null,
+      taskName,
+      description: flattenTaskText(instructions) ?? stepDef.description ?? null,
+      status: 'PENDING',
+      formSchema: userTaskConfig.formSchema || null,
+      formData: null,
+      assignedTo: assignment.assignedTo,
+      // Decided by `resolveTaskAssignment` from the authored `assigneeKind`, and
+      // `'customer'` only when an individual assignee actually resolved. Written
+      // explicitly rather than left to the column default so the discriminator is
+      // a decision at every creation site, not an accident.
+      assigneeKind: assignment.assigneeKind,
+      assignedToRoles: assignment.assignedToRoles,
+      entityBindings: bindings.length ? bindings : null,
+      // Denormalized from the SAME resolved bindings, so the two can never drift.
+      // Null for a task about nothing, which is what the vacuous-pass rule reads.
+      entityTypes: bindings.length ? collectResolvedEntityTypes(bindings) : null,
+      priority: userTaskConfig.priority ?? null,
+      dueDate: deadlineDuration
+        ? resolveUserTaskDeadline(stepDef.stepId, deadlineDuration)
+        : null,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+      createdAt: now,
+      updatedAt: now,
+    })
     em.persist(userTask)
-  }], { transaction: bindsDeal, label: 'workflows.user_task.create' })
+  }], { transaction: dealIds.length > 0, label: 'workflows.user_task.create' })
 
   // Log USER_TASK_CREATED event
   await logStepEvent(em, {
@@ -1100,7 +1092,7 @@ async function handleUserTaskStep(
       taskName: userTask.taskName,
       assignedTo: userTask.assignedTo,
       assignedToRoles: userTask.assignedToRoles,
-      ...(taskBindings.length ? { entityBindings: taskBindings } : {}),
+      ...(bindings.length ? { entityBindings: bindings } : {}),
       ...(userTask.priority ? { priority: userTask.priority } : {}),
       ...(decisions.length ? { decisions } : {}),
       ...(assignment.fellBackToRoles ? { assignmentFallback: 'roles' } : {}),

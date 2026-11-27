@@ -48,6 +48,11 @@ jest.mock('../shared', () => ({
   ensureTenantScope: jest.fn(),
   requireTimelineParentEntity: jest.fn(async () => ({ id: ENTITY, tenantId: TENANT, organizationId: ORG, kind: 'person' })),
   lockInteractionDealReferences: jest.fn(async () => undefined),
+  lockInteractionDealReferenceIds: jest.fn(async (_em: unknown, input: { dealId?: string | null; linkedEntities?: unknown }) =>
+    jest.requireActual('../shared').interactionDealReferenceIds(input)),
+  validateInteractionDealReferences: jest.fn(async () => undefined),
+  interactionDealReferenceIds: jest.requireActual('../shared').interactionDealReferenceIds,
+  linkedDealIds: jest.requireActual('../shared').linkedDealIds,
   extractUndoPayload: jest.fn(),
   emitQueryIndexUpsertEvents: jest.fn(),
   resolveParentResourceKind: jest.fn(),
@@ -91,7 +96,7 @@ function makeContext() {
     recurrenceEnd: null,
     allDay: null,
   }
-  const em = { fork: jest.fn(() => em), flush: jest.fn(async () => {}), create: jest.fn((_entity: unknown, values: Record<string, unknown>) => ({ ...values, id: INTERACTION })), persist: jest.fn(), getReference: jest.fn((_entity: unknown, id: string) => ({ id })) }
+  const em = { fork: jest.fn(() => em), flush: jest.fn(async () => {}), execute: jest.fn(async () => [{ updated_at: interaction.updatedAt }]), create: jest.fn((_entity: unknown, values: Record<string, unknown>) => ({ ...values, id: INTERACTION })), persist: jest.fn(), getReference: jest.fn((_entity: unknown, id: string) => ({ id })) }
   const context = {
     container: {
       resolve: (token: string) => {
@@ -276,7 +281,7 @@ describe('interaction calendar-type command enforcement', () => {
       interactionType: 'note', location: 'Office', durationMinutes: 30,
       linkedEntities: [{ type: 'deal', id: NEW_DEAL, label: 'New deal' }, { type: 'resource', id: 'room', label: 'Room' }],
     })
-    expect(loadCustomFieldSnapshotMock).not.toHaveBeenCalled()
+    expect(loadCustomFieldSnapshotMock).toHaveBeenCalledTimes(1)
     expect(setCustomFieldsIfAnyMock).not.toHaveBeenCalled()
   })
 

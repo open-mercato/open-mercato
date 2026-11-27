@@ -42,6 +42,7 @@ import {
   enqueueDealMergeEffects,
   hasDealMergeEffectsConsumer,
   markDealMergeEffects,
+  readDealMergeMovedVersion,
   type DealMergeMovedRecords,
   type MovedRecord,
 } from '../lib/dealMergeEffects'
@@ -540,6 +541,7 @@ export const mergeDealsCommand: CommandHandler<DealMergeRequest, MergeResult> = 
       comments: [],
       interactions: [],
     }
+    let movedVersion: string | null = null
 
     await withAtomicFlush(em, [
       async () => {
@@ -650,6 +652,7 @@ export const mergeDealsCommand: CommandHandler<DealMergeRequest, MergeResult> = 
         }, { dealId: survivor.id, updatedAt: raw('now()') })
         const relinked = await rewriteInteractionLinkedEntities(em, source, survivor, scope)
         moved = { ...moved, interactions: mergeMovedRecords(moved.interactions, relinked) }
+        movedVersion = await readDealMergeMovedVersion(em)
       },
       () => reconcileDealMergeTransitions(em, survivor, source),
       async () => {
@@ -714,7 +717,7 @@ export const mergeDealsCommand: CommandHandler<DealMergeRequest, MergeResult> = 
       events: dealEvents,
     })
     const movedCount = moved.activities.length + moved.comments.length + moved.interactions.length
-    const movedEffects = { ...scope, moved }
+    const movedEffects = { ...scope, moved, movedVersion }
     let effectsQueued = false
     if (movedCount > INLINE_MOVED_EFFECT_LIMIT && hasDealMergeEffectsConsumer() && !ctx.bulkImport && !isReadProjectionAlwaysConsistent()) {
       try {

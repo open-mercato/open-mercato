@@ -1,5 +1,17 @@
 # Upgrade Notes
 
+## Deal merge preview visibility and workflow task bindings (#10680)
+
+The Deal merge preview checks the corresponding CRM read features before counting rows and applies email visibility to interactions. The document summary requires document manager access. The attachment summary is omitted when per-record access policies apply. The merge still moves the scoped references in the transaction.
+
+A workflow step that resolves a task binding to a Deal which has since been retired now fails task creation. The workflow engine handles the failure before a task or assignment is persisted. Update the binding to a live Deal before retrying the step.
+
+## Interaction edits and deferred Deal merge events (#10680)
+
+Interaction update, complete, cancel and delete check the supplied optimistic-lock version while holding the interaction row lock. If a Deal merge moved the interaction after the client read it, the command returns the existing HTTP 409 optimistic-lock response.
+
+Deferred Deal merge jobs refresh the query index for records changed since the merge and skip their superseded CRUD events. Earlier jobs without a stored move version build their events from the current row. See the [Deal merge spec](.ai/specs/2026-11-24-deal-merge.md).
+
 ## Deal merge side-effect buffering and company undo (#10680)
 
 `DefaultDataEngine` buffered pending side effects by action, record id and scope only, so a second mark for a different entity with the same id (a legacy activity and its bridged canonical interaction share a primary key) silently replaced the first entity's CRUD event and query-index upsert. Marks that declare a different entity identity (explicit `indexer.entityType`, or `events` module/entity) are now buffered and emitted separately; marks with the same or partially declared identity merge exactly as before, and flush order stays chronological. No type, signature, import path or event ID changes. Regression-tested in `engine.side-effect-identity.test.ts`.

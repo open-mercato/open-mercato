@@ -10,10 +10,14 @@ const afterMutationSuccess = jest.fn()
 const reportError = jest.fn()
 const userHasAllFeatures = jest.fn()
 const findWithDecryption = jest.fn()
-const emCount = jest.fn(async () => 0)
+const emCount = jest.fn(async (_entity: unknown, _where: unknown) => 0)
+const listGrantsForViewer = jest.fn(async (_em: unknown, _scope: unknown, _viewer: unknown) => [
+  { personEntityId: 'person-1', ownerUserId: 'mailbox-owner' },
+])
+const listSharedChannelIds = jest.fn(async (_em: unknown, _scope: unknown, _viewer: unknown) => ['shared-channel'])
 
 const context = {
-  auth: { tenantId, orgId: organizationId, sub: 'user-1' },
+  auth: { tenantId, orgId: organizationId, sub: 'user-1', isApiKey: false },
   selectedOrganizationId: organizationId,
   em: { count: emCount },
   commandContext: { auth: { tenantId }, selectedOrganizationId: organizationId },
@@ -41,6 +45,11 @@ jest.mock('../../../../lib/interactionRequestContext', () => ({
   resolveAuthActorId: jest.fn(() => 'user-1'),
 }))
 
+jest.mock('../../../../lib/conversationShares', () => ({
+  listGrantsForViewer: (...args: Parameters<typeof listGrantsForViewer>) => listGrantsForViewer(...args),
+  listSharedChannelIds: (...args: Parameters<typeof listSharedChannelIds>) => listSharedChannelIds(...args),
+}))
+
 const registryGuards: unknown[] = []
 
 jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
@@ -61,7 +70,7 @@ import {
   registerEntityMergeParticipant,
   resetEntityMergeParticipantsForTests,
 } from '@open-mercato/shared/lib/entities/merge-participants'
-import { CustomerDeal } from '../../../../data/entities'
+import { CustomerComment, CustomerDeal, CustomerInteraction } from '../../../../data/entities'
 import { GET, metadata, openApi, POST } from '../route'
 
 const validBody = {
@@ -102,6 +111,8 @@ function postRequest(body: unknown) {
 describe('customers Deal merge route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    context.auth.isApiKey = false
+    userHasAllFeatures.mockResolvedValue(true)
     registryGuards.length = 0
     validateMutation.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { lock: true } })
     afterMutationSuccess.mockResolvedValue(undefined)
@@ -334,6 +345,76 @@ describe('customers Deal merge route', () => {
       const body = await response.json()
       expect(body.participants.map((entry: { participantId: string }) => entry.participantId))
         .toEqual(['gated.records', 'open.records'])
+    })
+
+    it('counts only live interactions visible to the caller and live comments', async () => {
+      const response = await GET(getRequest())
+
+      expect(response.status).toBe(200)
+      const scope = { tenantId, organizationId }
+      expect(listGrantsForViewer).toHaveBeenCalledTimes(1)
+      expect(listGrantsForViewer).toHaveBeenCalledWith(context.em, scope, 'user-1')
+      expect(listSharedChannelIds).toHaveBeenCalledTimes(1)
+      expect(listSharedChannelIds).toHaveBeenCalledWith(context.em, scope, 'user-1')
+      for (const dealId of [survivorId, sourceId]) {
+        expect(emCount).toHaveBeenCalledWith(CustomerComment, { ...scope, deal: dealId, deletedAt: null })
+        expect(emCount).toHaveBeenCalledWith(CustomerInteraction, {
+          ...scope,
+          dealId,
+          deletedAt: null,
+          $or: [
+            { interactionType: { $ne: 'email' } },
+            { visibility: null },
+            { visibility: { $ne: 'private' } },
+            { authorUserId: 'user-1' },
+            { entity: 'person-1', authorUserId: 'mailbox-owner' },
+            { channelId: { $in: ['shared-channel'] } },
+          ],
+        })
+      }
+    })
+
+    it('returns zero without counting records or loading email shares for a Deal-only viewer', async () => {
+      userHasAllFeatures.mockResolvedValue(false)
+
+      const response = await GET(getRequest())
+
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.left.counts).toEqual({ activities: 0, comments: 0, interactions: 0 })
+      expect(body.right.counts).toEqual({ activities: 0, comments: 0, interactions: 0 })
+      expect(emCount).not.toHaveBeenCalled()
+      expect(listGrantsForViewer).not.toHaveBeenCalled()
+      expect(listSharedChannelIds).not.toHaveBeenCalled()
+      expect(userHasAllFeatures).toHaveBeenCalledWith(
+        'user-1', ['customers.activities.view'], { tenantId, organizationId },
+      )
+      expect(userHasAllFeatures).toHaveBeenCalledWith(
+        'user-1', ['customers.interactions.view'], { tenantId, organizationId },
+      )
+    })
+
+    it('counts no private email on the basis of an API key identity', async () => {
+      context.auth.isApiKey = true
+      listGrantsForViewer.mockResolvedValueOnce([])
+      listSharedChannelIds.mockResolvedValueOnce([])
+
+      const response = await GET(getRequest())
+
+      expect(response.status).toBe(200)
+      const scope = { tenantId, organizationId }
+      expect(listGrantsForViewer).toHaveBeenCalledWith(context.em, scope, null)
+      expect(listSharedChannelIds).toHaveBeenCalledWith(context.em, scope, null)
+      expect(emCount).toHaveBeenCalledWith(CustomerInteraction, {
+        ...scope,
+        dealId: survivorId,
+        deletedAt: null,
+        $or: [
+          { interactionType: { $ne: 'email' } },
+          { visibility: null },
+          { visibility: { $ne: 'private' } },
+        ],
+      })
     })
 
     it('returns the stored amount as an exact decimal string', async () => {

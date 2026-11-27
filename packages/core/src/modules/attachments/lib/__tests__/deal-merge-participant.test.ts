@@ -4,7 +4,8 @@ import {
   listEntityMergeParticipants,
   resetEntityMergeParticipantsForTests,
 } from '@open-mercato/shared/lib/entities/merge-participants'
-import { Attachment } from '../../data/entities'
+import { Attachment, AttachmentPartition } from '../../data/entities'
+import { registerAttachmentAccessResolvers } from '../access-registry'
 
 const mockFindWithDecryption = jest.fn()
 
@@ -32,7 +33,8 @@ type Row = { id: string; entityId: string; recordId: string; storageMetadata: Re
 function harness(rows: Row[]) {
   const execute = jest.fn().mockResolvedValue(rows.map((row) => ({ id: row.id })))
   const nativeUpdate = jest.fn().mockResolvedValue(1)
-  mockFindWithDecryption.mockResolvedValue(rows)
+  mockFindWithDecryption.mockImplementation(async (_em: EntityManager, entity: unknown) =>
+    entity === AttachmentPartition ? [] : rows)
   return { em: { execute, nativeUpdate } as unknown as EntityManager, execute, nativeUpdate }
 }
 
@@ -52,6 +54,8 @@ describe('attachments Deal merge participant', () => {
     jest.clearAllMocks()
     resetEntityMergeParticipantsForTests()
   })
+
+  afterEach(() => registerAttachmentAccessResolvers([]))
 
   it('previews scoped owner and assignment references', async () => {
     const manager = harness(rows)
@@ -141,5 +145,30 @@ describe('attachments Deal merge participant', () => {
 
     await expect(mergeAttachmentDealRecords({ ...scope, em: manager.em, callerHasFeatures: denied }))
       .resolves.toEqual({ moved: 1, deduplicated: 1 })
+  })
+
+  it('omits counts when a registered owner policy could restrict record visibility', async () => {
+    registerAttachmentDealMergeParticipant()
+    registerAttachmentAccessResolvers([{ moduleId: 'test', resolvers: [{
+      id: 'test.owner', targetPartition: '*', resolve: async () => ({ ok: true }),
+    }] }])
+    const manager = harness(rows)
+    await expect(collectEntityMergeParticipantPreviews({
+      ...scope, em: manager.em, callerHasFeatures: async () => true,
+    })).resolves.toEqual([])
+    expect(manager.execute).not.toHaveBeenCalled()
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('omits counts when a partition requires an owner policy', async () => {
+    registerAttachmentDealMergeParticipant()
+    const manager = harness(rows)
+    mockFindWithDecryption.mockResolvedValueOnce([{
+      accessResolverRequirements: [{ targetEntity: '*', resolverId: 'test.required' }],
+    }])
+    await expect(collectEntityMergeParticipantPreviews({
+      ...scope, em: manager.em, callerHasFeatures: async () => true,
+    })).resolves.toEqual([])
+    expect(manager.execute).not.toHaveBeenCalled()
   })
 })

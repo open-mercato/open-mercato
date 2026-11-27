@@ -32,7 +32,8 @@ test('flushes moved-record effects from the persistent queue using the worker re
     comments: [{ id, payload: { dealId } }],
     interactions: [],
   } }
-  const resolve = <T,>() => dataEngine as T
+  const em = { fork: () => em, execute: jest.fn(async () => [{ id, entity_id: null, deal_id: dealId, is_current: true }]) }
+  const resolve = <T,>(name: string) => (name === 'em' ? em : dataEngine) as T
   let complete!: () => void
   const completed = new Promise<void>((resolveComplete) => { complete = resolveComplete })
   try {
@@ -45,7 +46,7 @@ test('flushes moved-record effects from the persistent queue using the worker re
 
     expect(dataEngine.markOrmEntityChange).toHaveBeenCalledWith({
       action: 'updated',
-      entity: { id, dealId },
+      entity: { id, entityId: null, dealId },
       identifiers: { id, tenantId, organizationId },
       indexer: { entityType: 'customers:customer_comment' },
       events: expect.objectContaining({ module: 'customers', entity: 'comment', persistent: true }),

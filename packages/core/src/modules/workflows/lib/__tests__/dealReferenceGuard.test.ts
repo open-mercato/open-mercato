@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { entityReferenceLockKey } from '@open-mercato/shared/lib/entities/reference-lock'
-import { collectTaskDealIds, lockLiveTaskDealBindings } from '../dealReferenceGuard'
+import { collectTaskDealIds, lockTaskDealReferences } from '../dealReferenceGuard'
 
 const LOCK_SQL = 'select pg_advisory_xact_lock(hashtextextended(?::text, 0))'
 const scope = {
@@ -27,35 +27,25 @@ describe('workflows Deal reference guard', () => {
     ])).toEqual([liveDeal, goneDeal])
   })
 
-  it('locks bound Deals and keeps live bindings untouched', async () => {
+  it('locks bound Deals and reports no missing references when they are live', async () => {
     const { em, execute } = buildEm()
-    const bindings = [
-      { entityType: 'customers:deal', entityId: liveDeal },
-      { entityType: 'customers:person', entityId: 'person-1' },
-    ]
-    await expect(lockLiveTaskDealBindings(em, bindings, scope)).resolves.toEqual({ bindings, droppedDealIds: [] })
+    await expect(lockTaskDealReferences(em, [liveDeal], scope)).resolves.toEqual([])
     expect(execute).toHaveBeenNthCalledWith(1, LOCK_SQL, [
       entityReferenceLockKey({ entityId: 'customers:customer_deal', recordId: liveDeal, ...scope }),
     ])
   })
 
-  it('drops only the binding whose Deal is gone after the lock', async () => {
+  it('reports the scoped reference whose Deal is gone after locking', async () => {
     const { em } = buildEm()
-    const result = await lockLiveTaskDealBindings(em, [
-      { entityType: 'customers:deal', entityId: liveDeal },
-      { entityType: 'customers:deal', entityId: goneDeal },
-      { entityType: 'customers:person', entityId: goneDeal },
-    ], scope)
-    expect(result.droppedDealIds).toEqual([goneDeal])
-    expect(result.bindings).toEqual([
-      { entityType: 'customers:deal', entityId: liveDeal },
-      { entityType: 'customers:person', entityId: goneDeal },
+    await expect(lockTaskDealReferences(em, [liveDeal, goneDeal], scope)).resolves.toEqual([
+      { entityId: 'customers:customer_deal', recordId: goneDeal, ...scope },
     ])
   })
 
   it('takes no lock when nothing binds a Deal', async () => {
     const { em, execute } = buildEm()
-    await lockLiveTaskDealBindings(em, [{ entityType: 'customers:person', entityId: 'person-1' }], scope)
+    const dealIds = collectTaskDealIds([{ entityType: 'customers:person', entityId: 'person-1' }])
+    await lockTaskDealReferences(em, dealIds, scope)
     expect(execute).not.toHaveBeenCalled()
   })
 })

@@ -23,6 +23,7 @@ import {
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
 } from '../lib/interactionCompatibility'
 import { resolveLegacyTodoDetails } from '../lib/todoCompatibility'
+import { forwardLockedInteractionBefore, resolveLockedInteractionBefore } from '../lib/interactionLockedSnapshots'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -350,13 +351,14 @@ const unlinkTodoCommand: CommandHandler<
       { body?: Record<string, unknown>; query?: Record<string, unknown> },
       { interactionId: string }
     >('customers.interactions.delete')
-    await canonicalDelete.execute({ body: { id: target.interactionId } }, ctx)
+    const deleted = await canonicalDelete.execute({ body: { id: target.interactionId } }, ctx)
 
-    return { linkId: parsed.linkId, interactionId: target.interactionId }
+    const result = { linkId: parsed.linkId, interactionId: target.interactionId }
+    return target.canonicalExists ? forwardLockedInteractionBefore(deleted, result) : result
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const before = snapshots.before as InteractionSnapshot | undefined
+    const before = resolveLockedInteractionBefore(result, snapshots.before) as InteractionSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.todos.unlink', 'Unlink todo'),
       resourceKind: 'customers.todoLink',

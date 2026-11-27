@@ -8,6 +8,7 @@ const reportError = jest.fn()
 const enqueue = jest.fn<Promise<void>, unknown[]>(async () => {})
 const hasDealMergeEffectsConsumer = jest.fn(() => true)
 const isReadProjectionAlwaysConsistent = jest.fn(() => false)
+const MOVED_VERSION = '2026-11-26T10:00:00.123456Z'
 
 jest.mock('@open-mercato/shared/lib/data/consistency', () => ({
   isReadProjectionAlwaysConsistent: () => isReadProjectionAlwaysConsistent(),
@@ -269,6 +270,7 @@ function createHarness(options: HarnessOptions = {}) {
     execute: jest.fn(async (sql: string, params: unknown[]) => {
       assertFlushed('execute')
       executeCalls.push({ sql, params })
+      if (sql.includes('as moved_version')) return [{ moved_version: MOVED_VERSION }]
       if (sql.includes('from customer_activities')) return options.activityRows ?? []
       if (sql.includes('from customer_comments')) return options.commentRows ?? []
       if (sql.includes('deal_id, linked_entities, deleted_at')) return options.linkedRows ?? []
@@ -655,7 +657,14 @@ describe('customers.deals.merge execute', () => {
             comments: expect.arrayContaining([expect.objectContaining({ id: 'com-row-0' })]),
             interactions: expect.arrayContaining([expect.objectContaining({ id: 'int-row-0' }), expect.objectContaining({ id: 'linked-row-0' })]),
           },
+          movedVersion: MOVED_VERSION,
         })
+        const moveIndex = harness.executeCalls.findIndex((call) => call.sql.startsWith('update customer_interactions'))
+        const versionIndex = harness.executeCalls.findIndex((call) => call.sql.includes('as moved_version'))
+        expect(versionIndex).toBeGreaterThan(moveIndex)
+        expect(harness.em.commit.mock.invocationCallOrder[0]).toBeGreaterThan(
+          (harness.em.execute as jest.Mock).mock.invocationCallOrder[versionIndex],
+        )
         expect(enqueue.mock.invocationCallOrder.at(-1)).toBeGreaterThan(harness.em.commit.mock.invocationCallOrder[0])
       }
       const em = harness.em as Record<string, jest.Mock>

@@ -35,11 +35,13 @@ import {
   dealMergeRequestSchema,
   dealMergeResponseSchema,
 } from '../../../data/validators'
+import { listGrantsForViewer, listSharedChannelIds } from '../../../lib/conversationShares'
 import {
   resolveAuthActorId,
   resolveCustomersRequestContext,
   type CustomersRequestContext,
 } from '../../../lib/interactionRequestContext'
+import { buildEmailVisibilityMikroFilter, type EmailVisibilityFilterFragment } from '../../../lib/visibilityFilter'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 
@@ -138,6 +140,7 @@ function associationPayload(link: CustomerDealPersonLink | CustomerDealCompanyLi
 async function loadPreviewRecord(
   em: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['em'],
   deal: CustomerDeal,
+  visibility: { activities: boolean; interactions: EmailVisibilityFilterFragment | null },
 ) {
   const scope = { tenantId: deal.tenantId, organizationId: deal.organizationId }
   const [people, companies, transitions, customValues, activities, comments, interactions] = await Promise.all([
@@ -154,9 +157,11 @@ async function loadPreviewRecord(
       organizationIdByRecord: { [deal.id]: deal.organizationId },
       tenantFallbacks: [deal.tenantId],
     }),
-    em.count(CustomerActivity, { deal: deal.id, tenantId: deal.tenantId, organizationId: deal.organizationId }),
-    em.count(CustomerComment, { deal: deal.id, tenantId: deal.tenantId, organizationId: deal.organizationId }),
-    em.count(CustomerInteraction, { dealId: deal.id, tenantId: deal.tenantId, organizationId: deal.organizationId }),
+    visibility.activities ? em.count(CustomerActivity, { ...scope, deal: deal.id }) : 0,
+    visibility.activities ? em.count(CustomerComment, { ...scope, deal: deal.id, deletedAt: null }) : 0,
+    visibility.interactions
+      ? em.count(CustomerInteraction, { ...scope, dealId: deal.id, deletedAt: null, ...visibility.interactions })
+      : 0,
   ])
   return {
     id: deal.id,
@@ -222,17 +227,18 @@ function createCallerFeatureCheck(
   context: CustomersRequestContext,
   organizationId: string,
 ): EntityMergeCallerFeatureCheck {
+  let rbac: RbacService | undefined
+  try {
+    rbac = context.container.resolve('rbacService') as RbacService | undefined
+  } catch (error) {
+    logger.warn('rbacService unavailable for Deal merge preview feature check', { err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.deal_merge_rbac_unavailable' })
+  }
+  const actorId = resolveAuthActorId(context.auth)
   return async (required) => {
     if (required.length === 0) return true
-    let rbac: RbacService | undefined
-    try {
-      rbac = context.container.resolve('rbacService') as RbacService | undefined
-    } catch (error) {
-      logger.warn('rbacService unavailable for Deal merge preview feature check', { err: error })
-      return false
-    }
     if (!rbac) return false
-    return rbac.userHasAllFeatures(resolveAuthActorId(context.auth), [...required], {
+    return rbac.userHasAllFeatures(actorId, [...required], {
       tenantId: context.auth.tenantId,
       organizationId,
     })
@@ -254,17 +260,34 @@ export async function GET(request: Request): Promise<Response> {
     const left = deals.find((deal) => deal.id === query.left)
     const right = deals.find((deal) => deal.id === query.right)
     if (!left || !right) throw notFoundError(translate)
+    const scope = { tenantId: context.auth.tenantId, organizationId: context.selectedOrganizationId }
+    const callerHasFeatures = createCallerFeatureCheck(context, scope.organizationId)
+    const [canViewActivities, canViewInteractions] = await Promise.all([
+      callerHasFeatures(['customers.activities.view']),
+      callerHasFeatures(['customers.interactions.view']),
+    ])
+    let emailVisibility: EmailVisibilityFilterFragment | null = null
+    if (canViewInteractions) {
+      const currentUserId = context.auth.isApiKey ? null : context.auth.sub ?? null
+      const [sharedConversations, sharedChannelIds] = await Promise.all([
+        listGrantsForViewer(context.em, scope, currentUserId),
+        listSharedChannelIds(context.em, scope, currentUserId),
+      ])
+      emailVisibility = buildEmailVisibilityMikroFilter({
+        currentUserId, userFeatures: undefined, sharedConversations, sharedChannelIds,
+      })
+    }
+    const visibility = { activities: canViewActivities, interactions: emailVisibility }
     const [leftPreview, rightPreview, participantPreviews] = await Promise.all([
-      loadPreviewRecord(context.em, left),
-      loadPreviewRecord(context.em, right),
+      loadPreviewRecord(context.em, left, visibility),
+      loadPreviewRecord(context.em, right, visibility),
       collectEntityMergeParticipantPreviews({
+        ...scope,
         em: context.em,
         entityId: DEAL_ENTITY_ID,
         survivorId: left.id,
         sourceId: right.id,
-        tenantId: context.auth.tenantId,
-        organizationId: context.selectedOrganizationId,
-        callerHasFeatures: createCallerFeatureCheck(context, context.selectedOrganizationId),
+        callerHasFeatures,
       }),
     ])
     return NextResponse.json({ left: leftPreview, right: rightPreview, participants: participantPreviews })

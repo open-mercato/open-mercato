@@ -32,6 +32,7 @@ export type EntityMergeParticipant = {
   id: string
   entityId: string
   previewFeatures?: readonly string[]
+  previewAvailable?: (input: EntityMergeParticipantInput) => Promise<boolean>
   preview?: (input: EntityMergeParticipantInput) => Promise<EntityMergeParticipantPreview>
   merge: (input: EntityMergeParticipantInput) => Promise<EntityMergeParticipantResult>
 }
@@ -67,13 +68,13 @@ export function listEntityMergeParticipants(entityId: string): readonly EntityMe
 
 export async function canPreviewEntityMergeParticipant(
   participant: EntityMergeParticipant,
-  input: Pick<EntityMergeParticipantInput, 'callerHasFeatures'>,
+  input: Pick<EntityMergeParticipantInput, 'callerHasFeatures'> | EntityMergeParticipantInput,
 ): Promise<boolean> {
   if (!participant.preview) return false
   const required = participant.previewFeatures ?? []
-  if (required.length === 0) return true
-  if (!input.callerHasFeatures) return false
-  return input.callerHasFeatures(required)
+  if (required.length > 0 && !(await input.callerHasFeatures?.(required))) return false
+  if (!participant.previewAvailable) return true
+  return 'em' in input && participant.previewAvailable(input)
 }
 
 export async function collectEntityMergeParticipantPreviews(

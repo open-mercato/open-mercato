@@ -12,6 +12,7 @@ import {
 import { extractUndoPayload, resolveParentResourceKind } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } from '../lib/interactionCompatibility'
+import { forwardLockedInteractionBefore, resolveLockedInteractionBefore } from '../lib/interactionLockedSnapshots'
 
 type InteractionSnapshot = {
   interaction: {
@@ -230,7 +231,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
       { interactionId: string }
     >('customers.interactions.update')
     const result = await canonicalUpdate.execute(mapActivityUpdateInput(parsed, custom), ctx)
-    return { activityId: result.interactionId }
+    return forwardLockedInteractionBefore(result, { activityId: result.interactionId })
   },
   captureAfter: async (_input, result, ctx) => {
     const canonicalUpdate = getRequiredHandler<
@@ -244,9 +245,9 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
       ctx,
     )
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const before = snapshots.before as InteractionSnapshot | undefined
+    const before = resolveLockedInteractionBefore(result, snapshots.before) as InteractionSnapshot | undefined
     if (!before) return null
     const afterSnapshot = snapshots.after as InteractionSnapshot | undefined
     return {
@@ -298,10 +299,10 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         { interactionId: string }
       >('customers.interactions.delete')
       const result = await canonicalDelete.execute(input, ctx)
-      return { activityId: result.interactionId }
+      return forwardLockedInteractionBefore(result, { activityId: result.interactionId })
     },
-    buildLog: async ({ snapshots }) => {
-      const before = snapshots.before as InteractionSnapshot | undefined
+    buildLog: async ({ result, snapshots }) => {
+      const before = resolveLockedInteractionBefore(result, snapshots.before) as InteractionSnapshot | undefined
       if (!before) return null
       const { translate } = await resolveTranslations()
       return {

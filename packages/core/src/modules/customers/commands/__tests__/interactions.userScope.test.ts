@@ -150,6 +150,7 @@ function createHarness(interaction = createInteraction(), authOverrides: Record<
     }),
     remove: jest.fn(),
     create: jest.fn((_entity: unknown, values: Record<string, unknown>) => values),
+    execute: jest.fn(async () => [{ updated_at: interaction.updatedAt }]),
     isInTransaction: () => false,
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),

@@ -70,7 +70,17 @@ describe('deal merge effects for a bridged activity sharing its id with an inter
     const { engine, calls } = buildEngine()
     const job = { id: 'job-1', payload: buildJob(), createdAt: new Date().toISOString() } as QueuedJob<DealMergeEffectsJob>
     const context = { jobId: 'job-1', attemptNumber: 1, queueName: 'customers-deal-merge-effects' } as JobContext
-    const resolve = <T,>() => engine as T
+    const em = {
+      fork: () => em,
+      execute: jest.fn(async (sql: string) => [{
+        id: bridgedId,
+        entity_id: null,
+        deal_id: survivorId,
+        ...(sql.includes('customer_interactions') ? { interaction_type: 'note', status: 'done', source: null } : {}),
+        is_current: true,
+      }]),
+    }
+    const resolve = <T,>(name: string) => (name === 'em' ? em : engine) as T
 
     await handle(job, { ...context, resolve })
 

@@ -346,26 +346,49 @@ async function loadStoredInteractionDealReferences(
   }
 }
 
-export async function lockInteractionDealReferences(
-  em: EntityManager,
-  input: {
-    dealId?: string | null
-    linkedEntities?: unknown
-    interactionId?: string | null
-    tenantId: string
-    organizationId: string
-    restore?: boolean
-  },
-): Promise<void> {
+type InteractionDealReferenceInput = {
+  dealId?: string | null
+  linkedEntities?: unknown
+  interactionId?: string | null
+  tenantId: string
+  organizationId: string
+  restore?: boolean
+}
+
+export function interactionDealReferenceIds(input: { dealId?: string | null; linkedEntities?: unknown }): string[] {
   const chipIds = input.linkedEntities === undefined ? [] : linkedDealIds(input.linkedEntities)
-  const referencedIds = [...new Set([...(input.dealId ? [input.dealId] : []), ...chipIds])]
-  if (!referencedIds.length) return
+  return [...new Set([...(input.dealId ? [input.dealId.toLowerCase()] : []), ...chipIds])]
+}
+
+export async function lockInteractionDealReferenceIds(
+  em: EntityManager,
+  input: InteractionDealReferenceInput,
+): Promise<string[]> {
+  const referencedIds = interactionDealReferenceIds(input)
+  if (!referencedIds.length) return []
   await lockEntityReferences(em, referencedIds.map((recordId) => ({
     entityId: 'customers:customer_deal',
     recordId,
     tenantId: input.tenantId,
     organizationId: input.organizationId,
   })))
+  return referencedIds
+}
+
+export async function lockInteractionDealReferences(
+  em: EntityManager,
+  input: InteractionDealReferenceInput,
+): Promise<void> {
+  const referencedIds = await lockInteractionDealReferenceIds(em, input)
+  if (!referencedIds.length) return
+  await validateInteractionDealReferences(em, input)
+}
+
+export async function validateInteractionDealReferences(
+  em: EntityManager,
+  input: InteractionDealReferenceInput,
+): Promise<void> {
+  const chipIds = input.linkedEntities === undefined ? [] : linkedDealIds(input.linkedEntities)
   const needsStored = input.restore === true || chipIds.length > 0
   const stored = needsStored
     ? await loadStoredInteractionDealReferences(em, input.interactionId, input.tenantId, input.organizationId)

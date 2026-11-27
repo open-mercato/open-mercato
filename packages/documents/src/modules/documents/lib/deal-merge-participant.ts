@@ -5,13 +5,13 @@ import {
   type EntityMergeParticipantPreview,
   type EntityMergeParticipantResult,
 } from '@open-mercato/shared/lib/entities/merge-participants'
-import { DocumentEntityLink } from '../data/entities'
+import { Document, DocumentEntityLink } from '../data/entities'
 import { DEAL_REFERENCE_ENTITY_ID } from './dealReferenceGuard'
 import { nextDocumentVersion } from './versioning'
 
 const PARTICIPANT_ID = 'documents.deal-links'
 export const DOCUMENT_DEAL_MERGE_PARTICIPANT_LABEL = 'documents.dealMerge.participantLabel'
-export const DOCUMENT_DEAL_MERGE_PREVIEW_FEATURES: readonly string[] = ['documents.view']
+export const DOCUMENT_DEAL_MERGE_PREVIEW_FEATURES: readonly string[] = ['documents.view', 'documents.manage']
 
 async function loadLinks(input: EntityMergeParticipantInput, includeDeleted: boolean) {
   return findWithDecryption(
@@ -32,11 +32,18 @@ export async function previewDocumentDealLinks(
   input: EntityMergeParticipantInput,
 ): Promise<EntityMergeParticipantPreview> {
   const links = await loadLinks(input, false)
+  const documentIds = [...new Set(links.map((link) => link.documentId))]
+  const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+  const documents = documentIds.length > 0
+    ? await findWithDecryption(input.em, Document, { ...scope, id: { $in: documentIds }, deletedAt: null }, { fields: ['id'] }, scope)
+    : []
+  const liveDocumentIds = new Set(documents.map((document) => document.id))
+  const liveLinks = links.filter((link) => liveDocumentIds.has(link.documentId))
   const survivorDocuments = new Set(
-    links.filter((link) => link.dealId === input.survivorId).map((link) => link.documentId),
+    liveLinks.filter((link) => link.dealId === input.survivorId).map((link) => link.documentId),
   )
   const sourceDocuments = new Set(
-    links.filter((link) => link.dealId === input.sourceId).map((link) => link.documentId),
+    liveLinks.filter((link) => link.dealId === input.sourceId).map((link) => link.documentId),
   )
   let overlapCount = 0
   for (const documentId of sourceDocuments) if (survivorDocuments.has(documentId)) overlapCount += 1

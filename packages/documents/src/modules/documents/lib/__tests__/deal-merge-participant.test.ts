@@ -1,9 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
+  collectEntityMergeParticipantPreviews,
   listEntityMergeParticipants,
   resetEntityMergeParticipantsForTests,
 } from '@open-mercato/shared/lib/entities/merge-participants'
-import { DocumentEntityLink } from '../../data/entities'
+import { Document, DocumentEntityLink } from '../../data/entities'
 
 const mockFindWithDecryption = jest.fn()
 
@@ -35,14 +36,16 @@ type LinkRow = {
   updatedAt?: Date
 }
 
-function createEntityManager(links: LinkRow[]) {
+function createEntityManager(links: LinkRow[], deletedDocumentId?: string) {
   mockFindWithDecryption.mockImplementation(async (
     _em: EntityManager,
-    _entity: unknown,
-    where: { deletedAt?: null },
-  ) => links
-    .map((link) => ({ deletedAt: null, updatedAt: baseVersion, ...link }))
-    .filter((link) => !('deletedAt' in where) || link.deletedAt === null))
+    entity: unknown,
+    where: { deletedAt?: null; id?: { $in: string[] } },
+  ) => entity === Document
+    ? (where.id?.$in ?? []).filter((id) => id !== deletedDocumentId).map((id) => ({ id }))
+    : links
+      .map((link) => ({ deletedAt: null, updatedAt: baseVersion, ...link }))
+      .filter((link) => !('deletedAt' in where) || link.deletedAt === null))
   const nativeDelete = jest.fn().mockResolvedValue(1)
   const nativeUpdate = jest.fn().mockResolvedValue(1)
   return {
@@ -64,7 +67,8 @@ describe('documents Deal merge participant', () => {
       { id: 'link-2', documentId: 'document-a', dealId: scope.sourceId },
       { id: 'link-3', documentId: 'document-b', dealId: scope.sourceId },
       { id: 'link-4', documentId: 'document-c', dealId: scope.sourceId, deletedAt: baseVersion },
-    ])
+      { id: 'link-5', documentId: 'document-d', dealId: scope.sourceId },
+    ], 'document-d')
 
     await expect(previewDocumentDealLinks({ ...scope, em: manager.em })).resolves.toEqual({
       participantId: 'documents.deal-links',
@@ -79,6 +83,12 @@ describe('documents Deal merge participant', () => {
       deletedAt: null,
       dealId: { $in: [scope.survivorId, scope.sourceId] },
     }, { disableIdentityMap: true }, { tenantId: scope.tenantId, organizationId: scope.organizationId })
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(manager.em, Document, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+      id: { $in: ['document-a', 'document-b', 'document-d'] },
+    }, { fields: ['id'] }, { tenantId: scope.tenantId, organizationId: scope.organizationId })
   })
 
   it('deduplicates overlap and reparents active and soft-deleted source-only links in scope', async () => {
@@ -147,7 +157,7 @@ describe('documents Deal merge participant', () => {
         + manager.nativeUpdate.mock.calls.length
     }
     const single = await statementsFor(1)
-    expect(single).toBe(4)
+    expect(single).toBe(5)
     expect(await statementsFor(50)).toBe(single)
   })
 
@@ -156,5 +166,18 @@ describe('documents Deal merge participant', () => {
     registerDocumentDealMergeParticipant()
     const participants = listEntityMergeParticipants('customers:customer_deal')
     expect(participants.map((participant) => participant.id)).toEqual(['documents.deal-links'])
+  })
+
+  it('omits organization-wide counts for a caller without the record visibility override', async () => {
+    registerDocumentDealMergeParticipant()
+    const manager = createEntityManager([])
+    const callerHasFeatures = jest.fn(async (features: readonly string[]) =>
+      features.every((feature) => feature === 'documents.view'))
+
+    await expect(collectEntityMergeParticipantPreviews({
+      ...scope, em: manager.em, callerHasFeatures,
+    })).resolves.toEqual([])
+    expect(callerHasFeatures).toHaveBeenCalledWith(['documents.view', 'documents.manage'])
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
   })
 })
