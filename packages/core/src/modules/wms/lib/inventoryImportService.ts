@@ -557,12 +557,22 @@ function resolveRelationId(value: { id?: string } | string | null | undefined): 
   return typeof value?.id === 'string' ? value.id : null
 }
 
+const MOVEMENT_QUANTITY_SCALE = 4
+
+// wms_inventory_movements.quantity is numeric(16,4); Postgres rounds to that scale on
+// insert, so a raw delta with more fractional digits must be rounded the same way before
+// comparing against a persisted movement, or an identical retry reports a false mismatch.
+function roundToMovementScale(value: number): number {
+  const factor = 10 ** MOVEMENT_QUANTITY_SCALE
+  return Math.round(value * factor) / factor
+}
+
 /**
  * A replayed row must have posted the same target bucket and amount as the current row;
  * a CSV edited between a failed apply and its retry (same importBatchId/rowNumber) must
  * not be reported as applied against a stale movement.
  */
-function legacyMovementMatchesRow(
+function movementMatchesRow(
   movement: InventoryMovement,
   row: { warehouseId: string; locationId: string; catalogVariantId: string; lotId?: string | null; serialNumber?: string | null; delta: number },
 ): boolean {
@@ -572,23 +582,23 @@ function legacyMovementMatchesRow(
     movement.catalogVariantId === row.catalogVariantId &&
     resolveRelationId(movement.lot) === (row.lotId ?? null) &&
     (movement.serialNumber ?? null) === (row.serialNumber ?? null) &&
-    Math.abs(toNumber(movement.quantity) - row.delta) < 0.000001
+    Math.abs(toNumber(movement.quantity) - roundToMovementScale(row.delta)) < 0.00001
   )
 }
 
 /**
- * Recognizes a pre-fix row by its import batch/row metadata, independent of referenceId,
- * since it was posted before buildImportRowReferenceId existed and a retry's deterministic
- * referenceId would never match it.
+ * Pre-fix rows (posted before buildImportRowReferenceId existed) carry no deterministic
+ * referenceId, so they can only be recognized by their import batch/row metadata. The
+ * movement table has no index on those JSON fields, so this is loaded once per batch
+ * instead of once per row — a per-row scan does not scale to a multi-thousand-row import.
  */
-async function findExistingImportRowMovement(
+async function loadLegacyImportRowMovementIds(
   em: EntityManager,
   scope: ImportScope,
   importBatchId: string,
-  rowNumber: number,
-): Promise<InventoryMovement | null> {
-  const rows = await em.getConnection().execute<Array<{ id: string }>>(
-    `select id
+): Promise<Map<number, string>> {
+  const rows = await em.getConnection().execute<Array<{ id: string; row_number: string | null }>>(
+    `select id, metadata->>'importRowNumber' as row_number
      from wms_inventory_movements
      where organization_id = ?
        and tenant_id = ?
@@ -596,20 +606,44 @@ async function findExistingImportRowMovement(
        and reference_type = 'manual'
        and metadata->>'source' = 'csv_import'
        and metadata->>'importBatchId' = ?
-       and metadata->>'importRowNumber' = ?
-     order by created_at asc
-     limit 1`,
-    [scope.organizationId, scope.tenantId, importBatchId, String(rowNumber)],
+     order by created_at asc`,
+    [scope.organizationId, scope.tenantId, importBatchId],
   )
-  const id = rows[0]?.id
-  if (!id) return null
-  return findOneWithDecryption(
-    em,
-    InventoryMovement,
-    { id, organizationId: scope.organizationId, deletedAt: null },
-    undefined,
-    scope,
-  )
+  const byRow = new Map<number, string>()
+  for (const row of rows) {
+    const rowNumber = Number(row.row_number)
+    if (!Number.isFinite(rowNumber) || byRow.has(rowNumber)) continue
+    byRow.set(rowNumber, row.id)
+  }
+  return byRow
+}
+
+const IMPORT_ROW_LOCK_SQL = 'select pg_advisory_xact_lock(hashtextextended(?, 0))'
+
+// Serializes the check-then-adjust section below per tenant/organization/batch/row, so two
+// overlapping apply requests for the same CSV row cannot both miss the existing-movement
+// lookup and post two movements for it.
+function buildImportRowLockKey(scope: ImportScope, importBatchId: string, rowNumber: number): string {
+  return [
+    'wms:csv-import-row',
+    scope.tenantId.toLowerCase(),
+    scope.organizationId.toLowerCase(),
+    importBatchId.toLowerCase(),
+    String(rowNumber),
+  ].join(':')
+}
+
+async function runInTransaction<TResult>(
+  em: EntityManager,
+  operation: (trx: EntityManager) => Promise<TResult>,
+): Promise<TResult> {
+  const transactionalEm = em as EntityManager & {
+    transactional?: (callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+  }
+  if (typeof transactionalEm.transactional === 'function') {
+    return transactionalEm.transactional((trx) => operation(trx))
+  }
+  return operation(em)
 }
 
 export async function applyInventoryImport(
@@ -631,6 +665,13 @@ export async function applyInventoryImport(
   let skipped = 0
   let failed = 0
 
+  let legacyMovementIdsByRow: Map<number, string> | Error
+  try {
+    legacyMovementIdsByRow = await loadLegacyImportRowMovementIds(em, scope, input.importBatchId)
+  } catch (error) {
+    legacyMovementIdsByRow = error instanceof Error ? error : new Error('apply_failed')
+  }
+
   for (const row of applyRows) {
     if (Math.abs(row.delta) < 0.000001) {
       skipped += 1
@@ -639,45 +680,72 @@ export async function applyInventoryImport(
     }
 
     try {
-      const legacyMovement = await findExistingImportRowMovement(em, scope, input.importBatchId, row.rowNumber)
-      if (legacyMovement) {
-        if (!legacyMovementMatchesRow(legacyMovement, row)) {
-          throw new CrudHttpError(409, { error: 'import_row_replay_mismatch', rowNumber: row.rowNumber })
-        }
-        applied += 1
-        resultRows.push({ rowNumber: row.rowNumber, status: 'applied', movementId: legacyMovement.id })
-        continue
-      }
+      if (legacyMovementIdsByRow instanceof Error) throw legacyMovementIdsByRow
+      const referenceId = buildImportRowReferenceId(input.importBatchId, row.rowNumber)
+      const legacyMovementId = legacyMovementIdsByRow.get(row.rowNumber)
 
-      const execution = await commandBus.execute('wms.inventory.adjust', {
-        input: {
-          organizationId: input.organizationId,
-          tenantId: input.tenantId,
-          warehouseId: row.warehouseId,
-          locationId: row.locationId,
-          catalogVariantId: row.catalogVariantId,
-          lotId: row.lotId,
-          serialNumber: row.serialNumber,
-          delta: row.delta,
-          reason: input.reason,
-          referenceType: 'manual' as const,
-          referenceId: buildImportRowReferenceId(input.importBatchId, row.rowNumber),
-          performedBy: input.performedBy,
-          metadata: {
-            importBatchId: input.importBatchId,
-            importRowNumber: row.rowNumber,
-            source: 'csv_import',
-            ...(mode === 'reconcile' ? { targetQuantity: row.quantity } : {}),
+      const outcome = await runInTransaction(em, async (trx) => {
+        // Holds the row's lock for the whole check-then-adjust section below, including
+        // the wms.inventory.adjust call, so a concurrent retry blocks until this one commits.
+        // Must go through em.execute (not em.getConnection().execute), which binds to trx's
+        // active transaction — otherwise pg_advisory_xact_lock runs on its own auto-committed
+        // statement and releases the lock immediately instead of holding it for the section.
+        await trx.execute(IMPORT_ROW_LOCK_SQL, [buildImportRowLockKey(scope, input.importBatchId, row.rowNumber)])
+
+        const indexedMovement = await findOneWithDecryption(
+          trx,
+          InventoryMovement,
+          { organizationId: scope.organizationId, referenceType: 'manual', referenceId, deletedAt: null },
+          undefined,
+          scope,
+        )
+        const existingMovement =
+          indexedMovement ??
+          (legacyMovementId
+            ? await findOneWithDecryption(
+                trx,
+                InventoryMovement,
+                { id: legacyMovementId, organizationId: scope.organizationId, deletedAt: null },
+                undefined,
+                scope,
+              )
+            : null)
+
+        if (existingMovement) {
+          if (!movementMatchesRow(existingMovement, row)) {
+            throw new CrudHttpError(409, { error: 'import_row_replay_mismatch', rowNumber: row.rowNumber })
+          }
+          return { movementId: existingMovement.id }
+        }
+
+        const execution = await commandBus.execute('wms.inventory.adjust', {
+          input: {
+            organizationId: input.organizationId,
+            tenantId: input.tenantId,
+            warehouseId: row.warehouseId,
+            locationId: row.locationId,
+            catalogVariantId: row.catalogVariantId,
+            lotId: row.lotId,
+            serialNumber: row.serialNumber,
+            delta: row.delta,
+            reason: input.reason,
+            referenceType: 'manual' as const,
+            referenceId,
+            performedBy: input.performedBy,
+            metadata: {
+              importBatchId: input.importBatchId,
+              importRowNumber: row.rowNumber,
+              source: 'csv_import',
+              ...(mode === 'reconcile' ? { targetQuantity: row.quantity } : {}),
+            },
           },
-        },
-        ctx,
+          ctx,
+        })
+        return { movementId: (execution.result as { movementId?: string }).movementId }
       })
+
       applied += 1
-      resultRows.push({
-        rowNumber: row.rowNumber,
-        status: 'applied',
-        movementId: (execution.result as { movementId?: string }).movementId,
-      })
+      resultRows.push({ rowNumber: row.rowNumber, status: 'applied', movementId: outcome.movementId })
     } catch (error) {
       failed += 1
       const message =

@@ -38,6 +38,9 @@ function createEm(legacyMovementRows: Array<{ id: string }> = [], lookupError?: 
         return legacyMovementRows
       }),
     }),
+    // Real EntityManager.execute binds to the active transaction (unlike
+    // getConnection().execute); the per-row advisory lock call goes through this.
+    execute: jest.fn(async () => []),
   }
 }
 

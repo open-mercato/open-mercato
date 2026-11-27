@@ -6,6 +6,7 @@ import {
   createVariantFixture,
   deleteCatalogProductIfExists,
 } from '@open-mercato/core/helpers/integration/catalogFixtures'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   deleteGeneralEntityIfExists,
   getTokenScope,
@@ -340,6 +341,231 @@ test.describe('TC-WMS-025: Inventory CSV import API', () => {
       expect(tamperedResponse.status()).toBe(400)
       const tamperedBody = await readJsonSafe<{ error?: string }>(tamperedResponse)
       expect(tamperedBody?.error).toBe('import_delta_tampering')
+    } finally {
+      await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', locationId)
+      await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/warehouses', warehouseId)
+      await deleteCatalogProductIfExists(request, adminToken, productId)
+      await restoreAdminAcl()
+    }
+  })
+
+  test('serializes two concurrent applies for the same row so an edited retry cannot double stock', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const scope = getTokenScope(adminToken)
+    const suffix = randomUUID().slice(0, 8)
+
+    const restoreAdminAcl = await ensureRoleFeatures(
+      request,
+      superadminToken,
+      scope.tenantId,
+      'admin',
+      [
+        'wms.view',
+        'wms.manage_warehouses',
+        'wms.manage_locations',
+        'wms.manage_inventory',
+        'wms.adjust_inventory',
+        'wms.import',
+      ],
+    )
+
+    let productId: string | null = null
+    let warehouseId: string | null = null
+    let locationId: string | null = null
+
+    try {
+      productId = await createProductFixture(request, adminToken, {
+        title: `TC-WMS-025 Conc ${suffix}`,
+        sku: `TCW25-CP-${suffix}`,
+      })
+      const variantId = await createVariantFixture(request, adminToken, {
+        productId,
+        name: `TC-WMS-025 Conc Variant ${suffix}`,
+        sku: `TCW25-CV-${suffix}`,
+      })
+      warehouseId = await createCrudFixture(request, adminToken, '/api/wms/warehouses', {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        name: `TC-WMS-025 Conc Warehouse ${suffix}`,
+        code: `TCW25CW${suffix}`,
+        city: 'Krakow',
+        country: 'PL',
+        timezone: 'Europe/Warsaw',
+        isActive: true,
+      })
+      locationId = await createCrudFixture(request, adminToken, '/api/wms/locations', {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        warehouseId,
+        code: `BIN-C-${suffix}`,
+        type: 'bin',
+        isActive: true,
+      })
+
+      const importBatchId = randomUUID()
+      const buildApplyData = (quantity: number) => ({
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        importBatchId,
+        continueOnError: true,
+        rows: [
+          {
+            rowNumber: 1,
+            warehouseId,
+            locationId,
+            catalogVariantId: variantId,
+            quantity,
+            delta: quantity,
+          },
+        ],
+      })
+
+      // Simulates a failed apply retried with an edited CSV: two requests for the same
+      // importBatchId/rowNumber racing with different quantities for the same bucket.
+      const [first, second] = await Promise.all([
+        apiRequest(request, 'POST', '/api/wms/inventory/import/apply', { token: adminToken, data: buildApplyData(11) }),
+        apiRequest(request, 'POST', '/api/wms/inventory/import/apply', { token: adminToken, data: buildApplyData(17) }),
+      ])
+
+      expect(first.ok(), `first apply failed: ${first.status()}`).toBeTruthy()
+      expect(second.ok(), `second apply failed: ${second.status()}`).toBeTruthy()
+      const firstResult = (await readJsonSafe<ImportApplyResponse>(first)) ?? {}
+      const secondResult = (await readJsonSafe<ImportApplyResponse>(second)) ?? {}
+
+      const appliedMovementIds = new Set(
+        [firstResult.rows?.[0], secondResult.rows?.[0]]
+          .filter((row) => row?.status === 'applied')
+          .map((row) => row?.movementId),
+      )
+      expect(appliedMovementIds.size, 'exactly one of the two racing requests may apply').toBe(1)
+
+      const balance = await fetchBalance(request, adminToken, warehouseId!, variantId)
+      const appliedQuantity = toNumber(balance?.quantity_on_hand)
+      expect(
+        [11, 17],
+        `balance must equal exactly one of the two racing deltas, got ${appliedQuantity}`,
+      ).toContain(appliedQuantity)
+
+      const movementCount = await withClient((client) =>
+        client.query<{ count: number }>(
+          `select count(*)::int as count
+           from wms_inventory_movements
+           where organization_id = $1
+             and tenant_id = $2
+             and deleted_at is null
+             and reference_type = 'manual'
+             and metadata->>'importBatchId' = $3
+             and metadata->>'importRowNumber' = '1'`,
+          [scope.organizationId, scope.tenantId, importBatchId],
+        ),
+      )
+      expect(movementCount.rows[0]?.count).toBe(1)
+    } finally {
+      await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', locationId)
+      await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/warehouses', warehouseId)
+      await deleteCatalogProductIfExists(request, adminToken, productId)
+      await restoreAdminAcl()
+    }
+  })
+
+  test('replays an identical retry with more than 4 fractional digits instead of reporting a mismatch', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const scope = getTokenScope(adminToken)
+    const suffix = randomUUID().slice(0, 8)
+
+    const restoreAdminAcl = await ensureRoleFeatures(
+      request,
+      superadminToken,
+      scope.tenantId,
+      'admin',
+      [
+        'wms.view',
+        'wms.manage_warehouses',
+        'wms.manage_locations',
+        'wms.manage_inventory',
+        'wms.adjust_inventory',
+        'wms.import',
+      ],
+    )
+
+    let productId: string | null = null
+    let warehouseId: string | null = null
+    let locationId: string | null = null
+
+    try {
+      productId = await createProductFixture(request, adminToken, {
+        title: `TC-WMS-025 Frac ${suffix}`,
+        sku: `TCW25-FP-${suffix}`,
+      })
+      const variantId = await createVariantFixture(request, adminToken, {
+        productId,
+        name: `TC-WMS-025 Frac Variant ${suffix}`,
+        sku: `TCW25-FV-${suffix}`,
+      })
+      warehouseId = await createCrudFixture(request, adminToken, '/api/wms/warehouses', {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        name: `TC-WMS-025 Frac Warehouse ${suffix}`,
+        code: `TCW25FW${suffix}`,
+        city: 'Krakow',
+        country: 'PL',
+        timezone: 'Europe/Warsaw',
+        isActive: true,
+      })
+      locationId = await createCrudFixture(request, adminToken, '/api/wms/locations', {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        warehouseId,
+        code: `BIN-F-${suffix}`,
+        type: 'bin',
+        isActive: true,
+      })
+
+      const applyData = {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        importBatchId: randomUUID(),
+        continueOnError: true,
+        rows: [
+          {
+            rowNumber: 1,
+            warehouseId,
+            locationId,
+            catalogVariantId: variantId,
+            // wms_inventory_movements.quantity is numeric(16,4); Postgres rounds this to
+            // 5.1235 on insert, so the retry comparison must round the same way.
+            quantity: 5.123456,
+            delta: 5.123456,
+          },
+        ],
+      }
+
+      const firstApply = await apiRequest(request, 'POST', '/api/wms/inventory/import/apply', {
+        token: adminToken,
+        data: applyData,
+      })
+      expect(firstApply.ok(), `first apply failed: ${firstApply.status()}`).toBeTruthy()
+      const firstResult = (await readJsonSafe<ImportApplyResponse>(firstApply)) ?? {}
+      expect(firstResult.rows?.[0]).toMatchObject({ rowNumber: 1, status: 'applied' })
+      const firstMovementId = firstResult.rows?.[0]?.movementId
+      expect(firstMovementId).toBeTruthy()
+
+      const retryApply = await apiRequest(request, 'POST', '/api/wms/inventory/import/apply', {
+        token: adminToken,
+        data: applyData,
+      })
+      expect(retryApply.ok(), `retry apply failed: ${retryApply.status()}`).toBeTruthy()
+      const retryResult = (await readJsonSafe<ImportApplyResponse>(retryApply)) ?? {}
+      expect(retryResult.rows?.[0]).toMatchObject({
+        rowNumber: 1,
+        status: 'applied',
+        movementId: firstMovementId,
+      })
+
+      const balance = await fetchBalance(request, adminToken, warehouseId!, variantId)
+      expect(toNumber(balance?.quantity_on_hand)).toBeCloseTo(5.1235, 4)
     } finally {
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', locationId)
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/warehouses', warehouseId)
