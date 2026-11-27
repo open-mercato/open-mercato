@@ -6,7 +6,7 @@ import type { TillioResolvedEnvironment } from './operators'
 // the `enabled` term was once written out in both places and one copy drifted.
 export type EnvironmentBlocker = 'integration_disabled' | 'environment_not_ready'
 
-export type PullBlocker = EnvironmentBlocker | 'operator_missing' | 'environment_drift'
+export type PullBlocker = EnvironmentBlocker | 'operator_missing' | 'environment_drift' | 'progress_unavailable'
 
 export type EnvironmentReadiness = {
   ready: boolean
@@ -65,6 +65,7 @@ export function evaluatePullReadiness(input: EvaluatePullReadinessInput): PullRe
 }
 
 export const PULL_BLOCKER_MESSAGES: Record<PullBlocker, string> = {
+  progress_unavailable: 'Pulling calls requires the progress module. Enable it to continue.',
   integration_disabled: 'The Tillio integration is disabled. Enable it before pulling calls.',
   environment_not_ready: 'Configure the Tillio environment and run the health check first.',
   operator_missing: 'Attach a Tillio operator before pulling calls.',
@@ -72,6 +73,6 @@ export const PULL_BLOCKER_MESSAGES: Record<PullBlocker, string> = {
 }
 
 export function blockerSection(blocker: PullBlocker): 'environment' | 'operator' {
-  if (blocker === 'integration_disabled' || blocker === 'environment_not_ready') return 'environment'
+  if (blocker === 'progress_unavailable' || blocker === 'integration_disabled' || blocker === 'environment_not_ready') return 'environment'
   return 'operator'
 }

@@ -63,6 +63,7 @@
   "tillio.pull.failed": "Could not pull calls from Tillio.",
   "tillio.pull.notReadyTitle": "Tillio is not ready",
   "tillio.pull.operatorMissing": "Attach a Tillio operator on the integration page before pulling calls.",
+  "tillio.pull.progressUnavailable": "Pulling calls requires the progress module. Enable it to continue.",
   "tillio.pull.pulling": "Pulling...",
   "tillio.pull.queued": "Pulling calls from Tillio. Track it in the progress bar.",
   "tillio.pull.rangeRequired": "Pick a date range first.",
