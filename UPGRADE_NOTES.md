@@ -1,5 +1,18 @@
 # Upgrade Notes
 
+## Notification mark-all-read follows the bell scope (#9244)
+
+`PUT /api/notifications/mark-all-read` now marks exactly the unread in-app
+notifications visible to the authenticated recipient in the selected tenant.
+With an organization selected, this includes its visible child organizations and
+tenant-wide notifications. With no organization selected and restricted organization
+access, notifications outside the visible organizations stay unread. The returned
+`count` and `notifications.read` events follow that same set. Direct
+`NotificationService.markAllAsRead` callers supplying only `organizationId` retain
+their existing behavior. No request or response fields change; no data migration
+is required. Integrations that expected a different bulk scope should use explicit
+per-notification actions for their intended set.
+
 ## MCP HTTP tool calls require a per-user session token, no fallback (#5173)
 
 The production MCP HTTP server (`mcp:serve-http` — the transport web chat and Code Mode go through) now requires a valid `_sessionToken` on every tool call. A call that omits it receives `UNAUTHORIZED`; one that supplies an invalid or expired token receives `SESSION_EXPIRED`. There is no fallback to the transport `x-api-key`'s ACL and no opt-in to restore one: `McpServerConfig.allowApiKeyFallback` and `mcp:serve-http --allow-api-key-fallback` do not exist (neither shipped in a prior release — both were introduced and removed again within this same change, after review).
