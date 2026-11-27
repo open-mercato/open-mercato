@@ -70,6 +70,14 @@ function codeFiles(): Array<[string, string]> {
   return [...tree.entries()].filter(([relPath]) => relPath.endsWith('.ts') || relPath.endsWith('.tsx'))
 }
 
+function readTypeScriptToolchain(resolutionDirectory: string) {
+  return spawnSync(
+    process.execPath,
+    [path.join(__dirname, 'fixtures', 'typescript-toolchain.cjs'), resolutionDirectory],
+    { encoding: 'utf8', timeout: 30_000 },
+  )
+}
+
 describe('DS lint gate (repo eslint.ds config, programmatic run)', () => {
   it('generated pages produce zero errors and zero warnings', () => {
     // TS7-native root: eslint's parser needs the JS compiler API, which only
@@ -97,10 +105,8 @@ describe('DS lint gate (repo eslint.ds config, programmatic run)', () => {
     )
     expect(result.error).toBeUndefined()
     if (result.status !== 0 && result.status !== 1) {
-      const toolchain = spawnSync(
-        process.execPath,
-        ['-p', `(() => { const p = require.resolve('typescript', { paths: [${JSON.stringify(path.join(REPO_ROOT, 'node_modules', '@typescript-eslint', 'typescript-estree'))}] }); const ts = require(p); return p + ' v' + ts.version + ' Extension=' + typeof ts.Extension })()`],
-        { encoding: 'utf8', timeout: 30_000 },
+      const toolchain = readTypeScriptToolchain(
+        path.join(REPO_ROOT, 'node_modules', '@typescript-eslint', 'typescript-estree'),
       )
       throw new Error(
         `[internal] eslint exited with ${result.status}\nstderr: ${result.stderr}\nstdout: ${result.stdout}\ntoolchain: ${toolchain.stdout || toolchain.stderr}`,
@@ -123,6 +129,22 @@ describe('DS lint gate (repo eslint.ds config, programmatic run)', () => {
     expect(findings).toEqual([])
     expect(reports.reduce((sum, report) => sum + report.errorCount + report.warningCount, 0)).toBe(0)
     expect(result.status).toBe(0)
+  })
+})
+
+describe('TypeScript toolchain diagnostic', () => {
+  it('resolves TypeScript from a directory containing spaces and apostrophes', () => {
+    const resolutionDirectory = path.join(tmpDir, "parser's resolution directory")
+    const typeScriptDirectory = path.join(resolutionDirectory, 'node_modules', 'typescript')
+    const typeScriptEntry = path.join(typeScriptDirectory, 'index.js')
+    fs.mkdirSync(typeScriptDirectory, { recursive: true })
+    fs.writeFileSync(typeScriptEntry, "module.exports = { version: 'test-version', Extension: {} }\n")
+
+    const result = readTypeScriptToolchain(resolutionDirectory)
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(0)
+    expect(result.stdout.trim()).toBe(`${fs.realpathSync(typeScriptEntry)} vtest-version Extension=object`)
   })
 })
 
