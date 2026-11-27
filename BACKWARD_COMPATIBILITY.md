@@ -585,6 +585,10 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
 
+## MCP HTTP session token, no fallback (2026-11-14, #5173)
+
+STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+
 ## Staff credential email (2026-11-27, #10594)
 
 STABLE superadmin reset and invite email uses the instance provider. Tenant fallback retains exposure. Named waiver pending. [Migration](.ai/specs/2026-06-03-pluggable-email-providers.md).
