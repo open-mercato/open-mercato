@@ -28,6 +28,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 - Run a negative control, so that "still visible" proves something.
 - A new role feature reaches existing tenants only after sync.
 - A security fix needs a test that failed before the fix, not a random token.
+- Compare organization list views with the switcher for a restricted role, and verify that partition codes can be reused by independent owners.
 
 ## Encryption
 
@@ -52,6 +53,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 - A cleared number field must stay empty until typed, not snap back to a default.
 - Invalid text must not turn into 0.
 - Compare single date and date range pickers, because they resolve the locale differently.
+- Verify grouped dashboard totals against the ungrouped metric and include a daily series longer than 100 days.
 - A select left empty must not show a raw enum code.
 
 ## Translations
@@ -92,6 +94,8 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 - A refused undo must leave the data unchanged and say why.
 
 ## Keyboard and dialogs
+
+- Verify password input autocomplete and the accessible description of password requirements.
 
 - Escape in a nested layer closes only that layer.
 - Cmd/Ctrl+Enter submits and Escape cancels in every dialog, also after an error.

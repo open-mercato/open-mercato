@@ -18,6 +18,12 @@ import { render, screen, cleanup } from '@testing-library/react'
 import { registerComponentOverrides } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 
+let mockGrantedFeatures = ['customers.deals.view', 'customers.pipelines.view']
+
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures } }),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string) => key,
 }))
@@ -45,6 +51,7 @@ function selectedTabName(): string | undefined {
 }
 
 afterEach(() => {
+  mockGrantedFeatures = ['customers.deals.view', 'customers.pipelines.view']
   registerComponentOverrides([])
   cleanup()
 })
@@ -64,6 +71,13 @@ describe('ViewTabsRow visibleViews', () => {
 
     expect(tabNames()).toEqual(['Kanban', 'List'])
     expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull()
+  })
+
+  it('hides the Kanban link from a deals-only viewer even when the host asks for it', () => {
+    mockGrantedFeatures = ['customers.deals.view']
+    render(<ViewTabsRow active="list" visibleViews={['kanban', 'list', 'map']} />)
+
+    expect(tabNames()).toEqual(['List', 'Map'])
   })
 
   it('keeps the active view visible even when the host excluded it', () => {

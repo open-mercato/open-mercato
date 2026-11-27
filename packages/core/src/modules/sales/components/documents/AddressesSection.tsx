@@ -28,6 +28,7 @@ import {
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { Pencil, Plus, Save, Trash2 } from 'lucide-react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { handleSectionMutationError } from './optimisticLock'
 
 const logger = createLogger('sales')
 
@@ -51,12 +52,15 @@ export type SalesDocumentAddressesSectionProps = {
   shippingAddressSnapshot?: Record<string, unknown> | null
   billingAddressSnapshot?: Record<string, unknown> | null
   lockedReason?: string | null
+  documentUpdatedAt?: string | null
   onUpdated?: (patch: {
     shippingAddressId?: string | null
     billingAddressId?: string | null
     shippingAddressSnapshot?: Record<string, unknown> | null
     billingAddressSnapshot?: Record<string, unknown> | null
+    updatedAt?: string
   }) => void
+  onReload?: () => void
 }
 
 const emptyDraft: AddressEditorDraft = {
@@ -244,7 +248,9 @@ export function SalesDocumentAddressesSection({
   shippingAddressSnapshot,
   billingAddressSnapshot,
   lockedReason,
+  documentUpdatedAt,
   onUpdated,
+  onReload,
 }: SalesDocumentAddressesSectionProps) {
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -634,7 +640,7 @@ export function SalesDocumentAddressesSection({
 
   const handleAddAdditionalAddress = React.useCallback(async () => {
     if (guardLocked()) return
-    if (!customerId) {
+    if (!additionalUseCustom && !customerId) {
       flash(t('sales.documents.form.address.customerRequired', 'Select a customer first'), 'error')
       return
     }
@@ -981,8 +987,7 @@ export function SalesDocumentAddressesSection({
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const call = await runGuardedMutation(
         () =>
-          // TODO(#2373-C): thread document updatedAt
-          withScopedApiRequestHeaders(buildOptimisticLockHeader(undefined), () =>
+          withScopedApiRequestHeaders(buildOptimisticLockHeader(documentUpdatedAt), () =>
             apiCallOrThrow<Record<string, unknown>>(
               endpoint,
               {
@@ -1007,12 +1012,14 @@ export function SalesDocumentAddressesSection({
           (result.billingAddressSnapshot as Record<string, unknown> | null | undefined) ??
           (payload.billingAddressSnapshot as Record<string, unknown> | null | undefined) ??
           null,
+        ...(typeof result.updatedAt === 'string' && result.updatedAt.length > 0 ? { updatedAt: result.updatedAt } : {}),
       })
       if (customerId) {
         loadAddresses(customerId).catch(() => {})
       }
       flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
     } catch (err) {
+      if (handleSectionMutationError(err, t, () => onReload?.())) return
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -1027,7 +1034,9 @@ export function SalesDocumentAddressesSection({
     billingDraft,
     customerId,
     documentId,
+    documentUpdatedAt,
     kind,
+    onReload,
     sameAsShipping,
     saveBillingAddress,
     saveShippingAddress,
@@ -1131,7 +1140,7 @@ export function SalesDocumentAddressesSection({
               flip
               checked={useCustomShipping}
               onCheckedChange={(checked) => setUseCustomShipping(checked)}
-              disabled={customerRequired || locked}
+              disabled={locked}
             />
           </div>
           {!useCustomShipping
@@ -1209,7 +1218,7 @@ export function SalesDocumentAddressesSection({
                 flip
                 checked={useCustomBilling}
                 onCheckedChange={(checked) => setUseCustomBilling(checked)}
-                disabled={customerRequired || locked}
+                disabled={locked}
               />
 
               {useCustomBilling ? (
@@ -1267,7 +1276,7 @@ export function SalesDocumentAddressesSection({
               variant="outline"
               size="sm"
               onClick={openAdditionalForm}
-              disabled={customerRequired || locked || additionalFormOpen}
+              disabled={locked || additionalFormOpen}
             >
               <Plus className="mr-2 h-4 w-4" />
               {t('sales.documents.detail.addresses.add', 'Add address')}
@@ -1292,7 +1301,7 @@ export function SalesDocumentAddressesSection({
             action={{
               label: t('sales.documents.detail.addresses.add', 'Add address'),
               onClick: openAdditionalForm,
-              disabled: customerRequired || locked,
+              disabled: locked,
             }}
           />
         ) : null}
@@ -1462,7 +1471,7 @@ export function SalesDocumentAddressesSection({
               <Button
                 type="button"
                 onClick={handleAddAdditionalAddress}
-                disabled={additionalSaving || customerRequired || locked}
+                disabled={additionalSaving || (!additionalUseCustom && customerRequired) || locked}
               >
                 {additionalSaving
                   ? t('sales.documents.form.address.saving', 'Saving…')
