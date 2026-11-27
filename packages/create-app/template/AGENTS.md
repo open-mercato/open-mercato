@@ -4,14 +4,14 @@
 
 - Route all matches on each axis; missing context: `yarn mercato agentic:init --update-harness`.
 - Lessons: scan `.ai/lessons.md` tags; open/update one matching record + row.
-- Use `src/modules/<id>/` for business modules and `src/providers/` for [cache, queue, and KMS](.ai/guides/infrastructure-providers.md).
+- Business modules: `src/modules/<id>/`; [cache/queue/KMS](.ai/guides/infrastructure-providers.md): `src/providers/`.
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands/`makeCrudRoute`/`CrudForm`/`DataTable`, DI/events/UMES; effects stay post-commit.
-- Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
+- Entities: `src/modules/<id>/data/entities.ts`; API routes: per-method `metadata` + `openApi`.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
-- Run `yarn generate` after discovery files/`src/modules.ts`/routes/pages/events/widgets/agents/tools/workflows change.
-- Contract-surface changes (route/schema/ID/export/seam/signature/event payload/CLI) MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract.
+- After discovery files/`src/modules.ts`/routes/pages/events/widgets/agents/tools/workflows change, run `yarn generate`.
+- Before route/schema/ID/export/seam/signature/event-payload/CLI changes, read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract.
 - Localize strings; use shared UI/tokens and cover loading/empty/error/conflict/keyboard/a11y.
 
 ## Ask First
@@ -24,7 +24,7 @@
 - Never edit `node_modules`/`.mercato/generated/**`/generated facts/shipped migrations.
 - Never use cross-module ORM relations; use IDs/snapshots/events/enrichers/extensions/optional DI.
 - Never use raw admin `fetch`/`<form>`, ad hoc crypto/cache/queues, role-name guards, or direct mutations when helpers exist.
-- Never hard-code user strings/status colors; expose secrets/transcripts; or guess answerable contracts.
+- Never hard-code user strings/status colors, expose secrets/transcripts, or guess answerable contracts.
 
 ## Validation
 
@@ -32,7 +32,7 @@ Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn te
 
 ## Production Deployment
 
-Route production deployment/go-live/security-readiness to `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; use its inventory. Readiness: only names and comments in checked-in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or live deployments.
+Production deployment/go-live/security-readiness: `architecture` + `.ai/guides/production-deployment.md`. Route via the inventory, never `.env*`. Readiness uses only checked-in `.env.example` names/comments, never live `.env` values. Ask before credentials, billable infrastructure, or live deployments.
 
 ## Three-Axis Context Assembler
 
