@@ -389,7 +389,6 @@ const searchCli: ModuleCli = {
 
 const statusCli: ModuleCli = {
   command: 'status',
-  databaseAccess: 'tenant-or-maintenance',
   async run() {
     await statusCommand()
   },

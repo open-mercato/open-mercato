@@ -6,14 +6,14 @@ export async function runQueryIndexTenantContinuation<Result>(
   tenantId: unknown,
   organizationId: string | null | undefined,
   callback: (container: AppContainer, tenantId: string) => Promise<Result>,
-): Promise<Result> {
+): Promise<Result | null> {
   const context = databaseJobTenantContext(tenantId, 'query_index.reindex')
   if (context.kind !== 'tenant') throw new Error('[internal] Reindex continuation requires a tenant context')
   const valid = await runWithFreshDatabaseExecutionContext(
     { kind: 'identity', tenantId: context.tenantId, source: 'identity', operation: 'query-index-binding' },
-    () => validateDeclaredDatabaseBinding({ context, ...(organizationId ? { organization: { id: organizationId } } : {}) }, { requireValidator: true }),
+    () => validateDeclaredDatabaseBinding({ context, ...(organizationId ? { organization: { id: organizationId } } : {}) }, { requireValidator: 'throw' }),
   )
-  if (!valid) throw new Error('[internal] Reindex requires a persisted active tenant binding')
+  if (!valid) return null
   return runWithFreshDatabaseExecutionContext(context, async () => {
     const container = await createRequestContainer()
     try {

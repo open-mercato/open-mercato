@@ -76,9 +76,12 @@ export async function resolveDeclaredDatabaseRequestContext(input: DatabaseReque
   return identity.context
 }
 
-export async function validateDeclaredDatabaseBinding(identity: DatabaseRequestIdentity, options: Readonly<{ requireValidator?: boolean }> = {}): Promise<boolean> {
+export async function validateDeclaredDatabaseBinding(identity: DatabaseRequestIdentity, options: Readonly<{ requireValidator?: boolean | 'throw' }> = {}): Promise<boolean> {
   const validators = [...declarations().values()].flatMap((entry) => entry.bindingValidators ?? [])
-  if (options.requireValidator && validators.length === 0) return false
+  if (options.requireValidator && validators.length === 0) {
+    if (options.requireValidator === 'throw') throw new Error('[internal] Database binding validator is not registered')
+    return false
+  }
   for (const validator of validators) if (!await validator(identity)) return false
   return true
 }

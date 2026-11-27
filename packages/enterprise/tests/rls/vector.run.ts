@@ -3,9 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { mock } from 'node:test'
 import { Pool } from 'pg'
 import { createPgVectorDriver } from '@open-mercato/search/vector/drivers/pgvector/index'
 import { createPgVectorDatabaseDeclarations, resolvePgVectorStorage } from '@open-mercato/search/vector/drivers/pgvector/storage'
+import { VectorSearchStrategy } from '@open-mercato/search/strategies/vector.strategy'
+import { runDatabaseCliCommand } from '@open-mercato/shared/lib/db/cli'
 import { registerDatabaseRuntimeAdapter, databaseStorageMode } from '@open-mercato/shared/lib/db/runtime'
 import { createTenantBoundaryAdapter } from '../../src/lib/rls/runtime/registration'
 import { parseTenantTableManifest } from '../../src/lib/rls/runtime/manifest'
@@ -70,6 +73,29 @@ try {
   registerDatabaseRuntimeAdapter(createTenantBoundaryAdapter({ enabled: true, poolMode: 'direct', schema, manifestPath }, {}, suffix))
   driver = createPgVectorDriver({ ...options, pool: runtime })
   const active = driver
+  await check('search status runs the real pgvector health probe without a tenant', async () => {
+    const strategy = new VectorSearchStrategy({
+      available: true,
+      async createEmbedding() { throw new Error('[internal] Search status must not request an embedding') },
+    }, active)
+    const container = mock.module(import.meta.resolve('@open-mercato/shared/lib/di/container'), { namedExports: {
+      createRequestContainer: async () => ({
+        resolve: (name: string) => name === 'searchStrategies' ? [strategy] : name === 'searchService' ? {} : undefined,
+      }),
+    } })
+    const output = mock.method(console, 'log', () => undefined)
+    try {
+      const { default: commands } = await import('@open-mercato/search/modules/search/cli')
+      const status = commands.find(({ command }) => command === 'status')
+      assert.ok(status)
+      await runDatabaseCliCommand(status, [], 'search:status')
+      assert.ok(output.mock.calls.some(({ arguments: values }) => values[0] === '    Status: AVAILABLE'))
+      assert.equal(runtime.ended, false)
+    } finally {
+      output.mock.restore()
+      container.restore()
+    }
+  })
   await check('actual enterprise adapter uses SELECT-only active readiness on a nonowner pool', async () => {
     assert.equal(databaseStorageMode(storage.descriptor), 'validate')
     await active.ensureReady()

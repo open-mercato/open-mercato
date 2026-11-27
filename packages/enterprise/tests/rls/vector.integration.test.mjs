@@ -18,7 +18,7 @@ test('production enterprise adapter supports restricted pgvector runtime and enf
   }, files: [path.join(root, 'packages/enterprise/tests/rls/vector.run.ts')] }))
   let output
   try {
-    const result = await execute(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('./vector.run.ts', import.meta.url))], {
+    const result = await execute(process.execPath, ['--experimental-test-module-mocks', '--import', 'tsx', fileURLToPath(new URL('./vector.run.ts', import.meta.url))], {
       cwd: fileURLToPath(new URL('../../../../', import.meta.url)), env: { ...process.env, TSX_TSCONFIG_PATH: process.env.TSX_TSCONFIG_PATH ?? config }, timeout: 90_000, maxBuffer: 1024 * 1024,
     })
     output = result.stdout
@@ -27,6 +27,6 @@ test('production enterprise adapter supports restricted pgvector runtime and enf
   } finally { await rm(directory, { recursive: true, force: true }) }
   const passed = output.split('\n').filter((line) => line.startsWith('PASS '))
   for (const line of passed) context.diagnostic(line)
-  assert.equal(passed.length, 6)
-  assert.ok(output.includes('Enterprise RLS vector regression: 6 checks passed; disposable fixtures removed.'))
+  assert.equal(passed.length, 7)
+  assert.ok(output.includes('Enterprise RLS vector regression: 7 checks passed; disposable fixtures removed.'))
 })

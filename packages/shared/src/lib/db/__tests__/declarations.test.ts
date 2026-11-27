@@ -83,9 +83,11 @@ it('requires an owner validator for explicit binding checks and propagates its r
   const { validateDeclaredDatabaseBinding } = await import('../declarations')
   const identity = { context: { kind: 'tenant' as const, tenantId, source: 'public-token' as const }, organization: { id: 'org' } }
   expect(await validateDeclaredDatabaseBinding(identity, { requireValidator: true })).toBe(false)
+  await expect(validateDeclaredDatabaseBinding(identity, { requireValidator: 'throw' })).rejects.toThrow('validator is not registered')
   const validate = jest.fn(async () => false)
   registerDatabaseModuleDeclarations([{ moduleId: 'owner', declarations: { bindingValidators: [validate] } }])
   expect(await validateDeclaredDatabaseBinding(identity, { requireValidator: true })).toBe(false)
+  expect(await validateDeclaredDatabaseBinding(identity, { requireValidator: 'throw' })).toBe(false)
   validate.mockResolvedValueOnce(true)
   expect(await validateDeclaredDatabaseBinding(identity, { requireValidator: true })).toBe(true)
   validate.mockRejectedValueOnce(new Error('[internal] owner unavailable'))

@@ -33,7 +33,7 @@ The integration runner suppresses subprocess diagnostics that could contain cred
 
 ## Restricted pgvector storage regression
 
-Against an explicitly disposable PostgreSQL database with the pgvector extension available, set `OM_RLS_TEST_DATABASE_URL` privately and run `timeout 120 node --test packages/enterprise/tests/rls/vector.integration.test.mjs`. This test never skips: it requires six checks, validates active readiness on a read-only restricted connection, concurrent actual vector-driver operations and a separate enforced canary, and removes its schema/role. Revoke PUBLIC TEMP on this disposable database before running; the runtime preflight intentionally refuses that privilege. The vector table remains deferred with application tenant predicates, not FORCE-enrolled.
+Against an explicitly disposable PostgreSQL database with the pgvector extension available, set `OM_RLS_TEST_DATABASE_URL` privately and run `timeout 120 node --test packages/enterprise/tests/rls/vector.integration.test.mjs`. The test requires seven checks, including tenantless `search status` through the CLI dispatcher, read-only runtime readiness, concurrent vector operations and a separate enforced canary. It removes its schema and role. Revoke PUBLIC TEMP on this disposable database before running, since the runtime preflight refuses that privilege. The vector table remains deferred with application tenant predicates.
 
 ## Actual Redis and scheduled dispatch
 

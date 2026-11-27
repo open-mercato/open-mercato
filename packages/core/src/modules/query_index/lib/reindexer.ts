@@ -331,6 +331,10 @@ export async function reindexEntity(
           ...options, tenantId: scopedTenantId, eventBus: container.resolve('eventBus'), vectorService: scopedVectorService,
         })
       })
+      if (result === null) {
+        logger.warn('Skipping global reindex for an unavailable tenant binding', { entityType, tenantId: row.tenant_id, organizationId })
+        continue
+      }
       aggregate.processed += result.processed
       aggregate.total += result.total
       aggregate.tenantScopes.push(...result.tenantScopes)

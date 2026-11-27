@@ -24,7 +24,7 @@ it('validates each persisted binding before its fresh container and disposes bot
   await expect(runQueryIndexTenantContinuation(otherTenantId, null, callback)).resolves.toEqual({ container: second, tenant: otherTenantId })
   expect(first.dispose).toHaveBeenCalledTimes(1)
   expect(second.dispose).toHaveBeenCalledTimes(1)
-  expect(validateDeclaredDatabaseBinding).toHaveBeenCalledWith({ context: expect.objectContaining({ tenantId }) }, { requireValidator: true })
+  expect(validateDeclaredDatabaseBinding).toHaveBeenCalledWith({ context: expect.objectContaining({ tenantId }) }, { requireValidator: 'throw' })
   expect(jest.mocked(validateDeclaredDatabaseBinding).mock.invocationCallOrder[0]).toBeLessThan(jest.mocked(createRequestContainer).mock.invocationCallOrder[0])
   expect(jest.mocked(runWithFreshDatabaseExecutionContext).mock.calls.map(([context]) => context.kind)).toEqual(['identity', 'tenant', 'identity', 'tenant'])
 })
@@ -34,9 +34,17 @@ it('disposes the scoped container when tenant work fails', async () => {
   await expect(runQueryIndexTenantContinuation(tenantId, null, async () => { throw new Error('failed') })).rejects.toThrow('failed')
   expect(container.dispose).toHaveBeenCalledTimes(1)
 })
-it('rejects inactive persisted binding before creating a container', async () => {
+it('skips an inactive persisted binding before creating a container', async () => {
   jest.mocked(validateDeclaredDatabaseBinding).mockResolvedValue(false)
-  await expect(runQueryIndexTenantContinuation(tenantId, null, jest.fn())).rejects.toThrow('persisted active')
+  const callback = jest.fn()
+  await expect(runQueryIndexTenantContinuation(tenantId, null, callback)).resolves.toBeNull()
+  expect(callback).not.toHaveBeenCalled()
+  expect(createRequestContainer).not.toHaveBeenCalled()
+})
+it('propagates binding validation errors before creating a container', async () => {
+  const failure = new Error('directory unavailable')
+  jest.mocked(validateDeclaredDatabaseBinding).mockRejectedValueOnce(failure)
+  await expect(runQueryIndexTenantContinuation(tenantId, null, jest.fn())).rejects.toBe(failure)
   expect(createRequestContainer).not.toHaveBeenCalled()
 })
 it('rejects invalid tenant UUID before binding validation', async () => {
