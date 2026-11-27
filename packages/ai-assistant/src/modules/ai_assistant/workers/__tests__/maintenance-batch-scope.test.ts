@@ -6,7 +6,11 @@ import { currentTenantBoundaryScope, runWithFreshTenantBoundary, runWithTenantBo
 import type { QueuedJob } from '@open-mercato/queue'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
-jest.mock('@open-mercato/shared/lib/logger', () => ({ createLogger: () => ({ error: jest.fn(), info: jest.fn() }) }))
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const logger = { error: jest.fn(), info: jest.fn(), child: jest.fn() }
+  logger.child.mockReturnValue(logger)
+  return { createLogger: () => logger }
+})
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({ getTelemetryRuntime: () => ({ reportError: mockReportError }) }))
 
 const inactiveTenant = '12345678-1234-4234-8234-123456789012'
