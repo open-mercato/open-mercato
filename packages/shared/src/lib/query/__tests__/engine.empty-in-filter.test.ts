@@ -136,6 +136,6 @@ describe('custom-field and index-doc empty $in/$nin guard (#7637)', () => {
     expect(inQuery.sql).toMatch(/ in \(\$\d+, \$\d+\)/)
     expect(inQuery.parameters).toEqual(expect.arrayContaining(['a', 'b']))
     const ninQuery = compile('nin', ['a'])
-    expect(ninQuery.sql).toMatch(/ not in \(\$\d+\)/)
+    expect(ninQuery.sql).toMatch(/ not in \(\$\d+\)|not exists \([\s\S]+ in \(\$\d+\)\)/)
   })
 })

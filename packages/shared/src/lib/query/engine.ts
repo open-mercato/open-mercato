@@ -324,6 +324,17 @@ function buildFilterableCustomFieldJoins(
 const NUMERIC_CF_SORT_KINDS = new Set(['integer', 'float'])
 
 /**
+ * `cf:*` operators whose answer depends on the record's whole value set rather than on one
+ * `custom_field_values` row, so the projection shape compiles them to the same correlated
+ * EXISTS predicate as the count shape instead of filtering the left-joined value rows.
+ * A multi-value field stores one row per value: filtering rows would let `ne 'a'` match a
+ * record holding `a` and `b` through its `b` row (#10168).
+ */
+function cfOpNeedsValueSetPredicate(op: string): boolean {
+  return op === 'overlap' || op === 'not_ilike' || op === 'ne' || op === 'nin'
+}
+
+/**
  * Pick the winning `kind` for a `cf:` sort key from an already-resolved
  * definition list — org-scoped beats tenant-wide beats global, same
  * precedence as the dedicated sort-kind lookup (#5674 review).
@@ -1341,7 +1352,7 @@ export class BasicQueryEngine implements QueryEngine {
             })
           }
         }
-        if (isCountProjection || f.op === 'overlap' || f.op === 'not_ilike') {
+        if (isCountProjection || cfOpNeedsValueSetPredicate(f.op)) {
           q = this.applyCfValueExistsFilter(q, {
             source: filterSource,
             qualify,
@@ -1392,7 +1403,7 @@ export class BasicQueryEngine implements QueryEngine {
               if (rf.kind === 'predicate') return rf.expression
               if (rf.kind === 'column') return this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
               if (rf.kind === 'cf') {
-                if (isCountProjection || rf.op === 'overlap' || rf.op === 'not_ilike') {
+                if (isCountProjection || cfOpNeedsValueSetPredicate(rf.op)) {
                   return this.buildCfValueExistsExpression(eb, {
                     source: keySource.get(rf.key)!,
                     qualify,
@@ -1790,7 +1801,8 @@ export class BasicQueryEngine implements QueryEngine {
    * `custom_field_values` (+ `custom_field_defs` for kind-based coercion) —
    * the count shape's equivalent of the projection path's leftJoin + WHERE.
    * A semi-join returns each base row at most once, so the count query needs
-   * no DISTINCT or GROUP BY and stays boundable by an outer LIMIT.
+   * no DISTINCT or GROUP BY and stays boundable by an outer LIMIT. The projection
+   * shape uses it too for the value-set operators (`cfOpNeedsValueSetPredicate`).
    *
    * Predicates satisfied by the *absence* of a value row (`eq null`,
    * `exists: false`) become `NOT EXISTS(value) OR EXISTS(null value)`,
@@ -1888,15 +1900,32 @@ export class BasicQueryEngine implements QueryEngine {
       ])
     }
 
+    // `ne` / `nin` hold when the field is set (some non-null value row) and no value row
+    // equals any excluded value, the same set semantics as the query-index predicate and
+    // the in-memory custom-document matcher. One row per value means a per-row `!=` /
+    // `not in` would let another stored value satisfy the predicate (#10168).
+    // A null in the list adds nothing: the field must already be set, so `nin: [null]`
+    // means the same as `ne: null`. The query-index engine applies the same rule.
+    const excludesValues = (excluded: unknown[]) => {
+      const isSet = eb.exists(buildSub(eb).where(sql<boolean>`${caseExpr} is not null`))
+      const nonNullExcluded = excluded.filter((excludedValue) => excludedValue != null)
+      if (nonNullExcluded.length === 0) return isSet
+      return eb.and([
+        isSet,
+        eb.not(eb.exists(buildSub(eb).where(
+          sql<boolean>`${caseExpr} in (${sql.join(nonNullExcluded.map((excludedValue) => sql`${excludedValue}`), sql`, `)})`,
+        ))),
+      ])
+    }
+
     let predicate: RawBuilder<boolean> | null = null
     switch (op) {
       case 'eq':
         predicate = sql<boolean>`${caseExpr} = ${value}`
         break
       case 'ne':
-        predicate = value === null
-          ? sql<boolean>`${caseExpr} is not null`
-          : sql<boolean>`${caseExpr} != ${value}`
+        if (value !== null) return excludesValues([value])
+        predicate = sql<boolean>`${caseExpr} is not null`
         break
       case 'gt':
       case 'gte':
@@ -1917,8 +1946,7 @@ export class BasicQueryEngine implements QueryEngine {
         // Empty list excludes nothing — the same always-match the projection shape's applyColumnOp yields.
         const vals = Array.isArray(value) ? value : [value]
         if (vals.length === 0) return sql<boolean>`true`
-        predicate = sql<boolean>`${caseExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
-        break
+        return excludesValues(vals)
       }
       case 'like':
         predicate = sql<boolean>`${caseExpr} like ${value}`

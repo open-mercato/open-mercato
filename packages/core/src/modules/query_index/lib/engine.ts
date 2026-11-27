@@ -1953,7 +1953,11 @@ export class HybridQueryEngine implements QueryEngine {
       case 'nin': {
         const values = this.toArray(value)
         if (!values.length) return sql<boolean>`${textExpr} is not null`
-        const matches = values.map((val) => sql<boolean>`${textExpr} = ${val} or ${arrContains(val)}`)
+        // A null in the list adds nothing beyond "the field is set" (#10168), the same as
+        // the in-memory matcher; left in, it turns the whole predicate NULL and drops every row.
+        const nonNullValues = values.filter((val) => val != null)
+        if (!nonNullValues.length) return sql<boolean>`${textExpr} is not null`
+        const matches = nonNullValues.map((val) => sql<boolean>`${textExpr} = ${val} or ${arrContains(val)}`)
         return sql<boolean>`not (${sql.join(matches, sql` or `)})`
       }
       case 'like':
@@ -2145,7 +2149,10 @@ export class HybridQueryEngine implements QueryEngine {
         // Empty list: `not in ()` is invalid SQL (#7637); exclude nothing, mirroring applyColumnFilter.
         const vals = this.toArray(value)
         if (vals.length === 0) return q.where(sql<boolean>`true`)
-        return q.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
+        // A null in the list adds nothing beyond "the field is set" (#10168); see buildCfFilterExpression.
+        const nonNullVals = vals.filter((v) => v != null)
+        if (nonNullVals.length === 0) return q.where(sql<boolean>`${textExpr} is not null`)
+        return q.where(sql<boolean>`${textExpr} not in (${sql.join(nonNullVals.map((v) => sql`${v}`), sql`, `)})`)
       }
       case 'like':
         return q.where(sql<boolean>`${textExpr} like ${value}`)
