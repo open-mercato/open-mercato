@@ -57,6 +57,7 @@ describePostgres('resource type repair with PostgreSQL', () => {
     markOrmEntityChange: jest.fn(),
     flushOrmEntityChanges: jest.fn(),
   }
+  const eventBus = { emitEvent: jest.fn() }
   const oldVersion = new Date('2099-01-01T00:00:00.000Z')
   const otherTenant = { ...scope, tenantId: randomUUID() }
   const otherOrg = { ...scope, organizationId: randomUUID() }
@@ -104,7 +105,7 @@ describePostgres('resource type repair with PostgreSQL', () => {
     await em.nativeDelete(ResourcesResource, {})
     await em.nativeDelete(ResourcesResourceType, {})
     createContainer.mockResolvedValue({
-      resolve: (key: string) => ({ em, dataEngine })[key as 'em' | 'dataEngine'],
+      resolve: (key: string) => ({ em, dataEngine, eventBus })[key as 'em' | 'dataEngine' | 'eventBus'],
       dispose: jest.fn(),
     } as unknown as Awaited<ReturnType<typeof createRequestContainer>>)
   })
@@ -164,6 +165,11 @@ describePostgres('resource type repair with PostgreSQL', () => {
       .toEqual(expect.arrayContaining(candidateIds.map((id) => ({ id, ...scope }))))
     expect(dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(candidateIds.length)
     expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+    expect(eventBus.emitEvent).toHaveBeenCalledTimes(candidateIds.length)
+    expect(eventBus.emitEvent).toHaveBeenCalledWith(
+      'resources.resource.updated', { id: candidateIds[0], ...scope },
+      { ...scope, persistent: true, emitterModuleId: 'resources' },
+    )
     expect(invalidateCrudCache).toHaveBeenCalledWith(
       expect.anything(), 'resources.resource', scope, scope.tenantId, 'resource-type-reference-repair',
     )
@@ -193,6 +199,19 @@ describePostgres('resource type repair with PostgreSQL', () => {
     }))
     expect(invalidateCrudCache).toHaveBeenCalledTimes(1)
     expect(await orm.em.fork().findOneOrFail(ResourcesResource, resource.id)).toEqual(repaired)
+  })
+
+  it('retains the journal when publication fails and retries the persistent event', async () => {
+    const em = orm.em.fork()
+    const resource = em.create(ResourcesResource, { ...scope, name: 'Pending event', resourceTypeId: randomUUID() })
+    await em.flush()
+    eventBus.emitEvent.mockRejectedValueOnce(new Error('queue unavailable'))
+
+    await expect(runRepair(applyArgs, bootstrap)).rejects.toThrow('queue unavailable')
+    expect(invalidateCrudCache).not.toHaveBeenCalled()
+    expect(await runRepair(applyArgs, bootstrap)).toEqual({ mode: 'apply', found: 0, cleared: 0, replayed: 1 })
+    expect(eventBus.emitEvent).toHaveBeenCalledTimes(2)
+    expect((await orm.em.fork().findOneOrFail(ResourcesResource, resource.id)).resourceTypeId).toBeNull()
   })
 
   it('leaves every reference and version unchanged if the write fails', async () => {

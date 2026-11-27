@@ -3,9 +3,10 @@ import { parseArgs } from 'node:util'
 import { IsolationLevel, raw, type EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { ResourcesResource, ResourcesResourceType } from '@open-mercato/core/modules/resources/data/entities'
-import { resourcesResourceCrudEvents } from '@open-mercato/core/modules/resources/lib/crud'
+import type { EventBus } from '@open-mercato/events'
 import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { journalTarget, readJournal, writeJournal } from './journal'
@@ -85,11 +86,19 @@ export async function runRepair(args: string[], bootstrap: () => Promise<void>) 
           action: 'updated',
           entity: em.getReference(ResourcesResource, id),
           identifiers: { id, ...scope },
-          events: resourcesResourceCrudEvents,
           indexer: { entityType: 'resources:resources_resource' },
         })
       }
       await flushCrudSideEffects(dataEngine)
+      const eventBus = container.resolve<EventBus>('eventBus')
+      for (const id of clearedIds) {
+        const payload = Object.defineProperty({ id, ...scope }, CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY, { value: true })
+        await eventBus.emitEvent('resources.resource.updated', payload, {
+          ...scope,
+          persistent: true,
+          emitterModuleId: 'resources',
+        })
+      }
     }
     if (apply) await invalidateCrudCache(container, 'resources.resource', scope, tenant, 'resource-type-reference-repair')
     if (journal && (pending || clearedIds.length)) await rename(journal, `${journal}.complete`)
