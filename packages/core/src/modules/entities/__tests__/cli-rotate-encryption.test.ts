@@ -184,6 +184,23 @@ describe('entities rotate-encryption-key CLI', () => {
     expect(execute.mock.calls[1][1][0]).toBe(JSON.stringify(`enc:${plaintext}`))
   })
 
+  it.each([
+    '{"number":9007199254740993}',
+    '[9007199254740993]',
+    '{"number":0.123456789012345678901234567890}',
+    ' { "number": 9007199254740993 } ',
+  ])('preserves structured plaintext JSON during initial encryption: %s', async (plaintext) => {
+    const encrypt = cli.find((candidate) => candidate.command === 'rotate-encryption-key')!
+    singleMapFixture()
+    execute.mockResolvedValueOnce([
+      { id: 'row-1', resource_id: null, context_json: plaintext },
+    ])
+
+    await encrypt.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(execute.mock.calls[1][1]).toContain(JSON.stringify(`enc:${plaintext.trim()}`))
+  })
+
   // Regression for #5951: a row sealed under neither --old-key nor the current tenant key
   // used to be handed to the encrypt path verbatim, which wrapped the ciphertext in a second
   // envelope and wrote the result. Skip and report the row instead of corrupting it.

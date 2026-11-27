@@ -757,7 +757,9 @@ const rotateEncryptionKey: ModuleCli = {
           if (isEncryptedPayloadShape(rawValue) ? !rotate : rotate) {
             continue
           }
-          payload[rule.field] = rawValue
+          const originalValue = originalRow[col]
+          const isStructuredJson = Boolean(columns.get(col)) && rawValue !== null && typeof rawValue === 'object'
+          payload[rule.field] = isStructuredJson && typeof originalValue === 'string' ? originalValue.trim() : rawValue
           if (rule.hashField) {
             const resolvedHash = resolveProperty(meta, rule.hashField)
             const hashCol = resolvedHash?.columnName
