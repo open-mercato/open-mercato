@@ -191,6 +191,10 @@ Implemented on top of #8571. Merge still needs the `security` label and the main
 
 ## Changelog
 
+### 2026-11-27
+
+- Merged `main` again. `main` raised OMH-030's `maxTotalContextBytes` to 137702, which covers the `#7672` record, so this PR no longer changes `cases.json`. New `main` records left OMH-007 and OMH-064 12 bytes over their 135168-byte cap with the `#7672` record, so the record was shortened by 21 bytes; its meaning is unchanged.
+
 ### 2026-11-20
 
 - Merged `main` again. The `#7672` record in `BACKWARD_COMPATIBILITY.md` pushed the create-app harness case OMH-030 104 bytes over its context cap, so its `maxTotalContextBytes` moved from 135168 to 136192. OMH-022 fits the cap already on `main`, so the earlier OMH-022 change is no longer part of this PR.
