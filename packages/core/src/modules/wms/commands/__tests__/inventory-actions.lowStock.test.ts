@@ -228,4 +228,59 @@ describe('wms inventory low stock event profile resolution', () => {
 
     expect(lowStockEmissions()).toEqual([])
   })
+
+  it('excludes dock/staging balances from available quantity, matching sales/reservation availability', async () => {
+    const { em, execute } = createEm([{ product_id: PRODUCT_ID }])
+    const bin = buildBalance()
+    bin.quantityOnHand = '10'
+    const dock = {
+      ...buildBalance(),
+      id: 'balance-2',
+      location: { id: 'dock-location', type: 'dock' },
+      quantityOnHand: '20',
+    }
+
+    findOneWithDecryption.mockImplementation((_em, entity, where: Record<string, unknown>) => {
+      if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
+      if (entity === WarehouseLocation) {
+        return { id: LOCATION_ID, tenantId: TENANT, organizationId: ORG, warehouse: { id: WAREHOUSE_ID } }
+      }
+      if (entity === InventoryBalance) return bin
+      if (entity === InventoryMovement) return null
+      if (entity === ProductInventoryProfile) {
+        if (where.catalogVariantId === VARIANT_ID) {
+          return {
+            tenantId: TENANT,
+            organizationId: ORG,
+            catalogProductId: PRODUCT_ID,
+            catalogVariantId: VARIANT_ID,
+            reorderPoint: '15',
+            safetyStock: '5',
+          }
+        }
+      }
+      return null
+    })
+    findWithDecryption.mockImplementation(async (_em, entity) => {
+      // Dock stock (20) would push the naive sum (22, after the -8 adjust) above
+      // the reorder point (15) and hide the low-stock state; only the bin
+      // balance is eligible, matching how sales/reservations compute availability.
+      if (entity === InventoryBalance) return [bin, dock]
+      return []
+    })
+
+    await adjustDown(em, -8)
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(lowStockEmissions()).toEqual([
+      [
+        'wms.inventory.low_stock',
+        expect.objectContaining({
+          catalogVariantId: VARIANT_ID,
+          availableQuantity: '2',
+          state: 'below_safety_stock',
+        }),
+      ],
+    ])
+  })
 })
