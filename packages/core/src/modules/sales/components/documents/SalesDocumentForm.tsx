@@ -471,7 +471,7 @@ type CustomerGroupComponentProps = CrudFormGroupComponentProps & {
   resetAddressFormState: (updateValue: (key: string, value: unknown) => void) => void
 }
 
-function DocumentNumberField({ value, setValue, values, t }: DocumentNumberFieldProps) {
+function DocumentNumberField({ id, value, setValue, values, t }: DocumentNumberFieldProps) {
   const formValues = (values ?? {}) as Partial<SalesDocumentFormValues>
   const kind: DocumentKind = formValues.documentKind === 'order' ? 'order' : 'quote'
   const [loading, setLoading] = React.useState(false)
@@ -517,6 +517,7 @@ function DocumentNumberField({ value, setValue, values, t }: DocumentNumberField
     <div className="space-y-2">
       <div className="flex w-full flex-col gap-2 md:flex-row md:items-center md:gap-3">
         <Input
+          id={id}
           value={typeof value === 'string' ? value : ''}
           onChange={(event) => setValue(event.target.value)}
           disabled={loading}

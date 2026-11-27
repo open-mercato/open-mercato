@@ -59,6 +59,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
     return (
       <div>
         <div data-testid="doc-number">
+          <label htmlFor="documentNumber">{docField?.label}</label>
           {docField ? docField.component({ ...fieldProps, id: 'documentNumber' }) : null}
         </div>
         <div data-testid="billing">
@@ -282,6 +283,7 @@ describe('SalesDocumentForm hoisted renderers — behavior (#3173)', () => {
 
   it('renders the document-number field and auto-requests a number on mount', async () => {
     render(<SalesDocumentForm onCreated={jest.fn()} initialKind="order" />)
+    expect(screen.getByRole('textbox', { name: 'Document number' })).toHaveAttribute('id', 'documentNumber')
 
     await waitFor(() => {
       expect(mockApiCall).toHaveBeenCalledWith(
