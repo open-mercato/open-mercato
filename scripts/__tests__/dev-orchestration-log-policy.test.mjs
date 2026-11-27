@@ -36,7 +36,9 @@ test('isIgnorableEnvInjectionLine catches dotenv injection notices', () => {
 test('isIgnorableSetupEnvNoticeLine catches setup .env notices', () => {
   assert.equal(isIgnorableSetupEnvNoticeLine('[setup] Copied .env.example to .env'), true)
   assert.equal(isIgnorableSetupEnvNoticeLine('[setup] Keeping existing .env'), true)
-  assert.equal(isIgnorableSetupEnvNoticeLine('[setup] Some other notice'), false)
+  assert.equal(isIgnorableSetupEnvNoticeLine('📄 Copied .env.example to .env'), true)
+  assert.equal(isIgnorableSetupEnvNoticeLine('📄 Keeping existing .env'), true)
+  assert.equal(isIgnorableSetupEnvNoticeLine('📄 Some other notice'), false)
   assert.equal(isIgnorableSetupEnvNoticeLine(null), false)
 })
 
@@ -84,7 +86,7 @@ test('isIgnorableFailureLine treats empty/whitespace and noise predicates as ign
   assert.equal(isIgnorableFailureLine(null), true)
   assert.equal(isIgnorableFailureLine('╭── trace'), true)
   assert.equal(isIgnorableFailureLine('◇ injecting env (1) from .env'), true)
-  assert.equal(isIgnorableFailureLine('[setup] Copied .env.example to .env'), true)
+  assert.equal(isIgnorableFailureLine('📄 Copied .env.example to .env'), true)
   assert.equal(isIgnorableFailureLine('Open Mercato CLI'), true)
   // Real errors must NOT be filtered
   assert.equal(isIgnorableFailureLine('Error: database unavailable'), false)

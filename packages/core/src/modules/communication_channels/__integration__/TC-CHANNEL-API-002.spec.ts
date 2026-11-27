@@ -60,7 +60,7 @@ test.describe('TC-CHANNEL-API-002: set-primary keeps a single primary per user',
       })
 
       const userEmail = `qa-channel-api-002-${stamp}@acme.com`
-      const userPassword = 'Valid1!Pass'
+      const userPassword = 'QaValid1!Pass'
       userId = await createUserFixture(request, adminToken, {
         email: userEmail,
         password: userPassword,

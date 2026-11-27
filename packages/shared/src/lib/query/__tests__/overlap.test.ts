@@ -18,6 +18,7 @@ import {
   buildScalarOverlapPredicate,
   jsonbDocKeyExpression,
   normalizeOverlapValues,
+  prepareOverlapFilters,
 } from '../overlap'
 import type { FilterOp } from '../types'
 
@@ -216,4 +217,39 @@ describe('BasicQueryEngine noverlap', () => {
       .compile()
     expect(expression.sql).toContain('not ("b"."tags" && $1)')
   })
+})
+
+
+describe('JSONB base-column overlap (#7831)', () => {
+  it('dispatches to JSONB membership while native arrays keep &&', async () => {
+    const filters = normalizeFilters({ role_ids: { $overlap: ['role-1'] }, tags: { $overlap: ['tag-1'] } })
+    await prepareOverlapFilters(filters, async (field) => field === 'role_ids' ? 'jsonb' : 'ARRAY')
+    const builder = db.selectFrom('staff_team_members as b').select('b.id')
+    const jsonb = engine.applyColumnOp(builder, 'b.role_ids', 'overlap', filters[0].value).compile()
+    const native = engine.applyColumnOp(builder, 'b.tags', 'overlap', filters[1].value).compile()
+    expect(jsonb.sql).toContain('"b"."role_ids" ?| $1::text[]')
+    expect(jsonb.parameters).toEqual([['role-1']])
+    expect(native.sql).toContain('"b"."tags" && $1')
+    expect(native.parameters).toEqual([['tag-1']])
+  })
+
+  it.each([[1], [true], [{ role: 'a' }]])('rejects unsupported JSONB values %j without stringifying them', async (values) => {
+    const filters = normalizeFilters({ role_ids: { $overlap: values } })
+    await expect(prepareOverlapFilters(filters, async () => 'jsonb')).rejects.toThrow(TypeError)
+  })
+
+  it('keeps JSONB empty-overlap and noverlap null guards fail-closed', async () => {
+    const filters = normalizeFilters({ role_ids: { $overlap: [], $noverlap: [] } })
+    await prepareOverlapFilters(filters, async () => 'jsonb')
+    const builder = db.selectFrom('staff_team_members as b').select('b.id')
+    expect(engine.applyColumnOp(builder, 'b.role_ids', 'overlap', filters[0].value).compile().sql).toMatch(/where false$/)
+    expect(engine.applyColumnOp(builder, 'b.role_ids', 'noverlap', filters[1].value).compile().sql).toContain(`jsonb_typeof("b"."role_ids") = 'array'`)
+  })
+})
+
+
+test('document overlap requires an array instead of matching scalar values or object keys', () => {
+  const compiled = compileWhere(buildJsonbOverlapPredicate('ei.doc', 'tags', ['alpha']))
+  expect(compiled.sql).toContain(`jsonb_typeof(("ei"."doc" -> 'tags')) = 'array'`)
+  expect(compiled.sql).toContain(`and ("ei"."doc" -> 'tags') ?| $1::text[]`)
 })

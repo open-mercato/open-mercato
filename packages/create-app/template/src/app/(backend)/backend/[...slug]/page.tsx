@@ -9,6 +9,7 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -16,6 +17,8 @@ import { ComponentReplacementHandles, resolveRegisteredComponent } from '@open-m
 import type { Metadata } from 'next'
 import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
+import { getCrudFormSectionManifest } from '@open-mercato/shared/lib/crud/form-sections/manifest'
+import { CrudFormSectionLedgerProvider } from '@open-mercato/ui/backend/injection/crud-form-section-ledger'
 import { backendMiddlewareEntries } from '@/.mercato/generated/backend-middleware.generated'
 
 bootstrap()
@@ -55,6 +58,10 @@ export async function generateMetadata(props: BackendParams): Promise<Metadata> 
 }
 
 export default async function BackendCatchAll(props: BackendParams) {
+  return runInOwnedRequestScope(() => renderBackendCatchAll(props))
+}
+
+async function renderBackendCatchAll(props: BackendParams) {
   const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
   const match = findRouteManifestMatch(getBackendRouteManifests(), pathname)
@@ -119,12 +126,12 @@ export default async function BackendCatchAll(props: BackendParams) {
   const Component = resolveRegisteredComponent(pageHandle, LoadedComponent)
 
   return (
-    <>
+    <CrudFormSectionLedgerProvider value={getCrudFormSectionManifest().ledger}>
       <ApplyBreadcrumb breadcrumb={match.route.breadcrumb} title={match.route.title} titleKey={match.route.titleKey} />
       <div data-component-handle={pageHandle}>
         <Component params={match.params} />
       </div>
-    </>
+    </CrudFormSectionLedgerProvider>
   )
 }
 

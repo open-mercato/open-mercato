@@ -57,6 +57,13 @@ test.describe('TC-SEC-016: Change password feedback and session boundary', () =>
       const { token } = await loginViaApi(request, user.email, user.password)
 
       await openPolishSecurityPage(page, token)
+      const form = page.locator(FORM_SELECTOR)
+      await expect(form.getByLabel('Aktualne hasło', { exact: true })).toHaveAttribute('autocomplete', 'current-password')
+      const newPassword = form.getByLabel('Nowe hasło', { exact: true })
+      await expect(newPassword).toHaveAttribute('autocomplete', 'new-password')
+      await expect(newPassword).toHaveAccessibleDescription(/Co najwyżej 72 bajtów \(UTF-8\)/)
+      await expect(form.getByLabel('Potwierdź nowe hasło', { exact: true })).toHaveAttribute('autocomplete', 'new-password')
+
       const dialogs: string[] = []
       page.on('dialog', async (dialog) => {
         dialogs.push(dialog.type())
@@ -79,7 +86,7 @@ test.describe('TC-SEC-016: Change password feedback and session boundary', () =>
       expect(body.error).toBe(POLISH_CURRENT_PASSWORD_INVALID)
       expect(body.issues).toEqual([{ path: ['currentPassword'], message: POLISH_CURRENT_PASSWORD_INVALID }])
 
-      await expect(page.locator(FORM_SELECTOR).getByText(POLISH_CURRENT_PASSWORD_INVALID).first()).toBeVisible()
+      await expect(form.getByText(POLISH_CURRENT_PASSWORD_INVALID).first()).toBeVisible()
       await expect(page).toHaveURL(/\/backend\/profile\/security$/)
       const inputs = page.locator(`${FORM_SELECTOR} input[type="password"]`)
       await expect(inputs.nth(0)).toHaveValue('Wrong1!Current')

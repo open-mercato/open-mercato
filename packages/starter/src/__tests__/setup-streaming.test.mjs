@@ -189,10 +189,11 @@ test('database setup does not mark pending or failed migrations as complete', as
   const repoRoot = temporaryRepo(t)
   const migration = deferred()
   const invocations = []
+  const messages = []
   const ctx = {
-    repoRoot, env: {}, flags: { noInfra: true }, log() {},
+    repoRoot, env: {}, flags: { noInfra: true }, log: (message) => messages.push(message),
     assertDatabaseWriteAllowedImpl: async () => ({ remote: false }),
-    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'verified', settings: env }),
+    assertEncryptionCompatibleImpl: async ({ env }) => ({ status: 'empty', settings: env }),
     dbMigrationsMarker: 'db-migrations-test', dbMarker: 'db-initialized-test', migrationsFingerprint: 'fingerprint',
     runStreamingImpl: async (_command, args) => { invocations.push(args[0]); return migration.promise },
   }
@@ -204,6 +205,7 @@ test('database setup does not mark pending or failed migrations as complete', as
   migration.resolve(2)
   await assert.rejects(running, /db:migrate failed \(exit 2\)/)
   assert.deepEqual(invocations, ['db:migrate'])
+  assert.ok(messages.includes('🔒 encryption preflight: empty'))
   assert.equal(fs.existsSync(migrationsFile), false)
   assert.equal(fs.existsSync(initializedFile), false)
 })

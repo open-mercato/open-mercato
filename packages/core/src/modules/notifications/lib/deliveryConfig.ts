@@ -76,7 +76,7 @@ const resolveEnvDefaults = () => {
   }
 }
 
-export const DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryConfig = (() => {
+export function resolveDefaultNotificationDeliveryConfig(): NotificationDeliveryConfig {
   const env = resolveEnvDefaults()
   return {
     appUrl: env.appUrl,
@@ -92,19 +92,28 @@ export const DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryConfig = 
       custom: {},
     },
   }
-})()
-
-export const STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryConfig = {
-  ...DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
-  strategies: {
-    ...DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies,
-    email: {
-      ...DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.email,
-      from: undefined,
-      replyTo: resolveStoredSenderAddress(DEFAULT_NOTIFICATION_DELIVERY_CONFIG.strategies.email.replyTo),
-    },
-  },
 }
+
+export function resolveStoredDefaultNotificationDeliveryConfig(): NotificationDeliveryConfig {
+  const defaults = resolveDefaultNotificationDeliveryConfig()
+  return {
+    ...defaults,
+    strategies: {
+      ...defaults.strategies,
+      email: {
+        ...defaults.strategies.email,
+        from: undefined,
+        replyTo: resolveStoredSenderAddress(defaults.strategies.email.replyTo),
+      },
+    },
+  }
+}
+
+export const DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryConfig =
+  resolveDefaultNotificationDeliveryConfig()
+
+export const STORED_DEFAULT_NOTIFICATION_DELIVERY_CONFIG: NotificationDeliveryConfig =
+  resolveStoredDefaultNotificationDeliveryConfig()
 
 const parseDeliveryConfig = (input: unknown) => {
   const parsed = notificationDeliveryConfigSchema.safeParse(input)

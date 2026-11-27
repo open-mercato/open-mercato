@@ -203,7 +203,7 @@ test.describe('TC-ENTITIES-008: Custom Entity Default Restriction Policy Setting
     await expect(page.getByText('Could not load default restriction policy; using default').first()).toBeVisible();
   });
 
-  test('should show error toast on save failure', async ({ page }) => {
+  test('should show a save error on failure', async ({ page }) => {
     await page.goto('/backend/config/settings');
     await expect(page.getByRole('heading', { name: 'Custom Entities' })).toBeVisible();
 
@@ -223,7 +223,7 @@ test.describe('TC-ENTITIES-008: Custom Entity Default Restriction Policy Setting
     await checkbox.click();
     await page.getByRole('button', { name: 'Save' }).click();
 
-    await expect(page.getByText('Failed to save settings').first()).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'Failed to save settings' })).toBeVisible();
   });
 
   test('should show unified record conflict banner on UI conflict', async ({ page }) => {
