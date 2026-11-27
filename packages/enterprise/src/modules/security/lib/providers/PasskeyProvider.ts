@@ -87,7 +87,7 @@ export class PasskeyProvider implements MfaProviderInterface {
 
   constructor(
     private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
-    private readonly setupTokenSecret: string = readSecuritySetupTokenSecret(),
+    private readonly setupTokenSecret?: string,
   ) {}
 
   resolveSetupPayload(user: MfaProviderUser, payload: unknown): unknown {
@@ -359,7 +359,7 @@ export class PasskeyProvider implements MfaProviderInterface {
   }
 
   private getSetupTokenSecret(): string {
-    return this.setupTokenSecret
+    return this.setupTokenSecret ?? readSecuritySetupTokenSecret()
   }
 
   private getRpName(securityConfig: SecurityModuleConfig): string {

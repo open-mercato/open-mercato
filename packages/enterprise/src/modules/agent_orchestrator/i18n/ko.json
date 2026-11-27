@@ -387,6 +387,7 @@
   "agent_orchestrator.errors.timeout": "에이전트 실행이 결과를 내기 전에 시간이 초과되었습니다",
   "agent_orchestrator.errors.unauthorized": "권한 없음",
   "agent_orchestrator.errors.validation_failed": "검증에 실패했습니다",
+  "agent_orchestrator.errors.workflowsModuleDisabled": "워크플로 모듈이 활성화되어 있지 않습니다",
   "agent_orchestrator.evalAssertions.actions.new": "새 검증 조건",
   "agent_orchestrator.evalAssertions.confirmDelete.text": "이 검증 조건을 삭제할까요? 이후 실행은 이 조건으로 채점되지 않습니다.",
   "agent_orchestrator.evalAssertions.enabled.off": "비활성화됨",

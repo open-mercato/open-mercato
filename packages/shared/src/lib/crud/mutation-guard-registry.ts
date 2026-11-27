@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import type { OrganizationScope } from '../auth/principal-service'
 import { authorizeFeatures } from '../../security/featurePolicy'
 import { resolveCrudMutationGuardService } from './mutation-guard-service'
 
@@ -126,7 +127,10 @@ export async function runMutationGuards(
 // Legacy guard bridge
 // ---------------------------------------------------------------------------
 
-export function bridgeLegacyGuard(container: AwilixContainer): MutationGuard | null {
+export function bridgeLegacyGuard(
+  container: AwilixContainer,
+  organizationScope?: OrganizationScope | null,
+): MutationGuard | null {
   const legacyService = resolveCrudMutationGuardService(container)
   if (!legacyService) return null
 
@@ -140,6 +144,7 @@ export function bridgeLegacyGuard(container: AwilixContainer): MutationGuard | n
       const result = await legacyService.validateMutation({
         tenantId: input.tenantId,
         organizationId: input.organizationId,
+        ...(organizationScope !== undefined ? { organizationScope } : {}),
         userId: input.userId,
         resourceKind: input.resourceKind,
         resourceId: input.resourceId ?? '',
@@ -157,6 +162,7 @@ export function bridgeLegacyGuard(container: AwilixContainer): MutationGuard | n
       await legacyService.afterMutationSuccess({
         tenantId: input.tenantId,
         organizationId: input.organizationId,
+        ...(organizationScope !== undefined ? { organizationScope } : {}),
         userId: input.userId,
         resourceKind: input.resourceKind,
         resourceId: input.resourceId,

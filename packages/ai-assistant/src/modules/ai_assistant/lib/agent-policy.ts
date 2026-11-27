@@ -30,6 +30,8 @@ export type AgentPolicyDenyCode =
   | 'loop_active_tools_outside_allowlist'
   /** agent.loop.allowRuntimeOverride is false and a per-call loop override was supplied. */
   | 'loop_runtime_override_disabled'
+  /** agent.allowRuntimeOverride is false and per-call callSettings were supplied. */
+  | 'runtime_override_disabled'
 
 export type AgentPolicyDecision =
   | { ok: true; agent: AiAgentDefinition; tool?: AiToolDefinition }
