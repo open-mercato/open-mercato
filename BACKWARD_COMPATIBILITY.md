@@ -741,4 +741,4 @@ STABLE `execute`: set direct or use typed tools. A bridge preserves implicit wri
 
 ## 2026-11-26 — Audit-log actor visibility (#10788)
 
-STABLE audit reads enforce org scope for other actors' rows. A bridge leaks rows. Named waiver pending. [Upgrade](UPGRADE_NOTES.md#audit-log-scope-10788) · [Spec](.ai/specs/2026-07-28-audit-log-read-tenant-scope-fail-closed.md).
+STABLE audit reads limit other actors to granted orgs. A bridge leaks rows. Named waiver pending. [Upgrade](UPGRADE_NOTES.md#audit-log-scope-10788) · [Spec](.ai/specs/2026-07-28-audit-log-read-tenant-scope-fail-closed.md).
