@@ -32,7 +32,7 @@ import {
 } from './pending-action-notify'
 import { hasRequiredFeatures } from './auth'
 import { resolvePendingActionAlreadyResolvedMessage, resolveToolFeaturesDeniedMessage } from './pending-action-messages'
-import { recheckPendingActionToolInput } from './pending-action-recheck'
+import { recheckPendingActionToolInput, restorePendingActionHandlerInput } from './pending-action-recheck'
 import type {
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,
@@ -423,6 +423,10 @@ export async function executeRecheckedPendingActionConfirm(
       }
     }
     plan = planPendingActionExecution(action, tool, partialFailedRecords, checkedInput.toolInput)
+    if (plan.kind === 'run') {
+      plan = restorePendingActionHandlerInput(action, tool, plan, checkedInput.toolInput, partialFailedRecords)
+        ?? { kind: 'refuse', code: 'stale_version', staleRecordIds: [] }
+    }
   }
   if (plan.kind === 'refuse') {
     const messages = await resolvePendingActionBatchMessages()
@@ -486,10 +490,8 @@ export async function executeRecheckedPendingActionConfirm(
       toToolHandlerContext(ctx, tool, action, plan.expectedRecordVersions),
     )
   } catch (error) {
-    const submittedPlan = planPendingActionExecution(action, tool, partialFailedRecords, action.normalizedInput)
-    const submittedInput = submittedPlan.kind === 'run' ? submittedPlan.input : undefined
     const failureResult: AiPendingActionExecutionResult = {
-      error: buildHandlerErrorFromThrown(error, submittedInput),
+      error: buildHandlerErrorFromThrown(error, plan.input),
     }
     const failedRow = await repo.setStatus(executingRow.id, 'failed', scope, {
       executionResult: failureResult,

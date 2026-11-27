@@ -236,7 +236,7 @@ describe('executePendingActionConfirm', () => {
     const throwingTool = makeTool({
       inputSchema: z.object({ title: z.string(), label: z.string().default('Schema default') }),
       handler: async (input) => {
-        expect(input).toEqual({ title: 'Submitted', label: 'Schema default' })
+        expect(input).toEqual({ title: 'Submitted' })
         throw new Error('db constraint')
       },
     })

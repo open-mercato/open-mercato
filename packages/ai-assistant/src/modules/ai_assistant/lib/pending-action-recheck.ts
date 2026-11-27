@@ -15,6 +15,7 @@
  * This module is pure aside from DB reads; the caller owns the transaction
  * boundary. The Step 5.9 cancel route reuses {@link checkStatusAndExpiry}.
  */
+import { isDeepStrictEqual } from 'node:util'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -447,6 +448,25 @@ export function recheckPendingActionToolInput(
   return { ok: true, toolInput: isRawToolPendingAction(action) ? storedInput : parseResult.data }
 }
 
+export function restorePendingActionHandlerInput(
+  action: AiPendingAction,
+  tool: AiToolDefinition,
+  plan: Extract<PendingActionExecutionPlan, { kind: 'run' }>,
+  toolInput: unknown,
+  failedRecords: AiPendingActionFailedRecord[] | null | undefined,
+): typeof plan | null {
+  if (isRawToolPendingAction(action)) return plan
+
+  const storedInput = action.normalizedInput ?? {}
+  if (plan.input === toolInput) return { ...plan, input: storedInput }
+
+  const submittedPlan = planPendingActionExecution(action, tool, failedRecords, storedInput)
+  if (submittedPlan.kind === 'refuse') return null
+  const parsed = tool.inputSchema.safeParse(submittedPlan.input)
+  if (!parsed.success || !isDeepStrictEqual(parsed.data, plan.input)) return null
+  return { ...plan, input: submittedPlan.input }
+}
+
 /**
  * Guard 8: check schema drift and compare the current records with their
  * captured identities and versions. Batch execution can proceed only with
@@ -527,7 +547,7 @@ async function checkConfirmationRecords(
     const previewChanged = verifyPreviewValues && plan.recordIds?.some((recordId) => {
       const approved = approvedById.get(recordId)
       const current = currentById.get(recordId)
-      return approved?.fieldDiff?.length && current && !matchesPreviewedValues(
+      return Array.isArray(approved?.fieldDiff) && current && !matchesPreviewedValues(
         approved.fieldDiff,
         resolvePreviewFieldDiff(current, plan.input, recordId),
       )
@@ -559,7 +579,7 @@ async function checkConfirmationRecords(
       extra: { recordId: targetRecordId ?? before?.recordId },
     }
   }
-  if (verifyPreviewValues && before && action.fieldDiff?.length && !matchesPreviewedValues(
+  if (verifyPreviewValues && before && Array.isArray(action.fieldDiff) && !matchesPreviewedValues(
     action.fieldDiff,
     resolvePreviewFieldDiff(before, toolInput),
   )) {
@@ -587,7 +607,17 @@ async function checkConfirmationInputAndRecords(
     if (!effectiveCheck.ok) return effectiveCheck
   }
 
-  return checkConfirmationRecords(action, tool, ctx, checkedInput.toolInput)
+  const checkedRecords = await checkConfirmationRecords(action, tool, ctx, checkedInput.toolInput)
+  if (!checkedRecords.ok) return checkedRecords
+  const executionPlan = restorePendingActionHandlerInput(
+    action,
+    tool,
+    checkedRecords.executionPlan,
+    checkedInput.toolInput,
+    checkedRecords.failedRecords,
+  )
+  if (!executionPlan) return refuseChangedPreview()
+  return { ...checkedRecords, executionPlan }
 }
 
 function toHandlerContext(ctx: PendingActionAuthContext): McpToolContext {

@@ -102,13 +102,15 @@ describe('checkRecordVersion — batch input that cannot be narrowed', () => {
   })
 
   it('keeps the partial-success answer when the input follows the records[] convention', async () => {
+    const action = makeAction({
+      records: [
+        { recordId: 'm-1', title: 'a' },
+        { recordId: 'm-2', title: 'b' },
+      ],
+    })
+    action.records![0].fieldDiff = [{ field: 'title', after: 'a' }]
     const result = await checkRecordVersion(
-      makeAction({
-        records: [
-          { recordId: 'm-1', title: 'a' },
-          { recordId: 'm-2', title: 'b' },
-        ],
-      }),
+      action,
       makeTool({ 'm-1': 'v-1', 'm-2': 'v-2' }),
       makeCtx(),
     )
