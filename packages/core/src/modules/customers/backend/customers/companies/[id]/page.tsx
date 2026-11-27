@@ -527,25 +527,19 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     }) => {
       const exactRevenue = amountExact ?? (amount === null ? null : String(amount))
       await saveCompany(
-        { annualRevenue: exactRevenue },
-        (prev) => {
-          if (!prev.profile) return prev
-          return {
-            ...prev,
-            profile: {
-              ...prev.profile,
-              annualRevenue: exactRevenue,
-            },
-          }
-        }
-      )
-      await submitCustomFields(
-        { cf_annual_revenue_currency: currency ?? null },
-        { showFlash: false },
+        {
+          annualRevenue: exactRevenue,
+          customFields: { annual_revenue_currency: currency ?? null },
+        },
+        (prev) => ({
+          ...prev,
+          profile: prev.profile ? { ...prev.profile, annualRevenue: exactRevenue } : prev.profile,
+          customFields: { ...prev.customFields, annual_revenue_currency: currency ?? null },
+        }),
       )
       flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
-    [saveCompany, submitCustomFields, t],
+    [saveCompany, t],
   )
 
   const handleDelete = React.useCallback(async () => {

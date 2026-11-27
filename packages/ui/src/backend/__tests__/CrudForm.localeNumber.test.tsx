@@ -23,7 +23,10 @@ import { act, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField } from '../CrudForm'
 
-const dict = { 'ui.forms.actions.save': 'Save' }
+const dict = {
+  'ui.forms.actions.save': 'Save',
+  'ui.forms.errors.invalidType': 'Enter a valid number.',
+}
 const fields: CrudField[] = [{ id: 'amount', label: 'Amount', type: 'number' }]
 
 // The locale is pinned to one that does NOT use a dot decimal separator, because an
@@ -185,5 +188,68 @@ describe('CrudForm number field redisplays a reloaded value with the locale deci
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
     expect(onSubmit.mock.calls[0][0].amount).toBe(1.5)
+  })
+})
+
+describe('CrudForm rejects malformed numeric input (#9847)', () => {
+  it.each(['number', 'decimal'] as const)('keeps invalid %s input dirty and blocks submission until corrected', async (type) => {
+    const onSubmit = jest.fn()
+    const view = renderWithProviders(
+      <CrudForm fields={[{ id: 'amount', label: 'Amount', type }]} onSubmit={onSubmit} initialValues={{ amount: 25 }} />,
+      { locale: 'en', dict: { ...dict, 'ui.forms.errors.invalidType': 'Enter a valid number.' } },
+    )
+
+    await submitWith(view.container, '12abc')
+
+    expect(await view.findByText('Enter a valid number.')).toBeInTheDocument()
+    expect(amountInput(view.container).value).toBe('12abc')
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    await submitWith(view.container, '12.5')
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(onSubmit.mock.calls[0][0].amount).toBe(type === 'decimal' ? '12.5' : 12.5)
+  })
+
+  it('marks pasted invalid text in an empty optional field as dirty', async () => {
+    const onSubmit = jest.fn()
+    const view = renderNumberForm('en', onSubmit)
+
+    fireEvent.change(amountInput(view.container), { target: { value: '7xyz' } })
+
+    await waitFor(() => {
+      for (const button of view.getAllByRole('button', { name: 'Save' })) expect(button).not.toBeDisabled()
+    })
+    await submitWith(view.container, '7xyz')
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('allows invalid optional input to be cleared instead of blocking the form', async () => {
+    const onSubmit = jest.fn()
+    const view = renderNumberForm('en', onSubmit, { amount: 25 })
+
+    fireEvent.change(amountInput(view.container), { target: { value: '12abc' } })
+    await submitWith(view.container, '')
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(onSubmit.mock.calls[0][0].amount).toBeUndefined()
+  })
+
+  it('blocks keyboard submission of invalid text and lets the arrow key recover it', async () => {
+    const onSubmit = jest.fn()
+    const view = renderNumberForm('pl', onSubmit, { amount: 25 })
+    const input = amountInput(view.container)
+
+    fireEvent.change(input, { target: { value: '12abc' } })
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
+
+    expect(await view.findByText('Enter a valid number.')).toBeInTheDocument()
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    fireEvent.submit(view.container.querySelector('form') as HTMLFormElement)
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    expect(onSubmit.mock.calls[0][0].amount).toBe(1)
   })
 })
