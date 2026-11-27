@@ -10,7 +10,7 @@ import { deleteUserAclInDb, setUserAclInDb, withClient } from '@open-mercato/cor
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { resolveAppRoot } from '@open-mercato/core/helpers/integration/appRoot'
 import { importFromAppRuntime } from '@open-mercato/core/helpers/integration/appRuntime'
-import { withNextRuntime } from './helpers/nextRuntime'
+import { withNextRuntime } from '@open-mercato/core/helpers/integration/nextRuntime'
 
 const endpoint = '/api/customer_accounts/admin/users-invite'
 const eventId = 'customer_accounts.invitation.cancelled'

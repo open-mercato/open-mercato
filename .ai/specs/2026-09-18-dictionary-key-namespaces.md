@@ -78,7 +78,9 @@ description, and entry sort order edits. PATCH that changes the key or archives
 the record, and DELETE, return HTTP 400 in the existing localized error envelope.
 The check runs after scope, optimistic lock, and mutation guard checks and before
 the row or its update timestamp changes. Currency-specific protection continues
-to apply to both reserved aliases.
+to apply to both reserved aliases. #10543 introduced these protections on main.
+A PATCH that echoes the exact stored spelling of a legacy system key keeps
+that key intact while applying the permitted metadata edits.
 
 ### Migration & Backward Compatibility
 
@@ -89,7 +91,8 @@ mutation. Clients can edit descriptive settings or use custom dictionaries for
 data they need to rename or archive. No migration is required. Operators who
 already have a missing system dictionary should follow the owning module's
 recovery procedure. See the [upgrade notes](../../UPGRADE_NOTES.md#system-dictionary-preservation-10341).
-Named human maintainer approval of the security exception is required before merge.
+A backport that introduces the destructive-write restriction still requires a
+named human maintainer to acknowledge the compatibility exception.
 
 ### Regression coverage
 

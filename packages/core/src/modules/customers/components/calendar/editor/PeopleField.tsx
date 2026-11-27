@@ -9,6 +9,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import type { EditorParticipant } from '../../../lib/calendar/editorPayload'
 import { composeAccessibleName } from '../../../lib/calendar/labels'
+import { getStaffAvailabilityWindows, type StaffAvailabilityWindow } from '../../../lib/calendar/staffAvailability'
+import type { CalendarRange } from '../types'
+import { useStaffAvailability } from '../useStaffAvailability'
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { searchPeopleOptions, type PersonOption } from './lookups'
 import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge, useDropdownDismiss } from './inputs'
@@ -22,6 +25,23 @@ function normalizeEmail(email: string | null | undefined): string | null {
   return normalized ? normalized : null
 }
 
+export type PeopleFieldAvailability = { range: CalendarRange; organizationId: string }
+
+function availabilityLabel(
+  windows: readonly StaffAvailabilityWindow[] | undefined,
+  range: CalendarRange,
+  t: ReturnType<typeof useT>,
+): string | null {
+  if (!windows) return null
+  const matchingKinds = new Set(windows
+    .filter((window) => window.start < range.to.getTime() && window.end > range.from.getTime())
+    .map((window) => window.kind))
+  if (matchingKinds.has('leave')) return t('customers.calendar.availability.picker.leave', 'On leave')
+  if (matchingKinds.has('unavailable')) return t('customers.calendar.availability.picker.unavailable', 'Unavailable')
+  if (matchingKinds.has('tentative')) return t('customers.calendar.availability.picker.tentative', 'Pending leave')
+  return t('customers.calendar.availability.picker.available', 'Available')
+}
+
 export function PeopleField({
   mode,
   placeholder,
@@ -30,6 +50,7 @@ export function PeopleField({
   onChange,
   includeCustomers,
   includeStaff = true,
+  staffAvailability,
   disabled,
 }: {
   mode: 'multi' | 'single'
@@ -40,6 +61,7 @@ export function PeopleField({
   includeCustomers: boolean
   /** Pass false when the staff module is not loaded — customer-only options. */
   includeStaff?: boolean
+  staffAvailability?: PeopleFieldAvailability | null
   disabled?: boolean
 }) {
   const t = useT()
@@ -81,6 +103,12 @@ export function PeopleField({
 
   const selectedIds = new Set(value.map((participant) => participant.userId))
   const visibleOptions = options.filter((option) => !selectedIds.has(option.userId))
+  const availability = useStaffAvailability({
+    userIds: visibleOptions.flatMap((option) => option.isCustomer ? [] : [option.userId]),
+    range: includeStaff && open && !loading ? staffAvailability?.range ?? null : null,
+    organizationId: staffAvailability?.organizationId,
+    debounceMs: 150,
+  })
 
   // An external guest has no record to search for, so a typed address that
   // matches nothing is the only way to invite one (#5115). Multi mode only —
@@ -186,40 +214,49 @@ export function PeopleField({
             </Button>
           ) : null}
           {!loading
-            ? visibleOptions.map((option) => (
-                <Button
-                  key={`${option.isCustomer ? 'customer' : 'staff'}:${option.userId}`}
-                  type="button"
-                  variant="ghost"
-                  role="option"
-                  aria-selected={false}
-                  aria-label={composeAccessibleName([
-                    option.name,
-                    option.email,
-                    option.isCustomer ? t('customers.calendar.editor.customerBadge', 'Customer') : null,
-                  ])}
-                  title={composeAccessibleName([option.name, option.email])}
-                  onClick={() => {
-                    const participant: EditorParticipant = {
-                      userId: option.userId,
-                      name: option.name,
-                      email: option.email ?? undefined,
-                      isCustomer: option.isCustomer,
-                    }
-                    onChange(mode === 'single' ? [participant] : [...value, participant])
-                    setQuery('')
-                    if (mode === 'single') setOpen(false)
-                  }}
-                  className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
-                >
-                  <Avatar size="xs" label={option.name} />
-                  <span className="min-w-0 flex-1 truncate">
-                    {option.name}
-                    {option.email ? <span className="ml-1.5 text-xs text-muted-foreground">{option.email}</span> : null}
-                  </span>
-                  {option.isCustomer ? customerBadge : null}
-                </Button>
-              ))
+            ? visibleOptions.map((option) => {
+              const hint = !option.isCustomer && staffAvailability ? availabilityLabel(
+                getStaffAvailabilityWindows(availability, staffAvailability.organizationId, option.userId),
+                staffAvailability.range,
+                t,
+              ) : null
+              return (
+                  <Button
+                    key={`${option.isCustomer ? 'customer' : 'staff'}:${option.userId}`}
+                    type="button"
+                    variant="ghost"
+                    role="option"
+                    aria-selected={false}
+                    aria-label={composeAccessibleName([
+                      option.name,
+                      option.email,
+                      option.isCustomer ? t('customers.calendar.editor.customerBadge', 'Customer') : null,
+                      hint,
+                    ])}
+                    title={composeAccessibleName([option.name, option.email, hint])}
+                    onClick={() => {
+                      const participant: EditorParticipant = {
+                        userId: option.userId,
+                        name: option.name,
+                        email: option.email ?? undefined,
+                        isCustomer: option.isCustomer,
+                      }
+                      onChange(mode === 'single' ? [participant] : [...value, participant])
+                      setQuery('')
+                      if (mode === 'single') setOpen(false)
+                    }}
+                    className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
+                  >
+                    <Avatar size="xs" label={option.name} />
+                    <span className="min-w-0 flex-1 truncate">
+                      {option.name}
+                      {option.email ? <span className="ml-1.5 text-xs text-muted-foreground">{option.email}</span> : null}
+                    </span>
+                    {hint ? <span className="text-xs text-muted-foreground">{hint}</span> : null}
+                    {option.isCustomer ? customerBadge : null}
+                  </Button>
+              )
+            })
             : null}
         </div>
       ) : null}

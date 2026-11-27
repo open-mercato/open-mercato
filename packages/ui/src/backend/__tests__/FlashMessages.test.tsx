@@ -27,19 +27,19 @@ describe('FlashMessages', () => {
   })
 
   it.each([
-    ['en', 'Close'],
-    ['pl', 'Zamknij'],
-    ['de', 'Schließen'],
-    ['es', 'Cerrar'],
-    ['ko', '닫기'],
-  ])('localizes the close control in %s and dismisses the flash', (locale, closeLabel) => {
-    renderWithProviders(<FlashMessages />, { locale, dict: { 'common.close': closeLabel } })
+    ['en', 'Dismiss notification'],
+    ['pl', 'Zamknij powiadomienie'],
+    ['de', 'Benachrichtigung schließen'],
+    ['es', 'Descartar notificación'],
+    ['ko', '알림 닫기'],
+  ])('localizes the dismiss control in %s and dismisses the flash', (locale, dismissLabel) => {
+    renderWithProviders(<FlashMessages />, { locale, dict: { 'ui.flash.dismiss': dismissLabel } })
 
     act(() => {
       flash('Dictionary conflict', 'error')
     })
 
-    fireEvent.click(screen.getByRole('button', { name: closeLabel }))
+    fireEvent.click(screen.getByRole('button', { name: dismissLabel }))
 
     expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
     act(() => {
@@ -48,16 +48,36 @@ describe('FlashMessages', () => {
     expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
   })
 
-  it('keeps the close control usable without an i18n provider', () => {
+  it('keeps the dismiss control usable without an i18n provider', () => {
     render(<FlashMessages />)
 
     act(() => {
       flash('Dictionary conflict', 'error')
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }))
 
     expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
+  })
+
+  it('keeps the dismiss control distinct from a dialog Close button shown at the same time', () => {
+    renderWithProviders(
+      <>
+        <div role="dialog" aria-label="API key">
+          <button type="button">Close</button>
+        </div>
+        <FlashMessages />
+      </>,
+      { dict: { 'common.close': 'Close', 'ui.flash.dismiss': 'Dismiss notification' } },
+    )
+
+    act(() => {
+      flash('API key created', 'success')
+    })
+
+    expect(screen.getByText('API key created')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Close' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /close/i })).toHaveLength(1)
   })
 
   it('auto-dismisses URL-based flashes after stripping query params', () => {

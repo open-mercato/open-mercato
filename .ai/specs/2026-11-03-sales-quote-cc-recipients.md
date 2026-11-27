@@ -62,6 +62,8 @@ Other metadata keys are preserved. The list is overwritten on every send.
 ## UI
 
 - The Send quote dialog gets a CC field built on `TagInput`.
+- Commas and semicolons separate CC addresses. Enter leaves a rejected address in the field for correction.
+- At the recipient limit, the dialog shows the limit and moves focus from the disabled field to the last chip's remove button. Removing the focused chip returns focus to the field.
 - Text typed but not confirmed as a tag is sent too. Invalid pending text blocks the send and keeps the dialog open.
 - Reopening the dialog pre-fills the field from `metadata.recipients.cc`.
 - `TagInput` gets two optional props, `inputValue` and `onInputValueChange`, so the dialog can read the pending text. It stays uncontrolled when they are omitted.
@@ -97,6 +99,7 @@ Nothing is removed, renamed or narrowed, so no deprecation bridge is needed. Req
 - API: an invalid CC address returns 400 and the quote stays unsent.
 - UI: a confirmed tag and pending text are both sent, including with Ctrl+Enter from inside the field.
 - UI: invalid pending text blocks the send and keeps the dialog open.
+- UI: Enter keeps rejected addresses editable, semicolons separate addresses, and reaching and leaving the limit preserves keyboard focus.
 - UI: reopening the dialog pre-fills the list.
 
 Failed-copy and throwing-reporter behaviour is covered by `sales/api/__tests__/quotes.acceptance.test.ts`.
@@ -104,3 +107,4 @@ Failed-copy and throwing-reporter behaviour is covered by `sales/api/__tests__/q
 ## Changelog
 
 - 2026-11-03: Written with the implementation to record the additive contract.
+- 2026-11-26: Recorded the CC separator, validation, and keyboard focus fixes for #9555.

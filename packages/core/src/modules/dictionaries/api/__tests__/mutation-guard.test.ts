@@ -211,7 +211,7 @@ describe('dictionary custom write routes mutation guard', () => {
   })
 
   describe.each([
-    { key: 'sales.order_status', isSystem: true, error: 'System dictionaries cannot be archived or have their keys changed.' },
+    { key: 'sales.order_status', isSystem: true, error: 'System dictionary keys cannot be changed and system dictionaries cannot be disabled or deleted.' },
     { key: 'currency', isSystem: false, error: 'The currency dictionary cannot be modified or deleted.' },
     { key: 'currencies', isSystem: true, error: 'The currency dictionary cannot be modified or deleted.' },
   ])('protected dictionary $key', ({ key, isSystem, error }) => {

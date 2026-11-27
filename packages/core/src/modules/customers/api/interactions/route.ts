@@ -14,13 +14,14 @@ import { resolveEncryptedSortMaxRows } from '@open-mercato/shared/lib/query/encr
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CustomerDeal, CustomerInteraction } from '../../data/entities'
 import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
-import { interactionCreateSchema, interactionUpdateSchema } from '../../data/validators'
+import { calendarTimezoneSchema, interactionCreateSchema, interactionUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput } from '../utils'
 import {
   createCustomersCrudOpenApi,
@@ -58,6 +59,8 @@ export const listSchema = z
     cursor: z.string().optional(),
     entityId: z.string().uuid().optional(),
     dealId: z.string().uuid().optional(),
+    organizationId: z.string().uuid().toLowerCase().optional().describe('Restricts results to one organization in the current read scope.'),
+    actorUserId: z.string().uuid().optional().describe('Matches the interaction owner or an internal participant.'),
     status: z.string().optional(),
     excludeStatus: z.string().optional(),
     interactionType: z.string().optional(),
@@ -66,12 +69,18 @@ export const listSchema = z
     search: z.string().trim().min(1).optional(),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
+    overlap: z.enum(['true', 'false']).optional().describe('Uses half-open appointment overlap. Requires an increasing from/to range.'),
+    overlapTimezone: calendarTimezoneSchema.optional().describe('IANA time zone used for all-day appointments without a recognized stored zone. Defaults to UTC.'),
     recurrenceMasters: z.enum(['true', 'false']).optional(),
     pinned: z.enum(['true', 'false']).optional(),
     sortField: interactionSortFieldSchema.optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
+  .refine(({ overlap, from, to }) => overlap !== 'true' || (from !== undefined && to !== undefined && from < to), {
+    path: ['to'],
+    message: 'customers.errors.invalid_date_time',
+  })
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.interactions.view'] },
@@ -351,6 +360,35 @@ const INTERACTION_LIST_COLUMNS = [
   'updated_at',
 ] as const
 
+const appointmentStart = sql<Date>`coalesce(occurred_at, scheduled_at)`
+const appointmentDuration = sql`make_interval(mins => coalesce(duration_minutes, 30))`
+
+function appointmentOverlap(from: Date, to: Date, fallbackTimezone: string) {
+  return sql<boolean>`case when all_day then (
+    select least(default_start, case when (alternate_start at time zone event_zone) = local_day then alternate_start end) < ${to}
+      and least(default_end, case when (alternate_end at time zone event_zone) = local_day + interval '1 day' then alternate_end end) > ${from}
+    from (values (array(select lower(name) from pg_catalog.pg_timezone_names))) as known(zone_names)
+    cross join lateral (values (
+      case
+        when lower(timezone) = any (zone_names) then timezone
+        when lower(${fallbackTimezone}::text) = any (zone_names) then ${fallbackTimezone}::text
+        else 'UTC'
+      end
+    )) as resolved(event_zone)
+    cross join lateral (values (
+      date_trunc('day', ${appointmentStart} at time zone event_zone)
+    )) as boundary(local_day)
+    cross join lateral (values (
+      local_day at time zone event_zone,
+      ((local_day - interval '1 day') at time zone event_zone) + interval '24 hours',
+      (local_day + interval '1 day') at time zone event_zone,
+      (local_day at time zone event_zone) + interval '24 hours'
+    )) as candidates(default_start, alternate_start, default_end, alternate_end)
+  ) else (
+    coalesce(duration_minutes, 30) > 0 and ${appointmentStart} < ${to} and ${appointmentStart} + ${appointmentDuration} > ${from}
+  ) end`
+}
+
 // Shared by both the SQL keyset path and the encrypted-sort candidate scan
 // so the two paths never drift on which rows are in scope.
 function applyInteractionListFilters(
@@ -366,6 +404,14 @@ function applyInteractionListFilters(
   const { query } = params
   if (query.entityId) q = q.where('entity_id', '=', query.entityId)
   if (query.dealId) q = q.where('deal_id', '=', query.dealId)
+  if (query.actorUserId) {
+    const actorUserId = query.actorUserId.toLowerCase()
+    q = q.where(sql<boolean>`(owner_user_id = ${actorUserId} or exists (
+      select 1
+      from jsonb_array_elements(case when jsonb_typeof(participants) = 'array' then participants else '[]'::jsonb end) as attendee
+      where lower(attendee ->> 'userId') = ${actorUserId}
+    ))`)
+  }
   if (query.status) q = q.where('status', '=', query.status)
   if (query.excludeStatus) {
     const excludedStatuses = parseCommaSeparatedList(query.excludeStatus)
@@ -388,6 +434,17 @@ function applyInteractionListFilters(
     // decrypted candidates of a bounded scan instead.
     const searchTerm = `%${escapeLikePattern(query.search)}%`
     q = q.where(sql<boolean>`(coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm})`)
+  }
+  if (query.overlap === 'true' && query.from && query.to) {
+    if (query.recurrenceMasters === 'true') {
+      const recurrenceTail = sql`case when all_day then interval '2 days' else ${appointmentDuration} + interval '1 day' end`
+      return q.where('recurrence_rule', 'is not', null)
+        .where(sql<boolean>`${appointmentStart} < ${query.to}`)
+        .where(sql<boolean>`(recurrence_end is null or recurrence_end + ${recurrenceTail} > ${query.from})`)
+    }
+    const latestStoredStart = sql`(${query.to}::timestamptz + interval '2 days')`
+    return q.where(sql<boolean>`(occurred_at < ${latestStoredStart} or (occurred_at is null and scheduled_at < ${latestStoredStart}))`)
+      .where(appointmentOverlap(query.from, query.to, query.overlapTimezone ?? 'UTC'))
   }
   if (query.recurrenceMasters === 'true') {
     q = q.where('recurrence_rule', 'is not', null)
@@ -455,12 +512,12 @@ async function buildEnricherContext(
   }
 }
 
-export async function GET(req: Request) {
+export async function GET(req: Request, context?: { auth: AuthContext }) {
   try {
     const queryUrl = new URL(req.url)
     const query = listSchema.parse(Object.fromEntries(queryUrl.searchParams))
     const container = await createRequestContainer()
-    const auth = await getAuthFromRequest(req)
+    const auth = context ? context.auth : await getAuthFromRequest(req)
     const { translate } = await resolveTranslations()
 
     if (!auth || !auth.tenantId) {
@@ -470,7 +527,22 @@ export async function GET(req: Request) {
     }
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    const { organizationIds, rbacOrganizationId: selectedOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
+    const { organizationIds: readableOrganizationIds, rbacOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
+    if (query.organizationId) {
+      const withinReadScope = (scope.filterIds ?? readableOrganizationIds)?.includes(query.organizationId) ?? true
+      const canView = withinReadScope && await container.resolve<RbacService>('rbacService').userHasAllFeatures(
+        auth.sub,
+        routeMetadata.GET.requireFeatures,
+        { tenantId: auth.tenantId, organizationId: query.organizationId },
+      )
+      if (!canView) {
+        throw new CrudHttpError(403, {
+          error: translate('customers.errors.organization_forbidden', 'Organization not accessible'),
+        })
+      }
+    }
+    const organizationIds = query.organizationId ? [query.organizationId] : readableOrganizationIds
+    const selectedOrganizationId = query.organizationId ?? rbacOrganizationId
 
     const requestedSortField = query.sortField ?? 'scheduledAt'
     const sortConfig = interactionSortConfig[requestedSortField]

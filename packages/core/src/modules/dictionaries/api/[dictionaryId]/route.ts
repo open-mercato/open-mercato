@@ -44,21 +44,22 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['dictionaries.manage'] },
 }
 
-function enforceDictionaryMutationPolicy(
+function isProtectedCurrencyDictionary(dictionary: Dictionary) {
+  const key = dictionary.key?.trim().toLowerCase() ?? ''
+  return key === 'currency' || key === 'currencies'
+}
+
+function getSystemDictionaryProtectionMessage(
   dictionary: Dictionary,
   translate: Awaited<ReturnType<typeof resolveDictionariesRouteContext>>['translate'],
-  change: { archive: boolean; key?: string },
-) {
-  const changesKey = change.key !== undefined && change.key !== dictionary.key
-  if (!change.archive && !changesKey) return
-
-  const storedKey = dictionary.key?.trim().toLowerCase()
-  if (storedKey === 'currency' || storedKey === 'currencies') {
-    throw new CrudHttpError(400, { error: translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.') })
+): string | null {
+  if (isProtectedCurrencyDictionary(dictionary)) {
+    return translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.')
   }
   if (dictionary.isSystem) {
-    throw new CrudHttpError(400, { error: translate('dictionaries.errors.system_protected', 'System dictionaries cannot be archived or have their keys changed.') })
+    return translate('dictionaries.errors.system_protected', 'System dictionary keys cannot be changed and system dictionaries cannot be disabled or deleted.')
   }
+  return null
 }
 
 async function loadDictionary(
@@ -151,12 +152,16 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
+    const protection = getSystemDictionaryProtectionMessage(dictionary, context.translate)
     const key = dictionary.isSystem && payload.key === dictionary.key
       ? dictionary.key
-      : payload.key?.toLowerCase()
-    enforceDictionaryMutationPolicy(dictionary, context.translate, { archive: payload.isActive === false, key })
+      : payload.key?.trim().toLowerCase()
+    const changesKey = key !== undefined && key !== dictionary.key
+    if (protection && (changesKey || payload.isActive === false)) {
+      throw new CrudHttpError(400, { error: protection })
+    }
 
-    if (key !== undefined && key !== dictionary.key) {
+    if (key !== undefined && changesKey) {
       const strictKey = dictionaryKeySchema.safeParse(key)
       if (!strictKey.success) {
         throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.invalid_key', 'Use lowercase letters, numbers, hyphen, or underscore.') })
@@ -272,7 +277,10 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    enforceDictionaryMutationPolicy(dictionary, context.translate, { archive: true })
+    const protection = getSystemDictionaryProtectionMessage(dictionary, context.translate)
+    if (protection) {
+      throw new CrudHttpError(400, { error: protection })
+    }
 
     dictionary.isActive = false
     dictionary.deletedAt = dictionary.deletedAt ?? new Date()
@@ -319,7 +327,7 @@ const dictionaryGetDoc: OpenApiMethodDoc = {
 
 const dictionaryPatchDoc: OpenApiMethodDoc = {
   summary: 'Update dictionary',
-  description: 'Updates dictionary settings. System and currency dictionaries keep their key and cannot be archived.',
+  description: 'Updates mutable attributes of the dictionary. Currency dictionaries are protected from modification.',
   tags: [dictionariesTag],
   requestBody: {
     contentType: 'application/json',
@@ -340,7 +348,7 @@ const dictionaryPatchDoc: OpenApiMethodDoc = {
 
 const dictionaryDeleteDoc: OpenApiMethodDoc = {
   summary: 'Delete dictionary',
-  description: 'Archives custom dictionaries. System and currency dictionaries are protected.',
+  description: 'Soft deletes the dictionary unless it is the protected currency dictionary.',
   tags: [dictionariesTag],
   responses: [
     { status: 200, description: 'Dictionary archived.', schema: dictionariesOkSchema },
