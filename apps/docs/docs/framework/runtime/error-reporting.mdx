@@ -37,6 +37,16 @@ getTelemetryRuntime()?.reportError(error, { module: 'integrations', code: 'integ
 
 With telemetry off, that is one global lookup and nothing else.
 
+Client components use the report-only dispatcher so they can reach either a full runtime or the reporter installed by the enabled `BrowserTelemetry` entry:
+
+```ts
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
+
+reportTelemetryError(error, { module: 'ui', code: 'ui.address_types_load_failed' })
+```
+
+The browser reporter retains calls during deferred SDK startup and exports redacted exception spans through the existing same-origin trace proxy. It requires the existing browser RUM opt-in; a server runtime is not shared with the browser. With browser telemetry disabled this path does nothing. Startup and reporting failures cannot interrupt user feedback. Browser logs and metrics export are not added by this path.
+
 ## `code` — the fingerprint
 
 `code` is a stable, enumerated token shaped `module.reason` (`data_sync.item_failed`, `queue.job_failed`). It is published under one name, `error.code`, on all three built-in surfaces — the span attribute, the log record's attributes and the `om.errors` metric label — so a query written against one works against the others. One exception belongs to the exporter, not to us: the OTLP→Prometheus translation replaces `.` with `_`, so the `om.errors` alert rule queries `error_code` against a Prometheus-backed pipeline while the span and the log record keep `error.code`.

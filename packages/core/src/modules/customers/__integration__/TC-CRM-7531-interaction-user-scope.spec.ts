@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
 
 const INTERACTIONS = '/api/customers/interactions'
 const ACTIVITIES = '/api/customers/activities'
@@ -24,6 +25,7 @@ type Fixtures = {
   marker: string
   actor: Scope
   home: Scope
+  foreignScope: Scope
   local: UserFixture
   sibling: UserFixture
   foreign: UserFixture[]
@@ -75,8 +77,9 @@ async function withFixtures(request: APIRequestContext, run: (fixtures: Fixtures
     })
     const local = await createUser(home, 'local')
     const sibling = await createUser({ token: superadminToken, tenantId: context.tenantId, organizationId: siblingOrganizationId }, 'sibling')
-    const foreign = await createUser({ token: superadminToken, tenantId, organizationId: foreignOrganizationId }, 'foreign')
-    await run({ marker, actor, home, local, sibling, foreign: [foreign], create })
+    const foreignScope = { token: superadminToken, tenantId, organizationId: foreignOrganizationId }
+    const foreign = await createUser(foreignScope, 'foreign')
+    await run({ marker, actor, home, foreignScope, local, sibling, foreign: [foreign], create })
   } finally {
     const errors: string[] = []
     for (const record of records.reverse()) {
@@ -98,6 +101,75 @@ async function listItems(request: APIRequestContext, scope: Scope, path: string)
   expect(Array.isArray(body?.items), 'list response should expose items').toBe(true)
   return body?.items ?? []
 }
+
+test('TC-CRM-7531: encrypted list fields are readable only within the caller tenant', async ({ request }) => {
+  await withFixtures(request, async ({ actor, home, foreignScope, local, foreign, marker, create }) => {
+    const foreignUser = foreign[0]
+    const localPerson = await create(home, '/api/customers/people', { firstName: 'Scope', lastName: marker, displayName: marker })
+    const foreignPerson = await create(foreignScope, '/api/customers/people', { firstName: 'Scope', lastName: marker, displayName: marker })
+    const activityBody = `${marker}-body`
+    const localActivity = await create(home, ACTIVITIES, {
+      entityId: localPerson, activityType: 'note', subject: marker, body: activityBody,
+    })
+    const foreignActivity = await create(foreignScope, ACTIVITIES, {
+      entityId: foreignPerson, activityType: 'note', subject: marker, body: activityBody,
+    })
+
+    await withClient(async (client) => {
+      const users = await client.query<{ email: string; name: string }>(
+        'select email, name from users where id = $1 and tenant_id = $2',
+        [local.id, actor.tenantId],
+      )
+      const activities = await client.query<{ title: string; body: string }>(
+        'select title, body from customer_interactions where id = $1 and tenant_id = $2',
+        [localActivity, actor.tenantId],
+      )
+      expect(users.rows).toHaveLength(1)
+      expect(activities.rows).toHaveLength(1)
+      for (const value of [...Object.values(users.rows[0]), ...Object.values(activities.rows[0])]) {
+        expect(isEncryptedPayloadShape(value)).toBe(true)
+      }
+    })
+
+    const usersUrl = `/api/auth/users?ids=${local.id},${foreignUser.id}`
+    const response = await scopedRequest(request, actor, 'GET', usersUrl)
+    expect(response.status()).toBe(200)
+    const users = await readJsonSafe<{ items: UserFixture[] }>(response)
+    expect(users?.items).toEqual([expect.objectContaining(local)])
+
+    const legacyActivity = randomUUID()
+    try {
+      await withClient(async (client) => {
+        const inserted = await client.query(
+          `insert into customer_activities
+            (id, tenant_id, organization_id, entity_id, activity_type, subject, body, created_at, updated_at)
+           select $1, tenant_id, organization_id, entity_id, interaction_type, title, body, now(), now()
+           from customer_interactions where id = $2 and tenant_id = $3 and organization_id = $4`,
+          [legacyActivity, localActivity, actor.tenantId, actor.organizationId],
+        )
+        expect(inserted.rowCount).toBe(1)
+      })
+      const localItems = await listItems(request, actor, `${ACTIVITIES}?entityId=${localPerson}`)
+      expect(localItems).toHaveLength(2)
+      expect(localItems).toEqual(expect.arrayContaining(
+        [localActivity, legacyActivity].map((id) => expect.objectContaining({ id, subject: marker, body: activityBody })),
+      ))
+    } finally {
+      await withClient((client) => client.query(
+        'delete from customer_activities where id = $1 and tenant_id = $2 and organization_id = $3',
+        [legacyActivity, actor.tenantId, actor.organizationId],
+      ))
+    }
+
+    const foreignItems = await listItems(request, foreignScope, `${ACTIVITIES}?entityId=${foreignPerson}`)
+    expect(foreignItems).toEqual([expect.objectContaining({ id: foreignActivity, subject: marker, body: activityBody })])
+    expect(await listItems(request, actor, `${ACTIVITIES}?entityId=${foreignPerson}`)).toEqual([])
+    await withCredentialIsolatedRequest(async (anonymous) => {
+      expect((await anonymous.get(usersUrl)).status()).toBe(401)
+      expect((await anonymous.get(`${ACTIVITIES}?entityId=${localPerson}`)).status()).toBe(401)
+    })
+  })
+})
 
 for (const field of ['authorUserId', 'ownerUserId'] as const) {
   test(`TC-CRM-7531: canonical ${field} rejects foreign users and permits same-scope references and clearing`, async ({ request }) => {

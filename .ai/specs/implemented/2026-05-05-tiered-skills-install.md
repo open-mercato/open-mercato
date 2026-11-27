@@ -236,6 +236,10 @@ This is a behavior change visible to existing users. Mitigation:
 | R7 | Two contributors merge changes to `tiers.json` and a skill folder simultaneously, leaving an unassigned folder | Low | CI | Validator fails the install / CI lint. Post-merge fix is one PR. | Minor. |
 | R8 | Tiering encourages unbounded skill growth ("we can always add more, they're opt-in") | Low | Long-term context budget | Treat new optional skills with the same scrutiny as core skills; this spec doesn't relax the description-trim discipline. | Catalog hygiene depends on review culture. |
 
+## Security hardening (#9122)
+
+External installs use an exact `external.cliVersion` and a full commit SHA in `external.ref`. Both pins are checked before invoking the CLI. Repeated installs reapply the pinned commit with `add`; the floating `skills update` step is removed. Upgrades require a reviewed pin change in `.ai/skills/tiers.json`. Installer tests mock all external calls and cover reruns, explicit upgrades and rejection of missing or floating pins. The standalone installer already uses its own immutable archive pin and is unchanged.
+
 ## Migration & Backward Compatibility
 
 This is **infra not contract surface** — none of the 13 BC contract surfaces from `BACKWARD_COMPATIBILITY.md` apply (no event IDs, no API URLs, no DI keys, no DB schema). The only durable contract is the `yarn install-skills` command name, which is preserved.
@@ -316,3 +320,4 @@ Phased so each phase is mergeable.
 |---|---|
 | 2026-05-05 | Initial draft. Tier assignments proposed; per-skill manifest-driven install scheme. Open questions on `om-auto-create-pr`/`om-auto-continue-pr` core membership flagged. |
 | 2026-05-05 | Resolved Q1: `om-auto-create-pr` and `om-auto-continue-pr` stay in `automation`. Spec is implementation-ready. |
+| 2026-11-17 | Pin external collection and skills CLI; remove floating updates and add pin-validation regression coverage (#9122). |

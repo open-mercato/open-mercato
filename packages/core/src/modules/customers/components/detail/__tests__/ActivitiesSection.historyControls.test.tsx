@@ -12,6 +12,12 @@ import { ActivityLogTab } from '../ActivityLogTab'
 import type { InteractionSummary } from '../types'
 
 const mockT = (key: string, fallback?: string) => fallback ?? key
+let mockCanDeleteActivity = true
+
+jest.mock('../hooks/useActivityDeleteAccess', () => ({
+  useActivityDeleteAccess: () => () => mockCanDeleteActivity,
+}))
+
 jest.mock('../hooks/useCanManageInteractions', () => ({
   useCanManageInteractions: () => true,
 }))

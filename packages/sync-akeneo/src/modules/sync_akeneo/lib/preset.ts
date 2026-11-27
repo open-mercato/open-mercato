@@ -382,15 +382,17 @@ async function loadLocalDiscoveryContext(em: EntityManager, scope: IntegrationSc
   priceKinds: PriceKindOption[]
 }> {
   const [channels, priceKinds] = await Promise.all([
-    findWithDecryption(em, SalesChannel, {
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      deletedAt: null,
-      isActive: true,
-    }, {
-      fields: ['code', 'name'],
-      orderBy: { name: 'asc' },
-    }, scope),
+    em.getMetadata().has(SalesChannel)
+      ? findWithDecryption(em, SalesChannel, {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+        isActive: true,
+      }, {
+        fields: ['code', 'name'],
+        orderBy: { name: 'asc' },
+      }, scope)
+      : Promise.resolve<SalesChannel[]>([]),
     findWithDecryption(em, CatalogPriceKind, {
       tenantId: scope.tenantId,
       deletedAt: null,

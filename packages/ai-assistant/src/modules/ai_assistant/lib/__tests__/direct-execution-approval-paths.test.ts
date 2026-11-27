@@ -111,6 +111,32 @@ describe('agent approval paths alongside the direct HTTP refusal', () => {
     expect(result).toEqual(expect.stringContaining('"written": true'))
   })
 
+  it.each(['mcp', 'tools-api'] as const)(
+    'queues non-destructive writes of a destructive-confirm-required agent on %s in approval mode',
+    async (channel) => {
+      seedAgent({ mutationPolicy: 'destructive-confirm-required' })
+      const resolved = await resolveAiAgentTools({
+        agentId: 'test.assistant',
+        authContext,
+        container,
+        channel,
+        mutationMode: 'approval',
+        apiKeyId: 'key-1',
+        correlationId: 'corr-1',
+      })
+
+      const result = await resolved.tools.test__mutation.execute?.({ title: 'Changed' }, executionOptions)
+
+      expect(handler).not.toHaveBeenCalled()
+      expect(prepareMutationMock).toHaveBeenCalledWith(
+        expect.objectContaining({ toolCallArgs: { title: 'Changed' }, channel, apiKeyId: 'key-1', correlationId: 'corr-1' }),
+        expect.anything(),
+      )
+      expect(result).toEqual(expect.stringContaining('pending-confirmation'))
+      expect(resolved.pendingActionIds).toEqual(['action-1'])
+    },
+  )
+
   it.each([
     { mutationPolicyOverride: 'read-only' as const },
     { authContext: { ...authContext, features: [] } },

@@ -89,8 +89,7 @@ test('TC-SEARCH-015: Polish settings show environment hints and isolated unavail
     await expect(page.getByRole('button', { name: /Ollama/ })).toBeDisabled()
     await expect(page.locator('body')).not.toContainText(/The URL of your|API key for authentication|Set OPENAI_API_KEY|Ollama not reachable|search\.settings\.(fulltext\.hints|providers\.diagnostics)/)
   } finally {
-    await page.unroute('**/api/search/embeddings')
-    await page.unroute('**/api/search/settings/fulltext')
+    await page.unrouteAll({ behavior: 'wait' })
     await page.context().clearCookies()
     await deleteUserIfExists(request, token, userId)
     await deleteRoleIfExists(request, token, roleId)

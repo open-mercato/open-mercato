@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import type { OrganizationScope } from '../auth/principal-service'
 import {
   bridgeLegacyGuard,
   runMutationGuards,
@@ -29,6 +30,7 @@ export type RouteMutationGuardAuth = {
   userId: string
   tenantId: string
   organizationId?: string | null
+  organizationScope?: OrganizationScope | null
   /**
    * Pre-resolved granted features for the caller. When omitted, the wrapper
    * resolves them via `rbacService.getGrantedFeatures` (same source the CRUD
@@ -126,7 +128,7 @@ export async function runRouteMutationGuards(params: {
   const operation = toRegistryMutationOperation(input.operation)
 
   const allGuards: MutationGuard[] = [...getAllMutationGuardInstances()]
-  const legacyGuard = bridgeLegacyGuard(container)
+  const legacyGuard = bridgeLegacyGuard(container, auth.organizationScope)
   if (legacyGuard) allGuards.push(legacyGuard)
 
   const userFeatures = await resolveRouteUserFeatures(container, auth)

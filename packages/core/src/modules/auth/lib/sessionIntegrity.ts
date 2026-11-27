@@ -1,8 +1,12 @@
+import type { AuthService } from '../services/authService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, RoleAcl, Session, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
+import { roleAclHasGlobalOrganizationScope, userAclHasGlobalOrganizationScope } from '../services/roleOrganizationScope'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const INVALID_SCOPE = Symbol('invalid-scope')
@@ -30,6 +34,7 @@ function resolveActorOrganizationId(auth: NonNullable<AuthContext>): NormalizedS
 export async function resolveCanonicalStaffAuthContext(
   em: EntityManager,
   auth: AuthContext,
+  resolveAuthService?: () => Pick<AuthService, 'isSessionEligible'>,
 ): Promise<AuthContext> {
   if (!auth) return null
   if (auth.isApiKey) return auth
@@ -96,6 +101,14 @@ export async function resolveCanonicalStaffAuthContext(
   }
 
   if (!user || user.isConfirmed === false) return null
+  if (typeof auth.email === 'string' && auth.email !== user.email) {
+    const emailHash = user.emailHash
+    if (
+      !looksLikeEncryptedPayload(user.email)
+      || !emailHash
+      || !emailHashLookupValues(auth.email).includes(emailHash)
+    ) return null
+  }
 
   const currentTenantId = normalizeScopeId(user.tenantId ?? null)
   const currentOrganizationId = normalizeScopeId(user.organizationId ?? null)
@@ -108,6 +121,11 @@ export async function resolveCanonicalStaffAuthContext(
     return null
   }
   if (!(await isStaffTenantActive(em, currentTenantId))) return null
+
+  if (session?.ssoProvenance != null) {
+    const authService = resolveAuthService?.()
+    if (!(await authService?.isSessionEligible(session, user))) return null
+  }
 
   // Role links and the per-user super-admin flag are likewise independent, so they
   // run concurrently. The role-level super-admin lookup depends on the resolved
@@ -181,7 +199,7 @@ async function userAclGrantsSuperAdmin(
     undefined,
     { tenantId, organizationId },
   )
-  return !!(userAcl && (userAcl as { isSuperAdmin?: boolean }).isSuperAdmin === true)
+  return userAcl?.isSuperAdmin === true && userAclHasGlobalOrganizationScope(userAcl)
 }
 
 async function roleAclGrantsSuperAdmin(
@@ -199,7 +217,7 @@ async function roleAclGrantsSuperAdmin(
   )
   if (!roleIds.length) return false
 
-  const roleAcl = await findOneWithDecryption(
+  const roleAcls = await findWithDecryption(
     em,
     RoleAcl,
     {
@@ -211,12 +229,13 @@ async function roleAclGrantsSuperAdmin(
     undefined,
     { tenantId, organizationId },
   )
-  return !!(roleAcl && (roleAcl as { isSuperAdmin?: boolean }).isSuperAdmin === true)
+  return roleAcls.some((acl) => acl.isSuperAdmin === true && roleAclHasGlobalOrganizationScope(acl))
 }
 
 export async function isAuthContextValid(
   em: EntityManager,
   auth: AuthContext,
+  resolveAuthService?: () => Pick<AuthService, 'isSessionEligible'>,
 ): Promise<boolean> {
-  return (await resolveCanonicalStaffAuthContext(em, auth)) !== null
+  return (await resolveCanonicalStaffAuthContext(em, auth, resolveAuthService)) !== null
 }

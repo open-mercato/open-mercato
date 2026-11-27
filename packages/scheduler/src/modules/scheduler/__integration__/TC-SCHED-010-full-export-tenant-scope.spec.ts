@@ -59,7 +59,7 @@ async function createScopedActor(
     organizations: [input.organizationId],
   })
   const email = `sched-${input.label}-${input.stamp}@test.invalid`
-  const password = 'Valid1!Pass'
+  const password = 'QaValid1!Pass'
   const userId = await createUserFixture(request, superadminToken, {
     email,
     password,
@@ -129,7 +129,7 @@ test.describe('TC-SCHED-010: full export stays scoped to the caller tenant/organ
       foreignRoleId = await createRoleFixture(request, superadminToken, { name: `sched-foreign-${stamp}`, tenantId: foreignTenantId })
       await setRoleAclFeatures(request, superadminToken, { roleId: foreignRoleId, features: SCHEDULER_FEATURES, organizations: [foreignOrgId] })
       const foreignEmail = `sched-foreign-${stamp}@test.invalid`
-      const foreignPassword = 'Valid1!Pass'
+      const foreignPassword = 'QaValid1!Pass'
       foreignUserId = await createUserFixture(request, superadminToken, {
         email: foreignEmail,
         password: foreignPassword,

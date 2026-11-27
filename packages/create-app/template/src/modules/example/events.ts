@@ -11,6 +11,7 @@ const events = [
   { id: 'example.todo.created', label: 'Todo Created', entity: 'todo', category: 'crud', clientBroadcast: true },
   { id: 'example.todo.updated', label: 'Todo Updated', entity: 'todo', category: 'crud', clientBroadcast: true },
   { id: 'example.todo.deleted', label: 'Todo Deleted', entity: 'todo', category: 'crud', clientBroadcast: true },
+  { id: 'example.todo_erp_link.sync_failed', label: 'Todo ERP delivery failed', entity: 'todo_erp_link', category: 'lifecycle' },
   /**
    * Portal Event Bridge (`portalBroadcast: true`) — the customer-facing twin of
    * `clientBroadcast`. The portal SSE endpoint

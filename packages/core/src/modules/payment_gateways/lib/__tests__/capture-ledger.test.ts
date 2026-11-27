@@ -1,8 +1,10 @@
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import type { GatewayPaymentOperation, GatewayTransaction } from '../../data/entities'
 import {
   alignCapturedAmountWithStatus,
   assertCaptureWithinRemaining,
+  assertNothingCapturedBeforeCancel,
   releaseCaptureAmount,
   reserveCaptureAmount,
   resolveCaptureAmounts,
@@ -31,6 +33,7 @@ function makeTransaction(amount: string, capturedAmount: string): GatewayTransac
     id: 'txn_1',
     amount,
     capturedAmount,
+    unifiedStatus: 'authorized',
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
     deletedAt: null,
@@ -129,7 +132,12 @@ describe('reserveCaptureAmountExact', () => {
 
     expect(reserved).toBe('40')
     expect(operation.reservedAmount).toBe('40')
-    expect(nativeUpdate.mock.calls[0]?.[1]).toMatchObject({ capturedAmount: '60.0000', deletedAt: null, ...scope })
+    expect(nativeUpdate.mock.calls[0]?.[1]).toMatchObject({
+      capturedAmount: '60.0000',
+      unifiedStatus: 'authorized',
+      deletedAt: null,
+      ...scope,
+    })
     expect(nativeUpdate.mock.calls[0]?.[2]).toMatchObject({ capturedAmount: '100' })
   })
 
@@ -375,5 +383,31 @@ describe('legacy bigint capture ledger bridges', () => {
     expect(nativeUpdate.mock.calls[0]?.[2]).toMatchObject({ capturedAmount: '0' })
     expect(nativeUpdate.mock.calls[1]?.[1]).toMatchObject({ reservedAmount: '60', ...scope })
     expect(operation.reservedAmount).toBeNull()
+  })
+})
+
+describe('assertNothingCapturedBeforeCancel', () => {
+  const translate = createFallbackTranslator({})
+
+  function withStatus(status: string, capturedAmount: string): GatewayTransaction {
+    return Object.assign(makeTransaction('100.0000', capturedAmount), { unifiedStatus: status })
+  }
+
+  it.each([
+    ['authorized', '0.0000'],
+    ['pending', '0'],
+  ])('allows cancelling a %s transaction with nothing captured', (status, capturedAmount) => {
+    expect(() => assertNothingCapturedBeforeCancel(withStatus(status, capturedAmount), translate)).not.toThrow()
+  })
+
+  it.each([
+    ['partially_captured', '40.0000'],
+    ['partially_captured', '0.0000'],
+    ['authorized', '0.0001'],
+    ['authorized', '0.000000000000000001'],
+  ])('refuses cancelling a %s transaction with %s captured', (status, capturedAmount) => {
+    expect(() => assertNothingCapturedBeforeCancel(withStatus(status, capturedAmount), translate)).toThrow(
+      expect.objectContaining({ status: 409, body: expect.objectContaining({ code: 'payment_cancel_captured_funds' }) }),
+    )
   })
 })

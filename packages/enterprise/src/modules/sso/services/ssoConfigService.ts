@@ -1,4 +1,4 @@
-import type { FilterQuery, RequiredEntityData } from '@mikro-orm/core'
+import { LockMode, type FilterQuery, type RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -6,13 +6,28 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { SsoConfig, ScimToken } from '../data/entities'
 import type { SsoConfigAdminCreateInput, SsoConfigAdminUpdateInput, SsoConfigListQuery } from '../data/validators'
 import { emitSsoEvent } from '../events'
-import { validateDomain, normalizeDomain, uniqueDomains, checkDomainLimit } from '../lib/domains'
+import { validateDomain, normalizeDomain, uniqueDomains, checkDomainLimit, MAX_DOMAINS_PER_CONFIG, type DomainValidationResult } from '../lib/domains'
 import type { SsoProviderRegistry } from '../lib/registry'
+import { isBrandedSsoHttpError, type SsoErrorTranslation, type SsoErrorTranslationParams } from '../lib/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { SsoAuthorizationService } from './ssoAuthorizationService'
 
 const logger = createLogger('sso').child({ component: 'config' })
 
+function reportSsoEventFailure(eventError: unknown): void {
+  logger.error('SSO event emit failed', { err: eventError })
+  try {
+    getTelemetryRuntime()?.reportError(eventError, { module: 'sso', code: 'sso.event_emit_failed' })
+  } catch (telemetryError) {
+    logger.warn('SSO telemetry reporting failed', { err: telemetryError })
+  }
+}
+
 export interface SsoAdminScope {
+  actorUserId?: string | null
   isSuperAdmin: boolean
   organizationId: string | null
   tenantId: string | null
@@ -42,6 +57,7 @@ export class SsoConfigService {
     private em: EntityManager,
     private tenantEncryptionService: TenantDataEncryptionService,
     private ssoProviderRegistry: SsoProviderRegistry,
+    private ssoAuthorizationService?: SsoAuthorizationService,
   ) {}
 
   async list(scope: SsoAdminScope, query: SsoConfigListQuery): Promise<{
@@ -53,7 +69,7 @@ export class SsoConfigService {
 
     if (!scope.isSuperAdmin) {
       if (!scope.organizationId) {
-        throw new SsoConfigError('Organization context is required', 403)
+        throw new SsoConfigError('Organization context is required', 403, { key: 'sso.errors.organizationRequired' })
       }
       where.organizationId = scope.organizationId
     } else {
@@ -86,7 +102,7 @@ export class SsoConfigService {
   async getById(scope: SsoAdminScope, id: string): Promise<SsoConfigPublic | null> {
     const where: FilterQuery<SsoConfig> = { id, deletedAt: null }
     if (!scope.isSuperAdmin) {
-      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403)
+      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403, { key: 'sso.errors.organizationRequired' })
       where.organizationId = scope.organizationId
     }
 
@@ -95,102 +111,123 @@ export class SsoConfigService {
   }
 
   async create(scope: SsoAdminScope, input: SsoConfigAdminCreateInput): Promise<SsoConfigPublic> {
-    const orgId = scope.isSuperAdmin ? input.organizationId : scope.organizationId!
-    const tenId = scope.isSuperAdmin ? (input.tenantId ?? null) : scope.tenantId
+    const result = await this.em.transactional(async (tx) => {
+      const orgId = scope.isSuperAdmin ? input.organizationId : scope.organizationId!
+      const tenId = scope.isSuperAdmin ? (input.tenantId ?? null) : scope.tenantId
 
-    const existing = await this.em.findOne(SsoConfig, {
-      organizationId: orgId,
-      deletedAt: null,
-    })
-    if (existing) {
-      throw new SsoConfigError('An SSO configuration already exists for this organization', 409)
-    }
-
-    const domains = uniqueDomains(input.allowedDomains)
-    for (const d of domains) {
-      const result = validateDomain(d)
-      if (!result.valid) throw new SsoConfigError(`Invalid domain "${d}": ${result.error}`, 400)
-    }
-
-    const encrypted = await this.tenantEncryptionService.encryptEntityPayload(
-      'SsoConfig',
-      { clientSecretEnc: input.clientSecret },
-      tenId,
-      orgId,
-    )
-
-    const config = this.em.create(SsoConfig, {
-      name: input.name,
-      tenantId: tenId,
-      organizationId: orgId,
-      protocol: input.protocol,
-      issuer: input.issuer,
-      clientId: input.clientId,
-      clientSecretEnc: encrypted.clientSecretEnc as string,
-      allowedDomains: domains,
-      jitEnabled: input.jitEnabled,
-      autoLinkByEmail: input.autoLinkByEmail,
-      isActive: false,
-      ssoRequired: false,
-      appRoleMappings: input.appRoleMappings ?? {},
-    } as RequiredEntityData<SsoConfig>)
-
-    await this.em.persist(config).flush()
-
-    void emitSsoEvent('sso.config.created', {
-      id: config.id,
-      tenantId: config.tenantId,
-      organizationId: config.organizationId,
-    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
-
-    return this.toPublic(config)
-  }
-
-  async update(scope: SsoAdminScope, id: string, input: SsoConfigAdminUpdateInput): Promise<SsoConfigPublic> {
-    const config = await this.resolveConfig(scope, id)
-
-    if (input.name !== undefined) config.name = input.name
-    if (input.protocol !== undefined) config.protocol = input.protocol
-    if (input.issuer !== undefined) config.issuer = input.issuer
-    if (input.clientId !== undefined) config.clientId = input.clientId
-    if (input.jitEnabled !== undefined) {
-      if (input.jitEnabled) {
-        const activeScimCount = await this.em.count(ScimToken, { ssoConfigId: id, isActive: true })
-        if (activeScimCount > 0) {
-          throw new SsoConfigError('Cannot enable JIT provisioning while SCIM directory sync is active. Revoke all SCIM tokens first.', 409)
-        }
+      const existing = await tx.findOne(SsoConfig, {
+        organizationId: orgId,
+        deletedAt: null,
+      })
+      if (existing) {
+        const { translate } = await resolveTranslations()
+        throw new SsoConfigError(
+          translate('sso.admin.error.alreadyExists', 'An SSO configuration already exists for this organization'),
+          409,
+          { key: 'sso.admin.error.alreadyExists' },
+        )
       }
-      config.jitEnabled = input.jitEnabled
-    }
-    if (input.autoLinkByEmail !== undefined) config.autoLinkByEmail = input.autoLinkByEmail
-    if (input.appRoleMappings !== undefined) config.appRoleMappings = input.appRoleMappings
 
-    if (input.clientSecret !== undefined) {
+      const domains = uniqueDomains(input.allowedDomains)
+      for (const domain of domains) {
+        const result = validateDomain(domain)
+        if (!result.valid) throw invalidDomainError(domain, result)
+      }
+
+      await this.authorizeConfiguration(tx, {
+        tenantId: tenId,
+        organizationId: orgId,
+        appRoleMappings: input.appRoleMappings ?? {},
+      } as SsoConfig, scope)
+
       const encrypted = await this.tenantEncryptionService.encryptEntityPayload(
         'SsoConfig',
         { clientSecretEnc: input.clientSecret },
-        config.tenantId,
-        config.organizationId,
+        tenId,
+        orgId,
       )
-      config.clientSecretEnc = encrypted.clientSecretEnc as string
-    }
 
-    await this.em.flush()
+      const config = tx.create(SsoConfig, {
+        name: input.name,
+        tenantId: tenId,
+        organizationId: orgId,
+        protocol: input.protocol,
+        issuer: input.issuer,
+        clientId: input.clientId,
+        clientSecretEnc: encrypted.clientSecretEnc as string,
+        allowedDomains: domains,
+        jitEnabled: input.jitEnabled,
+        autoLinkByEmail: input.autoLinkByEmail,
+        isActive: false,
+        ssoRequired: false,
+        appRoleMappings: input.appRoleMappings ?? {},
+        authorizationUserId: scope.actorUserId,
+      } as RequiredEntityData<SsoConfig>)
+
+      await tx.persist(config).flush()
+
+      return this.toPublic(config)
+    })
+
+    void emitSsoEvent('sso.config.created', {
+      id: result.id,
+      tenantId: result.tenantId,
+      organizationId: result.organizationId,
+    }).catch(reportSsoEventFailure)
+
+    return result
+  }
+
+  async update(scope: SsoAdminScope, id: string, input: SsoConfigAdminUpdateInput): Promise<SsoConfigPublic> {
+    const result = await this.em.transactional(async (tx) => {
+      const config = await this.resolveConfig(scope, id, tx, true)
+      await this.authorizeConfiguration(tx, {
+        ...config,
+        appRoleMappings: input.appRoleMappings ?? config.appRoleMappings,
+      } as SsoConfig, scope)
+
+      if (input.jitEnabled === true && await tx.count(ScimToken, { ssoConfigId: id, isActive: true }) > 0) {
+        throw new SsoConfigError('Cannot enable JIT provisioning while SCIM directory sync is active. Revoke all SCIM tokens first.', 409, { key: 'sso.errors.jitBlockedByScim' })
+      }
+
+      config.authorizationUserId = scope.actorUserId
+      if (input.name !== undefined) config.name = input.name
+      if (input.protocol !== undefined) config.protocol = input.protocol
+      if (input.issuer !== undefined) config.issuer = input.issuer
+      if (input.clientId !== undefined) config.clientId = input.clientId
+      if (input.jitEnabled !== undefined) config.jitEnabled = input.jitEnabled
+      if (input.autoLinkByEmail !== undefined) config.autoLinkByEmail = input.autoLinkByEmail
+      if (input.appRoleMappings !== undefined) config.appRoleMappings = input.appRoleMappings
+
+      if (input.clientSecret !== undefined) {
+        const encrypted = await this.tenantEncryptionService.encryptEntityPayload(
+          'SsoConfig',
+          { clientSecretEnc: input.clientSecret },
+          config.tenantId,
+          config.organizationId,
+        )
+        config.clientSecretEnc = encrypted.clientSecretEnc as string
+      }
+
+      await tx.flush()
+
+      return this.toPublic(config)
+    })
 
     void emitSsoEvent('sso.config.updated', {
-      id: config.id,
-      tenantId: config.tenantId,
-      organizationId: config.organizationId,
-    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+      id: result.id,
+      tenantId: result.tenantId,
+      organizationId: result.organizationId,
+    }).catch(reportSsoEventFailure)
 
-    return this.toPublic(config)
+    return result
   }
 
   async delete(scope: SsoAdminScope, id: string): Promise<void> {
     const config = await this.resolveConfig(scope, id)
 
     if (config.isActive) {
-      throw new SsoConfigError('Cannot delete an active SSO configuration — deactivate it first', 400)
+      throw new SsoConfigError('Cannot delete an active SSO configuration — deactivate it first', 400, { key: 'sso.admin.error.deleteActive' })
     }
 
     config.deletedAt = new Date()
@@ -200,18 +237,19 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+    }).catch(reportSsoEventFailure)
   }
 
   async activate(scope: SsoAdminScope, id: string, active: boolean): Promise<SsoConfigPublic> {
     return this.em.transactional(async (txEm) => {
       const tx = txEm as EntityManager
       await this.lockActiveDomainMutation(tx, id)
-      const config = await this.resolveConfig(scope, id, tx)
+      const config = await this.resolveConfig(scope, id, tx, true)
 
       if (active) {
+        await this.authorizeConfiguration(tx, config, scope)
         if (config.allowedDomains.length === 0) {
-          throw new SsoConfigError('Cannot activate SSO configuration with no allowed domains', 400)
+          throw new SsoConfigError('Cannot activate SSO configuration with no allowed domains', 400, { key: 'sso.admin.error.noDomainsForActivation' })
         }
 
         await this.lockActiveDomains(tx, config.allowedDomains)
@@ -219,10 +257,14 @@ export class SsoConfigService {
 
         const testResult = await this.testConnectionInternal(config)
         if (!testResult.ok) {
-          throw new SsoConfigError(`Cannot activate — discovery failed: ${testResult.error}`, 400)
+          throw new SsoConfigError(`Cannot activate — discovery failed: ${testResult.error}`, 400, {
+            key: 'sso.errors.activationDiscoveryFailed',
+            params: { error: testResult.error ?? '' },
+          })
         }
       }
 
+      if (active) config.authorizationUserId = scope.actorUserId
       const wasActive = config.isActive
       config.isActive = active
       await tx.flush()
@@ -232,13 +274,13 @@ export class SsoConfigService {
           id: config.id,
           tenantId: config.tenantId,
           organizationId: config.organizationId,
-        }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+        }).catch(reportSsoEventFailure)
       } else if (!active && wasActive) {
         void emitSsoEvent('sso.config.deactivated', {
           id: config.id,
           tenantId: config.tenantId,
           organizationId: config.organizationId,
-        }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+        }).catch(reportSsoEventFailure)
       }
 
       return this.toPublic(config)
@@ -253,24 +295,32 @@ export class SsoConfigService {
   async addDomain(scope: SsoAdminScope, id: string, domain: string): Promise<SsoConfigPublic> {
     const normalized = normalizeDomain(domain)
     const validation = validateDomain(normalized)
-    if (!validation.valid) throw new SsoConfigError(validation.error!, 400)
+    if (!validation.valid) throw invalidDomainError(normalized, validation)
 
     return this.em.transactional(async (txEm) => {
       const tx = txEm as EntityManager
       await this.lockActiveDomainMutation(tx, id, [normalized])
-      const config = await this.resolveConfig(scope, id, tx)
+      const config = await this.resolveConfig(scope, id, tx, true)
+
+      await this.authorizeConfiguration(tx, config, scope)
 
       if (config.allowedDomains.some((d) => normalizeDomain(d) === normalized)) {
         return this.toPublic(config)
       }
 
       const limitCheck = checkDomainLimit(config.allowedDomains.length, 1)
-      if (!limitCheck.ok) throw new SsoConfigError(limitCheck.error!, 400)
+      if (!limitCheck.ok) {
+        throw new SsoConfigError(limitCheck.error!, 400, {
+          key: 'sso.admin.wizard.domain.limit',
+          params: { max: MAX_DOMAINS_PER_CONFIG },
+        })
+      }
 
       if (config.isActive) {
         await this.assertActiveDomainAvailability(tx, [...config.allowedDomains, normalized], config.id)
       }
 
+      config.authorizationUserId = scope.actorUserId
       config.allowedDomains = [...config.allowedDomains, normalized]
       await tx.flush()
 
@@ -279,7 +329,7 @@ export class SsoConfigService {
         tenantId: config.tenantId,
         organizationId: config.organizationId,
         domain: normalized,
-      }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+      }).catch(reportSsoEventFailure)
 
       return this.toPublic(config)
     })
@@ -287,19 +337,25 @@ export class SsoConfigService {
 
   async removeDomain(scope: SsoAdminScope, id: string, domain: string): Promise<SsoConfigPublic> {
     const normalized = normalizeDomain(domain)
-    const config = await this.resolveConfig(scope, id)
+    const result = await this.em.transactional(async (tx) => {
+      const config = await this.resolveConfig(scope, id, tx, true)
+      await this.authorizeConfiguration(tx, config, scope)
+      config.authorizationUserId = scope.actorUserId
 
-    config.allowedDomains = config.allowedDomains.filter((d) => d !== normalized)
-    await this.em.flush()
+      config.allowedDomains = config.allowedDomains.filter((d) => d !== normalized)
+      await tx.flush()
+
+      return this.toPublic(config)
+    })
 
     void emitSsoEvent('sso.domain.removed', {
-      id: config.id,
-      tenantId: config.tenantId,
-      organizationId: config.organizationId,
+      id: result.id,
+      tenantId: result.tenantId,
+      organizationId: result.organizationId,
       domain: normalized,
-    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+    }).catch(reportSsoEventFailure)
 
-    return this.toPublic(config)
+    return result
   }
 
   toPublic(config: SsoConfig): SsoConfigPublic {
@@ -323,22 +379,39 @@ export class SsoConfigService {
     }
   }
 
-  private async resolveConfig(scope: SsoAdminScope, id: string, em: EntityManager = this.em): Promise<SsoConfig> {
+  private async resolveConfig(scope: SsoAdminScope, id: string, em: EntityManager = this.em, lock = false): Promise<SsoConfig> {
     const where: FilterQuery<SsoConfig> = { id, deletedAt: null }
     if (!scope.isSuperAdmin) {
-      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403)
+      if (!scope.organizationId) throw new SsoConfigError('Organization context is required', 403, { key: 'sso.errors.organizationRequired' })
       where.organizationId = scope.organizationId
     }
 
-    const config = await em.findOne(SsoConfig, where)
-    if (!config) throw new SsoConfigError('SSO configuration not found', 404)
+    const config = await em.findOne(SsoConfig, where, lock ? { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true } : {})
+    if (!config) {
+      const { translate } = await resolveTranslations()
+      throw new SsoConfigError(translate('sso.admin.error.notFound', 'SSO configuration not found'), 404, { key: 'sso.admin.error.notFound' })
+    }
 
     return config
   }
 
+  private async authorizeConfiguration(em: EntityManager, config: SsoConfig, scope: SsoAdminScope): Promise<void> {
+    if (!this.ssoAuthorizationService) {
+      const { translate } = await resolveTranslations()
+      throw forbidden(translate('sso.errors.authorizationDenied', 'SSO authorization is unavailable.'))
+    }
+    await this.ssoAuthorizationService.assertConfiguration(em, config, scope.actorUserId ?? null)
+  }
+
   private async testConnectionInternal(config: SsoConfig): Promise<{ ok: boolean; error?: string }> {
     const provider = this.ssoProviderRegistry.resolve(config.protocol)
-    if (!provider) return { ok: false, error: `No provider for protocol: ${config.protocol}` }
+    if (!provider) {
+      const { translate } = await resolveTranslations()
+      return {
+        ok: false,
+        error: translate('sso.errors.providerUnavailable', `No provider for protocol: ${config.protocol}`, { protocol: config.protocol }),
+      }
+    }
 
     return provider.validateConfig(config)
   }
@@ -391,17 +464,39 @@ export class SsoConfigService {
       throw new SsoConfigError(
         `SSO domain "${conflictDomain}" is already claimed by another active SSO configuration`,
         409,
+        { key: 'sso.errors.domainClaimed', params: { domain: conflictDomain } },
       )
     }
   }
 }
 
+const SSO_CONFIG_ERROR_MARKER = Symbol.for('@open-mercato/sso/SsoConfigError')
+
 export class SsoConfigError extends Error {
+  readonly [SSO_CONFIG_ERROR_MARKER] = true
+
+  readonly translationKey?: string
+  readonly translationParams?: SsoErrorTranslationParams
+
   constructor(
     message: string,
     public readonly statusCode: number,
+    translation?: SsoErrorTranslation,
   ) {
     super(message)
     this.name = 'SsoConfigError'
+    this.translationKey = translation?.key
+    this.translationParams = translation?.params
   }
+}
+
+function invalidDomainError(domain: string, result: DomainValidationResult): SsoConfigError {
+  return new SsoConfigError(`Invalid domain "${domain}": ${result.error}`, 400, {
+    key: result.errorKey ?? 'sso.errors.domain.invalidFormat',
+    params: { domain },
+  })
+}
+
+export function isSsoConfigError(error: unknown): error is SsoConfigError {
+  return error instanceof SsoConfigError || isBrandedSsoHttpError(error, SSO_CONFIG_ERROR_MARKER, 'SsoConfigError')
 }

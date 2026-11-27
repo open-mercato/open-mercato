@@ -6,6 +6,12 @@ import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { RoleAssignmentRow } from '../RoleAssignmentRow'
 
+let mockGrantedFeatures: string[] = ['customers.roles.manage']
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures } }),
+  useCurrentOrganization: () => ({ id: 'organization-1' }),
+}))
+
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({
     confirm: jest.fn(),
@@ -14,6 +20,7 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 }))
 
 describe('RoleAssignmentRow', () => {
+  beforeEach(() => { mockGrantedFeatures = ['customers.roles.manage'] })
   it('keeps long identity values and actions in wrap-safe containers', () => {
     renderWithProviders(
       <RoleAssignmentRow
@@ -60,4 +67,22 @@ describe('RoleAssignmentRow', () => {
     expect(onChangeUser).toHaveBeenCalledTimes(1)
     expect(screen.queryByPlaceholderText('Search team member...')).not.toBeInTheDocument()
   })
+  it('hides reassignment and removal while preserving identity for a viewer', () => {
+    mockGrantedFeatures = ['customers.roles.view']
+    renderWithProviders(
+      <RoleAssignmentRow
+        role={{ id: 'role-1', roleType: 'account_manager', userId: 'user-1', userName: 'Ada Lovelace' }}
+        roleTypeLabel="Account manager"
+        runMutationWithContext={async (operation) => operation()}
+        entityType="company"
+        entityId="company-1"
+        onRemoved={() => {}}
+        onUpdated={() => {}}
+      />,
+    )
+    expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Change user' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove role' })).not.toBeInTheDocument()
+  })
+
 })

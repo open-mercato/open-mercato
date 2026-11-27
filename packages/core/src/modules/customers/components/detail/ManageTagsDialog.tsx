@@ -1293,7 +1293,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                 <span className="text-xs text-muted-foreground">
                   {t(
                     'customers.tags.manage.tenantNotice',
-                    'Changes apply to the entire tenant \u00b7 visible immediately',
+                    'Changes apply to the entire tenant and are visible immediately.',
                   )}
                 </span>
               </div>

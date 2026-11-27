@@ -1,0 +1,44 @@
+{
+  "originalFixtureSource": "f1d35059067402206b1d24631d6f2a56dfdf6026",
+  "finalBackupImageSource": "724b6cb37eb98fcf5ce472b1b2090fdb5f704897",
+  "allIdentical": true,
+  "objects": [
+    {
+      "path": "packages/enterprise/src/modules/backups/lib/engine",
+      "originalObject": "242c4d3665a3fa7b83cc1ec824764fa916fafa2a",
+      "finalObject": "242c4d3665a3fa7b83cc1ec824764fa916fafa2a",
+      "identical": true
+    },
+    {
+      "path": "packages/enterprise/src/lib/recovery-configuration.ts",
+      "originalObject": "2ed1b0891da8192424c2f623611e6b8459997ea7",
+      "finalObject": "2ed1b0891da8192424c2f623611e6b8459997ea7",
+      "identical": true
+    },
+    {
+      "path": "packages/enterprise/bin/mercato-backup.mjs",
+      "originalObject": "abece6004151df6f6063c6a8c3314fc5f6d31a47",
+      "finalObject": "abece6004151df6f6063c6a8c3314fc5f6d31a47",
+      "identical": true
+    },
+    {
+      "path": "packages/enterprise/src/modules/backups/cli.ts",
+      "originalObject": "8b9519b409d7468599333268a34f90863d57daf6",
+      "finalObject": "8b9519b409d7468599333268a34f90863d57daf6",
+      "identical": true
+    },
+    {
+      "path": "docker/scripts/recovery-entrypoint.sh",
+      "originalObject": "eec1f12816b4977bdb1561a23890b5984ba9b371",
+      "finalObject": "eec1f12816b4977bdb1561a23890b5984ba9b371",
+      "identical": true
+    },
+    {
+      "path": "docker/scripts/install-postgres-clients.sh",
+      "originalObject": "79fe42ec3d3046abf1d349017b449f695068ce08",
+      "finalObject": "79fe42ec3d3046abf1d349017b449f695068ce08",
+      "identical": true
+    }
+  ],
+  "scope": "Retained actual143-rowSIGINT/fresh-preflight/same-run resume proof covers identical standalone backup engine, configuration, launcher and native recovery guard sources. Final new source images get separate actual packaging/output checks; no whole-app key-recovery/canary or performance acceptance claim."
+}

@@ -88,6 +88,8 @@
   "integrations.detail.version.select": "Select Version",
   "integrations.detail.version.stable": "Stable",
   "integrations.detail.version.sunsetAt": "Sunset: {date}",
+  "integrations.hubs.data_sync": "Data Sync",
+  "integrations.hubs.payment_gateways": "Payment Gateways",
   "integrations.marketplace.analytics.errorRate": "Error rate: {rate}",
   "integrations.marketplace.analytics.events": "{count} log events (30d)",
   "integrations.marketplace.categories.all": "All",

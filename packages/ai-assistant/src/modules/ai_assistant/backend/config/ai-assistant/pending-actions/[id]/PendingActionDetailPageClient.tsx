@@ -323,7 +323,9 @@ export function PendingActionDetailPageClient({ id }: { id: string }) {
   }
 
   const isPending = action.status === 'pending'
-  const executionError = action.executionResult?.error ?? null
+  const isCancelled = action.status === 'cancelled'
+  const rejectionReason = isCancelled ? action.executionResult?.error?.message?.trim() : null
+  const executionError = isCancelled ? null : action.executionResult?.error ?? null
   const executedRecordId = action.executionResult?.recordId ?? null
   const fieldDiff = action.fieldDiff as unknown as AiPendingActionCardFieldDiff[]
   const records = action.records as unknown as AiPendingActionCardRecordDiff[] | null
@@ -412,6 +414,13 @@ export function PendingActionDetailPageClient({ id }: { id: string }) {
         </div>
       </section>
 
+      {rejectionReason ? (
+        <Alert status="information" data-pending-action-rejection-reason>
+          <AlertTitle>{pendingActionStatusLabel(t, 'cancelled')}</AlertTitle>
+          <AlertDescription>{rejectionReason}</AlertDescription>
+        </Alert>
+      ) : null}
+
       {executionError ? (
         <Alert status="error" data-pending-action-execution-error>
           <AlertTitle>{t('ai_assistant.pendingActions.detail.executionFailed', 'Execution failed')}</AlertTitle>
@@ -419,7 +428,7 @@ export function PendingActionDetailPageClient({ id }: { id: string }) {
         </Alert>
       ) : null}
 
-      {!executionError && executedRecordId ? (
+      {!isCancelled && !executionError && executedRecordId ? (
         <Alert status="success" data-pending-action-execution-result>
           <AlertTitle>{t('ai_assistant.pendingActions.detail.executed', 'Action applied')}</AlertTitle>
           <AlertDescription>

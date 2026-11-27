@@ -1,3 +1,4 @@
+import { EntityMetadata, MetadataStorage } from '@mikro-orm/core'
 import enrolledSubscriber from '../notification'
 import mfaResetSubscriber from '../mfa-reset-notification'
 import enforcementCreatedSubscriber from '../enforcement-deadline-notification'
@@ -20,7 +21,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 function createContext(notificationsAvailable = true) {
-  const hasMetadata = jest.fn(() => notificationsAvailable)
+  const registeredClass = class Notification {}
+  const metadata = new MetadataStorage(notificationsAvailable ? {
+    Notification: new EntityMetadata({ class: registeredClass, className: 'Notification' }),
+  } : {})
   const emFork = {
     findOne: jest.fn(),
     find: jest.fn(),
@@ -30,13 +34,13 @@ function createContext(notificationsAvailable = true) {
       if (name === 'em') {
         return {
           fork: () => emFork,
-          getMetadata: () => ({ has: hasMetadata }),
+          getMetadata: () => metadata,
         }
       }
       return undefined
     }),
   }
-  return { emFork, ctx, hasMetadata }
+  return { emFork, ctx }
 }
 
 describe('security notification subscribers', () => {

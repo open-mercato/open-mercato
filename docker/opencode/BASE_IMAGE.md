@@ -100,7 +100,9 @@ agent-file/skill contract are validated against a specific tag.
    a Cmd+K → tool-call → MCP round-trip. Startup already logs
    `opencode server listening on http://0.0.0.0:4096` when the config is accepted.
 
-**1.18.3 note:** newer OpenCode logs `OPENCODE_SERVER_PASSWORD is not set; server
-is unsecured` at startup. The dev/prod compose stacks keep the OpenCode port
-off the public interface (published on localhost in dev, internal in prod), so
-this is informational; set `OPENCODE_SERVER_PASSWORD` if you ever expose it.
+**1.18.3 authentication:** OpenCode uses `OPENCODE_SERVER_PASSWORD` for HTTP
+Basic authentication (username `opencode`). The fullapp development stacks
+require `OPENCODE_PASSWORD` and supply it to both the server and the app client;
+their healthcheck authenticates too. All published dev ports default to loopback.
+The production stack keeps OpenCode internal. An unsecured-server warning means
+HTTP authentication is disabled; loopback publication does not enable it.

@@ -11,7 +11,7 @@ import { CustomerRbacService } from '@open-mercato/core/modules/customer_account
 import { adminUpdateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { isOwnedCompanyEntity, isOwnedPersonEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
+import { isCustomerEntityRegistered, isOwnedCompanyEntity, isOwnedPersonEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -158,12 +158,13 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   // Without this check a mislinked company FK cross-links the user into another
   // org/company's portal context and persists indefinitely (#2693). A null value
   // (unlink) needs no ownership check.
-  if (parsed.data.customerEntityId) {
-    const owned = await isOwnedCompanyEntity(em, parsed.data.customerEntityId, {
+  const { customerEntityId, personEntityId } = parsed.data
+  if (customerEntityId) {
+    const owned = await isOwnedCompanyEntity(em, customerEntityId, {
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
     })
-    if (!owned) {
+    if (!owned && (customerEntityId !== user.customerEntityId || await isCustomerEntityRegistered(em))) {
       return NextResponse.json({ ok: false, error: 'Company not found' }, { status: 400 })
     }
   }
@@ -173,12 +174,12 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   // It persists (autoLinkCrm short-circuits on any non-null value) and leaks
   // account status into the other org's people list via the account-status
   // enricher. A null value (unlink) needs no ownership check.
-  if (parsed.data.personEntityId) {
-    const owned = await isOwnedPersonEntity(em, parsed.data.personEntityId, {
+  if (personEntityId) {
+    const owned = await isOwnedPersonEntity(em, personEntityId, {
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
     })
-    if (!owned) {
+    if (!owned && (personEntityId !== user.personEntityId || await isCustomerEntityRegistered(em))) {
       return NextResponse.json({ ok: false, error: 'Person not found' }, { status: 400 })
     }
   }
@@ -200,8 +201,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   const updates: Record<string, unknown> = { updatedAt: nextUpdatedAt }
   if (parsed.data.isActive !== undefined) updates.isActive = parsed.data.isActive
   if (parsed.data.lockedUntil !== undefined) updates.lockedUntil = parsed.data.lockedUntil ? new Date(parsed.data.lockedUntil) : null
-  if (parsed.data.personEntityId !== undefined) updates.personEntityId = parsed.data.personEntityId
-  if (parsed.data.customerEntityId !== undefined) updates.customerEntityId = parsed.data.customerEntityId
+  if (personEntityId !== undefined && personEntityId !== user.personEntityId) updates.personEntityId = personEntityId
+  if (customerEntityId !== undefined && customerEntityId !== user.customerEntityId) updates.customerEntityId = customerEntityId
 
   await em.nativeUpdate(CustomerUser, {
     id: user.id,

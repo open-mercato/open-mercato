@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { CustomerInteraction, CustomerTodoLink } from '../../data/entities'
-import { listCanonicalTodoRows, listLegacyTodoRows } from '../todoCompatibility'
+import { listCanonicalTodoRows, listLegacyTodoRows, mapInteractionRecordToTodoRow } from '../todoCompatibility'
 
 jest.mock('../interactionReadModel', () => ({
   hydrateCanonicalInteractions: jest.fn(async ({ interactions }) =>
@@ -151,5 +151,17 @@ describe('listLegacyTodoRows pagination', () => {
 
     const [, , findOptions] = find.mock.calls[0]
     expect(findOptions.limit).toBeUndefined()
+  })
+})
+
+
+describe('canonical task status projection', () => {
+  it.each(['canceled', 'in_progress', 'waiting', 'done', 'planned'])('keeps the complete %s status alongside the legacy boolean', (status) => {
+    const row = mapInteractionRecordToTodoRow({
+      id: 'task-1', interactionType: 'task', title: 'Native task', status,
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      entityId: null, organizationId: ORG, tenantId: TENANT,
+    }, null)
+    expect(row).toMatchObject({ todoStatus: status, todoIsDone: status === 'done' })
   })
 })

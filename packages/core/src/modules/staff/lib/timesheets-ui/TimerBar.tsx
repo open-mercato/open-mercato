@@ -754,13 +754,14 @@ function DefaultTimerBar({
       // timer silently inherited the previous task's note; both the field and the
       // baseline the unsaved-edit check compares against are cleared. A note that
       // was NOT saved stays in the field, visibly, with a warning.
+      const hasUnsavedNote = descriptionRef.current.trim() !== persistedDescriptionRef.current.trim()
       setPersistedDescription('')
-      if (noteOutcome.ok) {
+      if (noteOutcome.ok && !hasUnsavedNote) {
         setDescription('')
       } else {
         // The conflict bar this note raised (here, or by the guarded mutation for
         // any 409) offers a Refresh for a timer that is no longer running.
-        if (noteConflictSurfacedRef.current || isConflictError(noteOutcome.error)) {
+        if (!noteOutcome.ok && (noteConflictSurfacedRef.current || isConflictError(noteOutcome.error))) {
           noteConflictSurfacedRef.current = false
           dismissRecordConflict()
         }

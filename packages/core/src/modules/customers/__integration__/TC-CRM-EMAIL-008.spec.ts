@@ -253,7 +253,7 @@ test.describe('TC-CRM-EMAIL-008: CRM reply parent must be readable on the Person
         })
         expect(aclResp.ok(), 'PUT role ACL should succeed').toBeTruthy()
 
-        const password = 'Valid1!Pass'
+        const password = 'QaValid1!Pass'
         const userAEmail = `qa-crm-email-parent-a-${stamp}@acme.com`
         userAId = await createUserFixture(request, adminToken, {
           email: userAEmail,

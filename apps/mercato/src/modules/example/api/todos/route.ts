@@ -37,6 +37,7 @@ import {
 const querySchema = z
   .object({
     id: z.string().uuid().optional(),
+    sectionDetail: z.literal('showcase').optional(),
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     ids: z.string().optional(),
@@ -104,12 +105,10 @@ function customFieldKeysFor(ctx: CrudCtx): string[] {
 // Sorting on `cf_<key>` needs no entry here: the CRUD factory normalizes any
 // unmapped `cf_` sort field to the `cf:` query-engine selector.
 //
-// `notes` is absent here, but note what that does and does NOT do: the factory
-// falls through to the raw field name for an unmapped sort field, so `?sortField=notes`
-// still reaches the engine. It is not blocked. What happens is that the engine
-// recognizes `notes` as encrypted and routes the query to its decrypt-then-sort-in-
-// memory path, which is CORRECT but row-capped — past the cap the ordering is
-// silently partial. Omitting it from this map is documentation, not enforcement.
+// This map is the sort allowlist: the factory ignores any other requested
+// `sortField` and falls back to the default sort. `notes` is deliberately absent —
+// sorting the encrypted column would need the engine's decrypt-then-sort-in-memory
+// path, which is row-capped and silently partial past the cap.
 const sortFieldMap: Record<string, string> = {
   id,
   title,
@@ -117,6 +116,7 @@ const sortFieldMap: Record<string, string> = {
   organization_id,
   is_done,
   created_at,
+  createdAt: created_at,
   updated_at,
   updatedAt: updated_at,
 }
@@ -237,7 +237,7 @@ type BaseFields = {
   updated_at: Date | string | null
 } & Record<`cf:${string}` | `cf_${string}`, unknown>
 
-export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
+export const todoCrudRoute = makeCrudRoute({
   metadata: {
     GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
     POST: { requireAuth: true, requireFeatures: ['example.todos.manage'] },
@@ -253,6 +253,10 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
   },
   events: { module: 'example', entity: 'todo', persistent: true },
   indexer: { entityType: ENTITY_ID },
+  enrichers: {
+    entityId: 'example.todo',
+    detailRequest: (query) => query.sectionDetail === 'showcase' && !!query.id && !query.withDeleted && query.page === 1 && query.pageSize === 1,
+  },
   list: {
     schema: querySchema,
     entityId: ENTITY_ID,
@@ -374,6 +378,8 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     },
   },
 })
+
+export const { metadata, GET, POST, PUT, DELETE } = todoCrudRoute
 
 const todoDeleteSchema = z.object({
   id: z.string().uuid(),

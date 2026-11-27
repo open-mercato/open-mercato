@@ -43,7 +43,7 @@ pkarw approved Phase 1 for implementation but identified the missing parts (issu
 
 1. **Follow existing patterns exactly** — TranslationManager mirrors `EncryptionManager.tsx` for standalone mode; widget injection mirrors `product-seo` for form embedding
 2. **Minimal search pipeline changes** — translation data is flattened into the existing `entity_indexes.doc` JSONB as `l10n:{locale}:{field}` keys, reusing the same `cf:*` mechanism in QueryEngine
-3. **Optional field config** — translatable field definitions are code-based per module, with auto-detection fallback via `isTranslatableField()`
+3. **Explicit field registration** — modules declare translatable fields in code. The entity translation API validates registrations and trusted record-specific field expanders. Field detection in the editor is advisory.
 4. **Event-driven consistency** — translation changes trigger entity re-indexing through the existing subscriber infrastructure
 
 ---
@@ -569,7 +569,33 @@ This is explicitly out of scope for SPEC-026a.
 
 ---
 
+## Migration & Backward Compatibility
+
+The entity translation route requires the caller's translation feature and the
+target module's record feature in the effective tenant and organization. GET
+requires view access. PUT and DELETE require manage access. Restricted custom
+entities also apply their per-entity permissions. A registered type without a
+target ACL mapping uses the existing platform-admin fallback for system entities.
+
+The target must have a live record in scope. The existing composite identifier
+for a custom field definition still resolves using the scoped definition lookup.
+Unregistered types and submitted field keys return 400. Missing target access
+returns 403. A missing or invisible record returns 404.
+
+CRUD lists and view exports apply registered text translations and skip protected
+fields. The entity translation GET omits unregistered keys from older rows.
+Record-specific option labels from catalog templates and custom field
+definitions remain valid for translation storage. Callers of `applyLocalizedContent` supply the entity type
+as the fourth argument. A call without a registered entity type returns the base
+record. See [upgrade notes](../../../UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139).
+
+Playwright TC-TRANS-020 covers target permissions, validated saves, scoped
+existence, and localized list and view export output. Resolver tests cover
+protected fields and legacy rows.
+
 ## Changelog
+
+- 2026-11-19 — Enforce target authorization and registered text fields for entity translation API access and CRUD overlays (#9139).
 
 ### 2026-02-20 (v2)
 - CrudForm integration updated to support `crud-form:*:header` injection spots for translation actions

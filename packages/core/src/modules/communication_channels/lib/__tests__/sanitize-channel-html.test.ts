@@ -121,6 +121,21 @@ describe('sanitizeChannelHtml', () => {
     expect(out).toMatch(/<em>italic<\/em>/)
   })
 
+  it('strips sender-supplied classes while preserving allowed formatting and attributes', () => {
+    const html = [
+      '<p class="email-body greeting" style="color:red">Hello</p>',
+      '<a class="email-link" href="https://example.com">Read more</a>',
+      '<img class="email-image" alt="Logo" src="data:image/png;base64,iVBORw0KGgo=" />',
+    ].join('')
+    const out = sanitizeChannelHtml(html)
+
+    expect(out).not.toMatch(/\sclass=/i)
+    expect(out).toContain('<p style="color:red">Hello</p>')
+    expect(out).toContain('<a href="https://example.com">Read more</a>')
+    expect(out).toContain('alt="Logo"')
+    expect(out).toContain('src="data:image/png;base64,iVBORw0KGgo="')
+  })
+
   it('keeps safe color/background-color style values', () => {
     const hex = sanitizeChannelHtml('<p style="color:#ff0000;background-color:#0a0">hi</p>')
     expect(hex).toMatch(/color:#ff0000/)
@@ -131,6 +146,22 @@ describe('sanitizeChannelHtml', () => {
 
     const named = sanitizeChannelHtml('<span style="color:red">hi</span>')
     expect(named).toMatch(/color:red/)
+  })
+
+  it.each([
+    ['font-size', '125%', '500%'],
+    ['font-size', '2.5em', '5em'],
+    ['padding', '0 12px 0.5em 4%', '100px'],
+    ['padding', '0 12px', '0 12px 50%'],
+    ['margin', '.5rem .25% 008px', '5rem'],
+    ['border', '1px solid gray', 'solid gray 10px'],
+    ['border', '0 solid', '1em solid'],
+    ['border-radius', '100%', '101%'],
+  ])('keeps bounded %s values and discards out-of-range declarations', (property, allowed, rejected) => {
+    expect(sanitizeChannelHtml(`<p style="${property}:${allowed}">Hello</p>`))
+      .toBe(`<p style="${property}:${allowed}">Hello</p>`)
+    expect(sanitizeChannelHtml(`<p style="${property}:${rejected};color:blue">Hello</p>`))
+      .toBe('<p style="color:blue">Hello</p>')
   })
 
   it('strips CSS url() beacons from color/background-color', () => {

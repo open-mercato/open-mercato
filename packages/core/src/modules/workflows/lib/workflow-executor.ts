@@ -13,8 +13,10 @@
 import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import { z } from 'zod'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
+  StepInstance,
   UserTask,
   WorkflowDefinition,
   WorkflowInstance,
@@ -60,7 +62,8 @@ import type {
   WorkflowActivityJob,
   WorkflowActivityJobResumeSubWorkflowParent,
 } from './activity-queue-types'
-import type { TransitionExecutionResult } from './transition-handler'
+import type { TransitionEvaluationContext, TransitionExecutionResult } from './transition-handler'
+import type { WorkflowRuleContainer } from './named-rules'
 
 import { assertTrustedEventTriggerIdentity } from './event-trigger-identity'
 
@@ -193,7 +196,8 @@ export class WorkflowExecutionError extends Error {
  */
 export async function startWorkflow(
   em: EntityManager,
-  options: StartWorkflowOptions
+  options: StartWorkflowOptions,
+  container?: WorkflowRuleContainer | null,
 ): Promise<WorkflowInstance> {
   const {
     workflowId,
@@ -280,7 +284,7 @@ export async function startWorkflow(
       context: initialContext,
       tenantId,
       organizationId,
-    })
+    }, { container, skipActions: isDryRun })
 
     if (!validationResult.canStart) {
       throw new WorkflowExecutionError(
@@ -640,7 +644,8 @@ export async function executeWorkflow(
         }
 
         const transitionHandler = await import('./transition-handler')
-        const evalContext: any = {
+        const evalContext: TransitionEvaluationContext = {
+          container,
           workflowContext: currentInstance.context,
           userId: executionUserId,
         }
@@ -2050,6 +2055,27 @@ export async function getWorkflowInstance(
   instanceId: string
 ): Promise<WorkflowInstance | null> {
   return em.findOne(WorkflowInstance, { id: instanceId })
+}
+
+const workflowStepInstanceIdSchema = z.string().uuid()
+
+/** Verify that the exact step occurrence belongs to the named live workflow instance and scope. */
+export async function hasWorkflowStepReference(
+  em: PostgreSqlEntityManager,
+  scope: { tenantId: string; organizationId: string },
+  workflowInstanceId: string,
+  stepId: string,
+  stepInstanceId: string,
+): Promise<boolean> {
+  if (!workflowStepInstanceIdSchema.safeParse(stepInstanceId).success) return false
+  const workflow = await findOneWithDecryption(
+    em, WorkflowInstance, { id: workflowInstanceId, ...scope, deletedAt: null }, { fields: ['id'] }, scope,
+  )
+  if (!workflow) return false
+  const step = await findOneWithDecryption(
+    em, StepInstance, { id: stepInstanceId, workflowInstanceId, stepId, ...scope }, { fields: ['id'] }, scope,
+  )
+  return step != null
 }
 
 async function getWorkflowInstanceForExecution(

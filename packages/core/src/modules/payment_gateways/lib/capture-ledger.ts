@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import type { UnifiedPaymentStatus } from '@open-mercato/shared/modules/payment_gateways/types'
 import { decimalToString, parseDecimal, toDecimal, type DecimalValue } from '@open-mercato/shared/lib/decimal'
 import { GatewayPaymentOperation, GatewayTransaction } from '../data/entities'
@@ -241,6 +242,7 @@ export async function reserveCaptureAmountExact(em: EntityManager, input: {
         tenantId: input.scope.tenantId,
         deletedAt: null,
         capturedAmount: previousCapturedAmount,
+        unifiedStatus: input.transaction.unifiedStatus,
       },
       { capturedAmount: nextCapturedAmount, updatedAt: new Date() },
     )
@@ -306,6 +308,26 @@ export function alignCapturedAmountWithStatus(
   const authorized = toLedgerAmount(transaction.amount)
   if (toLedgerAmount(transaction.capturedAmount).gte(authorized)) return
   transaction.capturedAmount = decimalToString(authorized)
+}
+
+/**
+ * A cancel voids what is still authorized, never what was already taken. Once part of the
+ * authorization is captured (`partially_captured` may come from a webhook that carries no amount)
+ * or a capture holds a reservation, the terminal `cancelled` status would leave that money with no
+ * refund path, so the cancel is refused and the payment stays refundable.
+ */
+export function assertNothingCapturedBeforeCancel(
+  transaction: GatewayTransaction,
+  translate: TranslateWithFallbackFn,
+): void {
+  if (transaction.unifiedStatus !== 'partially_captured' && toLedgerAmount(transaction.capturedAmount).lte(0)) return
+  throw captureConflict(
+    'payment_cancel_captured_funds',
+    translate(
+      'payment_gateways.errors.cancelCapturedFunds',
+      'This payment already has captured funds or a capture in progress, so it cannot be cancelled. To return the captured amount to the customer, refund it.',
+    ),
+  )
 }
 
 /**

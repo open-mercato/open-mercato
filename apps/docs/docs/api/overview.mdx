@@ -24,12 +24,12 @@ export API_KEY="<paste your API key secret here>"
 export ORG_ID="<optional active organization id>"
 ```
 
-`API_KEY` comes from the admin UI table (**Admin → Security → API keys**) or the [`mercato api_keys add`](../cli/api-keys) CLI command. All `curl` examples reuse these variables so you can copy, tweak, and run them immediately.
+`API_KEY` comes from the admin UI table (**Settings → Auth → API Keys**, `/backend/api-keys`) or the [`mercato api_keys add`](../cli/api-keys) CLI command. All `curl` examples reuse these variables so you can copy, tweak, and run them immediately.
 
 ## Authentication Flow
 
 1. Mint a key from the [Managing API keys guide](../user-guide/api-keys) or via [`mercato api_keys add`](../cli/api-keys). Keys inherit the roles (and therefore features) you assign.
-2. Send the secret on every request using either `X-Api-Key: <secret>` or `Authorization: ApiKey <secret>`. The prefix (`omk_live_…`) helps correlate requests with a specific key.
+2. Send the secret on every request using either `X-Api-Key: <secret>` or `Authorization: ApiKey <secret>`. The prefix (the `omk_xxxxxxxx` part before the dot) helps correlate requests with a specific key.
 3. Requests lacking a valid API key receive `401 Unauthorized`. Deleted or expired keys behave the same.
 
 Human users still sign in with email/password for the admin UI, but machine-to-machine integrations should rely on API keys for predictable scoping and auditability.

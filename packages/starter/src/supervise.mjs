@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 import { DEV_LOG_DIR, RUN_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
+import { openCodeProbeOptions } from './env-setup.mjs'
 import { color, icons } from './ui.mjs'
 
 // Detached ("PM2-like") lifecycle for the host processes. `yarn dev` is the
@@ -123,17 +124,17 @@ async function fetchJson(url, timeoutMs = 3000) {
   }
 }
 
-async function probeHttp(url, timeoutMs = 3000) {
+async function probeHttp(url, request = {}) {
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
+    const response = await fetch(url, { ...request, signal: AbortSignal.timeout(3000) })
     return response.ok
   } catch {
     return false
   }
 }
 
-export async function collectStatus(repoRoot, { runCompose }) {
-  const ports = resolveStackPorts(repoRoot)
+export async function collectStatus(repoRoot, { runCompose, env = process.env }) {
+  const ports = resolveStackPorts(repoRoot, env)
   const urls = stackUrls(ports)
   const state = readRunState(repoRoot)
   const detachedAlive = state ? isPidAlive(state.pid) : false
@@ -141,7 +142,7 @@ export async function collectStatus(repoRoot, { runCompose }) {
   const [appUp, mcpUp, opencodeUp, splash] = await Promise.all([
     probeHttp(urls.app),
     probeHttp(urls.mcpHealth),
-    probeHttp(urls.opencodeHealth),
+    probeHttp(urls.opencodeHealth, openCodeProbeOptions(repoRoot, env)),
     fetchJson(`${urls.splash}/status`),
   ])
 

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { InspectorCard } from './InspectorCard'
+import { OPTIONAL_REQUEST_INIT } from '../optionalRequest'
 import { formatDateTime } from '../types'
 import { buildAuditEntryHref, buildProposalHref } from '../../lib/identity/auditEntryLinks'
 
@@ -46,6 +47,7 @@ export function RunActionsCard({ runId }: { runId: string }) {
       try {
         const call = await apiCall<RunActionsResponse>(
           `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/actions?pageSize=${RUN_ACTIONS_PAGE_SIZE}`,
+          OPTIONAL_REQUEST_INIT,
         )
         if (!active) return
         if (!call.ok || !call.result) {

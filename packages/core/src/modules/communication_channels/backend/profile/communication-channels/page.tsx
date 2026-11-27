@@ -31,6 +31,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { OAuthProviderSetupHint } from '../../../components/OAuthProviderSetupHint'
 import { ConnectChannelMenu } from './ConnectChannelMenu'
 
 type ChannelRow = {
@@ -88,7 +89,9 @@ export default function ProfileCommunicationChannelsPage() {
   const [rows, setRows] = React.useState<ChannelRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  const [setupError, setSetupError] = React.useState<{ providerKey?: string } | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
+  const [automaticSyncEnabled, setAutomaticSyncEnabled] = React.useState(true)
   const [importChannel, setImportChannel] = React.useState<ChannelRow | null>(null)
   const [disconnectChannel, setDisconnectChannel] = React.useState<ChannelRow | null>(null)
   const { runMutation, retryLastMutation } = useGuardedMutation<ChannelMutationContext>({
@@ -101,6 +104,7 @@ export default function ProfileCommunicationChannelsPage() {
 
   React.useEffect(() => {
     if (flashType === 'connected') {
+      setSetupError(null)
       const providerLabel = flashProvider
         ? t(`communication_channels.channel.providers.${flashProvider}`, '')
         : ''
@@ -112,29 +116,27 @@ export default function ProfileCommunicationChannelsPage() {
           : t('communication_channels.profile.flash.connected', 'Channel connected.'),
         'success',
       )
+    } else if (flashType === 'error' && flashCode === 'oauth_client_not_configured') {
+      setSetupError({ providerKey: flashProvider ?? undefined })
     } else if (flashType === 'error') {
+      setSetupError(null)
       flash(
-        flashCode === 'oauth_client_not_configured'
+        flashCode === 'mailbox_already_connected'
           ? t(
-              'communication_channels.profile.connect.notConfigured',
-              'This provider is not configured yet. Ask an administrator to add the OAuth Client ID and Secret under Integrations before connecting a mailbox.',
+              'communication_channels.profile.connect.mailboxAlreadyConnected',
+              'This mailbox is already connected through another provider. Disconnect it first to reconnect it with a different one.',
             )
-          : flashCode === 'mailbox_already_connected'
+          : flashCode === 'replay'
             ? t(
-                'communication_channels.profile.connect.mailboxAlreadyConnected',
-                'This mailbox is already connected through another provider. Disconnect it first to reconnect it with a different one.',
+                'communication_channels.profile.flash.replayedState',
+                'This connection link was already used — please start the connection again.',
               )
-            : flashCode === 'replay'
+            : flashCode === 'state_store_unavailable'
               ? t(
-                  'communication_channels.profile.flash.replayedState',
-                  'This connection link was already used — please start the connection again.',
+                  'communication_channels.profile.flash.stateStoreUnavailable',
+                  'A server error prevented completing the connection. Please try again in a moment.',
                 )
-              : flashCode === 'state_store_unavailable'
-                ? t(
-                    'communication_channels.profile.flash.stateStoreUnavailable',
-                    'A server error prevented completing the connection. Please try again in a moment.',
-                  )
-                : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
+              : t('communication_channels.profile.flash.error', 'Failed to connect channel.'),
         'error',
       )
     } else {
@@ -148,7 +150,7 @@ export default function ProfileCommunicationChannelsPage() {
     async function load() {
       setIsLoading(true)
       setErrorMessage(null)
-      const response = await apiCall<{ items?: ChannelRow[] }>(
+      const response = await apiCall<{ items?: ChannelRow[]; automaticSyncEnabled?: boolean }>(
         '/api/communication_channels/me/channels',
       ).catch((err: unknown) => ({
         ok: false,
@@ -162,8 +164,9 @@ export default function ProfileCommunicationChannelsPage() {
         )
         setRows([])
       } else {
-        const data = (response.result ?? {}) as { items?: ChannelRow[] }
+        const data = (response.result ?? {}) as { items?: ChannelRow[]; automaticSyncEnabled?: boolean }
         setRows(Array.isArray(data.items) ? data.items : [])
+        setAutomaticSyncEnabled(data.automaticSyncEnabled !== false)
       }
       setIsLoading(false)
     }
@@ -174,6 +177,7 @@ export default function ProfileCommunicationChannelsPage() {
   }, [reloadKey, t])
 
   const reauthRows = rows.filter((r) => r.status === 'requires_reauth')
+  const showAutomaticSyncOff = !automaticSyncEnabled && rows.some((r) => !r.supportsRealtimePush)
 
   const reloadChannels = React.useCallback(() => setReloadKey((k) => k + 1), [])
 
@@ -648,6 +652,31 @@ export default function ProfileCommunicationChannelsPage() {
               dropdown so the header does not widen per installed provider. */}
           <ConnectChannelMenu onConnected={reloadChannels} />
         </header>
+
+        {setupError ? (
+          <Alert
+            status="error"
+            className="mb-4"
+            dismissible
+            dismissAriaLabel={t('common.close', 'Close')}
+            onDismiss={() => setSetupError(null)}
+          >
+            <AlertDescription>
+              <OAuthProviderSetupHint providerKey={setupError.providerKey} verifyProvider />
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {showAutomaticSyncOff ? (
+          <Alert status="warning" className="mb-4">
+            <AlertDescription>
+              {t(
+                'communication_channels.profile.alerts.automaticSyncOff',
+                'Automatic sync is off: no scheduled job polls your channels, so new messages arrive only when you click "Poll now". Ask an administrator to enable the scheduler module and seed its schedules.',
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {reauthRows.length > 0 ? (
           <Alert status="warning" className="mb-4">

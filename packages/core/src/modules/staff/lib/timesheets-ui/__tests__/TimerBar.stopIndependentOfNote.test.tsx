@@ -156,6 +156,62 @@ beforeEach(() => {
 })
 
 describe('TimerBar — Stop does not depend on the note save', () => {
+  it.each(['Stop-owned', 'queued after blur'] as const)(
+    'keeps and warns about edits made during the final %s note PUT',
+    async (savePath) => {
+      const onTimerStopped = jest.fn()
+      const resolveNoteSaves: Array<() => void> = []
+      let savedNote = 'Build task'
+      mockRefresh.mockImplementation(async () => ({
+        ...mockTimerStore.state,
+        notes: savedNote,
+        updatedAt: '2026-01-01T08:05:00.000Z',
+      }))
+      apiCallOrThrowMock.mockImplementation((url: string, init?: { method?: string; body?: string }) => {
+        if (url === NOTES_URL && init?.method === 'PUT') {
+          const payload = JSON.parse(init.body ?? '{}') as { notes: string }
+          return new Promise((resolve) => {
+            resolveNoteSaves.push(() => {
+              savedNote = payload.notes
+              resolve({ ok: true, result: { ok: true } })
+            })
+          })
+        }
+        if (String(url).endsWith('/timer-stop')) stopTimerOnServer()
+        return Promise.resolve({ ok: true, result: { ok: true } })
+      })
+
+      renderTimerBar(onTimerStopped)
+      if (savePath === 'queued after blur') {
+        fireEvent.change(noteInput(), { target: { value: 'Blur snapshot' } })
+        fireEvent.blur(noteInput())
+        await waitFor(() => expect(notesPutCalls()).toHaveLength(1))
+      }
+      fireEvent.change(noteInput(), { target: { value: 'Final save snapshot' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Stop timer' }))
+
+      if (savePath === 'queued after blur') {
+        await act(async () => resolveNoteSaves[0]())
+      }
+      const expectedWrites = savePath === 'queued after blur' ? 2 : 1
+      await waitFor(() => expect(notesPutCalls()).toHaveLength(expectedWrites))
+      expect(stopCalls()).toHaveLength(0)
+      expect(noteInput()).toBeEnabled()
+      fireEvent.change(noteInput(), { target: { value: 'Typed during final save' } })
+      await act(async () => resolveNoteSaves[expectedWrites - 1]())
+
+      await waitFor(() => expect(onTimerStopped).toHaveBeenCalledTimes(1))
+      expect(stopCalls()).toHaveLength(1)
+      expect(notesPutCalls()).toHaveLength(expectedWrites)
+      expect(savedNote).toBe('Final save snapshot')
+      expect(noteInput()).toHaveValue('Typed during final save')
+      expect(screen.getByRole('button', { name: 'Start timer' })).toBeEnabled()
+      expect(flashMock).toHaveBeenCalledWith(expect.stringContaining('Timer stopped, but'), 'warning')
+      expect(flashMock).not.toHaveBeenCalledWith(expect.anything(), 'error')
+      expect(surfaceRecordConflictMock).not.toHaveBeenCalled()
+    },
+  )
+
   it('stops the timer when the note save fails, keeps the typed text and says the note was not saved', async () => {
     const onTimerStopped = jest.fn()
     apiCallOrThrowMock.mockImplementation(async (url: string, init?: { method?: string }) => {

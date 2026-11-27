@@ -12,8 +12,12 @@ import { pathIncludes } from '../lib/__tests__/path-helpers'
 
 type MockChildAutoExit = { code: number | null; signal?: NodeJS.Signals | null } | undefined
 type MockChildSpawnRouter = (args: string[]) => MockChildAutoExit
+type MockChildKillExitCodeRouter = (args: string[]) => number | undefined
 
-function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
+function buildMockChildProcessModule(
+  routeAutoExit: MockChildSpawnRouter,
+  routeKillExitCode: MockChildKillExitCodeRouter = () => undefined,
+) {
   const { EventEmitter } = jest.requireActual('node:events')
 
   const createChild = (spawnargs: string[], autoExit?: MockChildAutoExit) => {
@@ -27,6 +31,14 @@ function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
     child.kill = jest.fn((signal: NodeJS.Signals = 'SIGTERM') => {
       child.killed = true
       if (child.exitCode !== null || child.signalCode !== null) {
+        return true
+      }
+      const handledExitCode = routeKillExitCode(spawnargs.slice(1))
+      if (typeof handledExitCode === 'number') {
+        child.exitCode = handledExitCode
+        queueMicrotask(() => {
+          child.emit('exit', handledExitCode, null)
+        })
         return true
       }
       child.signalCode = signal
@@ -65,6 +77,37 @@ function buildMockChildProcessModule(routeAutoExit: MockChildSpawnRouter) {
   }
 }
 
+const nextExitsWithCodeWhenKilled = (exitCode: number): MockChildKillExitCodeRouter => (args) =>
+  pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? exitCode : undefined
+
+async function runServerAndSendSignal(
+  mercato: typeof import('../mercato'),
+  command: 'start' | 'dev',
+  signal: 'SIGINT' | 'SIGTERM',
+): Promise<number> {
+  const listenersBefore = new Set(process.listeners(signal))
+  try {
+    const pending = mercato.run(['node', 'mercato', 'server', command])
+    const { spawn } = await import('child_process')
+    const nextSpawned = () => (spawn as jest.Mock).mock.calls.some((call) =>
+      pathIncludes(call[1]?.[0] ?? '', 'next/dist/bin/next') && call[1]?.includes(command),
+    )
+    for (let attempt = 0; attempt < 1000 && !nextSpawned(); attempt += 1) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    expect(nextSpawned()).toBe(true)
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    process.emit(signal, signal)
+    return await pending
+  } finally {
+    for (const listener of process.listeners(signal)) {
+      if (!listenersBefore.has(listener)) process.removeListener(signal, listener)
+    }
+  }
+}
+
 const eventsWorkerFixture: Pick<Module, 'id' | 'workers'> = {
   id: 'events',
   workers: [
@@ -85,6 +128,93 @@ const schedulerCliFixture: Pick<Module, 'id' | 'cli'> = {
       run: jest.fn(),
     },
   ],
+}
+
+function mockServerFileSystem(extra: Record<string, unknown> = {}) {
+  jest.doMock('node:fs', () => {
+    const actual = jest.requireActual('node:fs')
+    return {
+      ...actual,
+      existsSync: jest.fn((candidate: string) =>
+        pathIncludes(candidate, 'next/dist/bin/next') || pathIncludes(candidate, '@open-mercato/cli/bin/mercato'),
+      ),
+      ...extra,
+    }
+  })
+}
+
+function mockDevServerEnvironment() {
+  mockServerFileSystem({ unlinkSync: jest.fn() })
+  jest.doMock('../lib/generators', () => ({
+    generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+    generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+    generateCacheProviders: jest.fn().mockResolvedValue(undefined),
+  }))
+  jest.doMock('../lib/resolver', () => ({
+    resolveEnvironment: () => ({ appDir: '/tmp/test-app', rootDir: '/tmp/test-root' }),
+    createResolver: () => ({}),
+  }))
+}
+
+function mockStartServerEnvironment() {
+  mockServerFileSystem()
+  jest.doMock('../lib/resolver', () => ({
+    resolveEnvironment: () => ({ appDir: '/tmp/test-app', rootDir: '/tmp/test-root' }),
+  }))
+  jest.doMock('../lib/server-start-lock', () => ({
+    acquireServerStartLock: jest.fn(() => ({ release: jest.fn() })),
+  }))
+}
+
+function registerShutdownExitCodeTests(command: 'start' | 'dev', mockEnvironment: () => void) {
+  it.each([
+    ['SIGTERM', 143],
+    ['SIGINT', 130],
+  ] as const)('exits cleanly when Next.js handles %s itself and exits with code %i during shutdown', async (signal, nextExitCode) => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    mockEnvironment()
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule(() => undefined, nextExitsWithCodeWhenKilled(nextExitCode)),
+    )
+
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([eventsWorkerFixture as Module])
+    const exitCode = await runServerAndSendSignal(mercato, command, signal)
+
+    expect(exitCode).toBe(0)
+    expect(consoleErrorSpy).not.toHaveBeenCalled()
+    const { spawn } = await import('child_process')
+    const spawnMock = spawn as jest.Mock
+    const nextChild = spawnMock.mock.results.find((_result, index) =>
+      pathIncludes(spawnMock.mock.calls[index][1]?.[0] ?? '', 'next/dist/bin/next'),
+    )?.value
+    expect(nextChild?.exitCode).toBe(nextExitCode)
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('still fails when Next.js exits with code 143 without a shutdown request', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+    mockEnvironment()
+    jest.doMock('child_process', () =>
+      buildMockChildProcessModule((args) =>
+        pathIncludes(args[0] ?? '', 'next/dist/bin/next') ? { code: 143 } : undefined,
+      ),
+    )
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'server', command])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('exited unexpectedly with exit code 143.'))
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
 }
 
 describe('mercato CLI module registration', () => {
@@ -532,6 +662,29 @@ describe('--help never triggers side effects (issue #5581)', () => {
       consoleErrorSpy.mockRestore()
     })
 
+    it('prints usage instead of executing configs restore-defaults when --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const restoreDefaults = jest.fn()
+
+      registerCliModules([
+        {
+          id: 'configs',
+          cli: [{ command: 'restore-defaults', run: restoreDefaults }],
+        } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'configs', 'restore-defaults', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(restoreDefaults).not.toHaveBeenCalled()
+      const printed = consoleLogSpy.mock.calls.map((call) => String(call[0])).join('\n')
+      expect(printed).toContain('mercato configs restore-defaults [args]')
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
     it('still runs the command when no help flag is present', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
@@ -881,6 +1034,7 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -928,6 +1082,7 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -949,7 +1104,13 @@ describe('init command failure output', () => {
     consoleLogSpy.mockRestore()
   })
 
-  it('keeps init successful when lean presets disable optional modules', async () => {
+  it.each([
+    { configsEnabled: true, expectedRestoreCount: 1 },
+    { configsEnabled: false, expectedRestoreCount: 0 },
+  ])('keeps init successful in a lean preset with Configs enabled: $configsEnabled', async ({
+    configsEnabled,
+    expectedRestoreCount,
+  }) => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
 
@@ -978,6 +1139,7 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
@@ -991,10 +1153,10 @@ describe('init command failure output', () => {
     jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
       bootstrapFromAppRoot: jest.fn().mockResolvedValue({
         modules: [
-          {
+          ...(configsEnabled ? [{
             id: 'configs',
             cli: [{ command: 'restore-defaults', run: configsRestoreDefaults }],
-          },
+          }] : []),
           {
             id: 'auth',
             cli: [
@@ -1043,9 +1205,92 @@ describe('init command failure output', () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(
       '⏭️  Skipping "search:reindex" — module not enabled',
     )
-    expect(configsRestoreDefaults).toHaveBeenCalled()
+    expect(configsRestoreDefaults).toHaveBeenCalledTimes(expectedRestoreCount)
     expect(authSetup).toHaveBeenCalled()
+    if (configsEnabled) {
+      expect(configsRestoreDefaults.mock.invocationCallOrder[0]).toBeLessThan(
+        authSetup.mock.invocationCallOrder[0],
+      )
+    }
     expect(queryIndexReindex).toHaveBeenCalledWith(['--force', '--tenant', 'tenant-1'])
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('aborts init with nonzero exit and never runs auth setup when configs restore-defaults fails', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    const configsRestoreDefaults = jest.fn().mockRejectedValue(new Error('strict restore rollback'))
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    const authSeedRoles = jest.fn().mockResolvedValue(undefined)
+    const entitiesSeedEncryption = jest.fn().mockResolvedValue(undefined)
+    const queryIndexReindex = jest.fn().mockResolvedValue(undefined)
+
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockResolvedValue({ rows: [] }),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/db', () => ({
+      dbMigrate: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
+        modules: [
+          {
+            id: 'configs',
+            cli: [{ command: 'restore-defaults', run: configsRestoreDefaults }],
+          },
+          {
+            id: 'auth',
+            cli: [
+              { command: 'setup', run: authSetup },
+              { command: 'seed-roles', run: authSeedRoles },
+            ],
+          },
+          {
+            id: 'entities',
+            cli: [{ command: 'seed-encryption', run: entitiesSeedEncryption }],
+          },
+          {
+            id: 'query_index',
+            cli: [{ command: 'reindex', run: queryIndexReindex }],
+          },
+        ],
+      }),
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    expect(configsRestoreDefaults).toHaveBeenCalledTimes(1)
+    expect(authSetup).not.toHaveBeenCalled()
+    expect(authSeedRoles).not.toHaveBeenCalled()
+    expect(entitiesSeedEncryption).not.toHaveBeenCalled()
+    expect(queryIndexReindex).not.toHaveBeenCalled()
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -1075,6 +1320,7 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
@@ -1364,6 +1610,7 @@ describe('init on an already initialized database', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -1532,6 +1779,7 @@ describe('generate post-step structural invalidation', () => {
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
     const generateWebResearchAdapters = jest.fn().mockResolvedValue(undefined)
+    const generateCacheProviders = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
     const invalidate = jest.fn().mockResolvedValue({
       cacheEntriesDeleted: 2,
@@ -1547,6 +1795,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleDi,
       generateModulePackageSources,
       generateWebResearchAdapters,
+      generateCacheProviders,
       generateOpenApi,
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -1590,6 +1839,7 @@ describe('generate post-step structural invalidation', () => {
       generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
       generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(unchangedResult),
+      generateCacheProviders: jest.fn().mockResolvedValue(unchangedResult),
     }
     const invalidate = jest.fn()
 
@@ -1630,6 +1880,7 @@ describe('generate post-step structural invalidation', () => {
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
     const generateWebResearchAdapters = jest.fn().mockResolvedValue(undefined)
+    const generateCacheProviders = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
     const invalidate = jest.fn().mockRejectedValue(new Error('cache maintenance unavailable'))
 
@@ -1640,6 +1891,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleDi,
       generateModulePackageSources,
       generateWebResearchAdapters,
+      generateCacheProviders,
       generateOpenApi,
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -1678,6 +1930,7 @@ describe('generate post-step structural invalidation', () => {
       generateModulePackageSources: generate,
       generateOpenApi: generate,
       generateWebResearchAdapters: generate,
+      generateCacheProviders: generate,
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -1784,6 +2037,7 @@ describe('server dev managed process exits', () => {
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -1831,6 +2085,7 @@ describe('server dev managed process exits', () => {
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -1861,6 +2116,8 @@ describe('server dev managed process exits', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  registerShutdownExitCodeTests('dev', mockDevServerEnvironment)
 
   it('retries the Next.js dev server once when it exits before reporting ready', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
@@ -2200,6 +2457,7 @@ describe('server dev managed process exits', () => {
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -2355,6 +2613,7 @@ describe('server dev managed process exits', () => {
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -2608,6 +2867,8 @@ describe('server start managed process exits', () => {
     consoleLogSpy.mockRestore()
   })
 
+  registerShutdownExitCodeTests('start', mockStartServerEnvironment)
+
   it('restarts the managed dev runtime when an app env file changes', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
@@ -2641,6 +2902,7 @@ describe('server start managed process exits', () => {
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
