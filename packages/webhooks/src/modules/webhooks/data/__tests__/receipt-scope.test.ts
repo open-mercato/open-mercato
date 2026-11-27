@@ -1,4 +1,5 @@
 import { MetadataStorage } from '@mikro-orm/core'
+import { MikroORM } from '@mikro-orm/postgresql'
 import { WebhookInboundReceiptEntity } from '../entities'
 import { Migration20261027193000_receipt_scope } from '../../migrations/Migration20261027193000_receipt_scope'
 
@@ -10,7 +11,18 @@ it('keeps the named receipt constraint scoped and null-safe in metadata and migr
     (constraint) => constraint.name === 'webhook_inbound_receipts_endpoint_message_unique',
   )
   expect(receiptConstraint?.properties).toEqual(['endpointId', 'messageId', 'tenantId', 'organizationId'])
-  expect(receiptConstraint?.expression).toContain('unique nulls not distinct')
+  const orm = await MikroORM.init({
+    entities: [WebhookInboundReceiptEntity],
+    dbName: 'webhook_receipts_schema_test',
+  })
+  let constraintSql: string | undefined
+  try {
+    const sql = await orm.schema.getCreateSchemaSQL({ wrap: false })
+    constraintSql = sql.split('\n').find((statement) => statement.startsWith('alter table '))?.replace('"public".', '')
+  } finally {
+    await orm.close(true)
+  }
+  expect(constraintSql).toContain('unique nulls not distinct')
 
   const migration = Object.create(Migration20261027193000_receipt_scope.prototype) as Migration20261027193000_receipt_scope
   const statements: string[] = []
@@ -20,7 +32,7 @@ it('keeps the named receipt constraint scoped and null-safe in metadata and migr
   expect(migration.isTransactional()).toBe(true)
   expect(statements).toEqual([
     'alter table "webhook_inbound_receipts" drop constraint "webhook_inbound_receipts_endpoint_message_unique";',
-    `${receiptConstraint?.expression};`,
+    constraintSql,
   ])
 })
 

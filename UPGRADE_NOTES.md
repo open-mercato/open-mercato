@@ -1789,6 +1789,29 @@ Workflow definitions, instances, instance events and global events now reject in
 
 **Client action:** split requests larger than 100 into pages, send whole nonnegative offsets, and narrow filters before reaching 100,000. Handle 400 responses for out-of-range offsets on every listed route, including Work Inbox claim-next. The seven fallback/clamping routes return the stable `WORKFLOW_LIST_OFFSET_EXCEEDED` error string; the four strict list endpoints return validation errors and also reject malformed pagination. **Operator action:** deploy the updated application; no database migration or new configuration is required. Definitions now fetch a small DB window around the requested page instead of materializing its entire prefix. Definitions also use consistent UTF-8 byte ordering (`COLLATE "C"` in PostgreSQL): uppercase names precede lowercase names and accented names follow ASCII. This replaces the mixed database/Node locale ordering, so case/accent positions can change; use server-provided ordering across pages.
 
+### Inbound webhook retries resume unfinished receipt stages (#7601)
+
+New inbound receipts track dispatch and received-event publication independently. A provider retry resumes an unfinished stage instead of treating receipt existence alone as completed delivery. Completed stages are preserved; delivery remains at least once, so handlers and persistent subscribers must stay idempotent.
+
+**Operator action:** apply `Migration20261018124142_webhooks` and `Migration20261028234000_webhooks` before deploying this application change. Its additive columns preserve existing receipts as completed and do not recover dispatch failures that happened before the upgrade. No migration is applied automatically by this PR. Older application code resumes its original receipt-existence deduplication behavior on rollback.
+
+Receipt publication now commits a scoped 30-second fenced claim, releases its database
+connection, then enqueues dispatch or publishes the received event with stable job IDs.
+Unfinished concurrent attempts wait outside transactions within a 5-second publication
+budget; a timeout means the outcome is uncertain and the provider must retry. A late
+backend write is not cancelled. Queue IDs deduplicate pending/active work, while handler
+and subscriber idempotency remains required after completion or checkpoint failure.
+The three nullable claim columns require no historical backfill.
+
+Queue callers may opt into `enqueue(data, { jobId, timeoutMs })`; module/event emitters
+may use `{ persistent: true, enqueue: { jobId, timeoutMs } }`. Omitted fields preserve
+existing random identities and publication waiting. IDs accept letters, digits, underscores
+and hyphens and cannot be empty or integer-only; deadlines are positive integer
+milliseconds up to 2^31−1. These options preserve event IDs, trusted scope and inline
+subscriber delivery defaults. A timeout never guarantees cancellation; retries should reuse
+the identity and workers must remain idempotent. Inline callbacks may repeat after an
+uncertain timeout; stable queue IDs do not deduplicate inline callback execution.
+
 ### Inbound webhook receipt deduplication includes verified scope (#7830)
 
 Inbound receipts now identify duplicates by endpoint, message ID, tenant, and organization.
