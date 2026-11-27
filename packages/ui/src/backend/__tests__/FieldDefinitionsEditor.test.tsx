@@ -4,6 +4,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { fireEvent, screen, within } from '@testing-library/react'
+import { useState } from 'react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { FieldDefinitionsEditor, type FieldDefinition } from '../custom-fields/FieldDefinitionsEditor'
 
@@ -35,6 +36,31 @@ describe('FieldDefinitionsEditor', () => {
     expect(source).not.toMatch(/\b(?:border-red|text-red|bg-amber|text-amber|text-blue)-\d{2,3}\b/)
     expect(source).toMatch(/from ['"]\.\.\/\.\.\/primitives\/input['"]/)
     expect(source).toMatch(/from ['"]\.\.\/\.\.\/primitives\/checkbox-field['"]/)
+  })
+
+  it('preserves the label input when a field key is committed', () => {
+    function Editor() {
+      const [definition, setDefinition] = useState<FieldDefinition>({ key: '', kind: 'text' })
+      return (
+        <FieldDefinitionsEditor
+          definitions={[definition]}
+          onAddField={() => undefined}
+          onRemoveField={() => undefined}
+          onDefinitionChange={(_index, next) => setDefinition(next)}
+        />
+      )
+    }
+
+    renderWithProviders(<Editor />)
+    const key = screen.getByPlaceholderText('snake_case')
+    const label = screen.getByRole('textbox', { name: 'Label' })
+    fireEvent.change(key, { target: { value: 'new_field' } })
+    fireEvent.blur(key)
+
+    expect(screen.getByRole('textbox', { name: 'Label' })).toBe(label)
+    fireEvent.change(label, { target: { value: 'New field label' } })
+    fireEvent.blur(label)
+    expect(label).toHaveValue('New field label')
   })
 
   it('renders injected actions for each field with the definition and row index', () => {

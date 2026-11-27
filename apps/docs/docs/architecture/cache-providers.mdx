@@ -1,0 +1,303 @@
+---
+title: Pluggable cache providers
+description: Select an installed npm cache provider with CACHE_PROVIDER, operate it safely, and build your own provider against the versioned contract and conformance kit.
+---
+
+Open Mercato ships four built-in cache strategies (`memory`, `sqlite`, `jsonfile`, `redis`) selected with `CACHE_STRATEGY`. A deployment can instead select a **cache provider**: an npm package, registered explicitly by the application, that supplies its own typed settings and backend driver. Application modules are unaffected: they keep using `container.resolve('cache')`, the same `CacheStrategy` methods, tenant scoping and tag invalidation.
+
+This page has two parts:
+
+- [Operator guide](#operator-guide): install, register, select, verify, cut over and roll back a provider.
+- [Provider-author guide](#provider-author-guide): implement a provider package and prove it with the conformance kit.
+
+Provider selection is deployment-wide and takes effect on restart. Per-tenant providers, queue, rate-limiter and event transports are out of scope.
+
+## Stock providers
+
+The stock implementations ship as separate npm packages. They are installed with `@open-mercato/cache` and continue to use the existing `CACHE_STRATEGY` configuration.
+
+| `CACHE_STRATEGY` | Package |
+|---|---|
+| `memory` (default) | `@open-mercato/cache-provider-memory` |
+| `sqlite` | `@open-mercato/cache-provider-sqlite` |
+| `redis` | `@open-mercato/cache-provider-redis-legacy` |
+| `jsonfile` | `@open-mercato/cache-provider-jsonfile` |
+
+Use the steps below to add an optional npm provider alongside the stock choices.
+
+## Operator guide
+
+### 1. Install the provider package
+
+Install the provider in the application workspace like any other dependency, and pin its version:
+
+```bash
+yarn add @acme/cache-provider-example
+```
+
+An installed provider is trusted server code that runs with full process privileges. Review it like any other production dependency. Open Mercato never installs packages or resolves modules from a selector string: only packages your app imports in `src/providers/cache.ts` can be selected.
+
+### 2. Register it in `src/providers/cache.ts`
+
+Edit the app's [infrastructure provider registry](./infrastructure-providers), `src/providers/cache.ts`. The monorepo example is at `apps/mercato/src/providers/cache.ts`. Standalone apps ship the same file at `src/providers/cache.ts`. It exports a named `cacheProviders` array:
+
+```ts title="src/providers/cache.ts"
+import { defineCacheProviderRegistration } from '@open-mercato/cache/provider'
+
+export const cacheProviders = [
+  defineCacheProviderRegistration({
+    id: 'acme/example',
+    load: () => import('@acme/cache-provider-example').then((module) => module.provider),
+    settings: () => ({
+      endpoints: [process.env.ACME_CACHE_ENDPOINT ?? ''],
+      password: process.env.ACME_CACHE_PASSWORD,
+      tls: true,
+    }),
+  }),
+]
+```
+
+- `id` is the provider's namespaced ID (`<scope>/<name>`, lowercase). It must match the ID the package declares.
+- `load` is a literal dynamic import. Bundlers and Next build tracing follow it, and the package is only loaded when its ID is selected.
+- `settings` is called once per process, only for the selected provider. Read endpoints and credentials from named environment variables or secret references. The provider package documents its settings, defaults and validation.
+
+You can register several providers. Duplicate IDs, built-in names and invalid IDs are rejected at startup **when a provider is selected**. With `CACHE_PROVIDER` unset the registrations are ignored entirely (not validated, loaded or evaluated), so a broken `src/providers/cache.ts` cannot take down a stock deployment.
+
+Then regenerate the registries so the app, CLI, workers and scheduler all read the same manifest:
+
+```bash
+yarn generate
+```
+
+The generator never evaluates `src/providers/cache.ts`. It writes `.mercato/generated/cache-providers.generated.ts`, which re-exports your list, or an empty list when the file is absent. Re-run `yarn generate` whenever you add, rename or remove `src/providers/cache.ts`.
+
+When a provider is selected, the post-generate purge (see [Generation purge](#generation-purge-and-cache-maintenance)) resolves it and therefore evaluates its `settings()`. Root `yarn generate` runs through turbo, which passes only `CACHE_*` variables to the generate task. Provider settings that read other environment variable names (for example `ACME_CACHE_ENDPOINT` above) must therefore live in the app's `.env` file, which the generator loads itself; variables exported only in your shell are dropped at the turbo boundary and the purge reports `invalid_settings`.
+
+### 3. Select it with environment variables
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `CACHE_PROVIDER` | to enable | Exact registered provider ID, for example `acme/example`. Empty or unset means "no provider" and keeps the legacy `CACHE_STRATEGY` behavior unchanged. |
+| `CACHE_PROVIDER_NAMESPACE` | yes, when a provider is selected | Stable, non-secret deployment identifier, unique per deployment on its backing service. 1 to 64 characters of letters, digits, `.`, `_` or `-`. The provider fences every key, index and scan inside it. |
+| `CACHE_PROVIDER_CONNECT_TIMEOUT_MS` | no (default `10000`) | Upper bound for provider initialization (`create()`). Exceeding it fails with `timeout`; the next cache operation after the retry cooldown retries. |
+| `CACHE_PROVIDER_RETRY_COOLDOWN_MS` | no (default `1000`) | After a failed or timed-out initialization, operations within this window fail fast with the same error instead of calling `create()` again. `0` retries on every operation. |
+
+Precedence:
+
+1. An explicit programmatic `strategy` passed to `createCacheService(...)` wins over any ambient provider selection.
+2. Passing both an explicit `strategy` and an explicit `provider` programmatically is a configuration error (`conflicting_selection`).
+3. Otherwise, a non-empty `CACHE_PROVIDER` wins over `CACHE_STRATEGY`. `CACHE_STRATEGY`, `CACHE_REDIS_URL` and the other stock options are ignored while a provider is selected.
+4. With `CACHE_PROVIDER` unset, selection, defaults, codecs and stock fallbacks behave exactly as before, and registrations are ignored.
+
+Each process resolves the selection once per combination of registrations, `CACHE_PROVIDER` and `CACHE_PROVIDER_NAMESPACE`. Calling `setCacheProviderRegistrations(...)` again, or preparing with a different selected ID or namespace, resolves again; a `not_registered` result against an empty registration list is never cached, so registering the manifest later recovers.
+
+`CACHE_TTL` (default TTL) and the compression settings (`CACHE_COMPRESSION`, `CACHE_COMPRESSION_MIN_BYTES`) are passed to the provider through its host context. Whether the provider honors compression is documented by the provider.
+
+A selected provider always runs as a **process singleton**: `OM_CACHE_SINGLETON=off` is ignored, so each process owns exactly one provider client, closed on shutdown.
+
+### No silent fallback
+
+When `CACHE_PROVIDER` is set, Open Mercato never substitutes a local cache. If the provider is missing, not registered, incompatible, misconfigured or unreachable, the affected process or operation fails with a sanitized [`CacheProviderError`](#error-codes). The built-in "fall back to memory on init failure" path only applies to stock strategies. A misconfigured provider stops the server bootstrap, the worker, the scheduler and maintenance commands. That is intentional: silently using per-process memory would split invalidation across replicas.
+
+### Readiness
+
+`GET /api/healthz` keeps its status codes and response body. When a provider is selected, the cache probe calls the provider's `healthcheck()` (non-mutating) instead of the stock check:
+
+- healthy: `200` with `status: "ok"`
+- unreachable, misconfigured or not prepared: `503` with `status: "degraded"`. The server log records `Cache provider healthcheck failed (<code>)` without endpoints, settings or driver messages.
+
+Each probe is bounded by the readiness timeout (1.5 seconds).
+
+### Multi-instance guard and OAuth warning
+
+Each provider reports a **placement** derived from its validated settings: `shared` (visible across processes and hosts) or `local` (per process or per node).
+
+- The production multi-instance guard (`mercato start` with `OM_MULTI_INSTANCE=1` or `OM_INSTANCE_COUNT>1`) treats a `shared` provider as safe, like `CACHE_STRATEGY=redis`. A `local` provider is reported as `CACHE_PROVIDER=<id>` and refuses to start unless `OM_ALLOW_SINGLE_INSTANCE_STRATEGIES=1`. The guard loads the generated manifest and resolves the provider before judging it, so an invalid selection aborts the start.
+- The OAuth state replay-store startup warning is skipped for a `shared` provider and names `CACHE_PROVIDER` for a `local` one. When the module loads before bootstrap has prepared the selection, the check is deferred and re-run once bootstrap prepares it; it never falls back to `CACHE_STRATEGY` while a provider is selected. A shared cache provides cross-replica visibility. It does not make the OAuth check-then-set sequence atomic and does not prevent backend eviction, so pick an eviction policy that does not drop short-lived security markers under pressure.
+
+Do not point a provider at a replica or read-only endpoint whose stale reads could defeat invalidation.
+
+### Generation purge and cache maintenance
+
+- `yarn generate` (with the `configs` module enabled) purges structural cache entries (`nav:*`) after generation. With a provider selected it loads the generated manifest, resolves the same provider, purges across tenant scopes and closes its maintenance client. Failures are reported in the post-generate summary and do not fail generation.
+- `yarn mercato configs cache ...` and the **Cache** admin page work unchanged through the scoped DI service. See [Cache CLI architecture](./cache-cli) and [Cache management](../user-guide/cache-management).
+- Commands that never purged the cache, such as builds, do not need provider access.
+
+### Coordinated cutover
+
+Existing stock Redis deployments need no reinstall or migration: nothing changes until `CACHE_PROVIDER` is set. To adopt a provider:
+
+1. Install the package, add `src/providers/cache.ts`, run `yarn generate` and build. Deploy this with `CACHE_PROVIDER` still unset. Behavior stays stock.
+2. Choose a **new** `CACHE_PROVIDER_NAMESPACE` reserved for this deployment and provider layout. Never reuse a namespace from another deployment: that aliases two deployments onto one cache.
+3. Plan for a cold cache (higher database load right after the switch). Short-lived security markers held in the old cache, such as OAuth state, do not carry over. Drain or accept those flows before switching.
+4. Switch **all** processes together: HTTP servers, workers, schedulers and maintenance jobs. Do not run replicas on mixed providers for the same deployment; they would not see each other's invalidations.
+5. Verify `GET /api/healthz` returns `200` on every instance and that cache stats and purge work from the Cache admin page.
+
+### Rollback
+
+1. Stop or coordinate all processes for the deployment.
+2. Clear the previous deployment cache with the scoped tools (`yarn mercato configs cache purge ...` or the Cache admin page) before accepting traffic, or wait until every entry has safely expired. Never globally flush a backend that other deployments share.
+3. Unset `CACHE_PROVIDER` (and, if you like, `CACHE_PROVIDER_NAMESPACE`) and restart every process together.
+
+### Error codes
+
+Every provider failure surfaces as a `CacheProviderError` with a stable `code`. Messages contain only provider IDs, codes, operation names and settings field paths. Settings values, endpoints and credentials never appear in them. This also covers runtime failures: an error thrown by any provider operation (`get`, `set`, `deleteByTags`, `healthcheck`, `close`, ...) is rethrown as `unavailable` with a host-authored message such as `Cache provider "acme/example" get failed`. The original driver error is kept only as a non-enumerable `originalError` and never serialized or logged by the host.
+
+| Code | Meaning | What to do |
+|---|---|---|
+| `invalid_registration` | A registration or the loaded definition is malformed: missing `load`/`settings`, no `safeParse` schema, missing `capability()`/`create()`, an invalid placement, or `create()` returned a strategy without the required methods. | Fix `src/providers/cache.ts` or report it to the provider author. |
+| `duplicate_id` | Two registrations use the same ID. | Keep one registration per ID. |
+| `reserved_id` | A registration ID or `CACHE_PROVIDER` is a built-in strategy name (`memory`, `redis`, `sqlite`, `jsonfile`) or has no `<scope>/` prefix. | Use `CACHE_STRATEGY` for built-ins and namespaced IDs for providers. |
+| `not_registered` | `CACHE_PROVIDER` names an ID the app does not register. | Check spelling, add the registration and run `yarn generate`. |
+| `load_failed` | The package import in `load()` failed. | Install the package and check its version. |
+| `id_mismatch` | The loaded definition declares a different ID than its registration. | Use the ID the package documents. |
+| `unsupported_api_version` | The package targets a provider API version this host does not support. | Upgrade or downgrade the provider to a compatible release. |
+| `invalid_settings` | `settings()` threw or failed the provider's schema. `fieldPaths` lists the offending fields. | Fix the listed settings or their environment variables. |
+| `missing_namespace` | A provider is selected but `CACHE_PROVIDER_NAMESPACE` is empty. | Set a stable deployment namespace. |
+| `invalid_namespace` | The namespace has invalid characters or length. | Use 1 to 64 letters, digits, `.`, `_` or `-`. |
+| `conflicting_selection` | Code passed both an explicit stock `strategy` and an explicit `provider`. | Pass one of them. |
+| `unavailable` | Provider initialization or a cache operation failed, or the client is closed (closed during initialization, or used after `close()`). | Check backend reachability and credentials. After an init failure the next operation past `CACHE_PROVIDER_RETRY_COOLDOWN_MS` retries. A closed client never reconnects; create a new service. |
+| `timeout` | Initialization exceeded `CACHE_PROVIDER_CONNECT_TIMEOUT_MS`. | Check network access or raise the timeout. |
+| `not_resolved` | `CACHE_PROVIDER` is set but the selection was not prepared before the cache was created, for example in a custom entry point. | Call `prepareCacheProviderSelection()` after `setCacheProviderRegistrations(...)` during bootstrap. Standard entry points do this. |
+
+## Provider-author guide
+
+A provider is a server-only npm package that exports a definition built with `defineCacheProvider` from `@open-mercato/cache/provider`. The host owns tenant scoping, key hashing, entry metadata, the lazy connection handle, timeouts and lifecycle. The provider owns its settings schema and a **base** `CacheStrategy` that stores already-scoped physical keys.
+
+### Package shape
+
+- Declare `@open-mercato/cache` as a **peer dependency** (`">=0.11.0"` or your tested range). Declare your client libraries as your own dependencies. Do not add cloud SDKs to `@open-mercato/cache`.
+- Export server-only code, set `"sideEffects": false`, and export the definition without registering anything on import. The app registers it in `src/providers/cache.ts`.
+- Pick a stable namespaced ID such as `acme/example` (pattern `^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$`). Built-in names and IDs without a scope are reserved.
+- Document every setting, its default, the environment variables apps typically map to it, the supported topologies and the maximum accepted item size.
+
+### `defineCacheProvider`
+
+```ts title="src/index.ts"
+import { z } from 'zod'
+import { defineCacheProvider } from '@open-mercato/cache/provider'
+import { createAcmeStrategy } from './strategy'
+
+const settingsSchema = z
+  .object({
+    endpoints: z.array(z.string().url()).min(1),
+    password: z.string().min(1).optional(),
+    tls: z.boolean().default(true),
+    maxBatch: z.number().int().min(1).max(10_000).default(500),
+  })
+  .strict()
+
+export type AcmeCacheSettings = z.infer<typeof settingsSchema>
+
+export const provider = defineCacheProvider<AcmeCacheSettings>({
+  id: 'acme/example',
+  settings: settingsSchema,
+  capability: () => ({ placement: 'shared' }),
+  create: (config, context) => createAcmeStrategy(config, context),
+  redact: (config) => ({ endpoints: config.endpoints.length, tls: config.tls, maxBatch: config.maxBatch }),
+})
+```
+
+- **`settings`** is structural: any object with `safeParse(input)` returning `{ success: true, data }` or `{ success: false, error: { issues: [{ path, message }] } }`. Zod schemas fit as-is. A hand-written validator works too (see the fixture provider). Make the schema strict, enforce cross-field rules, and fill defaults there. The host reports only issue **paths** (`invalid_settings` with `fieldPaths`), never values.
+- **`capability(config)`** returns `{ placement: 'shared' | 'local' }` from the validated config. Report `shared` only when every process of the deployment sees the same data and invalidations. Back that claim with the cross-process conformance test.
+- **`create(config, context)`** returns the base strategy, sync or async. It is called lazily on the first cache operation, bounded by `CACHE_PROVIDER_CONNECT_TIMEOUT_MS`. Concurrent callers share one in-flight connect. A failed or timed-out init closes the partially created strategy; operations within `CACHE_PROVIDER_RETRY_COOLDOWN_MS` reuse that failure, and the first operation after the cooldown retries. Errors you throw are wrapped into a host-authored `CacheProviderError` (a real `CacheProviderError` instance from `@open-mercato/cache/provider` passes through unchanged; a look-alike is re-wrapped), so do not rely on your message reaching operators.
+- **`redact(config)`** (optional) returns a log-safe summary. Never include credentials or endpoints.
+
+### Required strategy methods
+
+The returned object must implement `get`, `set`, `has`, `delete`, `deleteByTags`, `clear`, `keys`, `stats`, **`healthcheck`** and **`close`**. Otherwise initialization fails with `invalid_registration`. `cleanup` is optional; without it the host reports `0`.
+
+- `healthcheck()` must be non-mutating and cheap. It backs `/api/healthz`.
+- `close()` must release every connection and be safe to call more than once. The host calls it once; after that the host handle is terminal and rejects every operation with `unavailable` without calling your strategy again.
+- `get(key, { returnExpired: true })` may return expired records that the backend still retains. Physical expiry and eviction may already have removed them.
+
+### Host context
+
+`create` receives a `CacheProviderHostContext`:
+
+| Field | Use |
+|---|---|
+| `namespace` | The validated `CACHE_PROVIDER_NAMESPACE`. Fence every value, index, scan and maintenance operation inside it. |
+| `defaultTtl` | Effective default TTL in milliseconds (`CACHE_TTL` or programmatic `defaultTtl`), if configured. **The provider applies it**: use `options.ttl ?? context.defaultTtl` in `set`. |
+| `codec` | Resolved compression options (`CACHE_COMPRESSION`, `CACHE_COMPRESSION_MIN_BYTES`). |
+| `helpers.encode(json)` | Shared codec: returns plain text or a compressed `Buffer`, as configured. |
+| `helpers.decode(raw)` | Reverses `encode` and detects the format by magic bytes. **Throws on a corrupt or truncated frame.** |
+| `helpers.matchPattern(key, pattern)` | Glob matching (`*`, `?`) with the same semantics as the stock strategies. Use it for `keys(pattern)`. |
+| `logger.warn/error(message, meta)` | Prefixed, sanitized logger. Meta keys that look secret (`password`, `token`, `url`, `endpoint`, and similar) are redacted. In string values, URL user-info (`scheme://user:pass@` becomes `scheme://***@`) and `password=...`-style pairs are masked; nested objects are omitted and `Error` values reduced to their name. |
+
+The context deliberately carries no request container, tenant credentials, environment object or shared transport handle.
+
+**Decode failures are misses.** When `helpers.decode` throws, or your own deserialization fails, catch the error, treat the record as a miss (`get` returns `null`, `has` returns `false`), and optionally delete the record. Never surface the error to the caller.
+
+### Keys, tags and counting rules
+
+- The host's tenant-aware wrapper is applied exactly once, on top of your strategy. You receive **already-scoped physical keys and tags**. Store them as given and do not add tenant logic of your own.
+- The host stores each provider-backed value and its enumeration metadata in **one physical record**. A successful write makes both visible together. If the backend commits a write but loses the acknowledgement, the entry remains eligible for enumeration and invalidation. Count each physical record once in `deleteByTags`, `cleanup` and `clear`, even if several requested tags match it.
+- Tag semantics are "current tags win": re-setting a key replaces its tag set, so an old tag must no longer match it. If you maintain candidate indexes, re-read current tags before deleting so that a concurrently retagged or rewritten entry is not removed. An index must not lose membership for a live payload through eviction, expiry or partial writes.
+- Enumerate the namespace in bounded pages or deterministic shards. Never use a global flush, blocking full-keyspace commands or unbounded key dumps. `clear()` removes only your namespace's records. Report success only when every required batch succeeded, and document partial-progress and retry semantics.
+
+### Conformance kit
+
+`@open-mercato/cache/testing` exports a reusable Jest suite. It runs against a real backend through the full host stack (`resolveCacheProvider`, then `createCacheService({ provider })`) and covers: healthcheck, get/set/has/delete round trips, per-entry and default TTL, cleanup, tag overlap and retag, glob keys and stats, scoped clear, foreign-namespace isolation, interleaved tenants, cross-instance and independent-process propagation, corrupt values, a batch-boundary run and idempotent close. Each test uses a random namespace and cleans up after itself.
+
+```ts title="src/__tests__/conformance.test.ts"
+import path from 'node:path'
+import { createCacheService } from '@open-mercato/cache'
+import { defineCacheProviderRegistration, resolveCacheProvider } from '@open-mercato/cache/provider'
+import { defineCacheProviderConformance, spawnConformanceRemoteProcess } from '@open-mercato/cache/testing'
+import { provider, type AcmeCacheSettings } from '../index'
+import { writeRawBytes } from './backend-test-utils'
+
+const PROVIDER_ID = 'acme/example'
+const ENDPOINT = process.env.ACME_CACHE_TEST_ENDPOINT ?? 'https://localhost:7000'
+
+async function resolveFor(namespace: string) {
+  const registration = defineCacheProviderRegistration<AcmeCacheSettings>({
+    id: PROVIDER_ID,
+    load: async () => provider,
+    settings: () => ({ endpoints: [ENDPOINT], maxBatch: 128 }),
+  })
+  const resolved = await resolveCacheProvider([registration], {
+    env: { CACHE_PROVIDER: PROVIDER_ID, CACHE_PROVIDER_NAMESPACE: namespace },
+  })
+  if (!resolved) throw new Error('[internal] provider was not selected')
+  return resolved
+}
+
+jest.setTimeout(120_000)
+
+defineCacheProviderConformance({
+  name: PROVIDER_ID,
+  createService: async (namespace, options) =>
+    createCacheService({
+      provider: await resolveFor(namespace),
+      ...(options?.defaultTtl !== undefined ? { defaultTtl: options.defaultTtl } : {}),
+    }),
+  createIndependentProcess: (namespace) =>
+    spawnConformanceRemoteProcess({
+      command: process.execPath,
+      args: [path.join(__dirname, 'conformance-child.mjs')],
+      env: {
+        CACHE_PROVIDER: PROVIDER_ID,
+        CACHE_PROVIDER_NAMESPACE: namespace,
+        ACME_CACHE_TEST_ENDPOINT: ENDPOINT,
+      },
+    }),
+  corrupt: async ({ namespace, physicalKey }) => {
+    await writeRawBytes(namespace, physicalKey, Buffer.from('{"v":1,"key":'))
+  },
+  supportsReturnExpired: true,
+})
+```
+
+Options:
+
+- `createService(namespace, options)` (required) builds a full tenant-aware service. Separate calls with the same namespace must share the backing store.
+- `createIndependentProcess(namespace)` (optional) enables the cross-process test. The child process builds the same service, runs `await service.healthcheck()`, prints `ready` on stdout, then calls `serveConformanceRemoteOps(service, process.stdin, (line) => process.stdout.write(line))` and closes the service when stdin ends.
+- `corrupt(target)` (optional) makes the stored value for `target.physicalKey` undecodable and enables the corrupt-value test. `physicalKey` comes from the host's own key layout (`resolvePhysicalCacheValueKey`), so you never copy it.
+- `supportsReturnExpired` reports whether your backend retains logically expired records until `cleanup`. This enables `returnExpired` and exact cleanup counts.
+- `batchSize` (default `600`), `ttlMs` (default `150`), `ttlGraceMs` (default `100`) and `testTimeoutMs` (default `120000`) tune the run for your backend.
+
+The reference implementation is the independently packed fixture provider in `packages/cache/fixtures/cache-provider-fixture` (ID `acme/fixture-fs`, a directory-backed store with a hand-written schema). Its test, `packages/cache/src/__tests__/provider-fixture.packed.test.ts`, runs `npm pack`, installs the tarball outside the workspace, resolves it through a registration and runs the full kit, including a child process (`packages/cache/fixtures/conformance-child.mjs`).
+
+Run the kit against every topology you advertise (single node, cluster, TLS), with at least two processes, before declaring `placement: 'shared'`.

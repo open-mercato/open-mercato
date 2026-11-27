@@ -416,21 +416,23 @@ describe('checkAuthorization organization feature narrowing', () => {
     })
   })
 
-  it('passes the feature guard when an authorized principal is narrowed to zero visible organizations', async () => {
+  it('denies the feature guard when a principal is narrowed to zero visible organizations, even if it holds the feature', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
     const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'GET' })
 
-    const response = await checkAuthorization(
-      { requireFeatures: ['api_keys.view'] },
-      buildAuth(tenantId),
-      request,
-    )
+    try {
+      const response = await checkAuthorization(
+        { requireFeatures: ['api_keys.view'] },
+        buildAuth(tenantId),
+        request,
+      )
 
-    expect(response).toBeNull()
-    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(
-      'user-1',
-      ['api_keys.view'],
-      { tenantId, organizationId: null },
-    )
+      expect(response?.status).toBe(403)
+      await expect(response?.json()).resolves.toMatchObject({ requiredFeatures: ['api_keys.view'] })
+      expect(userHasAllFeaturesMock).not.toHaveBeenCalled()
+    } finally {
+      warning.mockRestore()
+    }
   })
 
   it('still rejects a principal that does not hold the required feature', async () => {

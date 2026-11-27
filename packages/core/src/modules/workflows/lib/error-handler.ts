@@ -171,7 +171,7 @@ export async function runWorkflowErrorHandler(
     },
     tenantId: payload.tenantId,
     organizationId: payload.organizationId,
-  })
+  }, container)
 
   await logWorkflowEvent(em, {
     workflowInstanceId: payload.workflowInstanceId,

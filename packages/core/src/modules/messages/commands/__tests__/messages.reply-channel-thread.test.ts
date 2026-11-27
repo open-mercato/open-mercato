@@ -224,6 +224,12 @@ describe('messages.messages.reply on a channel-linked thread (#5535)', () => {
     await command!.execute(replyInput(), commandCtx(container, ['messages.compose']) as never)
 
     expect(resolveChannelThreadAccess).toHaveBeenCalledTimes(1)
+    expect(resolveChannelThreadAccess).toHaveBeenCalledWith(
+      container,
+      { tenantId, organizationId },
+      { externalConversationId: inboundMessage.sourceEntityId },
+      { userId: operatorUserId, features: ['messages.compose'] },
+    )
     expect(rbacService.userHasAllFeatures).not.toHaveBeenCalled()
   })
 

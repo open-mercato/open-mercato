@@ -7,10 +7,8 @@
  */
 
 import { EntityManager } from '@mikro-orm/core'
-import { WorkflowDefinition } from '../data/entities'
-import * as ruleEngine from '../../business_rules/lib/rule-engine'
 import { findWorkflowDefinition } from './find-definition'
-import { isBusinessRulesModuleEnabled } from './optional-modules'
+import { withNamedWorkflowRuleRunner, type WorkflowRuleContainer } from './named-rules'
 import type { StartPreCondition } from '../data/validators'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
 import { resolveLocaleFromCandidates } from '@open-mercato/shared/lib/i18n/locale'
@@ -64,7 +62,8 @@ export interface ValidateStartResult {
  */
 export async function validateWorkflowStart(
   em: EntityManager,
-  options: ValidateStartOptions
+  options: ValidateStartOptions,
+  runtime?: { container?: WorkflowRuleContainer | null; skipActions?: boolean },
 ): Promise<ValidateStartResult> {
   const { workflowId, version, context, locale = 'en', tenantId, organizationId } = options
 
@@ -136,111 +135,114 @@ export async function validateWorkflowStart(
     }
   }
 
-  if (!isBusinessRulesModuleEnabled()) {
-    const required = preConditions.filter((condition) => condition.required)
-    if (required.length === 0) return { canStart: true, errors: [], validatedRules: [] }
-    const language = resolveLocaleFromCandidates([locale], getSupportedLocales()) ?? defaultLocale
-    const t = createTranslator(await loadDictionary(language))
-    return {
-      canStart: false,
-      errors: required.map((condition) => ({
+  return withNamedWorkflowRuleRunner(runtime?.container, async (runner) => {
+    if (!runner) {
+      const required = preConditions.filter((condition) => condition.required)
+      if (required.length === 0) return { canStart: true, errors: [], validatedRules: [] }
+      const language = resolveLocaleFromCandidates([locale], getSupportedLocales()) ?? defaultLocale
+      const t = createTranslator(await loadDictionary(language))
+      return {
+        canStart: false,
+        errors: required.map((condition) => ({
+          ruleId: condition.ruleId,
+          message: getLocalizedMessage(
+            condition,
+            null,
+            locale,
+            t('workflows.errors.businessRulesModuleDisabled', 'Business rules module is disabled: {ruleId}', {
+              ruleId: condition.ruleId,
+            }),
+          ),
+          code: 'RULE_ENGINE_UNAVAILABLE',
+        })),
+        validatedRules: [],
+      }
+    }
+
+    // Evaluate each pre-condition using rule engine
+    const errors: ValidationError[] = []
+    const validatedRules: ValidatedRule[] = []
+
+    for (const condition of preConditions) {
+      // Execute rule directly by string rule_id
+      const result = await runner.executeRuleByRuleId(em, {
+        ruleId: condition.ruleId,  // String identifier like "workflow_checkout_inventory_available"
+        data: {
+          workflowId,
+          workflowContext: context,
+        },
+        tenantId,
+        organizationId,
+        entityType: `workflow:${workflowId}:start`,
+        entityId: 'pre_start_validation',
+        eventType: 'validate_start',
+        dryRun: true, // Don't log execution during validation
+        ...(runtime?.skipActions ? { skipActions: true } : {}),
+      })
+
+      validatedRules.push({
         ruleId: condition.ruleId,
-        message: getLocalizedMessage(
+        passed: result.conditionResult,
+        executionTime: result.executionTime,
+      })
+
+      // Handle rule not found
+      if (result.error === 'Rule not found') {
+        if (condition.required) {
+          errors.push({
+            ruleId: condition.ruleId,
+            message: getLocalizedMessage(condition, null, locale, `Business rule not found: ${condition.ruleId}`),
+            code: 'RULE_NOT_FOUND',
+          })
+        }
+        continue
+      }
+
+      // Handle disabled rule
+      if (result.error === 'Rule is disabled') {
+        if (condition.required) {
+          errors.push({
+            ruleId: condition.ruleId,
+            message: getLocalizedMessage(condition, null, locale, `Business rule is disabled: ${result.ruleName}`),
+            code: 'RULE_DISABLED',
+          })
+        }
+        continue
+      }
+
+      // Handle other errors (not yet effective, expired, etc.)
+      if (result.error && condition.required) {
+        errors.push({
+          ruleId: condition.ruleId,
+          message: getLocalizedMessage(condition, null, locale, `Rule error: ${result.error}`),
+          code: 'RULE_ERROR',
+        })
+        continue
+      }
+
+      // Handle condition failure
+      if (!result.conditionResult && condition.required) {
+        // Get localized message from condition or use default with rule name
+        const message = getLocalizedMessage(
           condition,
           null,
           locale,
-          t('workflows.errors.businessRulesModuleDisabled', 'Business rules module is disabled: {ruleId}', {
-            ruleId: condition.ruleId,
-          }),
-        ),
-        code: 'RULE_ENGINE_UNAVAILABLE',
-      })),
-      validatedRules: [],
-    }
-  }
-
-  // Evaluate each pre-condition using rule engine
-  const errors: ValidationError[] = []
-  const validatedRules: ValidatedRule[] = []
-
-  for (const condition of preConditions) {
-    // Execute rule directly by string rule_id
-    const result = await ruleEngine.executeRuleByRuleId(em, {
-      ruleId: condition.ruleId,  // String identifier like "workflow_checkout_inventory_available"
-      data: {
-        workflowId,
-        workflowContext: context,
-      },
-      tenantId,
-      organizationId,
-      entityType: `workflow:${workflowId}:start`,
-      entityId: 'pre_start_validation',
-      eventType: 'validate_start',
-      dryRun: true, // Don't log execution during validation
-    })
-
-    validatedRules.push({
-      ruleId: condition.ruleId,
-      passed: result.conditionResult,
-      executionTime: result.executionTime,
-    })
-
-    // Handle rule not found
-    if (result.error === 'Rule not found') {
-      if (condition.required) {
+          `Pre-condition '${result.ruleName || condition.ruleId}' failed`
+        )
         errors.push({
           ruleId: condition.ruleId,
-          message: getLocalizedMessage(condition, null, locale, `Business rule not found: ${condition.ruleId}`),
-          code: 'RULE_NOT_FOUND',
+          message,
+          code: 'PRE_CONDITION_FAILED',
         })
       }
-      continue
     }
 
-    // Handle disabled rule
-    if (result.error === 'Rule is disabled') {
-      if (condition.required) {
-        errors.push({
-          ruleId: condition.ruleId,
-          message: getLocalizedMessage(condition, null, locale, `Business rule is disabled: ${result.ruleName}`),
-          code: 'RULE_DISABLED',
-        })
-      }
-      continue
+    return {
+      canStart: errors.length === 0,
+      errors,
+      validatedRules,
     }
-
-    // Handle other errors (not yet effective, expired, etc.)
-    if (result.error && condition.required) {
-      errors.push({
-        ruleId: condition.ruleId,
-        message: getLocalizedMessage(condition, null, locale, `Rule error: ${result.error}`),
-        code: 'RULE_ERROR',
-      })
-      continue
-    }
-
-    // Handle condition failure
-    if (!result.conditionResult && condition.required) {
-      // Get localized message from condition or use default with rule name
-      const message = getLocalizedMessage(
-        condition,
-        null,
-        locale,
-        `Pre-condition '${result.ruleName || condition.ruleId}' failed`
-      )
-      errors.push({
-        ruleId: condition.ruleId,
-        message,
-        code: 'PRE_CONDITION_FAILED',
-      })
-    }
-  }
-
-  return {
-    canStart: errors.length === 0,
-    errors,
-    validatedRules,
-  }
+  })
 }
 
 // ============================================================================

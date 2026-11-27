@@ -1,4 +1,5 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 
 const logger = createLogger('communication_channels').child({ component: 'oauth-client-config' })
 
@@ -48,11 +49,13 @@ export async function resolveOAuthClientCredentials(
   credentialsService: CredentialsResolver | null | undefined,
   providerKey: string,
   scope: OAuthClientCredentialsScope,
+  options?: { failOnReadError?: boolean; requireComplete?: boolean },
 ): Promise<Record<string, unknown> | null> {
   if (!credentialsService) return null
   const integrationId = `channel_${providerKey}`
   const organizations: Array<string | null> = [scope.organizationId, null]
   const tried = new Set<string | null>()
+  let readFailure: { error: unknown } | undefined
   for (const organizationId of organizations) {
     if (tried.has(organizationId)) continue
     tried.add(organizationId)
@@ -66,6 +69,7 @@ export async function resolveOAuthClientCredentials(
         userId: null,
       })
     } catch (resolveErr) {
+      if (options?.failOnReadError) readFailure ??= { error: resolveErr }
       // A resolve error (e.g. a transient DB issue) for this org scope shouldn't
       // abort the lookup — fall through to the next scope — but surface it so a
       // real misconfiguration isn't silently swallowed.
@@ -76,8 +80,17 @@ export async function resolveOAuthClientCredentials(
       row = null
     }
     if (row && typeof row.clientId === 'string' && row.clientId.length > 0) {
+      if (options?.requireComplete) {
+        const secretRequired = getIntegration(integrationId)?.credentials?.fields.some(
+          (field) => field.key === 'clientSecret' && field.required,
+        )
+        if (!row.clientId.trim() || (
+          secretRequired && (typeof row.clientSecret !== 'string' || !row.clientSecret.trim())
+        )) return null
+      }
       return row
     }
   }
+  if (readFailure) throw readFailure.error
   return null
 }

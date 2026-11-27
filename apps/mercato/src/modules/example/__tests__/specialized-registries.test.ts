@@ -59,6 +59,7 @@ describe('example specialized registries', () => {
       { bundleId: bundle.id, category: 'payment', providerKey: 'mock' },
       { bundleId: bundle.id, category: 'shipping', providerKey: 'mock_carrier' },
       { bundleId: bundle.id, category: 'currency', providerKey: 'example_fixed_rates' },
+      { bundleId: bundle.id, category: 'other', providerKey: undefined },
     ])
   })
 

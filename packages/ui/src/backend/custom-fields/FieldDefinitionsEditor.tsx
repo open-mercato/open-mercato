@@ -190,6 +190,8 @@ export function FieldDefinitionsEditor({
 }: FieldDefinitionsEditorProps) {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const dragIndex = React.useRef<number | null>(null)
+  const definitionRowKeys = React.useRef(new WeakMap<FieldDefinition, number>())
+  const nextDefinitionRowKey = React.useRef(0)
   const hasFieldsets = fieldsets.length > 0
   const contextT = useOptionalT()
   const t = React.useCallback<TranslateFn>(
@@ -467,13 +469,15 @@ export function FieldDefinitionsEditor({
         </div>
       )}
       {filteredDefinitions.map(({ definition, index }) => {
+        const rowKey = definitionRowKeys.current.get(definition) ?? nextDefinitionRowKey.current++
+        definitionRowKeys.current.set(definition, rowKey)
         const assignedFieldset = typeof definition.configJson?.fieldset === 'string' ? definition.configJson.fieldset : null
         const groupOptions = assignedFieldset
           ? fieldsets.find((fs) => fs.code === assignedFieldset)?.groups ?? []
           : availableGroups
         return (
         <div
-          key={definition.key || `def-${index}`}
+          key={rowKey}
           className="group"
           draggable
           onDragStart={() => { dragIndex.current = index }}
@@ -502,7 +506,10 @@ export function FieldDefinitionsEditor({
             definition={definition}
             error={errors?.[index]}
             kindOptions={resolvedKindOptions}
-            onChange={(next) => onDefinitionChange(index, next)}
+            onChange={(next) => {
+              definitionRowKeys.current.set(next, rowKey)
+              onDefinitionChange(index, next)
+            }}
             onRemove={() => onRemoveField(index)}
             allowFieldsetSelection={hasFieldsets}
             fieldsets={fieldsets}

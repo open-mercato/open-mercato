@@ -5,8 +5,14 @@ import * as React from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { LinkedEntitiesField } from '../LinkedEntitiesField'
+import offerWidget from '@open-mercato/core/modules/sales/widgets/injection/schedule-offer-link/widget'
 
 const readApiResultOrThrowMock = jest.fn()
+const useInjectionWidgetsMock = jest.fn()
+
+jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
+  useInjectionWidgets: (...args: unknown[]) => useInjectionWidgetsMock(...args),
+}))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
@@ -14,6 +20,8 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 describe('LinkedEntitiesField', () => {
   beforeEach(() => {
+    useInjectionWidgetsMock.mockReset()
+    useInjectionWidgetsMock.mockReturnValue({ widgets: [], loading: false })
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockImplementation((url: string) => {
       if (url.startsWith('/api/customers/companies')) {
@@ -30,6 +38,7 @@ describe('LinkedEntitiesField', () => {
   })
 
   it('shows offer labels using quote numbers instead of raw ids', async () => {
+    useInjectionWidgetsMock.mockReturnValue({ widgets: [{ module: offerWidget }], loading: false })
     const setLinkedEntities = jest.fn()
 
     await act(async () => {
@@ -51,6 +60,45 @@ describe('LinkedEntitiesField', () => {
     })
 
     expect(screen.queryByText('quote-1')).not.toBeInTheDocument()
+  })
+
+  it('offers only customer link types when no provider is loaded', async () => {
+    renderWithProviders(
+      <LinkedEntitiesField visible={new Set(['linkedEntities'])} activityType="meeting" linkedEntities={[]} setLinkedEntities={jest.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /\+\s*Add link/ }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Company' })).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Deal' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Offer' })).not.toBeInTheDocument()
+    expect(readApiResultOrThrowMock.mock.calls.every(([url]: [string]) => !url.startsWith('/api/sales/'))).toBe(true)
+    expect(useInjectionWidgetsMock).toHaveBeenCalledWith('schedule:customers.link-types')
+  })
+
+  it('adds and searches a provider loaded after the built-in types', async () => {
+    const setLinkedEntities = jest.fn()
+    const field = () => <LinkedEntitiesField visible={new Set(['linkedEntities'])} activityType="meeting" linkedEntities={[]} setLinkedEntities={setLinkedEntities} />
+    const { rerender } = renderWithProviders(field())
+    fireEvent.click(screen.getByRole('button', { name: /\+\s*Add link/ }))
+    expect(screen.queryByRole('button', { name: 'Offer' })).not.toBeInTheDocument()
+
+    useInjectionWidgetsMock.mockReturnValue({ widgets: [{ module: offerWidget }], loading: false })
+    rerender(field())
+    fireEvent.click(await screen.findByRole('button', { name: 'Offer' }))
+    fireEvent.change(screen.getByPlaceholderText('Search...'), { target: { value: 'SQ-1001' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'SQ-1001' }))
+
+    expect(readApiResultOrThrowMock).toHaveBeenCalledWith(expect.stringContaining('/api/sales/quotes?pageSize=20&page=1&search=SQ-1001'), expect.anything())
+    const update = setLinkedEntities.mock.calls[0][0] as (current: unknown[]) => unknown[]
+    expect(update([])).toEqual([{ id: 'quote-1', type: 'offer', label: 'SQ-1001' }])
+  })
+
+  it('preserves saved links when their provider is unavailable', () => {
+    renderWithProviders(
+      <LinkedEntitiesField visible={new Set(['linkedEntities'])} activityType="meeting" linkedEntities={[{ id: 'quote-1', type: 'offer', label: 'SQ-1001' }]} setLinkedEntities={jest.fn()} />,
+    )
+    expect(screen.getByText('SQ-1001')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove link' })).toBeInTheDocument()
   })
 
   // The guard used to be `page < totalPages`. A `totalPages` of 1 alongside a

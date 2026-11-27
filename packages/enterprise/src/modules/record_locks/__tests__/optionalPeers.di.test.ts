@@ -1,6 +1,5 @@
-import { asValue, createContainer, InjectionMode } from 'awilix'
+import { asFunction, asValue, createContainer, InjectionMode } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import type { CrudMutationGuardServiceLike } from '@open-mercato/shared/lib/crud/mutation-guard-service'
 import {
   clearOptimisticLockReadersForTests,
@@ -14,7 +13,6 @@ import { DEFAULT_RECORD_LOCK_SETTINGS } from '../lib/config'
 function buildContainer(extra: Record<string, unknown> = {}) {
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
   const em = {
-    getMetadata: () => ({ find: (entity: unknown) => entity !== ActionLog }),
     findOne: jest.fn(),
   }
   container.register({
@@ -43,12 +41,14 @@ describe('record_locks DI with optional peers disabled (#9205)', () => {
     expect(commandGuard).toBeTruthy()
   })
 
-  test('the resolved CRUD guard still enforces the OSS updated_at floor on a stale write', async () => {
+  test.each([false, true])('the CRUD version floor rejects stale writes when audit history is absent or fails (registered=%s)', async (registerFailingHistory) => {
     registerOptimisticLockReaders({
       'test_optional_peers.thing': async () => '2026-01-01T00:00:01.000Z',
     })
     try {
       const { container } = buildContainer()
+      const resolveHistory = jest.fn(() => { throw new Error('audit history resolution failed') })
+      if (registerFailingHistory) container.register({ actionLogHistoryService: asFunction(resolveHistory) })
       const guard = container.resolve<CrudMutationGuardServiceLike>('crudMutationGuardService')
       const result = await guard.validateMutation({
         tenantId: 'tenant-1',
@@ -64,6 +64,7 @@ describe('record_locks DI with optional peers disabled (#9205)', () => {
       expect(result.ok).toBe(false)
       if (result.ok) throw new Error('expected the OSS floor to reject the stale write')
       expect(result.status).toBe(409)
+      expect(resolveHistory).not.toHaveBeenCalled()
     } finally {
       clearOptimisticLockReadersForTests()
     }

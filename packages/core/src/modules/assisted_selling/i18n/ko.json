@@ -1,0 +1,10 @@
+{
+  "assisted_selling.audit.settings.save": "지원 판매 설정 저장",
+  "assisted_selling.errors.conflict": "다른 사용자가 이 레코드를 변경했습니다. 새로 고친 뒤 다시 시도하세요.",
+  "assisted_selling.errors.invalidInput": "잘못된 입력입니다",
+  "assisted_selling.errors.invalid_store_id": "잘못된 스토어 ID입니다",
+  "assisted_selling.errors.load_failed": "지원 판매 설정을 불러오지 못했습니다.",
+  "assisted_selling.errors.save_failed": "지원 판매 설정을 저장하지 못했습니다.",
+  "assisted_selling.errors.store_not_found": "스토어를 찾을 수 없습니다",
+  "assisted_selling.errors.unauthorized": "권한이 없습니다"
+}

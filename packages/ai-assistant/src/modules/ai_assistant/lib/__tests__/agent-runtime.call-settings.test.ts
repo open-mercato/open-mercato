@@ -219,3 +219,75 @@ describe('agent runtime call settings forwarding', () => {
     expect('callSettings' in received[1]).toBe(false)
   })
 })
+
+describe('agent runtime call settings vs allowRuntimeOverride', () => {
+  beforeEach(() => {
+    resetAgentRegistryForTests()
+    toolRegistry.clear()
+  })
+
+  afterAll(() => {
+    resetAgentRegistryForTests()
+    toolRegistry.clear()
+  })
+
+  it('chat: rejects per-call call settings when allowRuntimeOverride is false', async () => {
+    currentModel = buildTextModel()
+    seedAgentRegistryForTests([makeAgent({ allowRuntimeOverride: false })])
+    await expect(
+      runAiAgentText({
+        agentId: 'catalog.assistant',
+        messages: baseMessages as never,
+        authContext: baseAuth,
+        callSettings: { temperature: 1.5 },
+      }),
+    ).rejects.toMatchObject({ name: 'AgentPolicyError', code: 'runtime_override_disabled' })
+    expect(currentModel.doStreamCalls).toHaveLength(0)
+  })
+
+  it('object: rejects per-call call settings when allowRuntimeOverride is false', async () => {
+    currentModel = buildObjectModel()
+    seedAgentRegistryForTests([makeAgent({ executionMode: 'object', allowRuntimeOverride: false })])
+    await expect(
+      runAiAgentObject({
+        agentId: 'catalog.assistant',
+        input: 'extract',
+        authContext: baseAuth,
+        output: objectOutput,
+        callSettings: { stopSequences: ['"'] },
+      }),
+    ).rejects.toMatchObject({ name: 'AgentPolicyError', code: 'runtime_override_disabled' })
+    expect(currentModel.doGenerateCalls).toHaveLength(0)
+  })
+
+  it('object: honors the deprecated allowRuntimeModelOverride: false alias', async () => {
+    currentModel = buildObjectModel()
+    seedAgentRegistryForTests([makeAgent({ executionMode: 'object', allowRuntimeModelOverride: false })])
+    await expect(
+      runAiAgentObject({
+        agentId: 'catalog.assistant',
+        input: 'extract',
+        authContext: baseAuth,
+        output: objectOutput,
+        callSettings: { temperature: 0 },
+      }),
+    ).rejects.toMatchObject({ code: 'runtime_override_disabled' })
+  })
+
+  it('still applies the agent modelSettings when allowRuntimeOverride is false and no call settings are sent', async () => {
+    const options = await runObject(
+      makeAgent({ executionMode: 'object', allowRuntimeOverride: false, modelSettings: { temperature: 0.2 } }),
+    )
+    expect(pickSettings(options)).toEqual({ temperature: 0.2 })
+  })
+
+  it('treats an empty call settings object as no override', async () => {
+    const options = await runObject(makeAgent({ executionMode: 'object', allowRuntimeOverride: false }), {})
+    expect(pickSettings(options)).toEqual({})
+  })
+
+  it('accepts per-call call settings when allowRuntimeOverride is true', async () => {
+    const options = await runChat(makeAgent({ allowRuntimeOverride: true }), { temperature: 0.4 })
+    expect(pickSettings(options)).toEqual({ temperature: 0.4 })
+  })
+})

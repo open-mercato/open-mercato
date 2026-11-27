@@ -7,8 +7,8 @@ import {
 
 const STORAGE_PREFIX = 'om:group-order:'
 
-function getStorageKey(pageType: string) {
-  return `${STORAGE_PREFIX}${pageType}`
+function getStorageKey(pageType: string, policyScope?: string) {
+  return policyScope ? `om:crud-form-section-group-order:${JSON.stringify([pageType, policyScope])}` : `${STORAGE_PREFIX}${pageType}`
 }
 
 function mergeOrder(saved: string[], defaults: string[]): string[] {
@@ -47,13 +47,14 @@ function arraysEqual(a: string[], b: string[]): boolean {
  * other; a discarded state update leaves the ref ahead of `savedOrder` only
  * until the next render's content guard pulls it back (#4691).
  */
-export function useGroupOrder(pageType: string, defaultGroupIds: string[]) {
+export function useGroupOrder(pageType: string, defaultGroupIds: string[], policyScope?: string) {
+  const storageKey = getStorageKey(pageType, policyScope)
   const [savedOrder, setSavedOrder] = React.useState<string[] | null>(null)
 
   React.useEffect(() => {
-    const saved = readJsonFromLocalStorage<string[] | null>(getStorageKey(pageType), null)
+    const saved = readJsonFromLocalStorage<string[] | null>(storageKey, null)
     setSavedOrder(Array.isArray(saved) ? saved : null)
-  }, [pageType])
+  }, [storageKey])
 
   const mergedIds = savedOrder ? mergeOrder(savedOrder, defaultGroupIds) : defaultGroupIds
 
@@ -69,10 +70,10 @@ export function useGroupOrder(pageType: string, defaultGroupIds: string[]) {
       const [moved] = next.splice(fromIndex, 1)
       next.splice(toIndex, 0, moved)
       stableIdsRef.current = next
-      writeJsonToLocalStorage(getStorageKey(pageType), next)
+      writeJsonToLocalStorage(storageKey, next)
       setSavedOrder(next)
     },
-    [pageType],
+    [storageKey],
   )
 
   return { orderedIds, reorder }

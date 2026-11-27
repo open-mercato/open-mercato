@@ -1,4 +1,5 @@
 import { describe, expect, test } from '@jest/globals'
+import { eventsConfig } from '../events'
 import { workflowsConfig } from '../workflows'
 
 /**
@@ -35,5 +36,6 @@ describe('code-defined workflows EMIT_EVENT config', () => {
     expect(typeof entry.config.eventName).toBe('string')
     expect((entry.config.eventName as string).length).toBeGreaterThan(0)
     expect(entry.config).not.toHaveProperty('eventType')
+    expect(eventsConfig.events).toContainEqual(expect.objectContaining({ id: entry.config.eventName, workflowEmittable: true }))
   })
 })
