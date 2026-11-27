@@ -17,7 +17,11 @@ type ActiveTransactionLifetime = TransactionLifetime & {
   completionCallbacks: Set<(outcome: TransactionOutcome) => void | Promise<void>>
 }
 
-const activeTransactionLifetimes = new AsyncLocalStorage<Map<object, ActiveTransactionLifetime>>()
+const transactionStorageKey = Symbol.for('openMercato.command-transaction-lifetime')
+const registry = globalThis as typeof globalThis & {
+  [transactionStorageKey]?: AsyncLocalStorage<Map<object, ActiveTransactionLifetime>>
+}
+const activeTransactionLifetimes = (registry[transactionStorageKey] ??= new AsyncLocalStorage())
 
 export function beginTransactionLifetime(em: EntityManager): TransactionLifetime {
   const key = em as object
@@ -78,11 +82,15 @@ export async function completeTransactionLifetime(
     }
   }
   for (const err of failures) {
-    logger.error('Transaction completion callback failed', { outcome, failures: failures.length, err })
-    getTelemetryRuntime()?.reportError(err, {
-      module: 'shared',
-      code: 'shared.transaction_completion_callback_failed',
-      attributes: { outcome },
-    })
+    try {
+      logger.error('Transaction completion callback failed', { outcome, failures: failures.length, err })
+    } catch {}
+    try {
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'shared',
+        code: 'shared.transaction_completion_callback_failed',
+        attributes: { outcome },
+      })
+    } catch {}
   }
 }

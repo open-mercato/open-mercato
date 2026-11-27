@@ -8,7 +8,7 @@ export type PasswordPolicy = {
   requireSpecial: boolean
 }
 
-export type PasswordRequirementId = 'minLength' | 'digit' | 'uppercase' | 'special'
+export type PasswordRequirementId = 'minLength' | 'maxBytes' | 'digit' | 'uppercase' | 'special'
 
 export type PasswordRequirement = {
   id: PasswordRequirementId
@@ -27,10 +27,23 @@ export type PasswordRequirementFormatter = (
 ) => string
 
 const DEFAULT_POLICY: PasswordPolicy = {
-  minLength: 6,
+  minLength: 12,
   requireDigit: true,
   requireUppercase: true,
   requireSpecial: true,
+}
+
+export const PASSWORD_MAX_BYTES = 72
+
+export function isWithinPasswordByteLimit(password: string): boolean {
+  if (password.length > PASSWORD_MAX_BYTES) return false
+  let bytes = 0
+  for (const character of password) {
+    const codePoint = character.codePointAt(0) ?? 0
+    bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
+    if (bytes > PASSWORD_MAX_BYTES) return false
+  }
+  return true
 }
 
 const ENV_KEYS = {
@@ -83,7 +96,10 @@ export function getPasswordPolicy(env: NodeJS.ProcessEnv = process.env): Passwor
 }
 
 export function getPasswordRequirements(policy: PasswordPolicy = getPasswordPolicy()): PasswordRequirement[] {
-  const requirements: PasswordRequirement[] = [{ id: 'minLength', value: policy.minLength }]
+  const requirements: PasswordRequirement[] = [
+    { id: 'minLength', value: policy.minLength },
+    { id: 'maxBytes', value: PASSWORD_MAX_BYTES },
+  ]
   if (policy.requireDigit) requirements.push({ id: 'digit' })
   if (policy.requireUppercase) requirements.push({ id: 'uppercase' })
   if (policy.requireSpecial) requirements.push({ id: 'special' })
@@ -103,6 +119,8 @@ export function formatPasswordRequirements(
           'At least {min} characters',
           { min: requirement.value ?? policy.minLength },
         )
+      case 'maxBytes':
+        return translate(`${keyPrefix}.maxBytes`, 'At most {max} bytes (UTF-8)', { max: PASSWORD_MAX_BYTES })
       case 'digit':
         return translate(`${keyPrefix}.digit`, 'One number')
       case 'uppercase':
@@ -125,6 +143,7 @@ export function validatePassword(
 ): PasswordValidationResult {
   const violations: PasswordRequirementId[] = []
   if (password.length < policy.minLength) violations.push('minLength')
+  if (!isWithinPasswordByteLimit(password)) violations.push('maxBytes')
   if (policy.requireDigit && !/[0-9]/.test(password)) violations.push('digit')
   if (policy.requireUppercase && !/[A-Z]/.test(password)) violations.push('uppercase')
   if (policy.requireSpecial && !/[^A-Za-z0-9]/.test(password)) violations.push('special')

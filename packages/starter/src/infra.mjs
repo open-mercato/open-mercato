@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runCaptureSync, runStreaming } from './compose.mjs'
 import { resolveStackPorts } from './constants.mjs'
 import { readEnvValue } from './env-file.mjs'
+import { ensureOpenCodePassword } from './env-setup.mjs'
 import { formatInfraProblem, startInfraServices } from './infra-preflight.mjs'
 
 const LOOPBACK_DATABASE_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', 'host.docker.internal'])
@@ -22,6 +23,7 @@ export function ensureMcpSharedDir(repoRoot) {
 
 export function infraUp(repoRooot, { profiles = [] } = {}) {
   const repoRoot = repoRooot ?? resolveRepoRoot()
+  ensureOpenCodePassword(repoRoot)
   ensureMcpSharedDir(repoRoot)
   const upArgs = []
   for (const profile of profiles) {

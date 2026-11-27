@@ -16,6 +16,7 @@ import { searchModuleConfigs } from '@/.mercato/generated/search.generated'
 import { eventModuleConfigs } from '@/.mercato/generated/events.generated'
 import { registerEventModuleConfigs } from '@open-mercato/shared/modules/events'
 import { analyticsModuleConfigs } from '@/.mercato/generated/analytics.generated'
+import { crudFormSectionServerModules } from '@/.mercato/generated/crud-form-section-facts.generated'
 import { enricherEntries } from '@/.mercato/generated/enrichers.generated'
 import { interceptorEntries } from '@/.mercato/generated/interceptors.generated'
 import { guardEntries } from '@/.mercato/generated/guards.generated'
@@ -30,6 +31,7 @@ import { registerNotificationTypes } from '@open-mercato/core/modules/notificati
 import { runBootstrapRegistrations } from '@/.mercato/generated/bootstrap-registrations.generated'
 import { allCodeWorkflows } from '@/.mercato/generated/workflows.generated'
 import { registerCodeWorkflows } from '@open-mercato/core/modules/workflows/lib/code-registry'
+import { setCacheProviderManifestLoader } from '@open-mercato/shared/lib/cache/providers'
 
 applyModuleOverridesFromEnabledModules(enabledModules)
 registerEventModuleConfigs(eventModuleConfigs)
@@ -37,6 +39,7 @@ registerMessageTypes(messageTypes, { replace: true })
 registerMessageObjectTypes(messageObjectTypes, { replace: true })
 registerNotificationTypes(notificationTypes, { replace: true })
 registerCodeWorkflows(allCodeWorkflows)
+setCacheProviderManifestLoader(() => import('@/.mercato/generated/cache-providers.generated'))
 runBootstrapRegistrations()
 
 type ServerFoundationBootstrapData = Omit<
@@ -56,6 +59,7 @@ export const serverFoundationBootstrapData: ServerFoundationBootstrapData = {
   injectionTables,
   searchModuleConfigs,
   analyticsModuleConfigs,
+  crudFormSectionServerModules,
   enricherEntries,
   interceptorEntries,
   guardEntries,

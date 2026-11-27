@@ -86,7 +86,9 @@ async function loadCommentSnapshot(em: EntityManager, id: string, ctx: CommandRu
   }
 }
 
-const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: string; authorUserId: string | null }> = {
+type CreatedCommentResult = { commentId: string; authorUserId: string | null; updatedAt: string }
+
+const createCommentCommand: CommandHandler<CommentCreateInput, CreatedCommentResult> = {
   id: 'customers.comments.create',
   async execute(rawInput, ctx) {
     const parsed = commentCreateSchema.parse(rawInput)
@@ -128,7 +130,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       events: commentCrudEvents,
     })
 
-    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
+    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null, updatedAt: comment.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -165,7 +167,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       await em.flush()
     }
   },
-  redo: makeCreateRedo<CustomerComment, CommentSnapshot, CommentCreateInput, { commentId: string; authorUserId: string | null }>({
+  redo: makeCreateRedo<CustomerComment, CommentSnapshot, CommentCreateInput, CreatedCommentResult>({
     entityClass: CustomerComment,
     indexer: commentCrudIndexer,
     events: commentCrudEvents,
@@ -191,11 +193,11 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       const deal = await requireDealInScope(em, snapshot.dealId, snapshot.tenantId, snapshot.organizationId)
       return { entity, deal }
     },
-    buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null }),
+    buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null, updatedAt: entity.updatedAt.toISOString() }),
   }),
 }
 
-const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: string }> = {
+const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: string; updatedAt: string }> = {
   id: 'customers.comments.update',
   async prepare(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
@@ -249,7 +251,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
       events: commentCrudEvents,
     })
 
-    return { commentId: comment.id }
+    return { commentId: comment.id, updatedAt: comment.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
