@@ -25,7 +25,7 @@ test.describe('TC-INBOX-008: Permission gates', () => {
   const FAKE_ID = '00000000-0000-4000-8000-000000000000';
   const stamp = Date.now();
   const viewerEmail = `inbox-viewer-${stamp}@example.com`;
-  const viewerPassword = 'Viewer123!';
+  const viewerPassword = 'QaViewer123!';
 
   let adminToken: string;
   let viewerToken: string;

@@ -25,6 +25,7 @@ export type GenerateWatchStructureOptions = {
   additionalInputs?: string[]
   /** Inputs consumed specifically by OpenAPI generation. */
   openapiInputs?: string[]
+  cacheProviderInputs?: string[]
   /** Candidate package manifests consumed specifically by web-research adapter discovery. */
   webResearchAdapterInputs?: string[]
   /** Adapter discovery failures that make this capture non-authoritative. */
@@ -534,6 +535,8 @@ function addModule(collector: SnapshotCollector, roots: WatchRoots, index: numbe
   ]))
   const convention = (relativePath: string, kind: InputKind) => collector.pair(identity, roots, `${relativePath}.ts`, kind)
   for (const relativePath of REGISTRY_CONVENTIONS) convention(relativePath, { category: 'registry-convention' })
+  // Section definitions can change shared field sets, route manifests, and OpenAPI together.
+  convention('form-sections', { category: 'configuration' })
   for (const [relativePath, extensionId] of Object.entries(EXTENSION_CONVENTIONS)) {
     convention(relativePath, { category: 'extension', extensionId })
   }
@@ -651,7 +654,7 @@ export function collectGenerateWatchStructureSnapshot(
     inputs: readonly string[] | undefined,
     kind: InputKind,
     keyPrefix: string,
-    mode: 'content' | 'stat' = 'content',
+    mode: 'content' | 'stat' | 'membership' = 'content',
   ) => {
     for (const input of ordered(inputs)) {
       const stat = collector.stat(input)
@@ -666,6 +669,7 @@ export function collectGenerateWatchStructureSnapshot(
     'web-research-adapter-input',
     'stat',
   )
+  addSpecializedInputs(options.cacheProviderInputs, { category: 'cache-providers' }, 'cache-provider-input', 'membership')
   collector.supervisor(path.dirname(options.modulesFile))
   collector.dependencies(path.dirname(options.modulesFile))
   // A dynamic descriptor is valid source, not a transient failed capture. Until

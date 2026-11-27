@@ -68,7 +68,10 @@ function matchesValue(actual: unknown, expected: unknown): boolean {
 }
 
 function matches(row: Row, where: Row): boolean {
-  return Object.entries(where).every(([key, value]) => matchesValue(row[key], value))
+  return Object.entries(where).every(([key, value]) => {
+    if (key === '$or' && Array.isArray(value)) return value.some((branch) => matches(row, branch))
+    return matchesValue(row[key], value)
+  })
 }
 
 type Store = { partitions: Row[]; attachments: Row[]; extractions: Row[] }
