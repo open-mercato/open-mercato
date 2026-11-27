@@ -13,20 +13,39 @@ const BASE_URL = process.env.BASE_URL?.trim() || ''
  * the hub-minted `state`, the S256 PKCE challenge, `select_account`, and every
  * default scope, and set the HttpOnly state cookie. No live Microsoft call is
  * made — the URL is only built, never followed.
+ *
+ * Before that, the workspace setup check (#10365): with only a client ID saved
+ * the Microsoft 365 setup is incomplete (the client secret is required), so the
+ * status route reports `configured: false` and initiate answers 409; once the
+ * secret is saved the status flips to `configured: true`.
  */
 test.describe('TC-CHANNEL-MS365-003: OAuth initiate with tenant config', () => {
   test('returns an Entra v2.0 authorize URL with PKCE and the default scopes', async ({ request }) => {
     const sandbox = await createMs365Sandbox(request, 'TC-MS365-003')
+    const statusUrl = `${BASE_URL}/api/communication_channels/oauth/ms365/status`
+    const initiateUrl = `${BASE_URL}/api/communication_channels/oauth/ms365/initiate`
+    const headers = { Authorization: `Bearer ${sandbox.token}`, 'Content-Type': 'application/json' }
     try {
+      await sandbox.saveClientCredentials({ clientId: 'tc-ms365-003-client-id' })
+      const partialStatus = await request.get(statusUrl, { headers })
+      expect(partialStatus.status()).toBe(200)
+      expect(await partialStatus.json()).toEqual({ configured: false })
+      const partialInitiate = await request.post(initiateUrl, { headers, data: {} })
+      expect(partialInitiate.status()).toBe(409)
+      expect(await readJsonSafe(partialInitiate)).toMatchObject({ code: 'oauth_client_not_configured' })
+
       await sandbox.saveClientCredentials({
         clientId: 'tc-ms365-003-client-id',
         clientSecret: 'tc-ms365-003-client-secret',
         tenantId: '',
         scopes: '',
       })
+      const readyStatus = await request.get(statusUrl, { headers })
+      expect(readyStatus.status()).toBe(200)
+      expect(await readyStatus.json()).toEqual({ configured: true })
 
-      const response = await request.post(`${BASE_URL}/api/communication_channels/oauth/ms365/initiate`, {
-        headers: { Authorization: `Bearer ${sandbox.token}`, 'Content-Type': 'application/json' },
+      const response = await request.post(initiateUrl, {
+        headers,
         data: { returnUrl: '/backend/profile/communication-channels', loginHint: 'alice@contoso.com' },
       })
       expect(response.status()).toBe(200)

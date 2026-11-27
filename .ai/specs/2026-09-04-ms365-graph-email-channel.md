@@ -147,7 +147,7 @@ Same scaffold as `channel-gmail` (`build.mjs`, `watch.mjs`, `jest.config.cjs`, `
 | `lib/health.ts` | `channelMs365HealthCheck = makeClientConfigHealthCheck(...)` |
 | `lib/errors.ts` | Graph error → hub classification (`requires_reauth` sentinel, `transient`, `status`) |
 | `widgets/injection-table.ts` | Spot `profile:communication-channels:connect`, priority `110` |
-| `widgets/injection/connect/widget.ts` / `widget.client.tsx` | *Connect Microsoft 365* button → `useConnectChannel({ providerKey: 'ms365' })` |
+| `widgets/injection/connect/widget.ts` / `widget.client.tsx` | *Connect Microsoft 365* button → `useConnectChannel({ providerKey: 'ms365' })`; disabled with the hub's `OAuthProviderSetupHint` until `useOAuthProviderStatus('ms365')` reports the workspace set up (same flow as Gmail) |
 | `lib/__tests__/*.test.ts` | Jest unit tests (stubbed clients) |
 | `__integration__/TC-CHANNEL-MS365-*.spec.ts` | Playwright integration tests |
 
@@ -579,9 +579,9 @@ flow cannot run in CI).
 |---|---|---|
 | TC-CHANNEL-MS365-001 | `POST /oauth/ms365/initiate` | provider is registered: never `404`/`5xx`; without tenant config returns `409` with `code: 'oauth_client_not_configured'` |
 | TC-CHANNEL-MS365-002 | Tenant client config via Integrations API + health check | saving `clientId/clientSecret/tenantId` yields `healthy`; missing `clientId` yields `unhealthy` with `reason: 'invalid_oauth_client'`; cleanup deletes the row |
-| TC-CHANNEL-MS365-003 | `POST /oauth/ms365/initiate` with config present | `200` with `authorizeUrl` on `login.microsoftonline.com/<tenantId>/oauth2/v2.0/authorize`, containing `state`, `code_challenge_method=S256`, all default scopes; state cookie set `HttpOnly` |
+| TC-CHANNEL-MS365-003 | `GET /oauth/ms365/status` + `POST /oauth/ms365/initiate`, client ID only, then full config | Client ID only: status `configured: false`, initiate `409 oauth_client_not_configured`. Full config: status `configured: true`, initiate `200` with `authorizeUrl` on `login.microsoftonline.com/<tenantId>/oauth2/v2.0/authorize`, containing `state`, `code_challenge_method=S256`, all default scopes; state cookie set `HttpOnly` |
 | TC-CHANNEL-MS365-004 | `GET /oauth/ms365/callback` with tampered/missing state | `302` back to the profile page with `oauth=error` and a state error code; no channel row created |
-| TC-CHANNEL-MS365-005 | Profile → Communication channels (UI) | *Connect Microsoft 365* button rendered and enabled for both default roles carrying `connect_user_channel` (admin, employee) |
+| TC-CHANNEL-MS365-005 | Profile → Communication channels (UI), status route stubbed | *Connect Microsoft 365* button rendered for both default roles carrying `connect_user_channel` (admin, employee): disabled with the setup hint while unconfigured (admin gets the *Open provider setup* link to `channel_ms365`, employee does not), enabled once configured |
 | TC-CHANNEL-MS365-006 | Integrations detail API + list (UI) | `GET /api/integrations/channel_ms365` declares the four credential fields and `providerKey: ms365`; the Integrations page lists *Microsoft 365* |
 
 ### Jest (`lib/__tests__/`)
@@ -759,6 +759,19 @@ None block implementation; defaults apply unless the maintainer objects in revie
   CRM starter preset is now 25 modules (`main` added `api_keys` to the empty preset).
 - `TC-CHANNEL-MS365-004` asserts `oauth=error`: the hub's OAuth callback reports its result in
   `?oauth=` instead of `?flash=` since #6521.
+
+### 2026-11-27 — Merge `main`: provider setup check (#10365), 0.11.0 (PR #5898)
+
+- `main` opened 0.11.0 (#9895); the package version follows (the version-alignment CI gate).
+- #10365 added a workspace OAuth setup check to the hub (`GET /oauth/<provider>/status`,
+  `useOAuthProviderStatus`, `OAuthProviderSetupHint`; initiate now requires complete credentials)
+  and wired it into the Gmail button only. The *Connect Microsoft 365* button now follows the same
+  flow: disabled with the setup hint until Microsoft 365 is set up, a failed check offers *Retry*,
+  and a `409 oauth_client_not_configured` from initiate flips it back to the hint. No hub change.
+- Tests: widget unit tests (mirroring Gmail's), TC-CHANNEL-MS365-003 covers the status route and
+  the incomplete-config `409`, TC-CHANNEL-MS365-005 covers both button states. The Gmail
+  TC-CHANNEL-EMAIL-034 locators are scoped to the Gmail button, since the Microsoft 365 button
+  now renders the same hint text on the same page.
 
 ### 2026-11-03 — Second re-review fixes (PR #5898)
 
