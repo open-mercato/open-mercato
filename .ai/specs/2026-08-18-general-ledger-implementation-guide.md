@@ -159,20 +159,20 @@ anything else compiles or is reachable. High-level shape:
   command runs inside a caller's transaction (`ctx.transactionalEm`), it
   emits nothing and the caller emits the same event (`emitPostedEvent`)
   with `{ persistent: true }` after its own commit. Treat the event as a
-  notification, not as the record: delivery is at-least-once, consumers
+  notification: the queue retries events it receives, consumers
   dedupe by `(journalEntryId, post | reversal)`, and an event lost
   between commit and enqueue is recovered through
   `listPostedEntriesSince` (`lib/postedEntriesSince.ts`: committed
   entries of one organization after a `sequenceNumber` cursor, ascending,
   `REVERSAL` entries included, returned as
-  `{ items, nextAfterSequenceNumber }` with a default `limit` of 100,
-  ⚠ NEEDS HUMAN CONFIRMATION). The read has the event's fields, but
+  `{ items, nextAfterSequenceNumber }` with a default `limit` of 100). The read has the event's fields, but
   amounts at the column scale (`"10.0000"` where the event may carry
   `"10"`), so compare amounts as decimals, not as strings; its `kind`
   is a helper of the read, not part of the event; and lines come in
   `id` order, so do not rely on line order. The ledger only offers that
-  read; the consumer (first of all the Posting Rules Engine) decides when to run
-  its reconciliation. The persistent flag and the composed-call rule are
+  read. The consumer advances its checkpoint through the successfully
+  processed prefix and retries from the last durable checkpoint after a
+  failure. The Posting Rules Engine owns its reconciliation schedule. The persistent flag and the composed-call rule are
   what the first ledger PR must have; `listPostedEntriesSince` ships with
   the Posting Rules Engine PR or before it, not as a condition for
   merging the ledger. No outbox in this phase (full spec → Events →

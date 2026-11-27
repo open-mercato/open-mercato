@@ -1172,9 +1172,9 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
     back emits nothing.
   - **The event is a notification; the ledger is the source of truth.**
     A consumer must not treat the event as the only record that an entry
-    exists. Delivery is **at-least-once**: the persistent queue retries,
-    and the reconciliation read below may surface an entry the consumer
-    already handled.
+    exists. The persistent queue retries events it receives. Reconciliation
+    recovers entries whose events never reached the queue and may also
+    surface entries the consumer already handled.
   - **Consumers are idempotent by `(journalEntryId, kind)`**, where
     `kind` is `post` for `type` `NORMAL`/`OPENING`/`CLOSING` and
     `reversal` for `type` `REVERSAL`. Handling the same pair twice must
@@ -1187,8 +1187,14 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
     `sequenceNumber > afterSequenceNumber`, ordered by `sequenceNumber`
     ascending, in pages, each entry with its lines in the same shape as
     the event payload and `REVERSAL` entries included. A consumer keeps
-    its own high-water mark per organization and replays from it; the
-    idempotency key above makes the overlap harmless. The cursor is
+    its own durable checkpoint per (tenant, organization) and replays from
+    it in sequence order. Advance it only through a contiguous prefix of
+    entries whose effects were durably applied or verified as already
+    applied. On failure, stop advancing at the last successful entry and
+    retry from there, even if an event has already delivered a later entry.
+    Use the page cursor only after the entire page has been handled.
+    Coordinate concurrent sweeps for the same scope so they cannot move
+    the shared checkpoint past an unapplied entry. The cursor is
     safe: `sequenceNumber` is allocated by the counter-row upsert in the
     posting transaction, which holds that row's lock until commit, so
     within one organization entries become visible in `sequenceNumber`
@@ -1223,15 +1229,11 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
     emitters log and report a failed emission instead of only swallowing
     it, so operations can trigger a run). Until #6015 adds a schedule,
     the periodic run is the CLI invoked by operations.
-  - **Scope for #9860.** ⚠ NEEDS HUMAN CONFIRMATION (OM Core). The merge
-    condition for #9860 is only this: both emitters pass
-    `{ persistent: true }` (post and reverse), and a composed call does
-    not emit while the caller emits after its own commit (as #9860
-    already does). `lib/postedEntriesSince.ts` is a Phase 1 requirement
-    but does not block #9860: it ships with #6015's engine PR (PR-B) or
-    before it, because the engine is its first consumer and nothing reads
-    it earlier.
-    Working decision (Commerce Weavers, 2026-11-24): the dependent work proceeds on this default without waiting for confirmation; OM Core can change it at review.
+  - **Delivery scope.** #9860 merged on 2026-11-27 with persistent
+    emission for posting and reversal and after-commit emission for
+    composed callers. The reconciliation read is required before the
+    first event consumer ships. Deliver it with #6015's engine PR
+    (PR-B) or in an earlier PR.
   - **Outbox: deferred.** A transactional outbox (an outbox row written
     in the posting transaction and relayed by a worker) would remove the
     commit-to-enqueue window entirely. It is not part of Phase 1: the
@@ -1308,10 +1310,8 @@ on `journal_entries` (`journal_entries_reference_idx`) backs the `referenceType`
   compare them as decimals, not as strings; lines are ordered by `id`,
   not by input order, and consumers must not rely on that order (Events
   → Delivery contract). The result shape and the default `limit` are a
-  decision of 2026-11-23 (⚠ NEEDS HUMAN CONFIRMATION).
-  Phase 1 requirement delivered with #6015's engine PR (PR-B) or before
-  it; not a merge condition for #9860 (Events → Delivery contract,
-  "Scope for #9860", ⚠ NEEDS HUMAN CONFIRMATION).
+  decision of 2026-11-23. Ship the read with #6015's engine PR (PR-B)
+  or before it (Events → Delivery contract).
 
 ### Backend Pages (`backend/ledger/`)
 
@@ -1586,7 +1586,7 @@ Queries / API).
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `ledger:journal_entry_line.contractor_snapshot` (PII duplicated from Contractor Registry — see Design decisions) |
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for the entities above plus the deferred balance-check constraint trigger and the per-organization `journal_entry_sequences` counter table |
 | `lib/lineCurrency.ts` | Create | `resolveLineCurrency` (write-time currency, rate and original amount of a line) and `isLineConsistent` (the tolerance check), used by `postJournalEntry` and `reverseJournalEntry` |
-| `lib/postedEntriesSince.ts` | Create | `listPostedEntriesSince` — the reconciliation read for `ledger.journal_entry.posted` consumers (Events → Delivery contract, added 2026-11-23). Phase 1, delivered with #6015's engine PR (PR-B) or before it; not part of #9860's merge condition (⚠ NEEDS HUMAN CONFIRMATION). Returns `{ items, nextAfterSequenceNumber }` with a default `limit` of 100 (decision of 2026-11-23, ⚠ NEEDS HUMAN CONFIRMATION); amounts at the column scale (compare as decimals), a helper `kind` that is not in the event payload, lines ordered by `id` |
+| `lib/postedEntriesSince.ts` | Create | `listPostedEntriesSince` — the reconciliation read for `ledger.journal_entry.posted` consumers (Events → Delivery contract, added 2026-11-23). Phase 1, delivered with #6015's engine PR (PR-B) or before it. Returns `{ items, nextAfterSequenceNumber }` with a default `limit` of 100; amounts at the column scale (compare as decimals), a helper `kind` that is not in the event payload, lines ordered by `id` |
 | `data/validators.ts` | Create | zod validators for `postJournalEntry`, `reverseJournalEntry`, `createFiscalPeriod`, `lockFiscalPeriod`/`unlockFiscalPeriod`, `createLedgerAccount`/`updateLedgerAccount`, `createLedgerAccountType`/`updateLedgerAccountType` command inputs (**added 2026-09-18** — m4: root `AGENTS.md` requires input validators live here, not inline in commands) |
 | `i18n/<locale>.json` (en/pl/es/de/ko, matching every other module) | Create | User-facing strings for the four backend pages below and any command-rejection messages surfaced to the UI — never hard-coded (**added 2026-09-18** — m4) |
 | `acl.ts` | Create | Six `ledger.*` features |
@@ -1761,6 +1761,10 @@ Queries / API).
   event change nothing. The mirroring side of this case is an
   integration test in the Posting Rules Engine (#6015, PR-B); the ledger
   side (entry stays reversed, the read returns it) is tested here.
+  In the consumer integration test, also fail processing an entry in the
+  middle of a page and deliver a later entry through the event path. The
+  checkpoint must remain before the failure. On retry, fill the gap and
+  advance the checkpoint without applying the later entry twice.
 
 ## Risks & Impact Review
 
@@ -1807,9 +1811,8 @@ the application layer before persisting.
   `lib/postedEntriesSince.ts` with #6015's engine PR, there is no
   cursor read: persistent emission covers handler failures and restarts
   after the enqueue, but an event lost between commit and enqueue is not
-  recoverable through the ledger in that window. No consumer of the
-  event exists before the engine PR, so nothing depends on it yet
-  (⚠ NEEDS HUMAN CONFIRMATION, together with "Scope for #9860").
+  recoverable through the ledger in that window. Ship the reconciliation
+  read before any consumer relies on the event.
 
 ### Tenant & data isolation
 
@@ -1846,7 +1849,7 @@ backfill.
 
 ## Decisions on the review of 2026-10-26 (OQ-1 to OQ-3)
 
-Three findings of the 2026-10-26 re-review (@wojciechszyjka, PR #5663, head `d65bbf17b`) were first recorded as open questions (2026-10-29) and are settled below by the author after checking the code and the statute text. Owner confirmation was not requested. *(2026-11-20: OQ-3 gained an open item on the Money rule of #9978. 2026-11-23: OQ-3 is closed by one Phase 1 decision; its merge condition and migration contract are marked ⚠ NEEDS HUMAN CONFIRMATION.)*
+Three findings of the 2026-10-26 re-review (@wojciechszyjka, PR #5663, head `d65bbf17b`) were first recorded as open questions (2026-10-29) and are settled below by the author after checking the code and the statute text. Owner confirmation was not requested. *(2026-11-20: OQ-3 gained an open item on the Money rule of #9978. 2026-11-27: OQ-3 records the Phase 1 release and additive migration contract in #10431.)*
 
 ### OQ-1 — encrypted `contractorSnapshot` under the append-only trigger, and the retention basis
 
@@ -1873,8 +1876,8 @@ Three findings of the 2026-10-26 re-review (@wojciechszyjka, PR #5663, head `d65
 - **Money rule of #9978 and this module (facts).** Once #9978 merges, the repository rules (`AGENTS.md` Always and Never, `.ai/review-checklist.md` "New monetary values use the Money shapes", rated High in the anti-pattern table) require `Money`/`MoneyColumns` for every new monetary value and forbid new bare decimal-string money fields; "code that only touches existing money fields is exempt". This module is not on `main`, so formally it would count as new code: `debit`, `credit` and `amountCurrency` are `numeric(19,4)` strings with `currencyId`, and the `ledger.journal_entry.posted` payload carries them as strings (OQ-2). Rates are outside the rule (`packages/shared/AGENTS.md`: `decimal.ts` covers non-monetary FX math). The decision for this module is the Phase 1 decision below.
 - **Decision for Phase 1 (2026-11-23, review of 2026-11-20 by @pkarw on #5663, Medium).** One decision replaces the "until #7324" condition and the open proposal above:
   - **Exception (B) is accepted for Phase 1.** Rates stay `numeric(18,8)` (a rate with more than 8 decimal places is rejected; the caller rounds it half-up first) and amounts stay `numeric(19,4)` with `currencyId`, with the rounding rule and tolerance of the first decision. The exception is stated in the #9860 description and will be recorded in `.ai/money-allowlist.json`, with a pointer to this section, when #9978 lands (the file ships with #9978).
-  - **Merge condition.** ⚠ NEEDS HUMAN CONFIRMATION (OM Core). #9860 may merge independently of #9978, in either order, provided an issue tracking the ledger's move to `Money` exists before it merges. The owner of that issue is Commerce Weavers; the move is a separate PR opened after #9978 merges. Working decision (Commerce Weavers, 2026-11-24): the dependent work proceeds on this default without waiting for confirmation; OM Core can change it at review.
-  - **Migration contract.** ⚠ NEEDS HUMAN CONFIRMATION (OM Core). Posted rows are never rewritten: the append-only trigger stays as it is, and existing `debit`, `credit`, `amountCurrency` and `exchangeRate` values keep their stored form. The representation changes only at the API and event boundary. The numeric-string fields with the currency next to them (`debit`, `credit`, `amountCurrency`, `currencyId`, `exchangeRate` on lines and in the `ledger.journal_entry.posted` payload) stay stable; a `Money` object (`MoneyInput` in responses, `MoneySnapshot` in the event) is added next to them, additively, so no consumer breaks. How `MoneyColumns` (currency code and decimal places) relates to `currencyId` is decided in that follow-up PR. Working decision (Commerce Weavers, 2026-11-24): the dependent work proceeds on this default without waiting for confirmation; OM Core can change it at review.
+  - **Release and follow-up.** #9860 merged on 2026-11-27 independently of #9978. [#10431](https://github.com/open-mercato/open-mercato/issues/10431) tracks the follow-up owned by Commerce Weavers after #9978 merges.
+  - **Migration contract.** Keep the append-only trigger and existing stored values. Preserve the numeric-string fields and currency context (`debit`, `credit`, `amountCurrency`, `currencyId`, `exchangeRate`) in the API and event. Add monetary value objects alongside them (`MoneyInput` in responses, `MoneySnapshot` in events). Define how Money's currency code and decimal places relate to `currencyId` in #10431.
 
 ## Out of scope (tracked separately)
 
@@ -3206,8 +3209,13 @@ code. Not yet reviewed by a maintainer.
 - **Who runs the reconciliation.** Events → Delivery contract now says that `ledger` only offers the read and each consumer runs its own reconciliation. For the Posting Rules Engine this is a decision of #6015 (Design Decisions, "A repair mechanism: `ReconcileCostRingCommand` (a sweeper)"; Implementation Plan, step 11: CLI only, schedule open). This spec asks for runs at consumer start or enablement, periodically, and after a reported emission failure. The earlier sentence that the engine "uses this read for its sweeper" is replaced: #6015's sweeper selects by its own intent rows today, and moving to the cursor is its choice.
 - **Merge scope for #9860.** ⚠ NEEDS HUMAN CONFIRMATION. The merge condition is only `{ persistent: true }` on both emitters plus emission after commit by a composing caller. `lib/postedEntriesSince.ts` stays a Phase 1 requirement but ships with #6015's engine PR (PR-B) or before it and does not block #9860. Queries / API, File Manifest and Risks (the window without a cursor read between #9860 and the engine PR) are updated accordingly.
 
-### 2026-11-23 (cont.) — what `listPostedEntriesSince` returns
+### 2026-11-23 (cont.) — original proposal for the reconciliation response
 
 - **Checked against a first implementation** of `lib/postedEntriesSince.ts` on top of #9860 at `5a13f37d3c` (unit tests and a real-database test with the posting and reversal commands). Events → Delivery contract, Queries / API and File Manifest now say: the read carries the event's fields, but amounts at the database column scale (`"10.0000"`, `"1.00000000"`) where the event carries the command's input strings, so consumers compare amounts as decimals, not as strings; `kind` (`post`/`reversal`, mapped from `type`) is a helper of the read and not part of the event payload; lines within an entry are ordered by `id`, not by input order, and consumers must not rely on line order.
 - **Result shape.** ⚠ NEEDS HUMAN CONFIRMATION. `{ items, nextAfterSequenceNumber }`, where `nextAfterSequenceNumber` is the last returned `sequenceNumber` or the input cursor for an empty page, and `limit` defaults to 100.
 - **Implementation guide.** The "persistent emission" item states the same three points and the result shape.
+
+### 2026-11-27 — reconciliation checkpoint and release status
+
+- Require consumers to checkpoint only a durably processed prefix and test a failed entry followed by a retry and a later event.
+- Record the #9860 merge and #10431 follow-up. Require the reconciliation read before the first consumer ships and preserve the additive Money migration contract.
