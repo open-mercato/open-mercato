@@ -1,35 +1,51 @@
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import type { AttachmentAssignment } from './metadata'
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { classifyRecordsEntity } from '@open-mercato/core/modules/entities/lib/entityClassification'
+import { assertEntityAclForRequest, resolveEntityAclRequirement } from '@open-mercato/core/modules/entities/lib/entityAcl'
+import { RECORDS_VIEW_FEATURE } from '@open-mercato/core/modules/entities/lib/recordFeatures'
+import { getApiInterceptorsForRoute } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { collectQuerySubscribers, entityIdToEventEntity } from '@open-mercato/shared/lib/query/query-extension-runner'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('attachments')
 
+type AssignmentReadPolicy = { route: string; feature: string; kind?: string }
+
 type AssignmentLinkSpec = {
-  labelFields?: string[]
+  readPolicies: AssignmentReadPolicy[]
+  labelFields: string[]
   extraFields?: string[]
+  parent?: { entityId: string; table: string; foreignKey: string; kind?: string; route?: string }
   buildHref?: (record: Record<string, unknown>) => string | null | undefined
 }
 
-let _entityLinkSpecsCache: Record<string, AssignmentLinkSpec> | null = null
-
 function getEntityLinkSpecs(): Record<string, AssignmentLinkSpec> {
-  if (_entityLinkSpecsCache) return _entityLinkSpecsCache
-  const E = getEntityIds() as any
+  const E = getEntityIds(false)
   const specs: Record<string, AssignmentLinkSpec> = {}
 
   if (E.catalog?.catalog_product) {
     specs[E.catalog.catalog_product] = {
+      readPolicies: [{ route: 'catalog/products', feature: 'catalog.products.view' }],
       labelFields: ['title', 'sku', 'handle'],
       buildHref: (record) => buildSimpleHref('/backend/catalog/products', record.id),
     }
   }
   if (E.catalog?.catalog_product_variant) {
     specs[E.catalog.catalog_product_variant] = {
+      readPolicies: [{ route: 'catalog/variants', feature: 'catalog.products.view' }],
       labelFields: ['name', 'sku'],
       extraFields: ['product_id'],
+      parent: { entityId: E.catalog.catalog_product, table: 'catalog_products', foreignKey: 'product_id', route: 'catalog/products' },
       buildHref: (record) => {
         const productId = readRecordValue(record, 'product_id')
         if (!productId) return null
@@ -39,6 +55,10 @@ function getEntityLinkSpecs(): Record<string, AssignmentLinkSpec> {
   }
   if (E.customers?.customer_entity) {
     specs[E.customers.customer_entity] = {
+      readPolicies: [
+        { route: 'customers/people', feature: 'customers.people.view', kind: 'person' },
+        { route: 'customers/companies', feature: 'customers.companies.view', kind: 'company' },
+      ],
       labelFields: ['display_name'],
       extraFields: ['kind'],
       buildHref: (record) => {
@@ -51,8 +71,10 @@ function getEntityLinkSpecs(): Record<string, AssignmentLinkSpec> {
   }
   if (E.customers?.customer_person_profile) {
     specs[E.customers.customer_person_profile] = {
-      labelFields: ['preferred_name', 'display_name', 'first_name', 'last_name'],
+      readPolicies: [{ route: 'customers/people', feature: 'customers.people.view' }],
+      labelFields: ['preferred_name'],
       extraFields: ['entity_id', 'first_name', 'last_name'],
+      parent: { entityId: E.customers.customer_entity, table: 'customer_entities', foreignKey: 'entity_id', kind: 'person' },
       buildHref: (record) => {
         const entityId = readRecordValue(record, 'entity_id')
         return entityId ? buildSimpleHref('/backend/customers/people', entityId) : null
@@ -61,8 +83,10 @@ function getEntityLinkSpecs(): Record<string, AssignmentLinkSpec> {
   }
   if (E.customers?.customer_company_profile) {
     specs[E.customers.customer_company_profile] = {
-      labelFields: ['brand_name', 'display_name', 'legal_name'],
+      readPolicies: [{ route: 'customers/companies', feature: 'customers.companies.view' }],
+      labelFields: ['brand_name', 'legal_name'],
       extraFields: ['entity_id'],
+      parent: { entityId: E.customers.customer_entity, table: 'customer_entities', foreignKey: 'entity_id', kind: 'company' },
       buildHref: (record) => {
         const entityId = readRecordValue(record, 'entity_id')
         return entityId ? buildSimpleHref('/backend/customers/companies', entityId) : null
@@ -71,19 +95,20 @@ function getEntityLinkSpecs(): Record<string, AssignmentLinkSpec> {
   }
   if (E.customers?.customer_deal) {
     specs[E.customers.customer_deal] = {
+      readPolicies: [{ route: 'customers/deals', feature: 'customers.deals.view' }],
       labelFields: ['title'],
       buildHref: (record) => buildSimpleHref('/backend/customers/deals', record.id),
     }
   }
   if (E.sales?.sales_channel) {
     specs[E.sales.sales_channel] = {
-      labelFields: ['name', 'title'],
+      readPolicies: [{ route: 'sales/channels', feature: 'sales.channels.view' }],
+      labelFields: ['name'],
       buildHref: (record) => buildSimpleHref('/backend/sales/channels', record.id, '/edit'),
     }
   }
 
-  _entityLinkSpecsCache = specs
-  return _entityLinkSpecsCache
+  return specs
 }
 
 const LIBRARY_ENTITY_ID = 'attachments:library'
@@ -104,29 +129,6 @@ const DEFAULT_LABEL_FIELDS = [
   'legal_name',
   'brand_name',
 ]
-
-let entitySpecsPromise: Promise<Map<string, CustomEntitySpec>> | null = null
-
-async function loadEntitySpecs(): Promise<Map<string, CustomEntitySpec>> {
-  if (!entitySpecsPromise) {
-    entitySpecsPromise = Promise.resolve()
-      .then(() => {
-        const map = new Map<string, CustomEntitySpec>()
-        const mods = getModules()
-        for (const mod of mods) {
-          const specs = ((mod as any).customEntities as CustomEntitySpec[] | undefined) ?? []
-          for (const spec of specs) {
-            if (spec?.id && !map.has(spec.id)) {
-              map.set(spec.id, spec)
-            }
-          }
-        }
-        return map
-      })
-      .catch(() => new Map<string, CustomEntitySpec>())
-  }
-  return entitySpecsPromise
-}
 
 export type AssignmentEnrichment = {
   label?: string
@@ -175,109 +177,164 @@ function buildSimpleHref(base: string, idValue: unknown, suffix: string = ''): s
 }
 
 function isUuid(value: string | null | undefined): boolean {
-  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim())
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim())
 }
 
-function filterIdsForEntity(entityId: string, ids: string[]): string[] {
-  const E = getEntityIds() as any
-  if (entityId === E.catalog?.catalog_product_variant || entityId === E.catalog?.catalog_product) {
-    return ids.filter((id) => isUuid(id))
-  }
-  return ids
+function hasReadHooks(route: string): boolean {
+  return getApiInterceptorsForRoute(route, 'GET').length > 0
 }
 
-function resolveLabelCandidates(entityId: string, linkSpec: AssignmentLinkSpec | undefined, entitySpecs: Map<string, CustomEntitySpec>): string[] {
-  const candidates = new Set<string>()
-  const spec = entitySpecs.get(entityId)
-  if (spec?.labelField) {
-    candidates.add(spec.labelField)
-    candidates.add(camelToSnake(spec.labelField))
-  }
-  for (const field of linkSpec?.labelFields ?? []) {
-    candidates.add(field)
-    candidates.add(camelToSnake(field))
-  }
-  DEFAULT_LABEL_FIELDS.forEach((field) => {
-    candidates.add(field)
-    candidates.add(camelToSnake(field))
-  })
-  return Array.from(candidates).filter((field) => field.length > 0)
+function hasQueryHooks(entityId: string): boolean {
+  const eventEntity = entityIdToEventEntity(entityId)
+  return collectQuerySubscribers(`${eventEntity}.querying`).length > 0
+    || collectQuerySubscribers(`${eventEntity}.queried`).length > 0
 }
 
-function buildLabel(
-  record: Record<string, unknown>,
-  entityId: string,
-  linkSpec: AssignmentLinkSpec | undefined,
-  entitySpecs: Map<string, CustomEntitySpec>
-): string | null {
-  const candidates = resolveLabelCandidates(entityId, linkSpec, entitySpecs)
-  for (const candidate of candidates) {
-    const value = readRecordValue(record, candidate)
-    if (value) return value
-  }
-  const fullName = [readRecordValue(record, 'first_name'), readRecordValue(record, 'last_name')]
-    .filter((part): part is string => Boolean(part))
-    .join(' ')
-    .trim()
-  if (fullName.length) return fullName
-  return null
+type AssignmentAuthorizationContext = {
+  auth: NonNullable<AuthContext>
+  container: AwilixContainer
 }
 
 export async function resolveAssignmentEnrichments(
   assignments: AttachmentAssignment[],
-  opts: { queryEngine?: QueryEngine | null; tenantId: string; organizationId: string | null },
+  opts: {
+    queryEngine?: QueryEngine | null
+    tenantId: string
+    organizationId: string | null
+    authorization?: AssignmentAuthorizationContext
+  },
 ): Promise<AssignmentEnrichmentMap> {
   const map: AssignmentEnrichmentMap = new Map()
-  if (!assignments.length || !opts.queryEngine) return map
-  const entitySpecs = await loadEntitySpecs()
+  const { queryEngine, tenantId, organizationId, authorization } = opts
+  if (!assignments.length || !queryEngine || !organizationId || !authorization) return map
+  const { auth, container } = authorization
+  if (!auth?.sub || !tenantId || auth.tenantId !== tenantId || auth.orgId !== organizationId) return map
+
   const grouped = new Map<string, Set<string>>()
   for (const assignment of assignments) {
-    if (!assignment || assignment.type === LIBRARY_ENTITY_ID) continue
-    const type = assignment.type?.trim()
-    const id = assignment.id?.trim()
-    if (!type || !id) continue
-    if (!grouped.has(type)) grouped.set(type, new Set())
-    grouped.get(type)!.add(id)
+    const type = assignment?.type?.trim()
+    const id = assignment?.id?.trim()
+    if (!type || type === LIBRARY_ENTITY_ID || !isUuid(id)) continue
+    if (assignment.label && assignment.href) continue
+    const ids = grouped.get(type) ?? new Set<string>()
+    ids.add(id)
+    grouped.set(type, ids)
   }
   if (!grouped.size) return map
 
-  const entityLinkSpecs = getEntityLinkSpecs()
-  for (const [entityId, idsSet] of grouped.entries()) {
-    const ids = filterIdsForEntity(entityId, Array.from(idsSet.values()))
-    if (!ids.length) continue
-    const linkSpec = entityLinkSpecs[entityId]
-    const fields = new Set<string>(['id'])
-    const candidates = resolveLabelCandidates(entityId, linkSpec, entitySpecs)
-    candidates.forEach((field) => fields.add(field))
-    for (const extra of linkSpec?.extraFields ?? []) {
-      fields.add(extra)
-      fields.add(camelToSnake(extra))
+  try {
+    const em = container.resolve<EntityManager>('em')
+    const rbac = container.resolve<RbacService>('rbacService')
+    const scope = { tenantId, organizationId }
+    const readDecisions = new Map<string, Promise<boolean>>()
+    const canRead = (feature: string) => {
+      const cached = readDecisions.get(feature)
+      if (cached) return cached
+      const allowed = rbac.userHasAllFeatures(auth.sub, [feature], scope)
+      readDecisions.set(feature, allowed)
+      return allowed
     }
-    try {
-      const result = await opts.queryEngine.query(entityId as any, {
-        fields: Array.from(fields),
-        filters: { id: ids.length === 1 ? { $eq: ids[0] } : { $in: ids } },
-        tenantId: opts.tenantId,
-        organizationId: opts.organizationId ?? undefined,
-        page: { pageSize: Math.max(ids.length, 20) },
-      })
-      for (const record of result.items ?? []) {
-        const recordId = normalizeValue((record as Record<string, unknown>).id)
-        if (!recordId) continue
-        const label = buildLabel(record as Record<string, unknown>, entityId, linkSpec, entitySpecs)
-        const href = linkSpec?.buildHref?.(record as Record<string, unknown>) ?? null
-        if (label || href) {
-          map.set(`${entityId}:${recordId}`, {
-            label: label ?? undefined,
-            href: href ?? undefined,
+    const modules = getModules()
+    const entitySpecs = new Map<string, CustomEntitySpec>()
+    for (const moduleEntry of modules) {
+      for (const spec of (moduleEntry.customEntities ?? []) as CustomEntitySpec[]) {
+        if (!entitySpecs.has(spec.id)) entitySpecs.set(spec.id, spec)
+      }
+    }
+    const moduleIds = new Set(modules.map((moduleEntry) => moduleEntry.id))
+    const entityLinkSpecs = getEntityLinkSpecs()
+    for (const [entityId, ids] of grouped) {
+      try {
+        const linkSpec = Object.hasOwn(entityLinkSpecs, entityId) ? entityLinkSpecs[entityId] : undefined
+        const parent = linkSpec?.parent
+        if (parent && (hasQueryHooks(parent.entityId) || (parent.route && hasReadHooks(parent.route)))) continue
+        const declaredRequirement = resolveEntityAclRequirement(entityId)
+        if (declaredRequirement?.platformOnly) continue
+        const readPolicies: AssignmentReadPolicy[] = []
+        if (linkSpec) {
+          if (!moduleIds.has(entityId.split(':')[0])) continue
+          for (const policy of linkSpec.readPolicies) {
+            if (!hasReadHooks(policy.route) && await canRead(policy.feature)) readPolicies.push(policy)
+          }
+          if (!readPolicies.length) continue
+        } else if (!moduleIds.has('entities') || !moduleIds.has('query_index')
+          || queryEngine instanceof BasicQueryEngine || hasReadHooks('entities/records')
+          || !await canRead(RECORDS_VIEW_FEATURE)) continue
+        // These reads do not participate in the source endpoint's query pipeline.
+        if (hasQueryHooks(entityId)) continue
+        const classification = await classifyRecordsEntity(em, entityId, scope)
+        if (linkSpec ? classification.kind !== 'system' : classification.kind !== 'custom') continue
+        if (!linkSpec || declaredRequirement) {
+          await assertEntityAclForRequest({
+            auth, entityId, action: 'view', rbac,
+            isCustomEntity: !linkSpec, isRestricted: classification.restricted,
           })
         }
+
+        if (parent) {
+          // The engine drops predicates for missing joined columns. Validate the
+          // actual parent table before allowing it to participate in the lookup.
+          await em.getKysely<Record<string, Record<string, unknown>>>()
+            .selectFrom(parent.table)
+            .select(['id', 'tenant_id', 'organization_id', 'deleted_at', ...(parent.kind ? ['kind'] : [])])
+            .limit(0)
+            .execute()
+        }
+        const kinds = readPolicies.flatMap((policy) => policy.kind ? [policy.kind] : [])
+        const customLabel = entitySpecs.get(entityId)?.labelField
+        const candidates = linkSpec?.labelFields ?? [...(customLabel ? [customLabel] : []), ...DEFAULT_LABEL_FIELDS]
+        const fields = [...new Set(['id', ...candidates, ...(linkSpec?.extraFields ?? [])])]
+        const allowedIds = [...ids]
+        for (let offset = 0; offset < allowedIds.length; offset += 100) {
+          const batch = allowedIds.slice(offset, offset + 100)
+          const result = await queryEngine.query<Record<string, unknown>>(entityId, {
+            ...scope,
+            fields,
+            filters: {
+              id: { $in: batch },
+              ...(kinds.length ? { 'base.kind': { $in: kinds } } : {}),
+              // Qualified base predicates cannot fall back to an index field or
+              // silently disappear when a scope column is missing.
+              ...(linkSpec ? { 'base.tenant_id': tenantId, 'base.organization_id': organizationId } : {}),
+              ...(parent ? {
+                'parent.tenant_id': tenantId,
+                'parent.organization_id': organizationId,
+                'parent.deleted_at': null,
+                ...(parent.kind ? { 'parent.kind': parent.kind } : {}),
+              } : {}),
+            },
+            ...(parent ? {
+              joins: [{ alias: 'parent', table: parent.table, from: { field: parent.foreignKey }, to: { field: 'id' }, type: 'inner' }],
+            } : {}),
+            ...(linkSpec ? { omitAutomaticTenantOrgScope: true } : { forceCustomEntityStorage: true }),
+            page: { pageSize: batch.length },
+          })
+          for (const record of result.items ?? []) {
+            const recordId = normalizeValue(record.id)
+            if (!recordId || !batch.includes(recordId) || (kinds.length && !kinds.includes(String(record.kind)))) continue
+            const label = candidates.map((field) => readRecordValue(record, field)).find((value): value is string => Boolean(value))
+              ?? ([readRecordValue(record, 'first_name'), readRecordValue(record, 'last_name')].filter(Boolean).join(' ') || undefined)
+            const href = linkSpec?.buildHref?.(record) ?? undefined
+            if (label || href) map.set(`${entityId}:${recordId}`, { label, href })
+          }
+        }
+      } catch (error) {
+        if (isCrudHttpError(error) && error.status === 403) continue
+        reportAssignmentEnrichmentFailure(error)
       }
-    } catch (error) {
-      logger.warn('Failed to resolve assignment details', { entityId, err: error })
     }
+  } catch (error) {
+    reportAssignmentEnrichmentFailure(error)
   }
   return map
+}
+
+function reportAssignmentEnrichmentFailure(error: unknown): void {
+  const failure = new Error('[internal] Failed to resolve authorized assignment details')
+  getTelemetryRuntime()?.reportError(failure, {
+    module: 'attachments', code: 'attachments.assignment_enrichment_failed',
+  })
+  logger.warn(failure.message, { errorType: error instanceof Error ? error.name : typeof error })
 }
 
 export function applyAssignmentEnrichments(

@@ -7,6 +7,10 @@ description: Open Mercato repo-local extension of the shared `om-code-review` sk
 
 This file extends the shared `om-code-review` skill from [open-mercato/skills](https://github.com/open-mercato/skills) (installed at `.agents/skills/om-code-review/SKILL.md`). Follow the shared skill's full workflow — config loading, validation gate, checklists, breaking-change gate, output format — with the repo-specific rules below layered on top. The validation commands come from `.ai/agentic.config.json`; the full repo checklist is `.ai/review-checklist.md` (wired via the config's `reviewChecklist` field).
 
+## Pull request trust
+
+For a PR review, first apply [the repository's PR-head trust preflight](../om-auto-review-pr/SKILL.md#establish-trust-before-checkout-or-validation), including when the code-review skill was invoked directly. Read validation commands and review instructions from the trusted base checkout. For static review, use the PR diff, supporting source, and GitHub checks for the reviewed SHA. Skip the local gate, template parity, and frontend performance commands, and report which checks are pending or unavailable. An existing checkout of that head does not change its trust classification.
+
 ## Step 0 — Decide where to run the gate (execute ONCE before any gate command)
 
 Before running any `validation.commands` gate, pick the runner (Docker vs local) using the probe order documented in root `AGENTS.md` § Validation Commands — honor `DOCKER_COMPOSE_FILE` first, then probe `starters/docker/compose.*dev*.local.yml` (sorted), legacy root `docker-compose.*dev*.local.yml` (sorted), `starters/docker/compose.fullapp.dev.yml`, `starters/docker/compose.fullapp.yml` with `docker compose --project-directory . -f <file> ps --status running -q app`, and in Docker mode map each `yarn X` to `node scripts/docker-exec.mjs X`. Record the chosen runner in the review output (e.g. `Runner: docker (starters/docker/compose.fullapp.dev.yml)` or `Runner: local`). Never silently fall through to the production compose profile on a parse error — log and try the next candidate.

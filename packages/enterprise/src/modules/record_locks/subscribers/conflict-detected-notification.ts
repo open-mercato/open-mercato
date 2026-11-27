@@ -1,9 +1,7 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import type { ActionLogHistoryService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   isConflictNotificationEnabled,
   resolveRecordLockNotificationType,
@@ -32,7 +30,7 @@ type Payload = {
 }
 
 type ResolverContext = {
-  resolve: <T = unknown>(name: string) => T
+  resolve: <T = unknown>(name: string, options?: { allowUnregistered: true }) => T
 }
 
 function formatChangedFieldLabel(rawField: string): string {
@@ -53,19 +51,6 @@ function formatChangedFieldLabel(rawField: string): string {
     .join(' ')
 }
 
-function readActionLogChanges(log: ActionLog | null): Record<string, unknown> | null {
-  const rawChanges = log?.changesJson as unknown
-  if (rawChanges && typeof rawChanges === 'object' && !Array.isArray(rawChanges)) {
-    return rawChanges as Record<string, unknown>
-  }
-  if (typeof rawChanges !== 'string') return null
-
-  const parsed = parseDecryptedFieldValue(rawChanges)
-  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-    ? parsed as Record<string, unknown>
-    : null
-}
-
 export default async function handle(payload: Payload, ctx: ResolverContext) {
   if (!payload.conflictActorUserId) return
 
@@ -76,17 +61,18 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
   if (!notificationsEnabled) return
 
   try {
-    const em = (ctx.resolve('em') as EntityManager).fork()
-    const incomingLog = payload.incomingActionLogId
-      ? await findOneWithDecryption(
-          em,
-          ActionLog,
-          { id: payload.incomingActionLogId, deletedAt: null },
-          undefined,
-          { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null },
-        )
+    const history = payload.incomingActionLogId
+      ? ctx.resolve<ActionLogHistoryService | undefined>('actionLogHistoryService', { allowUnregistered: true })
+      : undefined
+    const incomingLog = history && payload.incomingActionLogId
+      ? await history.findResourceHistoryById({
+          tenantId: payload.tenantId,
+          resourceKind: payload.resourceKind,
+          resourceId: payload.resourceId,
+          organization: { mode: 'exact', organizationId: payload.organizationId ?? null },
+        }, payload.incomingActionLogId)
       : null
-    const changesJson = readActionLogChanges(incomingLog)
+    const changesJson = incomingLog?.changesJson
     const changedFields = changesJson
       ? Object.keys(changesJson).slice(0, 12).map(formatChangedFieldLabel).join(', ')
       : ''
@@ -113,5 +99,6 @@ export default async function handle(payload: Payload, ctx: ResolverContext) {
     })
   } catch (error) {
     logger.error('Failed to create notification', { err: error })
+    getTelemetryRuntime()?.reportError(error, { module: 'record_locks', code: 'record_locks.conflict_notification_failed' })
   }
 }

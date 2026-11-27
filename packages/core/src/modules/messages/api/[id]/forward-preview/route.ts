@@ -14,7 +14,7 @@ export const metadata = {
 }
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
 
   const message = await findOneWithDecryption(

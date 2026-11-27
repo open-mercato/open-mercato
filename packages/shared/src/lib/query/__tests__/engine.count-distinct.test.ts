@@ -123,7 +123,7 @@ function createFakeKysely(selectsSink: any[], overrides?: FakeData) {
         const localOps = this._ops
         if (localOps.table === 'information_schema.columns') {
           const infoRows = data['information_schema.columns']
-          if (!Array.isArray(infoRows)) return undefined
+          if (!Array.isArray(infoRows)) return extractEqValue(localOps.wheres, 'column_name') === 'tenant_id' ? { column_name: 'tenant_id' } : undefined
           const targetTable = extractEqValue(localOps.wheres, 'table_name')
           const targetColumn = extractEqValue(localOps.wheres, 'column_name')
           return infoRows.find((row: any) =>

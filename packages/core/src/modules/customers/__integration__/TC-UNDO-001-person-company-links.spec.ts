@@ -69,4 +69,58 @@ test.describe('TC-UNDO-001 customers.personCompanyLinks undo (#2507)', () => {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
   })
+
+  test('undoing a promotion restores the previous primary company (#9259)', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = Date.now()
+    let personId: string | null = null
+    let formerPrimaryId: string | null = null
+    let promotedCompanyId: string | null = null
+    try {
+      formerPrimaryId = await createCompanyFixture(request, token, `Undo Primary Company ${stamp}`)
+      promotedCompanyId = await createCompanyFixture(request, token, `Undo Promoted Company ${stamp}`)
+      personId = await createPersonFixture(request, token, {
+        firstName: 'Undo',
+        lastName: `Primary Company ${stamp}`,
+        displayName: `Undo Primary Company ${stamp}`,
+        companyEntityId: formerPrimaryId,
+      })
+      const personPath = `/api/customers/people/${personId}`
+      const linksPath = `${personPath}/companies`
+      const createResponse = await apiRequest(request, 'POST', linksPath, { token, data: { companyId: promotedCompanyId } })
+      expect(createResponse.ok(), `link create status ${createResponse.status()}`).toBeTruthy()
+
+      const expectCompanyAssignment = async (primaryCompanyId: string, otherCompanyId: string) => {
+        const companies = await apiRequest(request, 'GET', linksPath, { token })
+        expect(companies.ok(), `company list status ${companies.status()}`).toBeTruthy()
+        const body = await readJsonSafe<{ items: Array<{ companyId: string; isPrimary: boolean }> }>(companies)
+        expect(body?.items).toHaveLength(2)
+        expect(body?.items).toEqual(expect.arrayContaining([
+          expect.objectContaining({ companyId: primaryCompanyId, isPrimary: true }),
+          expect.objectContaining({ companyId: otherCompanyId, isPrimary: false }),
+        ]))
+
+        const person = await apiRequest(request, 'GET', personPath, { token })
+        expect(person.ok(), `person detail status ${person.status()}`).toBeTruthy()
+        const details = await readJsonSafe<{ profile: { companyEntityId: string | null } }>(person)
+        expect(details?.profile?.companyEntityId).toBe(primaryCompanyId)
+      }
+
+      await expectCompanyAssignment(formerPrimaryId, promotedCompanyId)
+      const promotion = await apiRequest(request, 'PATCH', `${linksPath}/${promotedCompanyId}`, {
+        token,
+        data: { isPrimary: true },
+      })
+      expect(promotion.ok(), `promotion status ${promotion.status()}`).toBeTruthy()
+      const operation = expectOperation(promotion, 'personCompanyLinks.update')
+      await expectCompanyAssignment(promotedCompanyId, formerPrimaryId)
+
+      await undoOk(request, token, operation.undoToken, 'undo primary company promotion')
+      await expectCompanyAssignment(formerPrimaryId, promotedCompanyId)
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+      await deleteEntityIfExists(request, token, '/api/customers/companies', promotedCompanyId)
+      await deleteEntityIfExists(request, token, '/api/customers/companies', formerPrimaryId)
+    }
+  })
 })

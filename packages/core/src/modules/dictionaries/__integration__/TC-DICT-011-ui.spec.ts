@@ -26,7 +26,7 @@ const LOCALE_TEXT = {
     save: 'Save',
     confirm: 'Confirm',
     duplicateFlash: 'Failed to save dictionary.',
-    close: 'Close',
+    dismiss: 'Dismiss notification',
     successCreate: 'Dictionary created.',
     successDelete: 'Dictionary deleted.',
     addEntry: 'Add entry',
@@ -41,7 +41,7 @@ const LOCALE_TEXT = {
     save: 'Zapisz',
     confirm: 'Potwierdź',
     duplicateFlash: 'Nie udało się zapisać słownika.',
-    close: 'Zamknij',
+    dismiss: 'Zamknij powiadomienie',
     successCreate: 'Słownik został utworzony.',
     successDelete: 'Słownik został usunięty.',
     addEntry: 'Dodaj wpis',
@@ -209,7 +209,7 @@ test.describe('TC-DICT-011-UI: reserved-key conflict feedback in the browser', (
         const flashDismissButton = flash.locator('[data-slot="alert-dismiss"]');
         await Promise.all([
           expect(flash).toContainText(text.duplicateFlash),
-          expect(flashDismissButton).toHaveAttribute('aria-label', text.close),
+          expect(flashDismissButton).toHaveAttribute('aria-label', text.dismiss),
         ]);
         await expect(createDialog, 'the dialog should stay open after the refusal').toBeVisible();
         await expect(keyInput).toHaveValue(deletedKey);

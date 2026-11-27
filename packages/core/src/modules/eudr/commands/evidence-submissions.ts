@@ -31,6 +31,7 @@ import { EudrEvidenceSubmission, EudrPlot } from '../data/entities'
 import {
   evidenceSubmissionCreateSchema,
   evidenceSubmissionUpdateSchema,
+  validateHarvestRangeAgainstStored,
   type EvidenceSubmissionCreateInput,
   type EvidenceSubmissionUpdateInput,
 } from '../data/validators'
@@ -539,6 +540,7 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
         }),
         phases: [
           async () => {
+            validateHarvestRangeAgainstStored(record, parsed)
             const nextSupplierEntityId = parsed.supplierEntityId ?? record.supplierEntityId
             const nextPlotIds = parsed.plotIds !== undefined
               ? [...parsed.plotIds]

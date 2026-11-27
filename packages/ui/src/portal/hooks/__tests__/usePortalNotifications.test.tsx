@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { usePortalNotifications } from '../usePortalNotifications'
+import { PORTAL_BRIDGE_RECONNECTED_EVENT_ID } from '../usePortalAppEvent'
 import {
   clearPortalBridgeHealth,
   publishPortalBridgeHealth,
@@ -124,7 +125,7 @@ describe('usePortalNotifications strategy', () => {
       window.dispatchEvent(
         new CustomEvent('om:portal-event', {
           detail: {
-            id: 'om:portal-bridge:reconnected',
+            id: PORTAL_BRIDGE_RECONNECTED_EVENT_ID,
             payload: {},
           },
         })

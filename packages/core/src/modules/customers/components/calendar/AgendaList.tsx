@@ -107,9 +107,11 @@ function AgendaRow({
   item,
   typeLabels,
   onItemClick,
+  conflictDescription,
 }: {
   item: CalendarItem
   typeLabels?: Record<string, string>
+  conflictDescription?: string
   onItemClick: (item: CalendarItem) => void
 }) {
   const t = useT()
@@ -137,10 +139,13 @@ function AgendaRow({
       type="button"
       variant="ghost"
       aria-label={`${title}, ${ariaTime}`}
+      aria-description={conflictDescription}
+      title={conflictDescription}
       onClick={() => onItemClick(item)}
       className={cn(
         'h-auto w-full justify-start whitespace-normal rounded-none bg-background px-3 py-3 text-left transition-colors hover:bg-muted/30 sm:gap-3.5 sm:px-5',
         canceled && 'opacity-60',
+        conflictDescription && 'ring-1 ring-inset ring-status-warning-icon',
       )}
     >
       <div className="flex w-16 shrink-0 flex-col gap-0.5 sm:w-[86px]">
@@ -195,7 +200,7 @@ function AgendaRow({
   )
 }
 
-export function AgendaList({ anchor, horizonDays, items, typeLabels, onItemClick }: AgendaListProps) {
+export function AgendaList({ anchor, horizonDays, items, typeLabels, onItemClick, conflictDescriptions }: AgendaListProps) {
   const t = useT()
   const groups = React.useMemo(() => buildDayGroups(anchor, horizonDays, items), [anchor, horizonDays, items])
   return (
@@ -204,7 +209,7 @@ export function AgendaList({ anchor, horizonDays, items, typeLabels, onItemClick
         <React.Fragment key={dayKeyOf(group.date)}>
           <AgendaDayHeader date={group.date} count={group.items.length} />
           {group.items.map((item) => (
-            <AgendaRow key={item.id} item={item} typeLabels={typeLabels} onItemClick={onItemClick} />
+            <AgendaRow key={item.id} item={item} typeLabels={typeLabels} onItemClick={onItemClick} conflictDescription={conflictDescriptions?.get(item.id)} />
           ))}
         </React.Fragment>
       ))}

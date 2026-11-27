@@ -31,7 +31,7 @@ test.describe('TC-CUR-005: currencies.manage RBAC gate', () => {
   test('view-only user lists currencies but cannot create, update, or delete', async ({ request }) => {
     test.slow();
     const stamp = Date.now();
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     const viewerEmail = `tc-cur-005-viewer-${stamp}@example.com`;
 
     let adminToken: string | null = null;

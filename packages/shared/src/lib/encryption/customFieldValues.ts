@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/core'
+import { CrudHttpError } from '../crud/errors'
 import { createLogger } from '../logger'
 import { encryptWithAesGcm, decryptWithAesGcm } from './aes'
 import { TenantDataEncryptionService } from './tenantDataEncryptionService'
@@ -33,6 +34,7 @@ const STRING_TYPED_CUSTOM_FIELD_KINDS = new Set([
 export type DecryptCustomFieldOptions = {
   /** Field kind, e.g. from `CustomFieldDef.kind`. When string-typed, the helper preserves the decrypted string verbatim. */
   kind?: string | null
+  writeContext?: EncryptCustomFieldOptions
 }
 
 function shouldPreserveAsString(kind: string | null | undefined): boolean {
@@ -54,6 +56,10 @@ export function resolveTenantEncryptionService(
   return service
 }
 
+function isUsableDekKey(key: string | null): boolean {
+  return typeof key === 'string' && Buffer.from(key, 'base64').byteLength === 32
+}
+
 async function resolveDekKey(
   service: TenantDataEncryptionService | null,
   tenantId: string | null | undefined,
@@ -62,91 +68,57 @@ async function resolveDekKey(
 ): Promise<string | null> {
   const scopedTenantId = tenantId ?? null
   if (!service || !service.isEnabled() || !scopedTenantId) return null
-  if (cache?.has(scopedTenantId)) return cache.get(scopedTenantId) ?? null
+  if (cache?.has(scopedTenantId)) {
+    const cached = cache.get(scopedTenantId) ?? null
+    if (!opts?.createIfMissing || isUsableDekKey(cached)) return cached
+  }
   const dek = await service.getDek(scopedTenantId)
   let key = dek?.key ?? null
   if (!key && opts?.createIfMissing && typeof service.createDek === 'function') {
     const created = await service.createDek(scopedTenantId)
     key = created?.key ?? null
   }
+  if (opts?.createIfMissing && !isUsableDekKey(key)) key = null
   cache?.set(scopedTenantId, key)
   return key
 }
 
-/**
- * Whether the caller asked for a write that is supposed to end up encrypted.
- *
- * `resolveDekKey` returns `null` for several situations. Two are intentional
- * no-ops — no encryption service is wired, or the record has no tenant scope —
- * and one is the operator deliberately running unencrypted
- * (`TENANT_DATA_ENCRYPTION=no`). Anything else means the caller asked for an
- * encrypted write that could not be performed, which is worth reporting.
- *
- * This deliberately checks the `TENANT_DATA_ENCRYPTION` env toggle rather than
- * `service.isEnabled()`. `isEnabled()` folds the toggle together with KMS
- * health, and an unreachable Vault with no fallback secret resolves to
- * `NoopKmsService`, whose `isHealthy()` is false whenever encryption is on — so
- * gating on it would stay silent during exactly the outage this warning exists
- * to surface. The env toggle alone expresses the operator's intent.
- */
-function isEncryptionExpected(
-  service: TenantDataEncryptionService | null,
-  tenantId: string | null | undefined,
-): boolean {
-  if (!service || !(tenantId ?? null)) return false
-  return isTenantDataEncryptionEnabled()
-}
+// Throttle rejection warnings by tenant, entity and field until the tenant's key recovers.
+const ENCRYPTION_UNAVAILABLE_WARN_CAP = 5000
+const unavailableWarnings = new Set<string>()
 
-// One warning per tenant/entity/field per OUTAGE. A key-store outage makes this
-// branch run for every field of every write, so the warning is throttled — but
-// the entries for a tenant are dropped again as soon as one of its writes
-// encrypts successfully. Throttling for the lifetime of the process instead
-// would report the first outage and silently swallow every later one, which is
-// the failure this warning exists to make visible.
-const PLAINTEXT_FALLBACK_WARN_CAP = 5000
-const plaintextFallbackWarned = new Set<string>()
-
-/** Test seam: the warn-once cache is process-global by design. */
+/** Test seam for the process-global write warning cache. */
 export function resetEncryptedFieldPlaintextFallbackWarnCache(): void {
-  plaintextFallbackWarned.clear()
+  unavailableWarnings.clear()
 }
 
-/**
- * Forget a tenant's plaintext-fallback warnings once its key resolves again, so
- * a later outage is reported instead of being throttled away by the previous
- * one. The `size` guard keeps the healthy path — an empty set — at O(1).
- */
-function clearPlaintextFallbackWarnings(tenantId: string | null | undefined): void {
-  if (!plaintextFallbackWarned.size) return
-  const prefix = `${tenantId ?? null}|`
-  for (const warnKey of plaintextFallbackWarned) {
-    if (warnKey.startsWith(prefix)) plaintextFallbackWarned.delete(warnKey)
+function clearEncryptionUnavailableWarnings(tenantId: string): void {
+  if (!unavailableWarnings.size) return
+  const prefix = `${tenantId}|`
+  for (const warnKey of unavailableWarnings) {
+    if (warnKey.startsWith(prefix)) unavailableWarnings.delete(warnKey)
   }
 }
 
-function warnOnPlaintextFallback(
-  tenantId: string | null | undefined,
-  options?: EncryptCustomFieldOptions,
-): void {
+function warnOnEncryptionUnavailable(tenantId: string, options?: EncryptCustomFieldOptions): void {
   try {
-    const scopedTenantId = tenantId ?? null
     const entity = options?.entityId ?? null
     const field = options?.fieldKey ?? null
-    const warnKey = `${scopedTenantId}|${entity ?? 'unknown'}|${field ?? 'unknown'}`
-    if (plaintextFallbackWarned.has(warnKey)) return
-    if (plaintextFallbackWarned.size >= PLAINTEXT_FALLBACK_WARN_CAP) {
-      const oldest = plaintextFallbackWarned.values().next().value
-      if (oldest !== undefined) plaintextFallbackWarned.delete(oldest)
+    const warnKey = `${tenantId}|${entity ?? 'unknown'}|${field ?? 'unknown'}`
+    if (unavailableWarnings.has(warnKey)) return
+    if (unavailableWarnings.size >= ENCRYPTION_UNAVAILABLE_WARN_CAP) {
+      const oldest = unavailableWarnings.values().next().value
+      if (oldest !== undefined) unavailableWarnings.delete(oldest)
     }
-    plaintextFallbackWarned.add(warnKey)
-    logger.warn('Custom field configured as encrypted was stored as plaintext', {
-      tenantId: scopedTenantId,
+    unavailableWarnings.add(warnKey)
+    logger.warn('Encrypted custom field write rejected because the tenant key is unavailable', {
+      tenantId,
       entity,
       field,
-      hint: 'The tenant data encryption key could not be read or created (KMS/Vault unavailable, or DEK creation failed), so the value was written unencrypted. Restore key access and re-save the affected records.',
+      hint: 'Restore tenant encryption key access and retry the write.',
     })
   } catch {
-    // A diagnostic must never break the write it is diagnosing.
+    // Preserve the write error if the diagnostic fails.
   }
 }
 
@@ -157,6 +129,18 @@ export type EncryptCustomFieldOptions = {
   fieldKey?: string | null
 }
 
+function rejectEncryptedWrite(
+  tenantId: string,
+  options?: EncryptCustomFieldOptions,
+  cause?: unknown,
+): never {
+  warnOnEncryptionUnavailable(tenantId, options)
+  throw new CrudHttpError(503, {
+    error: 'api.errors.serviceUnavailable',
+    code: 'ENCRYPTION_UNAVAILABLE',
+  }, { cause })
+}
+
 export async function encryptCustomFieldValue(
   value: unknown,
   tenantId: string | null | undefined,
@@ -164,18 +148,20 @@ export async function encryptCustomFieldValue(
   cache?: Map<string | null, string | null>,
   options?: EncryptCustomFieldOptions,
 ): Promise<unknown> {
-  if (value === undefined || value === null) return value
-  const key = await resolveDekKey(service, tenantId, cache, { createIfMissing: true })
-  if (!key) {
-    // Key resolution failed for a field the operator configured as encrypted.
-    // The write still goes through as plaintext (failing it would drop data on
-    // a transient outage), but it must not be silent — issue #5921.
-    if (isEncryptionExpected(service, tenantId)) warnOnPlaintextFallback(tenantId, options)
-    return value
+  if (value === undefined || value === null || !tenantId || !isTenantDataEncryptionEnabled()) return value
+
+  let key: string | null = null
+  let cause: unknown
+  try {
+    key = await resolveDekKey(service, tenantId, cache, { createIfMissing: true })
+  } catch (error) {
+    cause = error
   }
-  clearPlaintextFallbackWarnings(tenantId)
+  if (!key) rejectEncryptedWrite(tenantId, options, cause)
   const serialized = typeof value === 'string' ? value : JSON.stringify(value)
-  return encryptWithAesGcm(serialized, key).value
+  const encrypted = encryptWithAesGcm(serialized, key).value
+  clearEncryptionUnavailableWarnings(tenantId)
+  return encrypted
 }
 
 export async function decryptCustomFieldValue(
@@ -186,7 +172,15 @@ export async function decryptCustomFieldValue(
   options?: DecryptCustomFieldOptions,
 ): Promise<unknown> {
   if (value === undefined || value === null || typeof value !== 'string') return value
-  const key = await resolveDekKey(service, tenantId, cache)
+  let key: string | null
+  try {
+    key = await resolveDekKey(service, tenantId, cache)
+  } catch (error) {
+    if (tenantId && options?.writeContext && isTenantDataEncryptionEnabled()) {
+      rejectEncryptedWrite(tenantId, options.writeContext, error)
+    }
+    throw error
+  }
   if (!key) return value
   const decrypted = decryptWithAesGcm(value, key)
   if (decrypted === null) return value

@@ -2,6 +2,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   handleOpenCodeMessageStreaming,
   type OpenCodeAuthContext,
@@ -17,6 +18,7 @@ import {
   findApiKeyByOpencodeSessionId,
 } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { checkAiChatRateLimit } from '../../lib/rate-limit'
+import { reportAiAssistantError } from '../../lib/report-ai-assistant-error'
 import { getUserRoleIds } from '../../lib/user-role-ids'
 
 const logger = createLogger('ai_assistant')
@@ -305,7 +307,9 @@ export async function POST(req: NextRequest) {
         logger.info('Created session token')
       } catch (error) {
         logger.error('AI Chat — Failed to create session key', { err: error })
-        // Continue without session key - tools will use static API key auth
+        reportAiAssistantError(error, 'ai_assistant.chat_session_key_failed')
+        const { t } = await resolveTranslations()
+        return NextResponse.json({ error: t('ai_assistant.session.error.failed') }, { status: 503 })
       }
     }
 

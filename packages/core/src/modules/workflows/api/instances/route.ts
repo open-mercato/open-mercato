@@ -338,7 +338,7 @@ export async function POST(request: NextRequest) {
       isDryRun: input.dryRun === true,
       tenantId,
       organizationId,
-    })
+    }, container)
 
     // Advance the workflow asynchronously after responding (non-blocking, so the
     // frontend can poll step-by-step progress). This is a fire-and-forget task in

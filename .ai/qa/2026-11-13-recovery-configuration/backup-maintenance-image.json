@@ -1,0 +1,39 @@
+{
+  "sourceHead": "724b6cb37eb98fcf5ce472b1b2090fdb5f704897",
+  "image": "om-recovery-maintenance:backup-724-20261113",
+  "imageId": "sha256:91fb2f97c42ea9ac4f67034e0fc17eb22c4c87882966ff52d55ce5efe8679509",
+  "imageConfigId": "sha256:eeeedc80b992f4fa4eb943dda2033d695c24642c68daa17d009b9823324435ca",
+  "imageIndexDigest": "sha256:91fb2f97c42ea9ac4f67034e0fc17eb22c4c87882966ff52d55ce5efe8679509",
+  "buildTarget": "maintenance",
+  "buildArgs": {
+    "OM_ENABLE_ENTERPRISE_MODULES": "true",
+    "OM_ENABLE_ENTERPRISE_MODULES_BACKUPS": "true",
+    "POSTGRES_CLIENT_MAJOR": "17"
+  },
+  "platform": "linux/arm64",
+  "imageUser": "1001:1001",
+  "overlaysUsed": false,
+  "imagesPushed": false,
+  "imageConfigIdProvenance": "BuildKit immutable OCI config digest; Docker inspect imageId independently matches exported image-index digest",
+  "status": "passed",
+  "readOnlySmokeChecks": 7,
+  "noDatabaseOrServerStarted": true,
+  "retainedFunctionalProof": {
+    "sourceHead": "f1d35059067402206b1d24631d6f2a56dfdf6026",
+    "rows": 143,
+    "cases": 10,
+    "maintenanceContainers": 14,
+    "realSigintExitCode": 130,
+    "freshPreflightSameRunResume": true,
+    "orderedSourceTargetFingerprintsMatched": true,
+    "durableReportCompletedQuarantinedNotPromotionReady": true,
+    "keyRecovery": "not-tested; no canaries",
+    "sourceBoundary": "Six Git objects identical: engine tree, config, launcher, module CLI wrapper, native guard and client installer"
+  },
+  "limits": "Final maintenance CLI image verified; sourcef1d remains explicit for retained restore/resume fixture. Separate regular web runner allocation failures and performance nonacceptance stay disclosed.",
+  "evidence": [
+    "backup-724-smoke.json",
+    "retained-resume-source-boundary.json",
+    "docker-maintenance-verify-f1d.png"
+  ]
+}

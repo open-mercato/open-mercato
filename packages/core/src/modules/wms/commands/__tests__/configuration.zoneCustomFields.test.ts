@@ -182,12 +182,13 @@ function createZoneHarness(options: { zone?: ZoneRecord | null; customFieldValue
   }
 
   const ctx = {
-    auth: { tenantId: TENANT, orgId: ORG },
+    auth: { sub: '99999999-9999-4999-8999-999999999999', tenantId: TENANT, orgId: ORG },
     selectedOrganizationId: ORG,
     container: {
       resolve: (name: string) => {
         if (name === 'em') return { fork: () => em }
         if (name === 'dataEngine') return dataEngine
+        if (name === 'rbacService') return { userHasAllFeatures: async () => true }
         throw new Error(`unexpected resolve: ${name}`)
       },
     },

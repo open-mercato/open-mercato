@@ -259,7 +259,7 @@ export function ReleaseReservationDialog({
         if (error instanceof ReservationNotActiveError) {
           flash(
             t(
-              'wms.backend.inventory.release.errors.reservationNotActive',
+              'wms.backend.inventory.release.errors.invalidReservationState',
               'This reservation is no longer active — it was already released or fulfilled. Refresh the list to see its current state.',
             ),
             'error',

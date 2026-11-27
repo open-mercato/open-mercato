@@ -26,6 +26,7 @@ type DealWonPopupProps = {
   stats: DealStatsPayload | null
   onViewDashboard?: () => void
   onBackToPipeline?: () => void
+  backActionLabel?: string
 }
 
 function formatCurrency(value: number | null, currency: string | null): string {
@@ -80,6 +81,7 @@ export function DealWonPopup({
   stats,
   onViewDashboard,
   onBackToPipeline,
+  backActionLabel,
 }: DealWonPopupProps) {
   const t = useT()
 
@@ -150,7 +152,7 @@ export function DealWonPopup({
                 </Button>
               ) : null}
               <Button type="button" variant={onViewDashboard ? 'outline' : 'default'} className="w-full" onClick={onBackToPipeline ?? onClose}>
-                {t('customers.deals.detail.won.secondaryAction', 'Back to pipeline')}
+                {backActionLabel ?? t('customers.deals.detail.won.secondaryAction', 'Back to pipeline')}
               </Button>
             </div>
           </div>

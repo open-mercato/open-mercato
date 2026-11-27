@@ -1,6 +1,6 @@
 # Module and Data Contracts
 
-Use this guide for entities, APIs, commands, scoping, compatibility, migrations, events, workers, search, and cache. Use `customers` as the CRUD reference after resolving its installed source.
+For entities, APIs, commands, scoping, compatibility, migrations, events, workers, search and cache. Resolve installed `customers` source as the CRUD reference.
 
 ## Entity and Scope Contract
 
@@ -16,9 +16,9 @@ Use this guide for entities, APIs, commands, scoping, compatibility, migrations,
 1. Change `data/entities.ts` and any validator/command/response contracts.
 2. Run `yarn generate` if discovery or entity registration changed.
 3. Run `yarn db:generate` as a schema-diff probe.
-4. Review every emitted statement; retain only the intended module change and update that module's `.snapshot-open-mercato.json` to the post-change schema.
-5. Never edit a shipped migration. Add a corrective migration.
-6. Ask before `yarn db:migrate`; normal delivery includes migration plus snapshot without mutating the user's database.
+4. Review all emitted SQL; keep only the intended module change and update its `.snapshot-open-mercato.json` to the resulting schema.
+5. Never edit shipped migrations; add a corrective migration.
+6. Ask before `yarn db:migrate`; deliver migrations and snapshots without mutating the user's database.
 
 ## CRUD Route Contract
 
@@ -33,13 +33,13 @@ Create handlers under `api/<resource>/route.ts` and build them with the installe
 - `indexer: { entityType }`: query-index coverage;
 - `enrichers: { entityId }`: only when this route intentionally exposes the enricher host.
 
-Export the factory's handlers and a matching `openApi` document as a separate route export. `openApi` is not a `makeCrudRoute` option. Build it with `createCrudOpenApiFactory` and `createPagedListResponseSchema` from `@open-mercato/shared/lib/openapi/crud`, or provide a typed `OpenApiRouteDoc` from `@open-mercato/shared/lib/openapi`. Do not use the stale flat `create`/`update`/`del` factory shape, a top-level `requireAuth`, or an API file organized by HTTP-method directory.
+Export factory handlers and a matching `openApi` document separately. `openApi` is not a `makeCrudRoute` option. Build it with `createCrudOpenApiFactory` and `createPagedListResponseSchema` from `@open-mercato/shared/lib/openapi/crud`, or provide a typed `OpenApiRouteDoc` from `@open-mercato/shared/lib/openapi`. Do not use the stale flat `create`/`update`/`del` factory shape, a top-level `requireAuth`, or an API file organized by HTTP-method directory.
 
-Reject malformed ID lists and filters explicitly. Preserve existing response keys; normalize custom fields deliberately and test compatibility when changing prefixed keys.
+Reject malformed ID lists and filters. Preserve response keys; normalize custom fields deliberately and test compatibility for changed prefixes.
 
 ## Commands and Custom Writes
 
-- Put domain mutations in commands so audit, undo, events, cache invalidation, and indexing share one path. Routes validate and dispatch; they do not reproduce writes.
+- Put domain mutations in commands so audit, undo, events, cache invalidation, and indexing share one path. Routes validate and dispatch without duplicating writes.
 - For custom write/action routes, run registered mutation guards before mutation, merge guarded payload changes, and run post-success callbacks after commit while logging callback failures.
 - Enforce command-level optimistic locking for action/sub-resource endpoints. Guard the aggregate parent when lines share a parent version.
 - Wrap multi-phase scalar/relation work with `withAtomicFlush(..., { transaction: true })`. Keep CRUD side effects and cache invalidation after the transaction commits.

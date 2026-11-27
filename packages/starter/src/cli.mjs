@@ -23,6 +23,7 @@ import readline from 'node:readline'
 
 import { composeArgs, detectDocker, resolveRepoRoot, runCompose, runStreaming, spawnStreaming } from './compose.mjs'
 import { readEnvValue } from './env-file.mjs'
+import { ensureOpenCodePassword, openCodeProbeOptions } from './env-setup.mjs'
 import { chooseServiceMode, printManualSetup } from './service-modes.mjs'
 import { FRESH_CLONE_NO_INFRA_COMMAND, acquireSetupSession, selectStarterServiceMode } from './setup-session.mjs'
 import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUrls } from './constants.mjs'
@@ -350,11 +351,13 @@ async function commandUpDocker(ctx, flags) {
   log(color.dim('  First boot runs migrations + seed inside the app container — expect several minutes.'))
   if (!(await waitForHttp(urls.app, { label: `app ${urls.app}`, timeoutMs: 30 * 60 * 1000, log }))) process.exit(1)
   const mcpOk = await waitForHttp(urls.mcpHealth, { label: 'MCP /health', log })
-  const opencodeOk = await waitForHttp(urls.opencodeHealth, { label: 'OpenCode /global/health', log })
+  const request = openCodeProbeOptions(repoRoot, ctx.env)
+  const opencodeOk = await waitForHttp(urls.opencodeHealth, { label: 'OpenCode /global/health', log, request })
   if (mcpOk && opencodeOk) {
     await waitForHttp(urls.opencodeMcpStatus, {
       label: 'OpenCode <-> MCP wiring',
       log,
+      request,
       timeoutMs: 2 * 60 * 1000,
       validate: (body) => body.includes('connected'),
     })
@@ -471,6 +474,7 @@ async function commandInfra(flags) {
       return
     }
     statusLine('info', 'Starting infrastructure containers (first run may pull and build images)', { log })
+    ensureOpenCodePassword(repoRoot)
     const outcome = await startInfra(repoRoot, {
       profiles: flags.profiles,
       logs,

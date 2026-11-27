@@ -49,9 +49,39 @@ jest.mock(
   { virtual: true },
 )
 
-jest.mock('../hooks/useCustomerDictionary', () => ({
-  useCustomerDictionary: () => ({ data: { map: {} } }),
-}))
+type DictionaryMapMock = Record<string, { value: string; label: string; color: string | null; icon: string | null }>
+
+const dictionaryStore: {
+  maps: Record<string, DictionaryMapMock | undefined>
+  listeners: Set<() => void>
+} = { maps: {}, listeners: new Set() }
+
+function setDictionaryMap(kind: string, map: DictionaryMapMock | undefined) {
+  dictionaryStore.maps = { ...dictionaryStore.maps, [kind]: map }
+  dictionaryStore.listeners.forEach((listener) => listener())
+}
+
+function makeDictionaryMap(entries: Record<string, string>): DictionaryMapMock {
+  return Object.fromEntries(
+    Object.entries(entries).map(([value, label]) => [value, { value, label, color: null, icon: null }]),
+  )
+}
+
+jest.mock('../hooks/useCustomerDictionary', () => {
+  const ReactModule = jest.requireActual<typeof import('react')>('react')
+  return {
+    useCustomerDictionary: (kind: string) => {
+      const map = ReactModule.useSyncExternalStore(
+        (listener: () => void) => {
+          dictionaryStore.listeners.add(listener)
+          return () => dictionaryStore.listeners.delete(listener)
+        },
+        () => dictionaryStore.maps[kind],
+      )
+      return { data: map ? { map } : undefined }
+    },
+  }
+})
 
 jest.mock('../hooks/useCurrencyDictionary', () => ({
   useCurrencyDictionary: jest.fn(),
@@ -82,6 +112,7 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
 describe('DealsSection', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    dictionaryStore.maps = {}
   })
 
   const makeDeal = (overrides: Record<string, unknown> = {}) => ({
@@ -470,6 +501,122 @@ describe('DealsSection', () => {
         expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2)
       })
       expect(screen.getByRole('button', { name: 'Load more deals' })).toBeInTheDocument()
+    })
+  })
+
+
+  describe('pipeline stage label', () => {
+    const renderSection = (kind: 'person' | 'company') =>
+      renderWithProviders(
+        <DealsSection
+          scope={{ kind, entityId: `${kind}-1` }}
+          addActionLabel="Add deal"
+          emptyLabel="—"
+          emptyState={{ title: 'No deals', actionLabel: 'Create deal' }}
+        />,
+      )
+
+    const findStageValue = async () => {
+      const article = (await screen.findByText('Test Deal')).closest('article')!
+      const term = within(article).getByText('Pipeline stage')
+      return term.parentElement!.querySelector('dd')!
+    }
+
+    it.each(['person', 'company'] as const)(
+      'shows the dictionary label instead of the stored stage value on the %s Deals tab',
+      async (kind) => {
+        setDictionaryMap('pipeline-stages', makeDictionaryMap({ sales_qualified_lead: 'Sales Qualified Lead' }))
+        readApiResultOrThrowMock.mockResolvedValueOnce({
+          items: [makeDeal({ pipelineStage: 'sales_qualified_lead' })],
+          totalPages: 1,
+        })
+
+        renderSection(kind)
+
+        expect((await findStageValue()).textContent).toBe('Sales Qualified Lead')
+        expect(screen.queryByText('sales_qualified_lead')).not.toBeInTheDocument()
+      },
+    )
+
+    it('resolves the stage from the snake_case pipeline_stage API field', async () => {
+      setDictionaryMap('pipeline-stages', makeDictionaryMap({ sales_qualified_lead: 'Sales Qualified Lead' }))
+      const { pipelineStage: _omitted, ...deal } = makeDeal()
+      readApiResultOrThrowMock.mockResolvedValueOnce({
+        items: [{ ...deal, pipeline_stage: 'sales_qualified_lead' }],
+        totalPages: 1,
+      })
+
+      renderSection('company')
+
+      expect((await findStageValue()).textContent).toBe('Sales Qualified Lead')
+    })
+
+    it('renders a custom dictionary label verbatim', async () => {
+      setDictionaryMap('pipeline-stages', makeDictionaryMap({ negotiation: 'neg. — final ROUND (EU)' }))
+      readApiResultOrThrowMock.mockResolvedValueOnce({
+        items: [makeDeal({ pipelineStage: 'negotiation' })],
+        totalPages: 1,
+      })
+
+      renderSection('company')
+
+      expect((await findStageValue()).textContent).toBe('neg. — final ROUND (EU)')
+    })
+
+    it('reads the stage from the pipeline-stages dictionary, not the deal-statuses one', async () => {
+      setDictionaryMap('deal-statuses', makeDictionaryMap({ sales_qualified_lead: 'Wrong dictionary' }))
+      setDictionaryMap('pipeline-stages', makeDictionaryMap({ sales_qualified_lead: 'Sales Qualified Lead' }))
+      readApiResultOrThrowMock.mockResolvedValueOnce({
+        items: [makeDeal({ pipelineStage: 'sales_qualified_lead' })],
+        totalPages: 1,
+      })
+
+      renderSection('company')
+
+      expect((await findStageValue()).textContent).toBe('Sales Qualified Lead')
+    })
+
+    it('falls back to the stored value for a stage missing from the dictionary', async () => {
+      setDictionaryMap('pipeline-stages', makeDictionaryMap({ sales_qualified_lead: 'Sales Qualified Lead' }))
+      readApiResultOrThrowMock.mockResolvedValueOnce({
+        items: [makeDeal({ pipelineStage: 'legacy_stage' })],
+        totalPages: 1,
+      })
+
+      renderSection('company')
+
+      expect((await findStageValue()).textContent).toBe('legacy_stage')
+    })
+
+    it('keeps the empty placeholder when the deal has no stage', async () => {
+      setDictionaryMap('pipeline-stages', makeDictionaryMap({ sales_qualified_lead: 'Sales Qualified Lead' }))
+      readApiResultOrThrowMock.mockResolvedValueOnce({
+        items: [makeDeal({ pipelineStage: null })],
+        totalPages: 1,
+      })
+
+      renderSection('company')
+
+      expect((await findStageValue()).textContent).toBe('—')
+    })
+
+    it('switches to the dictionary label once the dictionary loads after the first render', async () => {
+      readApiResultOrThrowMock.mockResolvedValueOnce({
+        items: [makeDeal({ pipelineStage: 'sales_qualified_lead' })],
+        totalPages: 1,
+      })
+
+      renderSection('company')
+
+      expect((await findStageValue()).textContent).toBe('sales_qualified_lead')
+
+      act(() => {
+        setDictionaryMap('pipeline-stages', makeDictionaryMap({ sales_qualified_lead: 'Sales Qualified Lead' }))
+      })
+
+      await waitFor(async () => {
+        expect((await findStageValue()).textContent).toBe('Sales Qualified Lead')
+      })
     })
   })
 
