@@ -32,6 +32,7 @@ import {
 } from './pending-action-notify'
 import { hasRequiredFeatures } from './auth'
 import { resolvePendingActionAlreadyResolvedMessage, resolveToolFeaturesDeniedMessage } from './pending-action-messages'
+import { recheckPendingActionToolInput } from './pending-action-recheck'
 import type {
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,
@@ -41,6 +42,7 @@ import {
   resolvePendingActionBatchMessages,
   toDuplicateDroppedFailedRecords,
   toNotPreviewedFailedRecords,
+  type PendingActionExecutionPlan,
 } from './pending-action-batch'
 
 const logger = createLogger('ai_assistant')
@@ -172,9 +174,7 @@ function buildHandlerErrorFromThrown(
   }
   if (name) out.name = name
 
-  // Echo the input so the model can compare what it sent vs. what the
-  // schema expected. `normalizedInput` has already been Zod-parsed at
-  // prepareMutation time so the values are JSON-safe.
+  // Echo the effective input when it can be represented as JSON.
   if (input !== undefined) {
     try {
       out.input = JSON.parse(JSON.stringify(input))
@@ -355,6 +355,13 @@ async function clearNotificationsForResolvedRow(
 export async function executePendingActionConfirm(
   input: PendingActionExecuteInput,
 ): Promise<PendingActionExecuteResult> {
+  return executeRecheckedPendingActionConfirm(input)
+}
+
+export async function executeRecheckedPendingActionConfirm(
+  input: PendingActionExecuteInput,
+  executionPlan?: Extract<PendingActionExecutionPlan, { kind: 'run' }>,
+): Promise<PendingActionExecuteResult> {
   const { action, agent, tool, ctx, failedRecords, now } = input
   const agentId = agent?.id ?? action.agentId
   const repo = input.repo ?? new AiPendingActionRepository(ctx.container.resolve('em'))
@@ -405,7 +412,19 @@ export async function executePendingActionConfirm(
   const partialFailedRecords =
     Array.isArray(failedRecords) && failedRecords.length > 0 ? failedRecords : null
 
-  const plan = planPendingActionExecution(action, tool, partialFailedRecords)
+  let plan: PendingActionExecutionPlan | undefined = executionPlan
+  if (!plan) {
+    const checkedInput = recheckPendingActionToolInput(action, tool)
+    if (!checkedInput.ok) {
+      return {
+        ok: false,
+        action,
+        executionResult: { error: { code: checkedInput.code, message: checkedInput.message } },
+        cause: new Error(checkedInput.message),
+      }
+    }
+    plan = planPendingActionExecution(action, tool, partialFailedRecords, checkedInput.toolInput)
+  }
   if (plan.kind === 'refuse') {
     const messages = await resolvePendingActionBatchMessages()
     return {

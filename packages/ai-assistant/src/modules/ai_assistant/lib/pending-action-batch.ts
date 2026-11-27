@@ -135,6 +135,7 @@ export function planPendingActionExecution(
   action: PlannableAction,
   tool: PlannableTool,
   staleRecords: AiPendingActionFailedRecord[] | null | undefined,
+  toolInput: unknown,
 ): PendingActionExecutionPlan {
   const previewed = Array.isArray(action.records) ? action.records : []
   if (previewed.length === 0) {
@@ -152,7 +153,7 @@ export function planPendingActionExecution(
     }
     return {
       kind: 'run',
-      input: action.normalizedInput,
+      input: toolInput,
       expectedRecordVersions,
       notPreviewedRecordIds: [],
       droppedDuplicateRecordIds: [],
@@ -170,12 +171,12 @@ export function planPendingActionExecution(
   const staleIds = new Set(staleRecordIds)
   const refuse: PendingActionExecutionPlan = { kind: 'refuse', code: 'stale_version', staleRecordIds }
 
-  const entries = readBatchEntries(action.normalizedInput)
+  const entries = readBatchEntries(toolInput)
   if (!entries) {
-    if (staleIds.size > 0) return refuse
+    if (staleIds.size > 0 || readBatchEntries(action.normalizedInput)) return refuse
     return {
       kind: 'run',
-      input: action.normalizedInput,
+      input: toolInput,
       expectedRecordVersions: collectVersions(versionById.keys(), versionById),
       notPreviewedRecordIds: [],
       droppedDuplicateRecordIds: [],
@@ -208,8 +209,8 @@ export function planPendingActionExecution(
     kind: 'run',
     input:
       kept.length === entries.length
-        ? action.normalizedInput
-        : { ...(action.normalizedInput as Record<string, unknown>), records: kept },
+        ? toolInput
+        : { ...(toolInput as Record<string, unknown>), records: kept },
     expectedRecordVersions: collectVersions(keptIds, versionById),
     notPreviewedRecordIds: Array.from(notPreviewed),
     droppedDuplicateRecordIds: Array.from(droppedDuplicates),

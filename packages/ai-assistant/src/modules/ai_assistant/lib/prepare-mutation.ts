@@ -222,9 +222,15 @@ function computeFieldDiff(
   return diff
 }
 
-function extractPatchFromArgs(
-  args: Record<string, unknown>,
-): Record<string, unknown> {
+function readArgsRecord(args: unknown): Record<string, unknown> {
+  if (args && typeof args === 'object' && !Array.isArray(args)) {
+    return args as Record<string, unknown>
+  }
+  return {}
+}
+
+function extractPatchFromArgs(input: unknown): Record<string, unknown> {
+  const args = readArgsRecord(input)
   const raw = args?.patch
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     return raw as Record<string, unknown>
@@ -254,11 +260,8 @@ function extractPatchFromArgs(
   return reduced
 }
 
-function matchBatchPatch(
-  args: Record<string, unknown>,
-  recordId: string,
-): Record<string, unknown> {
-  const rawList = args?.records
+function matchBatchPatch(input: unknown, recordId: string): Record<string, unknown> {
+  const rawList = readArgsRecord(input).records
   if (Array.isArray(rawList)) {
     const match = rawList.find((entry) => {
       if (!entry || typeof entry !== 'object') return false
@@ -290,7 +293,7 @@ function normalizeAttachmentIds(args: Record<string, unknown>): string[] {
 
 async function buildSingleRecordDiff(
   tool: AiToolDefinition,
-  toolCallArgs: Record<string, unknown>,
+  toolCallArgs: unknown,
   handlerContext: McpToolContext,
 ): Promise<{
   fieldDiff: AiPendingActionFieldDiff[]
@@ -342,7 +345,7 @@ async function buildSingleRecordDiff(
 
 async function buildBatchRecords(
   tool: AiToolDefinition,
-  toolCallArgs: Record<string, unknown>,
+  toolCallArgs: unknown,
   handlerContext: McpToolContext,
 ): Promise<{
   records: AiPendingActionRecordDiff[] | null
@@ -404,7 +407,7 @@ type MutationPreview = {
 
 async function buildMutationPreview(
   tool: AiToolDefinition,
-  toolCallArgs: Record<string, unknown>,
+  toolCallArgs: unknown,
   handlerContext: McpToolContext,
 ): Promise<MutationPreview> {
   if (tool.isBulk === true) {
@@ -467,6 +470,8 @@ export async function prepareMutation(
   const em = resolveEm(ctx.container)
   const repo = new AiPendingActionRepository(em)
 
+  const normalizedInput = input.toolCallArgs ?? {}
+  const previewInput = tool.inputSchema.parse(normalizedInput)
   const {
     fieldDiff,
     records,
@@ -474,9 +479,8 @@ export async function prepareMutation(
     targetRecordId,
     recordVersion,
     sideEffectsSummary,
-  } = await buildMutationPreview(tool, input.toolCallArgs, toolHandlerContext(ctx))
+  } = await buildMutationPreview(tool, previewInput, toolHandlerContext(ctx))
 
-  const normalizedInput = input.toolCallArgs ?? {}
   const conversationId = input.conversationId ?? null
   const idempotencyKey = computeMutationIdempotencyKey({
     tenantId,

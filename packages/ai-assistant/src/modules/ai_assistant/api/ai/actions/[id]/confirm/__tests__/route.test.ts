@@ -252,6 +252,88 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     expect(body.code).toBe('invalid_status')
   })
 
+  it('executes only previewed fresh records with the same parsed values used by the recheck', async () => {
+    const transformTitle = jest.fn((title: string) => `${title}!`)
+    const inputSchema = z.object({
+      unit: z.string().default('g'),
+      records: z.array(z.object({
+        recordId: z.string().trim(),
+        title: z.string().transform(transformTitle),
+      })).min(2),
+    })
+    const captured = (recordId: string) => ({
+      recordId,
+      entityType: 'catalog.product',
+      label: recordId,
+      recordVersion: 'v-1',
+      fieldDiff: [],
+    })
+    const loadBeforeRecords = jest.fn().mockResolvedValue([
+      { ...captured('p-1'), before: {} },
+      { ...captured('p-2'), recordVersion: 'v-2', before: {} },
+    ])
+    const handler = jest.fn().mockResolvedValue({})
+    const normalizedInput = {
+      records: [
+        { recordId: ' p-1 ', title: 'Fresh' },
+        { recordId: 'p-2', title: 'Stale' },
+        { recordId: 'p-3', title: 'Unpreviewed' },
+        { recordId: 'p-1', title: 'Repeated' },
+      ],
+    }
+    repoGetByIdMock.mockResolvedValueOnce(makeRow({
+      normalizedInput,
+      records: [captured('p-1'), captured('p-2')],
+    }))
+    getToolMock.mockReturnValueOnce(makeTool({ inputSchema, isBulk: true, loadBeforeRecords, handler }))
+
+    const response = await POST(buildRequest() as Parameters<typeof POST>[0], buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(200)
+    expect((await response.json()).ok).toBe(true)
+    expect(loadBeforeRecords).toHaveBeenCalledWith({
+      unit: 'g',
+      records: [
+        { recordId: 'p-1', title: 'Fresh!' },
+        { recordId: 'p-2', title: 'Stale!' },
+        { recordId: 'p-3', title: 'Unpreviewed!' },
+        { recordId: 'p-1', title: 'Repeated!' },
+      ],
+    }, expect.anything())
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(handler).toHaveBeenCalledWith(
+      { unit: 'g', records: [{ recordId: 'p-1', title: 'Fresh!' }] },
+      expect.objectContaining({ expectedRecordVersions: { 'p-1': 'v-1' } }),
+    )
+    expect(transformTitle).toHaveBeenCalledTimes(normalizedInput.records.length)
+    expect(repoSetStatusMock.mock.calls[0][3].failedRecords).toEqual([
+      expect.objectContaining({ recordId: 'p-2', error: expect.objectContaining({ code: 'stale_version' }) }),
+      expect.objectContaining({ recordId: 'p-3', error: expect.objectContaining({ code: 'record_not_previewed' }) }),
+      expect.objectContaining({ recordId: 'p-1', error: expect.objectContaining({ code: 'record_duplicate_dropped' }) }),
+    ])
+  })
+
+  it('refuses a confirmation when the resolver no longer finds the previewed identity', async () => {
+    const handler = jest.fn()
+    repoGetByIdMock.mockResolvedValueOnce(makeRow())
+    getToolMock.mockReturnValueOnce(makeTool({
+      loadBeforeRecord: jest.fn().mockResolvedValue({
+        recordId: 'p-2',
+        entityType: 'catalog.product',
+        recordVersion: 'v-1',
+        before: {},
+      }),
+      handler,
+    }))
+
+    const response = await POST(buildRequest() as Parameters<typeof POST>[0], buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(412)
+    expect(await response.json()).toMatchObject({ code: 'stale_version', recordId: 'p-1' })
+    expect(repoSetStatusMock).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it('409 expired: expiresAt in the past', async () => {
     repoGetByIdMock.mockResolvedValueOnce(
       makeRow({ expiresAt: new Date('2020-01-01T00:00:00.000Z') }),
@@ -459,9 +541,18 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     it('an approver confirms an MCP row under their own identity without agent lookup', async () => {
       authMock.mockResolvedValueOnce({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
       aclByPrincipal(['ai_assistant.view', 'ai_assistant.pending_actions.approve', 'catalog.manage'])
-      repoGetByIdMock.mockResolvedValueOnce(rawRow())
+      const normalizedInput = { productId: 'p-1', patch: { title: 'New!' } }
+      repoGetByIdMock.mockResolvedValueOnce({ ...rawRow(), normalizedInput })
       const handlerSpy = jest.fn().mockResolvedValue({ recordId: 'p-1' })
-      getToolMock.mockReturnValueOnce(makeTool({ handler: handlerSpy, requiredFeatures: ['catalog.manage'] }))
+      const tool = makeTool({
+        inputSchema: z.object({
+          productId: z.string(),
+          patch: z.object({ title: z.string().transform((title) => `${title}!`) }),
+        }),
+        handler: handlerSpy,
+        requiredFeatures: ['catalog.manage'],
+      })
+      getToolMock.mockReturnValueOnce(tool)
 
       const response = await POST(buildRequest() as any, buildContext(PENDING_ACTION_ID))
 
@@ -469,6 +560,8 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
       expect(getAgentMock).not.toHaveBeenCalled()
       expect(policyOverrideGetMock).not.toHaveBeenCalled()
       expect(handlerSpy).toHaveBeenCalledTimes(1)
+      expect(tool.loadBeforeRecord).toHaveBeenCalledWith(normalizedInput, expect.anything())
+      expect(handlerSpy).toHaveBeenCalledWith(normalizedInput, expect.anything())
       const handlerCtx = handlerSpy.mock.calls[0][1]
       expect(handlerCtx.userId).toBe('user-2')
       expect(handlerCtx.auditCorrelation).toEqual({

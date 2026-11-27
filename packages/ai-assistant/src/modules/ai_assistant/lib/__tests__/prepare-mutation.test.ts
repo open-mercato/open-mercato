@@ -330,6 +330,55 @@ describe('prepareMutation', () => {
     expect(second.pendingAction.createdByUserId).toBe('u-2')
   })
 
+  it('previews parsed fields while retaining the staged input and idempotency key', async () => {
+    const container = makeContainer(mockEm())
+    const loadBeforeRecord = jest.fn().mockResolvedValue({
+      recordId: 'p-1',
+      entityType: 'catalog.product',
+      recordVersion: 'v-1',
+      before: { title: 'Old', unit: 'kg' },
+    })
+    const tool = makeTool({
+      name: 'catalog.products.update',
+      isMutation: true,
+      inputSchema: z.object({
+        productId: z.string(),
+        patch: z.object({
+          title: z.string().transform((title) => `${title}!`),
+          unit: z.string().default('g'),
+        }),
+      }),
+      loadBeforeRecord,
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+    const toolCallArgs = { productId: 'p-1', patch: { title: 'New' } }
+    const input = { agent, tool, toolCallArgs }
+
+    const { pendingAction, uiPart } = await prepareMutation(input, { ...baseCtx, container })
+    const repeated = await prepareMutation(input, { ...baseCtx, container })
+
+    expect(loadBeforeRecord).toHaveBeenCalledWith(
+      { productId: 'p-1', patch: { title: 'New!', unit: 'g' } },
+      expect.anything(),
+    )
+    expect(uiPart.props.fieldDiff).toEqual([
+      { field: 'title', before: 'Old', after: 'New!' },
+      { field: 'unit', before: 'kg', after: 'g' },
+    ])
+    expect(pendingAction.normalizedInput).toEqual(toolCallArgs)
+    expect(pendingAction.idempotencyKey).toBe(computeMutationIdempotencyKey({
+      tenantId: baseCtx.tenantId,
+      organizationId: baseCtx.organizationId,
+      userId: baseCtx.userId,
+      agentId: agent.id,
+      conversationId: null,
+      toolName: tool.name,
+      normalizedInput: toolCallArgs,
+    }))
+    expect(repeated.reused).toBe(true)
+    expect(repeated.pendingAction.id).toBe(pendingAction.id)
+  })
+
   it('fallback patch from flat args: untouched snapshot fields and envelope keys do not surface as cleared (regression #7349)', async () => {
     const em = mockEm()
     const container = makeContainer(em)

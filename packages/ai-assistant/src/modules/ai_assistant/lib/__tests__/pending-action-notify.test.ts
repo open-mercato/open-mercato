@@ -145,7 +145,7 @@ function makeRow(overrides: Partial<AiPendingAction> = {}): AiPendingAction {
     createdByUserId: REQUESTER_ID,
     channel: 'mcp',
     status: 'pending',
-    normalizedInput: {},
+    normalizedInput: { name: 'Taylor' },
     fieldDiff: [],
     records: null,
     failedRecords: null,
