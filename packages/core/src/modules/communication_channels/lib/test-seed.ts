@@ -470,6 +470,7 @@ class TestSeedChannelAdapter implements ChannelAdapter {
     }
     const subject = typeof frame.subject === 'string' ? frame.subject : undefined
     const body = typeof frame.body === 'string' ? frame.body : ''
+    const html = typeof frame.html === 'string' ? frame.html : undefined
     const senderDisplayName =
       typeof frame.senderDisplayName === 'string' ? frame.senderDisplayName : undefined
     return {
@@ -485,8 +486,9 @@ class TestSeedChannelAdapter implements ChannelAdapter {
         from: { address: senderIdentifier, ...(senderDisplayName ? { name: senderDisplayName } : {}) },
         ...(subject !== undefined ? { subject } : {}),
         text: body,
+        ...(html !== undefined ? { html } : {}),
       },
-      channelContentType: 'text/plain',
+      channelContentType: html === undefined ? 'text/plain' : 'email/rfc822',
       channelMetadata: {},
     }
   }
