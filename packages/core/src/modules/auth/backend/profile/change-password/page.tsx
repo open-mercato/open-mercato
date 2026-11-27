@@ -2,13 +2,12 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
-import { Save } from 'lucide-react'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { FormSaveBar, FORM_SAVE_BAR_FLOATING_SPACER_CLASS, type FormSaveState } from '@open-mercato/ui/blocks/form-save-bar'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildPasswordSchema, formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -39,6 +38,9 @@ export default function ProfileChangePasswordPage() {
   const [error, setError] = React.useState<string | null>(null)
   const [email, setEmail] = React.useState('')
   const [formKey, setFormKey] = React.useState(0)
+  const [dirty, setDirty] = React.useState(false)
+  const [saving, setSaving] = React.useState(false)
+  const [saveFailed, setSaveFailed] = React.useState(false)
   const formId = React.useId()
   const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
   const passwordRequirements = React.useMemo(
@@ -140,7 +142,7 @@ export default function ProfileChangePasswordPage() {
     })
   }, [passwordPolicy, t])
 
-  const handleSubmit = React.useCallback(async (values: ProfileFormValues) => {
+  const saveProfile = React.useCallback(async (values: ProfileFormValues) => {
     const nextEmail = values.email?.trim() ?? ''
     const currentPassword = values.currentPassword?.trim() ?? ''
     const password = values.password?.trim() ?? ''
@@ -170,6 +172,33 @@ export default function ProfileChangePasswordPage() {
     router.refresh()
   }, [email, router, t])
 
+  const handleSubmit = React.useCallback(async (values: ProfileFormValues) => {
+    setSaving(true)
+    setSaveFailed(false)
+    try {
+      await saveProfile(values)
+      setDirty(false)
+    } catch (err) {
+      setSaveFailed(true)
+      throw err
+    } finally {
+      setSaving(false)
+    }
+  }, [saveProfile])
+
+  const handleDirtyChange = React.useCallback((nextDirty: boolean) => {
+    setDirty(nextDirty)
+    if (!nextDirty) setSaveFailed(false)
+  }, [])
+
+  const handleReset = React.useCallback(() => {
+    setFormKey((prev) => prev + 1)
+    setDirty(false)
+    setSaveFailed(false)
+  }, [])
+
+  const saveState: FormSaveState = saving ? 'saving' : saveFailed ? 'failed' : dirty ? 'dirty' : 'idle'
+
   if (loading) {
     return <LoadingMessage label={t('auth.profile.form.loading', 'Loading profile...')} />
   }
@@ -179,35 +208,40 @@ export default function ProfileChangePasswordPage() {
   }
 
   return (
-    <section className="space-y-6 rounded-lg border bg-background p-6 max-w-2xl">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
+    <div className={FORM_SAVE_BAR_FLOATING_SPACER_CLASS}>
+      <section className="space-y-6 rounded-lg border bg-background p-6 max-w-2xl">
+        <header className="space-y-1">
           <h2 className="text-lg font-semibold">{t('auth.changePassword.title', 'Change Password')}</h2>
           <p className="text-sm text-muted-foreground">
             {t('auth.profile.subtitle', 'Change password')}
           </p>
-        </div>
-        <Button type="submit" form={formId}>
-          <Save className="size-4 mr-2" />
-          {t('auth.profile.form.save', 'Save changes')}
-        </Button>
-      </header>
-      <CrudForm<ProfileFormValues>
-        key={formKey}
+        </header>
+        <CrudForm<ProfileFormValues>
+          key={formKey}
+          formId={formId}
+          schema={schema}
+          fields={fields}
+          initialValues={{
+            email,
+            currentPassword: '',
+            password: '',
+            confirmPassword: '',
+          }}
+          submitLabel={t('auth.profile.form.save', 'Save changes')}
+          onSubmit={handleSubmit}
+          embedded
+          hideFooterActions
+          trackDirtyWhenEmbedded
+          onDirtyChange={handleDirtyChange}
+        />
+      </section>
+      <FormSaveBar
+        saveState={saveState}
         formId={formId}
-        schema={schema}
-        fields={fields}
-        initialValues={{
-          email,
-          currentPassword: '',
-          password: '',
-          confirmPassword: '',
-        }}
-        submitLabel={t('auth.profile.form.save', 'Save changes')}
-        onSubmit={handleSubmit}
-        embedded
-        hideFooterActions
+        saveLabel={t('auth.profile.form.save', 'Save changes')}
+        onReset={handleReset}
+        placement="floating"
       />
-    </section>
+    </div>
   )
 }
