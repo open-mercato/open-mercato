@@ -1,8 +1,10 @@
 export type LeaveRequestRecord = {
   id: string
-  member?: { id?: string; displayName?: string }
+  member?: { id?: string; displayName?: string; userId?: string | null }
   memberId?: string | null
   member_id?: string | null
+  organizationId?: string | null
+  organization_id?: string | null
   startDate?: string | null
   start_date?: string | null
   endDate?: string | null
@@ -24,8 +26,9 @@ export type LeaveRequestRecord = {
 
 export type NormalizedLeaveRequest = {
   id: string
-  member?: { id?: string; displayName?: string }
+  member?: { id?: string; displayName?: string; userId?: string | null }
   memberId: string | null
+  organizationId?: string | null
   startDate: string | null
   endDate: string | null
   timezone: string | null
@@ -44,6 +47,7 @@ export function normalizeLeaveRequest(record: LeaveRequestRecord): NormalizedLea
     id: record.id,
     member: record.member,
     memberId: record.memberId ?? record.member_id ?? null,
+    organizationId: record.organizationId ?? record.organization_id ?? null,
     startDate: record.startDate ?? record.start_date ?? null,
     endDate: record.endDate ?? record.end_date ?? null,
     timezone: record.timezone ?? null,

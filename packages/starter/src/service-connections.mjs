@@ -124,8 +124,8 @@ export async function verifyServiceConnections({ projectDir = process.cwd(), env
     let redis
     let redisFailure
     try {
-      const module = await loadModule(projectDir, 'ioredis')
-      const Redis = module.default ?? module.Redis ?? module
+      const redisModule = await loadModule(projectDir, 'ioredis')
+      const Redis = redisModule.default ?? redisModule.Redis ?? redisModule
       redis = new Redis(target.toString(), { lazyConnect: true, connectTimeout: timeoutMs, commandTimeout: timeoutMs, maxRetriesPerRequest: 0, enableOfflineQueue: false, retryStrategy: () => null })
       redis.on('error', (error) => { redisFailure = error })
       await bounded(() => redis.connect(), timeoutMs)

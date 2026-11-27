@@ -60,8 +60,12 @@ export function ComposeMessagePageClient() {
         onCancel={() => {
           router.push('/backend/messages')
         }}
-        onSuccess={() => {
-          router.push('/backend/messages')
+        onSuccess={({ id, deliveryEnqueueStatus }) => {
+          if (id && deliveryEnqueueStatus === 'unconfirmed') {
+            router.replace(`/backend/messages/${encodeURIComponent(id)}`)
+          } else {
+            router.push('/backend/messages')
+          }
         }}
       />
     </div>

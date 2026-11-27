@@ -14,6 +14,10 @@ const mockSyncRunService = {
 
 const mockProgressService = {}
 
+const mockIntegrationStateService = {
+  isEnabled: jest.fn(async () => true),
+}
+
 const mockCrudMutationGuardService = {
   validateMutation: jest.fn(),
   afterMutationSuccess: jest.fn(),
@@ -78,6 +82,7 @@ describe('data_sync retry route — run parameters', () => {
       resolve: (token: string) => {
         if (token === 'dataSyncRunService') return mockSyncRunService
         if (token === 'progressService') return mockProgressService
+        if (token === 'integrationStateService') return mockIntegrationStateService
         if (token === 'crudMutationGuardService') return mockCrudMutationGuardService
         throw new Error(`Unexpected token: ${token}`)
       },

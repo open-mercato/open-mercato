@@ -642,7 +642,9 @@ export default function CreateCatalogProductPage() {
               for (const priceKind of priceKinds) {
                 const value = variant.prices?.[priceKind.id]?.amount?.trim();
                 if (!value) continue;
-                const amountValidation = validateCatalogPriceAmountInput(value);
+                const amountValidation = validateCatalogPriceAmountInput(
+                  value.replace(",", "."),
+                );
                 if (!amountValidation.ok) {
                   throw createCrudFormError(
                     amountValidation.reason === "negative"
@@ -1795,7 +1797,8 @@ function ProductBuilder({
                               {kind.currencyCode ?? "—"}
                             </span>
                             <Input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
                               value={variant.prices?.[kind.id]?.amount ?? ""}
                               onChange={(event) =>
                                 setVariantPrice(
@@ -1805,8 +1808,6 @@ function ProductBuilder({
                                 )
                               }
                               placeholder="0.00"
-                              min={0}
-                              step="any"
                             />
                           </div>
                         </td>

@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { renderHook } from '@testing-library/react'
+import { act, renderHook } from '@testing-library/react'
 import { useMessageDetailsConversation } from '../useMessageDetailsConversation'
 import type { MessageDetail } from '../../types'
 
@@ -54,14 +54,46 @@ function buildIngestedDetail(overrides: Partial<MessageDetail> = {}): MessageDet
   } as MessageDetail
 }
 
-// `conversationItems` is memoized on the `detail` identity and its effect
-// resets expansion state on every change, so each render must be handed the
-// SAME object — building it inside the render callback loops forever.
 function renderConversation(detail: MessageDetail) {
   return renderHook(() => useMessageDetailsConversation({ detail, t }))
 }
 
 describe('useMessageDetailsConversation', () => {
+  it('preserves an expanded older message when the detail refreshes', () => {
+    const detail = buildIngestedDetail()
+    const { result, rerender } = renderHook(
+      ({ currentDetail }) => useMessageDetailsConversation({ detail: currentDetail, t }),
+      { initialProps: { currentDetail: detail } },
+    )
+
+    act(() => result.current.toggleConversationItem('message-1'))
+    expect(result.current.isConversationItemExpanded('message-1')).toBe(true)
+
+    rerender({ currentDetail: { ...detail, isRead: false, thread: [...detail.thread] } })
+    expect(result.current.isConversationItemExpanded('message-1')).toBe(true)
+    expect(result.current.isConversationItemExpanded('message-2')).toBe(true)
+
+    act(() => result.current.toggleConversationItem('message-1'))
+    rerender({ currentDetail: { ...detail, thread: [...detail.thread] } })
+    expect(result.current.isConversationItemExpanded('message-1')).toBe(false)
+  })
+
+  it('drops removed message state and keeps the new latest message expanded', () => {
+    const detail = buildIngestedDetail()
+    const { result, rerender } = renderHook(
+      ({ currentDetail }) => useMessageDetailsConversation({ detail: currentDetail, t }),
+      { initialProps: { currentDetail: detail } },
+    )
+
+    act(() => result.current.toggleConversationItem('message-1'))
+    rerender({ currentDetail: { ...detail, id: 'message-3', thread: [
+      { ...detail.thread[0], id: 'message-2', sentAt: '2026-08-13T09:30:00.000Z' },
+    ] } })
+    expect(result.current.isConversationItemExpanded('message-1')).toBe(false)
+    expect(result.current.isConversationItemExpanded('message-2')).toBe(false)
+    expect(result.current.isConversationItemExpanded('message-3')).toBe(true)
+  })
+
   it('labels a collapsed thread row with the external identity instead of the system user id', () => {
     // Collapsed rows render through MessageListComponent, which prints
     // `message.senderName` verbatim. Before this chain went through

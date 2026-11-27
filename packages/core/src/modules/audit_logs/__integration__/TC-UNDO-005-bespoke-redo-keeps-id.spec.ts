@@ -108,7 +108,7 @@ test.describe('TC-UNDO-005: bespoke create redo restores original ids', () => {
         token,
         createPath: '/api/auth/users',
         readPath: (id) => `/api/auth/users?id=${encodeURIComponent(id)}`,
-        data: { email, name: 'QA Redo User', password: 'Secret123!', organizationId },
+        data: { email, name: 'QA Redo User', password: 'QaSecret123!', organizationId },
         assertRestored: (restored) => {
           expect(restored.email, 'redo preserves decrypted email').toBe(email)
           expect(restored.name, 'redo preserves display name').toBe('QA Redo User')

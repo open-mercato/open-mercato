@@ -125,9 +125,10 @@ describe('ScopedAttachmentUploadService', () => {
       code: 'privateAttachments',
       $or: [
         { tenantId: null, organizationId: null },
+        { tenantId, organizationId: null },
         { tenantId, organizationId },
       ],
-    })
+    }, expect.anything())
   })
 
   it('stores with the ASCII name but keeps the readable name on the record (#8727)', async () => {

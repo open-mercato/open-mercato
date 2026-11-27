@@ -111,6 +111,6 @@ export type MessageComposerProps = {
     replyAll?: boolean
     includeAttachments?: boolean
   }
-  onSuccess?: (result: { id?: string }) => void
+  onSuccess?: (result: { id?: string; deliveryEnqueueStatus?: 'unconfirmed' }) => void
   onCancel?: () => void
 }

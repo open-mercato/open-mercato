@@ -84,10 +84,14 @@ export function NewTaskDialog({
   }, [statuses])
 
   React.useEffect(() => {
-    if (!open) return
     setTitle('')
-    setStatusId(defaultStatusId)
-  }, [defaultStatusId, open])
+    setStatusId(null)
+  }, [open, timeProjectId])
+
+  React.useEffect(() => {
+    if (!open || statuses.length === 0) return
+    setStatusId((current) => statuses.some((status) => status.id === current) ? current : defaultStatusId)
+  }, [defaultStatusId, open, statuses, timeProjectId])
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string

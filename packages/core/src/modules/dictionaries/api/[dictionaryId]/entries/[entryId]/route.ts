@@ -133,7 +133,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       DictionaryEntry,
       updatedEntryId,
       { populate: ['dictionary'] },
-      { tenantId: context.auth.tenantId ?? null, organizationId: context.auth.orgId ?? null },
+      { tenantId: context.tenantId, organizationId: context.organizationId },
     )
     if (!updated) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_update_failed', 'Failed to update dictionary entry') })

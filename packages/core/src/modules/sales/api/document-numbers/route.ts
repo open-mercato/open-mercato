@@ -57,11 +57,11 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
 async function ensureKindPermission(
   ctx: CommandRuntimeContext,
   kind: 'order' | 'quote' | 'invoice' | 'credit_memo',
+  scope: { tenantId: string; organizationId: string },
   translate: (key: string, fallback?: string) => string
 ) {
   const rbac = ctx.container.resolve('rbacService') as RbacService | null
   const auth = ctx.auth
-  if (!rbac || !auth?.sub) return
   const kindFeatureMap: Record<string, string> = {
     order: 'sales.orders.manage',
     quote: 'sales.quotes.manage',
@@ -72,10 +72,7 @@ async function ensureKindPermission(
     kindFeatureMap[kind] ?? 'sales.orders.manage',
     'sales.documents.number.edit',
   ]
-  const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
-    tenantId: auth.tenantId ?? null,
-    organizationId: ctx.selectedOrganizationId ?? auth.orgId ?? null,
-  })
+  const ok = !!auth?.sub && !!rbac && await rbac.userHasAllFeatures(auth.sub, requiredFeatures, scope)
   if (!ok) {
     throw new CrudHttpError(403, {
       error: translate('sales.documents.errors.number_forbidden', 'You cannot generate document numbers.'),
@@ -89,7 +86,8 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const scoped = withScopedPayload(payload, ctx, translate)
     const input = documentNumberRequestSchema.parse(scoped)
-    await ensureKindPermission(ctx, input.kind, translate)
+    const { tenantId, organizationId } = input
+    await ensureKindPermission(ctx, input.kind, { tenantId, organizationId }, translate)
 
     const generator = ctx.container.resolve('salesDocumentNumberGenerator') as SalesDocumentNumberGenerator
     const result = await generator.generate({

@@ -3,6 +3,8 @@ import { randomUUID } from 'crypto'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { POST } from '@open-mercato/core/modules/auth/api/login'
 import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+import { NextResponse } from 'next/server'
 
 const tenantId = randomUUID()
 const orgId = randomUUID()
@@ -168,6 +170,32 @@ describe('POST /api/auth/login with custom route interceptors', () => {
       ok: false,
       error: 'Invalid credentials',
     })
+  })
+
+  test('rejects an oversized login body before parsing form fields or looking up a user', async () => {
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: new URLSearchParams({ email: 'user@example.com', password: 'x'.repeat(17 * 1024) }),
+    })
+
+    expect((await POST(req)).status).toBe(413)
+    expect(authServiceMock.findUsersByEmail).not.toHaveBeenCalled()
+    expect(checkAuthRateLimit).toHaveBeenCalledTimes(1)
+  })
+
+  test('checks a trusted client address before consuming the login body', async () => {
+    jest.mocked(checkAuthRateLimit).mockResolvedValueOnce({
+      error: NextResponse.json({ error: 'Too many requests' }, { status: 429 }),
+      compoundKey: null,
+    })
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: new URLSearchParams({ email: 'user@example.com', password: 'secret' }),
+    })
+
+    expect((await POST(req)).status).toBe(429)
+    expect(req.bodyUsed).toBe(false)
+    expect(checkAuthRateLimit).toHaveBeenCalledWith(expect.objectContaining({ ipCheck: 'trusted-only' }))
   })
 
   test('returns unchanged login response when no interceptor matches', async () => {

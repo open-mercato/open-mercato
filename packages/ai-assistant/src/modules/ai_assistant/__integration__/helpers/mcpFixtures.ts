@@ -31,7 +31,7 @@ export const DEAL_READ_TOOL = 'customers.list_deals';
 export const GET_PENDING_ACTION_TOOL = 'ai_assistant.get_pending_action';
 export const DEAL_INITIAL_STATUS = 'open';
 export const DEAL_TARGET_STATUS = 'in_progress';
-export const FIXTURE_PASSWORD = 'Secret123!';
+export const FIXTURE_PASSWORD = 'QaSecret123!';
 export const REQUESTER_FEATURES = ['ai_assistant.view', 'customers.deals.view', 'customers.deals.manage'];
 export const APPROVER_FEATURES = [...REQUESTER_FEATURES, 'ai_assistant.pending_actions.approve'];
 
