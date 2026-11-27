@@ -52,7 +52,9 @@ jobs:
           # Generated release notes group PRs by category label (.github/release.yml) and list
           # their titles, so a backport keeps both. Priority, risk and QA labels carry over so
           # the backport PR enters the pipeline like the original did; `qa-approved` does not —
-          # it vouched for the change in main's code, not the line's.
+          # it vouched for the change in main's code, not the line's. `needs-human-qa` is not
+          # copied on purpose: backports are checked by release-line QA before each release, and
+          # the reviewer adds `needs-human-qa` by hand when a cherry-pick conflict was hand-resolved.
           copy_labels_pattern: '^(bug|feature|security|refactor|dependencies|documentation|enterprise|skip-changelog|priority-(low|medium|high|extreme)|risk-(low|medium|high)|needs-qa|skip-qa)$'
           pull_title: '${pull_title}'
           add_labels: 'backport,review'
