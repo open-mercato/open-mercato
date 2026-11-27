@@ -767,4 +767,4 @@ STABLE APIs §7 require organization grants and return `403` for explicitly empt
 
 ## #10338 (2026-11-25)
 
-STABLE org scope. A bridge bypasses auth. Named waiver due. [Guide](UPGRADE_NOTES.md#scoped-api-organization-authorization-10338).
+STABLE org targeting. A bridge retains unauthorized access. Named waiver due. [Upgrade](UPGRADE_NOTES.md).
