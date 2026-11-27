@@ -226,3 +226,23 @@ test('mutation-tests.yml re-runs on ready_for_review and does no work on a live 
   }
   assert.equal(mutation.jobs.mutate.if, "needs.scope.outputs.has_work == 'true'")
 })
+
+
+test('webhook durability steps preserve evidence without bypassing the audit gate', () => {
+  for (const name of ['Install Redis durability test client', 'Run webhook receipt and queue durability against real services', 'Upload webhook durability results']) {
+    const step = ci.jobs['documents-multi-instance'].steps.find((candidate) => candidate.name === name)
+    assert.ok(step, name)
+    const expression = step.if.replace(/^\$\{\{|\}\}$/g, '').replace(/steps\.audit-gate/g, 'steps["audit-gate"]')
+    for (const outcome of ['success', 'skipped', 'failure']) {
+      for (const isCancelled of [false, true]) {
+        const actual = vm.runInNewContext(expression, {
+          steps: { 'audit-gate': { outcome } },
+          always: () => true,
+          cancelled: () => isCancelled,
+        }, { timeout: 1000 })
+        const expected = outcome !== 'failure' && (name === 'Upload webhook durability results' || !isCancelled)
+        assert.equal(actual, expected, `${name}: audit ${outcome}, cancelled ${isCancelled}`)
+      }
+    }
+  }
+})
