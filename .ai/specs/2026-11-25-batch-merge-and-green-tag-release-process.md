@@ -54,7 +54,7 @@ The plan is ordered so every safety net (batch, QA, label-driven scope, triage) 
 - **Cut, batch** (team chat: *paczka*): the `stabilize/main-<date>` branch made from `main` on demand (not daily, not automatically) and opened as one PR back to `main`. No PR ever merges into it.
 - **Stabilizer:** the maintainer who cuts and owns a batch: the only person who fixes its blockers, with commits pushed directly onto the batch branch; tags it and merges it back.
 - **Green tag:** `green/<date>` on the batch tip that passed the full suite and QA.
-- **Core team:** PR authors with `write`, `maintain` or `admin` permission on the repository (GitHub collaborator permission API). `author_association` is not used: `COLLABORATOR` includes outside collaborators with only `read` or `triage`, and `MEMBER` includes org members whose base permission is `read`.
+- **Core team:** PR authors listed in `.github/core-team.json`, the single source of the core-team list (the members of the GitHub team `open-mercato/core-team` plus `matgren` and `tkarwatka`; logins compared case-insensitively). `author_association` is not used: `COLLABORATOR` includes outside collaborators with only `read` or `triage`, and `MEMBER` includes org members whose base permission is `read`.
 - **Automation identity:** any account or GitHub App the `om-*` agents act as. Labels and approvals from these identities never count as the human decision for external PRs.
 
 ## Current vs target
@@ -124,7 +124,7 @@ A PR answers two questions, in order: **do we want this change at all?** ([Accep
 ```mermaid
 flowchart LR
   O["Open PR to main, fast gate starts"] --> A{"Who is the author?"}
-  A -->|"core team: write permission or higher"| T["Test triage + normal code review"]
+  A -->|"core team: listed in .github/core-team.json"| T["Test triage + normal code review"]
   A -->|"external or fork, incl. partners"| X["Acceptance triage: label needs-triage; skill drafts a verdict and may propose automerge"]
   X -->|"maintainer accepts a simple fix"| AM["accepted + automerge, human approval"]
   X -->|"maintainer accepts"| AC["accepted, human approval"]
@@ -135,7 +135,7 @@ flowchart LR
   NC --> X
 ```
 
-- **Who counts as core team:** `write` permission or higher, read from the collaborator permission API at check time; nobody keeps a list (see [Terms](#terms) for why not `author_association`). "Accepted" is not "approved": core PRs still get code review and test triage.
+- **Who counts as core team:** the logins in `.github/core-team.json`, read from the base branch at check time; that file is the only list, and scripts and skills read it rather than keeping their own (see [Terms](#terms) for why not `author_association`). "Accepted" is not "approved": core PRs still get code review and test triage.
 - **What acceptance triage asks:** do we want this in the product; is there an agreed issue or spec; is the size right; does it touch `packages/enterprise/` (closed to external contributions by policy) or CI and release files (`CODEOWNERS` already requires a maintainer); is the CLA signed. The skill answers in one comment and may propose `automerge` for a simple, low-risk fix (typo, small bug fix with a test, no new feature). It only proposes.
 - **Certified partners:** their PRs already get `partner-request` automatically (`partner-request-label.yml`, list in `.github/certified-partners.yml`). Same triage, first in the queue. Whether they skip acceptance is open.
 - **AI is never the only path to merge.** For an external author, `ci-triage` is green only when (a) `accepted` was added by a human with `write` permission or higher who is not an [automation identity](#terms), checked from the label's timeline event, and (b) the PR has an approving review from such a human on the current head. `automerge` set by a skill only queues the merge; it never satisfies (a) or (b). Labels set by automation identities are ignored for both.
@@ -698,9 +698,9 @@ Phases 0–6 plus optional follow-ups. The order is deliberate:
 
 **Steps.**
 1. **Labels and identities.** Create `needs-triage` and `accepted`. Add an `automationIdentities` list (accounts and GitHub Apps the agents act as) to `.github/ci-scope.json`. Touches: labels, `ci-scope.json`.
-2. **Workflow.** `.github/workflows/acceptance-triage.yml` on `pull_request_target` (opened, reopened): read the author's permission from the collaborator permission API; below `write`, add `needs-triage`. No checkout of PR code (same pattern as `partner-request-label.yml`). Touches: new workflow.
-3. **Gate in `ci-triage`.** For an author below `write`, `ci-triage` passes only when (a) the timeline shows `accepted` added by a user with `write` or higher who is not in `automationIdentities`, and (b) there is an approving review on the head SHA from such a user. `automerge` alone, or labels and approvals from automation identities, never pass it. Touches: `ci-triage.yml` and its decision module.
-4. **Tests.** Unit tests for the gate: human `accepted` + human approval → pass; `accepted` by an automation identity → fail; `automerge` only → fail; approval on an old head → fail; author with `triage` permission → treated as external; author with `write` → core. Touches: new test.
+2. **Workflow.** `.github/workflows/acceptance-triage.yml` on `pull_request_target` (opened, reopened): read `.github/core-team.json` from the base branch; for an author not listed there, add `needs-triage`. No checkout of PR code (same pattern as `partner-request-label.yml`). Touches: new workflow.
+3. **Gate in `ci-triage`.** For an author not listed in `.github/core-team.json`, `ci-triage` passes only when (a) the timeline shows `accepted` added by a user with `write` or higher who is not in `automationIdentities`, and (b) there is an approving review on the head SHA from such a user. `automerge` alone, or labels and approvals from automation identities, never pass it. Touches: `ci-triage.yml` and its decision module.
+4. **Tests.** Unit tests for the gate: human `accepted` + human approval → pass; `accepted` by an automation identity → fail; `automerge` only → fail; approval on an old head → fail; author not in `.github/core-team.json` → treated as external, whatever their repository permission; listed author (any letter case) → core. Touches: new test.
 5. **Acceptance skill step.** Extend the triage skill: for `needs-triage` PRs post a summary and a draft verdict (accept / needs changes / decline, with reasons), and propose `automerge` for simple, low-risk fixes. The maintainer decides. Touches: skills repo.
 6. **Partners.** Certified partners (`partner-request`) go first in the triage queue; whether they skip acceptance is an open decision.
 
@@ -755,7 +755,7 @@ Phases 0–6 plus optional follow-ups. The order is deliberate:
 | CI triage skill; `ci-triage` check run from `ci-triage.yml` (GitHub Actions, pinned) | new (Phases 3–4) |
 | Fast gate as the default merge check | new (Phase 4), starting from the closed PR #10457 |
 | Agent that fixes a red integration run on `main` | new (Phase 4) |
-| Acceptance triage: `needs-triage` / `accepted` by a human, permission-based core check, automation identity list | new (Phase 5); partner detection exists (`partner-request-label.yml`) |
+| Acceptance triage: `needs-triage` / `accepted` by a human, core check against `.github/core-team.json`, automation identity list | new (Phase 5); partner detection exists (`partner-request-label.yml`) |
 | `green/<date>` tags; batch PR squash-merged back | new (Phase 0); no such tags exist yet |
 | Release cut from a green tag; changelog split | new (Phase 6) |
 | Release QA checklist | new (Phase 6) |
@@ -866,6 +866,7 @@ Other:
 
 ## Changelog
 
+- 2026-11-27: Core team is the login list in `.github/core-team.json` (GitHub team `open-mercato/core-team` plus `matgren` and `tkarwatka`), replacing the "write permission or higher" rule; Phase 5 acceptance reads that file.
 - 2026-11-27: Aligned with the current PR process: batches are cut on demand (no daily cut, no rotation, no automation); only the stabilizer fixes blockers, with commits on the batch branch (no PRs into a batch); one QA pass per batch; no QA label gates a merge into `main` (`needs-human-qa` dropped from the merge-ready rule and the `merge-queue` guard; `qaGate: false`); `merge-queue` is optional routing.
 
 - 2026-11-26: Phase 6 review fixes: a green-tag cut rerun accepts only a direct child changing `CHANGELOG.md` alone (added/modified, never renamed/deleted) with the expected contents, including when no entries need carrying; regression tests reject code-changing children and mismatched notes, and cover version mismatch before writes.

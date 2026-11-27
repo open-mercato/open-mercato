@@ -26,8 +26,9 @@ priority, risk and QA lane). A maintainer adds `needs-triage` by hand while an e
 for a decision — no workflow sets it — and a human with write permission records the decision:
 `accepted` (and remove `needs-triage`), a change request, or a close with a one-line reason.
 Labels or approvals from automation accounts never count as that decision, and an external PR
-needs a human approval. Core-team PRs (authors with write permission or higher) are accepted by
-default and skip the acceptance step.
+needs a human approval. Core-team PRs are accepted by default and skip the acceptance step. The core
+team is the login list in `.github/core-team.json` (compare logins case-insensitively); that file
+is the single source, so scripts and skills read it instead of keeping their own list.
 
 ## Label groups
 
