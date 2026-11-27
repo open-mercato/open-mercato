@@ -1,0 +1,26 @@
+{
+  "sourceHead": "0b8c524275546a056651201ac3f2ea7f0ca5602c",
+  "buildTarget": "maintenance",
+  "buildArgs": {
+    "OM_ENABLE_ENTERPRISE_MODULES": "true",
+    "OM_ENABLE_ENTERPRISE_MODULES_BACKUPS": "true",
+    "POSTGRES_CLIENT_MAJOR": "17"
+  },
+  "image": "om-recovery-maintenance:rotation-0b8-20261113",
+  "imageConfigId": "sha256:197ba34e9a4112a00a2c33d777b70316c34303b7016d7d9d7a565e10cfd90854",
+  "imageConfigIdProvenance": "BuildKit immutable OCI config digest; Docker inspect imageId independently matches exported image-index digest",
+  "status": "passed",
+  "readOnlySmokeChecks": 7,
+  "packagedCoreNoAckGuard": "passed",
+  "appServerOrDatabaseStartedBySmoke": false,
+  "input": "exact clean git archive; no secret/token/rights-attestation build args",
+  "limits": "Maintenance CLI image verified; separate web runner builds failed VM memory allocation and are not claimed passing",
+  "evidence": [
+    "rotation-0b8-smoke.json",
+    "rotation-coreguard.json"
+  ],
+  "imageId": "sha256:4efd554a1758b1d3815b295b3385be4e45f099d5450c40b364ff7cbb3f287985",
+  "imageIndexDigest": "sha256:4efd554a1758b1d3815b295b3385be4e45f099d5450c40b364ff7cbb3f287985",
+  "platform": "linux/arm64",
+  "imageUser": "1001:1001"
+}

@@ -20,6 +20,10 @@ type CommandInput = z.infer<typeof sudoConfigSchema>
 
 registerCommand({
   id: commandId,
+  isUndoable: false,
+  authorizeReplay() {
+    throw new Error('[internal] Sudo configuration commands do not support replay')
+  },
   async execute(rawInput, ctx) {
     if (!ctx.auth?.sub) {
       throw new CrudHttpError(401, { error: 'Unauthorized' })

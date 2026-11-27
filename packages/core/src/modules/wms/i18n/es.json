@@ -1044,6 +1044,7 @@
   "wms.backend.putaway.complete.dialog.shortcutHint": "para completar",
   "wms.backend.putaway.complete.dialog.submit": "Completar ubicación",
   "wms.backend.putaway.complete.dialog.title": "Completar ubicación",
+  "wms.backend.putaway.complete.errors.quantityExceedsTask": "La cantidad confirmada no puede superar la cantidad de la tarea.",
   "wms.backend.putaway.complete.errors.quantityPositive": "La cantidad confirmada debe ser mayor que 0.",
   "wms.backend.putaway.complete.errors.serialMismatch": "El número de serie escaneado no coincide con esta tarea.",
   "wms.backend.putaway.complete.errors.submit": "No se pudo completar la tarea de ubicación.",
