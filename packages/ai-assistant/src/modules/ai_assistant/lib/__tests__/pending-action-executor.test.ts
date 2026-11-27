@@ -230,15 +230,18 @@ describe('executePendingActionConfirm', () => {
   })
 
   it('transitions pending → confirmed → executing → failed on handler throw and emits typed failure payload', async () => {
-    const repo = makeRepoStub(makeAction())
+    const action = makeAction({ normalizedInput: { title: 'Submitted' } })
+    const repo = makeRepoStub(action)
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const throwingTool = makeTool({
-      handler: async () => {
+      inputSchema: z.object({ title: z.string(), label: z.string().default('Schema default') }),
+      handler: async (input) => {
+        expect(input).toEqual({ title: 'Submitted', label: 'Schema default' })
         throw new Error('db constraint')
       },
     })
     const result = await executePendingActionConfirm({
-      action: makeAction(),
+      action,
       agent: makeAgent(),
       tool: throwingTool,
       ctx: makeCtx(),
@@ -251,7 +254,12 @@ describe('executePendingActionConfirm', () => {
       'executing',
       'failed',
     ])
-    expect(result.executionResult.error).toMatchObject({ code: 'handler_error', message: 'db constraint' })
+    expect(result.executionResult.error).toMatchObject({
+      code: 'handler_error',
+      message: 'db constraint',
+      input: { title: 'Submitted' },
+    })
+    expect(result.executionResult.error?.input).not.toHaveProperty('label')
     expect(emitEvent).toHaveBeenCalledTimes(1)
     const [emittedId, emittedPayload] = emitEvent.mock.calls[0] as [
       'ai.action.confirmed',

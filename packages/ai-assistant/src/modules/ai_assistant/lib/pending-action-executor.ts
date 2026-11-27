@@ -156,7 +156,7 @@ function normalizeExecutionResult(
  * the literal string "Invalid input", which was not enough context for
  * the operator's "Fix with AI" retry to actually fix anything. This
  * version preserves the original error name, Zod issues / fieldErrors,
- * an `input` echo of the arguments the handler was called with, and any
+ * an `input` echo of the submitted arguments, and any
  * structured `cause` so the model can self-correct.
  *
  * Stack traces are deliberately gated behind `OM_AI_INCLUDE_HANDLER_STACK=1`
@@ -174,7 +174,6 @@ function buildHandlerErrorFromThrown(
   }
   if (name) out.name = name
 
-  // Echo the effective input when it can be represented as JSON.
   if (input !== undefined) {
     try {
       out.input = JSON.parse(JSON.stringify(input))
@@ -487,8 +486,10 @@ export async function executeRecheckedPendingActionConfirm(
       toToolHandlerContext(ctx, tool, action, plan.expectedRecordVersions),
     )
   } catch (error) {
+    const submittedPlan = planPendingActionExecution(action, tool, partialFailedRecords, action.normalizedInput)
+    const submittedInput = submittedPlan.kind === 'run' ? submittedPlan.input : undefined
     const failureResult: AiPendingActionExecutionResult = {
-      error: buildHandlerErrorFromThrown(error, plan.input),
+      error: buildHandlerErrorFromThrown(error, submittedInput),
     }
     const failedRow = await repo.setStatus(executingRow.id, 'failed', scope, {
       executionResult: failureResult,
