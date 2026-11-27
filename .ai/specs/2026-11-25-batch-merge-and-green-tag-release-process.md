@@ -82,7 +82,7 @@ This spec describes the process and turns it into implementable phases. Each ste
 
 ## Problem Statement
 
-The team targets about 80 merged PRs a day. Running scoped or full integration CI on every PR costs 13–70 minutes and many runner minutes per PR, which caps merge throughput. Stabilization already happens on ad-hoc `stabilize/` branches, QA tests `main` weekly, and release lines are cut from an untested `main` tip. The process needs to: merge faster, spend full-suite and QA time once per day instead of per PR, keep `main` releasable through daily green points, and keep contributors' workflow unchanged (PRs still target `main`).
+The team targets about 80 merged PRs a day. Running scoped or full integration CI on every PR costs 13–70 minutes and many runner minutes per PR, which caps merge throughput. Stabilization already happens on ad-hoc `stabilize/` branches, QA tests `main` weekly, and release lines are cut from an untested `main` tip. The process needs to: merge faster, spend full-suite and QA time once per batch instead of per PR, keep `main` releasable through green points from each batch, and keep contributors' workflow unchanged (PRs still target `main`).
 
 ## Proposed Solution
 
@@ -313,7 +313,7 @@ Rules from QA, source of truth `.ai/docs/pr-workflow.md` → "Batch QA". One bui
 2. **Deploy and start.** `qa-deploy.yml` deploys the batch branch to a QA slot. `om-qa-batch --start` assigns the tester and adds `qa-in-progress` to the batch PR. While it is on, the batch is not refreshed with newer `main` commits; an untouched batch may be refreshed.
 3. **What blocks the batch:** a user cannot finish a main task. A main screen does not load or a main path returns a server error; signing in, saving or creating a basic record fails; data is lost, saved wrong or shown to another organization or tenant; a migration fails or the app does not start. Cosmetics, translations and small UX issues never block.
 4. **Reporting.** Blocker: issue with `bug` + `daily-qa` + `qa-blocker`, plus a comment on the batch PR mentioning the stabilizer; open `qa-blocker` issues are listed at the start of the next batch. After a passing retest of the fix, QA (or the stabilizer) closes the `qa-blocker` issue by hand; `Fixes #N` on the batch PR is traceability only, since it closes nothing until the batch merges. Anything else: issue with `bug` + `daily-qa`.
-5. **Verdict.** On the batch PR: `qa-approved` = stable for the tested head; `qa-failed` = unstable (at least one open blocker), frozen until the retest. The verdict comment carries `QA verdict: STABLE|UNSTABLE`, `QA head: <sha>` and the range. A new head needs a new verdict; retests cover only the fixed area. `om-qa-batch` refuses `stable` while a blocker is open, and a bot identity cannot give a verdict. QA judges quality; the stabilizer owns the branch, tags `green/<date>` and merges back.
+5. **Verdict.** On the batch PR: `qa-approved` = stable for the tested head; `qa-failed` = unstable (at least one open blocker), frozen until the retest. The verdict comment carries `QA verdict: STABLE|UNSTABLE`, `QA head: <sha>` and the range. A new head needs a new verdict, except the merge-back conflict fix after the green tag ([Merge-back conflicts](#merge-back-conflicts)); retests cover only the fixed area. `om-qa-batch` refuses `stable` while a blocker is open, and a bot identity cannot give a verdict. QA judges quality; the stabilizer owns the branch, tags `green/<date>` and merges back.
 6. **Batch report.** The same verdict, with blockers when unstable, as a short message on the team's QA channel. Replaces the weekly QA pass.
 
 **No tester available:** no new batch is cut while one is open. The open batch grows with `main` until a tester claims it with `qa-in-progress`; open blockers stay listed. It delays the green tag, not the merges.
@@ -362,7 +362,7 @@ gitGraph
 
 - **Tag first**, before touching the conflict. Releases and bisects use the tag, so they never see the conflict fix.
 - **The stabilizer merges `main` into the batch** (GitHub's "Update branch") and resolves it, with the author of the conflicting PR if needed.
-- **CI re-runs the full suite on the batch PR.** The batch PR's head is a `stabilize/` branch, so `FORCE_FULL_SUITE` applies to every push to it, including the conflict resolution. This is deliberate: one more 45–70 minute run on the day's batch, at most a few times a week. QA is not repeated unless the resolution touches an area QA checked; the green tag stays on the commit QA approved.
+- **CI re-runs the full suite on the batch PR.** The batch PR's head is a `stabilize/` branch, so `FORCE_FULL_SUITE` applies to every push to it, including the conflict resolution. This is deliberate: one more 45–70 minute run on the batch, rarely needed. The batch is not re-tested after a merge-back conflict fix: the stable verdict stays on the green-tagged commit, and the `main` PRs the fix brings in are tested in the next batch, whose range starts at the previous green tag.
 - **If it would take long**, cherry-pick only the stabilization commits into a PR to `main` and close the batch PR. The tag is unaffected.
 - **Fewer conflicts by design:** one open batch at a time, merged back as soon as it goes green, small stabilizer fix commits.
 
@@ -483,7 +483,7 @@ Skills set labels first; a human can always add one. `ci-triage` and `ci-scope` 
 | Label | Meaning / effect | Set by | When | Status |
 |---|---|---|---|---|
 | **Acceptance** | | | | |
-| `needs-triage` | External PR waiting for a maintainer's decision; keeps `ci-triage` red | Workflow, on authors below `write` permission | PR opened | new |
+| `needs-triage` | External PR waiting for a maintainer's decision; keeps `ci-triage` red | Workflow, on authors not listed in `.github/core-team.json` | PR opened | new |
 | `accepted` | The team wants this change. Counts only when added by a human with `write` permission or higher who is not an automation identity; together with a human approval it turns `ci-triage` green for an external PR | Maintainer (human only) | After acceptance triage | new |
 | `automerge` | Queues the merge once every gate passes; for an external PR it never replaces `accepted` or the human approval | Review skill (proposal) or maintainer | After review | exists (automerge buddy); new use |
 | `partner-request` | Certified partner PR; triaged first | `partner-request-label.yml` | PR opened | exists |
@@ -520,7 +520,7 @@ Unchanged and still used: the pipeline labels (`review`, `changes-requested`, `m
 **Gains**
 - 1–2 minute merges for most PRs; more testing only where triage says it is needed.
 - No separate batch branch to retarget or bypass.
-- Full suite and QA once per batch, not once per PR: one build holds all of the day's PRs.
+- Full suite and QA once per batch, not once per PR: one build holds all PRs merged since the last batch.
 - For contributors nothing changes: PRs still go to `main`.
 - Work is not reverted or stopped: problems are fixed forward.
 - Builds on what the team already does with `stabilize/main-*` branches.
@@ -773,7 +773,7 @@ Contracts this plan introduces or changes (no application code, data model or AP
 | `ci.yml` | Changed | `pull_request` base `stabilize/**` (Phase 0); `prepare` uses the base-branch resolver; new jobs `ci-scope` (aggregator), fast gate, docs lane; no label triggers |
 | `ci-scope-labels.yml` | New workflow | `pull_request_target` on label changes; re-runs `ci.yml` when the scope grows, never cancels |
 | `ci-triage.yml` | New workflow | `pull_request_target`; job `ci-triage` is a GitHub Actions check run; reuses `decide()` from `merge-queue-guard.mts` |
-| `acceptance-triage.yml` | New workflow | Adds `needs-triage` for authors below `write` permission |
+| `acceptance-triage.yml` | New workflow | Adds `needs-triage` for authors not listed in `.github/core-team.json` (read from the base branch) |
 | `.github/CODEOWNERS`, `main` ruleset | Changed | Scope files owned by maintainers; code-owner review enforced; `ci-scope` / `ci-triage` required with the Actions app pinned |
 | `ci-scope`, `ci-triage` | New required checks | Check runs from named workflows, added to the `main` ruleset in Phases 2 and 4; `ci-triage` also fails on blocking labels and enforces human acceptance for external authors |
 | `merge-queue-guard.yml`, `scripts/ci/merge-queue-guard.mts` | New workflow and module (PR #10757) | Removes `merge-queue` when a blocking label is present; `decide()` reused by `ci-triage` |
@@ -866,6 +866,7 @@ Other:
 
 ## Changelog
 
+- 2026-11-27: Review fixes: acceptance rows read `.github/core-team.json`; no per-day batch wording left; the batch is not re-tested after a merge-back conflict fix (verdict stays on the green tag, the fix's `main` PRs go to the next batch).
 - 2026-11-27: Core team is the login list in `.github/core-team.json` (GitHub team `open-mercato/core-team` plus `matgren` and `tkarwatka`), replacing the "write permission or higher" rule; Phase 5 acceptance reads that file.
 - 2026-11-27: Aligned with the current PR process: batches are cut on demand (no daily cut, no rotation, no automation); only the stabilizer fixes blockers, with commits on the batch branch (no PRs into a batch); one QA pass per batch; no QA label gates a merge into `main` (`needs-human-qa` dropped from the merge-ready rule and the `merge-queue` guard; `qaGate: false`); `merge-queue` is optional routing.
 

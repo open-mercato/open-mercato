@@ -32,7 +32,7 @@ Every ready PR needs a category, one priority and one risk label, using the
 configuration's taxonomy. Priority measures urgency; risk measures blast radius.
 `needs-qa` routes a PR to QA on the next on-demand batch; it does not hold the
 merge, and a missing `qa-approved` never blocks it. Never combine `skip-qa` with
-`needs-qa` or `qa-approved`. QA sign-off describes evidence and the tested head;
+`needs-qa`, `needs-human-qa` or `qa-approved`. QA sign-off describes evidence and the tested head;
 changed scope needs fresh verification. Self-QA follows the exception and evidence
 requirements in the PR workflow, including both approval and self-verification labels.
 

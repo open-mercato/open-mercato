@@ -186,7 +186,7 @@ the higher risk and say why in the label comment. A `risk-high` PR strengthens t
 without `qa-approved`; QA happens on the batch (below). `qaGate` is `false` in
 `.ai/agentic.config.json`, so `om-merge-buddy`, `om-approve-merge-pr` and the review skills do
 not refuse a `needs-qa` PR for a missing `qa-approved`. Never combine `skip-qa` with
-`needs-qa`/`qa-approved`.
+`needs-qa`/`needs-human-qa`/`qa-approved`.
 
 ## Batch QA
 
@@ -194,7 +194,7 @@ not refuse a `needs-qa` PR for a missing `qa-approved`. Never combine `skip-qa` 
 2. **On demand** (not daily, not automatically) a maintainer, the stabilizer, cuts
    `stabilize/main-<date>` from `main` and opens it at once as a non-draft PR to `main`. Only one
    batch is open at a time.
-3. QA deploys the batch, makes **one QA pass** (`.ai/qa/batch-smoke.md` plus the `om-qa-batch`
+3. QA deploys the batch, makes **one QA pass** (`.ai/qa/batch-smoke.md`, added by PR #10712, plus the `om-qa-batch`
    checklist) and files bugs as issues (`bug` + `daily-qa`, plus `qa-blocker` when a user cannot
    finish a main task).
 4. QA blockers are fixed **only by the stabilizer**, with commits pushed directly onto the batch

@@ -12,6 +12,7 @@ scripts/release-line.mts               @open-mercato/maintainers
 scripts/lib/release-line.mts           @open-mercato/maintainers
 scripts/lib/github-api.mts             @open-mercato/maintainers
 .github/release.yml                    @open-mercato/maintainers
+.github/core-team.json                 @open-mercato/maintainers
 scripts/release-snapshot.sh            @open-mercato/maintainers
 
 # Container and infrastructure definitions
