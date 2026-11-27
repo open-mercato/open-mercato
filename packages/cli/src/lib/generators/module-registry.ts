@@ -79,6 +79,7 @@ import {
   resolveStandaloneSourceMirrorBase,
 } from './scanner'
 import { loadGeneratorExtensions } from './extensions'
+import { databaseDeclarationsPlugin } from './database-declarations'
 import type { ModuleScanContext, StandaloneConfigOptions } from './extension'
 import {
   renderRouteManifestShardOutputs,
@@ -3734,9 +3735,13 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   const enabled = discovery.enabled
   const extensions = loadGeneratorExtensions(resolver)
 
-  // Pre-pass: collect generator plugins from each enabled module's generators.ts
-  const pluginRegistry = new Map<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>()
-  const pluginState = new Map<string, { imports: string[]; configs: string[] }>()
+  // Pre-pass: register the built-in plugin and collect plugins from enabled modules.
+  const pluginRegistry = new Map<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>([
+    [databaseDeclarationsPlugin.id, databaseDeclarationsPlugin],
+  ])
+  const pluginState = new Map<string, { imports: string[]; configs: string[] }>([
+    [databaseDeclarationsPlugin.id, { imports: [], configs: [] }],
+  ])
   for (const discovered of discovery.modules) {
     const resolved = discovered.resolve('generators.ts')
     if (!resolved) continue
@@ -4850,7 +4855,8 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
   const devSupervisorWorkers: DevSupervisorWorkerDescriptor[] = []
   let schedulerStartStatus: DevSupervisorSchedulerStartStatus = 'missing-module'
   let requiresFullBootstrap = selectsRegistryOutput(options, 'supervisor') && (
-    enabled.some((entry) => entry.devSupervisorRequiresFullBootstrap === true)
+    discovery.modules.some((module) => Boolean(module.resolve(databaseDeclarationsPlugin.conventionFile)))
+    || enabled.some((entry) => entry.devSupervisorRequiresFullBootstrap === true)
     || appDeclaresProgrammaticDevSupervisorOverrides(resolver.getAppDir())
   )
 
