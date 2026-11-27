@@ -1,3 +1,4 @@
+import { crudFormSectionsPrivateHeaders, crudFormSectionsResolvePath } from '@open-mercato/shared/lib/crud/form-sections/protocol'
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -720,7 +721,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  return handleRequest('POST', req, params)
+  const response = await handleRequest('POST', req, params)
+  if (req.nextUrl.pathname === `/api${crudFormSectionsResolvePath}`) {
+    for (const [name, value] of Object.entries(crudFormSectionsPrivateHeaders)) response.headers.set(name, value)
+  }
+  return response
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {

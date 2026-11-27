@@ -12,6 +12,9 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
 jest.mock('@open-mercato/core/modules/api_keys/services/sessionKeyRoles', () => ({
   resolveVerifiedSessionKeyUserId: (...args: unknown[]) => resolveVerifiedSessionKeyUserId(...args),
 }))
+jest.mock('@open-mercato/core/modules/auth/lib/tenantEligibility', () => ({
+  isStaffTenantActive: jest.fn(async () => true),
+}))
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({ McpServer: class {} }))
 jest.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({ StreamableHTTPServerTransport: class {} }))
 jest.mock('../tool-registry', () => ({ getToolRegistry: jest.fn() }))
@@ -46,7 +49,7 @@ describe('HTTP MCP server key principal', () => {
     findSessionApiKeyWithSecret.mockResolvedValue({ key: sessionKey, secret: 'omk_session.secret' })
     resolveVerifiedSessionKeyUserId.mockResolvedValue('user-1')
 
-    const resolved = await resolveSessionContext('sess_token', baseContext)
+    const resolved = await resolveSessionContext('sess_token', baseContext, sessionKey, false)
 
     expect(loadAcl).toHaveBeenCalledWith('api_key:session-key-1', { tenantId: 'tenant-1', organizationId: 'org-1' })
     expect(resolveVerifiedSessionKeyUserId).toHaveBeenCalledWith(em, sessionKey)
@@ -63,7 +66,7 @@ describe('HTTP MCP server key principal', () => {
     findSessionApiKeyWithSecret.mockResolvedValue({ key: sessionKey, secret: 'omk_session.secret' })
     resolveVerifiedSessionKeyUserId.mockResolvedValue(null)
 
-    const resolved = await resolveSessionContext('sess_token', baseContext)
+    const resolved = await resolveSessionContext('sess_token', baseContext, sessionKey, false)
 
     expect(resolved?.context.principalApiKeyId).toBe('session-key-1')
     expect(resolved?.context).not.toHaveProperty('apiKeyUserId')
