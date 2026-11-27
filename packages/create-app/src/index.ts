@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline'
 import { spawnSync } from 'node:child_process'
 import { basename, dirname, join, resolve } from 'node:path'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, copyFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import pc from 'picocolors'
 import {
@@ -29,6 +29,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
 const PACKAGE_VERSION: string = packageJson.version
 const TEMPLATE_DIR = join(__dirname, '..', 'template')
+const CI_PROVIDERS = ['github', 'none'] as const
+const CI_DOCS_URL = 'https://docs.openmercato.com/customization/standalone-app#continuous-integration'
+
+export type CiProvider = (typeof CI_PROVIDERS)[number]
 
 export interface Options {
   app?: string
@@ -40,6 +44,7 @@ export interface Options {
   registry?: string
   initGit?: boolean
   agents?: string
+  ci?: string
   experimentalHooksValidator?: boolean
   modules?: string
   /** true: --module-picker, false: --no-module-picker, undefined: decided by shouldOfferModulePicker. */
@@ -80,6 +85,7 @@ ${pc.bold('Options:')}
   --no-init-git      Do not prompt for or initialize a local Git repository
   --agents <list>    Set up agent tooling non-interactively (skips the wizard):
                      comma-separated claude-code,codex,cursor,github-copilot — or 'all' / 'none'
+  --ci <provider>    CI workflows to scaffold: github (default) or none
   --experimental-hooks-validator
                      Install experimental gate-evidence/typecheck validator hooks
   --skip-agentic-setup  Skip the agentic setup wizard (alias for --agents none)
@@ -106,6 +112,7 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-store --agents codex --experimental-hooks-validator
   npx create-mercato-app my-store --agents all
   npx create-mercato-app my-store --agents none
+  npx create-mercato-app my-store --ci none
   npx create-mercato-app my-store --preset crm --modules gateway_stripe
   npx create-mercato-app my-store --module-picker
   npx create-mercato-app my-store --no-module-picker
@@ -144,6 +151,7 @@ export function parseArgs(args: string[]): { appName: string | null; options: Op
     registry: undefined,
     initGit: undefined,
     agents: undefined,
+    ci: undefined,
     experimentalHooksValidator: undefined,
     modules: undefined,
     modulePicker: undefined,
@@ -163,6 +171,9 @@ export function parseArgs(args: string[]): { appName: string | null; options: Op
       options.version = true
     } else if (arg === '--agents') {
       options.agents = requireOptionValue(args, index, arg)
+      index += 1
+    } else if (arg === '--ci') {
+      options.ci = requireOptionValue(args, index, arg)
       index += 1
     } else if (arg === '--experimental-hooks-validator') {
       options.experimentalHooksValidator = true
@@ -427,9 +438,28 @@ const FILE_RENAMES: Record<string, string> = {
   gitattributes: '.gitattributes',
 }
 
+// `yarn pack` always drops `.github` directories, so the template stores the
+// workflow files under `github/` and the scaffolder restores the dot name.
+const TEMPLATE_ROOT_RENAMES: Record<string, string> = {
+  github: '.github',
+}
+
 const SKIP_DIRS = new Set(['__tests__', '__integration__'])
 
-function copyDirRecursive(src: string, dest: string, placeholders: Record<string, string>): void {
+export function applyTemplatePlaceholders(content: string, placeholders: Record<string, string>): string {
+  let rendered = content
+  for (const [key, value] of Object.entries(placeholders)) {
+    rendered = rendered.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
+  }
+  return rendered
+}
+
+function copyDirRecursive(
+  src: string,
+  dest: string,
+  placeholders: Record<string, string>,
+  isTemplateRoot = false,
+): void {
   if (!existsSync(dest)) {
     mkdirSync(dest, { recursive: true })
   }
@@ -438,7 +468,7 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
 
   for (const entry of entries) {
     const srcPath = join(src, entry)
-    const destName = FILE_RENAMES[entry] ?? entry
+    const destName = (isTemplateRoot ? TEMPLATE_ROOT_RENAMES[entry] : undefined) ?? FILE_RENAMES[entry] ?? entry
     let destPath = join(dest, destName)
     const stat = statSync(srcPath)
 
@@ -448,13 +478,7 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
     } else if (entry.endsWith('.template')) {
       const finalName = entry.replace('.template', '')
       destPath = join(dest, finalName)
-      let content = readFileSync(srcPath, 'utf-8')
-
-      for (const [key, value] of Object.entries(placeholders)) {
-        content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
-      }
-
-      writeFileSync(destPath, content)
+      writeFileSync(destPath, applyTemplatePlaceholders(readFileSync(srcPath, 'utf-8'), placeholders))
     } else {
       copyFileSync(srcPath, destPath)
     }
@@ -469,7 +493,7 @@ async function scaffoldTemplateApp(
     throw new Error(`Template directory not found at ${TEMPLATE_DIR}`)
   }
 
-  copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
+  copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders, true)
   ensureGeneratedCssPlaceholder(targetDir)
 }
 
@@ -551,6 +575,37 @@ function resolveAgentSelection(options: Options): AgentSelection {
   return { mode: 'tools', tools: parsed.tools }
 }
 
+export function resolveCiProvider(ciOption: string | undefined, isReadyApp: boolean): CiProvider {
+  if (isReadyApp) {
+    if (ciOption !== undefined) {
+      throw new Error(
+        '--ci is not supported with --app/--app-url. Imported ready apps are copied as raw source snapshots; add CI files inside the app instead.',
+      )
+    }
+    return 'none'
+  }
+  if (ciOption === undefined) return 'github'
+  const provider = CI_PROVIDERS.find((candidate) => candidate === ciOption)
+  if (!provider) {
+    throw new Error(`Unknown --ci value "${ciOption}". Valid values: ${CI_PROVIDERS.join(', ')}.`)
+  }
+  return provider
+}
+
+function removeCiWorkflows(targetDir: string): void {
+  const githubDir = join(targetDir, '.github')
+  rmSync(join(githubDir, 'workflows'), { recursive: true, force: true })
+  if (existsSync(githubDir) && readdirSync(githubDir).length === 0) {
+    rmSync(githubDir, { recursive: true, force: true })
+  }
+}
+
+function listCiWorkflows(targetDir: string): string[] {
+  const workflowsDir = join(targetDir, '.github', 'workflows')
+  if (!existsSync(workflowsDir)) return []
+  return readdirSync(workflowsDir).sort((left, right) => left.localeCompare(right))
+}
+
 async function maybeRunAgenticSetup(
   targetDir: string,
   selection: AgentSelection,
@@ -578,6 +633,16 @@ async function maybeRunAgenticSetup(
   }
 }
 
+function printCiWorkflowSummary(targetDir: string): void {
+  const workflows = listCiWorkflows(targetDir)
+  if (workflows.length === 0) return
+
+  console.log(pc.green('Continuous integration:'))
+  console.log(pc.dim(`  # GitHub Actions workflows: ${workflows.map((name) => `.github/workflows/${name}`).join(', ')}`))
+  console.log(pc.dim(`  # Set the OM_CI_RUNS_ON repository variable to change the runner: ${CI_DOCS_URL}`))
+  console.log('')
+}
+
 export function printCatalogNextSteps(catalogCommands: string[], commandWarnings: Record<string, string> = {}): void {
   if (catalogCommands.length === 0) return
   console.log(pc.green('Modules you planned from the catalog:'))
@@ -597,6 +662,7 @@ export type CatalogStepRunner = (options: CatalogStepOptions) => Promise<Catalog
 
 function printTemplateNextSteps(
   appName: string,
+  targetDir: string,
   agenticConfigured: boolean,
   catalogPlan: CatalogPlan = { commands: [], commandWarnings: {} },
   dockerAvailable: boolean = isDockerCliAvailable(),
@@ -651,6 +717,8 @@ function printTemplateNextSteps(
   console.log(pc.cyan('  # Production-style: docker compose -f docker-compose.fullapp.yml up --build'))
   console.log('')
 
+  printCiWorkflowSummary(targetDir)
+
   if (agenticConfigured) {
     console.log(pc.green('Agent pipeline:'))
     console.log(pc.dim('  # .ai/agentic.config.json ships preconfigured (GitHub tracker, labels off) — skills work out of the box.'))
@@ -673,9 +741,14 @@ function printImportedReadyAppNextSteps(appName: string): void {
   console.log('')
 }
 
-function printGitHubSyncInstructions(gitResult: GitInitializationResult): void {
+function printGitHubSyncInstructions(gitResult: GitInitializationResult, isTemplateApp: boolean): void {
   console.log('Optional GitHub publish:')
   console.log('')
+
+  if (isTemplateApp) {
+    console.log(pc.dim('  # Creates yarn.lock; commit it, because CI installs with --immutable:'))
+    console.log(pc.cyan('  yarn install'))
+  }
 
   if (gitResult.status === 'skipped' || gitResult.status === 'failed') {
     console.log(pc.cyan('  git init -b main'))
@@ -803,6 +876,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   // Resolve (and validate) the agentic selection up front so a bad --agents
   // value fails before any scaffolding work happens.
   const agentSelection = resolveAgentSelection(options)
+  const ciProvider = resolveCiProvider(options.ci, Boolean(readyAppSource))
 
   const presetId = await resolveStarterPresetId(options, importsApp)
 
@@ -843,6 +917,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   } else {
     await scaffoldTemplateApp(targetDir, placeholders)
     applyStarterPreset(presetId, targetDir)
+    if (ciProvider === 'none') removeCiWorkflows(targetDir)
   }
 
   const catalogPlan: CatalogPlan = importsApp
@@ -868,9 +943,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   } else if (importsApp) {
     printImportedReadyAppNextSteps(appName)
   } else {
-    printTemplateNextSteps(appName, agenticConfigured, catalogPlan)
+    printTemplateNextSteps(appName, targetDir, agenticConfigured, catalogPlan)
   }
-  printGitHubSyncInstructions(gitResult)
+  printGitHubSyncInstructions(gitResult, !readyAppSource)
 
   console.log(pc.dim('For more information, visit https://github.com/open-mercato/open-mercato'))
   console.log('')

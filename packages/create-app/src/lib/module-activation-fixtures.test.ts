@@ -25,10 +25,10 @@ import {
 //
 // This fixture drives the real scaffolder and the real generator suite against a
 // generated app. It stages `node_modules/@open-mercato/*` from the workspace
-// build output instead of installing from a registry: the resolver only needs a
-// non-symlinked package directory exposing `dist/modules`, which is exactly what
-// a published install produces. `scripts/test-create-app.ts` runs the same two
-// fixtures end to end against a real Verdaccio install and `yarn generate`.
+// build output instead of installing from a registry. The resolver discovers
+// non-symlinked package directories exposing `dist/modules`. The OpenAPI bundle
+// also needs the installed runtime dependencies, which this fixture links from
+// the workspace. `scripts/test-create-app.ts` tests a real Verdaccio install.
 //
 // Both fixtures share one scaffolded app, which additionally proves each fixture
 // restores the shipped module set instead of leaking it into the next one.
@@ -49,8 +49,15 @@ type ActivationFixtureApp = {
 let fixtureApp: ActivationFixtureApp | null = null
 
 function stageInstalledPackages(appDir: string): void {
-  const scopeDir = path.join(appDir, 'node_modules', '@open-mercato')
+  const appNodeModules = path.join(appDir, 'node_modules')
+  const scopeDir = path.join(appNodeModules, '@open-mercato')
   fs.mkdirSync(scopeDir, { recursive: true })
+
+  const workspaceNodeModules = path.join(REPO_ROOT, 'node_modules')
+  for (const entry of fs.readdirSync(workspaceNodeModules)) {
+    if (entry.startsWith('.') || entry === '@open-mercato') continue
+    fs.symlinkSync(path.join(workspaceNodeModules, entry), path.join(appNodeModules, entry), 'junction')
+  }
 
   const packagesDir = path.join(REPO_ROOT, 'packages')
   let staged = 0
@@ -201,7 +208,21 @@ after(() => {
 })
 
 test('enabling the example module in a generated app registers the Todo surface only', async () => {
-  await runFixture(EXAMPLE_ACTIVATION_ENTRY, assertExampleActivation)
+  await runFixture(EXAMPLE_ACTIVATION_ENTRY, async (appDir) => {
+    await assertExampleActivation(appDir)
+
+    const openApiPath = path.join(appDir, '.mercato', 'generated', 'openapi.generated.json')
+    type JsonSchemaContent = { content?: { 'application/json'?: { schema?: unknown } } }
+    const openApi = JSON.parse(fs.readFileSync(openApiPath, 'utf8')) as {
+      paths: Record<string, Record<string, {
+        requestBody?: JsonSchemaContent
+        responses?: Record<string, JsonSchemaContent>
+      }>>
+    }
+    const update = openApi.paths['/api/example/todos/section-policy']?.put
+    assert.ok(update?.requestBody?.content?.['application/json']?.schema, 'Missing typed Todo section-policy request')
+    assert.ok(update.responses?.['422']?.content?.['application/json']?.schema, 'Missing typed Todo section-policy validation response')
+  })
 })
 
 test('enabling the design_system module in a generated app registers the gallery only', async () => {

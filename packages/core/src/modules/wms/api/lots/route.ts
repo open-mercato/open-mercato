@@ -6,7 +6,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shar
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryLot } from '../../data/entities'
-import { inventoryLotCreateSchema, inventoryLotUpdateSchema } from '../../data/validators'
+import { inventoryLotCreateSchema, inventoryLotUpdateSchema, keepClearedInventoryLotDates } from '../../data/validators'
 import { buildExpiryWindowDateFilter, type ExpiryWindow } from '../../lib/expiry'
 import { createPagedListResponseSchema, createWmsCrudOpenApi, defaultOkResponseSchema } from '../openapi'
 
@@ -145,7 +145,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(inventoryLotUpdateSchema, raw ?? {}, ctx, translate)
+        return keepClearedInventoryLotDates(raw, parseScopedCommandInput(inventoryLotUpdateSchema, raw ?? {}, ctx, translate))
       },
       response: () => ({ ok: true }),
     },

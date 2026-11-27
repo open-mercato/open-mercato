@@ -27,6 +27,8 @@ export interface SyncCrudEventPayload {
   em: EntityManager
   /** Original HTTP request */
   request: Request
+  /** The server dispatched this event through the section-policy façade. */
+  crudFormSectionPolicy?: true
 }
 
 export interface SyncCrudEventResult {

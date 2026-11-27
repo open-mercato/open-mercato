@@ -794,6 +794,33 @@ export const promotionUpdateSchema = z
 
 export type PromotionUpdateInput = z.infer<typeof promotionUpdateSchema>
 
+function mergeTouchedFields<K extends string>(
+  keys: readonly K[],
+  stored: { [P in K]?: unknown },
+  patch: { [P in K]?: unknown },
+): Record<K, unknown> | null {
+  if (!keys.some((key) => patch[key] !== undefined)) return null
+  return Object.fromEntries(
+    keys.map((key) => [key, patch[key] !== undefined ? patch[key] : stored[key] ?? null]),
+  ) as Record<K, unknown>
+}
+
+const promotionBudgetAndWindowFields = ['startsAt', 'endsAt', 'maxBudget', 'budgetCurrency'] as const
+
+type PromotionBudgetAndWindowState = Parameters<typeof promotionBudgetAndWindowRefine>[0]
+
+const promotionBudgetAndWindowStateSchema = z
+  .custom<PromotionBudgetAndWindowState>()
+  .superRefine(promotionBudgetAndWindowRefine)
+
+export function validatePromotionUpdateAgainstStored(
+  stored: PromotionBudgetAndWindowState,
+  patch: PromotionUpdateInput,
+): void {
+  const merged = mergeTouchedFields(promotionBudgetAndWindowFields, stored, patch)
+  if (merged) promotionBudgetAndWindowStateSchema.parse(merged)
+}
+
 export const promotionDeleteSchema = z.object({
   id: uuid(),
 })
@@ -868,6 +895,17 @@ export const promotionCodeUpdateSchema = z
   })
 
 export type PromotionCodeUpdateInput = z.infer<typeof promotionCodeUpdateSchema>
+
+const codeShapeFields = ['type', 'code', 'amount', 'usage', 'usageAmount'] as const
+
+type CodeShapeState = Parameters<typeof codeShapeRefine>[0]
+
+const codeShapeStateSchema = z.custom<CodeShapeState>().superRefine(codeShapeRefine)
+
+export function validateCodeUpdateAgainstStored(stored: CodeShapeState, patch: PromotionCodeUpdateInput): void {
+  const merged = mergeTouchedFields(codeShapeFields, stored, patch)
+  if (merged) codeShapeStateSchema.parse(merged)
+}
 
 export const promotionCodeDeleteSchema = z.object({
   id: uuid(),

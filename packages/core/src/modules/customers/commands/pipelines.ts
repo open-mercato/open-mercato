@@ -10,7 +10,7 @@ import {
   type PipelineUpdateInput,
   type PipelineDeleteInput,
 } from '../data/validators'
-import { ensureOrganizationScope, ensureTenantScope } from './shared'
+import { commandScopeWhere, ensureOrganizationScope, ensureTenantScope } from './shared'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   enforceCommandOptimisticLockWithGuards,
@@ -60,7 +60,7 @@ const updatePipelineCommand: CommandHandler<PipelineUpdateInput, void> = {
     const parsed = pipelineUpdateSchema.parse(rawInput)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const pipeline = await em.findOne(CustomerPipeline, { id: parsed.id })
+    const pipeline = await em.findOne(CustomerPipeline, { id: parsed.id, ...commandScopeWhere(ctx) })
     if (!pipeline) {
       enforceRecordGoneIsConflict({ resourceKind: 'customers.pipeline', resourceId: parsed.id, request: ctx.request ?? null })
       throw notFound('Pipeline not found')
@@ -101,7 +101,7 @@ const deletePipelineCommand: CommandHandler<PipelineDeleteInput, void> = {
     const parsed = pipelineDeleteSchema.parse(rawInput)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const pipeline = await em.findOne(CustomerPipeline, { id: parsed.id })
+    const pipeline = await em.findOne(CustomerPipeline, { id: parsed.id, ...commandScopeWhere(ctx) })
     if (!pipeline) {
       enforceRecordGoneIsConflict({ resourceKind: 'customers.pipeline', resourceId: parsed.id, request: ctx.request ?? null })
       throw notFound('Pipeline not found')

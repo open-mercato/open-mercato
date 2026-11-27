@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Building2, Briefcase, FileText, Search, X } from 'lucide-react'
+import { FileText, Search, X } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
@@ -9,75 +9,36 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
+import { resolveScheduleLinkTypes, type ScheduleLinkTypeDefinition } from './linkTypes'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible, getFieldLabel } from './fieldConfig'
 import type { LinkedEntity } from './useScheduleFormState'
 
-const ENTITY_LINK_TYPES = ['company', 'deal', 'offer'] as const
-
 const PAGE_SIZE = 20
 
-function readLabelCandidate(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-function resolveLinkedEntityLabel(
-  item: Record<string, unknown>,
-  linkType: 'company' | 'deal' | 'offer',
-): string {
-  if (linkType === 'offer') {
-    const quoteNumber =
-      readLabelCandidate(item.quoteNumber)
-      ?? readLabelCandidate(item.quote_number)
-      ?? readLabelCandidate(item.documentNumber)
-      ?? readLabelCandidate(item.document_number)
-      ?? readLabelCandidate(item.externalReference)
-      ?? readLabelCandidate(item.external_reference)
-    const customerName =
-      readLabelCandidate(item.customerName)
-      ?? readLabelCandidate(item.customer_name)
-      ?? readLabelCandidate(item.display_name)
-      ?? readLabelCandidate(item.displayName)
-      ?? readLabelCandidate(item.name)
-      ?? readLabelCandidate(item.title)
-    if (quoteNumber && customerName) return `${quoteNumber}, ${customerName}`
-    if (quoteNumber) return quoteNumber
-    if (customerName) return customerName
-  }
-
-  if (linkType === 'deal') {
-    const dealLabel =
-      readLabelCandidate(item.title)
-      ?? readLabelCandidate(item.name)
-      ?? readLabelCandidate(item.display_name)
-      ?? readLabelCandidate(item.displayName)
-    if (dealLabel) return dealLabel
-  }
-
-  return (
-    readLabelCandidate(item.display_name)
-    ?? readLabelCandidate(item.displayName)
-    ?? readLabelCandidate(item.name)
-    ?? readLabelCandidate(item.title)
-    ?? String(item.id ?? '')
-  )
+function LinkTypeIcon({ definition, className }: { definition?: ScheduleLinkTypeDefinition; className: string }) {
+  const Icon = definition?.icon ?? FileText
+  return <Icon className={className} />
 }
 
 function EntityLinkSearchPopover({
   existingIds,
+  linkTypes,
   onAdd,
   onAddMany,
   t,
 }: {
   existingIds: Set<string>
+  linkTypes: readonly ScheduleLinkTypeDefinition[]
   onAdd: (entity: LinkedEntity) => void
   onAddMany: (entities: LinkedEntity[]) => void
   t: (key: string, fallback: string) => string
 }) {
   const [open, setOpen] = React.useState(false)
-  const [linkType, setLinkType] = React.useState<'company' | 'deal' | 'offer'>('company')
+  const [selectedTypeId, setSelectedTypeId] = React.useState('company')
+  const linkType = linkTypes.find((definition) => definition.id === selectedTypeId) ?? linkTypes[0]!
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ id: string; label: string }>>([])
   const [page, setPage] = React.useState(1)
@@ -95,19 +56,13 @@ function EntityLinkSearchPopover({
     if (!open) return
     const controller = new AbortController()
     setLoading(true)
-    const searchParam = query.trim() ? `&search=${encodeURIComponent(query.trim())}` : ''
-    const pagingParam = `&page=${page}&pageSize=${PAGE_SIZE}`
-    const endpoint = linkType === 'company'
-      ? `/api/customers/companies?sortField=name&sortDir=asc${pagingParam}${searchParam}`
-      : linkType === 'deal'
-        ? `/api/customers/deals?pageSize=${PAGE_SIZE}&page=${page}${searchParam}`
-        : `/api/sales/quotes?pageSize=${PAGE_SIZE}&page=${page}${searchParam}`
+    const endpoint = linkType.buildSearchUrl({ page, pageSize: PAGE_SIZE, query })
     readApiResultOrThrow<{ items?: Array<Record<string, unknown>>; totalPages?: number; page?: number; pageSize?: number; total?: number }>(endpoint, { signal: controller.signal })
       .then((data) => {
         const items = Array.isArray(data?.items) ? data.items : []
         const nextResults = items.map((item) => ({
           id: typeof item?.id === 'string' ? item.id : '',
-          label: resolveLinkedEntityLabel(item, linkType),
+          label: linkType.resolveLabel(item),
         })).filter((r) => r.id)
         setResults((current) => {
           if (page <= 1) return nextResults
@@ -140,17 +95,18 @@ function EntityLinkSearchPopover({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 p-2">
         <div className="flex gap-1 mb-2">
-          {ENTITY_LINK_TYPES.map((type) => (
+          {linkTypes.map((type) => (
             <Button
-              key={type}
+              key={type.id}
+              data-schedule-link-type={type.id}
               type="button"
-              variant={linkType === type ? 'default' : 'ghost'}
+              variant={linkType.id === type.id ? 'default' : 'ghost'}
               size="sm"
               className="h-6 text-xs flex-1"
-              onClick={() => { setLinkType(type as typeof linkType); setQuery('') }}
+              onClick={() => { setSelectedTypeId(type.id); setPage(1); setQuery('') }}
             >
-              {type === 'company' ? <Building2 className="mr-1 size-3" /> : type === 'deal' ? <Briefcase className="mr-1 size-3" /> : <FileText className="mr-1 size-3" />}
-              {type === 'company' ? t('customers.schedule.linkType.company', 'Company') : type === 'deal' ? t('customers.schedule.linkType.deal', 'Deal') : t('customers.schedule.linkType.offer', 'Offer')}
+              <LinkTypeIcon definition={type} className="mr-1 size-3" />
+              {t(type.labelKey, type.label)}
             </Button>
           ))}
         </div>
@@ -176,7 +132,7 @@ function EntityLinkSearchPopover({
                 onAddMany(
                   selectableResults.map((result) => ({
                     id: result.id,
-                    type: linkType,
+                    type: linkType.id,
                     label: result.label,
                   })),
                 )
@@ -201,7 +157,7 @@ function EntityLinkSearchPopover({
                 size="sm"
                 disabled={alreadyLinked}
                 onClick={() => {
-                  onAdd({ id: r.id, type: linkType, label: r.label })
+                  onAdd({ id: r.id, type: linkType.id, label: r.label })
                   setOpen(false)
                   setQuery('')
                 }}
@@ -210,7 +166,7 @@ function EntityLinkSearchPopover({
                   alreadyLinked ? 'opacity-40 cursor-default' : 'hover:bg-accent cursor-pointer',
                 )}
               >
-                {linkType === 'company' ? <Building2 className="size-3.5 text-muted-foreground shrink-0" /> : linkType === 'deal' ? <Briefcase className="size-3.5 text-muted-foreground shrink-0" /> : <FileText className="size-3.5 text-muted-foreground shrink-0" />}
+                <LinkTypeIcon definition={linkType} className="size-3.5 text-muted-foreground shrink-0" />
                 <span className="min-w-0 flex-1 truncate">{r.label}</span>
               </Button>
             )
@@ -242,6 +198,8 @@ export function LinkedEntitiesField({
   setLinkedEntities,
 }: LinkedEntitiesFieldProps) {
   const t = useT()
+  const { widgets, loading } = useInjectionWidgets(extensionPoints.hosts.scheduleLinkTypes.spotId)
+  const linkTypes = React.useMemo(() => resolveScheduleLinkTypes(widgets.map((widget) => widget.module)), [widgets])
 
   if (!isVisible(activityType, 'linkedEntities')) return null
 
@@ -254,7 +212,7 @@ export function LinkedEntitiesField({
   )
 
   return (
-    <div>
+    <div data-schedule-link-types-loading={loading ? 'true' : 'false'}>
       <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
         {sectionLabel}
       </label>
@@ -269,7 +227,7 @@ export function LinkedEntitiesField({
                 : 'border-border bg-muted text-foreground',
             )}
           >
-            {entity.type === 'company' ? <Building2 className="size-3" /> : entity.type === 'deal' ? <Briefcase className="size-3" /> : <FileText className="size-3" />}
+            <LinkTypeIcon definition={linkTypes.find((definition) => definition.id === entity.type)} className="size-3" />
             {entity.label}
             <IconButton type="button" variant="ghost" size="sm" onClick={() => setLinkedEntities((prev) => prev.filter((e) => e.id !== entity.id))} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeLink', 'Remove link')}>
               <X className="size-2.5" />
@@ -278,6 +236,7 @@ export function LinkedEntitiesField({
         ))}
         <EntityLinkSearchPopover
           existingIds={new Set(linkedEntities.map((e) => e.id))}
+          linkTypes={linkTypes}
           onAdd={(entity) => setLinkedEntities((prev) => [...prev, entity])}
           onAddMany={(entities) => setLinkedEntities((prev) => [...prev, ...entities])}
           t={t}

@@ -57,6 +57,22 @@ describe('organization scope bootstrap', () => {
     expect(events.getCurrentOrganizationScopeVersion()).toBe(1)
   })
 
+  it('publishes the server-selected initial scope and invalidates only subsequent changes', () => {
+    const events = loadEvents()
+    const initial = { organizationId: 'organization-one', tenantId: 'tenant-one' }
+    const changed = { ...initial, organizationId: 'organization-two' }
+    const listener = jest.fn()
+    const unsubscribe = events.subscribeOrganizationScopeChanged(listener)
+    try {
+      events.emitOrganizationScopeChanged(initial, initial)
+      expect(listener).toHaveBeenLastCalledWith(initial)
+      expect(events.getCurrentOrganizationScopeVersion()).toBe(0)
+      events.emitOrganizationScopeChanged(changed, changed)
+      expect(listener).toHaveBeenLastCalledWith(changed)
+      expect(events.getCurrentOrganizationScopeVersion()).toBe(1)
+    } finally { unsubscribe() }
+  })
+
   it.each([
     ['', '', { organizationId: null, tenantId: null }],
     ['organization-one', '', { organizationId: 'organization-one', tenantId: null }],

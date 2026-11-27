@@ -20,7 +20,10 @@ function addEntitySpots(table: ModuleInjectionTable, entityType: string): void {
 }
 
 export function buildInjectionTable(allFields: Record<string, string[]> = getTranslatableFieldsRegistry()): ModuleInjectionTable {
-  const table: ModuleInjectionTable = {}
+  const table: ModuleInjectionTable = {
+    'dictionaries:entry:actions': 'translations.injection.dictionary-entry-translation',
+    'entities:field-definition:actions': 'translations.injection.field-definition-translation',
+  }
   for (const entityType of Object.keys(allFields)) {
     addEntitySpots(table, entityType)
   }

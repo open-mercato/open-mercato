@@ -20,6 +20,10 @@ import {
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isWithinPasswordByteLimit } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
+import type { TenantSetupScope } from '@open-mercato/shared/modules/setup'
 
 const logger = createLogger('auth').child({ component: 'setup' })
 
@@ -121,7 +125,8 @@ export type SetupInitialTenantOptions = {
   failIfUserExists?: boolean
   primaryUserRoles?: string[]
   includeSuperadminRole?: boolean
-  /** Optional list of enabled modules. When provided, module setup hooks are called. */
+  container?: AppContainer
+  /** Optional override for the list of enabled modules used by setup hooks. */
   modules?: Module[]
   /**
    * Optional global slug to persist on the new Organization. When set, a
@@ -344,8 +349,8 @@ export async function setupInitialTenant(
       const fallbackEmployeePwd = isProduction ? generateDerivedPassword() : DEMO_DERIVED_PASSWORD
       const adminPasswordPlain = envAdminPwd ?? fallbackAdminPwd
       const employeePasswordPlain = envEmployeePwd ?? fallbackEmployeePwd
-      const adminPasswordHash = await hash(adminPasswordPlain, 10)
-      const employeePasswordHash = await hash(employeePasswordPlain, 10)
+      const adminPasswordHash = await hashProvisionedPassword(adminPasswordPlain)
+      const employeePasswordHash = await hashProvisionedPassword(employeePasswordPlain)
       addUniqueBaseUser(baseUsers, {
         email: adminEmail,
         roles: ['admin'],
@@ -507,12 +512,7 @@ export async function setupInitialTenant(
   await ensureDefaultRoleAcls(em, tenantId, resolvedModules, { includeSuperadminRole })
   await deactivateDemoUsersIfSelfOnboardingEnabled(em)
 
-  // Call module onTenantCreated hooks
-  for (const mod of resolvedModules) {
-    if (mod.setup?.onTenantCreated) {
-      await mod.setup.onTenantCreated({ em, tenantId, organizationId })
-    }
-  }
+  await runTenantCreatedHooks(em, { tenantId, organizationId }, resolvedModules, options.container)
 
   // Custom roles are often created inside onTenantCreated hooks, so they did not
   // exist yet when ensureDefaultRoleAcls ran above and were skipped there. Sync
@@ -526,6 +526,30 @@ export async function setupInitialTenant(
     users: userSnapshots,
     reusedExistingUser,
   }
+}
+
+async function runTenantCreatedHooks(
+  em: EntityManager,
+  scope: TenantSetupScope,
+  modules: Module[],
+  container?: AppContainer,
+): Promise<void> {
+  const enabledModuleIds = new Set(modules.map((mod) => mod.id))
+  const runHooks = async (setupContainer?: AppContainer) => {
+    for (const mod of modules) {
+      await mod.setup?.onTenantCreated?.({ em, ...scope, container: setupContainer, enabledModuleIds })
+    }
+  }
+
+  if (container || !enabledModuleIds.has('configs') || !modules.some((mod) => mod.setup?.onTenantCreated)) {
+    await runHooks(container)
+    return
+  }
+
+  await runInOwnedRequestScope(async () => {
+    const setupContainer = await createRequestContainer()
+    await runHooks(setupContainer)
+  })
 }
 
 function resolvePrimaryName(input: PrimaryUserInput): string | null {
@@ -585,8 +609,15 @@ function shouldKeepDemoSuperadminDuringInit(): boolean {
 
 async function resolvePasswordHash(input: PrimaryUserInput): Promise<string | null> {
   if (typeof input.hashedPassword === 'string') return input.hashedPassword
-  if (input.password) return hash(input.password, 10)
+  if (input.password) return hashProvisionedPassword(input.password)
   return null
+}
+
+function hashProvisionedPassword(password: string): Promise<string> {
+  if (!isWithinPasswordByteLimit(password)) {
+    throw new Error('[internal] Provisioned password exceeds the bcrypt UTF-8 input limit')
+  }
+  return hash(password, 10)
 }
 
 export async function ensureDefaultRoleAcls(

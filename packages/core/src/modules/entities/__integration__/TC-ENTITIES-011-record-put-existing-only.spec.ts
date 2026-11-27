@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
+import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 import {
   createCustomEntity,
   createRecord,
@@ -85,6 +86,7 @@ function putRecord(
 test.describe('TC-ENTITIES-011: record PUT updates existing, non-deleted records only', () => {
   test('API: unknown and soft-deleted ids answer 404 and write nothing; live records still update', async ({ request }) => {
     const token = await getAuthToken(request, 'admin');
+    const { tenantId, organizationId } = getTokenContext(token);
     const entityId = uniqueEntityId('put_existing');
     let liveId: string | null = null;
     let deletedId: string | null = null;
@@ -115,6 +117,18 @@ test.describe('TC-ENTITIES-011: record PUT updates existing, non-deleted records
       );
       expect(removed.status(), 'soft delete 200').toBe(200);
 
+      const readStorage = async () => withClient(async (client) => {
+        const result = await client.query<{ entity_id: string; doc: unknown; deleted_at: Date | null; updated_at: Date }>(
+          `select entity_id, doc, deleted_at, updated_at from custom_entities_storage
+           where entity_type = $1 and tenant_id = $2 and organization_id = $3 and entity_id = any($4::text[])`,
+          [entityId, tenantId, organizationId, [unknownId, deletedId]],
+        );
+        return result.rows;
+      });
+      const storageAfterDelete = await readStorage();
+      expect(storageAfterDelete.map((row) => row.entity_id), 'PUT on unknown id wrote nothing').toEqual([deletedId]);
+      expect(storageAfterDelete[0]?.deleted_at, 'record was soft-deleted').toBeTruthy();
+
       const revive = await putRecord(request, token, { entityId, recordId: deletedId, values: { title: 'revived' } });
       expect(revive.status(), 'PUT on a soft-deleted record 404').toBe(404);
       expect((await readJsonSafe<{ error?: string }>(revive))?.error, 'localized not-found error').toBe('Record not found');
@@ -131,9 +145,16 @@ test.describe('TC-ENTITIES-011: record PUT updates existing, non-deleted records
       expect(active.map((row) => row.id).sort(), 'only the live record is active').toEqual([liveId]);
       expect(active[0]?.title, 'live record updated').toBe('live edited');
 
-      const all = await readRecords(request, token, entityId, true);
-      expect(all.some((row) => row.id === unknownId), 'no record created under the unknown id').toBe(false);
-      expect(all.find((row) => row.id === deletedId)?.title, 'deleted record content untouched').toBe('deleted original');
+      expect(await readRecords(request, token, entityId, true), 'withDeleted cannot expose soft-deleted records').toEqual(active);
+
+      const exported = await listRecords(request, token, entityId, '&withDeleted=true&format=json&exportScope=full');
+      expect(exported.status(), 'full export 200').toBe(200);
+      expect(exported.headers()['content-disposition']).toMatch(/^attachment;/);
+      expect(await readJsonSafe<Array<{ Id: string; Title: string }>>(exported)).toEqual([
+        expect.objectContaining({ Id: liveId, Title: 'live edited' }),
+      ]);
+
+      expect(await readStorage(), 'deleted record content and version are untouched').toEqual(storageAfterDelete);
     } finally {
       await deleteRecordIfExists(request, token, entityId, liveId);
       await deleteRecordIfExists(request, token, entityId, deletedId);

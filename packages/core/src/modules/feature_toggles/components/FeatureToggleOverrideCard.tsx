@@ -10,6 +10,7 @@ import { raiseCrudError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { CrudForm } from "@open-mercato/ui/backend/CrudForm";
 import { createOverrideFieldDefinitions, createOverrideFormGroups } from "./overrideFormConfig";
+import { assertNumberInputParsed } from "./LocaleNumberInput";
 import { FeatureToggleOverrideResponse } from "../data/validators";
 
 
@@ -90,6 +91,9 @@ export function FeatureToggleOverrideCard({ toggleId }: { toggleId: string }) {
 
     const handleSubmit = async (values: any) => {
         if (!overrideData) return
+        if (values.isOverride && values.toggleType === 'number') {
+            assertNumberInputParsed(values.overrideValue, 'overrideValue', t)
+        }
         await mutation.mutateAsync({
             toggleId,
             isOverride: values.isOverride,

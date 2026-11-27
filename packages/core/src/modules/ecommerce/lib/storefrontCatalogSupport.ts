@@ -14,6 +14,7 @@ import type { AssortmentScope, EffectiveAssortmentScope } from '@open-mercato/sh
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
+import { attachmentPartitionVisibility, indexAttachmentPartitions } from '@open-mercato/core/modules/attachments/lib/partitionScope'
 import { CatalogProductCategory } from '@open-mercato/core/modules/catalog/data/entities'
 import { batchLoadTranslationsMany } from '@open-mercato/core/modules/translations/lib/batch'
 import type { StorefrontPrice, StorefrontPriceRange, StorefrontProductPricing } from './storefrontPricing'
@@ -304,16 +305,13 @@ export async function loadPublicPartitionCodes(em: EntityManager, ctx: StoreCont
     AttachmentPartition,
     {
       code: { $in: codes },
-      isPublic: true,
-      $and: [
-        { $or: [{ tenantId: null }, { tenantId: ctx.tenantId }] },
-        { $or: [{ organizationId: null }, { organizationId: ctx.organizationId }] },
-      ],
+      ...attachmentPartitionVisibility(ctx),
     },
-    { fields: ['id', 'code'] },
+    { fields: ['id', 'code', 'isPublic', 'tenantId', 'organizationId'] },
     { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
   )
-  return new Set(partitions.map((partition) => partition.code))
+  const partitionFor = indexAttachmentPartitions(partitions)
+  return new Set(codes.filter((code) => partitionFor(code, ctx)?.isPublic))
 }
 
 export type StorefrontDefaultMediaRef = { id: string; defaultMediaId?: unknown; defaultMediaUrl?: unknown }
@@ -359,14 +357,28 @@ export async function resolvePublicDefaultMediaUrls(
   const rows = await em
     .getKysely<PublicMediaDatabase>()
     .selectFrom('attachments as a')
-    .innerJoin('attachment_partitions as p', 'p.code', 'a.partition_code')
+    .innerJoinLateral(
+      (eb) => eb.selectFrom('attachment_partitions as p')
+        .select('p.is_public')
+        .whereRef('p.code', '=', 'a.partition_code')
+        .where((scope) => scope.or([
+          scope.and([scope('p.tenant_id', 'is', null), scope('p.organization_id', 'is', null)]),
+          scope.and([
+            scope('p.tenant_id', '=', ctx.tenantId),
+            scope.or([scope('p.organization_id', 'is', null), scope('p.organization_id', '=', ctx.organizationId)]),
+          ]),
+        ]))
+        .orderBy(sql`p.tenant_id asc nulls last`)
+        .orderBy(sql`p.organization_id asc nulls last`)
+        .limit(1)
+        .as('partition'),
+      (join) => join.onTrue(),
+    )
     .select(['a.id as id', 'a.mime_type as mime_type'])
     .where(sql<boolean>`${sql.ref('a.id')} = any(${mediaIds}::uuid[])`)
     .where('a.tenant_id', '=', ctx.tenantId)
     .where('a.organization_id', '=', ctx.organizationId)
-    .where('p.is_public', '=', true)
-    .where((eb) => eb.or([eb('p.tenant_id', 'is', null), eb('p.tenant_id', '=', ctx.tenantId)]))
-    .where((eb) => eb.or([eb('p.organization_id', 'is', null), eb('p.organization_id', '=', ctx.organizationId)]))
+    .where('partition.is_public', '=', true)
     .execute()
   const publicIds = new Set(rows.filter((row) => isImageMimeType(row.mime_type)).map((row) => row.id))
   for (const entry of pending) if (publicIds.has(entry.mediaId)) urls.set(entry.productId, entry.url)

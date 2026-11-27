@@ -339,7 +339,7 @@ async function completeConditionWait(
     return
   }
 
-  const transitionContext = { workflowContext: instance.context, userId }
+  const transitionContext = { container, workflowContext: instance.context, userId }
 
   const validTransitions = await transitionHandler.findValidTransitions(
     em,

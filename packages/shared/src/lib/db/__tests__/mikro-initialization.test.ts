@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import type { AppMikroORM } from '../mikro'
 
 const entitiesKey = '__openMercatoOrmEntities__'
@@ -55,4 +56,42 @@ test('all waiting callers receive initialization failure and a later call can re
   expect(initialize).toHaveBeenCalledTimes(1)
   expect(await getOrm()).toBe(instance)
   expect(initialize).toHaveBeenCalledTimes(2)
+})
+
+test('the primary pool releases disconnected borrowed clients exactly once', async () => {
+  const { MikroORM } = await import('@mikro-orm/core')
+  const { getOrm, registerOrmEntities } = await import('../mikro')
+  registerOrmEntities([])
+
+  const pool = Object.assign(new EventEmitter(), {
+    connect: jest.fn(),
+    totalCount: 0,
+    idleCount: 0,
+    waitingCount: 0,
+  })
+  const initialize = jest.spyOn(MikroORM, 'init').mockResolvedValue({ em: {} } as AppMikroORM)
+  await getOrm()
+  const options = initialize.mock.calls[0]?.[0] as {
+    driverOptions: { onPoolCreated: (createdPool: typeof pool) => void }
+  }
+  options.driverOptions.onPoolCreated(pool)
+
+  const releaseBorrowed = jest.fn()
+  const borrowedClient = Object.assign(new EventEmitter(), { release: releaseBorrowed })
+  pool.emit('connect', borrowedClient)
+  pool.emit('acquire', borrowedClient)
+
+  const disconnect = new Error('Database connection closed')
+  borrowedClient.emit('error', disconnect)
+  expect(releaseBorrowed).toHaveBeenCalledWith(disconnect)
+  borrowedClient.release()
+  expect(releaseBorrowed).toHaveBeenCalledTimes(1)
+
+  const releaseIdle = jest.fn()
+  const idleClient = Object.assign(new EventEmitter(), { release: releaseIdle })
+  pool.emit('connect', idleClient)
+  pool.emit('acquire', idleClient)
+  pool.emit('release', undefined, idleClient)
+  idleClient.emit('error', disconnect)
+  expect(releaseIdle).not.toHaveBeenCalled()
 })

@@ -4,13 +4,16 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { Attachment, AttachmentPartition } from '../../data/entities'
-import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, sanitizePartitionCode, isPartitionSettingsLocked } from '../../lib/partitions'
+import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, FORM_LOGO_PARTITION_CODE, sanitizePartitionCode, isPartitionSettingsLocked } from '../../lib/partitions'
+import { attachmentPartitionVisibility } from '../../lib/partitionScope'
 import { resolvePartitionEnvKey } from '../../lib/partitionEnv'
 import { getDeclaredAttachmentAccessRequirements } from '../../lib/access-protection'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { resolveDefaultAttachmentOcrEnabled } from '../../lib/ocrConfig'
 import { enqueueDocumentSectionSearch, type DocumentStructureQueueContainer } from '../../lib/documentStructure/queue'
 import {
@@ -51,14 +54,15 @@ function isSuperAdmin(auth: AuthLike): boolean {
 
 function canManagePartition(auth: AuthLike, entry: AttachmentPartition): boolean {
   if (!auth?.tenantId) return false
-  if (entry.tenantId && entry.tenantId === auth.tenantId) return true
-  if (entry.tenantId == null && isSuperAdmin(auth)) return true
-  return false
+  if (entry.tenantId == null) return isSuperAdmin(auth)
+  if (entry.tenantId !== auth.tenantId) return false
+  if (isSuperAdmin(auth)) return true
+  return !!auth.orgId && entry.organizationId === auth.orgId
 }
 
 function partitionVisibilityFilter(auth: AuthLike) {
   if (isSuperAdmin(auth)) return {}
-  return { $or: [{ tenantId: null }, { tenantId: auth?.tenantId ?? null }] }
+  return attachmentPartitionVisibility({ tenantId: auth?.tenantId, organizationId: auth?.orgId })
 }
 
 function serializePartition(entry: AttachmentPartition) {
@@ -101,7 +105,7 @@ async function enqueuePartitionSectionSearchSync(
     await enqueueDocumentSectionSearch(container, {
       mode: entry.indexDocumentSections ? 'index' : 'delete',
       tenantId,
-      organizationId: null,
+      organizationId: entry.organizationId ?? null,
       partitionCode: entry.code,
     })
   } catch (error) {
@@ -141,6 +145,10 @@ export async function POST(req: Request) {
   if (!auth?.sub || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  if (!auth.orgId && !isSuperAdmin(auth)) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+  }
   let json: unknown = null
   try {
     json = await req.json()
@@ -155,38 +163,44 @@ export async function POST(req: Request) {
   if (!code) {
     return NextResponse.json({ error: 'Partition code is required.' }, { status: 400 })
   }
-  const em = await resolveEm()
-  await ensureDefaultPartitions(em)
-  const exists = await findOneWithDecryption(
-    em,
-    AttachmentPartition,
-    { code },
-    undefined,
-    { tenantId: auth.tenantId, organizationId: auth.orgId ?? null },
-  )
-  if (exists) {
+  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? null }
+  const conflict = () => {
     return NextResponse.json({ error: 'Partition code already exists.' }, { status: 409 })
   }
-  const entry = em.create(AttachmentPartition, {
-    code,
-    accessResolverRequirements: getDeclaredAttachmentAccessRequirements(code),
-    title: parsed.data.title.trim(),
-    description: parsed.data.description?.trim() ?? null,
-    storageDriver: parsed.data.storageDriver ?? 'local',
-    configJson: parsed.data.configJson ?? null,
-    isPublic: parsed.data.isPublic ?? false,
-    requiresOcr:
-      typeof parsed.data.requiresOcr === 'boolean'
-        ? parsed.data.requiresOcr
-        : resolveDefaultAttachmentOcrEnabled(),
-    ocrModel: parsed.data.ocrModel?.trim() || null,
-    extractDocumentStructure: parsed.data.extractDocumentStructure,
-    indexDocumentSections: parsed.data.indexDocumentSections,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId ?? null,
-  })
-  await em.persist(entry).flush()
-  return NextResponse.json({ item: serializePartition(entry) }, { status: 201 })
+  if (DEFAULT_CODES.has(code) || code === FORM_LOGO_PARTITION_CODE) return conflict()
+  const em = await resolveEm()
+  try {
+    return await em.transactional(async (tx) => {
+      await tx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [`attachment-partition:${scope.tenantId}:${code}`])
+      const exists = await findOneWithDecryption(
+        tx,
+        AttachmentPartition,
+        { code, ...attachmentPartitionVisibility(scope, scope.organizationId === null) },
+        undefined,
+        scope,
+      )
+      if (exists) return conflict()
+      const entry = tx.create(AttachmentPartition, {
+        code,
+        accessResolverRequirements: getDeclaredAttachmentAccessRequirements(code),
+        title: parsed.data.title.trim(),
+        description: parsed.data.description?.trim() ?? null,
+        storageDriver: parsed.data.storageDriver ?? 'local',
+        configJson: parsed.data.configJson ?? null,
+        isPublic: parsed.data.isPublic ?? false,
+        requiresOcr: parsed.data.requiresOcr ?? resolveDefaultAttachmentOcrEnabled(),
+        ocrModel: parsed.data.ocrModel?.trim() || null,
+        extractDocumentStructure: parsed.data.extractDocumentStructure,
+        indexDocumentSections: parsed.data.indexDocumentSections,
+        ...scope,
+      })
+      await tx.persist(entry).flush()
+      return NextResponse.json({ item: serializePartition(entry) }, { status: 201 })
+    })
+  } catch (error) {
+    if (error instanceof UniqueConstraintViolationException) return conflict()
+    throw error
+  }
 }
 
 export async function PUT(req: Request) {
@@ -296,6 +310,7 @@ export async function DELETE(req: Request) {
   }
   const usageFilter: Record<string, unknown> = { partitionCode: entry.code }
   if (entry.tenantId) usageFilter.tenantId = entry.tenantId
+  if (entry.organizationId) usageFilter.organizationId = entry.organizationId
   const usage = await em.count(Attachment, usageFilter)
   if (usage > 0) {
     return NextResponse.json({ error: 'Partition is in use and cannot be removed.' }, { status: 409 })
@@ -320,7 +335,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Create new partition',
-      description: 'Creates a new attachment partition with specified storage, OCR and document structure settings. Requires unique partition code. indexDocumentSections requires extractDocumentStructure.',
+      description: 'Creates a new attachment partition with specified storage, OCR and document structure settings. Codes are unique within the partition scope and cannot overlap shared partitions visible from that scope. indexDocumentSections requires extractDocumentStructure.',
       requestBody: {
         contentType: 'application/json',
         schema: partitionCreateSchema,

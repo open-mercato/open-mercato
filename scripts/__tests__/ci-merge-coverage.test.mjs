@@ -11,8 +11,8 @@ const workflow = parse(fs.readFileSync(new URL('../../.github/workflows/ci.yml',
 const coverageJob = workflow.jobs['merge-coverage']
 
 function evaluateJobCondition(job, overrides = {}, { workflowCancelled = false, shardMatrix = '["1/15","2/15"]' } = {}) {
-  const needs = Object.fromEntries(job.needs.map((dependency) => [dependency, { result: 'success' }]))
-  for (const [dependency, result] of Object.entries(overrides)) needs[dependency] = { result }
+  const needs = Object.fromEntries(job.needs.map((dependency) => [dependency, { result: 'success', outputs: {} }]))
+  for (const [dependency, result] of Object.entries(overrides)) needs[dependency] = { ...needs[dependency], result }
   needs.prepare.outputs = { shard_matrix: shardMatrix, skip_integration: 'false' }
   const expression = job.if.replace(/needs\.([\w-]+)/g, 'needs["$1"]')
   return vm.runInNewContext(expression, {
@@ -53,14 +53,17 @@ test('ordinary CI jobs stop when the workflow is cancelled even after successful
   }
 })
 
+const auditGatedJobNames = ['test', 'documents-multi-instance']
+
 test('ordinary CI jobs reject unsuccessful dependencies except an intentionally skipped audit', () => {
   for (const jobName of cancellableJobNames) {
     const job = workflow.jobs[jobName]
     for (const dependency of job.needs) {
       for (const result of ['failure', 'cancelled', 'skipped']) {
+        const auditGateRuns = auditGatedJobNames.includes(jobName) && dependency === 'audit' && result !== 'skipped'
         assert.equal(
           evaluateJobCondition(job, { [dependency]: result }),
-          dependency === 'audit' && result === 'skipped',
+          (dependency === 'audit' && result === 'skipped') || auditGateRuns,
           `${jobName}: ${dependency} ${result}`,
         )
       }
@@ -137,6 +140,12 @@ test('documentation and module PRs preserve affected-package validation', () => 
       'turbo run typecheck --filter=[HEAD^1]...',
       'turbo run test --filter=[HEAD^1]...',
     ])
+  }
+})
+
+test('forced full-suite PRs run full typecheck and unit gates', () => {
+  for (const changedPath of ['README.md', 'packages/core/src/modules/customers/index.ts']) {
+    assert.deepEqual(runValidationSteps({ changedPath, fullSuite: true }), ['typecheck', 'test'])
   }
 })
 

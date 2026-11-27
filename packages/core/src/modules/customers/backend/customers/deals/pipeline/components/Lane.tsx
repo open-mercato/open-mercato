@@ -41,12 +41,13 @@ type LaneProps = {
   buildMenuItems: (deal: DealCardData) => RowActionItem[]
   activeDragDealId?: string | null
   isLoadingMore?: boolean
+  canDrag?: boolean
   /** Pixel width override (when the user has resized the column). Falls back to the default class. */
   width?: number | null
   onToggleSelect: (dealId: string) => void
-  onComposeActivity: (dealId: string, type: 'call' | 'email' | 'note') => void
-  onOpenDetail: (dealId: string) => void
-  onQuickAddClick: (stageId: string) => void
+  onComposeActivity?: (dealId: string, type: 'call' | 'email' | 'note') => void
+  onOpenDetail?: (dealId: string) => void
+  onQuickAddClick?: (stageId: string) => void
   onLoadMore?: (stageId: string) => void
   /** Drag-resize callbacks. When provided, a vertical drag handle is rendered on the lane edge. */
   onResize?: (stageId: string, deltaPx: number) => void
@@ -182,6 +183,7 @@ function LaneImpl({
   buildMenuItems,
   activeDragDealId,
   isLoadingMore = false,
+  canDrag = true,
   width,
   onToggleSelect,
   onComposeActivity,
@@ -196,6 +198,7 @@ function LaneImpl({
   const { setNodeRef, isOver } = useDroppable({
     id: `lane:${stage.id}`,
     data: { type: 'lane', stageId: stage.id },
+    disabled: !canDrag,
   })
   const isDragActive = !!activeDragDealId
   const sourceLane = isDragActive && deals.some((deal) => deal.id === activeDragDealId)
@@ -220,7 +223,7 @@ function LaneImpl({
   const countBadgeClass = getCountBadgeClass(stage.tone)
 
   const handleQuickAdd = React.useCallback(() => {
-    onQuickAddClick(stage.id)
+    onQuickAddClick?.(stage.id)
   }, [onQuickAddClick, stage.id])
 
   return (
@@ -273,7 +276,7 @@ function LaneImpl({
         </div>
       </div>
 
-      <DashedTileButton
+      {onQuickAddClick ? <DashedTileButton
         onClick={handleQuickAdd}
         className="h-11"
         ariaLabel={translateWithFallback(
@@ -285,7 +288,7 @@ function LaneImpl({
       >
         <span className="text-base font-bold leading-none">+</span>
         <span>{translateWithFallback(t, 'customers.deals.kanban.cta.quickDeal', 'Quick deal')}</span>
-      </DashedTileButton>
+      </DashedTileButton> : null}
 
       <div
         ref={setNodeRef}
@@ -315,6 +318,7 @@ function LaneImpl({
               bulkSelectionActive={bulkSelectionActive}
               buildMenuItems={buildMenuItems}
               isActiveDrag={activeDragDealId === deal.id}
+              canDrag={canDrag}
               onToggleSelect={onToggleSelect}
               onComposeActivity={onComposeActivity}
               onOpenDetail={onOpenDetail}
@@ -366,6 +370,10 @@ export const Lane = React.memo(LaneImpl, (prev, next) => {
   if (prev.buildMenuItems !== next.buildMenuItems) return false
   if (prev.activeDragDealId !== next.activeDragDealId) return false
   if (prev.isLoadingMore !== next.isLoadingMore) return false
+  if (prev.canDrag !== next.canDrag) return false
+  if (prev.onComposeActivity !== next.onComposeActivity) return false
+  if (prev.onOpenDetail !== next.onOpenDetail) return false
+  if (prev.onQuickAddClick !== next.onQuickAddClick) return false
   if (prev.width !== next.width) return false
   return true
 })

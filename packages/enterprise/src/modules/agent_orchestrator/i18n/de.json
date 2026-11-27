@@ -387,6 +387,7 @@
   "agent_orchestrator.errors.timeout": "Der Agentenlauf hat das Zeitlimit überschritten, bevor ein Ergebnis vorlag",
   "agent_orchestrator.errors.unauthorized": "Nicht autorisiert",
   "agent_orchestrator.errors.validation_failed": "Validierung fehlgeschlagen",
+  "agent_orchestrator.errors.workflowsModuleDisabled": "Das Workflow-Modul ist nicht aktiviert",
   "agent_orchestrator.evalAssertions.actions.new": "Neue Regel",
   "agent_orchestrator.evalAssertions.confirmDelete.text": "Diese Assertion löschen? Künftige Läufe werden nicht mehr dagegen bewertet.",
   "agent_orchestrator.evalAssertions.enabled.off": "Inaktiv",

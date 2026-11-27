@@ -54,7 +54,7 @@ async function createLockUser(
   const email = `qa.lock032.${stamp}@example.com`
   const id = await createUserFixture(request, token, {
     email,
-    password: 'Secret123!',
+    password: 'QaSecret123!',
     organizationId,
     roles: [],
     name: `QA Lock 032 ${stamp}`,

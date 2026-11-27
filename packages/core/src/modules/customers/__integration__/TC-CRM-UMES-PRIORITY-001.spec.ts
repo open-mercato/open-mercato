@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test as base } from '@playwright/test'
 import { createCompanyFixture, createDealFixture, createPersonFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
 import {
   assertNativePayload, authenticateCrm, captureCrmWrites, cleanupCrmRecord, cleanupCrmFixtures, createPriority,
@@ -7,9 +7,22 @@ import {
 
 export const integrationMeta = { requiredModules: ['customers', 'example'] }
 
+type CleanupRecord = { kind: CrmKind; id: string; token: string }
+
+const test = base.extend<{ cleanupRecords: CleanupRecord[] }>({
+  cleanupRecords: async ({ request }, provideRecords) => {
+    const records: CleanupRecord[] = []
+    await provideRecords(records)
+    await cleanupCrmFixtures(records.reverse().map(({ token, kind, id }) =>
+      () => cleanupCrmRecord(request, token, kind, id)))
+  },
+})
+
 test.describe('TC-CRM-UMES-PRIORITY-001: Real contributor detail round trips', () => {
+  test.slow()
+
   for (const kind of ['people', 'companies', 'deals'] as const) {
-    test(`${kind} loads, saves and reloads native and owning-module fields`, async ({ page, request }, testInfo) => {
+    test(`${kind} loads, saves and reloads native and owning-module fields`, async ({ page, request, cleanupRecords }, testInfo) => {
       const token = await authenticateCrm(page, request)
       const name = `UMES ${kind} ${Date.now()}`
       let id: string | null = null
@@ -20,10 +33,12 @@ test.describe('TC-CRM-UMES-PRIORITY-001: Real contributor detail round trips', (
         if (kind === 'companies') id = await createCompanyFixture(request, token, name)
         if (kind === 'deals') {
           linkedPersonId = await createPersonFixture(request, token, { firstName: 'Linked', lastName: 'Person', displayName: `${name} link` })
+          cleanupRecords.push({ kind: 'people', id: linkedPersonId, token })
           id = await createDealFixture(request, token, { title: name, personIds: [linkedPersonId] })
         }
         expect(id).toBeTruthy()
         const recordId = id as string
+        cleanupRecords.push({ kind, id: recordId, token })
         const child = await createPriority(request, token, recordId, 'high')
         const cold = await readCrmOverview(request, token, kind, recordId)
         const hit = await readCrmOverview(request, token, kind, recordId)
@@ -75,10 +90,6 @@ test.describe('TC-CRM-UMES-PRIORITY-001: Real contributor detail round trips', (
         }
       } finally {
         captured.stop()
-        await cleanupCrmFixtures([
-          () => cleanupCrmRecord(request, token, kind as CrmKind, id),
-          () => cleanupCrmRecord(request, token, 'people', linkedPersonId),
-        ])
       }
     })
   }

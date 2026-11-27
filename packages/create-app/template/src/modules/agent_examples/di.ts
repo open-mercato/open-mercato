@@ -1,5 +1,6 @@
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import { agentReferenceResolverDiKey } from '@open-mercato/shared/lib/ai/referenceResolver'
 import { SUPPORT_POLICY_RESOLVER_ID, supportPolicyResolver } from './lib/supportPolicies'
 
@@ -13,3 +14,5 @@ export function register(container: AppContainer) {
     [agentReferenceResolverDiKey(SUPPORT_POLICY_RESOLVER_ID)]: asValue(supportPolicyResolver),
   })
 }
+
+defineProcessDiRegistrar(register)
