@@ -126,7 +126,10 @@ describe('restorePaymentSnapshot custom fields (issue #6449)', () => {
 
     expect(em.nativeDelete).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ recordId: { $in: [STALE_ALLOCATION_ID] } }),
+      expect.objectContaining({
+        recordId: { $in: [STALE_ALLOCATION_ID] },
+        $or: [{ tenantId: TENANT_ID }, { tenantId: null }],
+      }),
     )
     const allocationCreateCall = (em.create as jest.Mock).mock.calls.find(
       (args: unknown[]) => (args[1] as Record<string, unknown>)?.amount !== undefined,

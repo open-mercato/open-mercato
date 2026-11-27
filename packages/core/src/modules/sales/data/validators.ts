@@ -898,6 +898,63 @@ const documentAddressFields = {
   longitude: z.coerce.number().optional().nullable(),
 }
 
+// Mirrors @open-mercato/shared/lib/crud/custom-fields's splitCustomFieldPayload so a
+// nested shipment-item/payment-allocation entry can carry its custom fields as
+// `customFields` (object or {key,value}[]), `customValues`, or `cf_*`/`cf:*` keys — the
+// same forms the route layer already normalizes at the parent level (#8068). Duplicated
+// locally rather than imported: that module pulls in MikroORM entity classes which must
+// not reach this validators file (imported by a client-bundled document page).
+function splitChildCustomFieldPayload(raw: Record<string, unknown>): {
+  base: Record<string, unknown>
+  custom: Record<string, unknown>
+} {
+  const base: Record<string, unknown> = {}
+  const custom: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (key === 'customFields') {
+      if (Array.isArray(value)) {
+        value.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') return
+          const entryKey = typeof (entry as any).key === 'string' ? (entry as any).key.trim() : ''
+          if (!entryKey) return
+          custom[entryKey] = (entry as any).value
+        })
+        continue
+      }
+      if (value && typeof value === 'object') {
+        for (const [ck, cv] of Object.entries(value as Record<string, unknown>)) {
+          const normalizedKey = typeof ck === 'string' ? ck.trim() : ''
+          if (!normalizedKey) continue
+          custom[normalizedKey] = cv
+        }
+        continue
+      }
+    }
+    if (key === 'customValues' && value && typeof value === 'object' && !Array.isArray(value)) {
+      for (const [ck, cv] of Object.entries(value as Record<string, unknown>)) {
+        custom[String(ck)] = cv
+      }
+      continue
+    }
+    if (key.startsWith('cf_')) {
+      custom[key.slice(3)] = value
+      continue
+    }
+    if (key.startsWith('cf:')) {
+      custom[key.slice(3)] = value
+      continue
+    }
+    base[key] = value
+  }
+  return { base, custom }
+}
+
+function normalizeChildCustomFieldsInput(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
+  const { base, custom } = splitChildCustomFieldPayload(raw as Record<string, unknown>)
+  return Object.keys(custom).length ? { ...base, customFields: custom } : raw
+}
+
 export const documentAddressCreateSchema = scoped.extend(documentAddressFields)
 
 export const documentAddressUpdateSchema = scoped.extend({
@@ -933,17 +990,20 @@ export const shipmentCreateSchema = scoped.extend({
   customFields: z.record(z.string(), z.unknown()).optional(),
   items: z
     .array(
-      z.object({
-        orderLineId: uuid(),
-        quantity: decimal({
-          min: 0,
-          max: MAX_QUANTITY,
-          message: 'Quantity is too large.',
-          intMessage: 'Quantity must be a whole number.',
-        }),
-        metadata,
-        customFields: z.record(z.string(), z.unknown()).optional(),
-      })
+      z.preprocess(
+        normalizeChildCustomFieldsInput,
+        z.object({
+          orderLineId: uuid(),
+          quantity: decimal({
+            min: 0,
+            max: MAX_QUANTITY,
+            message: 'Quantity is too large.',
+            intMessage: 'Quantity must be a whole number.',
+          }),
+          metadata,
+          customFields: z.record(z.string(), z.unknown()).optional(),
+        })
+      )
     )
     .optional(),
 })
@@ -1117,14 +1177,17 @@ export const paymentCreateSchema = scoped.extend({
   customFields: z.record(z.string(), z.unknown()).optional(),
   allocations: z
     .array(
-      z.object({
-        orderId: uuid().optional(),
-        invoiceId: uuid().optional(),
-        amount: decimal({ min: 0 }),
-        currencyCode,
-        metadata,
-        customFields: z.record(z.string(), z.unknown()).optional(),
-      })
+      z.preprocess(
+        normalizeChildCustomFieldsInput,
+        z.object({
+          orderId: uuid().optional(),
+          invoiceId: uuid().optional(),
+          amount: decimal({ min: 0 }),
+          currencyCode,
+          metadata,
+          customFields: z.record(z.string(), z.unknown()).optional(),
+        })
+      )
     )
     .optional(),
 })

@@ -244,6 +244,7 @@ describe('shipment items expose custom fields (issue #8068)', () => {
       expect.objectContaining({
         entityId: E.sales.sales_shipment_item,
         recordId: { $in: [EXISTING_ITEM_ID] },
+        $or: [{ tenantId: TEST_TENANT_ID }, { tenantId: null }],
       }),
     )
     const itemCall = (setRecordCustomFields as jest.Mock).mock.calls.find(
@@ -251,5 +252,53 @@ describe('shipment items expose custom fields (issue #8068)', () => {
     )
     expect(itemCall).toBeDefined()
     expect((itemCall?.[1] as Record<string, unknown>)?.values).toEqual({ priority: 'low' })
+  })
+
+  it('delete purges item custom field rows before removing the shipment (issue #10904 review)', async () => {
+    const execute = commandRegistry.get('sales.shipments.delete')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    const mockOrder = { id: TEST_ORDER_ID, tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID }
+    const mockShipment = {
+      id: EXISTING_SHIPMENT_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      order: mockOrder,
+    }
+    const mockLine = { id: TEST_LINE_ID, quantity: '100', fulfilledQuantity: '0' }
+    const existingItem = { id: EXISTING_ITEM_ID, orderLine: TEST_LINE_ID, quantity: '5' }
+
+    const tx = buildMockTx()
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(mockShipment)
+    const em = {
+      ...buildMockTx(),
+      transactional: jest.fn().mockImplementation(async (callback: (trx: any) => Promise<any>) => {
+        ;(findWithDecryption as jest.Mock)
+          .mockResolvedValueOnce([existingItem]) // items on the shipment being deleted
+          .mockResolvedValueOnce([]) // recomputeFulfilledQuantities: shipments
+          .mockResolvedValueOnce([mockLine]) // recomputeFulfilledQuantities: order lines
+        return callback(tx)
+      }),
+    }
+    const ctx = buildCtx(em)
+
+    await execute?.(
+      {
+        id: EXISTING_SHIPMENT_ID,
+        orderId: TEST_ORDER_ID,
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+      },
+      ctx as any,
+    )
+
+    expect(tx.nativeDelete).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        entityId: E.sales.sales_shipment_item,
+        recordId: { $in: [EXISTING_ITEM_ID] },
+        $or: [{ tenantId: TEST_TENANT_ID }, { tenantId: null }],
+      }),
+    )
   })
 })

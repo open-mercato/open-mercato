@@ -177,6 +177,27 @@ const parseTrackingNumbers = (input: unknown): string[] | null => {
 const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
   input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
 
+// Mirrors setRecordCustomFields' own tenant reconciliation (entities/lib/helpers.ts):
+// a purge of a record's custom field values must not reach across tenants, while still
+// reconciling instance-global (NULL tenant) rows the way every reader does.
+const tenantReconciliationFilter = (tenantId: string | null | undefined) => ({
+  $or: [{ tenantId }, { tenantId: null }],
+})
+
+async function purgeRecordCustomFieldValues(
+  em: EntityManager,
+  entityId: string,
+  recordIds: string[],
+  tenantId: string | null | undefined,
+): Promise<void> {
+  if (!recordIds.length) return
+  await em.nativeDelete(CustomFieldValue, {
+    entityId,
+    recordId: { $in: recordIds },
+    ...tenantReconciliationFilter(tenantId),
+  })
+}
+
 const resolveLogger = (ctx: any): { warn?: (meta: any, message?: string) => void } | null => {
   const container = ctx?.container as any
   if (!container) return null
@@ -323,12 +344,12 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
   await em.flush()
 
   const existingItems = await em.find(SalesShipmentItem, { shipment: entity })
-  if (existingItems.length) {
-    await em.nativeDelete(CustomFieldValue, {
-      entityId: E.sales.sales_shipment_item,
-      recordId: { $in: existingItems.map((item) => item.id) },
-    })
-  }
+  await purgeRecordCustomFieldValues(
+    em,
+    E.sales.sales_shipment_item,
+    existingItems.map((item) => item.id),
+    snapshot.tenantId,
+  )
   existingItems.forEach((item) => em.remove(item))
   const items = Array.isArray(snapshot.items) ? snapshot.items : []
   const lineIds = items
@@ -387,6 +408,12 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
 async function deleteShipmentWithItems(em: EntityManager, shipment: SalesShipment): Promise<void> {
   const scope = { tenantId: shipment.tenantId, organizationId: shipment.organizationId }
   const items = await findWithDecryption(em, SalesShipmentItem, { shipment }, {}, scope)
+  await purgeRecordCustomFieldValues(
+    em,
+    E.sales.sales_shipment_item,
+    items.map((item) => item.id),
+    shipment.tenantId,
+  )
   items.forEach((item) => em.remove(item))
   em.remove(shipment)
   await em.flush()
@@ -914,12 +941,12 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       const existingItems = shouldLoadItems ? await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }) : []
       const newItems: SalesShipmentItem[] = []
       if (normalizedItems) {
-        if (existingItems.length) {
-          await tx.nativeDelete(CustomFieldValue, {
-            entityId: E.sales.sales_shipment_item,
-            recordId: { $in: existingItems.map((item) => item.id) },
-          })
-        }
+        await purgeRecordCustomFieldValues(
+          tx,
+          E.sales.sales_shipment_item,
+          existingItems.map((item) => item.id),
+          shipmentEntity.tenantId,
+        )
         existingItems.forEach((item) => tx.remove(item))
         for (const item of normalizedItems) {
           const lineRef = tx.getReference(SalesOrderLine, item.orderLineId)
@@ -1164,6 +1191,12 @@ const deleteShipmentCommand: CommandHandler<
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
       const scope = { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }
       const items = await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, scope)
+      await purgeRecordCustomFieldValues(
+        tx,
+        E.sales.sales_shipment_item,
+        items.map((item) => item.id),
+        shipmentEntity.tenantId,
+      )
       items.forEach((item) => tx.remove(item))
       tx.remove(shipmentEntity)
       await tx.flush()

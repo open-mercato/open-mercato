@@ -233,6 +233,7 @@ describe('payment allocations expose custom fields (issue #8068)', () => {
       expect.objectContaining({
         entityId: E.sales.sales_payment_allocation,
         recordId: { $in: [EXISTING_ALLOCATION_ID] },
+        $or: [{ tenantId: TEST_TENANT_ID }, { tenantId: null }],
       }),
     )
     const allocationCall = (setRecordCustomFields as jest.Mock).mock.calls.find(
@@ -240,5 +241,111 @@ describe('payment allocations expose custom fields (issue #8068)', () => {
     )
     expect(allocationCall).toBeDefined()
     expect((allocationCall?.[1] as Record<string, unknown>)?.values).toEqual({ ref: 'xyz' })
+  })
+
+  it('create-undo purges allocation custom field rows before removing allocations (issue #10904 review)', async () => {
+    const undo = commandRegistry.get('sales.payments.create')?.undo
+    expect(undo).toBeInstanceOf(Function)
+
+    const existingAllocation = { id: EXISTING_ALLOCATION_ID, order: TEST_ORDER_ID, invoice: null }
+    const existingPayment = {
+      id: TEST_PAYMENT_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      order: { id: TEST_ORDER_ID },
+    }
+
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(existingPayment) // payment lookup inside undo
+      .mockResolvedValue(mockOrder) // further order lookups (locking)
+    ;(findWithDecryption as jest.Mock).mockImplementation((_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+      if (filter?.payment !== undefined) return Promise.resolve([existingAllocation])
+      return Promise.resolve([])
+    })
+
+    let capturedTx: any
+    const { ctx } = buildCommandCtx({
+      transactional: jest.fn().mockImplementation(async (callback: (tx: any) => Promise<unknown>) => {
+        capturedTx = buildMockEm()
+        return callback(capturedTx)
+      }),
+    })
+
+    const after = {
+      id: TEST_PAYMENT_ID,
+      orderId: TEST_ORDER_ID,
+      organizationId: TEST_ORG_ID,
+      tenantId: TEST_TENANT_ID,
+      paymentMethodId: null,
+      paymentReference: null,
+      statusEntryId: null,
+      status: null,
+      amount: 100,
+      currencyCode: 'USD',
+      capturedAmount: 0,
+      refundedAmount: 0,
+      receivedAt: null,
+      capturedAt: null,
+      metadata: null,
+      allocations: [],
+    }
+    const logEntry = {
+      payload: { undo: { after, orderPaymentMethodIdBefore: null, orderPaymentMethodCodeBefore: null } },
+    }
+
+    await undo?.({ logEntry: logEntry as any, ctx: ctx as any })
+
+    expect(capturedTx.nativeDelete).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        entityId: E.sales.sales_payment_allocation,
+        recordId: { $in: [EXISTING_ALLOCATION_ID] },
+        $or: [{ tenantId: TEST_TENANT_ID }, { tenantId: null }],
+      }),
+    )
+  })
+
+  it('delete purges allocation custom field rows before removing the payment (issue #10904 review)', async () => {
+    const execute = commandRegistry.get('sales.payments.delete')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    const mockPayment = {
+      id: TEST_PAYMENT_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      order: mockOrder,
+      updatedAt: new Date(),
+    }
+    const existingAllocation = { id: EXISTING_ALLOCATION_ID, order: TEST_ORDER_ID, invoice: null }
+
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(mockPayment) // payment lookup (populate: ['order'])
+      .mockResolvedValue(mockOrder) // further order lookups (locking)
+    ;(findWithDecryption as jest.Mock).mockImplementation((_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+      if (filter?.payment !== undefined) return Promise.resolve([existingAllocation])
+      return Promise.resolve([])
+    })
+
+    let capturedTx: any
+    const { ctx } = buildCommandCtx({
+      transactional: jest.fn().mockImplementation(async (callback: (tx: any) => Promise<unknown>) => {
+        capturedTx = buildMockEm()
+        return callback(capturedTx)
+      }),
+    })
+
+    await execute?.(
+      { id: TEST_PAYMENT_ID, organizationId: TEST_ORG_ID, tenantId: TEST_TENANT_ID },
+      ctx as any,
+    )
+
+    expect(capturedTx.nativeDelete).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        entityId: E.sales.sales_payment_allocation,
+        recordId: { $in: [EXISTING_ALLOCATION_ID] },
+        $or: [{ tenantId: TEST_TENANT_ID }, { tenantId: null }],
+      }),
+    )
   })
 })

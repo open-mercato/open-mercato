@@ -131,6 +131,27 @@ const toNumber = (value: unknown): number => {
 const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
   input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
 
+// Mirrors setRecordCustomFields' own tenant reconciliation (entities/lib/helpers.ts):
+// a purge of a record's custom field values must not reach across tenants, while still
+// reconciling instance-global (NULL tenant) rows the way every reader does.
+const tenantReconciliationFilter = (tenantId: string | null | undefined) => ({
+  $or: [{ tenantId }, { tenantId: null }],
+})
+
+async function purgeRecordCustomFieldValues(
+  em: EntityManager,
+  entityId: string,
+  recordIds: string[],
+  tenantId: string | null | undefined,
+): Promise<void> {
+  if (!recordIds.length) return
+  await em.nativeDelete(CustomFieldValue, {
+    entityId,
+    recordId: { $in: recordIds },
+    ...tenantReconciliationFilter(tenantId),
+  })
+}
+
 const paymentCrudEvents: CrudEventsConfig = {
   module: 'sales',
   entity: 'payment',
@@ -281,12 +302,12 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
   }
 
   const existingAllocations = await findWithDecryption(em, SalesPaymentAllocation, { payment: entity }, {}, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
-  if (existingAllocations.length) {
-    await em.nativeDelete(CustomFieldValue, {
-      entityId: E.sales.sales_payment_allocation,
-      recordId: { $in: existingAllocations.map((allocation) => allocation.id) },
-    })
-  }
+  await purgeRecordCustomFieldValues(
+    em,
+    E.sales.sales_payment_allocation,
+    existingAllocations.map((allocation) => allocation.id),
+    snapshot.tenantId,
+  )
   existingAllocations.forEach((allocation) => em.remove(allocation))
   for (const allocation of snapshot.allocations) {
     const order =
@@ -309,7 +330,7 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
       metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
     })
     em.persist(newAllocation)
-    const allocationCustomFields = (allocation as any).customFields
+    const allocationCustomFields = allocation.customFields
     if (allocationCustomFields && typeof allocationCustomFields === 'object' && Object.keys(allocationCustomFields).length) {
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_payment_allocation,
@@ -662,6 +683,7 @@ const createPaymentCommand: CommandHandler<
               amountExact: input.amountExact,
               currencyCode: input.currencyCode,
               metadata: null,
+              customFields: undefined,
             },
           ]
       const orderCache = new Map<string, SalesOrder>([[order.id, order]])
@@ -715,7 +737,7 @@ const createPaymentCommand: CommandHandler<
           metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
         })
         tx.persist(entity)
-        const rawAllocationCustomFields = (allocation as any).customFields
+        const rawAllocationCustomFields = allocation.customFields
         if (rawAllocationCustomFields !== undefined && rawAllocationCustomFields !== null) {
           await setRecordCustomFields(tx, {
             entityId: E.sales.sales_payment_allocation,
@@ -827,6 +849,12 @@ const createPaymentCommand: CommandHandler<
       if (!existing) return null
       const lockedOrders = await lockPaymentOrders(tx, existing, [resolveRefId(existing.order), snapshotOrderIds(after)], scope)
       const allocations = await findWithDecryption(tx, SalesPaymentAllocation, { payment: existing }, {}, scope)
+      await purgeRecordCustomFieldValues(
+        tx,
+        E.sales.sales_payment_allocation,
+        allocations.map((allocation) => allocation.id),
+        existing.tenantId,
+      )
       allocations.forEach((allocation) => tx.remove(allocation))
       tx.remove(existing)
       await tx.flush()
@@ -1083,12 +1111,12 @@ const updatePaymentCommand: CommandHandler<
 
       if (input.allocations !== undefined) {
         const existingAllocations = await findWithDecryption(tx, SalesPaymentAllocation, { payment }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
-        if (existingAllocations.length) {
-          await tx.nativeDelete(CustomFieldValue, {
-            entityId: E.sales.sales_payment_allocation,
-            recordId: { $in: existingAllocations.map((allocation) => allocation.id) },
-          })
-        }
+        await purgeRecordCustomFieldValues(
+          tx,
+          E.sales.sales_payment_allocation,
+          existingAllocations.map((allocation) => allocation.id),
+          payment.tenantId,
+        )
         existingAllocations.forEach((allocation) => tx.remove(allocation))
         const allocationInputs = resolveAllocationInputs(input.allocations, rawInput)
         const paymentOrderId =
@@ -1146,7 +1174,7 @@ const updatePaymentCommand: CommandHandler<
             metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
           })
           tx.persist(entity)
-          const rawAllocationCustomFields = (allocation as any).customFields
+          const rawAllocationCustomFields = allocation.customFields
           if (rawAllocationCustomFields !== undefined && rawAllocationCustomFields !== null) {
             await setRecordCustomFields(tx, {
               entityId: E.sales.sales_payment_allocation,
@@ -1290,6 +1318,12 @@ const deletePaymentCommand: CommandHandler<
     const { allocations, lockedOrders, orderTotals } = await em.transactional(async (tx) => {
       const lockedOrders = await lockPaymentOrders(tx, payment, [primaryOrderId], scope)
       const allocations = await findWithDecryption(tx, SalesPaymentAllocation, { payment }, {}, scope)
+      await purgeRecordCustomFieldValues(
+        tx,
+        E.sales.sales_payment_allocation,
+        allocations.map((allocation) => allocation.id),
+        payment.tenantId,
+      )
       allocations.forEach((allocation) => tx.remove(allocation))
       tx.remove(payment)
       const orderTotals = await recomputeLockedOrders(tx, lockedOrders)
