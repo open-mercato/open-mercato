@@ -1,4 +1,4 @@
-import * as timezone from '../timezone'
+import * as timezone from '@open-mercato/core/helpers/calendar/timezone'
 import { calendarDayEndInstant, calendarDayStartInstant, calendarInstantToWallTime, calendarTimezoneOptions, calendarWallTimeToInstant, canonicalCalendarTimezone, isCalendarTimezone } from '../timezone'
 import { buildInteractionPayload, computeDurationMinutes, createDefaultFormState, parseItemToFormState } from '../editorPayload'
 import { mapInteractionToCalendarItem } from '../mapItem'
