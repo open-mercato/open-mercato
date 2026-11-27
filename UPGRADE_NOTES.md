@@ -227,6 +227,14 @@ The attachment library automatically fills in assignment labels and links only w
 
 Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
 
+## New module: `assisted_selling` with per-store settings (assisted selling spec, step AS1)
+
+**Additive (`@open-mercato/core`).** The `assisted_selling` module is registered and enabled in the app (it requires `cart`; it stays commented out in the `create-mercato-app` template with the rest of the commerce suite). It adds one table, `assisted_selling_store_settings`, and `GET/PUT /api/assisted_selling/settings/:storeId`. A store's `mode` defaults to `off` and the Release 5 API accepts `rep` or `off` only. There is no settings page yet. The six new ACL features (`assisted_selling.threads.view`, `.threads.participate`, `.messages.post`, `.proposals.author`, `.attributions.view`, `.settings.manage`) gate only the settings API until the conversation routes land. `admin` gets `assisted_selling.*`; `employee` gets `threads.view`, `threads.participate`, `messages.post` and `cart.proposals.view`.
+
+`ecommerce`'s `StoreContextService` gains an optional `findStoreForOrganizations` member. A custom `StoreContextService` without it keeps working; the settings API then answers `404` for every store.
+
+**Action for existing tenants:** run `yarn db:migrate`, then `yarn mercato auth sync-role-acls` (idempotent, additive) so `admin` and `employee` receive the new grants.
+
 ## Deployment service access
 
 Full-app Compose publishes LocalStack on loopback. Recreate the container to apply the binding, and use the internal service endpoint for Compose consumers. Set one strong random `OPENCODE_PASSWORD` for the OpenCode service and its callers, then rebuild and recreate both sides. The hybrid starter provisions this local credential automatically.
