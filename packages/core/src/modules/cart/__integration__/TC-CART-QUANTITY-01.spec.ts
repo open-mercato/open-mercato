@@ -68,9 +68,34 @@ test('TC-CART-QUANTITY-01: add, update and bulk add reject excess decimal precis
       }
     }
 
+    const addRequest = {
+      method: 'POST' as const,
+      cartToken: cart.token,
+      headers: { 'Idempotency-Key': uniqueStamp() },
+    };
+    const refused = await cartStorefrontRequest(store.hostname, CART_LINES_PATH, {
+      ...addRequest, body: { productId: product.productId, quantity: '0' },
+    });
+    expect(refused.status, refused.text).toBe(400);
+    expect(refused.body).toMatchObject({ code: 'cart_quantity_invalid' });
+
     const current = await cartStorefrontRequest(store.hostname, CART_CURRENT_PATH, { method: 'GET', cartToken: cart.token });
     expect(current.status, current.text).toBe(200);
-    expect(current.body).toMatchObject({ cart: { lines: [{ id: originalLine.id, quantity: originalLine.quantity }] } });
+    expect(current.body).toMatchObject({ cart: {
+      lines: [{ id: originalLine.id, quantity: originalLine.quantity }],
+      totals: { grandTotalNetAmountExact: '100' },
+    } });
+
+    const correctedRequest = { ...addRequest, body: { productId: product.productId, quantity: '1' } };
+    const corrected = await cartStorefrontRequest(store.hostname, CART_LINES_PATH, correctedRequest);
+    expect(corrected.status, corrected.text).toBe(200);
+    expect(corrected.body).toMatchObject({ cart: {
+      lines: [{ id: originalLine.id, quantity: '2' }],
+      totals: { grandTotalNetAmountExact: '200' },
+    } });
+    const correctedReplay = await cartStorefrontRequest(store.hostname, CART_LINES_PATH, correctedRequest);
+    expect(correctedReplay.status, correctedReplay.text).toBe(200);
+    expect(correctedReplay.body).toEqual(corrected.body);
 
     const updated = await cartStorefrontRequest(store.hostname, linePath, {
       method: 'PATCH', cartToken: cart.token, body: { quantity: '999999999999.9991' },
