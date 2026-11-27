@@ -16,8 +16,9 @@ type InitiateResponse = { authorizeUrl?: string; error?: string; code?: string }
 export function useConnectChannel(options: {
   providerKey: string
   returnUrl?: string
+  onNotConfigured?: () => void
 }): { connect: () => Promise<void>; pending: boolean } {
-  const { providerKey } = options
+  const { providerKey, onNotConfigured } = options
   const returnUrl = options.returnUrl ?? '/backend/profile/communication-channels'
   const t = useT()
   const [pending, setPending] = React.useState(false)
@@ -57,6 +58,10 @@ export function useConnectChannel(options: {
           return
         }
         if (body?.code === 'oauth_client_not_configured') {
+          if (onNotConfigured) {
+            onNotConfigured()
+            return
+          }
           flash(
             t(
               'communication_channels.profile.connect.notConfigured',
@@ -77,7 +82,7 @@ export function useConnectChannel(options: {
     } finally {
       setPending(false)
     }
-  }, [mutationContext, pending, providerKey, returnUrl, runMutation, t])
+  }, [mutationContext, onNotConfigured, pending, providerKey, returnUrl, runMutation, t])
 
   return { connect, pending }
 }

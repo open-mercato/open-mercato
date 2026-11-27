@@ -16,7 +16,7 @@ test.describe('TC-AUTH-008: Admin Creates New User', () => {
     try {
       token = await getAuthToken(request);
       await login(page, 'admin');
-      await createUserViaUi(page, { email, password: 'Valid1!Pass', role: 'employee' });
+      await createUserViaUi(page, { email, password: 'QaValid1!Pass', role: 'employee' });
       await expect(page.getByText(email)).toBeVisible();
 
       await page.getByRole('row', { name: new RegExp(email, 'i') }).click();

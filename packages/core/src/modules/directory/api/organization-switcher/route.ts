@@ -179,7 +179,7 @@ export async function GET(req: NextRequest) {
     const requestedAll = isAllOrganizationsSelection(rawSelected)
     const selectedKeyPart = buildSelectionCacheKeyPart(rawSelected)
     const cacheKey = selectedKeyPart
-      ? `org-switcher:v1:${auth.sub}:${tenantId}:${selectedKeyPart}`
+      ? `org-switcher:v2:${auth.sub}:${tenantId}:${selectedKeyPart}`
       : null
     let cache: CacheStrategy | null = null
     if (!actorIsSuperAdmin && cacheKey) {

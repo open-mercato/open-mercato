@@ -1,0 +1,30 @@
+# Vector-index entity read authorization
+
+Require the vector-index list to respect the same entity view features as search results. The list remains scoped to the caller's tenant and approved organizations. This work addresses #10693.
+
+Source doc: .ai/specs/2026-11-26-vector-index-entity-authorization.md
+
+## Scope
+
+Apply the existing search entity authorization policy to the vector-index list and preserve pagination over readable entries. Keep the API response schema and existing purge behavior. Add automated coverage with synthetic data. The work is confined to backend code and documentation.
+
+## Risks
+
+A change to how the index selects readable types can alter results seen by diagnostic clients. Verify scoped grants, a permitted explicit entity, a denied explicit entity, and mixed listings. Keep the fix open for review and acceptance.
+
+The affected search tests, PostgreSQL filter check, typecheck and independent production build passed. The full workspace gate remains open because the unchanged Core `TasksSection.conflicts.test.tsx` suite failed in the full test retry. Its seven tests passed in isolation.
+
+## Progress
+
+PR: #10796
+
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: Restrict vector-index reads
+
+- [x] 1.1 Enforce entity read authorization before pagination and at the response boundary — 8092941152
+- [x] 1.2 Verify permissions and pagination with automated coverage — 720423ce6e
+
+### Phase 2: Prepare for acceptance
+
+- [ ] 2.1 Run validation and review the PR

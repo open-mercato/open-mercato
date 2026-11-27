@@ -47,7 +47,7 @@ test.describe('TC-UNDO-001 auth undo/redo', () => {
       createPayload: (stamp) => ({
         email: `undo-user-${stamp}@example.com`,
         name: `Undo User ${stamp}`,
-        password: 'Secret123!',
+        password: 'QaSecret123!',
         organizationId,
       }),
       updatePayload: (id, stamp) => ({

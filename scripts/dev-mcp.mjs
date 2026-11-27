@@ -123,7 +123,8 @@ export async function selectAvailableMcpPort(preferredPort, options = {}) {
 // (compose.infra.yml mounts .mercato/mcp-shared read-only at /run/mcp-shared),
 // so the default must stay in sync with that compose file.
 export function resolveMcpKeyFilePath(env = {}, cwd = process.cwd()) {
-  const override = typeof env.MCP_SERVER_API_KEY_FILE === 'string' ? env.MCP_SERVER_API_KEY_FILE.trim() : ''
+  const override = [env.MCP_SERVER_API_KEY_FILE, env.MCP_API_KEY_FILE]
+    .find((value) => typeof value === 'string' && value.trim())?.trim()
   if (override) return path.resolve(cwd, override)
   return path.join(cwd, '.mercato', 'mcp-shared', 'mcp-api-key')
 }

@@ -1,0 +1,173 @@
+{
+  "diagnosticOnly": true,
+  "releaseAcceptance": false,
+  "scope": "Host Node24 pure-parser microbenchmark; no PostgreSQL/AES/end-to-end timing claim",
+  "flags": [
+    "--max-old-space-size=128",
+    "--max-semi-space-size=4"
+  ],
+  "node": "v24.22.2",
+  "equivalenceVectors": 9,
+  "invalidVectors": 3,
+  "passes": 5,
+  "iterationsPerPass": 4096,
+  "summary": {
+    "number-free": {
+      "oldMedianMs": 106.31683399999997,
+      "newMedianMs": 102.13733300000001,
+      "newOverOld": 0.9606882481094202,
+      "encodedBytesPerPass": 358301696
+    },
+    "numeric-control": {
+      "oldMedianMs": 111.20999999999981,
+      "newMedianMs": 110.95916699999998,
+      "newOverOld": 0.9977445103857582,
+      "encodedBytesPerPass": 358301696
+    }
+  },
+  "records": [
+    {
+      "shape": "number-free",
+      "variant": "old",
+      "pass": 0,
+      "elapsedMs": 109.66037500000002,
+      "rssMiB": 74.109375
+    },
+    {
+      "shape": "number-free",
+      "variant": "new",
+      "pass": 0,
+      "elapsedMs": 102.13733300000001,
+      "rssMiB": 74.28125
+    },
+    {
+      "shape": "number-free",
+      "variant": "new",
+      "pass": 1,
+      "elapsedMs": 101.633666,
+      "rssMiB": 74.28125
+    },
+    {
+      "shape": "number-free",
+      "variant": "old",
+      "pass": 1,
+      "elapsedMs": 106.31683399999997,
+      "rssMiB": 74.28125
+    },
+    {
+      "shape": "number-free",
+      "variant": "old",
+      "pass": 2,
+      "elapsedMs": 106.77812499999999,
+      "rssMiB": 74.28125
+    },
+    {
+      "shape": "number-free",
+      "variant": "new",
+      "pass": 2,
+      "elapsedMs": 104.19983300000001,
+      "rssMiB": 74.28125
+    },
+    {
+      "shape": "number-free",
+      "variant": "new",
+      "pass": 3,
+      "elapsedMs": 102.02695900000003,
+      "rssMiB": 74.28125
+    },
+    {
+      "shape": "number-free",
+      "variant": "old",
+      "pass": 3,
+      "elapsedMs": 106.16479199999992,
+      "rssMiB": 74.328125
+    },
+    {
+      "shape": "number-free",
+      "variant": "old",
+      "pass": 4,
+      "elapsedMs": 105.84162499999991,
+      "rssMiB": 74.328125
+    },
+    {
+      "shape": "number-free",
+      "variant": "new",
+      "pass": 4,
+      "elapsedMs": 103.25470899999993,
+      "rssMiB": 74.328125
+    },
+    {
+      "shape": "numeric-control",
+      "variant": "old",
+      "pass": 0,
+      "elapsedMs": 112.02991700000007,
+      "rssMiB": 85.046875
+    },
+    {
+      "shape": "numeric-control",
+      "variant": "new",
+      "pass": 0,
+      "elapsedMs": 121.46062500000016,
+      "rssMiB": 85.15625
+    },
+    {
+      "shape": "numeric-control",
+      "variant": "new",
+      "pass": 1,
+      "elapsedMs": 110.95916699999998,
+      "rssMiB": 85.15625
+    },
+    {
+      "shape": "numeric-control",
+      "variant": "old",
+      "pass": 1,
+      "elapsedMs": 109.59820799999989,
+      "rssMiB": 85.15625
+    },
+    {
+      "shape": "numeric-control",
+      "variant": "old",
+      "pass": 2,
+      "elapsedMs": 111.20999999999981,
+      "rssMiB": 85.15625
+    },
+    {
+      "shape": "numeric-control",
+      "variant": "new",
+      "pass": 2,
+      "elapsedMs": 112.487167,
+      "rssMiB": 85.15625
+    },
+    {
+      "shape": "numeric-control",
+      "variant": "new",
+      "pass": 3,
+      "elapsedMs": 109.43254200000001,
+      "rssMiB": 85.15625
+    },
+    {
+      "shape": "numeric-control",
+      "variant": "old",
+      "pass": 3,
+      "elapsedMs": 109.21137500000009,
+      "rssMiB": 85.15625
+    },
+    {
+      "shape": "numeric-control",
+      "variant": "old",
+      "pass": 4,
+      "elapsedMs": 112.08233300000029,
+      "rssMiB": 85.203125
+    },
+    {
+      "shape": "numeric-control",
+      "variant": "new",
+      "pass": 4,
+      "elapsedMs": 110.09458300000006,
+      "rssMiB": 85.203125
+    }
+  ],
+  "consumed": 7340230656,
+  "candidateCommit": "48db5f3af0d09d5e8353116796b02b5b52f7b45b",
+  "limitations": "Host pure-parser diagnostic on cached generated ciphertext-like strings, not PostgreSQL/AES/end-to-end timing. Number-free medians improve3.93%; numeric control is essentially unchanged."
+}

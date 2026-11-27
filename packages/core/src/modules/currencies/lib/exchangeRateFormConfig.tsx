@@ -116,6 +116,7 @@ export function exchangeRateGroups(
           options: [
             { value: 'buy', label: t('exchangeRates.form.field.typeBuy') },
             { value: 'sell', label: t('exchangeRates.form.field.typeSell') },
+            { value: 'average', label: t('exchangeRates.form.field.typeAverage') },
           ],
         },
         {
