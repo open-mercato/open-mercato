@@ -12,6 +12,12 @@ import { RotationCheckpointJournal } from './journal'
 import { RotationArtifactStore, type RotationArtifactCipher } from './store'
 import { prepareRotationVerification, validatePreparedRotation, verifyRotationData, readVerificationFailureAggregates, type VerificationFailureAggregates, type PreparedRotation, type RotationDataset, type VerificationResult } from './verifier'
 
+export class RotationResumeDatabaseMismatchError extends Error {
+  constructor() {
+    super('[internal] ROTATION_RESUME_INVALID')
+  }
+}
+
 export type RecoveryArtifact = { artifactPath: string; digest: string; databaseBinding: string; consistency: 'quiesced'; encrypted: true }
 export type TimestampRecord = { before: Record<string, LogicalValue>; after: Record<string, LogicalValue>; mac: string }
 export type TimestampLoader = { load(identity: string): Promise<TimestampRecord | undefined>; prefetch?(identities: string[]): Promise<void> }
@@ -192,7 +198,8 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
         const databaseBinding = (await initial.binding()).database
         if (options.resumeId) {
           const candidate = await loadState(trustPath)
-          if (candidate.id !== id || candidate.recovery.databaseBinding !== databaseBinding) throw new Error('[internal] ROTATION_RESUME_INVALID')
+          if (candidate.id !== id) throw new Error('[internal] ROTATION_RESUME_INVALID')
+          if (candidate.recovery.databaseBinding !== databaseBinding) throw new RotationResumeDatabaseMismatchError()
           if (candidate.status === 'passed') throw new Error('[internal] ROTATION_ALREADY_COMPLETED')
           // Invalid or completed resumes must never become mutable run state.
           state = candidate
