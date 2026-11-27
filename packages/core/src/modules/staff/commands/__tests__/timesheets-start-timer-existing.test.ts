@@ -21,7 +21,6 @@ import { buildTimeEntryListFilters } from '../../lib/timesheets/timeEntryListFil
 
 const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
-const mockGetStaffMemberByUserId = jest.fn()
 const mockEmitStaffEvent = jest.fn()
 const mockResolveProjectAccess = jest.fn()
 
@@ -48,10 +47,6 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
-}))
-
-jest.mock('@open-mercato/core/modules/staff/lib/staffMemberResolver', () => ({
-  getStaffMemberByUserId: jest.fn((...args: unknown[]) => mockGetStaffMemberByUserId(...args)),
 }))
 
 jest.mock('@open-mercato/core/modules/staff/events', () => ({
@@ -196,7 +191,6 @@ beforeEach(() => {
   findOneOptions.length = 0
   transactionalCalls = 0
   flushCalls = 0
-  mockGetStaffMemberByUserId.mockResolvedValue({ id: STAFF_MEMBER_ID })
   mockEmitStaffEvent.mockResolvedValue(undefined)
   mockResolveProjectAccess.mockResolvedValue({ canManageAll: false, projectIds: [PROJECT_ID], staffMemberId: STAFF_MEMBER_ID })
   mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where, opts) => {
@@ -377,7 +371,7 @@ describe('start_timer_existing command — transaction and lock (#2416)', () => 
 describe('start_timer_existing command — owner-only authorization', () => {
   it('rejects with 403 when the caller has no linked staff member', async () => {
     const command = await loadStartTimerExistingCommand()
-    mockGetStaffMemberByUserId.mockResolvedValue(null)
+    mockResolveProjectAccess.mockResolvedValue({ canManageAll: false, projectIds: [], staffMemberId: null })
 
     await expect(command.execute(startInput(), createCtx(makeEm()))).rejects.toMatchObject({ status: 403 })
     expect(transactionalCalls).toBe(0)
@@ -388,7 +382,9 @@ describe('start_timer_existing command — owner-only authorization', () => {
     // those let `manage_all` holders act on colleagues' entries, this one does
     // not, because the route it replaces never did.
     const command = await loadStartTimerExistingCommand()
-    mockGetStaffMemberByUserId.mockResolvedValue({ id: OTHER_STAFF_MEMBER_ID })
+    mockResolveProjectAccess.mockResolvedValue({
+      canManageAll: false, projectIds: [PROJECT_ID], staffMemberId: OTHER_STAFF_MEMBER_ID,
+    })
 
     await expect(
       command.execute(startInput(), createCtx(makeEm(), { manageAll: true })),

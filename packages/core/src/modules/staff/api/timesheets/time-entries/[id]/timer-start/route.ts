@@ -169,6 +169,7 @@ export const openApi: OpenApiRouteDoc = {
       description: 'Starts the timer on a time entry by setting startedAt and creating an initial work segment.',
       responses: [
         { status: 200, description: 'Timer started', schema: z.object({ ok: z.literal(true) }) },
+        { status: 403, description: 'Timer start forbidden', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Time entry not found', schema: z.object({ error: z.string() }) },
         {
           status: 409,

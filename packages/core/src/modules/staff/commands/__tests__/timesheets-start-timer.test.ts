@@ -13,15 +13,10 @@ import type { AwilixContainer } from 'awilix'
 const mockFindOneWithDecryption = jest.fn()
 const mockEmitStaffEvent = jest.fn()
 const mockResolveProjectAccess = jest.fn()
-const mockGetStaffMemberByUserId = jest.fn()
 
 jest.mock('../../lib/time-tracking/access', () => ({
   ...jest.requireActual('../../lib/time-tracking/access'),
   resolveProjectAccess: (...args: unknown[]) => mockResolveProjectAccess(...args),
-}))
-
-jest.mock('@open-mercato/core/modules/staff/lib/staffMemberResolver', () => ({
-  getStaffMemberByUserId: (...args: unknown[]) => mockGetStaffMemberByUserId(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
@@ -155,7 +150,6 @@ describe('staff timesheets atomic start-timer (#3311)', () => {
     jest.clearAllMocks()
     mockFindOneWithDecryption.mockResolvedValue(null)
     mockEmitStaffEvent.mockResolvedValue(undefined)
-    mockGetStaffMemberByUserId.mockResolvedValue({ id: STAFF_MEMBER_ID })
     mockResolveProjectAccess.mockResolvedValue({ canManageAll: false, projectIds: [PROJECT_ID], staffMemberId: STAFF_MEMBER_ID })
   })
 
