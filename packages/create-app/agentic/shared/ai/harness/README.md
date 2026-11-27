@@ -1,6 +1,6 @@
 # Agent harness evaluations
 
-`cases.json` is the 255-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
+`cases.json` is the 256-case standalone-app contract. Run `yarn harness:validate --all` for the deterministic gate. Live routing uses a fresh read-only process per case:
 
 `OMH-238` routes Customers calendar add/remove/patch requests to `.ai/guides/customers-calendar.md`, exact installed Customers definitions, and the bounded canonical `umes.customers.calendar-event-types` example. It preserves historical records, generic shared components, and warnings when optional staff/resources integrations are unavailable.
 
@@ -30,7 +30,9 @@ yarn harness:release --runner codex --portability-runner claude --prepare-target
 
 OMH-244–255 route the twelve Todo showcase cases through exact, case-scoped example sources. They test context selection and policy decisions in the read-only lane.
 
-The primary runner owns all 255 routing cases, all 49 writable cases, and all generative-judge runs. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
+`OMH-256` routes a new monetary field on an app-owned entity to the `om-data-model-design` Money Contract in `references/schema-design.md` (pointed to from `.ai/guides/contracts.md`): `Money` persisted through `MoneyColumns`, currencies only from scoped `resolveCurrency`, explicit rounding, and no new `number`, decimal-string, or `<field>Exact` money field.
+
+The primary runner owns all 256 routing cases, all 49 writable cases, and all generative-judge runs. No per-case fallback or mixed primary ownership is allowed. Omitting `--portability-runner` is valid and the sanitized report records `portabilityRunner: null`; explicitly requesting an unavailable or failing secondary runner fails that extended run.
 
 Writable evaluation is intentionally opt-in. The expanded catalog has a 49-case writable release target, but only cases registered in `release-matrix.json` and backed by controller-owned fixtures and oracles are executable. Copy or create a fresh standalone app for one registered case, then seed only that case and mark the target disposable:
 
