@@ -29,10 +29,11 @@ createModuleEvents({ moduleId: 'issue1421_test', events: testEvents })
 
 type EmittedEvent = { name: string; payload: unknown; options?: unknown }
 
-function makeFixture() {
+function makeFixture(eventError?: Error) {
   const emitted: EmittedEvent[] = []
   const bus = {
     emitEvent: jest.fn(async (name: string, payload: unknown, options?: unknown) => {
+      if (eventError) throw eventError
       emitted.push({ name, payload, options })
     }),
   }
@@ -189,5 +190,28 @@ describe('DataEngine event contract validation (issue #1421)', () => {
         payload: { id: identifiers.id, userId: 'user-123' },
       }),
     ])
+  })
+
+  it('keeps event enqueue failures best-effort unless the flush opts into retries', async () => {
+    const failure = new Error('event queue unavailable')
+    const bestEffort = makeFixture(failure)
+    bestEffort.engine.markOrmEntityChange({
+      action: 'updated',
+      entity: { id: identifiers.id },
+      identifiers,
+      events: { module: 'issue1421_test', entity: 'widget', persistent: true },
+    })
+
+    await expect(bestEffort.engine.flushOrmEntityChanges()).resolves.toBeUndefined()
+
+    const retryable = makeFixture(failure)
+    retryable.engine.markOrmEntityChange({
+      action: 'updated',
+      entity: { id: identifiers.id },
+      identifiers,
+      events: { module: 'issue1421_test', entity: 'widget', persistent: true },
+    })
+
+    await expect(retryable.engine.flushOrmEntityChanges({ rethrowEventErrors: true })).rejects.toThrow(failure)
   })
 })

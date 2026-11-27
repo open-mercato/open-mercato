@@ -2,7 +2,7 @@
 
 ## Deferred Deal merge events preserve per-record write order (#10680)
 
-The Deal merge effects worker now locks each bounded batch of moved interactions, activities and comments while it validates their merge version and queues matching CRUD events. A concurrent edit waits until the preceding merge event has been queued, preventing consumers from receiving a newer Deal link followed by the superseded one. Query-index refreshes still run after the lock-only transaction commits.
+The Deal merge effects worker now locks each bounded batch of moved interactions, activities and comments while it validates their merge version and queues matching CRUD events. A concurrent edit waits until the preceding merge event has been queued, preventing consumers from receiving a newer Deal link followed by the superseded one. If a persistent enqueue fails, this worker rolls back its lock-only transaction and fails the job so the queue can retry; other DataEngine callers keep their existing best-effort behavior. Query-index refreshes still run after the transaction commits.
 
 No action is required. Event payloads, queue payloads, API contracts and database schema are unchanged. Ordering assumes the default single-concurrency FIFO events worker; retries may still duplicate events.
 

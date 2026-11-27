@@ -27,6 +27,8 @@ import { createLogger } from '../logger'
 import { createBoundedTtlMemo } from '../query/bounded-ttl-memo'
 import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryptionService'
 
+type OrmSideEffectOptions = BulkImportSuppression & { rethrowEventErrors?: boolean }
+
 const logger = createLogger('shared').child({ component: 'data-engine' })
 
 const undeclaredEventWarned = new Set<string>()
@@ -200,7 +202,7 @@ export interface DataEngine {
     syncOrigin?: string | null
     actorUserId?: string | null
     /** Bulk-import deferral: skip the domain event and/or inline reindex for this emit. */
-    suppress?: BulkImportSuppression
+    suppress?: OrmSideEffectOptions
   }): Promise<void>
 
   markOrmEntityChange<T>(opts: {
@@ -218,7 +220,7 @@ export interface DataEngine {
    * flagged per-record events / reindex are skipped for every drained entry; the caller
    * is responsible for rebuilding the `query_index` afterwards.
    */
-  flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void>
+  flushOrmEntityChanges(suppress?: OrmSideEffectOptions): Promise<void>
 
   /**
    * Declare the indexer a CRUD route configured, for marks made during one command-bus
@@ -755,7 +757,7 @@ export class DefaultDataEngine implements DataEngine {
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
     actorUserId?: string | null
-    suppress?: BulkImportSuppression
+    suppress?: OrmSideEffectOptions
   }): Promise<void> {
     const { action, entity, events, indexer, identifiers, syncOrigin, suppress } = opts
     // Bulk-import deferral: an entry may suppress its domain event and/or inline reindex. When both
@@ -817,7 +819,8 @@ export class DefaultDataEngine implements DataEngine {
           organizationId: ctx.identifiers.organizationId ?? null,
           emitterModuleId: events.module,
         })
-      } catch {
+      } catch (error) {
+        if (suppress?.rethrowEventErrors) throw error
         // non-blocking
       }
     }
@@ -957,7 +960,7 @@ export class DefaultDataEngine implements DataEngine {
     this.pendingSideEffects.set(key, entry)
   }
 
-  async flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void> {
+  async flushOrmEntityChanges(suppress?: OrmSideEffectOptions): Promise<void> {
     if (!this.pendingSideEffects.size) return
     const entries = Array.from(this.pendingSideEffects.values())
     this.pendingSideEffects.clear()
@@ -977,7 +980,7 @@ export class DefaultDataEngine implements DataEngine {
           suppress,
         })
       } catch (error) {
-        if (isReadProjectionAlwaysConsistent()) {
+        if (suppress?.rethrowEventErrors || isReadProjectionAlwaysConsistent()) {
           throw error
         }
         // best-effort; continue with remaining side effects

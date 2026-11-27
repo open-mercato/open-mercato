@@ -190,7 +190,7 @@ export async function processDeferredDealMergeEffects(
       }
       resolved = await resolveDeferredDealMergeEffects(em, chunk)
       markDealMergeEffects(dataEngine, resolved.current)
-      await dataEngine.flushOrmEntityChanges({ skipReindex: true })
+      await dataEngine.flushOrmEntityChanges({ skipReindex: true, rethrowEventErrors: true })
       await em.commit()
     } catch (error) {
       await em.rollback()

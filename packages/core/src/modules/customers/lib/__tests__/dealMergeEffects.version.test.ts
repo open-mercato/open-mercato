@@ -64,8 +64,11 @@ function buildStore(rows: StoredRow[]) {
   return { em, execute, calls }
 }
 
-function buildEngine(order?: string[]) {
-  const emitEvent = jest.fn(async (name: string) => { order?.push(name) })
+function buildEngine(order?: string[], eventError?: Error) {
+  const emitEvent = jest.fn(async (name: string) => {
+    order?.push(name)
+    if (eventError && name.startsWith('customers.')) throw eventError
+  })
   const container = {
     resolve: (token: string) => {
       if (token === 'eventBus') return { emitEvent }
@@ -238,9 +241,8 @@ describe('deferred deal merge effects carry the moved version', () => {
   })
 
   it('rolls back when publication fails while the row locks are held', async () => {
-    const { engine } = buildEngine()
+    const { engine } = buildEngine(undefined, new Error('publish failed'))
     const { em } = buildStore([interactionRow(dealB, firstMergeVersion)])
-    jest.spyOn(engine, 'flushOrmEntityChanges').mockRejectedValueOnce(new Error('publish failed'))
 
     await expect(runWorker(engine, em, firstMergeJob(firstMergeVersion))).rejects.toThrow('publish failed')
 
