@@ -18,7 +18,6 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -29,7 +28,7 @@ import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/opti
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
 import { gateTaskAction, TASK_NOT_FOUND_BODY } from '../../../../lib/task-visibility-request'
-import { reassignUserTaskSchema } from '../../../../data/validators'
+import { reassignUserTaskSchema, userTaskIdParamSchema } from '../../../../data/validators'
 import { serializeUserTask } from '../../serialize'
 import {
   workflowsTag,
@@ -93,7 +92,7 @@ export async function POST(
       )
     }
 
-    if (!z.guid().safeParse(params.id).success) {
+    if (!userTaskIdParamSchema.safeParse(params.id).success) {
       return NextResponse.json(TASK_NOT_FOUND_BODY, { status: 404 })
     }
 

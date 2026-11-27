@@ -14,6 +14,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
 import { gateTaskAction, TASK_NOT_FOUND_BODY } from '../../../../lib/task-visibility-request'
+import { userTaskIdParamSchema } from '../../../../data/validators'
 import {
   workflowsTag,
   completeTaskRequestSchema as openApiCompleteTaskSchema,
@@ -99,7 +100,7 @@ export async function POST(
 
     const { formData, comments, decisionId } = parseResult.data
 
-    if (!z.guid().safeParse(params.id).success) {
+    if (!userTaskIdParamSchema.safeParse(params.id).success) {
       return NextResponse.json(TASK_NOT_FOUND_BODY, { status: 404 })
     }
 

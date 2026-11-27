@@ -1451,6 +1451,8 @@ export type StepInstanceFilter = z.infer<typeof stepInstanceFilterSchema>
 // UserTask Schemas
 // ============================================================================
 
+export const userTaskIdParamSchema = z.guid()
+
 export const createUserTaskSchema = z.object({
   workflowInstanceId: uuid,
   stepInstanceId: uuid,
