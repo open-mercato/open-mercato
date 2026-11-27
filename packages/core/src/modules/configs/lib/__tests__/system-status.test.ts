@@ -66,4 +66,17 @@ describe('buildSystemStatusSnapshot', () => {
 
     expect(findItem(snapshot, 'CACHE_SQLITE_PATH')?.defaultValue).toBe('./.mercato/cache/cache.db')
   })
+
+  it('lists the cache provider selection next to the cache strategy', () => {
+    const snapshot = buildSystemStatusSnapshot({ CACHE_PROVIDER: 'acme/shared', CACHE_PROVIDER_NAMESPACE: 'deploy-1' })
+    const caching = snapshot.categories.find((category) => category.items.some((item) => item.key === 'CACHE_STRATEGY'))
+    const keys = caching?.items.map((item) => item.key) ?? []
+    expect(keys.slice(keys.indexOf('CACHE_STRATEGY'), keys.indexOf('CACHE_STRATEGY') + 3)).toEqual([
+      'CACHE_STRATEGY',
+      'CACHE_PROVIDER',
+      'CACHE_PROVIDER_NAMESPACE',
+    ])
+    expect(findItemValue(snapshot, 'CACHE_PROVIDER')).toBe('acme/shared')
+    expect(findItemValue(snapshot, 'CACHE_PROVIDER_NAMESPACE')).toBe('deploy-1')
+  })
 })

@@ -239,6 +239,11 @@ export class CustomerInvitationService {
     token: string,
     password: string,
     displayName: string,
+    authorizePrivilegedRoles?: (
+      inviterUserId: string,
+      scope: { tenantId: string; organizationId: string },
+      transactionEm?: EntityManager,
+    ) => Promise<boolean>,
     beforeConsume?: (tenantId: string) => Promise<void>,
   ): Promise<{ user: CustomerUser; invitation: CustomerUserInvitation } | null> {
     const invitation = await this.findByToken(token)
@@ -250,6 +255,28 @@ export class CustomerInvitationService {
     const passwordHash = await hash(password, BCRYPT_COST)
     try {
       const result = await this.em.transactional(async (transactionEm) => {
+        const scope = { tenantId: invitation.tenantId, organizationId: invitation.organizationId }
+        const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
+        const roles = roleIds.length > 0
+          ? await findWithDecryption(
+              transactionEm,
+              CustomerRole,
+              {
+                id: { $in: roleIds },
+                tenantId: invitation.tenantId,
+                organizationId: invitation.organizationId,
+                deletedAt: null,
+              },
+              { lockMode: LockMode.PESSIMISTIC_READ },
+              scope,
+            )
+          : []
+        if (roles.some((role) => role.customerAssignable === false)) {
+          const inviterUserId = invitation.invitedByUserId
+          if (!inviterUserId || !authorizePrivilegedRoles || !await authorizePrivilegedRoles(inviterUserId, scope, transactionEm)) {
+            return null
+          }
+        }
         const acceptedAt = new Date()
         const changed = await transactionEm.nativeUpdate(CustomerUserInvitation, {
           id: invitation.id,
@@ -262,7 +289,6 @@ export class CustomerInvitationService {
         }, { acceptedAt })
         if (changed !== 1) return null
 
-        const scope = { tenantId: invitation.tenantId, organizationId: invitation.organizationId }
         const existingActiveUser = await findOneWithDecryption(
           transactionEm,
           CustomerUser,
@@ -307,21 +333,6 @@ export class CustomerInvitationService {
         })
         transactionEm.persist(user)
 
-        const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
-        const roles = roleIds.length > 0
-          ? await findWithDecryption(
-              transactionEm,
-              CustomerRole,
-              {
-                id: { $in: roleIds },
-                tenantId: invitation.tenantId,
-                organizationId: invitation.organizationId,
-                deletedAt: null,
-              },
-              undefined,
-              scope,
-            )
-          : []
         for (const role of roles) {
           transactionEm.persist(transactionEm.create(CustomerUserRole, {
             user,

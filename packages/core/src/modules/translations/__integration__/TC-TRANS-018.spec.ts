@@ -24,7 +24,7 @@ test.describe('TC-TRANS-018: GET locales denied without translations.view', () =
     const stamp = Date.now()
     const roleName = `qa_trans_018_noview_${stamp}`
     const userEmail = `qa-trans-018-${stamp}@acme.com`
-    const userPassword = 'Valid1!Pass'
+    const userPassword = 'QaValid1!Pass'
     let roleId: string | null = null
     let userId: string | null = null
 

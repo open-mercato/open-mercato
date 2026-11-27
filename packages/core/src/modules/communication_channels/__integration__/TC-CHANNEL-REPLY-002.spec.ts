@@ -57,7 +57,7 @@ if (!process.env.OM_TEST_APP_ROOT?.trim()) {
   process.env.QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue')
 }
 
-const OPERATOR_PASSWORD = 'Valid1!Pass'
+const OPERATOR_PASSWORD = 'QaValid1!Pass'
 
 test.describe('TC-CHANNEL-REPLY-002: an operator without channel access is refused', () => {
   test('refuses read, reply and parent-threaded compose on someone else mailbox thread', async ({

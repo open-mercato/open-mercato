@@ -8,7 +8,7 @@ import { findConflicts } from '../../../lib/calendar/conflicts'
 import type { ScopedCalendarEventType } from '../../../lib/calendar/eventTypeResolver'
 import { mapInteractionToCalendarItem } from '../../../lib/calendar/mapItem'
 import { buildCalendarItem } from './fixtures'
-import * as timezoneHelpers from '../../../lib/calendar/timezone'
+import * as timezoneHelpers from '@open-mercato/core/helpers/calendar/timezone'
 
 const crudPropsMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()

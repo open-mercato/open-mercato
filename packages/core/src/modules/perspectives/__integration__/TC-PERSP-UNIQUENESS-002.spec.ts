@@ -128,7 +128,7 @@ test.describe('TC-PERSP-UNIQUENESS-002: save-as-new does not overwrite a same-na
     const tableId = `qa-persp-refusal-${stamp}`;
     const name = `Protected view ${stamp}`;
     const email = `qa-persp-refusal-${stamp}@example.com`;
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     let roleId: string | null = null;
     let userId: string | null = null;
     const createdIds: string[] = [];

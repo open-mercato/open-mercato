@@ -3,6 +3,11 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { invitationAcceptSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { lockAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
   CustomerInvitationService,
   isCustomerInvitationEmailConflictError,
@@ -45,6 +50,27 @@ export async function POST(req: Request) {
       parsed.data.token,
       parsed.data.password,
       parsed.data.displayName,
+      async (inviterUserId, scope, transactionEm) => {
+        if (!transactionEm) return false
+        try {
+          await lockAuthorizationState(transactionEm, { userIds: [inviterUserId] })
+        } catch (error) {
+          if (isCrudHttpError(error) && error.status === 409) return false
+          throw error
+        }
+        const inviter = await findOneWithDecryption(
+          transactionEm,
+          User,
+          { id: inviterUserId, deletedAt: null, isConfirmed: true },
+          { fields: ['id'], refresh: true },
+        )
+        return !!inviter && await container.resolve<RbacService>('rbacService').userHasAllFeaturesWithEntityManager(
+          transactionEm,
+          inviterUserId,
+          ['customer_accounts.invite', 'customer_accounts.roles.manage'],
+          scope,
+        )
+      },
       (tenantId) => requireCustomerPortalEnabled(container, tenantId),
     )
   } catch (error) {

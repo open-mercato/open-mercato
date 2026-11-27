@@ -22,6 +22,8 @@ function runEntrypoint(env = {}) {
       ...process.env,
       PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
       OPENCODE_CONFIG_DIR: configDir,
+      OPENCODE_SERVER_PASSWORD: 'test-only-opencode-password',
+      OPENCODE_PASSWORD: '',
       OPENROUTER_BASE_URL: '',
       ...env,
     },
@@ -29,7 +31,7 @@ function runEntrypoint(env = {}) {
   })
 
   const configPath = path.join(configDir, 'opencode.jsonc')
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+  const config = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : null
 
   fs.rmSync(tempDir, { recursive: true, force: true })
 
@@ -63,4 +65,12 @@ test('opencode entrypoint omits OpenRouter baseURL option when unset', () => {
     'meta-llama/llama-3.3-70b-instruct': {},
   })
   assert.equal(config.provider.openrouter.options, undefined)
+})
+
+test('OpenCode entrypoint rejects empty credentials before configuring or starting the server', () => {
+  const { config, result } = runEntrypoint({ OPENCODE_SERVER_PASSWORD: ' ' })
+
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /Set OPENCODE_PASSWORD/)
+  assert.equal(config, null)
 })

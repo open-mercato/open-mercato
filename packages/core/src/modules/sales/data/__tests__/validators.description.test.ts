@@ -1,6 +1,10 @@
 import {
   channelCreateSchema,
   channelUpdateSchema,
+  deliveryWindowCreateSchema,
+  deliveryWindowUpdateSchema,
+  paymentMethodCreateSchema,
+  paymentMethodUpdateSchema,
   shippingMethodCreateSchema,
   shippingMethodUpdateSchema,
 } from '../validators'
@@ -17,6 +21,10 @@ describe.each([
   ['channel update', channelUpdateSchema, { id: recordId, code: 'web' }],
   ['shipping method create', shippingMethodCreateSchema, { ...scope, name: 'Courier', code: 'courier' }],
   ['shipping method update', shippingMethodUpdateSchema, { id: recordId }],
+  ['delivery window create', deliveryWindowCreateSchema, { ...scope, name: 'Next day', code: 'next-day' }],
+  ['delivery window update', deliveryWindowUpdateSchema, { id: recordId }],
+  ['payment method create', paymentMethodCreateSchema, { ...scope, name: 'Bank transfer', code: 'bank-transfer' }],
+  ['payment method update', paymentMethodUpdateSchema, { id: recordId }],
 ] as const)('%s description', (_label, schema, input) => {
   it.each([null, '', '   ', '  Description  ', 'x'.repeat(2000)])(
     'accepts a nullable description and preserves string normalization (case %#)',

@@ -19,6 +19,7 @@ const mockGetBoolConfig = jest.fn()
 const mockFindByEmail = jest.fn()
 const mockCreateSession = jest.fn()
 const mockSendEmail = jest.fn()
+const mockEnqueue = jest.fn()
 const mockEmit = jest.fn()
 const mockEm = {
   findOne: jest.fn(),
@@ -47,6 +48,10 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', 
 }))
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimiter', () => ({
   checkAuthRateLimit: async () => ({ error: null }),
+}))
+jest.mock('@open-mercato/core/modules/customer_accounts/lib/authLinkQueue', () => ({
+  getMagicLinkDeliveryQueue: () => ({ enqueue: mockEnqueue }),
+  getPasswordResetDeliveryQueue: () => ({ enqueue: mockEnqueue }),
 }))
 jest.mock('@open-mercato/shared/lib/email/send', () => ({
   sendEmail: (...args: unknown[]) => mockSendEmail(...args),
@@ -118,6 +123,7 @@ describe('disabled portal auth routes (#9162)', () => {
     expect(mockEm.persist).not.toHaveBeenCalled()
     expect(mockCreateSession).not.toHaveBeenCalled()
     expect(mockSendEmail).not.toHaveBeenCalled()
+    expect(mockEnqueue).not.toHaveBeenCalled()
     expect(mockEmit).not.toHaveBeenCalled()
   })
 })

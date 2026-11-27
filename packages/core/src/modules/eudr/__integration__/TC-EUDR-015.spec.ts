@@ -156,7 +156,7 @@ test.describe('TC-EUDR-015: species fields and supplier readiness', () => {
       const submissionsOnlyEmail = `tc-eudr-015-submissions-${stamp}@example.com`
       submissionsOnlyUserId = await createUserFixture(request, token, {
         email: submissionsOnlyEmail,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId: scope.organizationId,
         roles: ['employee'],
       })
@@ -166,7 +166,7 @@ test.describe('TC-EUDR-015: species fields and supplier readiness', () => {
         features: ['eudr.submissions.view'],
         organizations: null,
       })
-      const submissionsOnlyToken = await getAuthToken(request, submissionsOnlyEmail, 'Valid1!Pass')
+      const submissionsOnlyToken = await getAuthToken(request, submissionsOnlyEmail, 'QaValid1!Pass')
       const submissionsOnlyResponse = await apiRequest(
         request,
         'GET',

@@ -6,9 +6,6 @@ import {
   resolveTenantContext,
   TenantResolutionError,
 } from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
-import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
   checkAuthRateLimit,
@@ -16,12 +13,10 @@ import {
   customerMagicLinkIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
-import { sendCustomerMagicLinkEmail } from '@open-mercato/core/modules/customer_accounts/lib/authLinkEmails'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
-
-const logger = createLogger('customer_accounts').child({ component: 'magic-link-request' })
+import { getMagicLinkDeliveryQueue } from '@open-mercato/core/modules/customer_accounts/lib/authLinkQueue'
+import { detectLocale } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -62,30 +57,16 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   await requireCustomerPortalEnabled(container, tenantId)
-  const customerUserService = container.resolve('customerUserService') as CustomerUserService
-  const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
 
-  const user = await customerUserService.findByEmail(email, tenantId)
-  if (user) {
-    const rawToken = await customerTokenService.createMagicLink(user.id, tenantId)
-    await sendCustomerMagicLinkEmail({
-      container,
-      tenantId,
-      organizationId: user.organizationId,
-      email: user.email,
-      rawToken,
-    }).catch((error) => {
-      logger.error('Magic link email failed', { err: error })
-      getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.magic_link_email_failed' })
-    })
-    void import('@open-mercato/core/modules/customer_accounts/events').then(({ emitCustomerAccountsEvent }) =>
-      emitCustomerAccountsEvent('customer_accounts.magic_link.requested', {
-        userId: user.id,
-        tenantId,
-        organizationId: user.organizationId,
-      })
-    ).catch(() => undefined)
-  }
+  // Lookup, token minting and email delivery all happen inside a queue worker
+  // (see workers/magicLinkDelivery.ts) so the response never depends on
+  // whether the account exists — known and unknown emails return identically,
+  // without waiting on a DB write or outbound email transport latency (#8889).
+  // `detectLocale()` only reads the request's cookie/Accept-Language — it runs
+  // identically regardless of whether the account exists, so capturing it here
+  // preserves the recovery-email language once delivery moves to the worker.
+  const locale = await detectLocale()
+  await getMagicLinkDeliveryQueue().enqueue({ email, tenantId, locale })
 
   return NextResponse.json({ ok: true })
 }
@@ -94,7 +75,7 @@ const successSchema = z.object({ ok: z.literal(true) })
 
 const methodDoc: OpenApiMethodDoc = {
   summary: 'Request magic link login',
-  description: 'Sends a magic link to the customer email. Always returns 200 to prevent enumeration.',
+  description: 'Sends a magic link to the customer email. When the customer portal is enabled, the response is independent of account existence.',
   tags: ['Customer Authentication'],
   requestBody: {
     schema: magicLinkRequestSchema,

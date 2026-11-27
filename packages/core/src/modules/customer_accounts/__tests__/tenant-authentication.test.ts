@@ -221,7 +221,7 @@ describe('portal tenant suspension authentication (#7813)', () => {
     const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
     const container = await createRequestContainer()
 
-    await expect(service.acceptInvitation('raw-invitation', 'Secret123!', 'Invitee',
+    await expect(service.acceptInvitation('raw-invitation', 'Secret123!', 'Invitee', undefined,
       (resolvedTenantId) => requireCustomerPortalEnabled(container, resolvedTenantId),
     )).rejects.toMatchObject({ status: 403 })
     expect(invitation.acceptedAt).toBeNull()

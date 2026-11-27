@@ -9,6 +9,7 @@
  * 3. Cache unavailable — cache DI binding resolves to undefined → redirects with code=state_store_unavailable
  */
 
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { encryptOAuthState } from '../../../../../../lib/oauth-state'
 import { GET } from '../route'
 
@@ -27,6 +28,10 @@ const mockCreateRequestContainer = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(),
 }))
 
 // ─── Adapter registry mock ───────────────────────────────────────────────────
@@ -82,6 +87,7 @@ afterAll(() => {
 
 const USER_ID = 'user-1'
 const TENANT_ID = 'tenant-1'
+const ORGANIZATION_ID = 'org-1'
 const PROVIDER = 'gmail'
 
 function makeStateCookie(overrides: Partial<Parameters<typeof encryptOAuthState>[0]> = {}) {
@@ -153,16 +159,28 @@ describe('GET /api/communication_channels/oauth/[provider]/callback', () => {
 
   // ── Happy path ──────────────────────────────────────────────────────────────
 
-  it('happy path: first callback → redirect with oauth=connected', async () => {
+  it.each([
+    { externalIdentifier: 'user@example.com', adoptUnidentifiedChannel: true },
+    { externalIdentifier: undefined, adoptUnidentifiedChannel: false },
+  ])('redirects with oauth=connected and sets legacy adoption to $adoptUnidentifiedChannel', async ({
+    externalIdentifier,
+    adoptUnidentifiedChannel,
+  }) => {
+    mockExchangeOAuthCode.mockResolvedValueOnce({
+      credentials: { access_token: 'tok' },
+      externalIdentifier,
+    })
+    jest.mocked(findOneWithDecryption).mockResolvedValueOnce({ id: 'saved-credentials' })
+    const credentialsService = { save: jest.fn().mockResolvedValue(undefined) }
     const memCache = createMemoryCache()
     mockContainerResolve.mockImplementation((token: string) => {
       if (token === 'cache') return memCache
       if (token === 'em') return { fork: () => ({ findOne: jest.fn() }) }
-      if (token === 'integrationCredentialsService') return null
+      if (token === 'integrationCredentialsService') return credentialsService
       return undefined
     })
 
-    const cookie = makeStateCookie()
+    const cookie = makeStateCookie({ organizationId: ORGANIZATION_ID })
     const req = buildRequest('?code=auth-code-123&state=test-state-nonce', cookie)
     const res = await GET(req, { params: { provider: PROVIDER } })
 
@@ -171,6 +189,28 @@ describe('GET /api/communication_channels/oauth/[provider]/callback', () => {
     expect(location).toBeTruthy()
     expect(location).toContain('oauth=connected')
     expect(mockCreateConnectedChannelRow).toHaveBeenCalledTimes(1)
+    expect(mockCreateConnectedChannelRow).toHaveBeenCalledWith(expect.objectContaining({
+      credentialsRefId: 'saved-credentials',
+      externalIdentifier: externalIdentifier ?? null,
+      scope: { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      adoptUnidentifiedChannel,
+    }))
+  })
+
+  it('returns setup guidance instead of exchanging a code when client configuration becomes incomplete', async () => {
+    const memCache = createMemoryCache()
+    mockContainerResolve.mockImplementation((token: string) => token === 'cache' ? memCache : null)
+    mockResolveOAuthClientCredentials.mockResolvedValue(null)
+
+    const req = buildRequest('?code=auth-code-123&state=test-state-nonce', makeStateCookie())
+    const response = await GET(req, { params: { provider: PROVIDER } })
+
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toContain('code=oauth_client_not_configured')
+    expect(mockResolveOAuthClientCredentials).toHaveBeenCalledWith(
+      null, PROVIDER, expect.objectContaining({ tenantId: TENANT_ID }), { requireComplete: true },
+    )
+    expect(mockExchangeOAuthCode).not.toHaveBeenCalled()
   })
 
   // ── Replay ──────────────────────────────────────────────────────────────────
