@@ -1,21 +1,15 @@
 # Backward Compatibility Contract
-
 Every listed surface is a **public contract**. Changes MUST follow the deprecation protocol or block merge as **breaking changes**.
-
 ## Deprecation Protocol
-
 1. **Never remove or rename** a public contract surface in a single release.
 2. **Deprecate first**: add `@deprecated` JSDoc with migration guidance and the target removal version.
 3. **Provide a bridge**: re-export the old name/path, accept the old signature, or keep the old behavior alongside the new one for at least one minor version.
 4. **Document in UPGRADE_NOTES.md**: every deprecation and every removal must be listed with migration instructions.
 5. **Spec requirement**: any PR that modifies a contract surface MUST reference a spec (in `.ai/specs/`) that includes a "Migration & Backward Compatibility" section.
-
 ### Emergency Security Exception
-
 **Only steps 1–3** are waived when the removed contract surface *is itself* the vulnerability: retaining it alongside its replacement leaves the flaw exploitable throughout deprecation. Merely enabling insecure usage does not qualify; continued acceptance of the old shape must **be** the exploit.
 
 All conditions below MUST hold; otherwise use the ordinary protocol. Authors or reviewers cannot grant this exception.
-
 1. **The qualifying condition is argued, not asserted.** The PR names the surface, the vulnerability, and why a bridge release would keep it reachable.
 2. **Remove only what closes the hole.** No unrelated tightening, and **no vulnerable branch retained** through a partial bridge, flag, config toggle or opt-in.
 3. **Steps 4 and 5 still apply in full.** An `UPGRADE_NOTES.md` entry with both client *and* operator migration instructions, and a spec under `.ai/specs/` or `.ai/specs/enterprise/` with a "Migration & Backward Compatibility" section.
@@ -25,13 +19,9 @@ All conditions below MUST hold; otherwise use the ordinary protocol. Authors or 
 `UPGRADE_NOTES.md` MUST plainly state what stops working, for whom, and how to migrate, including stored credentials or data becoming unusable or newly suspect. Disclosure compensates downstream authors for the absent bridge.
 
 ---
-
 ## Contract Surface Categories
-
 ### 1. Auto-Discovery File Conventions (FROZEN)
-
 The following file names, their expected export names, and their role in module auto-discovery MUST NOT change. New convention files may be added, but existing ones are immutable.
-
 |Convention File|Required Export|Contract|
 |---|---|---|
 |`index.ts`|`metadata: ModuleInfo`|MUST NOT rename export or change `ModuleInfo` shape in a breaking way|
@@ -57,7 +47,6 @@ The following file names, their expected export names, and their role in module 
 |`widgets/dashboard/*/widget.ts`|`DashboardWidgetModule`|MUST NOT change module shape or component props|
 
 **Auto-discovery directory conventions** (FROZEN):
-
 |Directory Pattern|Route Mapping|Contract|
 |---|---|---|
 |`frontend/<path>.tsx`|`/<path>`|MUST NOT change routing algorithm|
@@ -65,13 +54,10 @@ The following file names, their expected export names, and their role in module 
 |`api/<method>/<path>.ts`|`/api/<path>` by HTTP method|MUST NOT change dispatch logic|
 |`subscribers/*.ts`|Event handler auto-registered|MUST NOT change metadata shape `{event, persistent?, id?}`|
 |`workers/*.ts`|Queue worker auto-registered|MUST NOT change metadata shape `{queue, id?, concurrency?}`|
-
 ### 2. Type Definitions & Interfaces (STABLE)
-
 Required fields MUST NOT be removed or narrowed. Optional fields may be added freely.
 
 **Immutable required fields** (removing or renaming any is a breaking change):
-
 - `Module`: `id`, `info`, `backendRoutes`, `frontendRoutes`, `apis`, `subscribers`, `workers`, `setup`
 - `ModuleInfo`: `name` (all fields are optional today — keep them optional)
 - `PageMetadata`: all fields remain optional; MUST NOT remove any existing field
@@ -109,11 +95,8 @@ Required fields MUST NOT be removed or narrowed. Optional fields may be added fr
 **STABLE field shape, changed value semantics in 0.6.8:** each entry in `BackendChromePayload.settingsSections` keeps its `id`, `label`, `labelKey`, `order`, and `items` fields, but `id` is now the section's **untranslated group id** (the page's `pageGroupKey`, e.g. `settings.sections.moduleConfigs`) instead of a slug of the rendered group label. The old value was locale-dependent, so it could not be targeted reliably (see [#4843](https://github.com/open-mercato/open-mercato/issues/4843)). Consumers matching a settings section — notably injected `menuItems[].groupId` — MUST use the group id, which is the form the widget-injection documentation already prescribes. `buildSettingsSections`' `sectionOrder` parameter keeps a deprecated fallback lookup on the old label slug for at least one minor release.
 
 **STABLE field shape, changed value semantics:** `BackendChromePayload.profileSections` keeps the same entry shape but is no longer the hard-coded single-entry list. It is now the static baseline (the `navHidden` pages route discovery cannot see, currently `/backend/profile/change-password`) merged with every page declaring `pageContext: 'profile'`, so a module contributing a per-user page reaches the profile sidebar the same way it already reaches the profile dropdown (see [#5594](https://github.com/open-mercato/open-mercato/issues/5594)). Two consequences for consumers: the built-in account section `id` changed from the label slug `account` to the untranslated group id `profile.sections.account`, matching the settings convention above — an injected `menuItems[].groupId` targeting `account` MUST be updated, and the one in-repo consumer (`security.injection.profile-sidebar-security-item` in `@open-mercato/enterprise`) was updated in the same change; and `profilePathPrefixes` now also carries each resolved section item's own `href`, which is additive and stays a prefix list. The `profileSections` constant exported from `@open-mercato/core/modules/auth/lib/profile-sections` keeps its import path, its export name and its runtime value, but its declared type narrows from `SectionNavGroup[]` to `SettingsSection[]` (`order` required rather than optional). Reading it — including assigning it to a `SectionNavGroup[]` — is unaffected; only code that pushes an order-less section onto the exported array would need to add `order`.
-
 ### 3. Function Signatures (STABLE)
-
 Signatures MUST NOT change incompatibly. New optional parameters may be added.
-
 |Function|Package|Contract|
 |---|---|---|
 |`createModuleEvents(options)`|`@open-mercato/shared/modules/events`|MUST NOT change `options` required shape or return type|
@@ -151,46 +134,33 @@ Signatures MUST NOT change incompatibly. New optional parameters may be added.
 |Built-in `CrudFormGroup.id` values|any module's form-group builder (e.g. `createCompanyFormGroups`)|MUST NOT rename or remove an id a shipped form declares — `CrudForm`'s `hiddenGroupIds` addresses groups by id, and an unmatched id is ignored, so a rename makes a card the host hid silently reappear in production. Renames follow the deprecation protocol; pin a builder's ids with a guard test (pattern: `packages/core/src/modules/customers/components/__tests__/companyFormHiddenGroups.test.tsx`). MAY add new groups freely|
 |`DataTable` component props|`@open-mercato/ui/backend`|MUST NOT remove existing props|
 |`parseBooleanToken` / `parseBooleanWithDefault`|`@open-mercato/shared/lib/boolean`|MUST NOT change|
-
 ### 4. Import Paths (STABLE)
-
 All documented import paths in the "When You Need an Import" table and in package AGENTS.md files are public API. If a module is moved internally, the old import path MUST be re-exported for backward compatibility with a `@deprecated` annotation.
-
 ### 5. Event IDs (FROZEN)
-
 Published event IDs (declared in any module's `events.ts`) are consumed by subscribers in other modules and by workflow triggers. Changing an event ID is a **breaking change**.
-
 - MUST NOT rename an existing event ID
 - MUST NOT remove an existing event ID
 - MUST NOT change an event's payload shape in a way that removes existing fields
 - MAY add new optional fields to event payloads
 - MAY add new event IDs freely
 - To retire an event: deprecate it, emit both old and new IDs during the bridge period, then remove after one minor version
-
 ### 6. Widget Injection Spot IDs (FROZEN)
-
 Spot IDs are the addresses where external modules inject UI. Renaming or removing a spot ID silently breaks all modules targeting it.
-
 - MUST NOT rename an existing spot ID (e.g., `crud-form:catalog.product`, `sales.document.detail.order:tabs`, `backend:record:current`)
 - MUST NOT remove an existing spot ID from a page
 - MUST NOT change the context/data type passed to widgets at existing spots
 - MAY add new spot IDs to new or existing pages
 - MAY add new optional context fields to existing spots
 - Wildcard spots (`crud-form:*`, `data-table:*`) MUST continue to match as documented
-
 ### 7. API Route URLs (STABLE)
-
 - MUST NOT rename or remove an existing API route URL
 - MUST NOT change the HTTP method for an existing operation
 - MUST NOT remove fields from existing response schemas
 - MAY add new optional fields to request/response schemas
 - MAY add new API routes freely
 - To retire a route: deprecate with `deprecated: true` in `openApi`, keep it functional for at least one minor version, then remove
-
 ### 8. Database Schema (ADDITIVE-ONLY)
-
 Module developers create entities and run migrations. Core schema changes can break their data.
-
 - MUST NOT rename existing tables or columns
 - MUST NOT remove existing columns (use soft-deprecation: stop writing, keep column)
 - MUST NOT change column types in a narrowing way (e.g., `text` → `varchar(50)`)
@@ -201,42 +171,30 @@ Module developers create entities and run migrations. Core schema changes can br
 - MAY add new indexes freely
 - MAY widen column types (e.g., `varchar(100)` → `text`)
 - Foreign key column names on core entities (e.g., `organization_id`, `tenant_id`) are frozen
-
 ### 9. DI Service Names (STABLE)
-
 Module code resolves services by name from the Awilix container. Renaming a DI registration breaks all resolvers.
-
 - MUST NOT rename existing DI service registration keys
 - MUST NOT change the interface of a resolved service in a breaking way
 - MAY add new DI registrations freely
 - MAY add optional methods to existing service interfaces
 - `calendarEventTypeRegistry` (Customers): the registration key and the `upsert`, `replace`, `patch`, `remove`, `removeSource`, and `snapshot` operations are STABLE additive contracts. Contributor modules may resolve it softly when Customers is optional.
-
 ### 10. ACL Feature IDs (FROZEN)
-
 Feature IDs are stored in database role configurations. Renaming a feature ID orphans existing role assignments.
-
 - MUST NOT rename an existing feature ID
 - MUST NOT remove an existing feature ID without a data migration that updates all stored role configs
 - MAY add new feature IDs freely
 - App-level `entry.overrides.acl.features[id] = null` is the supported reversible exception: stored grants are preserved but runtime-inert while the override is effective.
 
 **STABLE capability-field shape, changed value semantics in 0.6.6:** `BackendChromePayload.grantedFeatures` and customer portal `resolvedFeatures` remain `string[]`, but now contain concrete effective feature IDs. They no longer expose `*` or namespace wildcard strings. Consumers MUST check concrete IDs and MUST NOT infer staff/portal admin status from a wildcard; use the explicit admin boolean where exposed.
-
 ### 11. Notification Type IDs (FROZEN)
-
 Notification types are referenced by subscribers, stored in database records, and rendered by client-side renderers.
-
 - MUST NOT rename a `type` string on `NotificationTypeDefinition`
 - MUST NOT remove an existing notification type
 - MAY add new notification types freely
-
 ### 12. AI Agent, Tool, UI Part, and Override IDs (FROZEN / STABLE)
-
 AI framework registries are public extension points. Published IDs are referenced by module code, generated registries, app-level overrides, tenant prompt/policy overrides, launcher UI, and `allowedTools` arrays.
 
 **FROZEN IDs:**
-
 - MUST NOT rename an existing `AiAgentDefinition.id`
 - MUST NOT rename an existing `AiToolDefinition.name`
 - MUST NOT rename an existing AI UI part `componentId`
@@ -245,7 +203,6 @@ AI framework registries are public extension points. Published IDs are reference
 - MUST NOT change the meaning of `AiAgentDefinition.allowedTools`; entries are tool names and missing/disabled tools are omitted by the runtime with a warning
 
 **STABLE override surfaces:**
-
 - Per-module override exports MUST remain co-located in module-root `ai-agents.ts` / `ai-tools.ts`: `aiAgentOverrides`, `aiAgentExtensions`, `aiToolOverrides`
 - App-level overrides MUST remain under `ModuleEntry.overrides.ai.agents`, `ModuleEntry.overrides.ai.tools`, and `ModuleEntry.overrides.ai.extensions`
 - Programmatic overrides MUST keep highest precedence: `applyAiAgentOverrides`, `applyAiToolOverrides`, and `applyAiAgentExtensions`
@@ -254,20 +211,15 @@ AI framework registries are public extension points. Published IDs are reference
 - Override value validation MUST keep key/value matching semantics: a non-null agent override's `id` must equal the map key; a non-null tool override's `name` must equal the map key
 
 **Mutation approval contract:**
-
 - AI write tools MUST keep using `isMutation: true` and the `prepareMutation(...)` pending-action flow
 - `AiAgentMutationPolicy` values (`read-only`, `confirm-required`, `destructive-confirm-required`) MUST NOT be renamed or repurposed
 - Tenant prompt and mutation-policy override tables/API contracts are STABLE; fields may be added, but existing policy values and agent IDs must continue to resolve
 
 To retire an AI agent or tool: deprecate it, keep the old ID available or bridged for at least one minor version, update any shipped `allowedTools` references, and document migration instructions in the referenced spec and release notes.
-
 ### 13. CLI Commands (STABLE)
-
 - MUST NOT rename or remove existing CLI commands or their required flags
 - MAY add new commands or optional flags freely
-
 ### 14. Generated File Contracts (STABLE)
-
 Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. The generator output shape MUST remain compatible with the bootstrap consumer.
 
 - MUST NOT change the export names of generated files
@@ -281,9 +233,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 - Generated `.ai/guides/framework-extension-points.md` is a sibling framework-owned catalog, not a synthetic module-facts key. Existing module Markdown headings, including `Host extension points`, MUST remain available; additive `UMES hosts`/`UMES contributions` sections may not redefine existing IDs.
 
 ---
-
 ## Allowed vs Breaking Changes — Quick Reference
-
 |Surface|Add new|Add optional field|Remove field|Rename|Change type|
 |---|---|---|---|---|---|
 |Convention files|OK|OK|BREAKING|BREAKING|BREAKING|
@@ -303,9 +253,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 \* Feature ID removal requires a data migration.
 
 ---
-
 ## Per-User Integration Credentials (2026-05-26)
-
 `.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row. **All changes are additive** and pass the contract-surface checks above:
 
 |Surface|Change|Classification|
@@ -317,9 +265,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 **Migration path for existing tenants**: no action required. Existing integrations keep their single `user_id IS NULL` row and resolve exactly as before; only callers that pass `scope.userId` (the new per-user channels) read or write user-scoped rows.
 
 ---
-
 ## Spec C — Provider Push Delivery (2026-05-27)
-
 `.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md` extends the communication-channels module with provider push delivery. **All changes are additive** and pass the contract-surface checks above:
 
 > **Update (2026-06-02):** the Microsoft Graph push surfaces (the two `/webhooks/microsoft/*` routes, the `…-microsoft-delta-sync` / `…-microsoft-renew-subscriptions` queues, and `OM_MICROSOFT_WEBHOOK_BASE_URL` / `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS`) were removed together with the `@open-mercato/channel-microsoft` provider — they never shipped in a release, so the removal is not a breaking change. The rows below reflect the Gmail-only surfaces that remain. The `client_state_encrypted` column — proposed solely for Microsoft Graph's anti-tampering nonce — was dropped from scope together with the provider before this branch's migrations were finalized; it appears in no committed migration or snapshot, so there is no schema change to reconcile.
@@ -339,9 +285,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 **Migration path for existing tenants**: no action required. Push is opt-in per channel — until an operator explicitly registers (via connect flow or `POST /push/register`), Gmail channels keep polling on the Spec B baseline. The new ACL feature `communication_channels.channel.push.manage` must be granted via `yarn mercato auth sync-role-acls` post-deploy for the "Re-register push" button to appear.
 
 ---
-
 ## Command Interceptor HTTP Status (2026-08-06)
-
 `.ai/specs/2026-08-06-command-interceptor-http-status.md` lets a command interceptor's deliberate rejection carry an HTTP status and body, so a business block surfaces as (for example) `422` instead of a generic `500`. **All changes are additive** and pass the contract-surface checks above:
 
 |Surface|Change|Classification|
@@ -358,9 +302,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 **Migration**: no action required. The capability is opt-in per rejection — an interceptor that never sets `status` produces exactly the responses it produced before. Interceptors that want a deliberate status add `status` (and optionally `body`) to the `{ ok: false, message }` verdict they already return. First-party transports that call `commandBus.execute` inside their own `try/catch` **now do** honour the contract as of [#5181](https://github.com/open-mercato/open-mercato/pull/5181): every such route consults `getCommandInterceptorHttpRejection(err)` — directly, or through the module-level error mapper it already delegates to — immediately after its `isCrudHttpError` branch, or first in the `catch` where there is none, and the static coverage guard fails when a new bus-calling route ships without it. Third-party transports honour the same contract in the same two lines via `getCommandInterceptorHttpRejection(err)`, which validates the status is an integer in 400-599 before returning it.
 
 ---
-
 ## Canonical API Interceptor Route Identity (2026-10-04)
-
 API dispatch and API-interceptor selection now share the same matched-route identity.
 This closes a policy bypass where a mixed-case or percent-encoded spelling dispatched
 to a handler but did not select its exact `before` interceptor.
@@ -381,9 +323,7 @@ Request wrappers should retain headers when reconstructing the request, or pass 
 authored route constant directly to the interceptor runner.
 
 ---
-
 ## CRUD Foreign-Key Violations Answer 409 (2026-09-07)
-
 Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503). **All changes are additive** and pass the contract-surface checks above:
 
 |Surface|Change|Classification|
@@ -397,9 +337,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 **Migration**: no action required. A client that branched on `5xx` for foreign-key failures should treat `409` with `code: 'FOREIGN_KEY_VIOLATION'` as the same condition; it was never retryable.
 
 ---
-
 ## Encrypt Path Rejects Wrong-Key Ciphertext (2026-09-11)
-
 `TenantDataEncryptionService.encryptFields` treats "already encrypted" as "decrypts under the current DEK" — a deliberate anti-forgery choice ([#2720](https://github.com/open-mercato/open-mercato/issues/2720)). Real ciphertext sealed under a *different* key failed that check too and was encrypted a second time, producing a nested envelope that no read path can undo, plus a lookup hash computed over ciphertext ([#5951](https://github.com/open-mercato/open-mercato/issues/5951)). That write is now rejected:
 
 |Surface|Change|Classification|
@@ -413,9 +351,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 **Migration**: no action required. Operationally, a write touching a record whose encrypted field is sealed under a stale key now fails loudly until the rotation is finished (`mercato entities rotate-encryption-key --old-key …`) or the sealing DEK is restored — a deliberate trade of availability for integrity, since the previous outcome was silent, undetectable corruption. This change does not repair envelopes that were already nested before the upgrade.
 
 ---
-
 ## Module Registry Registration Listeners (2026-08-12)
-
 [Registry listener spec](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
 
 |Surface|Change|Classification|
@@ -429,9 +365,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 **Contract commitments**: listeners are notified synchronously after `setGlobalModules()` (so `getModules()` is readable inside a listener) and only when the registered set actually changed, as decided by an immutable per-registration snapshot of module ids, top-level contract keys and array-valued contract elements. Accessor-declared contracts are never invoked by that snapshot and always count as changed. The contract is fail-soft on both paths: a synchronous throw and an asynchronous rejection are each observed and logged, and neither can fail `registerModules()`. Change detection MAY become more sensitive without a deprecation cycle (over-invalidation only drops a warm cache); it MUST NOT become less sensitive, since that direction serves a stale registry.
 
 **Migration**: no action required. Nothing subscribes unless a module opts in, and with no subscribers the notification iterates an empty set. Test suites that call `registerModules()` MUST clear `__openMercatoModulesRegistrySnapshot__` alongside the two pre-existing registry globals, because all three survive `jest.resetModules()`.
-
 ## Passkey MFA Verification Payload (2026-08-14)
-
 Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
 
 **Classification.** This public `MfaProviderInterface.verifySchema` union shape was client-validatable and covered by an enterprise legacy-compatibility test. Its removal is a STABLE break authorized by the security exception.
@@ -457,13 +391,9 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 **Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
-
 ## Query-index scope (2026-08-28)
-
 [Reindex/catalogue contracts and migration](UPGRADE_NOTES.md).
-
 ## Data Sync Start Control Applicability (2026-09-02)
-
 [Start-control spec](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
 
 |Surface|Change|Classification|
@@ -476,9 +406,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 **Contract commitments**: only an explicit `false` removes a control, so an adapter that declares nothing — or whose predicate returns anything else — renders the same form and sends the same request body as before. A predicate that throws is treated as *applies*, because `api/options.ts` resolves every registered adapter in one response and one broken predicate must not take the dashboard down for the rest. The `startControls` map is sparse and keyed only by the adapter's own `supportedEntities`; a missing entry means every control applies, so a client that ignores the field behaves exactly as today. The declaration governs what the dashboard **offers**, never what the run API **accepts** — that separation MUST hold for any future change here, or an API client posting `fullSync: true` would silently stop getting a full run.
 
 **Migration path for existing adapters**: none. The method is optional and defaults to prior behaviour.
-
 ## Error Reporting Policy (2026-09-08)
-
 Spec: [Error-reporting spec](.ai/specs/2026-09-08-error-reporting-policy.md). Every change is additive; no existing path emits less than it did before.
 
 |Surface|Change|Classification|
@@ -497,9 +425,7 @@ Spec: [Error-reporting spec](.ai/specs/2026-09-08-error-reporting-policy.md). Ev
 **Operator note — terminal queue failures.** Not a contract break, but visible in an alert rule: on the **local** strategy a job's final attempt previously emitted both `queue.job_failed` and `queue.job_exhausted`; it now emits only `queue.job_exhausted`, matching the `async` strategy. An alert thresholding on `queue.job_failed` alone stops seeing terminal failures — page on `queue.job_exhausted`.
 
 **Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.
-
 ## Data Sync Retry, Resume and Run Again (2026-09-16)
-
 [Retry/resume spec](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:
 
 ADDITIVE (§2/§4): `data_sync/lib/resume-point.ts` exports `resolveResumePoint`, `isRetryableRunStatus`, `ResumePoint` (`none` / `noCommittedBatch` / `resumes`) and `ResumePointRun`. Nothing is renamed, moved or re-exported. All other contract categories are unchanged, including database schema, snapshots and the vestigial `paused` status.
@@ -511,9 +437,7 @@ API (§7): `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` r
 `ResumePoint` deliberately has no `fromBeginning` variant: retry resolves `previous.cursor ?? resolveStartCursor(...)`, whose fallback reads shared `sync_cursors` state absent from the run row. Even a run without committed batches may resume from an earlier run's cursor. `noCommittedBatch` MUST mean only "this run committed nothing", never a retry position. Only a future additive `retryStartCursor` field could supply that position; it remains out of scope.
 
 **Migration path for existing adapters and clients**: none. The module is new, every endpoint is unchanged, and an adapter or API client that ignores all of this behaves exactly as before.
-
 ## Customers Quick-Create Injection Spot Bridge (2026-09-16)
-
 [Quick-create spec](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md) binds the sales document form's Person/Company quick-create dialogs to the customers module's declared `crud-form:customers.person` / `…company` hosts. The dialogs previously had no `injectionSpotId`, so `CrudForm` auto-derived `crud-form:customers.customer_entity` (§6, FROZEN) there instead.
 
 |Surface|Change|Classification|
@@ -524,15 +448,11 @@ API (§7): `POST /api/data_sync/runs/[id]/retry` and `POST /api/data_sync/run` r
 |Type definitions (§2)|New optional `CrudForm` prop `legacyInjectionSpotId?: string`|✓ ADDITIVE|
 
 **Deprecation window.** `legacyInjectionSpotId` is scoped to these two call sites and intended for removal after at least one minor version (Deprecation Protocol step 1), tracked in the spec's Changelog and in `UPGRADE_NOTES.md`. No maintainer waiver was needed — nothing is removed by this change.
-
 ### 2026-10-01 — Passkey enrollment (#6800)
-
 STABLE `PUT /api/security/mfa/provider/passkey`: unverified keys bypass verification; a bridge preserves the exploit. [@haxiorz approved waiver/migration](https://github.com/open-mercato/open-mercato/pull/6824#issuecomment-6505351158).
 
 Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [Spec](.ai/specs/enterprise/2026-10-01-passkey-enrollment-require-webauthn-attestation.md); [migration](UPGRADE_NOTES.md#090--091-unreleased).
-
 ## Atomic Auth Command Replay (2026-10-04)
-
 [Auth replay spec](.ai/specs/2026-07-28-protected-roles-and-audit-seam.md) closes the auth undo/redo transaction, authorization, and membership-phantom gaps without changing existing command handlers by default.
 
 |Surface|Change|Classification|
@@ -549,9 +469,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 **Migration**: none. Third-party commands remain on the established replay lifecycle unless they explicitly set `atomicReplay: true`. An opting-in handler must perform all replay database work through `ctx.transactionalEm`; when authorization depends on mutable domain rows it may add `stabilizeReplay` to acquire its complete footprint before guards and interceptors. The command bus supplies and owns the transaction by default. A caller deliberately composing replay inside an already-active `ctx.transactionalEm` must open that outer transaction with `withAtomicFlush(..., { transaction: true })`, obtain its exact `TransactionLifetime` inside the phase, and pass it as `ctx.transactionLifetime`; otherwise replay fails before mutation. Commit-only hooks and redo-finalization reporting follow the true outer completion. The capability does not claim that legacy non-opted-in action-log and domain writes are transactionally atomic.
 
 ---
-
 ## Organization Update Preserves Omitted Hierarchy Fields (2026-10-01)
-
 `directory.organizations.update` treated an omitted `parentId` as `null` and an omitted `childIds` as `[]`, so a partial update — notably `PUT /api/directory/organization-branding`, which sends only logo fields — detached the organization from its parent and orphaned its children. Omitted hierarchy fields are now preserved:
 
 |Surface|Change|Classification|
@@ -563,9 +481,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 **Migration**: send `parentId: null` / `childIds: []` where clearing is intended. Trees flattened before the upgrade are not repaired (see UPGRADE_NOTES.md).
 
 ---
-
 ## Arbitrary-Precision Money and FX Rates (2026-10-08)
-
 [`.ai/specs/2026-10-08-arbitrary-precision-money-and-fx.md`](.ai/specs/2026-10-08-arbitrary-precision-money-and-fx.md) makes money and exchange-rate columns unconstrained `numeric` and moves money math to exact decimals (`@open-mercato/shared/lib/decimal`). Every `number` amount kept in a public contract stays and is filled with a float copy of a new `<field>Exact` decimal string.
 
 |Surface|Change|Classification|
@@ -586,9 +502,7 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 **Migration path for existing modules**: none required. Code that only reads/writes the `number` fields keeps working with float precision; read or write the `<field>Exact` strings (and use `@open-mercato/shared/lib/decimal` for math) to support amounts beyond float precision. Clients comparing padded strings such as `"40.0000"` should compare numerically.
 
 ---
-
 ## Staff Logout Runs Without A Valid Access Token (2026-10-13)
-
 `POST /api/auth/logout` answered `401` before its handler ran once the access token expired, so the remember-me session was never revoked ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). It now declares `requireAuth: false`, like the portal logout:
 
 |Surface|Change|Classification|
@@ -599,15 +513,11 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 |Database schema, ACL features, DI names, CLI commands|No change|✓ n/a|
 
 **Migration**: none. A client that read a logout `401` as "already signed out" gets the redirect instead.
-
 ## Discord AI Proposals (2026-10-13)
-
 [Waiver](UPGRADE_NOTES.md#discord-proposals)
 
 ---
-
 ## OAuth2 Grant Lifecycle Core (2026-10-12)
-
 [OAuth2 core spec](.ai/specs/2026-10-01-oauth2-grant-lifecycle-core.md) (parent: [OAuth2 app spec](.ai/specs/2026-09-27-app-spec-oauth2-grant-lifecycle.md) §10.1) adds a tenant-level OAuth2 grant core to `integrations` that no existing integration uses yet. **All changes are additive** except the reserved `__oauth_grant` suffix, an intentional security narrowing that no first-party integration or bundle id hits. Developer guide: `apps/docs/docs/framework/modules/integrations-oauth-grants.mdx`.
 
 |Surface|Change|Classification|
@@ -631,64 +541,38 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 **Migration**: none for first-party code. Third-party modules must not register an integration or bundle id that ends in `__oauth_grant` (see `UPGRADE_NOTES.md`).
 
 ---
-
 ## Attachment owner access (2026-10-01, #6726)
-
 STABLE HTTP/service BREAK (403/404/504), Documents only: org-wide files bypass sharing; bridging would retain disclosure. Discovery/schema additive. [Migration](UPGRADE_NOTES.md#documents-attachments-enforce-owner-permissions-at-host-urls-6726); [spec](.ai/specs/2026-10-01-attachment-access-resolvers.md). [@haxiorz: steps 1–3 waived; migration acknowledged](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022).
-
 ## #7220
-
 [Cache fix](UPGRADE_NOTES.md)
 
 ---
-
 ## Public pay links (2026-10-27, #7823)
-
 STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them preserves disclosure. Client/operator migration: [notes](UPGRADE_NOTES.md). @haxiorz [approved](https://github.com/open-mercato/open-mercato/pull/8087#issuecomment-6505348826) on 2026-10-29: steps 1–3 waived for all 18 admin fields; client/operator migration acknowledged.
-
 ## #3805 2026-10-31
-
 STABLE tools/execute writes bypass approval; no bridge. [Migrate](UPGRADE_NOTES.md#issue-3805)
-
 ## Workflow List Pagination Bounds (2026-10-29, #7534)
-
 STABLE API (§7): supported `limit=101`/`offset=100001` now return 400. Unbounded reads/offsets amplify authenticated resource use; bridging retains it. Emergency Security Exception: named human maintainer approval required before merge; no automated waiver.
 
 Migration: clients page/filter and handle 400; operators deploy, no DB/config changes. [Details](UPGRADE_NOTES.md#workflow-list-pagination-bounds-7534); [spec](.ai/specs/implemented/2026-04-14-code-based-workflow-definitions.md).
-
 ## SCIM rate limiting (2026-10-27)
-
 SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: ApiRouteBeforeAuth` is additive. See [contract and migration](.ai/specs/enterprise/implemented/SPEC-ENT-004-2026-02-19-sso-directory-sync.md#migration--backward-compatibility).
-
 ## Encrypted search contexts (#7872)
-
 STABLE: encrypted custom fields are omitted; missing/failing resolver excludes all. A bridge preserves disclosure; human exception approval is pending. [Contract/migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
-
 ## Compose encryption (2026-11-01, #7231)
-
 STABLE: unsafe keys/HTTP Vault rejected; bridges retain exposure. [Migration](UPGRADE_NOTES.md).
 Named human waiver of steps 1–3 required.
-
 ## Encryption maintenance safety gates (2026-11-02, #6767)
-
 CLI safety confirmations changed; stop writers and restart replicas. [Flags, migration and stable formats](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767).
-
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
-
 `POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
 
 **Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
-
 ## #7809 2026-11-06
-
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
-
 ## File-agent attachment read authorization (2026-11-10, #9117)
-
 STABLE: nonempty inputs require principal/owner read access; bridges retain disclosure. [Migration/spec](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). Steps 1–3 waived by @pkarw on 2026-11-13.
-
 ## 2026-11-07 — Private next-interaction subjects (#8888)
-
 Surface: stable customer projection response behavior. Private email subjects and
 unresolved historical linked names now become NULL in shared projections; response
 keys/types, scheduling, manual names and authorized interaction readers remain
@@ -699,46 +583,34 @@ rebuilds and rebuild configured search providers before reopening affected reads
 See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES.
 Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
 2026-11-13: [human approval](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966).
-
 ## Comment authors (2026-11-12, #8759)
-
 STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
-
 ## 2026-11 — CRUD security (#3827, #9154, #9106)
-
-STABLE API: restrict sort keys, deleted-row reads, relation labels and global reads. Legacy behavior keeps leaks open. Named waiver pending. [Migration](UPGRADE_NOTES.md#crud-factory-security-and-query-correctness-bundle).
-
+STABLE API limits sorts, deleted rows, labels and global reads. 2026-11-24: relation options need owner policies. Bridges leak data. Use Staff timesheet APIs. Named waiver pending. [Upgrade](UPGRADE_NOTES.md).
 ## 2026-11-19 — Entity translation authorization (#9139)
-
 STABLE translation API and localization require target permissions and registered text fields. A bridge retains the leak. [Migration](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139). [Piotr Karwatka (@pkarw) waived steps 1–3 on 2026-11-20](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
-
 ## SSO authority (2026-11-15, #9014)
-
 STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
-
 ## 2026-11-22 — Attachment assignment label authorization (#10336)
-
 STABLE attachment API and helper shapes stay. Optional labels/links need scoped tenant/org reads. An unrestricted fallback retains disclosure. Pass verified auth or use assignment metadata. [Upgrade](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
-
 ## #10331 #10332 (2026-11-23)
-
 STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
-
 ## 2026-11-24 — Trace ingest
-
 STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
-
 ## 2026-11-25 — Encrypted custom field writes
-
 STABLE API behavior changes for writes of tenant-scoped encrypted custom fields when the data key is unavailable. Preserving success during the outage would persist unencrypted values. Clients handle HTTP 503 and retry after key access recovers. Operators restore key access and review historical records. [Migration](UPGRADE_NOTES.md) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
-
 ## 2026-11-25 — Empty organization scope (#10503)
-
 STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
-
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
-
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+
+## Workflow events (2026-11-20, #9134)
+
+STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
+
+## 2026-11-25 — MCP Code Mode
+
+STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
 
 ## 2026-11-25 — #9140
 
