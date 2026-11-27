@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useInjectionSpotEvents } from './InjectionSpot'
-import { GLOBAL_MUTATION_INJECTION_SPOT_ID, dispatchBackendMutationError } from './mutationEvents'
+import { GLOBAL_MUTATION_INJECTION_SPOT_ID, dispatchBackendMutationError, type BackendMutationErrorEventDetail } from './mutationEvents'
 import { withScopedApiRequestHeaders } from '../utils/apiCall'
 import { surfaceRecordConflict } from '../conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -16,18 +16,13 @@ type GuardedMutationRunInput<TResult, TContext extends GuardedMutationContext> =
   operation: () => Promise<TResult>
   context: TContext
   mutationPayload?: Record<string, unknown>
+  onSuccess?: () => void | Promise<void>
 }
 
 type UseGuardedMutationOptions = {
   contextId: string
   blockedMessage?: string
   spotId?: string
-}
-
-type StoredMutation<TContext extends GuardedMutationContext> = {
-  operation: () => Promise<unknown>
-  context: TContext
-  mutationPayload: Record<string, unknown>
 }
 
 export function useGuardedMutation<TContext extends GuardedMutationContext>({
@@ -37,13 +32,18 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
 }: UseGuardedMutationOptions) {
   const t = useT()
   const { triggerEvent } = useInjectionSpotEvents<TContext, Record<string, unknown>>(spotId)
-  const lastMutationRef = React.useRef<StoredMutation<TContext> | null>(null)
+  const lastMutationRef = React.useRef<BackendMutationErrorEventDetail['retryMutation']>(undefined)
 
-  const emitMutationSaveError = React.useCallback((error: unknown) => {
+  const emitMutationSaveError = React.useCallback((
+    error: unknown,
+    retryMutation: NonNullable<BackendMutationErrorEventDetail['retryMutation']>,
+    formId: string,
+  ) => {
     dispatchBackendMutationError({
       contextId,
-      formId: contextId,
+      formId,
       error,
+      retryMutation,
     })
     // Default UX for OSS optimistic-lock conflicts (spec
     // .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md §3.6): when the
@@ -63,54 +63,50 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
     operation,
     context,
     mutationPayload,
-  }: GuardedMutationRunInput<TResult, TContext>): Promise<TResult> => {
+    onSuccess,
+  }: GuardedMutationRunInput<TResult, TContext>, retryFormId?: string): Promise<TResult> => {
     const payload = mutationPayload ?? {}
-    lastMutationRef.current = {
-      operation: operation as () => Promise<unknown>,
-      context,
-      mutationPayload: payload,
+    const retryMutation = async (formId?: string): Promise<boolean> => {
+      try {
+        await runMutation({ operation, context, mutationPayload: payload, onSuccess }, formId)
+        return true
+      } catch {
+        return false
+      }
     }
+    lastMutationRef.current = retryMutation
+    const mutationContext = retryFormId ? { ...context, formId: retryFormId } : context
+    const formId = retryFormId ?? contextId
 
-    const beforeSave = await triggerEvent('onBeforeSave', payload, context)
+    const beforeSave = await triggerEvent('onBeforeSave', payload, mutationContext)
     if (!beforeSave.ok) {
-      emitMutationSaveError(beforeSave.details ?? beforeSave)
+      emitMutationSaveError(beforeSave.details ?? beforeSave, retryMutation, formId)
       throw new Error(beforeSave.message || blockedMessage)
     }
 
+    let result: TResult
     try {
-      const result =
+      result =
         beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
           ? await withScopedApiRequestHeaders(beforeSave.requestHeaders, operation)
           : await operation()
 
       try {
-        await triggerEvent('onAfterSave', payload, context)
+        await triggerEvent('onAfterSave', payload, mutationContext)
       } catch (error) {
         logger.error('Error in onAfterSave injection event', { err: error })
       }
-
-      return result
     } catch (error) {
-      emitMutationSaveError(error)
+      emitMutationSaveError(error, retryMutation, formId)
       throw error
     }
-  }, [blockedMessage, emitMutationSaveError, triggerEvent])
+    await onSuccess?.()
+    return result
+  }, [blockedMessage, contextId, emitMutationSaveError, triggerEvent])
 
   const retryLastMutation = React.useCallback(async (): Promise<boolean> => {
-    const lastMutation = lastMutationRef.current
-    if (!lastMutation) return false
-
-    try {
-      await runMutation({
-        operation: lastMutation.operation,
-        context: lastMutation.context,
-        mutationPayload: lastMutation.mutationPayload,
-      })
-      return true
-    } catch {
-      return false
-    }
-  }, [runMutation])
+    return (await lastMutationRef.current?.()) ?? false
+  }, [])
 
   return {
     runMutation,
