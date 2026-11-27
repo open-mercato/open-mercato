@@ -3,6 +3,17 @@ import type { RoleAcl } from '../data/entities'
 
 export type RoleOrganizationScope = ReadonlySet<string> | null
 
+export function roleAclHasGlobalOrganizationScope(acl: Pick<RoleAcl, 'organizationsJson'>): boolean {
+  const organizations = acl.organizationsJson
+  return organizations == null
+    || (Array.isArray(organizations) && (organizations.length === 0 || organizations.includes('__all__')))
+}
+
+export function userAclHasGlobalOrganizationScope(acl: Pick<RoleAcl, 'organizationsJson'>): boolean {
+  const organizations = acl.organizationsJson
+  return organizations == null || (Array.isArray(organizations) && organizations.includes('__all__'))
+}
+
 function normalizeId(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }

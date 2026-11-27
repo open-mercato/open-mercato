@@ -21,6 +21,12 @@ import { USER_TIMEZONE } from '../../../lib/localDay'
 import { parseRecurrenceCount } from './recurrenceCount'
 import { isRecurrenceEndBeforeStart } from './recurrenceEndDate'
 
+function stopPortaledTimePickerScroll(event: React.SyntheticEvent<HTMLDivElement>) {
+  if (event.target instanceof Node && !event.currentTarget.contains(event.target)) {
+    event.stopPropagation()
+  }
+}
+
 function parseIsoDate(value: string): Date | null {
   if (!value) return null
   const parts = value.split('-')
@@ -155,7 +161,11 @@ export function DateTimeFields({
           ) : null}
         </div>
         {showStartTime && (
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div
+            className="flex min-w-0 flex-1 flex-col gap-1.5"
+            onWheel={stopPortaledTimePickerScroll}
+            onTouchMove={stopPortaledTimePickerScroll}
+          >
             <label className="text-overline font-semibold text-muted-foreground tracking-wider">
               {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
               {timeRequired ? (

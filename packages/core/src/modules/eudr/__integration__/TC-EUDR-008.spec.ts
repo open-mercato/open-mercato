@@ -492,7 +492,7 @@ test.describe('TC-EUDR-008b: per-feature rollup gating on the compliance overvie
     try {
       limitedUserId = await createUserFixture(request, adminToken, {
         email,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId: scope.organizationId,
         roles: ['employee'],
       })
@@ -502,7 +502,7 @@ test.describe('TC-EUDR-008b: per-feature rollup gating on the compliance overvie
         features: ['eudr.statements.view'],
         organizations: null,
       })
-      const limitedToken = await getAuthToken(request, email, 'Valid1!Pass')
+      const limitedToken = await getAuthToken(request, email, 'QaValid1!Pass')
 
       const limitedResponse = await apiRequest(request, 'GET', DASHBOARD_PATH, { token: limitedToken })
       expect(limitedResponse.status(), `limited overview failed: ${limitedResponse.status()}`).toBe(200)

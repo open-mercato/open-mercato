@@ -4,10 +4,11 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 const triggerEventMock = jest.fn()
+let mockReplacementTriggerEvent: typeof triggerEventMock | null = null
 
 jest.mock('../InjectionSpot', () => ({
   useInjectionSpotEvents: () => ({
-    triggerEvent: (...args: unknown[]) => triggerEventMock(...args),
+    triggerEvent: mockReplacementTriggerEvent ?? triggerEventMock,
   }),
 }))
 
@@ -18,6 +19,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 import { act, renderHook } from '@testing-library/react'
 import { useGuardedMutation } from '../useGuardedMutation'
 import { dismissRecordConflict, getRecordConflictForTest } from '../../conflicts'
+import { BACKEND_MUTATION_ERROR_EVENT, type BackendMutationErrorEventDetail } from '../mutationEvents'
 
 function setupTriggerEventOk() {
   triggerEventMock.mockImplementation(async () => ({ ok: true, requestHeaders: undefined }))
@@ -26,6 +28,7 @@ function setupTriggerEventOk() {
 describe('useGuardedMutation — surfaces optimistic-lock conflict on the unified bar', () => {
   beforeEach(() => {
     triggerEventMock.mockClear()
+    mockReplacementTriggerEvent = null
     dismissRecordConflict()
   })
 
@@ -114,5 +117,36 @@ describe('useGuardedMutation — surfaces optimistic-lock conflict on the unifie
     })
 
     expect(getRecordConflictForTest()).toBeNull()
+  })
+
+  it('replays the original write through the currently registered guards', async () => {
+    triggerEventMock.mockResolvedValueOnce({ ok: false, message: 'blocked' })
+    const { result, rerender } = renderHook(() => useGuardedMutation({ contextId: 'original-form' }))
+    const operation = jest.fn(async () => 'old write')
+    const payload = { pipelineStageId: 'stage-2' }
+    const context = { formId: 'original-form', resourceId: 'deal-1' }
+    const errors: BackendMutationErrorEventDetail[] = []
+    const captureError = (event: Event) => { errors.push((event as CustomEvent<BackendMutationErrorEventDetail>).detail) }
+    window.addEventListener(BACKEND_MUTATION_ERROR_EVENT, captureError)
+
+    try {
+      await expect(result.current.runMutation({ operation, context, mutationPayload: payload })).rejects.toThrow('blocked')
+      mockReplacementTriggerEvent = jest.fn().mockResolvedValue({ ok: true })
+      rerender()
+      await result.current.runMutation({ operation: async () => 'new write', context })
+      mockReplacementTriggerEvent.mockClear()
+
+      await expect(errors[0].retryMutation?.('active-form')).resolves.toBe(true)
+
+      expect(mockReplacementTriggerEvent).toHaveBeenNthCalledWith(
+        1, 'onBeforeSave', payload, { ...context, formId: 'active-form' },
+      )
+      expect(mockReplacementTriggerEvent).toHaveBeenNthCalledWith(
+        2, 'onAfterSave', payload, { ...context, formId: 'active-form' },
+      )
+      expect(operation).toHaveBeenCalledTimes(1)
+    } finally {
+      window.removeEventListener(BACKEND_MUTATION_ERROR_EVENT, captureError)
+    }
   })
 })

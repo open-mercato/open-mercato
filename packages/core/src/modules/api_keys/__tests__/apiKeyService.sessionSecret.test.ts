@@ -16,9 +16,14 @@ jest.mock('@open-mercato/shared/lib/encryption/kms', () => ({
   createKmsService: (...args: unknown[]) => mockCreateKmsService(...args),
 }))
 
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
+import { ApiKey } from '../data/entities'
+import * as aes from '@open-mercato/shared/lib/encryption/aes'
 import { generateDek, looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
 import { createApiKey, createSessionApiKey, findSessionApiKeyWithSecret } from '../services/apiKeyService'
 
+const mockDecryptWithAesGcm = jest.spyOn(aes, 'decryptWithAesGcm')
 const TENANT = 'tenant-1'
 const previousToggle = process.env.TENANT_DATA_ENCRYPTION
 
@@ -32,25 +37,30 @@ function mockKms(dek: string | null) {
 
 function buildEm() {
   const created: Array<Record<string, unknown>> = []
+  const owner = { id: 'user-alice', tenantId: TENANT, organizationId: 'org-1', isConfirmed: true, deletedAt: null }
+  const tenant = { id: TENANT, isActive: true, deletedAt: null }
   const flush = jest.fn().mockResolvedValue(undefined)
   let inTransaction = false
   const em = {
     create: jest.fn((_Entity: unknown, data: Record<string, unknown>) => {
-      const row = { id: `key-${created.length + 1}`, ...data }
+      const row = { id: `key-${created.length + 1}`, deletedAt: null, ...data }
       created.push(row)
       return row
     }),
     persist: jest.fn(() => ({ flush })),
     flush,
     find: jest.fn(async () => []),
-    // `findApiKeyBySessionToken` reads the row back through the plain EntityManager.
-    findOne: jest.fn(async () => created[0] ?? null),
+    findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+      const record: Record<string, unknown> | null = entity === User ? owner : entity === Tenant ? tenant : entity === ApiKey ? created[0] ?? null : null
+      if (!record) return null
+      return Object.entries(where).every(([field, value]) => record[field] === value) ? record : null
+    }),
     isInTransaction: () => inTransaction,
     begin: jest.fn(async () => { inTransaction = true }),
     commit: jest.fn(async () => { inTransaction = false }),
     rollback: jest.fn(async () => { inTransaction = false }),
   }
-  return { em, created }
+  return { em, created, owner, tenant }
 }
 
 /** Round-trip a freshly minted session key through storage and back out again. */
@@ -163,5 +173,74 @@ describe('session secret storage', () => {
     // only the ones sealed under the old setting.
     const result = await findSessionApiKeyWithSecret(em as never, 'sess_alice')
     expect(result?.secret).toBe(plaintext)
+  })
+})
+
+describe('session secret owner eligibility', () => {
+  async function fixture() {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    mockKms(generateDek())
+    const fixture = buildEm()
+    await createSessionApiKey(fixture.em as never, {
+      sessionToken: 'sess_alice', userId: 'user-alice', userRoles: ['admin'],
+      tenantId: TENANT, organizationId: 'org-1',
+    })
+    mockDecryptWithAesGcm.mockClear()
+    return fixture
+  }
+
+  it.each([
+    ['deactivated', { isConfirmed: false }],
+    ['deleted', { deletedAt: new Date() }],
+    ['another tenant', { tenantId: 'tenant-2' }],
+    ['another organization', { organizationId: 'org-2' }],
+  ])('denies an owner who is %s before touching the secret', async (_label, changes) => {
+    const { em, owner } = await fixture()
+    Object.assign(owner, changes)
+    await expect(findSessionApiKeyWithSecret(em as never, 'sess_alice')).resolves.toBeNull()
+    expect(mockDecryptWithAesGcm).not.toHaveBeenCalled()
+  })
+
+  it.each([null, '', '  ', 'missing-owner'])('denies a missing owner (%s) without creator fallback', async (ownerId) => {
+    const { em, created } = await fixture()
+    created[0].sessionUserId = ownerId
+    await expect(findSessionApiKeyWithSecret(em as never, 'sess_alice')).resolves.toBeNull()
+    expect(mockDecryptWithAesGcm).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['inactive', { isActive: false }],
+    ['deleted', { deletedAt: new Date() }],
+    ['missing', { id: 'tenant-2' }],
+  ])('denies an %s tenant before decrypting', async (_label, changes) => {
+    const { em, tenant } = await fixture()
+    Object.assign(tenant, changes)
+    await expect(findSessionApiKeyWithSecret(em as never, 'sess_alice')).resolves.toBeNull()
+    expect(mockDecryptWithAesGcm).not.toHaveBeenCalled()
+  })
+
+  it('rechecks live owner and tenant state after a successful recovery on the same EM', async () => {
+    const { em, owner } = await fixture()
+    expect(await findSessionApiKeyWithSecret(em as never, 'sess_alice')).not.toBeNull()
+    expect(em.findOne).toHaveBeenCalledWith(User, {
+      id: owner.id, tenantId: TENANT, organizationId: 'org-1', isConfirmed: true, deletedAt: null,
+    }, { refresh: true })
+    expect(em.findOne).toHaveBeenCalledWith(Tenant, {
+      id: TENANT, isActive: true, deletedAt: null,
+    }, { refresh: true })
+    owner.isConfirmed = false
+    mockDecryptWithAesGcm.mockClear()
+    await expect(findSessionApiKeyWithSecret(em as never, 'sess_alice')).resolves.toBeNull()
+    expect(mockDecryptWithAesGcm).not.toHaveBeenCalled()
+  })
+
+  it('propagates an unavailable owner lookup without decrypting', async () => {
+    const { em, created } = await fixture()
+    em.findOne.mockImplementation(async (entity) => {
+      if (entity === ApiKey) return created[0]
+      throw new Error('[internal] database unavailable')
+    })
+    await expect(findSessionApiKeyWithSecret(em as never, 'sess_alice')).rejects.toThrow('database unavailable')
+    expect(mockDecryptWithAesGcm).not.toHaveBeenCalled()
   })
 })
