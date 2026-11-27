@@ -72,10 +72,8 @@ test('ordinary CI jobs reject unsuccessful dependencies except an intentionally 
 })
 
 test('CI orchestration changes select the full integration suite without including docs-only changes', () => {
-  const scopeStep = workflow.jobs.prepare.steps.find((step) => step.id === 'integration-scope')
-  const patternAssignment = scopeStep.run.match(/^\s*FULL_SUITE_PATTERN='([^']+)'$/m)
-  assert.ok(patternAssignment)
-  const fullSuitePattern = new RegExp(patternAssignment[1])
+  const scopeConfig = JSON.parse(fs.readFileSync(new URL('../../.github/ci-scope.json', import.meta.url), 'utf8'))
+  const fullSuitePattern = new RegExp(scopeConfig.fullSuitePatterns.join('|'))
 
   assert.match('.github/workflows/ci.yml', fullSuitePattern)
   for (const excludedPath of ['README.md', 'apps/docs/docs/index.mdx', '.github/workflows/community-labels.yml']) {

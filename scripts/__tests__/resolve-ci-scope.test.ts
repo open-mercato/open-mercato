@@ -4,8 +4,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { parse } from 'yaml'
-
 import {
   CiScopeError,
   SCOPE_CONTROL_PATHS,
@@ -17,6 +15,7 @@ import {
   type CiScopeConfig,
   type CiScopeInput,
 } from '../ci/resolve-ci-scope.mts'
+import { REPOSITORY, runCiScopeStep, scopeStep } from './fixtures/ci-scope-step.mjs'
 
 type RealPr = {
   number: number
@@ -36,12 +35,8 @@ const schema = readJson('../../.github/ci-scope.schema.json') as { required: str
 const config: CiScopeConfig = parseCiScopeConfig(rawConfig)
 const realPrs = readJson('./fixtures/resolve-ci-scope-prs.json') as RealPr[]
 
-const workflow = parse(fs.readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8'))
-const scopeStep = workflow.jobs.prepare.steps.find((step: { id?: string }) => step.id === 'integration-scope')
+const legacyScopeScript = fs.readFileSync(new URL('./fixtures/legacy-prepare-scope.sh', import.meta.url), 'utf8')
 const FULL_SHARDS = Array.from({ length: 15 }, (_, index) => `${index + 1}/15`)
-
-const FORCE_FULL_SUITE_EXPRESSION =
-  "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'stabilize/') || contains(github.event.pull_request.labels.*.name, 'ci-full')) }}"
 
 function todayForcesFullSuite(input: CiScopeInput): boolean {
   return (input.event ?? 'pull_request') === 'pull_request' && !input.isFork && (input.headRef.toLowerCase().startsWith('stabilize/') || input.labels.some((label) => label.toLowerCase() === 'ci-full'))
@@ -53,7 +48,7 @@ function runTodayPrepareScope(input: CiScopeInput): Expected {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'resolve-ci-scope-'))
   try {
     const output = path.join(directory, 'output')
-    const script = `git() { printf '%s\\n' "$CHANGED_LIST"; }\n${String(scopeStep.run).replaceAll('${{ github.event_name }}', input.event ?? 'pull_request')}`
+    const script = `git() { printf '%s\\n' "$CHANGED_LIST"; }\n${legacyScopeScript.replaceAll('${{ github.event_name }}', input.event ?? 'pull_request')}`
     const result = spawnSync('bash', ['-e', '-c', script], {
       env: {
         ...process.env,
@@ -97,6 +92,31 @@ function assertParity(input: CiScopeInput, expected: Expected, t: { skip: (messa
   assert.deepEqual(runTodayPrepareScope(input), { level: expected.level, modules: expected.modules, skip: expected.skip })
 }
 
+function runWorkflowStep(input: CiScopeInput) {
+  return runCiScopeStep({
+    eventName: input.event ?? 'pull_request',
+    changedFiles: [...input.changedFiles],
+    labels: [...input.labels],
+    headRef: input.headRef,
+    baseRef: input.baseRef,
+    headRepo: input.isFork ? 'contributor/open-mercato' : REPOSITORY,
+  })
+}
+
+function assertWorkflowStep(input: CiScopeInput, expected: Expected) {
+  const step = runWorkflowStep(input)
+  assert.equal(step.status, 0, step.stderr)
+  assert.deepEqual(
+    { level: step.full ? 'full' : 'scoped', modules: step.values.modules ? step.values.modules.split(',') : [], skip: step.values.skip === 'true' },
+    { level: expected.level, modules: expected.modules, skip: expected.skip },
+  )
+  if (!step.full) assert.deepEqual(JSON.parse(step.values.shard_matrix), ['none'])
+  const summaryLines = step.summary.trim().split('\n')
+  assert.equal(summaryLines.length, 1, step.summary)
+  assert.match(summaryLines[0], new RegExp(`^CI scope: ${expected.level} · `))
+  return step
+}
+
 test('ci-scope.json parses and matches its schema keys', () => {
   const keys = Object.keys(rawConfig).filter((key) => key !== '$schema').sort()
   assert.deepEqual(keys, [...schema.required].sort())
@@ -105,14 +125,82 @@ test('ci-scope.json parses and matches its schema keys', () => {
   assert.deepEqual(config.levels, ['ci-targeted', 'ci-full'])
 })
 
-test('fullSuitePatterns are exactly FULL_SUITE_PATTERN from the prepare job', () => {
-  const match = /FULL_SUITE_PATTERN='([^']+)'/.exec(String(scopeStep.run))
-  assert.ok(match, 'FULL_SUITE_PATTERN not found in ci.yml prepare job')
+test('fullSuitePatterns are exactly FULL_SUITE_PATTERN from the pre-resolver prepare job', () => {
+  const match = /FULL_SUITE_PATTERN='([^']+)'/.exec(legacyScopeScript)
+  assert.ok(match, 'FULL_SUITE_PATTERN not found in the frozen pre-resolver script')
   assert.equal(config.fullSuitePatterns.join('|'), match[1])
 })
 
-test('FORCE_FULL_SUITE expression in ci.yml is the one the parity tests model', () => {
-  assert.equal(workflow.env.FORCE_FULL_SUITE, FORCE_FULL_SUITE_EXPRESSION)
+test('the prepare job no longer carries inline scope rules', () => {
+  const run = String(scopeStep.run)
+  assert.doesNotMatch(run, /FULL_SUITE_PATTERN|FORCE_FULL_SUITE|\$\{\{/)
+  assert.equal(scopeStep.env.FORCE_FULL_SUITE, undefined)
+})
+
+test('the prepare job loads the resolver and scope file from the PR base commit, not the checkout', () => {
+  const run = String(scopeStep.run)
+  assert.equal(scopeStep.env.BASE_SHA, '${{ github.event.pull_request.base.sha }}')
+  assert.match(run, /git show "\$\{SCOPE_SOURCE\}:\$\{RESOLVER_PATH\}"/)
+  assert.match(run, /git show "\$\{SCOPE_SOURCE\}:\$\{SCOPE_FILE_PATH\}"/)
+  assert.match(run, /RESOLVER_PATH=scripts\/ci\/resolve-ci-scope\.mts\n/)
+  assert.match(run, /SCOPE_FILE_PATH=\.github\/ci-scope\.json\n/)
+  assert.doesNotMatch(run, /\.\/scripts\/ci\/resolve-ci-scope|import .*['"]\.\.?\/scripts/)
+  const step = runCiScopeStep({ changedFiles: ['packages/core/src/modules/sales/a.ts'] })
+  assert.equal(step.status, 0, step.stderr)
+  assert.ok(step.calls.includes('git show base-sha:scripts/ci/resolve-ci-scope.mts'), step.calls.join('\n'))
+  assert.ok(step.calls.includes('git show base-sha:.github/ci-scope.json'), step.calls.join('\n'))
+  assert.ok(!step.calls.some((call) => call.startsWith('git fetch')), step.calls.join('\n'))
+})
+
+test('a base that predates the scope rules uses the default branch copy and says so', () => {
+  const step = runCiScopeStep({ changedFiles: ['packages/core/src/modules/sales/a.ts'], baseRef: 'release/v0.10.x', scopeRulesAtBase: false })
+  assert.equal(step.status, 0, step.stderr)
+  assert.ok(step.calls.includes('git fetch --no-tags --depth=1 origin refs/heads/main'), step.calls.join('\n'))
+  assert.ok(step.calls.includes('git show default-branch-tip:scripts/ci/resolve-ci-scope.mts'), step.calls.join('\n'))
+  assert.equal(step.values.modules, 'sales')
+  assert.equal(step.summary, 'CI scope: scoped · sales (changed) · scope rules from main (base release/v0.10.x predates them)\n')
+})
+
+test('the prepare job reads labels from the API at job time, not from the event payload', () => {
+  assert.doesNotMatch(JSON.stringify(scopeStep), /pull_request\.labels/)
+  const step = runCiScopeStep({ changedFiles: ['README.md'], labels: ['ci-full'] })
+  assert.equal(step.status, 0, step.stderr)
+  assert.ok(step.calls.includes(`gh api repos/${REPOSITORY}/pulls/4242 --jq .labels[].name`), step.calls.join('\n'))
+  assert.equal(step.full, true)
+  assert.equal(step.summary, 'CI scope: full · label ci-full\n')
+})
+
+test('push events run the full suite without the diff, the API or the resolver', () => {
+  const step = runCiScopeStep({ eventName: 'push' })
+  assert.equal(step.status, 0, step.stderr)
+  assert.equal(step.full, true)
+  assert.equal(step.values.skip, 'false')
+  assert.equal(step.values.modules, '')
+  assert.deepEqual(step.calls, [])
+  assert.equal(step.summary, 'CI scope: full · push event\n')
+})
+
+test('the prepare job turns area labels into a single-runner module list', () => {
+  const step = runCiScopeStep({ changedFiles: ['packages/core/src/modules/sales/a.ts'], labels: ['ci-area:portal', 'bug'] })
+  assert.equal(step.status, 0, step.stderr)
+  assert.equal(step.values.skip, 'false')
+  assert.equal(step.values.modules, 'customer_accounts,portal,sales')
+  assert.deepEqual(JSON.parse(step.values.shard_matrix), ['none'])
+  assert.equal(step.summary, 'CI scope: targeted · sales (changed) + portal area (label)\n')
+})
+
+test('an unknown ci-* label fails the prepare job with a clear error and summary', () => {
+  const step = runCiScopeStep({ changedFiles: ['packages/core/src/modules/sales/a.ts'], labels: ['ci-fulll'] })
+  assert.notEqual(step.status, 0)
+  assert.match(step.stdout, /::error title=CI scope::Unknown CI label "ci-fulll"/)
+  assert.match(step.summary, /^CI scope: error · Unknown CI label "ci-fulll"/)
+  assert.equal(step.values.shard_matrix, undefined)
+})
+
+test('a failing diff fails the prepare job instead of guessing a scope', () => {
+  const step = runCiScopeStep({ diffFails: true })
+  assert.notEqual(step.status, 0)
+  assert.equal(step.values.shard_matrix, undefined)
 })
 
 test('docsOnly is an allow-list without blanket markdown and covers apps/docs mdx', () => {
@@ -161,6 +249,7 @@ for (const pr of realPrs) {
       isFork: pr.isFork,
     }
     assertParity(input, REAL_PR_EXPECTATIONS[pr.number], t)
+    assertWorkflowStep(input, REAL_PR_EXPECTATIONS[pr.number])
   })
 }
 
@@ -201,7 +290,10 @@ const SYNTHETIC_PARITY: Array<[string, CiScopeInput, Expected]> = [
 ]
 
 for (const [name, input, expected] of SYNTHETIC_PARITY) {
-  test(`parity with today's prepare job: ${name}`, (t) => assertParity(input, expected, t))
+  test(`parity with today's prepare job: ${name}`, (t) => {
+    assertParity(input, expected, t)
+    assertWorkflowStep(input, expected)
+  })
 }
 
 test('area label adds the area modules and implies targeted', () => {

@@ -121,6 +121,10 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: audit-scope
     if: needs.audit-scope.outputs.draft != 'true'
+    permissions:
+      contents: read
+      # The integration-scope step reads the PR's current labels through the API.
+      pull-requests: read
     outputs:
       skip_integration: ${{ steps.integration-scope.outputs.skip }}
       affected_modules: ${{ steps.integration-scope.outputs.modules }}
@@ -133,61 +137,110 @@ jobs:
           # step diffs against (see audit-scope for why not `origin/<base>`).
           fetch-depth: 2
 
-      - name: Compute integration scope
-        # Determines which integration tests to run and whether to shard them.
-        # Full-suite runs (push OR PR touching shared packages) use 15 shards.
-        # Affected-only runs (PR touching specific modules) use a single runner.
-        # This workflow runs the full suite; other CI/docs/scripts-only PRs skip integration.
-        # Runs in prepare so shards can start the moment the build is ready,
-        # without waiting for typecheck or unit tests to complete.
-        id: integration-scope
-        run: |
-          FULL_SHARDS='["1/15","2/15","3/15","4/15","5/15","6/15","7/15","8/15","9/15","10/15","11/15","12/15","13/15","14/15","15/15"]'
-          SINGLE_SHARD='["none"]'
-
-          if [ "${{ github.event_name }}" != "pull_request" ] || [ "$FORCE_FULL_SUITE" = "true" ]; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "modules=" >> "$GITHUB_OUTPUT"
-            echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          CHANGED=$(git diff --name-only HEAD^1 HEAD)
-
-          # These paths affect behaviour across all modules — run the full sharded suite.
-          # `packages/cli/src/lib/testing/` is the ephemeral harness that boots, drives and tears
-          # down this very suite. A change there matches no `src/modules/` path, so without this
-          # entry the job that would exercise it is the one job it can never trigger.
-          FULL_SUITE_PATTERN='^\.github/workflows/ci\.yml$|^packages/shared/|^packages/ui/|^packages/events/|^packages/queue/|^packages/cache/|^packages/search/|^packages/onboarding/|^packages/webhooks/|^packages/core/src/lib/|^packages/enterprise/src/lib/|^packages/cli/src/lib/testing/|^apps/mercato/src/(app|lib|components|layout\.|page\.)'
-          if echo "$CHANGED" | grep -qE "$FULL_SUITE_PATTERN"; then
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "modules=" >> "$GITHUB_OUTPUT"
-            echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Extract module folder names from module-specific paths.
-          # Match any workspace package or app that follows the src/modules/ convention.
-          MODULES=$(echo "$CHANGED" | \
-            grep -oP '(?:packages/[^/]+|apps/[^/]+)/src/modules/\K[^/]+' | \
-            sort -u | paste -sd,)
-
-          if [ -z "$MODULES" ]; then
-            # Only non-module files changed (CI, docs, scripts) — skip integration.
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "modules=" >> "$GITHUB_OUTPUT"
-            echo "shard_matrix=${SINGLE_SHARD}" >> "$GITHUB_OUTPUT"
-          else
-            # Module-specific changes — single runner with affected-only filter.
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "modules=$MODULES" >> "$GITHUB_OUTPUT"
-            echo "shard_matrix=${SINGLE_SHARD}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24.19.0
+
+      - name: Compute integration scope
+        # Determines which integration tests to run and whether to shard them.
+        # Full-suite runs (push, or a PR the resolver sends to the full suite) use 15 shards.
+        # Affected-only runs (PR touching specific modules or carrying ci-area labels) use a single runner.
+        # CI/docs/scripts-only PRs without a scope label skip integration.
+        # Runs in prepare so shards can start the moment the build is ready,
+        # without waiting for typecheck or unit tests to complete.
+        #
+        # PRs: scripts/ci/resolve-ci-scope.mts and .github/ci-scope.json are read from the PR's
+        # base commit (`git show <base_sha>:<path>`), never from the PR checkout, so a PR cannot
+        # narrow its own scope. A base that predates them (an older release line) uses the
+        # default branch's copy. Labels are read from the API now, not from the event payload.
+        # The driver stays inline here: editing it edits ci.yml, which resolves to the full suite.
+        # Spec: .ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md, Phase 2.
+        # scripts/__tests__/resolve-ci-scope.test.ts runs this script against the pre-resolver one.
+        id: integration-scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          export FULL_SHARDS='["1/15","2/15","3/15","4/15","5/15","6/15","7/15","8/15","9/15","10/15","11/15","12/15","13/15","14/15","15/15"]'
+          export SINGLE_SHARD='["none"]'
+
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "modules=" >> "$GITHUB_OUTPUT"
+            echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
+            echo "CI scope: full · ${EVENT_NAME} event" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          SCOPE_DIR="${RUNNER_TEMP}/ci-scope"
+          rm -rf "$SCOPE_DIR"
+          mkdir -p "$SCOPE_DIR"
+          RESOLVER_PATH=scripts/ci/resolve-ci-scope.mts
+          SCOPE_FILE_PATH=.github/ci-scope.json
+
+          git diff --name-only HEAD^1 HEAD > "$SCOPE_DIR/changed-files.txt"
+          gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.labels[].name' > "$SCOPE_DIR/labels.txt"
+
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          fi
+          SCOPE_SOURCE="$BASE_SHA"
+          export SCOPE_SOURCE_NOTE=""
+          if ! git cat-file -e "${SCOPE_SOURCE}:${RESOLVER_PATH}" 2>/dev/null || ! git cat-file -e "${SCOPE_SOURCE}:${SCOPE_FILE_PATH}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "refs/heads/${DEFAULT_BRANCH}"
+            SCOPE_SOURCE=$(git rev-parse FETCH_HEAD)
+            SCOPE_SOURCE_NOTE=" · scope rules from ${DEFAULT_BRANCH} (base ${BASE_REF} predates them)"
+          fi
+          git show "${SCOPE_SOURCE}:${RESOLVER_PATH}" > "$SCOPE_DIR/resolve-ci-scope.mts"
+          git show "${SCOPE_SOURCE}:${SCOPE_FILE_PATH}" > "$SCOPE_DIR/ci-scope.json"
+
+          cat > "$SCOPE_DIR/run.mjs" <<'DRIVER'
+          import fs from 'node:fs'
+          import path from 'node:path'
+          import { CiScopeError, parseCiScopeConfig, resolveCiScope } from './resolve-ci-scope.mts'
+
+          const env = process.env
+          const read = (name) => fs.readFileSync(path.join(import.meta.dirname, name), 'utf8')
+          const lines = (name) => read(name).split('\n').filter((line) => line.length > 0)
+          const writeSummary = (text) => {
+            const line = `CI scope: ${text.replace(/\s+/g, ' ')}${env.SCOPE_SOURCE_NOTE ?? ''}`
+            console.log(line)
+            fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `${line}\n`)
+          }
+
+          try {
+            const config = parseCiScopeConfig(JSON.parse(read('ci-scope.json')))
+            const result = resolveCiScope({
+              event: 'pull_request',
+              changedFiles: lines('changed-files.txt'),
+              labels: lines('labels.txt'),
+              headRef: env.HEAD_REF ?? '',
+              baseRef: env.BASE_REF ?? '',
+              isFork: env.HEAD_REPO !== env.REPOSITORY,
+            }, config)
+            const full = !result.skipIntegration && result.modules.length === 0
+            fs.appendFileSync(env.GITHUB_OUTPUT, [
+              `skip=${result.skipIntegration}`,
+              `modules=${result.modules.join(',')}`,
+              `shard_matrix=${full ? env.FULL_SHARDS : env.SINGLE_SHARD}`,
+            ].join('\n') + '\n')
+            writeSummary(result.summary)
+          } catch (error) {
+            if (!(error instanceof CiScopeError)) throw error
+            console.log(`::error title=CI scope::${error.message}`)
+            writeSummary(`error · ${error.message}`)
+            process.exit(1)
+          }
+          DRIVER
+          node "$SCOPE_DIR/run.mjs"
 
       - name: Enable Corepack
         run: corepack enable
