@@ -27,7 +27,11 @@ const input = {
 }
 
 const ctx = {
-  container: { resolve: jest.fn() },
+  container: {
+    resolve: jest.fn((name: string) =>
+      name === 'rbacService' ? { userHasAllFeatures: async () => true } : undefined,
+    ),
+  },
   auth: { sub: 'user-1', tenantId: input.tenantId, orgId: input.organizationId },
   organizationScope: null,
   selectedOrganizationId: input.organizationId,

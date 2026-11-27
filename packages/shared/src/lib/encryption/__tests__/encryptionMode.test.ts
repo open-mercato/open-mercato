@@ -18,6 +18,10 @@ describe('looksLikeEncryptedPayload', () => {
     expect(looksLikeEncryptedPayload(payload)).toBe(true)
   })
 
+  it('recognises an encrypted empty string when no key is reachable', () => {
+    expect(looksLikeEncryptedPayload(encryptWithAesGcm('', generateDek()).raw)).toBe(true)
+  })
+
   it.each([
     ['plain text', 'Renewal for ACME Ltd'],
     ['empty string', ''],
@@ -25,7 +29,7 @@ describe('looksLikeEncryptedPayload', () => {
     ['a four-part value with the wrong version', 'aaaaaaaaaaaaaaaa:Y2lwaGVy:aaaaaaaaaaaaaaaaaaaaaaaa:v2'],
     ['a time-like string', '12:30:00:v1'],
     ['non-base64 components of the right length', '****************:Y2lwaGVy:************************:v1'],
-    ['an empty ciphertext component', 'YWJjZGVmZ2hpamtsbW5v:' + ':YWJjZGVmZ2hpamtsbW5vcHFyc3R1:v1'],
+    ['empty ciphertext with invalid IV and tag sizes', 'YWJjZGVmZ2hpamtsbW5v:' + ':YWJjZGVmZ2hpamtsbW5vcHFyc3R1:v1'],
   ])('rejects %s', (_label, value) => {
     expect(looksLikeEncryptedPayload(value)).toBe(false)
   })

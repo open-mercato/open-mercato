@@ -18,6 +18,7 @@ import {
   promotionCreateSchema,
   promotionUpdateSchema,
   promotionDeleteSchema,
+  validatePromotionUpdateAgainstStored,
   type PromotionCreateInput,
   type PromotionUpdateInput,
   type PromotionDeleteInput,
@@ -261,6 +262,7 @@ const updatePromotionCommand: CommandHandler<PromotionUpdateInput, { promotionId
     const promotion = await loadPromotion(em, parsed.id)
     if (!promotion) throw notFound('Promotion not found')
     assertPromotionScopeOrNotFound(ctx, promotion)
+    validatePromotionUpdateAgainstStored(promotion, parsed)
 
     await runCrudCommandWrite({
       ctx,

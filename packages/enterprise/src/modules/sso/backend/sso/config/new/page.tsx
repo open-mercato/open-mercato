@@ -9,6 +9,7 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { surfaceSsoAdminError } from '../../../../components/surfaceSsoAdminError'
 
 type WizardStep = 'protocol' | 'credentials' | 'domains' | 'options' | 'review'
 
@@ -144,8 +145,8 @@ export default function SsoConfigCreateWizard() {
       )
       flash(t('sso.admin.created', 'SSO configuration created'), 'success')
       router.push(`/backend/sso/config/${call.result?.id}?created=1`)
-    } catch {
-      // apiCallOrThrow handles the error
+    } catch (err) {
+      surfaceSsoAdminError(err, t, t('sso.admin.error.createFailed', 'Failed to create SSO configuration'))
     } finally {
       setIsSubmitting(false)
     }

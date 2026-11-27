@@ -127,7 +127,7 @@ test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => 
 
         // -- Setup: User A — employee role (author of the interaction) ----------
         const userAEmail = `qa-crm-email-006-a-${stamp}@acme.com`;
-        const userAPassword = 'Valid1!Pass';
+        const userAPassword = 'QaValid1!Pass';
         userAId = await createUserFixture(request, adminToken, {
           email: userAEmail,
           password: userAPassword,
@@ -139,7 +139,7 @@ test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => 
 
         // -- Setup: User B — employee role (different user, no view_private) ---
         const userBEmail = `qa-crm-email-006-b-${stamp}@acme.com`;
-        const userBPassword = 'Valid1!Pass';
+        const userBPassword = 'QaValid1!Pass';
         userBId = await createUserFixture(request, adminToken, {
           email: userBEmail,
           password: userBPassword,
@@ -151,7 +151,7 @@ test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => 
 
         // -- Setup: User Admin — admin role (has view_private bypass) -----------
         const userAdminEmail = `qa-crm-email-006-adm-${stamp}@acme.com`;
-        const userAdminPassword = 'Valid1!Pass';
+        const userAdminPassword = 'QaValid1!Pass';
         userAdminId = await createUserFixture(request, adminToken, {
           email: userAdminEmail,
           password: userAdminPassword,

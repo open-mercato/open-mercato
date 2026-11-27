@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/cache",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "license": "MIT",
   "description": "Multi-strategy cache service with tag-based invalidation support",
   "type": "module",
@@ -19,6 +19,10 @@
     "./types": {
       "types": "./src/types.ts",
       "default": "./dist/types.js"
+    },
+    "./testing": {
+      "types": "./src/testing/index.ts",
+      "default": "./dist/testing/index.js"
     },
     "./*": {
       "types": [
@@ -55,7 +59,11 @@
     }
   },
   "dependencies": {
-    "@types/better-sqlite3": "^7.6.13"
+    "@open-mercato/cache-provider-jsonfile": "workspace:*",
+    "@open-mercato/cache-provider-kit": "workspace:*",
+    "@open-mercato/cache-provider-memory": "workspace:*",
+    "@open-mercato/cache-provider-redis-legacy": "workspace:*",
+    "@open-mercato/cache-provider-sqlite": "workspace:*"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

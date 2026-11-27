@@ -18,7 +18,8 @@ import {
   type TelemetrySpanAttributes,
 } from '@open-mercato/shared/lib/telemetry/runtime'
 import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
-import type { SyncRun } from '../data/entities'
+import { SyncRun } from '../data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
 
@@ -100,7 +101,7 @@ type EngineDeps = {
   integrationCredentialsService: CredentialsService
   integrationLogService: IntegrationLogService
   integrationStateService?: IntegrationStateService
-  progressService: ProgressService
+  progressService: ProgressService | null
 }
 
 /** Repeated on every batch span so a rooted batch trace identifies its run on its own. */
@@ -220,8 +221,16 @@ export function createSyncEngine(deps: EngineDeps) {
     })
   }
 
+  async function isRunCancelled(run: SyncRun, scope: SyncScope): Promise<boolean> {
+    if (progressService && run.progressJobId) {
+      return progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)
+    }
+    const persistedRun = await syncRunService.getRun(run.id, scope, { disableIdentityMap: true })
+    return persistedRun?.status === 'cancelled'
+  }
+
   async function updateProgress(progressJobId: string | null | undefined, processedCount: number, totalCount: number | null, scope: SyncScope): Promise<void> {
-    if (!progressJobId) return
+    if (!progressService || !progressJobId) return
 
     await progressService.updateProgress(
       progressJobId,
@@ -245,7 +254,7 @@ export function createSyncEngine(deps: EngineDeps) {
   // items, which adapters may explode several-per-source-record (Akeneo yields a product
   // plus its variants), so seeding from them would overshoot the total and pin the bar.
   async function seedProcessedCount(progressJobId: string | null | undefined, scope: SyncScope): Promise<number> {
-    if (!progressJobId) return 0
+    if (!progressService || !progressJobId) return 0
     const job = await progressService.getJob(progressJobId, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
@@ -255,7 +264,7 @@ export function createSyncEngine(deps: EngineDeps) {
   }
 
   function makeHeartbeatTick(progressJobId: string | null | undefined, scope: SyncScope): () => void {
-    const touchJobHeartbeat = progressService.touchJobHeartbeat?.bind(progressService)
+    const touchJobHeartbeat = progressService?.touchJobHeartbeat?.bind(progressService)
     if (!progressJobId || !touchJobHeartbeat) return () => {}
     let inFlight = false
     return () => {
@@ -278,24 +287,39 @@ export function createSyncEngine(deps: EngineDeps) {
     }
   }
 
+  async function isPersistedRunCancelled(runId: string, scope: SyncScope): Promise<boolean> {
+    const persistedRun = await findOneWithDecryption(
+      deps.em.fork(),
+      SyncRun,
+      { id: runId, organizationId: scope.organizationId, tenantId: scope.tenantId, deletedAt: null },
+      undefined,
+      scope,
+    )
+    return persistedRun?.status === 'cancelled'
+  }
+
   // Rides the heartbeat timer, which is the only thing that runs while the adapter is still
   // producing a batch — the engine's own cancellation check sits in the batch handler and is
   // reached only after a yield. Since that timer now spans the consumer body too, a cancel is
   // also observed during the per-batch bookkeeping rather than waiting out the next read.
   // Swallows its own errors because it runs on a timer, where an unhandled rejection is fatal,
   // and stops polling once it has aborted.
-  function makeCancellationTick(progressJobId: string | null | undefined, scope: SyncScope, controller: AbortController): () => void {
-    if (!progressJobId) return () => {}
+  function makeCancellationTick(run: SyncRun, scope: SyncScope, controller: AbortController): () => void {
+    const progressJobId = run.progressJobId
+    const checkCancelled = progressService && progressJobId
+      ? () => progressService.isCancellationRequested(progressJobId, scope.tenantId, scope.organizationId)
+      : () => isPersistedRunCancelled(run.id, scope)
     let inFlight = false
     return () => {
       if (inFlight || controller.signal.aborted) return
       inFlight = true
-      progressService.isCancellationRequested(progressJobId, scope.tenantId, scope.organizationId)
+      checkCancelled()
         .then((cancelled) => {
           if (cancelled) controller.abort()
         })
         .catch((error) => {
           logger.warn('Cancellation poll failed', {
+            runId: run.id,
             progressJobId,
             error: error instanceof Error ? error.message : String(error),
           })
@@ -479,7 +503,7 @@ export function createSyncEngine(deps: EngineDeps) {
       return
     }
 
-    if (run.progressJobId) {
+    if (progressService && run.progressJobId) {
       if (status === 'completed') {
         await progressService.completeJob(
           run.progressJobId,
@@ -652,7 +676,7 @@ export function createSyncEngine(deps: EngineDeps) {
         return
       }
       if (run.status === 'cancelled') {
-        if (run.progressJobId) {
+        if (progressService && run.progressJobId) {
           await progressService.markCancelled(run.progressJobId, {
             tenantId: scope.tenantId,
             organizationId: scope.organizationId,
@@ -713,7 +737,7 @@ export function createSyncEngine(deps: EngineDeps) {
         },
       })
 
-      if (run.progressJobId) {
+      if (progressService && run.progressJobId) {
         await progressService.startJob(run.progressJobId, {
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
@@ -735,7 +759,7 @@ export function createSyncEngine(deps: EngineDeps) {
       // Declared outside the try because both the catch and the completion path below read it.
       const cancellation = new AbortController()
       const heartbeat = makeHeartbeatTick(run.progressJobId, scope)
-      const pollCancellation = makeCancellationTick(run.progressJobId, scope, cancellation)
+      const pollCancellation = makeCancellationTick(run, scope, cancellation)
 
       try {
         const streamResult = await forEachBatch(
@@ -768,7 +792,7 @@ export function createSyncEngine(deps: EngineDeps) {
               'data_sync.batch_size': batch.items.length,
             })
 
-            if (cancellation.signal.aborted || (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId))) {
+            if (cancellation.signal.aborted || await isRunCancelled(run, scope)) {
               await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
               return 'stop'
             }
@@ -821,6 +845,11 @@ export function createSyncEngine(deps: EngineDeps) {
                 cursor: batch.cursor,
               },
             })
+
+            if (!streamReportedDone && (cancellation.signal.aborted || await isRunCancelled(run, scope))) {
+              await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
+              return 'stop'
+            }
 
             return 'continue'
           },
@@ -881,7 +910,7 @@ export function createSyncEngine(deps: EngineDeps) {
         return
       }
       if (run.status === 'cancelled') {
-        if (run.progressJobId) {
+        if (progressService && run.progressJobId) {
           await progressService.markCancelled(run.progressJobId, {
             tenantId: scope.tenantId,
             organizationId: scope.organizationId,
@@ -942,7 +971,7 @@ export function createSyncEngine(deps: EngineDeps) {
         },
       })
 
-      if (run.progressJobId) {
+      if (progressService && run.progressJobId) {
         await progressService.startJob(run.progressJobId, {
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
@@ -963,7 +992,7 @@ export function createSyncEngine(deps: EngineDeps) {
       // Declared outside the try because both the catch and the completion path below read it.
       const cancellation = new AbortController()
       const heartbeat = makeHeartbeatTick(run.progressJobId, scope)
-      const pollCancellation = makeCancellationTick(run.progressJobId, scope, cancellation)
+      const pollCancellation = makeCancellationTick(run, scope, cancellation)
 
       try {
         const streamResult = await forEachBatch(
@@ -996,7 +1025,7 @@ export function createSyncEngine(deps: EngineDeps) {
               'data_sync.batch_size': batch.results.length,
             })
 
-            if (cancellation.signal.aborted || (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId))) {
+            if (cancellation.signal.aborted || await isRunCancelled(run, scope)) {
               await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
               return 'stop'
             }
@@ -1044,6 +1073,11 @@ export function createSyncEngine(deps: EngineDeps) {
                 cursor: batch.cursor,
               },
             })
+
+            if (!streamReportedDone && (cancellation.signal.aborted || await isRunCancelled(run, scope))) {
+              await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
+              return 'stop'
+            }
 
             return 'continue'
           },

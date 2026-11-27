@@ -119,6 +119,8 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       name: 'display_name',
+      displayName: 'display_name',
+      display_name: 'display_name',
       email: 'primary_email',
       primaryEmail: 'primary_email',
       status: 'status',
@@ -397,7 +399,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate, { maskOrganizationDenial: true })
         const normalized = normalizeProfilePayload(scoped, translate)
         const { base, custom } = splitCustomFieldPayload(normalized)
         const parsed = personUpdateSchema.parse(base)

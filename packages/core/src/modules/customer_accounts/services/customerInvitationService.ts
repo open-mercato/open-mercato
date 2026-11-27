@@ -5,12 +5,14 @@ import {
   CustomerUser,
   CustomerUserInvitation,
   CustomerUserRole,
+  CustomerUserSession,
   CustomerRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
+import { pendingSignup } from '../lib/pendingSignup'
 
 const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
@@ -237,6 +239,11 @@ export class CustomerInvitationService {
     token: string,
     password: string,
     displayName: string,
+    authorizePrivilegedRoles?: (
+      inviterUserId: string,
+      scope: { tenantId: string; organizationId: string },
+      transactionEm?: EntityManager,
+    ) => Promise<boolean>,
   ): Promise<{ user: CustomerUser; invitation: CustomerUserInvitation } | null> {
     const invitation = await this.findByToken(token)
     if (!invitation) return null
@@ -245,6 +252,28 @@ export class CustomerInvitationService {
     const passwordHash = await hash(password, BCRYPT_COST)
     try {
       const result = await this.em.transactional(async (transactionEm) => {
+        const scope = { tenantId: invitation.tenantId, organizationId: invitation.organizationId }
+        const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
+        const roles = roleIds.length > 0
+          ? await findWithDecryption(
+              transactionEm,
+              CustomerRole,
+              {
+                id: { $in: roleIds },
+                tenantId: invitation.tenantId,
+                organizationId: invitation.organizationId,
+                deletedAt: null,
+              },
+              { lockMode: LockMode.PESSIMISTIC_READ },
+              scope,
+            )
+          : []
+        if (roles.some((role) => role.customerAssignable === false)) {
+          const inviterUserId = invitation.invitedByUserId
+          if (!inviterUserId || !authorizePrivilegedRoles || !await authorizePrivilegedRoles(inviterUserId, scope, transactionEm)) {
+            return null
+          }
+        }
         const acceptedAt = new Date()
         const changed = await transactionEm.nativeUpdate(CustomerUserInvitation, {
           id: invitation.id,
@@ -257,7 +286,6 @@ export class CustomerInvitationService {
         }, { acceptedAt })
         if (changed !== 1) return null
 
-        const scope = { tenantId: invitation.tenantId, organizationId: invitation.organizationId }
         const existingActiveUser = await findOneWithDecryption(
           transactionEm,
           CustomerUser,
@@ -270,7 +298,20 @@ export class CustomerInvitationService {
           scope,
         )
         if (existingActiveUser) {
-          throw new CustomerInvitationEmailConflictError(invitation.email)
+          if (existingActiveUser.organizationId !== scope.organizationId
+            || !existingActiveUser.isActive || existingActiveUser.emailVerifiedAt || existingActiveUser.lastLoginAt) {
+            throw new CustomerInvitationEmailConflictError(invitation.email)
+          }
+          const retired = await transactionEm.nativeUpdate(CustomerUser, {
+            id: existingActiveUser.id,
+            ...scope,
+            ...pendingSignup,
+          }, { deletedAt: acceptedAt, isActive: false, passwordHash: null, sessionsRevokedAt: acceptedAt })
+          if (retired !== 1) throw new CustomerInvitationEmailConflictError(invitation.email)
+          await transactionEm.nativeUpdate(CustomerUserSession, {
+            user: existingActiveUser.id,
+            deletedAt: null,
+          }, { deletedAt: acceptedAt })
         }
 
         const user = transactionEm.create(CustomerUser, {
@@ -289,21 +330,6 @@ export class CustomerInvitationService {
         })
         transactionEm.persist(user)
 
-        const roleIds = Array.isArray(invitation.roleIdsJson) ? invitation.roleIdsJson : []
-        const roles = roleIds.length > 0
-          ? await findWithDecryption(
-              transactionEm,
-              CustomerRole,
-              {
-                id: { $in: roleIds },
-                tenantId: invitation.tenantId,
-                organizationId: invitation.organizationId,
-                deletedAt: null,
-              },
-              undefined,
-              scope,
-            )
-          : []
         for (const role of roles) {
           transactionEm.persist(transactionEm.create(CustomerUserRole, {
             user,

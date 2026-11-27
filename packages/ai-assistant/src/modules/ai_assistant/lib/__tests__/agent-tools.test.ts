@@ -33,6 +33,8 @@ import {
 } from '../agent-registry'
 import { toolRegistry, registerMcpTool } from '../tool-registry'
 import { emitCitations } from '../citations'
+import searchAiTools from '../../ai-tools/search-pack'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -175,6 +177,103 @@ describe('resolveAiAgentTools', () => {
       expect(tool).toBeDefined()
       expect(typeof (tool as { execute?: unknown }).execute).toBe('function')
     }
+  })
+
+  it('threads channel, mutation mode, API key and correlation id into the handler context', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    registerMcpTool(
+      makeTool({
+        name: 'customers.list_people',
+        handler: async (_input, ctx) => {
+          seen.push({
+            channel: ctx.channel,
+            mutationMode: ctx.mutationMode,
+            apiKeyId: ctx.apiKeyId,
+            correlationId: ctx.correlationId,
+          })
+          return { ok: true }
+        },
+      }),
+      { moduleId: 'customers' },
+    )
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowedTools: ['customers.list_people'] }),
+    ])
+
+    const result = await resolveAiAgentTools({
+      agentId: 'customers.assistant',
+      authContext: baseAuth,
+      channel: 'mcp',
+      mutationMode: 'deny',
+      apiKeyId: 'key-1',
+      correlationId: 'corr-1',
+    })
+    const tool = result.tools.customers__list_people as { execute: (args: unknown, options?: unknown) => Promise<unknown> }
+    await tool.execute({}, { toolCallId: 'call-1', messages: [] })
+
+    expect(seen).toEqual([{ channel: 'mcp', mutationMode: 'deny', apiKeyId: 'key-1', correlationId: 'corr-1' }])
+  })
+
+  it('stamps the agent channel on the handler context by default', async () => {
+    const seen: unknown[] = []
+    registerMcpTool(
+      makeTool({
+        name: 'customers.list_people',
+        handler: async (_input, ctx) => {
+          seen.push(ctx.channel)
+          return { ok: true }
+        },
+      }),
+      { moduleId: 'customers' },
+    )
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowedTools: ['customers.list_people'] }),
+    ])
+
+    const result = await resolveAiAgentTools({ agentId: 'customers.assistant', authContext: baseAuth })
+    const tool = result.tools.customers__list_people as { execute: (args: unknown, options?: unknown) => Promise<unknown> }
+    await tool.execute({}, { toolCallId: 'call-1', messages: [] })
+
+    expect(seen).toEqual(['agent'])
+  })
+
+  it.each([
+    { label: 'the API key when the run carries one', apiKeyId: 'key-1', expected: { sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1' } },
+    { label: 'the user when the run has no API key', apiKeyId: undefined, expected: { sub: 'user-1', userId: 'user-1' } },
+  ])('runs search.hybrid_search as $label', async ({ apiKeyId, expected }) => {
+    const searchTool = searchAiTools.find((entry) => entry.name === 'search.hybrid_search')
+    if (!searchTool) throw new Error('search.hybrid_search missing')
+    registerMcpTool(searchTool, { moduleId: 'search' })
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowedTools: ['search.hybrid_search'] }),
+    ])
+    const viewers: unknown[] = []
+    const searchService = {
+      search: async (_query: string, options: { viewer?: { auth: unknown } }) => {
+        viewers.push(options.viewer?.auth)
+        return []
+      },
+    }
+    const searchIndexer = { getEntityConfig: () => undefined, getAllEntityConfigs: () => [] }
+    ;(createRequestContainer as jest.Mock).mockResolvedValueOnce({
+      resolve: (name: string) => {
+        if (name === 'searchService') return searchService
+        if (name === 'searchIndexer') return searchIndexer
+        return undefined
+      },
+    })
+
+    const result = await resolveAiAgentTools({
+      agentId: 'customers.assistant',
+      authContext: baseAuth,
+      ...(apiKeyId ? { channel: 'mcp' as const, mutationMode: 'approval' as const, apiKeyId } : {}),
+    })
+    const tool = result.tools.search__hybrid_search as { execute: (args: unknown, options?: unknown) => Promise<unknown> }
+    await tool.execute({ q: 'clause' }, { toolCallId: 'call-1', messages: [] })
+
+    expect(viewers).toHaveLength(1)
+    expect(viewers[0]).toMatchObject(expected)
+    if (apiKeyId) expect(viewers[0]).not.toHaveProperty('userId')
   })
 
   it('skips tools the caller lacks features for and still returns the rest', async () => {
