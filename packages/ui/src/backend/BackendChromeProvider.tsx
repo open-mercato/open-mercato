@@ -22,64 +22,91 @@ type BackendChromeProviderProps = {
 
 const chromeCache = new Map<string, BackendChromePayload>()
 const BackendChromeContext = React.createContext<BackendChromeContextValue | null>(null)
+type ScopedChrome = { state: 'pending' | 'failed' | 'ready'; features?: readonly string[] }
+const unconfiguredChrome: ScopedChrome = { state: 'ready' }
+const ChromePolicyContext = React.createContext<ScopedChrome>(unconfiguredChrome)
+const serverEpoch = () => 0
 
-function buildCacheKey(api: string): string {
-  return `${api}::scope:${getCurrentOrganizationScopeVersion()}`
+export function useBackendChromePolicy(): ScopedChrome {
+  return React.useContext(ChromePolicyContext)
 }
 
 export function BackendChromeProvider({ adminNavApi, children }: BackendChromeProviderProps) {
-  const cachedPayload = React.useMemo(() => {
-    if (!adminNavApi) return null
-    return chromeCache.get(buildCacheKey(adminNavApi)) ?? null
-  }, [adminNavApi])
-  const [payload, setPayload] = React.useState<BackendChromePayload | null>(cachedPayload)
-  const [isLoading, setIsLoading] = React.useState(Boolean(adminNavApi && !cachedPayload))
+  const epoch = React.useSyncExternalStore(subscribeOrganizationScopeChanged, getCurrentOrganizationScopeVersion, serverEpoch)
+  const cacheKey = adminNavApi ? JSON.stringify([adminNavApi, epoch]) : undefined
+  const cached = cacheKey ? chromeCache.get(cacheKey) : undefined
+  const [payload, setPayload] = React.useState<BackendChromePayload | null>(cached ?? null)
+  const [isLoading, setIsLoading] = React.useState(Boolean(adminNavApi && !cached))
+  const [failedKey, setFailedKey] = React.useState<string>()
+  const activeKey = React.useRef(cacheKey)
+  const activeRequest = React.useRef<AbortController | null>(null)
+
+  React.useLayoutEffect(() => {
+    activeKey.current = cacheKey
+    return () => {
+      activeKey.current = undefined
+      activeRequest.current?.abort()
+    }
+  }, [cacheKey])
 
   const refresh = React.useCallback(async () => {
-    if (!adminNavApi) return
+    if (!adminNavApi || !cacheKey || activeKey.current !== cacheKey || getCurrentOrganizationScopeVersion() !== epoch) return
+    activeRequest.current?.abort()
+    const request = new AbortController()
+    activeRequest.current = request
+    const current = () => !request.signal.aborted && activeRequest.current === request
+      && activeKey.current === cacheKey && getCurrentOrganizationScopeVersion() === epoch
+
     setIsLoading(true)
+    await Promise.resolve()
+    if (!current()) return
     try {
-      const call = await apiCall<BackendChromePayload>(adminNavApi, { credentials: 'include' as never })
-      if (!call.ok || !call.result) return
-      const nextPayload = call.result
-      chromeCache.set(buildCacheKey(adminNavApi), nextPayload)
-      setPayload(nextPayload)
+      const call = await apiCall<BackendChromePayload>(adminNavApi, { credentials: 'include', signal: request.signal })
+      if (!current()) return
+      const next = call.ok && call.result
+      if (!next || !Array.isArray(next.grantedFeatures) || next.grantedFeatures.some((feature) => typeof feature !== 'string')) {
+        if (!chromeCache.has(cacheKey)) setFailedKey(cacheKey)
+        return
+      }
+      chromeCache.set(cacheKey, next)
+      setFailedKey(undefined)
+      setPayload(next)
     } catch {
-      return
+      if (current() && !chromeCache.has(cacheKey)) setFailedKey(cacheKey)
     } finally {
-      setIsLoading(false)
+      if (current()) setIsLoading(false)
     }
-  }, [adminNavApi])
+  }, [adminNavApi, cacheKey, epoch])
 
   React.useEffect(() => {
-    if (!adminNavApi) {
+    if (!cacheKey) {
       setPayload(null)
       setIsLoading(false)
       return
     }
-    const cached = chromeCache.get(buildCacheKey(adminNavApi)) ?? null
-    setPayload(cached)
-    if (!cached) {
+    const available = chromeCache.get(cacheKey)
+    if (available) {
+      setPayload(available)
+      setIsLoading(false)
+    } else {
       void refresh()
     }
-  }, [adminNavApi, refresh])
-
-  React.useEffect(() => {
-    if (!adminNavApi) return
-    const onFocus = () => { void refresh() }
-    const onManualRefresh = () => { void refresh() }
-    const unsubscribeScope = subscribeOrganizationScopeChanged(() => {
-      void refresh()
-    })
-    window.addEventListener('focus', onFocus)
-    window.addEventListener('om:refresh-sidebar', onManualRefresh as EventListener)
+    const onRefresh = () => { void refresh() }
+    window.addEventListener('focus', onRefresh)
+    window.addEventListener('om:refresh-sidebar', onRefresh)
     return () => {
-      unsubscribeScope()
-      window.removeEventListener('focus', onFocus)
-      window.removeEventListener('om:refresh-sidebar', onManualRefresh as EventListener)
+      activeRequest.current?.abort()
+      window.removeEventListener('focus', onRefresh)
+      window.removeEventListener('om:refresh-sidebar', onRefresh)
     }
-  }, [adminNavApi, refresh])
+  }, [cacheKey, refresh])
 
+  const signature = cached && JSON.stringify([...new Set(cached.grantedFeatures)].sort((left, right) => left < right ? -1 : left > right ? 1 : 0))
+  const policy = React.useMemo<ScopedChrome>(() => {
+    if (!cacheKey) return unconfiguredChrome
+    if (signature) return { state: 'ready', features: JSON.parse(signature) }
+    return { state: failedKey === cacheKey ? 'failed' : 'pending' }
+  }, [cacheKey, signature, failedKey])
   const value = React.useMemo<BackendChromeContextValue>(() => ({
     payload,
     isLoading,
@@ -89,7 +116,7 @@ export function BackendChromeProvider({ adminNavApi, children }: BackendChromePr
 
   return (
     <BackendChromeContext.Provider value={value}>
-      {children}
+      <ChromePolicyContext.Provider value={policy}>{children}</ChromePolicyContext.Provider>
     </BackendChromeContext.Provider>
   )
 }

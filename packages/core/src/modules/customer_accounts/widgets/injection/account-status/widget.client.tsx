@@ -269,7 +269,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   const t = useT()
   const queryClient = useQueryClient()
   const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
-  const canCancelInvitation = chromeReady && hasFeature(chromePayload?.grantedFeatures, 'customer_accounts.invite')
+  const canInvite = chromeReady && hasFeature(chromePayload?.grantedFeatures, 'customer_accounts.invite')
   const personEntityId = context?.recordId ?? context?.resourceId ?? context?.personId
   const [showInviteForm, setShowInviteForm] = React.useState(false)
   const [isCancellingInvitation, setIsCancellingInvitation] = React.useState(false)
@@ -348,7 +348,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
   }
 
   async function handleCancelInvitation() {
-    if (!pendingInvitation || isCancellingInvitation || !canCancelInvitation) return
+    if (!pendingInvitation || isCancellingInvitation || !canInvite) return
     const invitation = pendingInvitation
     setIsCancellingInvitation(true)
     try {
@@ -442,7 +442,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
         ) : (
           <div className="text-sm text-muted-foreground">{t('customer_accounts.widgets.noAccount', 'No portal account linked')}</div>
         )}
-        {!showInviteForm && personEntityId && !isResolvingInvitation && !readsBlocked && (
+        {canInvite && !showInviteForm && personEntityId && !isResolvingInvitation && !readsBlocked && (
           <div className="mt-2 flex flex-wrap gap-2">
             <Button
               type="button"
@@ -455,7 +455,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
                 ? t('customer_accounts.widgets.invite.resend', 'Resend invitation')
                 : t('customer_accounts.widgets.invite.button', 'Invite to Portal')}
             </Button>
-            {pendingInvitation && canCancelInvitation && (
+            {pendingInvitation && (
               <Button
                 type="button"
                 variant="destructive"
@@ -468,7 +468,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
             )}
           </div>
         )}
-        {showInviteForm && personEntityId && (
+        {canInvite && showInviteForm && personEntityId && (
           <InviteForm
             personEntityId={personEntityId}
             personData={personData ?? null}

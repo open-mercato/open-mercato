@@ -20,6 +20,13 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback || _key,
 }))
 
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({
+    payload: { grantedFeatures: ['customer_accounts.invite'] },
+    isReady: true,
+  }),
+}))
+
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))

@@ -8,6 +8,8 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '^@open-mercato/(cache-provider-(memory|sqlite|redis-legacy|jsonfile|kit))$': '<rootDir>/../$1/src/index',
+    '^@open-mercato/cache-provider-kit/(.*)$': '<rootDir>/../cache-provider-kit/src/$1',
     '^@open-mercato/cache/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
   },
@@ -24,7 +26,7 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(sanitize-html|htmlparser2|domhandler|domutils|dom-serializer|domelementtype|entities|@mikro-orm|kysely|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema|@tanstack/react-table|@tanstack/table-core|@tanstack/react-store|@tanstack/store)/)',
+    'node_modules/(?!(sanitize-html|htmlparser2|domhandler|domutils|dom-serializer|domelementtype|entities|@mikro-orm|kysely|ai|@ai-sdk|ai-sdk-ollama|@workflow|@standard-schema|@tanstack/react-table|@tanstack/table-core|@tanstack/react-store|@tanstack/store|@acme/cache-provider-fixture)/)',
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,

@@ -10,6 +10,7 @@ export type McpExposureConfig = {
   deny: string[]
   mutationMode: McpMutationMode
   includeAgentTools: boolean
+  explicitDirectMode?: boolean
 }
 
 export type McpExposableTool = {
@@ -124,15 +125,15 @@ export function resolveMcpExposureConfig(
     readCliList(cliArgs, ['exclude-tools', 'excludeTools']) ??
     readEnvList(env, 'OM_MCP_TOOL_DENYLIST') ??
     [...DEFAULT_MCP_EXPOSURE_CONFIG.deny]
-  const mutationMode =
+  const configuredMode =
     parseMutationMode(readCliValue(cliArgs, ['mutation-mode', 'mutationMode'])) ??
-    parseMutationMode(env.OM_MCP_MUTATION_MODE) ??
-    DEFAULT_MCP_EXPOSURE_CONFIG.mutationMode
+    parseMutationMode(env.OM_MCP_MUTATION_MODE)
   return {
     allow,
     deny,
-    mutationMode,
+    mutationMode: configuredMode ?? DEFAULT_MCP_EXPOSURE_CONFIG.mutationMode,
     includeAgentTools: resolveIncludeAgentTools(env, cliArgs),
+    ...(configuredMode === 'direct' ? { explicitDirectMode: true } : {}),
   }
 }
 
@@ -165,6 +166,9 @@ export function resolveToolHiddenReason(
   if (matchesAnyPattern(tool.name, config.deny)) return 'denylist'
   if (config.mutationMode === 'deny' && tool.isMutation === true) return 'mutation_mode'
   if (isRefusedInApprovalMode(tool, config.mutationMode)) return 'mutation_mode'
+  if (tool.mcp?.explicitDirectOnly && (config.mutationMode !== 'direct' || config.explicitDirectMode !== true)) {
+    return 'mutation_mode'
+  }
   if (!config.includeAgentTools && tool.agentRef) return 'agent_tools_off'
   return null
 }

@@ -18,9 +18,10 @@ import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/c
 import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
 import { hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { CustomerUserInvitation } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CustomerRole, CustomerUserInvitation } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
@@ -130,6 +131,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
 
+  if (!auth.tenantId || !auth.orgId) {
+    return NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
+  }
+
   const rateLimitEmail = await readNormalizedEmailFromJsonRequest(req)
   const { error: rateLimitError } = await checkAuthRateLimit({
     req,
@@ -156,6 +161,38 @@ export async function POST(req: Request) {
   const parsed = inviteUserSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 400 })
+  }
+
+  const inviteScope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  const requestedRoles = Array.from(new Set(parsed.data.roleIds))
+  const roles = await findWithDecryption(
+    container.resolve<EntityManager>('em'),
+    CustomerRole,
+    { id: { $in: requestedRoles }, ...inviteScope, deletedAt: null },
+    undefined,
+    inviteScope,
+  )
+  if (roles.length !== requestedRoles.length) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      ok: false,
+      error: translate('customer_accounts.errors.invite_role_invalid', 'One or more invitation roles are invalid.'),
+    }, { status: 400 })
+  }
+  const inviterUserId = resolveInvitedByUserId(auth)
+  if (roles.some((role) => !role.customerAssignable)
+    && (!inviterUserId
+      || !await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.roles.manage'], inviteScope)
+      || (auth.isApiKey && !await rbacService.userHasAllFeatures(
+        inviterUserId,
+        ['customer_accounts.invite', 'customer_accounts.roles.manage'],
+        inviteScope,
+      )))) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({
+      ok: false,
+      error: translate('customer_accounts.errors.invite_role_forbidden', 'You are not allowed to grant one or more invitation roles.'),
+    }, { status: 403 })
   }
 
   // Reject a customerEntityId the caller does not own. customerEntityId is the
@@ -205,12 +242,12 @@ export async function POST(req: Request) {
   try {
     created = await customerInvitationService.createInvitation(
       parsed.data.email,
-      { tenantId: auth.tenantId!, organizationId: auth.orgId! },
+      inviteScope,
       {
         customerEntityId: resolvedCustomerEntityId,
         personEntityId: parsed.data.personEntityId || null,
-        roleIds: parsed.data.roleIds,
-        invitedByUserId: resolveInvitedByUserId(auth),
+        roleIds: requestedRoles,
+        invitedByUserId: inviterUserId,
         displayName: parsed.data.displayName || null,
       },
     )

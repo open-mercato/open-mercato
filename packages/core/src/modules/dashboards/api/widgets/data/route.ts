@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -7,13 +8,12 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import {
   createWidgetDataService,
-  type WidgetDataRequest,
   WidgetDataValidationError,
   WidgetDataScanLimitError,
   WidgetDataEncryptionUnavailableError,
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
-import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
+import { runWidgetDataBeforeInterceptors } from '../../../lib/widgetDataInterceptors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
 import { widgetDataRequestSchema, widgetDataResponseSchema } from './schema'
@@ -58,22 +58,17 @@ export async function POST(req: Request) {
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const { organizationIds, rbacOrganizationId } = resolveOrganizationScopeFilter(scope, auth)
 
-  const entityFeatures = analyticsRegistry.getRequiredFeatures(parsed.data.entityType)
-  if (entityFeatures && entityFeatures.length > 0) {
-    const rbacService = container.resolve<{
-      userHasAllFeatures: (
-        userId: string,
-        features: string[],
-        scope: { tenantId: string; organizationId?: string | null },
-      ) => Promise<boolean>
-    }>('rbacService')
-    const hasAccess = await rbacService.userHasAllFeatures(auth.sub, entityFeatures, {
+  const rbacService = container.resolve<RbacService>('rbacService')
+  const canReadEntity = async (entityType: string): Promise<boolean> => {
+    const entityFeatures = analyticsRegistry.getRequiredFeatures(entityType)
+    if (!entityFeatures?.length) return true
+    return rbacService.userHasAllFeatures(auth.sub, entityFeatures, {
       tenantId,
       organizationId: rbacOrganizationId,
     })
-    if (!hasAccess) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+  }
+  if (!await canReadEntity(parsed.data.entityType)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const em = (container.resolve('em') as EntityManager).fork({
@@ -82,39 +77,24 @@ export async function POST(req: Request) {
     useContext: true,
   })
 
-  const userFeatures = Array.isArray(auth.features)
-    ? auth.features.filter((value): value is string => typeof value === 'string')
-    : []
-
-  const headers: Record<string, string> = {}
-  req.headers.forEach((value, key) => {
-    headers[key] = value
+  const userFeatures = await rbacService.getGrantedFeatures(auth.sub, {
+    tenantId,
+    organizationId: rbacOrganizationId,
   })
 
-  const interceptorResult = await runApiInterceptorsBefore({
-    routePath: 'dashboards/widgets/data',
-    method: 'POST',
-    request: {
-      method: 'POST',
-      url: req.url,
-      headers,
-      body: parsed.data as unknown as Record<string, unknown>,
-    },
-    context: {
-      em,
-      container,
-      userId: auth.sub ?? '',
-      tenantId,
-      organizationId: rbacOrganizationId ?? '',
-      userFeatures,
-    },
+  const interceptorResult = await runWidgetDataBeforeInterceptors(req, parsed.data, {
+    em,
+    container,
+    userId: auth.sub,
+    tenantId,
+    organizationId: rbacOrganizationId ?? '',
+    userFeatures,
   })
-
   if (!interceptorResult.ok) {
     return NextResponse.json(interceptorResult.body, { status: interceptorResult.statusCode })
   }
 
-  const requestData = (interceptorResult.request.body ?? parsed.data) as WidgetDataRequest
+  const requestData = interceptorResult.request
 
   try {
     const cache = container.resolve<CacheStrategy>('cache')

@@ -396,6 +396,7 @@ async function runStructureSearchSync(rest: string[]): Promise<void> {
     ...(input.mode ? { mode: input.mode } : {}),
     maxPages: null,
     dryRun: input.dryRun,
+    allowUnambiguousPartition: true,
   })
   if (result.kind === 'partition_not_found') {
     console.error(`[attachments] Partition ${input.partitionCode} not found.`)

@@ -1,0 +1,24 @@
+---
+title: Infrastructure providers
+---
+
+An app owns its infrastructure provider registrations under `src/providers/`. Use the app directory that contains `package.json`. In the monorepo that is `apps/mercato`. In a standalone app it is the project root.
+
+| Family | App file | Export | Runtime selection |
+|---|---|---|---|
+| Cache | `src/providers/cache.ts` | `cacheProviders` | Set `CACHE_PROVIDER` to a registered ID and set `CACHE_PROVIDER_NAMESPACE`. `CACHE_STRATEGY` selects stock cache providers. |
+| Queue | `src/providers/queue.ts` (planned) | `queueProviders` | See [Queue and workers](../framework/events/queue-workers) for available strategies. |
+| KMS | `src/providers/kms.ts` (planned) | `kmsDrivers` | See [Data encryption](./data-encryption) for available KMS configurations. |
+
+The monorepo app and standalone starter include a cache registry and example files for the planned families. Look in the app's `src/providers/` directory when configuring or debugging provider selection.
+
+## Register an npm provider
+
+1. Install the provider in the app's dependencies. The provider package owns its adapter, client dependencies and settings validation.
+2. Add a typed registration to the family file. Give it an explicit ID and a literal lazy import such as `() => import('@acme/cache-provider')`. Read runtime settings in the registration's settings callback. Keep secrets in environment variables or your deployment's secret manager.
+3. Run `yarn generate` from the app's normal development environment. Generation records the registry location without executing the app configuration.
+4. Set the family-specific selector and restart every app process that uses the provider. The server, worker, scheduler and CLI initialize the selected provider before use.
+
+Provider registries run on the server. Imports originate from the app's explicit registrations. An environment selector identifies a registration and cannot install a package or import an arbitrary path.
+
+For a concrete registration, see [Cache providers](./cache-providers).

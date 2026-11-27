@@ -298,6 +298,8 @@
   "customer_accounts.errors.crossSiteRequest": "Esta solicitud de inicio de sesión no procede de esta aplicación. Abre la página de inicio de sesión e inténtalo de nuevo.",
   "customer_accounts.errors.emailAlreadyExists": "Ya existe una cuenta con esta dirección de correo electrónico",
   "customer_accounts.errors.invitationLinkedToAnotherPerson": "Hay una invitación pendiente para este correo electrónico vinculada a otra persona.",
+  "customer_accounts.errors.invite_role_forbidden": "No puedes conceder uno o más roles de la invitación.",
+  "customer_accounts.errors.invite_role_invalid": "Uno o más roles de la invitación no son válidos.",
   "customer_accounts.invitation.email.body": "Use this secure invitation link to create your password and access the customer portal.",
   "customer_accounts.invitation.email.cta": "Accept invitation",
   "customer_accounts.invitation.email.hint": "This invitation link expires in 72 hours. If you did not expect this invitation, you can ignore this email.",
