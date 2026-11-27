@@ -46,6 +46,51 @@ see no organization. Grant the intended organizations in the user's or role's ac
 **Action for integrators:** a client that treated an empty list or a `404` as "nothing visible"
 for such a principal must also handle `403`.
 
+The [maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change.
+
+## Staff authorization and credential changes
+
+Organization-limited administrator grants provide elevated features only inside the granted organizations. Platform-wide administration requires an unrestricted grant. Review automated clients and API keys that rely on a scoped staff grant, and assign each the tenant and organization permissions it needs.
+
+Changing a staff account's sign-in email or password via `PUT /api/auth/profile` requires the existing `currentPassword` field. The update revokes prior access and refresh sessions and clears the browser's authentication cookies. After success, the user must sign in again with the updated credentials. An email change also revokes unused password-reset links. For accounts managed solely by a single sign-on provider, use the operator-managed identity update flow.
+
+New staff passwords default to a minimum of 12 characters and accept at most 72 UTF-8 bytes. Existing passwords still work. Align `OM_PASSWORD_MIN_LENGTH` and `NEXT_PUBLIC_OM_PASSWORD_MIN_LENGTH` if you customize the minimum. Consumers that exhaustively match `PasswordRequirementId` should handle `maxBytes`. Keep staff login forms within 16 KiB and handle HTTP 413 if the form exceeds this limit.
+
+See [Staff identity boundaries](.ai/specs/2026-11-24-staff-identity-boundaries.md) for compatibility and rollout details.
+
+## Scoped resource administration and execution limits
+
+Authorization and vector request shapes and the vector driver signature remain stable. Unsafe delegation, writes, and index resizing are rejected.
+
+- Attachment partition administration follows the caller's organization and limits edits of shared partitions to platform administrators. Staff invitation flows must use roles in their own tenant and organization. Callers that invite users with roles reserved for administrators need an authorized staff identity with `customer_accounts.roles.manage`. Reissue outstanding privileged invitations from an active staff user with the grant.
+- HTTP MCP tool calls require a per-user session token. To delegate to the session, authenticate the transport with the configured `MCP_SERVER_API_KEY` or its file-backed equivalent, or use the session's own ephemeral API key. Managed API key listings omit ephemeral chat credentials.
+- Grouped analytics returns up to 100 groups by default, or 366 for calendar grouping over the matching date-range field. If an implicit cap is exceeded, `value` is the full aggregate and `metadata.truncated` is true. Explicit limits retain the top-bucket behavior. Analytics interceptors can narrow filters for the requested entity.
+- The PostgreSQL vector runtime leaves the shared index intact on dimension changes. Operators should provision and validate a replacement index, then switch settings and reindex in a controlled migration.
+
+## Organization and attachment partition ownership
+
+Organization options, management, and tree responses follow the caller's organization grant. Clients that need an organization outside that grant must use a principal authorized for that organization.
+
+Attachment partition codes are unique within their owning scope. Clients and integrations that query partitions directly should resolve by code and attachment owner, with tenant-wide and platform-wide partitions as fallbacks. Compatible attachments keep their codes, IDs, and storage paths.
+
+Before upgrading, pause attachment writes and workers and back up the database and attachment storage. The migration stops before changing the index if any attachment references a partition outside its owner scope. Run this query as a database operator before you schedule the upgrade:
+
+```sql
+select attachment.id, attachment.partition_code, attachment.tenant_id, attachment.organization_id
+from attachments as attachment
+join attachment_partitions as partition on partition.code = attachment.partition_code
+where not (
+  (partition.tenant_id is null and partition.organization_id is null)
+  or (
+    partition.tenant_id is not null
+    and partition.tenant_id is not distinct from attachment.tenant_id
+    and (partition.organization_id is null or partition.organization_id is not distinct from attachment.organization_id)
+  )
+);
+```
+
+For each result, create a destination partition with a new code in the attachment's authorized scope. Keep the partition private unless the owner has approved public access. Copy the object and its variants to storage configured for that owner, then update the attachment's partition, storage driver, path, and provider metadata as needed in a maintenance transaction. Preserve the attachment ID and owner and retain applicable access policies. Verify downloads and previews as an authorized user and keep the old objects until verification succeeds. Repeat the query, apply the migration once it returns no rows, and upgrade all partition readers before reopening writes. Rolling back after different owners have reused a code requires resolving those duplicates before restoring the previous unique constraint.
+
 ## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
 
 An AI agent that declares `allowRuntimeOverride: false` (or the deprecated `allowRuntimeModelOverride: false`) now also rejects per-call model `callSettings` (temperature, topP, topK, maxOutputTokens, seed, stopSequences, penalties). Previously they were merged over the agent's `modelSettings` regardless of the flag. `runAiAgentText` / `runAiAgentObject` throw `AgentPolicyError` with code `runtime_override_disabled`, and `POST /api/ai_assistant/ai/run-object` returns HTTP 400 with the same code — matching what the chat dispatcher already returns for provider/model overrides.
@@ -181,6 +226,12 @@ Two security-hardening narrowings landed on shared request-header parsing and da
 The attachment library automatically fills in assignment labels and links only when the caller can read the referenced entity in the selected tenant and organization. Existing assignment IDs and saved labels and links stay available under the attachment's existing access policy. Supported built-in targets use their owning module's read grants. Custom records require the custom-record view grant and any entity-specific grant. When a target cannot be safely resolved, clients can display the stored label or ID.
 
 Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
+
+## Deployment service access
+
+Full-app Compose publishes LocalStack on loopback. Recreate the container to apply the binding, and use the internal service endpoint for Compose consumers. Set one strong random `OPENCODE_PASSWORD` for the OpenCode service and its callers, then rebuild and recreate both sides. The hybrid starter provisions this local credential automatically.
+
+Production installs seed sample portal accounts only when provided a private `OM_INIT_PORTAL_DEMO_PASSWORD`. Deactivate or reset older sample identities and revoke their active portal sessions. Restrict access to shared development registries and reprovision any registry that previously accepted anonymous writes. Existing external Verdaccio publishers should use a token issued for the provisioned publisher account. The bundled Traefik HTTPS routers now send a host-scoped HSTS policy. See the [deployment migration instructions](docker/README.md#updating-existing-deployments) and [registry authentication notes](config/verdaccio/README.md).
 
 ## Fullapp development agent authentication (#9116)
 
