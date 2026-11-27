@@ -268,14 +268,24 @@ export async function GET(req: Request) {
     if (!tenantId) {
       return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
     }
+    let activeFilter: boolean | undefined
+    if (status === 'active' || (status === 'all' && !includeInactive)) activeFilter = true
+    if (status === 'inactive') activeFilter = false
     const where: FilterQuery<Organization> = { tenant: tenantId, ...scopedFilter }
-    if (status === 'active') where.isActive = true
-    if (status === 'inactive') where.isActive = false
-    if (status === 'all' && !includeInactive) where.isActive = true
-    if (ids) where.id = { $in: allowedIds ? ids.filter((id) => allowedIds.includes(id)) : ids }
+    if (allowedIds === null) {
+      if (activeFilter !== undefined) where.isActive = activeFilter
+      if (ids) where.id = { $in: ids }
+    }
     const orgs = await em.find(Organization, where, { orderBy: { name: 'ASC' } })
-    const hierarchy = allowedIds ? computeHierarchyForOrganizations(orgs, tenantId) : null
-    const items = orgs.map((org) => ({
+    const hierarchy = allowedIds === null ? null : computeHierarchyForOrganizations(orgs, tenantId)
+    const requestedIds = ids ? new Set(ids.map((id) => id.toLowerCase())) : null
+    const matchingOrgs = hierarchy
+      ? orgs.filter((org) => (
+          (activeFilter === undefined || org.isActive === activeFilter) &&
+          (!requestedIds || requestedIds.has(stringId(org.id).toLowerCase()))
+        ))
+      : orgs
+    const items = matchingOrgs.map((org) => ({
       id: stringId(org.id),
       name: org.name,
       logoUrl: org.logoUrl ?? null,

@@ -2393,7 +2393,10 @@ function spawnMcpCommand(subcommandArgs, label, onLine) {
   const invocation = resolveMercatoInvocation({ cwd: mcpCliCwd })
   return spawnCommand(invocation.command, [...invocation.args, ...buildMcpCliArgs(subcommandArgs)], {
     cwd: mcpCliCwd,
-    env: isMonorepo ? { PATH: buildWorkspaceBinPath() } : undefined,
+    env: {
+      ...(isMonorepo ? { PATH: buildWorkspaceBinPath() } : {}),
+      MCP_SERVER_API_KEY_FILE: mcpKeyFilePath,
+    },
     label,
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,

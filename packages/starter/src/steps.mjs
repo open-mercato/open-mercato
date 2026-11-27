@@ -22,6 +22,7 @@ import { createSetupLogs } from './setup-logs.mjs'
 import { color, createSpinner, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
 
 const INIT_OUTPUT_TAIL = 256 * 1024
+const OPENCODE_RECONCILE_PENDING = 'opencode-reconcile.pending'
 
 // The idempotent convergence pipeline behind `up`. Every step follows the same
 // contract so re-running is always safe and always cheap when nothing changed:
@@ -438,7 +439,9 @@ export const envFilesStep = {
       extraDefaults: ctx.company.env,
       env: ctx.env,
     })
-    ctx.openCodePasswordChanged = openCodePasswordChanged
+    if (openCodePasswordChanged && ctx.mode === 'hybrid') {
+      writeState(ctx.repoRoot, OPENCODE_RECONCILE_PENDING, 'pending')
+    }
   },
 }
 
@@ -604,7 +607,8 @@ export const infraUpStep = {
     const detail = missing.length === 0
       ? 'all infra containers running and healthy'
       : `starting: ${notReady.map(({ service, state, health }) => (state === 'running' && health ? `${service} (${health})` : service)).join(', ')}`
-    return { ok: missing.length === 0 && !ctx.flags.rebuild && !ctx.servicePortsChanged && !ctx.openCodePasswordChanged, detail }
+    const needsOpenCodeReconcile = readState(ctx.repoRoot, OPENCODE_RECONCILE_PENDING) === 'pending'
+    return { ok: missing.length === 0 && !ctx.flags.rebuild && !ctx.servicePortsChanged && !needsOpenCodeReconcile, detail }
   },
   async apply(ctx) {
     const prepareOpencodeImage = ctx.ensureOpencodeImageImpl ?? ensureOpencodeImage
@@ -639,6 +643,7 @@ export const infraUpStep = {
       lines.push('  Re-running resumes from this step; database setup is not attempted until the infra is healthy.')
       throw new Error(lines.join('\n'))
     }
+    fs.rmSync(stateFile(ctx.repoRoot, OPENCODE_RECONCILE_PENDING), { force: true })
   },
 }
 

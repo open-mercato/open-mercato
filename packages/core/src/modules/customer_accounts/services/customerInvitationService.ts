@@ -242,6 +242,7 @@ export class CustomerInvitationService {
     authorizePrivilegedRoles?: (
       inviterUserId: string,
       scope: { tenantId: string; organizationId: string },
+      transactionEm?: EntityManager,
     ) => Promise<boolean>,
   ): Promise<{ user: CustomerUser; invitation: CustomerUserInvitation } | null> {
     const invitation = await this.findByToken(token)
@@ -269,7 +270,7 @@ export class CustomerInvitationService {
           : []
         if (roles.some((role) => role.customerAssignable === false)) {
           const inviterUserId = invitation.invitedByUserId
-          if (!inviterUserId || !authorizePrivilegedRoles || !await authorizePrivilegedRoles(inviterUserId, scope)) {
+          if (!inviterUserId || !authorizePrivilegedRoles || !await authorizePrivilegedRoles(inviterUserId, scope, transactionEm)) {
             return null
           }
         }

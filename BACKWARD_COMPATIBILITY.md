@@ -732,14 +732,6 @@ STABLE API: legacy signatures leave organization unverified. Rotate scoped keys 
 
 STABLE API: encrypted tenant custom-field writes return HTTP 503 when the data key is unavailable. Allowing success would persist plaintext. Restore key access, retry, and review historical values. [Migration](UPGRADE_NOTES.md#encrypted-tenant-custom-field-writes-require-a-usable-key) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
 
-## 2026-11-25 — Empty organization scope (#10503)
-
-STABLE feature-gated APIs return `403` before lookup for explicitly empty organization scope. Checking permissions without scope reopens access. Grant scope and handle `403`. [Migration](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). Named waiver pending.
-
-## 2026-11-26 — Organization and partition ownership
-
-STABLE API §7: grant-scoped organization lists. ADDITIVE-ONLY §8: owner-unique partition codes. Legacy behavior preserves disclosure. [Migration](UPGRADE_NOTES.md#organization-and-attachment-partition-ownership). Named waiver pending.
-
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
 
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
@@ -751,3 +743,7 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 ## 2026-11-25 — MCP Code Mode
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## 2026-11-27 — Staff and organization boundaries (#10503, #10543)
+
+STABLE APIs §7 require organization grants and return `403` for explicitly empty scope. Grant scope and handle `403`. `PUT /api/auth/profile` requires current-password proof for email changes. Send proof and reauthenticate. ADDITIVE-ONLY schema §8 uses owner-unique partition codes. Rehome incompatible references. Bridging prior behavior retains unscoped access or unverified changes. [Migration and specs](UPGRADE_NOTES.md). Named waiver pending.

@@ -71,7 +71,25 @@ Authorization and vector request shapes and the vector driver signature remain s
 
 Organization options, management, and tree responses follow the caller's organization grant. Clients that need an organization outside that grant must use a principal authorized for that organization.
 
-Attachment partition codes are unique within their owning scope. Clients and integrations that query partitions directly should resolve by code and attachment owner, with tenant-wide and platform-wide partitions as fallbacks. Existing codes, IDs, and storage paths are preserved. Apply the attachment partition migration and update all partition readers before reopening writes during rollout. Rolling back after different owners have reused a code requires resolving those duplicates before restoring the previous unique constraint.
+Attachment partition codes are unique within their owning scope. Clients and integrations that query partitions directly should resolve by code and attachment owner, with tenant-wide and platform-wide partitions as fallbacks. Compatible attachments keep their codes, IDs, and storage paths.
+
+Before upgrading, pause attachment writes and workers and back up the database and attachment storage. The migration stops before changing the index if any attachment references a partition outside its owner scope. Run this query as a database operator before you schedule the upgrade:
+
+```sql
+select attachment.id, attachment.partition_code, attachment.tenant_id, attachment.organization_id
+from attachments as attachment
+join attachment_partitions as partition on partition.code = attachment.partition_code
+where not (
+  (partition.tenant_id is null and partition.organization_id is null)
+  or (
+    partition.tenant_id is not null
+    and partition.tenant_id is not distinct from attachment.tenant_id
+    and (partition.organization_id is null or partition.organization_id is not distinct from attachment.organization_id)
+  )
+);
+```
+
+For each result, create a destination partition with a new code in the attachment's authorized scope. Keep the partition private unless the owner has approved public access. Copy the object and its variants to storage configured for that owner, then update the attachment's partition, storage driver, path, and provider metadata as needed in a maintenance transaction. Preserve the attachment ID and owner and retain applicable access policies. Verify downloads and previews as an authorized user and keep the old objects until verification succeeds. Repeat the query, apply the migration once it returns no rows, and upgrade all partition readers before reopening writes. Rolling back after different owners have reused a code requires resolving those duplicates before restoring the previous unique constraint.
 
 ## Per-call `callSettings` respect `allowRuntimeOverride: false` (#10504)
 

@@ -247,7 +247,7 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
     const authorize = jest.fn(async () => false)
 
     await expect(service.acceptInvitation('sample-invite', 'SamplePassword12!', 'New User', authorize)).resolves.toBeNull()
-    expect(authorize).toHaveBeenCalledWith(invitedByUserId, { tenantId, organizationId })
+    expect(authorize).toHaveBeenCalledWith(invitedByUserId, { tenantId, organizationId }, mockEm)
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
     expect(mockEm.persist).not.toHaveBeenCalled()
   })

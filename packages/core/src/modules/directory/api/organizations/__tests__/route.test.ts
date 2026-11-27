@@ -158,6 +158,42 @@ describe('directory organizations GET — cross-tenant ?ids= guard (#2696)', () 
   })
 })
 
+describe('directory organizations GET — scoped options hierarchy', () => {
+  const childOrgId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    authMock.mockResolvedValue({ sub: tenantlessUserId, tenantId: foreignTenantId, orgId: allowedOrgId })
+    resolveIsSuperAdminMock.mockResolvedValue(false)
+    resolveOrganizationScopeMock.mockResolvedValue({
+      selectedId: allowedOrgId,
+      allowedIds: [allowedOrgId, childOrgId],
+      tenantId: foreignTenantId,
+    })
+    emFind.mockResolvedValue([
+      { id: allowedOrgId, name: 'Parent', parentId: null, isActive: false },
+      { id: childOrgId, name: 'Child', parentId: allowedOrgId, isActive: true },
+    ])
+  })
+
+  it.each([`ids=${childOrgId.toUpperCase()}`, 'status=active'])(
+    'preserves an authorized parent when filtering options by %s',
+    async (filter) => {
+      const response = await GET(new Request(`http://localhost/api/directory/organizations?view=options&${filter}`))
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({
+        items: [{ id: childOrgId, parentId: allowedOrgId, depth: 1, treePath: `${allowedOrgId}/${childOrgId}` }],
+      })
+      expect(emFind).toHaveBeenCalledWith(
+        expect.anything(),
+        { tenant: foreignTenantId, deletedAt: null, id: { $in: [allowedOrgId, childOrgId] } },
+        { orderBy: { name: 'ASC' } },
+      )
+    },
+  )
+})
+
 describe('directory organizations GET — manage view exposes updatedAt for optimistic locking (#2989)', () => {
   const tenantOrgId = '66666666-6666-4666-8666-666666666666'
   const orgUpdatedAt = new Date('2026-06-01T10:20:30.000Z')

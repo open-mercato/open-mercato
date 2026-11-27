@@ -6,6 +6,25 @@ import { addEnvValue, readEnvValue, replaceEnvLine, uncommentEnvLine, writeEnvFi
 import { secretFingerprint, secretHex } from './secrets.mjs'
 import { replaceValues } from './service-modes.mjs'
 
+export function openCodeProbeOptions(repoRoot, env = process.env) {
+  let password = env.OPENCODE_PASSWORD
+  if (password === undefined) {
+    const rootEnv = path.join(repoRoot, '.env')
+    if (fs.existsSync(rootEnv)) password = parseEnv(fs.readFileSync(rootEnv, 'utf8')).OPENCODE_PASSWORD
+  }
+  if (!password?.trim()) return {}
+  return {
+    headers: { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}` },
+    redirect: 'error',
+  }
+}
+
+function writeOpenCodePassword(file, text, password) {
+  const content = replaceValues(text, { OPENCODE_PASSWORD: password })
+  if (fs.existsSync(file)) fs.chmodSync(file, 0o600)
+  fs.writeFileSync(file, content, { mode: 0o600 })
+}
+
 export function ensureOpenCodePassword(repoRoot, env = process.env) {
   if (env.OPENCODE_PASSWORD?.trim()) return false
 
@@ -21,10 +40,10 @@ export function ensureOpenCodePassword(repoRoot, env = process.env) {
   const password = [rootPassword, appPassword].find((value) => value?.trim()) ?? secretHex()
   const rootNeedsPassword = !rootPassword?.trim()
   if (rootNeedsPassword) {
-    fs.writeFileSync(rootEnv, replaceValues(rootText, { OPENCODE_PASSWORD: password }), { mode: 0o600 })
+    writeOpenCodePassword(rootEnv, rootText, password)
   }
   if (appText !== null && !appPassword?.trim()) {
-    fs.writeFileSync(appEnv, replaceValues(appText, { OPENCODE_PASSWORD: password }), { mode: 0o600 })
+    writeOpenCodePassword(appEnv, appText, password)
   }
   return rootNeedsPassword
 }
