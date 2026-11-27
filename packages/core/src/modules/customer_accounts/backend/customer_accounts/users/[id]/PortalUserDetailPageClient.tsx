@@ -145,9 +145,10 @@ function ResetPasswordDialog({
 export type PortalUserDetailPageClientProps = {
   params?: { id?: string }
   portalOrigin: string
+  canManage: boolean
 }
 
-export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserDetailPageClientProps) {
+export function PortalUserDetailPageClient({ params, portalOrigin, canManage }: PortalUserDetailPageClientProps) {
   const id = params?.id
   const t = useT()
   const router = useRouter()
@@ -234,6 +235,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
   }, [id, t])
 
   React.useEffect(() => {
+    if (!canManage) return
     let cancelled = false
     async function loadRoles() {
       try {
@@ -251,7 +253,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
     }
     loadRoles()
     return () => { cancelled = true }
-  }, [])
+  }, [canManage])
 
   React.useEffect(() => {
     if (!data) return
@@ -507,6 +509,8 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
     )
   }
 
+  const visibleRoles = canManage ? availableRoles : data.roles
+
   return (
     <>
       <FormHeader
@@ -515,7 +519,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
         backLabel={t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
         title={data.displayName}
         subtitle={data.email}
-        onDelete={() => { void handleDelete() }}
+        onDelete={canManage ? () => { void handleDelete() } : undefined}
         deleteLabel={t('customer_accounts.admin.detail.actions.delete', 'Delete')}
       />
 
@@ -557,7 +561,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                     ? t('customer_accounts.admin.verified', 'Yes')
                     : t('customer_accounts.admin.unverified', 'No')}
                 </span>
-                {!data.emailVerifiedAt && (
+                {canManage && !data.emailVerifiedAt && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -592,10 +596,14 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                   <Link href={`/backend/customers/people/${editPersonEntityId}`} className="text-primary hover:underline">
                     {personName || editPersonEntityId}
                   </Link>
-                  <Button type="button" variant="outline" size="sm" onClick={() => { setEditPersonEntityId(null); setPersonName(null) }}>
-                    {t('customer_accounts.admin.detail.actions.unlink', 'Unlink')}
-                  </Button>
+                  {canManage && (
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditPersonEntityId(null); setPersonName(null) }}>
+                      {t('customer_accounts.admin.detail.actions.unlink', 'Unlink')}
+                    </Button>
+                  )}
                 </div>
+              ) : !canManage ? (
+                <p>-</p>
               ) : (
                 <div className="space-y-1">
                   <div className="relative">
@@ -635,10 +643,14 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                   <Link href={`/backend/customers/companies/${editCustomerEntityId}`} className="text-primary hover:underline">
                     {companyName || editCustomerEntityId}
                   </Link>
-                  <Button type="button" variant="outline" size="sm" onClick={() => { setEditCustomerEntityId(null); setCompanyName(null) }}>
-                    {t('customer_accounts.admin.detail.actions.unlink', 'Unlink')}
-                  </Button>
+                  {canManage && (
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditCustomerEntityId(null); setCompanyName(null) }}>
+                      {t('customer_accounts.admin.detail.actions.unlink', 'Unlink')}
+                    </Button>
+                  )}
                 </div>
+              ) : !canManage ? (
+                <p>-</p>
               ) : (
                 <div className="space-y-1">
                   <div className="relative">
@@ -671,9 +683,11 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                 </div>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {t('customer_accounts.admin.detail.crmLinks.hint', 'Changes to CRM links are saved when you click Save Changes below.')}
-            </p>
+            {canManage && (
+              <p className="text-xs text-muted-foreground">
+                {t('customer_accounts.admin.detail.crmLinks.hint', 'Changes to CRM links are saved when you click Save Changes below.')}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -690,6 +704,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                 id="user-display-name"
                 type="text"
                 value={editDisplayName}
+                readOnly={!canManage}
                 onChange={(event) => setEditDisplayName(event.target.value)}
               />
             </div>
@@ -698,6 +713,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
               id="user-active-toggle"
               label={t('customer_accounts.admin.detail.fields.isActive', 'Active')}
               checked={editActive ?? data.isActive}
+              disabled={!canManage}
               onCheckedChange={(next) => setEditActive(next)}
             />
           </div>
@@ -705,7 +721,8 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
           <div className="space-y-2">
             <p className="text-sm font-medium">{t('customer_accounts.admin.detail.fields.roles', 'Roles')}</p>
             <div className="flex flex-wrap gap-2">
-              {availableRoles.map((role) => {
+              {visibleRoles.map((role) => {
+                if (!canManage) return <span key={role.id} className="text-sm">{role.name}</span>
                 const isSelected = selectedRoleIds.includes(role.id)
                 return (
                   <Button
@@ -724,7 +741,7 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                   </Button>
                 )
               })}
-              {availableRoles.length === 0 && (
+              {visibleRoles.length === 0 && (
                 <span className="text-sm text-muted-foreground">
                   {t('customer_accounts.admin.detail.noRolesAvailable', 'No roles available')}
                 </span>
@@ -732,60 +749,64 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
             </div>
           </div>
         </div>
-        <div className="pt-2">
-          <Button onClick={() => { void handleSave() }} disabled={isSaving}>
-            {isSaving
-              ? t('customer_accounts.admin.detail.actions.saving', 'Saving...')
-              : t('customer_accounts.admin.detail.actions.save', 'Save Changes')}
-          </Button>
-        </div>
-      </div>
-
-      <div className="rounded-lg border p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.security', 'Security')}</h2>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setResetPasswordOpen(true)}>
-            {t('customer_accounts.admin.detail.resetPassword.actions.open', 'Reset Password')}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => { void handleSendResetLink() }}
-            disabled={isSendingResetLink}
-          >
-            {isSendingResetLink
-              ? t('customer_accounts.admin.detail.sendResetLink.actions.sending', 'Generating...')
-              : t('customer_accounts.admin.detail.sendResetLink.actions.send', 'Send Reset Link')}
-          </Button>
-        </div>
-        {resetLinkUrl && (
-          <div className="rounded-md border border-status-info-border bg-status-info-bg p-3">
-            <p className="mb-1.5 text-sm font-medium text-status-info-text">
-              {t('customer_accounts.admin.detail.sendResetLink.linkLabel', 'Password reset link (valid for 60 minutes):')}
-            </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 break-all rounded bg-status-info-bg px-2 py-1 text-xs text-status-info-text">
-                {resetLinkUrl}
-              </code>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  void navigator.clipboard.writeText(resetLinkUrl)
-                  flash(t('customer_accounts.admin.detail.sendResetLink.flash.copied', 'Link copied to clipboard'), 'success')
-                }}
-              >
-                {t('customer_accounts.admin.detail.sendResetLink.actions.copy', 'Copy')}
-              </Button>
-            </div>
-            <p className="mt-1.5 text-xs text-status-info-text">
-              {t('customer_accounts.admin.detail.sendResetLink.hint', 'Share this link with the customer to let them set a new password.')}
-            </p>
+        {canManage && (
+          <div className="pt-2">
+            <Button onClick={() => { void handleSave() }} disabled={isSaving}>
+              {isSaving
+                ? t('customer_accounts.admin.detail.actions.saving', 'Saving...')
+                : t('customer_accounts.admin.detail.actions.save', 'Save Changes')}
+            </Button>
           </div>
         )}
       </div>
+
+      {canManage && (
+        <div className="rounded-lg border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.security', 'Security')}</h2>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setResetPasswordOpen(true)}>
+              {t('customer_accounts.admin.detail.resetPassword.actions.open', 'Reset Password')}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => { void handleSendResetLink() }}
+              disabled={isSendingResetLink}
+            >
+              {isSendingResetLink
+                ? t('customer_accounts.admin.detail.sendResetLink.actions.sending', 'Generating...')
+                : t('customer_accounts.admin.detail.sendResetLink.actions.send', 'Send Reset Link')}
+            </Button>
+          </div>
+          {resetLinkUrl && (
+            <div className="rounded-md border border-status-info-border bg-status-info-bg p-3">
+              <p className="mb-1.5 text-sm font-medium text-status-info-text">
+                {t('customer_accounts.admin.detail.sendResetLink.linkLabel', 'Password reset link (valid for 60 minutes):')}
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 break-all rounded bg-status-info-bg px-2 py-1 text-xs text-status-info-text">
+                  {resetLinkUrl}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(resetLinkUrl)
+                    flash(t('customer_accounts.admin.detail.sendResetLink.flash.copied', 'Link copied to clipboard'), 'success')
+                  }}
+                >
+                  {t('customer_accounts.admin.detail.sendResetLink.actions.copy', 'Copy')}
+                </Button>
+              </div>
+              <p className="mt-1.5 text-xs text-status-info-text">
+                {t('customer_accounts.admin.detail.sendResetLink.hint', 'Share this link with the customer to let them set a new password.')}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="rounded-lg border p-4 space-y-3">
         <h2 className="text-sm font-semibold">
@@ -813,26 +834,32 @@ export function PortalUserDetailPageClient({ params, portalOrigin }: PortalUserD
                     {t('customer_accounts.admin.detail.fields.lastUsed', 'Last used')}: {formatDate(session.lastUsedAt, '-')}
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => { void handleRevokeSession(session.id) }}
-                >
-                  {t('customer_accounts.admin.detail.actions.revoke', 'Revoke')}
-                </Button>
+                {canManage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { void handleRevokeSession(session.id) }}
+                  >
+                    {t('customer_accounts.admin.detail.actions.revoke', 'Revoke')}
+                  </Button>
+                )}
               </div>
             ))}
           </div>
         )}
       </div>
 
-      <ResetPasswordDialog
-        open={resetPasswordOpen}
-        onOpenChange={setResetPasswordOpen}
-        userId={id!}
-        onRunMutation={runMutationWithContext}
-      />
-      {ConfirmDialogElement}
+      {canManage && (
+        <>
+          <ResetPasswordDialog
+            open={resetPasswordOpen}
+            onOpenChange={setResetPasswordOpen}
+            userId={id!}
+            onRunMutation={runMutationWithContext}
+          />
+          {ConfirmDialogElement}
+        </>
+      )}
     </>
   )
 }

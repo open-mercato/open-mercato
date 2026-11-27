@@ -133,7 +133,7 @@ describe('PortalUserDetailPageClient CRM name lookups', () => {
       return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
 
-    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" canManage />)
 
     // Both CRM lookups must be in-flight before either response resolves.
     await waitFor(() => {
@@ -166,7 +166,7 @@ describe('PortalUserDetailPageClient CRM name lookups', () => {
       return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
 
-    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" canManage />)
 
     await waitFor(() => {
       const calledUrls = apiCallMock.mock.calls.map((call) => call[0])
