@@ -406,7 +406,7 @@ export class CommandBus {
     if (replayLogEntry && readCrudFormSectionSinkSnapshots(replayLogEntry).length) {
       throw new CrudHttpError(409, { error: 'extension_policy_mismatch', code: 'extension_policy_mismatch' })
     }
-const replayFeatureRequirements = this.isUndoable(handler)
+    const replayFeatureRequirements = this.isUndoable(handler)
       ? replayLogEntry
         ? this.resolveReplayFeatureRequirementsFromLog(handler, replayLogEntry)
         : await this.resolveReplayFeatureRequirements(handler, options.ctx)
@@ -549,13 +549,21 @@ const replayFeatureRequirements = this.isUndoable(handler)
         || replayFeatureRequirements?.record
       ) {
         mergedMeta = mergedMeta ?? {}
-        mergedMeta.context = {
+        const mergedContext = {
           ...baseContext,
           ...interceptorContextMerged,
           ...logMetaContext,
-          ...(replayFeatureRequirements?.record
-            ? { requiredFeatures: replayFeatureRequirements.features }
-            : {}),
+        }
+        // These fields are reserved to the command bus. Never trust command or
+        // caller metadata to manufacture an authorization snapshot.
+        delete mergedContext.requiredFeatures
+        delete mergedContext.requiredFeaturesResolved
+        if (replayFeatureRequirements?.record) {
+          mergedContext.requiredFeatures = replayFeatureRequirements.features
+          mergedContext.requiredFeaturesResolved = true
+        }
+        mergedMeta.context = {
+          ...mergedContext,
         }
       }
       const undoable = this.isUndoable(handler)
@@ -881,7 +889,7 @@ const replayFeatureRequirements = this.isUndoable(handler)
           })
           sinkUndo = [work, context]
         }
-await this.authorizeReplayFeatures(handler, replayCtx, log, replayEm)
+        await this.authorizeReplayFeatures(handler, replayCtx, log, replayEm)
 
         await claimUndo(replayEm)
         await finishUndo(replayCtx, replayEm, sinkUndo)
@@ -1050,7 +1058,9 @@ await this.authorizeReplayFeatures(handler, replayCtx, log, replayEm)
     const routeRecord = asRecord(routeModule)
     const metadata = asRecord(routeRecord?.metadata)
     const methodMetadata = asRecord(metadata?.[method])
-    const routeFeatures = methodMetadata?.requireFeatures ?? routeRecord?.requireFeatures
+    const routeFeatures = methodMetadata?.requireFeatures
+      ?? metadata?.requireFeatures
+      ?? routeRecord?.requireFeatures
     if (Array.isArray(routeFeatures)) {
       record = true
       for (const feature of routeFeatures) {
@@ -1065,14 +1075,15 @@ await this.authorizeReplayFeatures(handler, replayCtx, log, replayEm)
     logEntry: CommandUndoLogEntry,
   ): ReplayFeatureRequirements {
     const features = new Set<string>(handler.requiredFeatures ?? [])
-    const storedFeatures = asRecord(logEntry.contextJson)?.requiredFeatures
-    const record = handler.requiredFeatures !== undefined || Array.isArray(storedFeatures)
-    if (Array.isArray(storedFeatures)) {
+    const storedContext = asRecord(logEntry.contextJson)
+    const storedFeatures = storedContext?.requiredFeatures
+    const hasSnapshot = storedContext?.requiredFeaturesResolved === true && Array.isArray(storedFeatures)
+    if (hasSnapshot && Array.isArray(storedFeatures)) {
       for (const feature of storedFeatures) {
         if (typeof feature === 'string' && feature.length > 0) features.add(feature)
       }
     }
-    return { record, features: [...features] }
+    return { record: handler.requiredFeatures !== undefined || hasSnapshot, features: [...features] }
   }
 
   private async authorizeReplayFeatures(
@@ -1083,11 +1094,15 @@ await this.authorizeReplayFeatures(handler, replayCtx, log, replayEm)
   ): Promise<void> {
     const context = asRecord(logEntry.contextJson)
     const storedFeatures = context?.requiredFeatures
+    const hasSnapshot = context?.requiredFeaturesResolved === true && Array.isArray(storedFeatures)
     const features = new Set<string>(handler.requiredFeatures ?? [])
-    if (Array.isArray(storedFeatures)) {
+    if (hasSnapshot && Array.isArray(storedFeatures)) {
       for (const feature of storedFeatures) {
         if (typeof feature === 'string' && feature.length > 0) features.add(feature)
       }
+    }
+    if (handler.requiredFeatures === undefined && !hasSnapshot) {
+      throw new CrudHttpError(403, { error: 'Replay authorization requirements are unavailable' })
     }
     if (features.size === 0) return
     if (!ctx.auth?.sub) {
