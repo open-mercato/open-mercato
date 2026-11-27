@@ -161,6 +161,7 @@ describe('integration cache and options', () => {
     const fetchSpy = mockHealthyReadinessFetch()
 
     try {
+      await writeFile(ephemeralEnvFilePath, '{}', { mode: 0o644 })
       await writeEphemeralEnvironmentState({
         baseUrl,
         port: 5001,
@@ -168,6 +169,7 @@ describe('integration cache and options', () => {
         queueBaseDir: '/tmp/open-mercato-queue',
         logPrefix: 'integration',
         captureScreenshots: true,
+        superadminPassword: 'Persisted-Runner-Pass-42!',
       })
 
       const state = await readEphemeralEnvironmentState()
@@ -192,6 +194,8 @@ describe('integration cache and options', () => {
         port: 5001,
         ownedByCurrentProcess: false,
       })
+      expect(environment?.commandEnvironment.OM_INIT_SUPERADMIN_PASSWORD).toBe('Persisted-Runner-Pass-42!')
+      expect((await stat(ephemeralEnvFilePath)).mode & 0o777).toBe(0o600)
       expect(environment?.commandEnvironment.OM_INTEGRATION_TEST).toBe('true')
       expect(environment?.commandEnvironment.DATABASE_URL).toBe(
         'postgres://integration:integration@127.0.0.1:5432/open_mercato',
@@ -405,6 +409,31 @@ describe('integration cache and options', () => {
     }
   })
 
+  it('starts fresh when legacy runtime state has no initialized bootstrap credential', async () => {
+    await writeFile(ephemeralEnvFilePath, JSON.stringify({
+      status: 'running',
+      baseUrl: 'http://127.0.0.1:5001',
+      port: 5001,
+      databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+      queueBaseDir: '/tmp/open-mercato-queue',
+      source: 'integration',
+      captureScreenshots: false,
+      startedAt: new Date().toISOString(),
+    }))
+    const fetchSpy = jest.spyOn(global, 'fetch')
+    try {
+      expect(await readEphemeralEnvironmentState()).not.toBeNull()
+      expect(await tryReuseExistingEnvironment({
+        verbose: false,
+        captureScreenshots: false,
+        logPrefix: 'integration',
+      })).toBeNull()
+      expect(fetchSpy).not.toHaveBeenCalled()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
   it('parses --force-rebuild and --no-reuse-env for integration test commands', () => {
     expect(parseOptions(['--force-rebuild'])).toMatchObject({ forceRebuild: true })
     expect(parseOptions(['--no-reuse-env'])).toMatchObject({ reuseExisting: false })
@@ -517,16 +546,30 @@ describe('integration cache and options', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
     try {
       const fallback = resolveEphemeralSuperadminPassword({})
-      expect(fallback).toBe('Om-Ephemeral-Superadmin-2026!')
+      expect(fallback).not.toBe('Om-Ephemeral-Superadmin-2026!')
+      expect(resolveEphemeralSuperadminPassword({})).toBe(fallback)
       expect(() =>
         resolveInitSuperadminCredentials([], { NODE_ENV: 'production', OM_INIT_SUPERADMIN_PASSWORD: fallback }),
       ).not.toThrow()
       expect(warnSpy).not.toHaveBeenCalled()
       expect(resolveEphemeralSuperadminPassword({ OM_INIT_SUPERADMIN_PASSWORD: 'secret' })).toBe(fallback)
       expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy.mock.calls.flat().join(' ')).not.toContain(fallback)
     } finally {
       warnSpy.mockRestore()
     }
+  })
+
+  it('generates a different bootstrap credential for independent runner instances', () => {
+    let firstPassword = ''
+    let secondPassword = ''
+    jest.isolateModules(() => {
+      firstPassword = require('../integration').resolveEphemeralSuperadminPassword({})
+    })
+    jest.isolateModules(() => {
+      secondPassword = require('../integration').resolveEphemeralSuperadminPassword({})
+    })
+    expect(firstPassword).not.toBe(secondPassword)
   })
 
   it('keeps a production-valid operator-provided superadmin password', () => {

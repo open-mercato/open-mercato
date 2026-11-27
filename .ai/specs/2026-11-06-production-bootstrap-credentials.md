@@ -11,6 +11,12 @@ Resolve credentials in the CLI's existing init-secrets helper. Normalize `NODE_E
 
 Validate before database work for normal init and reinstall. For `--skip-if-initialized` without reinstall, allow the existing database preflight to return successfully without bootstrap credentials; validate before generators or account creation if initialization is needed. Operator diagnostics use locale dictionaries selected by LC_ALL, LC_MESSAGES, or LANG, with English fallback; the CLI build ships those dictionaries. Both full-app Compose distributions retain their development fallback, which the production guard rejects. The root compatibility duplicate stays aligned.
 
+## Managed test runtimes (#10913)
+
+Managed `test:integration` and `test:ephemeral` runtimes generate a cryptographically random per-process fallback superadmin credential when no production-valid override is supplied. Initialization and test commands share it. The existing local runtime state retains the initialized credential for reuse by another process; state replacement is atomic with owner-only permissions, and warnings never include the value. Init summaries redact account passwords when `OM_INTEGRATION_TEST` is enabled, including verbose managed runs; normal operator summaries retain their existing behavior. Production bootstrap validation remains unchanged.
+
+The local runtime state adds an optional `superadminPassword` field. Readers accept older state, but the managed runner starts a fresh environment when that credential is absent rather than attempting superadmin login with an unrelated generated password. Explicit valid operator credentials remain supported.
+
 ## Data Models and API Contracts
 No schema, API, ACL, event, or direct `mercato auth setup` contract changes. Existing accounts are not modified. No new dependencies or provider configuration.
 
@@ -37,6 +43,7 @@ No API or UI path changes; integration coverage exercises `run()` with isolated 
 Uses shared password-policy helpers, modifies no tenant data access, adds no dependencies, and preserves development behavior. The human maintainer security exception is approved; validation and QA remain merge gates.
 
 ## Changelog
+- 2026-11-27: Randomize managed test-runner bootstrap credentials and preserve private cross-process runtime reuse (#10913).
 - 2026-11-06: Production-only fix and regression tests prepared for #7809.
 
 ### Production example portal accounts

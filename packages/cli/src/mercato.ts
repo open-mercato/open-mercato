@@ -1529,7 +1529,9 @@ export async function run(argv = process.argv) {
       const summary = formatInitSummary({
         users: createdUsers.map((entry) => ({
           ...entry,
-          password: createdPasswords.get(entry.email.toLowerCase()) ?? password,
+          password: parseBooleanToken(process.env.OM_INTEGRATION_TEST) === true
+            ? '[redacted]'
+            : createdPasswords.get(entry.email.toLowerCase()) ?? password,
         })),
         autoStart: parseBooleanToken(process.env.OM_INIT_DEV_AUTOSTART) === true,
         columns: summaryColumns,
