@@ -14,6 +14,12 @@ import { rowIdentity, ExactJsonNumber, type LogicalValue, type VerificationRow }
 import type { RotationDataset } from './verifier'
 import type { ProgressSink } from '../engine/types'
 
+export class UnmappedRotationEntityError extends Error {
+  constructor(readonly mapId: string) {
+    super('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+  }
+}
+
 type Intent = NonNullable<VerificationRow['metadataIntent']>
 export type PostgresRotationOptions = {
   context: RotationProtectionContext
@@ -149,7 +155,7 @@ export async function createPostgresRotationDataset(options: PostgresRotationOpt
     if (!map.fieldsJson?.length) { emptyMaps.push(map.entityId); continue }
     if (context.organizationId && map.organizationId && map.organizationId !== context.organizationId) continue
     const meta = metas.get(map.entityId)
-    if (!meta?.tableName || !meta.primaryKeys.length) throw new Error('[internal] ROTATION_COVERAGE_UNSUPPORTED')
+    if (!meta?.tableName || !meta.primaryKeys.length) throw new UnmappedRotationEntityError(map.id)
     const name = `${meta.schema ?? 'public'}.${meta.tableName}`
     let table = tables.get(name)
     if (!table) {

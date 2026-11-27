@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Users, Handshake, Clock, History, Paperclip } from 'lucide-react'
+import { Users, Handshake, Clock, History, Paperclip, MapPin } from 'lucide-react'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { registerComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
@@ -10,7 +10,7 @@ import { resolveInjectedIcon } from '@open-mercato/ui/backend/injection/resolveI
 import { useDealsAccess } from './useDealsAccess'
 import { DetailTabRail } from './DetailTabRail'
 
-export const COMPANY_DETAIL_TAB_IDS = ['people', 'deals', 'activity-log', 'changelog', 'files'] as const
+export const COMPANY_DETAIL_TAB_IDS = ['people', 'deals', 'activity-log', 'changelog', 'files', 'addresses'] as const
 
 export type CompanyTabId =
   | 'people'
@@ -18,6 +18,7 @@ export type CompanyTabId =
   | 'activity-log'
   | 'changelog'
   | 'files'
+  | 'addresses'
   | string
 
 type TabDef = {
@@ -47,7 +48,6 @@ export type CompanyDetailTabsProps = {
 const LEGACY_TAB_MAP: Record<string, CompanyTabId> = {
   notes: 'people',
   activities: 'activity-log',
-  addresses: 'people',
   tasks: 'people',
   dashboard: 'people',
   'dane-firmy': 'people',
@@ -117,6 +117,11 @@ function DefaultCompanyDetailTabs({
         label: t('customers.companies.detail.tabs.files', 'Files'),
         icon: <Paperclip className="size-4" />,
         count: formatTabCount(filesCount),
+      },
+      {
+        id: 'addresses',
+        label: t('customers.companies.detail.tabs.addresses', 'Addresses'),
+        icon: <MapPin className="size-4" />,
       },
     ],
     [t, canViewDeals, peopleCount, dealsCount, activitiesCount, filesCount],

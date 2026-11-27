@@ -3,6 +3,7 @@ export type MaintenanceConnection = {
 }
 export type MaintenanceRow = Record<string, unknown>
 export type MaintenanceScope = { tenantId: string; organizationId: string | null }
+type MaintenanceColumnTypes = ReadonlyMap<string, 'json' | 'jsonb' | null>
 export const MAINTENANCE_BATCH_SIZE = 8
 export const MAINTENANCE_ROW_BYTES = 1024 * 1024
 
@@ -11,10 +12,17 @@ export function quoteMaintenanceIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`
 }
 
+function unchangedColumn(column: string, type?: 'json' | 'jsonb' | null): string {
+  const identifier = quoteMaintenanceIdentifier(column)
+  const value = type === 'json' ? `${identifier}::text` : identifier
+  const placeholder = type === 'jsonb' ? '?::jsonb' : '?'
+  return `${value} IS NOT DISTINCT FROM ${placeholder}`
+}
+
 export async function* readMaintenanceBatches(
   connection: MaintenanceConnection,
   table: string,
-  columns: string[],
+  columns: string[] | MaintenanceColumnTypes,
   primaryKeys: string[],
   scope: MaintenanceScope,
   batchSize = MAINTENANCE_BATCH_SIZE,
@@ -22,9 +30,14 @@ export async function* readMaintenanceBatches(
 ): AsyncGenerator<MaintenanceRow[]> {
   if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 500) throw new Error('[internal] Invalid maintenance batch size')
   if (!primaryKeys.length) throw new Error('[internal] Maintenance requires a complete primary key')
-  const names = [...new Set([...primaryKeys, ...columns])]
+  const columnTypes = Array.isArray(columns) ? undefined : columns
+  const names = [...new Set([...primaryKeys, ...(Array.isArray(columns) ? columns : columns.keys())])]
   const projection = names.map(quoteMaintenanceIdentifier).join(', ')
-  const selected = names.map((name) => primaryKeys.includes(name) ? `maintenance_rows.${quoteMaintenanceIdentifier(name)}::text AS ${quoteMaintenanceIdentifier(name)}` : `maintenance_rows.${quoteMaintenanceIdentifier(name)}`).join(', ')
+  const selected = names.map((name) => {
+    const column = quoteMaintenanceIdentifier(name)
+    const value = `maintenance_rows.${column}`
+    return primaryKeys.includes(name) || columnTypes?.get(name) ? `${value}::text AS ${column}` : value
+  }).join(', ')
   const keys = primaryKeys.map((key) => `maintenance_rows.${quoteMaintenanceIdentifier(key)}`)
   const scopeSql = 'tenant_id = ? AND organization_id IS NOT DISTINCT FROM ?'
   const scopeValues = [scope.tenantId, scope.organizationId]
@@ -62,12 +75,13 @@ export async function writeMaintenanceRow(
   updates: MaintenanceRow,
   scope: MaintenanceScope,
   verifyPersisted = false,
+  columnTypes?: MaintenanceColumnTypes,
 ): Promise<void> {
   const columns = Object.keys(updates)
   if (!columns.length) return
   const assignments = columns.map((column) => `${quoteMaintenanceIdentifier(column)} = ?`).join(', ')
   const identity = primaryKeys.map((key) => `${quoteMaintenanceIdentifier(key)} = ?`).join(' AND ')
-  const unchanged = columns.map((column) => `${quoteMaintenanceIdentifier(column)} IS NOT DISTINCT FROM ?`).join(' AND ')
+  const unchanged = columns.map((column) => unchangedColumn(column, columnTypes?.get(column))).join(' AND ')
   const result = await connection.execute(
     `UPDATE ${table} SET ${assignments} WHERE ${identity} AND tenant_id = ? AND organization_id IS NOT DISTINCT FROM ? AND ${unchanged} RETURNING ${primaryKeys.map(quoteMaintenanceIdentifier).join(', ')}`,
     [...Object.values(updates), ...primaryKeys.map((key) => row[key]), scope.tenantId, scope.organizationId, ...columns.map((column) => row[column])],
@@ -88,6 +102,7 @@ export async function verifyMaintenanceBatch(
   primaryKeys: string[],
   writes: Array<{ row: MaintenanceRow; updates: MaintenanceRow }>,
   scope: MaintenanceScope,
+  columnTypes?: MaintenanceColumnTypes,
 ): Promise<void> {
   if (!writes.length) return
   if (writes.length > 500 || !primaryKeys.length) throw new Error('[internal] Invalid maintenance readback batch')
@@ -100,7 +115,7 @@ export async function verifyMaintenanceBatch(
   const selected = [...new Set([...primaryKeys, ...writes.flatMap(({ updates }) => Object.keys(updates))])]
   const comparisons = writes.map(({ row, updates }) => {
     const identity = primaryKeys.map((key) => { parameters.push(row[key]); return `${quoteMaintenanceIdentifier(key)} = ?` })
-    const values = Object.entries(updates).map(([key, value]) => { parameters.push(value); return `${quoteMaintenanceIdentifier(key)} IS NOT DISTINCT FROM ?` })
+    const values = Object.entries(updates).map(([key, value]) => { parameters.push(value); return unchangedColumn(key, columnTypes?.get(key)) })
     return `(${[...identity, ...values].join(' AND ')})`
   })
   if (parameters.length > 60000) throw new Error('[internal] Maintenance readback parameter bound exceeded')

@@ -65,7 +65,7 @@ test.describe('TC-WC-024: warranty claim AI assess API', () => {
         features: ['warranty_claims.claim.view'],
         organizations: [organizationId],
       })
-      const password = 'Valid1!Pass'
+      const password = 'QaValid1!Pass'
       const email = `${stamp}@test.invalid`
       viewOnlyUserId = await createUserFixture(request, adminToken, {
         email,

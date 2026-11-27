@@ -2511,6 +2511,21 @@ describe('CRUD Factory', () => {
     expect(commandBus.execute).toHaveBeenCalledWith('example.todo.delete', expect.anything())
   })
 
+  it('keeps request admission at the dispatcher and runs only route hooks inside a real CRUD handler', async () => {
+    const requestAdmission = jest.fn(async () => ({ ok: false, statusCode: 403 }))
+    const routeAdmission = jest.fn(async () => ({ ok: true }))
+    registerApiInterceptors([{ moduleId: 'example', interceptors: [
+      { id: 'example.request', targetRoute: '*', scope: 'request', methods: ['GET'], before: requestAdmission },
+      { id: 'example.route', targetRoute: '*', methods: ['GET'], before: routeAdmission },
+    ] }])
+
+    const response = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(response.status).toBe(200)
+    expect(routeAdmission).toHaveBeenCalledTimes(1)
+    expect(requestAdmission).not.toHaveBeenCalled()
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
+  })
+
   it('POST is blocked by interceptor before hook', async () => {
     registerApiInterceptors([
       {

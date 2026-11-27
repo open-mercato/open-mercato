@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { publishRotationReport } from '../report'
-import { createEnterpriseRotationProtection, type RotationCoordinatorOptions } from '../coordinator'
+import { createEnterpriseRotationProtection, RotationResumeDatabaseMismatchError, type RotationCoordinatorOptions } from '../coordinator'
 import type { VerificationRow } from '../canonical'
 import { canonicalRotationTimestamp } from '../postgres-dataset'
 import { RotationArtifactStore } from '../store'
@@ -452,7 +452,13 @@ test.each(['run identity', 'database binding'])('an unadmitted resume with a dif
   }
   const before = await readFile(statePath)
   const reportFailure = jest.fn(); const operation = jest.fn()
-  await expect(createEnterpriseRotationProtection({ ...options, resumeId: id, reportFailure }).protect(context, operation)).rejects.toThrow('ROTATION_RESUME_INVALID')
+  const result = createEnterpriseRotationProtection({ ...options, resumeId: id, reportFailure }).protect(context, operation)
+  await expect(result).rejects.toThrow('ROTATION_RESUME_INVALID')
+  if (mismatch === 'database binding') {
+    await expect(result).rejects.toBeInstanceOf(RotationResumeDatabaseMismatchError)
+  } else {
+    await expect(result).rejects.not.toBeInstanceOf(RotationResumeDatabaseMismatchError)
+  }
   expect(await readFile(statePath)).toEqual(before)
   expect(operation).not.toHaveBeenCalled()
   expect(reportFailure).not.toHaveBeenCalled()

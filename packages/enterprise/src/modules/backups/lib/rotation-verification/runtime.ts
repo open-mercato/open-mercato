@@ -8,11 +8,11 @@ import { BackupError } from '../engine/errors'
 import { createRotationPresentation } from './presentation'
 import type { VerificationResult } from './verifier'
 import { createRotationArtifactCipher } from './age'
-import { createEnterpriseRotationProtection } from './coordinator'
+import { createEnterpriseRotationProtection, RotationResumeDatabaseMismatchError } from './coordinator'
 import { resolveRotationProviders, rotationProviderKinds } from './providers'
 import { resolveRecoveryConfiguration, requireRecoveryDirectories, requireRecoveryCustodyFile, RecoveryConfigurationError } from '../../../../lib/recovery-configuration'
 import { publishRotationReport, publishRotationFailureReport } from './report'
-import { createPostgresRotationDataset, assertPostgresRotationAdmission } from './postgres-dataset'
+import { createPostgresRotationDataset, assertPostgresRotationAdmission, UnmappedRotationEntityError } from './postgres-dataset'
 
 function required(environment: NodeJS.ProcessEnv, name: string): string {
   const value = environment[name]?.trim()
@@ -128,6 +128,21 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
         })
         if (completed) presentation.completed(completed.result, completed.report, completed.backup)
       } catch (error) {
+        if (error instanceof UnmappedRotationEntityError) {
+          presentation.failed(translate(
+            'backups.rotation.unmappedEntity',
+            'Encryption map {mapId} has no usable entity metadata. Restore the module that registered the entity and verify coverage before retrying. Deleting the map can leave encrypted data outside the verification scope.',
+            { mapId: error.mapId },
+          ))
+          throw error
+        }
+        if (error instanceof RotationResumeDatabaseMismatchError) {
+          presentation.failed(translate(
+            'backups.rotation.resumeDatabaseMismatch',
+            'This run cannot resume because the PostgreSQL instance no longer matches its recorded identity. Keep writers stopped and retain the original backup, trusted run artifacts, and both keys. Follow the protected rotation runbook to assess or restore the original data before starting a new run.',
+          ), { canResume: false })
+          throw error
+        }
         if (error instanceof Error && /^\[internal\] ROTATION_RUN_LOCKED(?::[0-9a-f-]{36})?$/i.test(error.message)) {
           throw error
         }

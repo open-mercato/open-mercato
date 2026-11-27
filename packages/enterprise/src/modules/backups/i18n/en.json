@@ -83,8 +83,10 @@
   "backups.rotation.presentation.title": "Protected key rotation",
   "backups.rotation.presentation.verify": "Verify persisted data",
   "backups.rotation.reportWritten": "Verification report:",
+  "backups.rotation.resumeDatabaseMismatch": "This run cannot resume because the PostgreSQL instance no longer matches its recorded identity. Keep writers stopped and retain the original backup, trusted run artifacts, and both keys. Follow the protected rotation runbook to assess or restore the original data before starting a new run.",
   "backups.rotation.rotating": "Rotating encrypted data with protected recovery.",
   "backups.rotation.runPrepared": "Protected rotation run; retain this identifier for an explicit resume:",
+  "backups.rotation.unmappedEntity": "Encryption map {mapId} has no usable entity metadata. Restore the module that registered the entity and verify coverage before retrying. Deleting the map can leave encrypted data outside the verification scope.",
   "backups.rotation.verificationPassed": "Persisted data verification passed for the declared rotation scope; retain previous keys and the recovery backup.",
   "backups.rotation.verifying": "Verifying persisted data after key rotation."
 }

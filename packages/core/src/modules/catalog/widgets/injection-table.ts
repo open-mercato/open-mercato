@@ -23,10 +23,16 @@ export const injectionTable: ModuleInjectionTable = {
   // so the deep-extension surfaces only ever resolve the `catalog.products.list`
   // spelling. The base-spot spelling binds solely for the header/footer/toolbar/
   // search-trailing family below.
-  'data-table:catalog.products.list:bulk-actions': {
-    widgetId: 'catalog.injection.product-bulk-delete',
-    priority: 40,
-  },
+  'data-table:catalog.products.list:bulk-actions': [
+    {
+      widgetId: 'catalog.injection.product-bulk-delete',
+      priority: 40,
+    },
+    {
+      widgetId: 'catalog.injection.product-ai-categorize',
+      priority: 30,
+    },
+  ],
   // Step 5.15 — Phase 3 WS-D.
   // Merchandising assistant trigger moved behind the injection system so the
   // products list page no longer imports `MerchandisingAssistantSheet`

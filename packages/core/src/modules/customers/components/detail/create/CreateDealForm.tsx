@@ -128,6 +128,7 @@ type StageProbabilityDefaultsProps = {
   probability: string
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
+  autoFilledProbability: React.RefObject<string | null>
   setValue: (id: string, value: unknown) => void
 }
 
@@ -138,23 +139,22 @@ type StageProbabilityDefaultsProps = {
  * when the new stage has no default, so a default left over from another stage is never
  * submitted as an explicit override that would skip the server's own stage default.
  */
-function StageProbabilityDefaults({ pipelineId, pipelineStageId, probability, pipelines, stages, setValue }: StageProbabilityDefaultsProps) {
+function StageProbabilityDefaults({ pipelineId, pipelineStageId, probability, pipelines, stages, autoFilledProbability, setValue }: StageProbabilityDefaultsProps) {
   const appliedStageId = React.useRef<string | null>(null)
-  const autoFilledProbability = React.useRef<string | null>(null)
   React.useEffect(() => {
-    if (!pipelineStageId || pipelineStageId === appliedStageId.current) return
+    if (pipelineStageId === appliedStageId.current) return
     const pipeline = pipelines.find((entry) => entry.id === pipelineId)
     const stage = stages.find((entry) => entry.id === pipelineStageId)
-    if (!pipeline || !stage) return
+    if (pipelineStageId && (!pipeline || !stage)) return
     appliedStageId.current = pipelineStageId
     if (probability !== '' && probability !== autoFilledProbability.current) return
-    const stageDefault = pipeline.stageProbabilitiesEnabled && typeof stage.defaultProbability === 'number'
+    const stageDefault = pipeline?.stageProbabilitiesEnabled && typeof stage?.defaultProbability === 'number'
       ? String(stage.defaultProbability)
       : null
     autoFilledProbability.current = stageDefault
     const nextProbability = stageDefault ?? ''
     if (nextProbability !== probability) setValue('probability', nextProbability)
-  }, [pipelineId, pipelineStageId, pipelines, probability, setValue, stages])
+  }, [autoFilledProbability, pipelineId, pipelineStageId, pipelines, probability, setValue, stages])
   return null
 }
 
@@ -205,6 +205,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     return seeded.ownerUserId || !currentUserId ? seeded : { ...seeded, ownerUserId: currentUserId }
   }, [initialValues, currentUserId])
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const autoFilledProbability = React.useRef<string | null>(null)
   // Optional fields start collapsed like the quick-create forms in other CRMs; a seeded value
   // keeps them visible so the caller's prefill is never hidden.
   const [moreExpanded, setMoreExpanded] = React.useState(() =>
@@ -314,6 +315,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
               probability={current.probability}
               pipelines={pipelines}
               stages={currentStages}
+              autoFilledProbability={autoFilledProbability}
               setValue={setValue}
             />
             <DealDetailsFields
@@ -392,7 +394,10 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
                   suffix="%"
                   inputMode="numeric"
                   value={current.probability}
-                  onChange={(event) => setValue('probability', sanitizeProbability(event.target.value))}
+                  onChange={(event) => {
+                    autoFilledProbability.current = null
+                    setValue('probability', sanitizeProbability(event.target.value))
+                  }}
                   placeholder="0"
                   aria-invalid={errors.probability ? true : undefined}
                   disabled={isSubmitting}

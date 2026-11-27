@@ -239,10 +239,16 @@ export function summarizePersonCompanies(
   ]
 }
 
-async function clearPrimaryFlags(em: EntityManager, person: CustomerEntity): Promise<void> {
+async function clearPrimaryFlags(em: EntityManager, person: CustomerEntity, keepLinkId?: string): Promise<void> {
   await em.nativeUpdate(
     CustomerPersonCompanyLink,
-    { person, organizationId: person.organizationId, tenantId: person.tenantId, isPrimary: true },
+    {
+      person,
+      organizationId: person.organizationId,
+      tenantId: person.tenantId,
+      isPrimary: true,
+      ...(keepLinkId ? { id: { $ne: keepLinkId } } : {}),
+    },
     { isPrimary: false },
   )
 }
@@ -270,7 +276,7 @@ export async function promoteFallbackPrimaryLink(
     return
   }
 
-  await clearPrimaryFlags(em, person)
+  await clearPrimaryFlags(em, person, nextPrimary.id)
   nextPrimary.isPrimary = true
   const nextCompany = resolveLinkedCompany(nextPrimary)
   if (nextCompany) {
@@ -304,8 +310,7 @@ export async function syncLegacyPrimaryCompanyLink(
       await clearPrimaryFlags(em, person)
       currentLink.isPrimary = true
     } else if (existingLinks.some((link) => link.id !== currentLink.id && link.isPrimary)) {
-      await clearPrimaryFlags(em, person)
-      currentLink.isPrimary = true
+      await clearPrimaryFlags(em, person, currentLink.id)
     }
   } else {
     await clearPrimaryFlags(em, person)

@@ -83,8 +83,10 @@
   "backups.rotation.presentation.title": "Geschützte Schlüsselrotation",
   "backups.rotation.presentation.verify": "Gespeicherte Daten prüfen",
   "backups.rotation.reportWritten": "Prüfbericht:",
+  "backups.rotation.resumeDatabaseMismatch": "Dieser Lauf kann nicht fortgesetzt werden, weil die PostgreSQL-Instanz nicht mehr mit der aufgezeichneten Identität übereinstimmt. Lassen Sie Schreibzugriffe gestoppt und bewahren Sie die ursprüngliche Sicherung, die vertrauenswürdigen Laufartefakte und beide Schlüssel auf. Prüfen oder wiederherstellen Sie die ursprünglichen Daten nach dem Leitfaden zur geschützten Rotation, bevor Sie einen neuen Lauf starten.",
   "backups.rotation.rotating": "Verschlüsselte Daten werden mit geschützter Wiederherstellung rotiert.",
   "backups.rotation.runPrepared": "Geschützter Rotationslauf; Kennung für eine ausdrückliche Fortsetzung aufbewahren:",
+  "backups.rotation.unmappedEntity": "Für die Verschlüsselungszuordnung {mapId} fehlen nutzbare Entitätsmetadaten. Stellen Sie das Modul wieder her, das die Entität registriert hat, und prüfen Sie vor einem erneuten Versuch die Abdeckung. Durch das Löschen der Zuordnung können verschlüsselte Daten von der Prüfung ausgeschlossen werden.",
   "backups.rotation.verificationPassed": "Die gespeicherten Daten wurden im angegebenen Umfang erfolgreich geprüft. Vorherige Schlüssel und Wiederherstellungssicherung aufbewahren.",
   "backups.rotation.verifying": "Gespeicherte Daten werden nach der Schlüsselrotation überprüft."
 }
