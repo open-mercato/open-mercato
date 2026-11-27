@@ -56,4 +56,23 @@ describe('GET /api/entities/records for custom entities', () => {
     const [, opts] = firstCall
     expect(opts?.filters).toMatchObject({ date: true, how_long: '2' })
   })
+
+  it.each(['', '&withDeleted=true', '&withDeleted=1', '&withDeleted=yes', '&withDeleted=false'])('always hides deleted records for a generic list (%s)', async (flag) => {
+    const res = await GET(new Request(`http://x/api/entities/records?entityId=example:custom${flag}`))
+    expect(res.status).toBe(200)
+    expect(mockQE.query).toHaveBeenCalledWith('example:custom', expect.objectContaining({
+      withDeleted: false,
+      tenantId: 't1',
+    }))
+  })
+
+  it('keeps full exports default-hidden even when withDeleted=true', async () => {
+    const res = await GET(new Request('http://x/api/entities/records?entityId=example:custom&withDeleted=true&format=json&exportScope=full'))
+    expect(res.status).toBe(200)
+    expect(mockQE.query).toHaveBeenCalled()
+    for (const [, options] of mockQE.query.mock.calls) {
+      expect(options).toEqual(expect.objectContaining({ withDeleted: false, tenantId: 't1' }))
+    }
+  })
+
 })

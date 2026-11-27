@@ -1,5 +1,6 @@
 import { attachAggregateSearchField, rebuildAggregateSearchField } from '../lib/document'
-import { replaceSearchTokensForBatch, replaceSearchTokensForRecord } from '../lib/search-tokens'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { replaceSearchTokensForBatch, replaceSearchTokensForRecord, resolveCiphertextGuard } from '../lib/search-tokens'
 import { reindexSearchTokensForRecord } from '../lib/indexer'
 import { upsertIndexBatch, type AnyRow } from '../lib/batch'
 
@@ -15,6 +16,7 @@ jest.mock('../lib/search-tokens', () => ({
   replaceSearchTokensForRecord: jest.fn(async () => undefined),
   replaceSearchTokensForBatch: jest.fn(async () => undefined),
   deleteSearchTokensForRecord: jest.fn(async () => undefined),
+  resolveCiphertextGuard: jest.fn(() => false),
   isSearchDebugEnabled: () => false,
 }))
 
@@ -28,6 +30,8 @@ const PLAINTEXT_NAME = 'Ada Lovelace'
 
 const mockReplaceForRecord = replaceSearchTokensForRecord as jest.MockedFunction<typeof replaceSearchTokensForRecord>
 const mockReplaceForBatch = replaceSearchTokensForBatch as jest.MockedFunction<typeof replaceSearchTokensForBatch>
+const mockResolveGuard = resolveCiphertextGuard as jest.MockedFunction<typeof resolveCiphertextGuard>
+const mockResolveEncryption = resolveTenantEncryptionService as jest.MockedFunction<typeof resolveTenantEncryptionService>
 
 const originalBlocklist = process.env.OM_SEARCH_FIELD_BLOCKLIST
 
@@ -181,6 +185,24 @@ describe('reindexSearchTokensForRecord', () => {
     })
 
     expect(mockReplaceForRecord.mock.calls[0][1].config).toBeDefined()
+  })
+
+  it('guards the token write with the health of the service that decrypted the document', async () => {
+    const em = { getKysely: () => ({}) } as any
+    const encryption = { isEnabled: () => false }
+    mockResolveEncryption.mockReturnValueOnce(encryption as never)
+    mockResolveGuard.mockReturnValueOnce(true)
+
+    await reindexSearchTokensForRecord(em, {
+      entityType: PERSON,
+      recordId: 'rec-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      doc: { id: 'rec-1', display_name: PLAINTEXT_NAME },
+    })
+
+    expect(mockResolveGuard).toHaveBeenCalledWith(encryption)
+    expect(mockReplaceForRecord.mock.calls[0][1].guardCiphertext).toBe(true)
   })
 })
 

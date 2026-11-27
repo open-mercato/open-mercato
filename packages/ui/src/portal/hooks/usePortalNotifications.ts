@@ -7,6 +7,7 @@ import {
   readPortalBridgeHealth,
   type PortalBridgeStatusDetail,
 } from './portalBridgeStatus'
+import { PORTAL_BRIDGE_RECONNECTED_EVENT_ID, PORTAL_EVENT_DOM_NAME } from './usePortalAppEvent'
 
 export type UsePortalNotificationsResult = {
   notifications: NotificationDto[]
@@ -111,13 +112,13 @@ export function usePortalNotifications(): UsePortalNotificationsResult {
       if (
         detail?.id === 'notifications.notification.created' ||
         detail?.id === 'notifications.notification.batch_created' ||
-        detail?.id === 'om:portal-bridge:reconnected'
+        detail?.id === PORTAL_BRIDGE_RECONNECTED_EVENT_ID
       ) {
         fetchAll()
       }
     }
-    window.addEventListener('om:portal-event', handler)
-    return () => window.removeEventListener('om:portal-event', handler)
+    window.addEventListener(PORTAL_EVENT_DOM_NAME, handler)
+    return () => window.removeEventListener(PORTAL_EVENT_DOM_NAME, handler)
   }, [fetchAll])
 
   React.useEffect(() => {

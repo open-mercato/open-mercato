@@ -1,0 +1,69 @@
+name: Merge queue guard
+
+on:
+  pull_request_target:
+    types: [labeled, unlabeled]
+
+# Takes `merge-queue` off a pull request as soon as it carries a blocking label
+# (`qa-failed`, `changes-requested`, `blocked`, `do-not-merge`, or
+# `needs-human-qa` without `qa-approved`) and explains why in a one-line
+# comment. When anyone else removes `merge-queue` (a person or a skill), the run
+# only records who and when in its job summary and log; it never re-adds the
+# label and never comments. The rule lives in scripts/ci/merge-queue-guard.mts and is unit-tested
+# in scripts/__tests__/merge-queue-guard.test.ts, which also pins the safety
+# properties below.
+#
+# Why pull_request_target is safe here: it runs the workflow and script from
+# the default branch, never from the pull request. The only checkout is a
+# sparse, credential-free copy of the guard script pinned to the default
+# branch, so no pull request head and no contributor-supplied code ever reaches
+# this job. No event field is interpolated into a shell or script; the script
+# reads the payload through `context`. Only users with triage access can
+# change labels, and the job only reads labels, removes `merge-queue` and
+# comments. Actions that receive the app token are pinned by SHA.
+#
+# The release app (the one backport.yml uses) removes the label and posts the
+# comment, so both show up as the app rather than as github-actions. Its token
+# is scoped to issues and pull requests. Forks have no app secrets, so the job
+# is skipped there.
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    if: >-
+      ${{ !github.event.repository.fork &&
+      contains(fromJSON('["merge-queue","qa-failed","changes-requested","blocked","do-not-merge","needs-human-qa","qa-approved"]'), github.event.label.name) }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+
+    steps:
+      - name: Mint the release app token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Check out the guard script
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: scripts/ci/merge-queue-guard.mts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+
+      # Pinned by SHA: this action receives the app token.
+      # Every run writes a job summary: PR, event, decision and reason.
+      - name: Check merge-queue against blocking labels
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          GUARD_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const { run } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/merge-queue-guard.mts`);
+            await run({ github, context, core, guardAppSlug: process.env.GUARD_APP_SLUG });

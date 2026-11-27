@@ -121,6 +121,22 @@ describe('ingestTrace', () => {
     expect(storeFor(AgentToolCall)).toHaveLength(1)
   })
 
+  it('authorizes the selected run before updating it or adding spans', async () => {
+    const { em, storeFor } = createFakeEm()
+    const payload = basePayload()
+    await ingestTrace(em, SCOPE, payload)
+    const [run] = storeFor(AgentRun)
+    const prior = { ...run }
+    const assertRunScope = jest.fn().mockRejectedValue(new Error('[internal] rejected trace'))
+
+    await expect(ingestTrace(em, SCOPE, { ...payload, status: 'error' }, { assertRunScope }))
+      .rejects.toThrow('[internal] rejected trace')
+    expect(assertRunScope).toHaveBeenCalledWith(run)
+    expect(run).toEqual(prior)
+    expect(storeFor(AgentSpan)).toHaveLength(2)
+    expect(storeFor(AgentToolCall)).toHaveLength(1)
+  })
+
   it('links a child span to its parent regardless of arrival order', async () => {
     const { em, storeFor } = createFakeEm()
     const payload = basePayload()

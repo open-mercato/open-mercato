@@ -19,7 +19,6 @@ import { Copy, Download, Trash2 } from 'lucide-react'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { AttachmentContentPreview } from '@open-mercato/core/modules/attachments/components/AttachmentContentPreview'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
-import { E } from '@open-mercato/core/generated-shims/entities.ids.generated'
 import { LoadingMessage } from './LoadingMessage'
 import type { DocumentStructurePanelProps } from './DocumentStructurePanel'
 
@@ -710,7 +709,7 @@ export function AttachmentMetadataDialog({
               <CrudForm<AttachmentMetadataFormValues>
                 embedded
                 schema={metadataSchema}
-                entityId={E.attachments.attachment}
+                entityId="attachments:attachment"
                 fields={metadataFields}
                 groups={metadataGroups}
                 initialValues={initialValues ?? undefined}

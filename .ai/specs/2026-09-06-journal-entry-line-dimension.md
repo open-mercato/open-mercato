@@ -41,15 +41,17 @@ hard-dependency consumers to read; no module writes or reads it yet.
 
 ## Overview
 
-`JournalEntryLine` (GL, #5663) already has `parentAccountId` for the
-static, single-dimension Chart-of-Accounts hierarchy, and a
+Unmerged GL core #5663 proposes a `JournalEntryLine` with a
 `contractorSnapshot` (nullable `json`) column for a denormalized,
-point-in-time audit copy of the counterparty at posting time. Neither
-can hold a second, independent, queryable dimension (e.g. a cost
-centre) on the same line, and neither is meant to: a hierarchy models
-one tree, and a snapshot is an audit copy, not a reporting dimension.
-This document adds the third, missing piece: a one-to-many table so
-one line can carry several independent dimensions simultaneously.
+point-in-time audit copy of the counterparty at posting time. Its current
+chart of accounts is flat and has no `parentAccountId`. The separate,
+unmerged [account-balances proposal](2026-09-09-general-ledger-account-balances.md)
+proposes that field on `LedgerAccount`, not `JournalEntryLine`, together
+with historical and writer prerequisites; it is not available from #5663
+alone. A future account hierarchy and the counterparty snapshot would
+not represent independent queryable dimensions such as cost centre. This
+document adds a one-to-many table so one line can carry several such
+dimensions; it does not depend on the proposed parent column.
 
 This is a schema-and-command-only document. It has no UI, no HTTP API
 surface, and (deliberately) no first consumer wired up yet — it exists
@@ -67,17 +69,17 @@ Posting Rules Engine), and a later asset transfer may need to change
 that cost centre (Fixed Assets Phase 2, `transferAsset`). Phase 1 needs
 only this one dimension, but the same line can later need a second,
 independent one at the same time. Trying to
-solve this through the chart-of-accounts hierarchy (`parentAccountId`,
-already in #5663) would explode the number of accounts — a separate
+solve this through the separately proposed chart-of-accounts hierarchy
+(`LedgerAccount.parentAccountId`, not part of #5663) would explode the number of accounts — a separate
 account for every "department × project × region" combination, which
 after a year of operation turns the chart of accounts into an
 unmanageable graveyard of dead entries.
 
-Separation of concerns: `parentAccountId` models the static,
-single-dimension Chart-of-Accounts hierarchy (e.g. `130 Rachunki
-bieżące` → `130-1 mBank`). This table models the multi-dimensional,
-contextual cross-section (who/where/which project), independent of
-the chart-of-accounts structure.
+Separation of concerns: if the separate balances proposal is implemented,
+`LedgerAccount.parentAccountId` models its single-dimension chart hierarchy
+(e.g. `130 Rachunki bieżące` → `130-1 mBank`) under that proposal's
+historical constraints. This table models the multi-dimensional contextual
+cross-section (who/where/which project), independently of that hierarchy.
 
 ## Proposed Solution
 
@@ -1020,6 +1022,12 @@ Review status and the resolution of each finding live in the PR #5972
 thread; the Changelog below records what changed in the design and why.
 
 ## Changelog
+
+### 2026-11-17 — clarify account hierarchy dependency
+
+- Correct the outdated parent-field claim: #5663 has a flat chart; the
+  separate account-balances proposal owns the proposed account parent.
+  Journal-line dimensions do not require that proposal.
 
 ### 2026-09-06
 

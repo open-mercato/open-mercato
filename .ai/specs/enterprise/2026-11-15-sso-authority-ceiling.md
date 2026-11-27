@@ -26,7 +26,7 @@ The server records the authenticated actor on successful configuration writes. A
 
 `SsoAuthorizationService` is an enterprise service injected through the existing DI container. It uses `RbacService` transaction-bound reads, canonical role/ACL/super-admin target checks, encryption-aware entity reads, and the existing authorization lock hierarchy. Configuration rows are locked before authorization rows. Existing-account operations discover the complete actor/target/role footprint before acquiring those locks together. Configuration and identity writes use the same transaction manager as the checks.
 
-The SSO callback snapshots the provider configuration version before exchanging its assertion. The account-resolution and final-session transactions compare that snapshot with the locked current config. Password authentication retains its existing SSO deactivation checks and does not require config authority provenance.
+The SSO callback snapshots the provider configuration version before exchanging its assertion. The account-resolution and final-session transactions compare that snapshot with the locked current config. Password authentication retains its SSO deactivation checks and rechecks the credential snapshot under the user lock. It requires no config authority provenance.
 
 Authorization returns the exact immutable mapped-role ID footprint to the role writer. Both pre-lock and post-refresh resolution must stay within it; a concurrently renamed role cannot enter a grant through another name lookup. Ambiguous normalized role names fail closed. New transaction-owned config/identity events are published after commit; event or telemetry failures cannot undo a committed write or create an unhandled rejection.
 

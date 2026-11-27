@@ -1,3 +1,4 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 jest.mock('../markdownEmailBody', () => ({
   renderMarkdownEmailBody: jest.fn(async (body: string) => `<rendered>${body}</rendered>`),
 }))
@@ -120,6 +121,14 @@ describe('delegateComposeToSender', () => {
     )
   })
 
+  it('preserves the saved message and unconfirmed submission from the mailbox', async () => {
+    const saved = { ok: true, messageId: 'message-1', threadId: 'thread-1', deliveryEnqueueStatus: 'unconfirmed' }
+    const sendAsUser = jest.fn().mockResolvedValue({ ...saved, channelId: CHANNEL_ID, providerKey: 'imap' })
+
+    await expect(delegateComposeToSender(containerWith(sendAsUser), actor, publicCompose)).resolves.toEqual(saved)
+    expect(sendAsUser).toHaveBeenCalledTimes(1)
+  })
+
   it('renders a markdown body to html so the client is not sent raw markup', async () => {
     const sendAsUser = jest.fn().mockResolvedValue({
       ok: true,
@@ -194,26 +203,67 @@ describe('delegateComposeToSender', () => {
     expect(sendAsUser).not.toHaveBeenCalled()
   })
 
-  it('refuses a payload the facade cannot carry instead of dropping it', async () => {
+  it('refuses files without their temporary compose owner', async () => {
     const sendAsUser = jest.fn()
 
     const withAttachments = await delegateComposeToSender(containerWith(sendAsUser), actor, {
       ...publicCompose,
       attachmentIds: ['33333333-3333-3333-3333-333333333333'],
     })
-    const withObjects = await delegateComposeToSender(containerWith(sendAsUser), actor, {
-      ...publicCompose,
-      objects: [{ entityModule: 'sales', entityType: 'order', entityId: 'order-1' }],
-    })
-
     const withLibraryAttachment = await delegateComposeToSender(containerWith(sendAsUser), actor, {
       ...publicCompose,
       attachmentRecordId: 'library-record-1',
     })
 
     expect(withAttachments).toMatchObject({ ok: false, status: 422 })
-    expect(withObjects).toMatchObject({ ok: false, status: 422 })
     expect(withLibraryAttachment).toMatchObject({
+      ok: false,
+      status: 422,
+      fieldErrors: { [COMPOSE_SENDER_FIELD]: expect.any(String) },
+    })
+    expect(sendAsUser).not.toHaveBeenCalled()
+  })
+
+  it('passes temporary uploads and linked records through the mailbox facade', async () => {
+    const sendAsUser = jest.fn().mockResolvedValue({ ok: true, messageId: 'sent-1', threadId: 'thread-1' })
+    const attachmentIds = ['33333333-3333-4333-8333-333333333333']
+    const objects = [{ entityModule: 'customers', entityType: 'person', entityId: '44444444-4444-4444-8444-444444444444' }]
+    const attachmentRecordId = 'messages-composer:test-session'
+
+    const result = await delegateComposeToSender(containerWith(sendAsUser), actor, {
+      ...publicCompose,
+      type: 'default',
+      attachmentIds,
+      attachmentRecordId,
+      objects,
+    })
+
+    expect(result).toEqual({ ok: true, messageId: 'sent-1', threadId: 'thread-1' })
+    expect(sendAsUser).toHaveBeenCalledWith(expect.anything(), actor, expect.objectContaining({
+      composerPayload: {
+        messageType: 'default',
+        objects,
+        uploads: { recordId: attachmentRecordId, attachmentIds },
+      },
+    }))
+  })
+
+  it.each([
+    { attachmentIds: ['33333333-3333-4333-8333-333333333333'] },
+    { objects: [{ entityModule: 'customers', entityType: 'person', entityId: '44444444-4444-4444-8444-444444444444' }] },
+  ])('refuses a saved draft with an unsupported payload (%j)', async (payload) => {
+    const sendAsUser = jest.fn()
+
+    const result = await delegateComposeToSender(containerWith(sendAsUser), actor, {
+      ...publicCompose,
+      ...payload,
+    }, {
+      em: {} as EntityManager,
+      messageId: 'draft-1',
+      threadId: 'draft-1',
+    })
+
+    expect(result).toMatchObject({
       ok: false,
       status: 422,
       fieldErrors: { [COMPOSE_SENDER_FIELD]: expect.any(String) },

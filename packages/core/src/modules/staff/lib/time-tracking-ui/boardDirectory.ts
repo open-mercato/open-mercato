@@ -3,6 +3,8 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import {
   readItems,
@@ -129,12 +131,27 @@ export function useBoardSelf() {
 }
 
 /** Display names for the assignees a surface is about to render. */
-export function useAssigneeNames(assigneeIds: readonly string[]) {
+export function readTaskAssigneeNames(taskRows: readonly BoardApiRow[]): Map<string, string> {
+  const names = new Map<string, string>()
+  for (const row of taskRows) {
+    const id = readString(row, 'assignee_staff_member_id', 'assigneeStaffMemberId')
+    const context = row._staff
+    if (!id || !context || typeof context !== 'object' || Array.isArray(context)) continue
+    const name = readString(context as BoardApiRow, 'assigneeName')
+    if (name) names.set(id, name)
+  }
+  return names
+}
+
+export function useAssigneeNames(assigneeIds: readonly string[], taskRows: readonly BoardApiRow[] = []) {
   const scopeVersion = useOrganizationScopeVersion()
+  const { payload } = useBackendChrome()
+  const canReadDirectory = hasFeature(payload?.grantedFeatures, 'staff.view')
+  const self = useBoardSelf()
   const ids = React.useMemo(() => Array.from(new Set(assigneeIds)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)), [assigneeIds])
-  return useQuery<Map<string, string>>({
-    queryKey: [...BOARD_QUERY_ROOT, 'assignees', `scope:${scopeVersion}`, ids.join(',')],
-    enabled: ids.length > 0,
+  const query = useQuery<Map<string, string>>({
+    queryKey: [...BOARD_QUERY_ROOT, 'assignees', `scope:${scopeVersion}`, canReadDirectory, ids.join(',')],
+    enabled: canReadDirectory && ids.length > 0,
     staleTime: 300_000,
     queryFn: async () => {
       const call = await apiCall<Record<string, unknown>>(
@@ -150,6 +167,15 @@ export function useAssigneeNames(assigneeIds: readonly string[]) {
       return names
     },
   })
+  const names = new Map<string, string>()
+  if (self.data?.displayName && ids.includes(self.data.id)) names.set(self.data.id, self.data.displayName)
+  for (const [id, name] of readTaskAssigneeNames(taskRows)) {
+    if (ids.includes(id)) names.set(id, name)
+  }
+  if (canReadDirectory) {
+    for (const [id, name] of query.data ?? []) names.set(id, name)
+  }
+  return { ...query, data: names }
 }
 
 /**
@@ -210,9 +236,11 @@ export function useTagDirectory(enabled: boolean) {
 /** The people who can be picked as an assignee filter. */
 export function useStaffMemberDirectory(enabled: boolean) {
   const scopeVersion = useOrganizationScopeVersion()
+  const { payload } = useBackendChrome()
+  const canReadDirectory = hasFeature(payload?.grantedFeatures, 'staff.view')
   return useQuery<Array<{ id: string; displayName: string }>>({
-    queryKey: [...BOARD_QUERY_ROOT, 'member-directory', `scope:${scopeVersion}`],
-    enabled,
+    queryKey: [...BOARD_QUERY_ROOT, 'member-directory', `scope:${scopeVersion}`, canReadDirectory],
+    enabled: enabled && canReadDirectory,
     staleTime: 300_000,
     queryFn: async () => {
       const call = await apiCall<Record<string, unknown>>(

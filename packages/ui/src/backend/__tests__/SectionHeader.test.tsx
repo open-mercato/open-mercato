@@ -83,6 +83,24 @@ describe('CollapsibleSection', () => {
     expect(screen.getByRole('heading', { level: 3 }).className).not.toContain('min-w-0')
     expect(screen.getByRole('button').className).not.toContain('min-w-0')
   })
+
+  // #8382: a narrow viewport must not force horizontal page scroll — the header row and
+  // its action group need to wrap instead of overflowing. jsdom has no layout engine, so
+  // this only pins the classes that make wrapping possible.
+  it('allows the header row and action group to wrap at narrow widths', () => {
+    renderWithProviders(
+      <CollapsibleSection title="Related documents" action={<button type="button">Link existing</button>}>
+        <p>Content</p>
+      </CollapsibleSection>,
+      { locale: 'en', dict: {} },
+    )
+
+    const actionGroup = screen.getByRole('button', { name: 'Link existing' }).parentElement as HTMLElement
+    expect(actionGroup.className).toContain('flex-wrap')
+
+    const headerRow = actionGroup.parentElement as HTMLElement
+    expect(headerRow.className).toContain('flex-wrap')
+  })
 })
 
 describe('SectionHeader', () => {
@@ -101,5 +119,19 @@ describe('SectionHeader', () => {
     renderWithProviders(<SectionHeader title="Billing details" />, { locale: 'en', dict: {} })
 
     expect(screen.getByRole('heading', { level: 3 }).className).not.toContain('min-w-0')
+  })
+
+  // #8382: see the matching CollapsibleSection test above for the failure this guards.
+  it('allows the header row and action group to wrap at narrow widths', () => {
+    renderWithProviders(
+      <SectionHeader title="Related documents" action={<button type="button">Link existing</button>} />,
+      { locale: 'en', dict: {} },
+    )
+
+    const actionGroup = screen.getByRole('button', { name: 'Link existing' }).parentElement as HTMLElement
+    expect(actionGroup.className).toContain('flex-wrap')
+
+    const headerRow = actionGroup.parentElement as HTMLElement
+    expect(headerRow.className).toContain('flex-wrap')
   })
 })

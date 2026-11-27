@@ -2,7 +2,8 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, waitFor } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { extensionPoints as customersExtensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 
@@ -14,12 +15,19 @@ type CapturedCrudFormProps = {
   entityIds?: string[]
   initialValues?: { id?: string }
   versionHistory?: unknown
+  fields?: Array<{ id: string }>
+  onSubmit?: (values: Record<string, unknown>) => Promise<void>
 }
 
 const capturedCrudFormProps: CapturedCrudFormProps[] = []
 const mockApiCall = jest.fn()
 const mockSetValue = jest.fn()
+const mockUseBackendChrome = jest.fn(() => ({ payload: { grantedFeatures: [] as string[] }, isReady: true }))
 const mockT = (key: string, fallback?: string) => fallback ?? key
+
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => mockUseBackendChrome(),
+}))
 
 jest.mock('../../useSalesChannelsEnabled', () => ({
   SALES_CHANNELS_TOGGLE_ID: 'sales_channels_enabled',
@@ -235,5 +243,39 @@ describe('SalesDocumentForm customer quick-create injection hosts', () => {
       'customers:customer_entity',
       'customers:customer_company_profile',
     ])
+  })
+})
+
+describe('SalesDocumentForm numbering', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    capturedCrudFormProps.length = 0
+    mockApiCall.mockResolvedValue({ ok: true, result: { items: [] } })
+    jest.mocked(createCrud).mockResolvedValue({ ok: true, result: { id: 'document-id' } } as Awaited<ReturnType<typeof createCrud>>)
+  })
+
+  it.each([
+    { grantedFeatures: [], expectedNumber: undefined },
+    { grantedFeatures: ['sales.documents.number.edit'], expectedNumber: 'QUOTE-1' },
+  ])('submits a quote with the number allowed by its feature grants', async ({ grantedFeatures, expectedNumber }) => {
+    mockUseBackendChrome.mockReturnValue({ payload: { grantedFeatures }, isReady: true })
+    const onCreated = jest.fn()
+    render(<SalesDocumentForm onCreated={onCreated} initialKind="quote" />)
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalled())
+    const form = capturedCrudFormProps.findLast((props) => props.entityIds?.includes('sales:sales_quote'))!
+    expect(form.fields?.some((field) => field.id === 'documentNumber')).toBe(expectedNumber !== undefined)
+
+    await act(async () => {
+      await form.onSubmit!({ documentKind: 'quote', currencyCode: 'USD', documentNumber: ' QUOTE-1 ' })
+    })
+
+    const [path, payload] = jest.mocked(createCrud).mock.calls[0]
+    expect(path).toBe('sales/quotes')
+    if (expectedNumber) {
+      expect(payload).toHaveProperty('quoteNumber', expectedNumber)
+    } else {
+      expect(payload).not.toHaveProperty('quoteNumber')
+    }
+    expect(onCreated).toHaveBeenCalledWith({ id: 'document-id', kind: 'quote' })
   })
 })

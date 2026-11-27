@@ -12,7 +12,8 @@ import {
   buildReferencesId,
   getOrCreateThreadToken,
 } from '../lib/thread-token'
-import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
+import { parseReferences, referencesFromMeta, stringOrUndefined, stripBrackets } from '../lib/email-mime'
+import { validateOutboundRecipient } from '../lib/outbound-recipient'
 import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../lib/outbound-reply-ref'
 import {
   OutboundAttachmentDeliveryError,
@@ -20,11 +21,12 @@ import {
   omitOutboundAttachments,
   readStoredOutboundAttachments,
 } from '../lib/outbound-attachments'
-import { adoptProviderConversationRef } from '../lib/outbound-conversation-ref'
+import { adoptProviderConversationRef, isOutboundConversationRef } from '../lib/outbound-conversation-ref'
 import { resolveOutboundRouting } from '../lib/outbound-routing'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { Message } from '../../messages/data/entities'
+import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 import {
   ExternalMessage,
   MessageChannelLink,
@@ -33,6 +35,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const moduleLogger = createLogger('communication_channels').child({ component: 'deliver-outbound-message' })
+const MAX_EMAIL_REPLY_REFERENCES = 40
 
 /**
  * Sentinel — `Message.threadId` of an internal-only (no channel link) message
@@ -364,16 +367,59 @@ const deliverOutboundMessageCommand: CommandHandler<
         ? 'html'
         : ((message.bodyFormat as 'text' | 'markdown' | 'html') ?? 'text')
 
-      // Pre-existing channelMetadata.references (string[]) so we can extend
-      // it with the synthetic thread-token id without disturbing other refs
-      // (e.g. the recipient's own reply chain).
-      const baseMetadata = (link.channelMetadata as Record<string, unknown> | undefined) ?? {}
-      const existingRefs = Array.isArray(baseMetadata.references)
-        ? (baseMetadata.references as unknown[]).filter(
-            (value): value is string => typeof value === 'string',
-          )
-        : []
-      let mergedReferences = existingRefs
+      let baseMetadata = link.channelMetadata ?? {}
+      const replyRecipient = message.externalEmail
+      if (
+        baseMetadata.to == null &&
+        channel.channelType === 'email' &&
+        message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE &&
+        message.sourceEntityId === channel.id &&
+        message.parentMessageId &&
+        replyRecipient && validateOutboundRecipient(replyRecipient, null).ok
+      ) {
+        const parentLink = await findOneWithDecryption(
+          em,
+          MessageChannelLink,
+          {
+            messageId: message.parentMessageId,
+            externalConversationId: mapping.externalConversationId,
+            providerKey: channel.providerKey,
+            channelType: 'email',
+            direction: 'outbound',
+            ...dscope,
+          },
+          undefined,
+          dscope,
+        )
+        if (parentLink) {
+          const parentMetadata = parentLink.channelMetadata ?? {}
+          const { deliveryStatus } = parentLink
+          const parentInFlight = !parentLink.externalMessageId && (deliveryStatus === 'pending' || deliveryStatus === 'queued')
+          const parentProviderConversationId = stringOrUndefined(parentMetadata.providerConversationId)
+          const awaitingThreadRef = isOutboundConversationRef(mapping.externalThreadRef) &&
+            parentProviderConversationId && !isOutboundConversationRef(parentProviderConversationId)
+          if (parentInFlight || awaitingThreadRef) {
+            throw Object.assign(new Error('[internal] Waiting for the parent email to finish sending'), { transient: true })
+          }
+          if (deliveryStatus === 'failed' && !parentLink.externalMessageId) {
+            throw Object.assign(new Error('[internal] Parent email delivery failed'), { transient: parentMetadata.transient === true })
+          }
+          const inReplyTo = stripBrackets(stringOrUndefined(parentMetadata.messageId))
+          const references = new Set(parseReferences(referencesFromMeta(parentMetadata.references)))
+          if (inReplyTo) {
+            references.delete(inReplyTo)
+            references.add(inReplyTo)
+          }
+          baseMetadata = {
+            ...baseMetadata,
+            to: [replyRecipient],
+            subject: message.subject,
+            inReplyTo,
+            references: [...references].slice(-MAX_EMAIL_REPLY_REFERENCES),
+          }
+        }
+      }
+      let mergedReferences = referencesFromMeta(baseMetadata.references) ?? []
       // The footer + References-id are the email-threading fallback for a
       // recipient whose client strips RFC 5322 headers — meaningless for a
       // provider-native conversation, where the hub already threads on the

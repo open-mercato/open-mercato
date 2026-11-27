@@ -93,7 +93,7 @@ async function createActorWithFeatures(
   const id = uniqueId(input.prefix)
   const roleName = `qa_dash_${id.replace(/-/g, '_')}`
   const email = `${id}@dashboards.example.com`
-  const password = 'Valid1!Pass'
+  const password = 'QaValid1!Pass'
 
   const roleId = await createRoleFixture(request, input.superadminToken, {
     name: roleName,

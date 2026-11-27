@@ -25,6 +25,7 @@ export type JsonBuilderProps = {
     onChange: (value: any) => void
     disabled?: boolean
     error?: string
+    stringRecordError?: string
 }
 
 type JsonNodeType = 'string' | 'number' | 'boolean' | 'object' | 'array' | 'null'
@@ -58,7 +59,8 @@ export function JsonBuilder({
     value,
     onChange,
     disabled,
-    error
+    error,
+    stringRecordError,
 }: JsonBuilderProps) {
     const [mode, setMode] = React.useState<'raw' | 'builder'>('raw')
     const [rawString, setRawString] = React.useState(() => toRawString(value))
@@ -93,17 +95,26 @@ export function JsonBuilder({
                 onChange({})
                 setParseError(null)
             } else {
-                const parsed = JSON.parse(str)
+                const parsed: unknown = JSON.parse(str)
+                if (stringRecordError && (
+                    typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)
+                    || Object.values(parsed).some((entry) => typeof entry !== 'string')
+                )) {
+                    onChange(str)
+                    setParseError(stringRecordError)
+                    return
+                }
                 onChange(parsed)
                 setParseError(null)
             }
         } catch (e) {
             onChange(str)
-            setParseError("Invalid JSON")
+            setParseError(stringRecordError ?? "Invalid JSON")
         }
     }
 
     const switchToRaw = () => {
+        if (stringRecordError && mode === 'raw') return
         // Re-sync the textarea from the current value and let it mirror external
         // changes again until the user edits it.
         setRawDirty(false)
@@ -142,6 +153,7 @@ export function JsonBuilder({
                     size="sm"
                     className={cn(mode === 'builder' && "bg-muted text-foreground")}
                     onClick={switchToBuilder}
+                    disabled={Boolean(stringRecordError && parseError)}
                 >
                     <LayoutList className="w-4 h-4" />
                     Builder
@@ -154,6 +166,7 @@ export function JsonBuilder({
                         value={rawString}
                         onChange={(e) => handleRawChange(e.target.value)}
                         onBlur={() => {
+                            if (stringRecordError && parseError) return
                             try {
                                 const parsed = JSON.parse(rawString)
                                 setRawString(JSON.stringify(parsed, null, 2))
@@ -164,7 +177,7 @@ export function JsonBuilder({
                         disabled={disabled}
                     />
                     {parseError && (
-                        <div className="text-xs text-status-error-text">Invalid JSON format</div>
+                        <div className="text-xs text-status-error-text">{stringRecordError ?? 'Invalid JSON format'}</div>
                     )}
                 </div>
             ) : (
@@ -175,6 +188,7 @@ export function JsonBuilder({
                             onChange={onChange}
                             readOnly={disabled}
                             confirm={confirm}
+                            fixedType={Boolean(stringRecordError)}
                             isRoot
                         />
                     ) : (
@@ -199,9 +213,10 @@ interface JsonNodeProps {
     label?: string
     isRoot?: boolean
     confirm?: ConfirmFn
+    fixedType?: boolean
 }
 
-function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot, confirm }: JsonNodeProps) {
+function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot, confirm, fixedType }: JsonNodeProps) {
     const type = getJsonType(data)
     const isContainer = type === 'object' || type === 'array'
     const [collapsed, setCollapsed] = React.useState(false)
@@ -298,7 +313,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot, confirm }
 
                 <div className="flex-1 flex gap-2 items-center flex-wrap">
 
-                    {!readOnly && (
+                    {!readOnly && !fixedType && (
                         <Select
                             value={type}
                             onValueChange={(next) => { void handleTypeChange(next as JsonNodeType) }}
@@ -394,6 +409,7 @@ function JsonNode({ data, onChange, onDelete, readOnly, label, isRoot, confirm }
                                     onDelete={() => handleChildDelete(key)}
                                     readOnly={readOnly}
                                     confirm={confirm}
+                                    fixedType={fixedType}
                                 />
                             </div>
                         </div>

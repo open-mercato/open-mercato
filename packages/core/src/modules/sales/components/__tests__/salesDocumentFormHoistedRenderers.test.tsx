@@ -13,11 +13,15 @@
 import * as React from 'react'
 import * as fs from 'fs'
 import * as path from 'path'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 jest.setTimeout(20000)
 
 const mockApiCall = jest.fn()
+
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: ['sales.documents.number.edit'] }, isReady: true }),
+}))
 
 // #5126: the sentinel the mocked CrudForm feeds into the `lines` custom field so the
 // duplicate-error regression is observable through the DOM.
@@ -41,6 +45,11 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 // Render the captured field/group renderers so their behavior is exercised.
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: ({ fields, groups, initialValues }: any) => {
+    const [values, setValues] = React.useState<Record<string, unknown>>(initialValues ?? {})
+    const updateValue = (id: string, value: unknown) => {
+      setValues((current) => ({ ...current, [id]: value }))
+    }
+    const kindField = (fields ?? []).find((f: { id: string }) => f.id === 'documentKind')
     const docField = (fields ?? []).find((f: any) => f.id === 'documentNumber')
     const billingField = (fields ?? []).find((f: any) => f.id === 'billingAddressSection')
     const linesField = (fields ?? []).find((f: any) => f.id === 'lines')
@@ -49,13 +58,24 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
     const fieldProps = {
       value: '',
       setValue: () => {},
-      setFormValue: () => {},
-      values: initialValues ?? {},
+      setFormValue: updateValue,
+      values,
     }
     return (
       <div>
+        {kindField?.component({
+          ...fieldProps,
+          id: 'documentKind',
+          value: values.documentKind,
+          setValue: (value: unknown) => updateValue('documentKind', value),
+        })}
         <div data-testid="doc-number">
-          {docField ? docField.component({ ...fieldProps, id: 'documentNumber' }) : null}
+          {docField?.component({
+            ...fieldProps,
+            id: 'documentNumber',
+            value: values.documentNumber,
+            setValue: (value: unknown) => updateValue('documentNumber', value),
+          })}
         </div>
         <div data-testid="billing">
           {billingField ? billingField.component({ ...fieldProps, id: 'billingAddressSection' }) : null}
@@ -191,10 +211,10 @@ jest.mock('@open-mercato/core/modules/customers/utils/addressFormat', () => ({
 // every hook it omits — so the component throws on render rather than failing an assertion.
 // The pin is a non-en locale so a future money assertion in this suite cannot be satisfied
 // by a component that ignores the locale on an en-default runner.
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (key: string, fallback?: string) => fallback ?? key,
-  useLocale: () => 'pl-PL',
-}))
+jest.mock('@open-mercato/shared/lib/i18n/context', () => {
+  const translate = (key: string, fallback?: string) => fallback ?? key
+  return { useT: () => translate, useLocale: () => 'pl-PL' }
+})
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
@@ -285,6 +305,84 @@ describe('SalesDocumentForm hoisted renderers — behavior (#3173)', () => {
         expect.objectContaining({ method: 'POST' }),
       )
     })
+  })
+
+  it('generates a fresh number for each document type selected', async () => {
+    let orderSequence = 0
+    mockApiCall.mockImplementation((url: string, request?: RequestInit) => {
+      if (url !== '/api/sales/document-numbers') return Promise.resolve({ ok: true, result: { items: [] } })
+      const kind = JSON.parse(String(request?.body)).kind
+      const number = kind === 'order' ? `ORD-${++orderSequence}` : 'QUOTE-1'
+      return Promise.resolve({ ok: true, result: { number } })
+    })
+    render(<SalesDocumentForm onCreated={jest.fn()} initialKind="order" />)
+    const input = within(screen.getByTestId('doc-number')).getByRole<HTMLInputElement>('textbox')
+    await waitFor(() => expect(input.value).toBe('ORD-1'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quote' }))
+    await waitFor(() => expect(input.value).toBe('QUOTE-1'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Order' }))
+    await waitFor(() => expect(input.value).toBe('ORD-2'))
+  })
+
+  it('ignores an older number response after the user changes document type', async () => {
+    let resolveOrder = () => {}
+    const pendingOrder = new Promise((resolve) => {
+      resolveOrder = () => resolve({ ok: true, result: { number: 'ORD-1' } })
+    })
+    mockApiCall.mockImplementation((url: string, request?: RequestInit) => {
+      if (url !== '/api/sales/document-numbers') return Promise.resolve({ ok: true, result: { items: [] } })
+      return JSON.parse(String(request?.body)).kind === 'order'
+        ? pendingOrder
+        : Promise.resolve({ ok: true, result: { number: 'QUOTE-1' } })
+    })
+    render(<SalesDocumentForm onCreated={jest.fn()} initialKind="order" />)
+    const input = within(screen.getByTestId('doc-number')).getByRole<HTMLInputElement>('textbox')
+    expect(input.disabled).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quote' }))
+    await waitFor(() => expect(input.value).toBe('QUOTE-1'))
+    await act(async () => resolveOrder())
+
+    expect(input.value).toBe('QUOTE-1')
+    expect(input.disabled).toBe(false)
+  })
+
+  it('clears an obsolete number when generation fails and lets the user retry', async () => {
+    let quoteAttempts = 0
+    mockApiCall.mockImplementation((url: string, request?: RequestInit) => {
+      if (url !== '/api/sales/document-numbers') return Promise.resolve({ ok: true, result: { items: [] } })
+      if (JSON.parse(String(request?.body)).kind === 'order') {
+        return Promise.resolve({ ok: true, result: { number: 'ORD-1' } })
+      }
+      return Promise.resolve(++quoteAttempts === 1
+        ? { ok: false }
+        : { ok: true, result: { number: 'QUOTE-1' } })
+    })
+    render(<SalesDocumentForm onCreated={jest.fn()} initialKind="order" />)
+    const field = within(screen.getByTestId('doc-number'))
+    const input = field.getByRole<HTMLInputElement>('textbox')
+    await waitFor(() => expect(input.value).toBe('ORD-1'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quote' }))
+    expect(input.value).toBe('')
+    await field.findByText('Could not generate a document number.')
+
+    fireEvent.click(field.getByRole('button', { name: 'Generate' }))
+    await waitFor(() => expect(input.value).toBe('QUOTE-1'))
+  })
+
+  it('preserves a manually edited number when changing document type', async () => {
+    render(<SalesDocumentForm onCreated={jest.fn()} initialKind="order" />)
+    const input = within(screen.getByTestId('doc-number')).getByRole<HTMLInputElement>('textbox')
+    await waitFor(() => expect(input.value).toBe('ORD-001'))
+
+    fireEvent.change(input, { target: { value: 'MANUAL-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Quote' }))
+
+    expect(input.value).toBe('MANUAL-1')
+    expect(mockApiCall.mock.calls.filter(([url]) => url === '/api/sales/document-numbers')).toHaveLength(1)
   })
 
   it('renders the billing address section', async () => {

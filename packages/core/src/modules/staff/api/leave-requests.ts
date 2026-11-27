@@ -203,6 +203,8 @@ const crud = makeCrudRoute({
       endDate: F.end_date,
       createdAt: F.created_at,
       updatedAt: F.updated_at,
+      status: F.status,
+      reason: F.unavailability_reason_value,
     },
     buildFilters: buildLeaveRequestFilters,
   },

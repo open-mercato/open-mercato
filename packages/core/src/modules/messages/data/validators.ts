@@ -3,6 +3,8 @@ import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
 import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import { channelTypeRequiresExternalEmail } from '../lib/channel-sender-identity'
 
+export const messageRouteIdSchema = z.guid()
+
 function collectDuplicateRecipientIds(
   recipients: Array<{ userId: string }>,
 ): string[] {

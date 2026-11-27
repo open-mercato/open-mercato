@@ -23,6 +23,22 @@ describe('customer priority contributor persistence', () => {
     mockConflict.mockReset().mockReturnValue(false)
   })
 
+  it.each([true, false])('does not materialize an unchanged default before a native refusal (flat value: %s)', async (hasFlatValue) => {
+    mockReadApi.mockResolvedValueOnce({ items: [] }).mockResolvedValueOnce({ id: 'unexpected-priority', updatedAt: nextVersion })
+    const data: Record<string, unknown> = {
+      id: 'person-1',
+      _example: { priority: 'normal', priorityId: null, priorityUpdatedAt: null },
+      ...(hasFlatValue ? { '_example.priority': 'normal' } : {}),
+    }
+    const before = { ...data, _example: { ...(data._example as Record<string, unknown>) } }
+
+    await widget.eventHandlers?.onSave?.(data, context)
+
+    expect(mockReadApi).not.toHaveBeenCalled()
+    expect(mockScopedHeaders).not.toHaveBeenCalled()
+    expect(data).toEqual(before)
+  })
+
   it('uses the edited flat value and captured child version without fetching a newer baseline', async () => {
     mockReadApi.mockResolvedValue({ id: 'priority-1', updatedAt: nextVersion })
     const setFormValue = jest.fn()

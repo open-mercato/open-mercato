@@ -91,7 +91,7 @@ async function createAssignableTeamMember(
   const { organizationId } = getTokenContext(token)
   const userId = await createUserFixture(request, token, {
     email: `qa-tc-crm-7491-${stamp}@example.com`,
-    password: 'Valid1!Pass',
+    password: 'QaValid1!Pass',
     organizationId,
     roles: ['employee'],
     name: displayName,

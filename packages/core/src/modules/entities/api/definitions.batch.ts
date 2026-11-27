@@ -1,7 +1,10 @@
+import { isDeepStrictEqual } from 'node:util'
 import { NextResponse } from 'next/server'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
 import { CustomFieldDef, CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
 import { customFieldEntityConfigSchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
@@ -23,6 +26,7 @@ import {
   resolveDefinitionMutationScope,
   selectVisibleDefinitionWinner,
 } from '../lib/definition-scope'
+import { createVisibleDefinitionScopeClause } from '../lib/definition-scope-where'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
@@ -33,6 +37,9 @@ const MAX_DEFINITIONS_PER_BATCH = 1000
 const batchSchema = z
   .object({
     entityId: z.string().regex(/^[a-z0-9_]+:[a-z0-9_]+$/),
+    preserveOrder: z.boolean().optional().describe(
+      'Keep existing priorities, append new definitions, and leave unchanged visible definitions untouched.',
+    ),
     definitions: z
       .array(
         upsertCustomFieldDefSchema
@@ -64,6 +71,24 @@ function cloneFieldsets(fieldsets?: IncomingFieldset): IncomingFieldset {
   }))
 }
 
+function normalizeDefinitionConfig(key: string, kind: string, input: Record<string, unknown> | null | undefined) {
+  const config = { ...input }
+  if (config.label == null || String(config.label).trim() === '') config.label = key
+  if (config.formEditable === undefined) config.formEditable = true
+  if (config.listVisible === undefined) config.listVisible = true
+  if (kind === 'multiline' && (config.editor == null || String(config.editor).trim() === '')) {
+    config.editor = 'markdown'
+  }
+  delete config.priority
+  return config
+}
+
+function comparableDefinitionConfig(config: Record<string, unknown>) {
+  return Array.isArray(config.options)
+    ? { ...config, options: normalizeCustomFieldOptions(config.options) }
+    : config
+}
+
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -72,7 +97,7 @@ export async function POST(req: Request) {
 
   const parsed = batchSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
-  const { entityId, definitions, fieldsets, singleFieldsetPerRecord } = parsed.data
+  const { entityId, definitions, fieldsets, singleFieldsetPerRecord, preserveOrder = false } = parsed.data
 
   const container = await createRequestContainer()
   const scope = await resolveDefinitionMutationScope({ auth, container, request: req })
@@ -132,40 +157,53 @@ export async function POST(req: Request) {
       for (const existing of existingDefs) defByKey.set(existing.key, existing)
     }
 
-    const inheritedByKey = new Map<string, any>()
-    const inactiveKeys = definitions.filter((d) => d.isActive === false).map((d) => d.key)
-    if (inactiveKeys.length > 0) {
-      const visibleDefs = await em.find(CustomFieldDef, createVisibleDefinitionWhere(
-        entityId,
-        { $in: inactiveKeys },
-        scope,
-        { deletedAt: null, isActive: true },
-      ))
-      const grouped = new Map<string, any[]>()
-      for (const visible of visibleDefs) {
-        if (!grouped.has(visible.key)) grouped.set(visible.key, [])
-        grouped.get(visible.key)!.push(visible)
+    const visibleByKey = new Map<string, CustomFieldDef>()
+    const inactiveKeys = definitions.filter((definition) => definition.isActive === false).map((definition) => definition.key)
+    if ((preserveOrder && keys.length > 0) || inactiveKeys.length > 0) {
+      const visibility = { deletedAt: null, isActive: true }
+      const where = preserveOrder
+        ? { entityId, ...createVisibleDefinitionScopeClause(scope), ...visibility }
+        : createVisibleDefinitionWhere(entityId, { $in: inactiveKeys }, scope, visibility)
+      const visibleDefinitions = await findWithDecryption<CustomFieldDef>(em, CustomFieldDef, where, undefined, scope)
+      for (const visible of visibleDefinitions) {
+        const previous = visibleByKey.get(visible.key)
+        if (!previous) visibleByKey.set(visible.key, visible)
+        else {
+          const winner = selectVisibleDefinitionWinner([previous, visible])
+          if (winner) visibleByKey.set(visible.key, winner)
+        }
       }
-      for (const [key, group] of grouped) {
-        inheritedByKey.set(key, selectVisibleDefinitionWinner(group))
+    }
+    let nextPriority = 0
+    if (preserveOrder) {
+      for (const visible of visibleByKey.values()) {
+        const priority = Number(visible.configJson?.priority ?? 0)
+        if (Number.isFinite(priority)) nextPriority = Math.max(nextPriority, priority + 1)
       }
     }
 
     for (const [idx, d] of definitions.entries()) {
-      const where: any = createExactDefinitionWhere(entityId, d.key, scope)
+      const where = createExactDefinitionWhere(entityId, d.key, scope)
       let def = defByKey.get(d.key)
-
-      const inCfg = (d as any).configJson ?? {}
-      const cfg: Record<string, any> = { ...inCfg }
-      if (cfg.label == null || String(cfg.label).trim() === '') cfg.label = d.key
-      if (cfg.formEditable === undefined) cfg.formEditable = true
-      if (cfg.listVisible === undefined) cfg.listVisible = true
-      if (d.kind === 'multiline' && (cfg.editor == null || String(cfg.editor).trim() === '')) cfg.editor = 'markdown'
-      cfg.priority = idx
+      const visible = visibleByKey.get(d.key)
+      const cfg = normalizeDefinitionConfig(d.key, d.kind, d.configJson)
+      if (preserveOrder) {
+        const previous = def ?? visible
+        if (
+          d.isActive !== false && previous && previous.isActive !== false && !previous.deletedAt &&
+          previous.kind === d.kind && isDeepStrictEqual(
+            comparableDefinitionConfig(cfg),
+            comparableDefinitionConfig(normalizeDefinitionConfig(d.key, previous.kind, previous.configJson)),
+          )
+        ) continue
+        if (!previous) cfg.priority = nextPriority++
+        else if (previous.configJson?.priority !== undefined) cfg.priority = previous.configJson.priority
+      } else {
+        cfg.priority = idx
+      }
 
       if (d.isActive === false) {
         const now = new Date()
-        const inherited = inheritedByKey.get(d.key)
         if (!def) {
           def = createScopedDefinitionTombstone(
             em,
@@ -173,7 +211,7 @@ export async function POST(req: Request) {
               entityId,
               key: d.key,
               kind: d.kind,
-              configJson: inherited?.configJson ?? cfg,
+              configJson: visible?.configJson ?? cfg,
             },
             scope,
             now,
