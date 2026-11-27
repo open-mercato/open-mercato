@@ -47,6 +47,8 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     const hasPayloadOrganizationId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'organizationId')
     const hasPayloadTenantId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'tenantId')
     const source = resolveQueryIndexSourceMetadata(em, entityType)
+    const { deletedAtColumn } = source
+    const coverageColumn = deletedAtColumn ?? 'id'
     const sourceScope = await loadQueryIndexRowScope(em, source, recordId)
     const resolvedScope = resolveQueryIndexRecordScope({
       payloadOrganizationId: payload?.organizationId,
@@ -65,7 +67,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
 
         let baseQuery = trx
           .selectFrom(source.table as any)
-          .select(['deleted_at' as any])
+          .select(coverageColumn)
           .where('id' as any, '=', recordId)
         if (source.organizationColumn) {
           baseQuery = baseQuery.where(
@@ -77,8 +79,8 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
         if (source.tenantColumn) {
           baseQuery = baseQuery.where(sql`${sql.ref(source.tenantColumn)} is not distinct from ${tenantId}`)
         }
-        const row = await baseQuery.executeTakeFirst() as { deleted_at: Date | null } | undefined
-        const baseDelta = !row || row.deleted_at != null ? -1 : 0
+        const row = await baseQuery.executeTakeFirst() as Record<string, unknown> | undefined
+        const baseDelta = !row || (deletedAtColumn && row[deletedAtColumn] != null) ? -1 : 0
 
         const baseDeltaOverride =
           typeof payload?.coverageBaseDelta === 'number' ? payload.coverageBaseDelta : undefined
@@ -132,7 +134,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       const db = (em as any).getKysely()
       let baseQuery = db
         .selectFrom(source.table as any)
-        .select(['deleted_at' as any])
+        .select(coverageColumn)
         .where('id' as any, '=', recordId)
       if (source.organizationColumn) {
         baseQuery = baseQuery.where(
@@ -144,11 +146,9 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       if (source.tenantColumn) {
         baseQuery = baseQuery.where(sql`${sql.ref(source.tenantColumn)} is not distinct from ${tenantId}`)
       }
-      const row = await baseQuery.executeTakeFirst() as { deleted_at: Date | null } | undefined
-      const baseMissing = !row
-      const baseDeleted = baseMissing || (row && row.deleted_at != null)
+      const row = await baseQuery.executeTakeFirst() as Record<string, unknown> | undefined
       baseCheckSucceeded = true
-      if (baseDeleted) baseDelta = -1
+      if (!row || (deletedAtColumn && row[deletedAtColumn] != null)) baseDelta = -1
     } catch {}
     if (!baseCheckSucceeded) baseDelta = -1
 

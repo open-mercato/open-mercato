@@ -75,13 +75,13 @@ function DefaultTimeEntriesSummaryFooter({ summary, totalCount, canSeeMoney, tot
               className="font-mono tabular-nums text-foreground"
               data-testid="entries-summary-money"
             >
-              {formatCurrency(subtotal.amount, subtotal.currencyCode) ?? String(subtotal.amount)}
+              {formatCurrency(subtotal.amountExact ?? subtotal.amount, subtotal.currencyCode) ?? subtotal.amountExact ?? String(subtotal.amount)}
             </span>
           ))}
         </span>
       ) : money.length === 1 ? (
         <span className="font-mono tabular-nums text-foreground" data-testid="entries-summary-money">
-          {formatCurrency(money[0].amount, money[0].currencyCode) ?? String(money[0].amount)}
+          {formatCurrency(money[0].amountExact ?? money[0].amount, money[0].currencyCode) ?? money[0].amountExact ?? String(money[0].amount)}
         </span>
       ) : null}
     </div>

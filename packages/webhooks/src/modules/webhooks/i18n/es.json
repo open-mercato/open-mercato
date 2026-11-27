@@ -46,6 +46,7 @@
   "webhooks.detail.testSuccess": "Test delivery succeeded.",
   "webhooks.detail.title": "Webhook Detail",
   "webhooks.errors.credentialHeadersRequireReentry": "El encabezado \"{header}\" tiene un valor oculto. Vuelve a introducirlo o elimínalo al cambiar la URL del webhook.",
+  "webhooks.errors.deliveryInFlight": "Esta entrega se está enviando en este momento. Vuelve a intentarlo cuando termine el intento.",
   "webhooks.errors.forbidden": "You do not have permission to perform this action.",
   "webhooks.errors.notFound": "Webhook not found.",
   "webhooks.errors.orgRequired": "Organization context required.",

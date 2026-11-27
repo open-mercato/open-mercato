@@ -1,13 +1,12 @@
 import { expect, test } from '@playwright/test'
-import { login } from '@open-mercato/core/helpers/integration/auth'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { authenticateCrm } from './helpers/umesFixtures'
 
 test.use({ timezoneId: 'Europe/Warsaw', locale: 'en-US' })
 
 test('Recently created stays editable after applying and reopening across the autumn DST boundary', async ({ page, request }, testInfo) => {
-  const token = await getAuthToken(request, 'admin')
+  const token = await authenticateCrm(page, request)
   const marker = `TCRecentPreset${Date.now()}`
   const includedName = `${marker} Included`
   const excludedName = `${marker} Excluded`
@@ -26,7 +25,6 @@ test('Recently created stays editable after applying and reopening across the au
         expect(result.rowCount).toBe(1)
       }
     })
-    await login(page, 'admin')
     await page.clock.setFixedTime(new Date('2026-10-31T22:30:00.000Z'))
     await page.goto('/backend/customers/companies')
     await page.getByRole('searchbox', { name: 'Search by name, email, phone…' }).fill(marker)

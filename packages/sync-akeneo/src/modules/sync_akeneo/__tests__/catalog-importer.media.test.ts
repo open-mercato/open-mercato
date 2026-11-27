@@ -81,7 +81,7 @@ function createMediaWorld(attachments: Attachment[]) {
   const dataEngine = { flushOrmEntityChanges: jest.fn(async () => undefined) }
 
   mockContainerResolve.mockImplementation((key: string) => {
-    if (key === 'em') return { remove: () => ({ flush: async () => undefined }) }
+    if (key === 'em') return { getMetadata: () => ({ has: () => true }), remove: () => ({ flush: async () => undefined }) }
     if (key === 'attachmentService') return { releaseScoped: mockReleaseScoped }
     if (key === 'commandBus') return commandBus
     if (key === 'dataEngine') return dataEngine

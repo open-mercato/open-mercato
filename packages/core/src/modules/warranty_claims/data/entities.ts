@@ -8,6 +8,7 @@ import {
   Property,
   Unique,
 } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type {
   WarrantyClaimChannel,
   WarrantyClaimDisposition,
@@ -154,13 +155,13 @@ export class WarrantyClaim {
   @Property({ name: 'currency_code', type: 'text', nullable: true })
   currencyCode?: string | null
 
-  @Property({ name: 'total_claimed_amount', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'total_claimed_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   totalClaimedAmount?: string | null
 
-  @Property({ name: 'total_approved_amount', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'total_approved_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   totalApprovedAmount?: string | null
 
-  @Property({ name: 'total_recovered_amount', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'total_recovered_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   totalRecoveredAmount?: string | null
 
   @Property({ name: 'sla_due_at', type: Date, nullable: true })
@@ -229,7 +230,7 @@ export class WarrantyClaimSettings {
   @Property({ name: 'auto_approve_enabled', type: 'boolean', default: false })
   autoApproveEnabled: boolean = false
 
-  @Property({ name: 'auto_approve_max_amount', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'auto_approve_max_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   autoApproveMaxAmount?: string | null
 
   @Property({ name: 'auto_approve_currency_code', type: 'text', nullable: true })
@@ -361,16 +362,16 @@ export class WarrantyClaimLine {
   @Property({ name: 'line_status', type: 'text', default: 'pending' })
   lineStatus: WarrantyClaimLineStatus = 'pending'
 
-  @Property({ name: 'credit_amount', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'credit_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   creditAmount?: string | null
 
-  @Property({ name: 'restocking_fee', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'restocking_fee', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   restockingFee?: string | null
 
-  @Property({ name: 'core_charge_amount', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'core_charge_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   coreChargeAmount?: string | null
 
-  @Property({ name: 'core_credit_amount', type: 'numeric', precision: 18, scale: 4, nullable: true })
+  @Property({ name: 'core_credit_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   coreCreditAmount?: string | null
 
   @Property({ name: 'vendor_claim_line_id', type: 'uuid', nullable: true })

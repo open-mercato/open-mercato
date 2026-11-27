@@ -1,0 +1,87 @@
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "open-mercato" } },
+          { "key": "service.version", "value": { "stringValue": "1.2.3" } },
+          { "key": "om.genai.semconv", "value": { "stringValue": "1.43" } }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "scope": { "name": "@open-mercato/enterprise/agent_orchestrator", "version": "1.2.3" },
+          "spans": [
+            {
+              "traceId": "0af7651916cd43dd8448eb211c80319c",
+              "spanId": "b7ad6b7169203331",
+              "name": "invoke_agent triage",
+              "kind": 1,
+              "startTimeUnixNano": "1761580800000000000",
+              "endTimeUnixNano": "1761580801500000000",
+              "attributes": [
+                { "key": "gen_ai.operation.name", "value": { "stringValue": "invoke_agent" } },
+                { "key": "gen_ai.agent.name", "value": { "stringValue": "triage" } },
+                { "key": "om.run.retry", "value": { "boolValue": false } },
+                { "key": "gen_ai.usage.input_tokens", "value": { "intValue": "1200" } },
+                { "key": "om.cost.ratio", "value": { "doubleValue": 0.25 } },
+                {
+                  "key": "om.tags",
+                  "value": { "arrayValue": { "values": [{ "stringValue": "alpha" }, { "stringValue": "beta" }] } }
+                },
+                {
+                  "key": "om.capture",
+                  "value": {
+                    "kvlistValue": {
+                      "values": [
+                        { "key": "level", "value": { "stringValue": "metadata" } },
+                        { "key": "redactPii", "value": { "boolValue": true } },
+                        { "key": "retentionDays", "value": { "intValue": "30" } }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "events": [],
+              "links": [
+                {
+                  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+                  "spanId": "a2fb4a1d1a96d312",
+                  "attributes": [{ "key": "om.link.kind", "value": { "stringValue": "platform_trace" } }]
+                }
+              ],
+              "status": { "code": 1 }
+            },
+            {
+              "traceId": "0af7651916cd43dd8448eb211c80319c",
+              "spanId": "00f067aa0ba902b7",
+              "parentSpanId": "b7ad6b7169203331",
+              "name": "chat gpt-4o-mini",
+              "kind": 3,
+              "startTimeUnixNano": "1761580800250000000",
+              "endTimeUnixNano": "1761580801250000123",
+              "attributes": [
+                { "key": "gen_ai.request.model", "value": { "stringValue": "gpt-4o-mini" } },
+                { "key": "gen_ai.request.temperature", "value": { "doubleValue": 0.2 } },
+                { "key": "gen_ai.response.finish_reasons", "value": { "arrayValue": { "values": [{ "stringValue": "stop" }] } } },
+                { "key": "gen_ai.usage.output_tokens", "value": { "intValue": "42" } }
+              ],
+              "events": [
+                {
+                  "timeUnixNano": "1761580801000500000",
+                  "name": "gen_ai.evaluation.result",
+                  "attributes": [
+                    { "key": "gen_ai.evaluation.name", "value": { "stringValue": "groundedness" } },
+                    { "key": "gen_ai.evaluation.score.value", "value": { "doubleValue": 0.9 } }
+                  ]
+                }
+              ],
+              "links": [],
+              "status": { "code": 2, "message": "tool_failed" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

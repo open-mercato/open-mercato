@@ -2,8 +2,15 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import {
+  isMessageComposerUploadRecordId,
+  MAILBOX_ATTACHMENT_COUNT_LIMIT,
+  type MailboxComposeTransaction,
+} from '@open-mercato/shared/modules/messages/compose-payload'
 import { Message, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import {
@@ -12,13 +19,21 @@ import {
   replyMessageSchema,
   updateDraftSchema,
 } from '../data/validators'
-import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
+import {
+  copyAttachmentsForForwardMessages,
+  deleteMessageAttachmentRows,
+  enqueueMessageAttachmentSectionCleanup,
+  linkAttachmentsToMessage,
+  linkLibraryAttachmentsToMessage,
+  moveComposerAttachmentsToMessage,
+  type DeletedMessageAttachmentRows,
+} from '../lib/attachments'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
   resolveActorFeatures,
   resolveMessageChannelThreadAccess,
 } from '../lib/channelThreadAccess'
-import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
+import { MESSAGE_ENTITY_ID, SYSTEM_SENDER_USER_ID } from '../lib/constants'
 import { canUseChannelThreadFallback } from '../lib/routeHelpers'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -144,6 +159,11 @@ const composeCommandSchema = composeMessageSchema.safeExtend({
   // of creating a duplicate.
   idempotencyKey: z.string().min(1).max(255).optional(),
   externalEmailRecipients: z.array(z.string().email()).min(1).optional(),
+  mailboxComposeMessageType: z.string().min(1).optional(),
+  mailboxComposeUpload: z.object({
+    recordId: z.string().refine(isMessageComposerUploadRecordId),
+    attachmentIds: z.array(z.string().uuid()).min(1).max(MAILBOX_ATTACHMENT_COUNT_LIMIT),
+  }).optional(),
 })
 
 const updateDraftCommandSchema = updateDraftSchema.safeExtend({
@@ -279,8 +299,12 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
   id: 'messages.messages.compose',
   async execute(rawInput, ctx) {
     const input = composeCommandSchema.parse(rawInput)
+    const { persistMailboxDelivery } = ctx as CommandRuntimeContext & MailboxComposeTransaction
+    if ((input.mailboxComposeUpload || input.mailboxComposeMessageType) && !persistMailboxDelivery) {
+      throw new Error('[internal] Mailbox composer payload requires a delivery link writer')
+    }
     if (input.objects?.length) {
-      const objectValidationError = validateMessageObjectsForType(input.type, input.objects)
+      const objectValidationError = validateMessageObjectsForType(input.mailboxComposeMessageType ?? input.type, input.objects)
       if (objectValidationError) throw new Error(objectValidationError)
     }
 
@@ -417,6 +441,31 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         )
       }
 
+      if (input.mailboxComposeUpload) {
+        const moved = await moveComposerAttachmentsToMessage(trx, ctx.container, {
+          ...input.mailboxComposeUpload,
+          messageId: message.id,
+          auth: {
+            ...ctx.auth,
+            sub: input.userId,
+            userId: input.userId,
+            tenantId: input.tenantId,
+            orgId: input.organizationId,
+          },
+        })
+        if (!moved) {
+          const { t } = await resolveTranslations()
+          throw new CrudHttpError(422, {
+            error: t('communication_channels.errors.attachments.notFound', 'One of the attached files is not available.'),
+          })
+        }
+      }
+
+      await persistMailboxDelivery?.(trx, {
+        messageId: message.id,
+        threadId: message.threadId ?? message.id,
+      })
+
       messageId = message.id
       responseThreadId = message.threadId ?? null
       responseExternalEmail = message.externalEmail ?? null
@@ -484,6 +533,7 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
       resourceId: result.id,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
+      ...(parsed.mailboxComposeUpload || parsed.mailboxComposeMessageType ? { replayable: false } : {}),
       payload: {
         undo: {
           after: (snapshots.after as MessageAggregateSnapshot | undefined) ?? null,
@@ -592,6 +642,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       )
     }
 
+    let deletedAttachments: DeletedMessageAttachmentRows | null = null
     // Phase 1 mutates the managed `message` scalars; the per-phase flush issues
     // those changes before phase 2's interleaved reads run (e.g.
     // `linkAttachmentsToMessage` issues an `em.find`). Under MikroORM v7 a read
@@ -640,23 +691,12 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       }
 
       if (input.attachmentIds) {
-        const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-        if (input.attachmentIds.length === 0) {
-          await em.nativeDelete(Attachment, {
-            entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-            recordId: message.id,
-            tenantId: input.tenantId,
-            organizationId: input.organizationId,
-          })
-        } else {
-          await em.nativeDelete(Attachment, {
-            entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-            recordId: message.id,
-            tenantId: input.tenantId,
-            organizationId: input.organizationId,
-            id: { $nin: input.attachmentIds },
-          })
-        }
+        deletedAttachments = await deleteMessageAttachmentRows(em, {
+          messageId: message.id,
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+          excludeIds: input.attachmentIds,
+        })
         await linkAttachmentsToMessage(
           em,
           message.id,
@@ -675,6 +715,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
         if (!message.threadId) message.threadId = message.id
       }
     }], { transaction: true })
+    if (deletedAttachments) await enqueueMessageAttachmentSectionCleanup(deletedAttachments)
 
     await emitMessageIndexUpsert(ctx.container, {
       messageId: message.id,
@@ -836,11 +877,15 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       throw new Error('No recipients available for reply')
     }
 
+    const channelSource = original.sourceEntityType === EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE
+      && original.sourceEntityId
+      ? { externalConversationId: original.sourceEntityId }
+      : { messageThreadId: original.threadId ?? original.id }
     const channelThread = !input.sendViaEmail && original.visibility === 'public'
       ? await resolveMessageChannelThreadAccess(
         ctx.container,
         { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
-        { messageThreadId: original.threadId ?? original.id },
+        channelSource,
         { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
       )
       : null

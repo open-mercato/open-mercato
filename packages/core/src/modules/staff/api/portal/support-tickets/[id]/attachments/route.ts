@@ -118,7 +118,7 @@ export async function GET(req: Request) {
       if (!z.string().uuid().safeParse(attachmentId).success) return notFound()
       const attachment = await loadVisibleAttachment(api, scope, owned.task.id, attachmentId)
       if (!attachment) return notFound()
-      const partition = await scope.em.findOne(api.AttachmentPartition, { code: attachment.partitionCode })
+      const partition = await api.resolveAttachmentPartition(scope.em, attachment.partitionCode, attachment)
       if (!partition) return notFound()
       if (!api.checkAttachmentAccess(portalAttachmentAuth(scope), attachment, partition, { requireAuthForPublic: true }).ok) return notFound()
       const driver = await (await resolveDriverFactory(api, scope)).resolveForPartition(attachment.partitionCode, {
@@ -246,12 +246,13 @@ export async function DELETE(req: Request) {
       input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: owned.task.id, operation: 'delete', mutationPayload: { attachmentId } },
     })
     if (!guarded.ok) return guarded.response
-    await scope.em.remove(attachment).flush()
+    const removal = await api.removeAttachmentRecord(scope.em, attachment)
+    if (!removal.removed) return notFound()
     await api.clearAttachmentThumbnailCache(attachment.partitionCode, attachment.id).catch((err) => {
       logger.error('staff portal support attachment thumbnail cleanup failed', { err, attachmentId })
       getTelemetryRuntime()?.reportError(err, { module: 'staff', code: 'staff.portal_attachment_thumbnail_cleanup_failed' })
     })
-    if (attachment.storagePath) {
+    if (attachment.storagePath && removal.releaseStorage) {
       try {
         const driver = await (await resolveDriverFactory(api, scope)).resolveForPartition(attachment.partitionCode, {
           tenantId: attachment.tenantId ?? scope.tenantId,

@@ -46,6 +46,18 @@ describe('CrudForm accessible field labels (#5360)', () => {
     expect(document.activeElement).toBe(input)
   })
 
+  it('associates a decimal field label with its input via htmlFor/id', () => {
+    const fields: CrudField[] = [{ id: 'rate', label: 'Exchange Rate', type: 'decimal' }]
+    const { getByLabelText } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} initialValues={{ rate: '' }} onSubmit={() => {}} />,
+      { dict },
+    )
+
+    const input = getByLabelText('Exchange Rate') as HTMLInputElement
+    expect(input.tagName).toBe('INPUT')
+    expect(document.querySelector(`label[for="${input.id}"]`)).not.toBeNull()
+  })
+
   it('associates a select field label with its trigger via htmlFor/id', () => {
     const fields: CrudField[] = [
       {

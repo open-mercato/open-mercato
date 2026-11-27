@@ -23,6 +23,12 @@ concurrency:
 
 jobs:
   guard:
+    # Skipped only inside forks (PRs within a fork, where the upstream
+    # allowlist cannot apply). PRs from a fork into upstream run in the
+    # upstream repository, which is not a fork, so enforcement is unchanged.
+    # Not keyed on the repository name: a rename would silently skip a
+    # required check, and skipped required checks report as passing.
+    if: ${{ !github.event.repository.fork }}
     runs-on: ubuntu-latest
     steps:
       # Only the guard script itself is checked out, pinned to the PR's base

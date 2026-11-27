@@ -2,6 +2,7 @@ import { aiTools, LOAD_SKILL_TOOL_ID } from '../ai-tools'
 import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
 import { registerAgentSkills, clearAgentSkills } from '../lib/runtime/fileAgentSkills'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
+import { withRunContext } from '../lib/runtime/runContext'
 
 // The load_skill MCP tool is the progressive-disclosure fallback. It resolves the
 // active agent from the shared run-session store (ctx.sessionId — never trusted
@@ -78,5 +79,42 @@ describe('agent_orchestrator.load_skill', () => {
     }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('no_active_run')
+  })
+
+  describe('on the native runtime (no OpenCode session)', () => {
+    it('resolves the active agent from the run context the runner bound', async () => {
+      const store = new InMemoryAgentRunSessionStore()
+      registerAgentSkills('deals.health_check', [
+        { id: 'stage_playbook', instructions: 'NATIVE_PLAYBOOK', examples: [], tools: [] },
+      ])
+      const result = (await withRunContext(
+        'run-native-1',
+        () => tool.handler!({ skillId: 'stage_playbook' }, makeCtx(store, undefined)),
+        undefined,
+        undefined,
+        undefined,
+        'deals.health_check',
+      )) as { ok: boolean; instructions?: string }
+      expect(result.ok).toBe(true)
+      expect(result.instructions).toBe('NATIVE_PLAYBOOK')
+    })
+
+    it("denies another agent's skill even inside a run context", async () => {
+      const store = new InMemoryAgentRunSessionStore()
+      registerAgentSkills('deals.health_check', [{ id: 'stage_playbook', instructions: 'x', examples: [], tools: [] }])
+      registerAgentSkills('support.resolution_advisor', [
+        { id: 'resolution_playbook', instructions: 'y', examples: [], tools: [] },
+      ])
+      const result = (await withRunContext(
+        'run-native-2',
+        () => tool.handler!({ skillId: 'resolution_playbook' }, makeCtx(store, undefined)),
+        undefined,
+        undefined,
+        undefined,
+        'deals.health_check',
+      )) as { ok: boolean; code?: string }
+      expect(result.ok).toBe(false)
+      expect(result.code).toBe('skill_not_allowed')
+    })
   })
 })

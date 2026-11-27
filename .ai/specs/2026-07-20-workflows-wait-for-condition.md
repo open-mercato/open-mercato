@@ -328,6 +328,8 @@ Per `BACKWARD_COMPATIBILITY.md`, the touched contract surfaces and their treatme
 | ACL features | 1 new feature | **ADDITIVE** — added to `setup.ts` `defaultRoleFeatures`, synced via `yarn mercato auth sync-role-acls` |
 | DB schema | None | **No migration** |
 
+Manual advance keeps the same request shape. A patch to engine-owned workflow context is rejected with 400. Other proposed context is visible to transition evaluation, and is persisted with the authorized transition under the instance write lock. An unavailable transition leaves the stored context unchanged.
+
 A definition saved before this change behaves identically. A definition *using*
 `WAIT_FOR_CONDITION` fails closed on an older deployment with the existing
 `UNKNOWN_STEP_TYPE` error from `executeStepByType`'s `default` branch — the same failure mode

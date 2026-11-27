@@ -17,6 +17,7 @@ import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { MAX_CURRENCY_DECIMAL_PLACES } from '../../../data/validators'
 
 type CurrencyData = {
   id: string
@@ -76,6 +77,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
   }, [params, t])
 
   const isCurrentBase = currency?.isBase === true
+  const isActiveLocked = isCurrentBase && currency?.isActive !== false
 
   const groups = React.useMemo<CrudFormGroup[]>(
     () => [
@@ -117,8 +119,9 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
             id: 'decimalPlaces',
             type: 'number',
             label: t('currencies.form.field.decimalPlaces'),
+            description: t('currencies.form.field.decimalPlacesHelp'),
             min: 0,
-            max: 8,
+            max: MAX_CURRENCY_DECIMAL_PLACES,
           },
           {
             id: 'thousandsSeparator',
@@ -145,11 +148,13 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
             id: 'isActive',
             type: 'checkbox',
             label: t('currencies.form.field.isActive'),
+            disabled: isActiveLocked,
+            description: isActiveLocked ? t('currencies.form.field.isActiveLocked') : undefined,
           },
         ],
       },
     ],
-    [t, isCurrentBase]
+    [t, isCurrentBase, isActiveLocked]
   )
 
   const handleDelete = React.useCallback(async () => {
@@ -301,12 +306,18 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
               })
             }
 
+            if (!isCurrentBase && values.isBase && values.isActive === false) {
+              throw createCrudFormError(t('currencies.form.errors.baseCurrencyInactive'), {
+                isActive: t('currencies.form.errors.baseCurrencyInactive'),
+              })
+            }
+
             const payload = {
               id: currency.id,
               code,
               name: String(values.name || '').trim(),
               symbol: values.symbol ? String(values.symbol).trim() : null,
-              decimalPlaces: values.decimalPlaces ? parseInt(String(values.decimalPlaces)) : 2,
+              decimalPlaces: values.decimalPlaces === undefined || values.decimalPlaces === null ? 2 : parseInt(String(values.decimalPlaces)),
               thousandsSeparator: values.thousandsSeparator ? String(values.thousandsSeparator) : null,
               decimalSeparator: values.decimalSeparator ? String(values.decimalSeparator) : null,
               isBase: !!values.isBase,

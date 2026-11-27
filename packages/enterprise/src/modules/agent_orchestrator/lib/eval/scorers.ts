@@ -59,6 +59,7 @@ function toRunView(input: ScorerInput): ScorerRunView {
     toolCalls: [],
     stepCount: 0,
     disposition: null,
+    guardrailChecks: [],
   }
 }
 

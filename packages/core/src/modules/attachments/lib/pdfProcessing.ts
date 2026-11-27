@@ -50,6 +50,26 @@ export type PdfOcrPreparationResult = {
   pages: PdfPageOcrInput[]
 }
 
+export type PreparePdfPagesForOcrOptions = {
+  pageNumbers?: readonly number[]
+  alwaysRender?: boolean
+}
+
+function resolveSelectedPageNumbers(
+  numPages: number,
+  maxPages: number,
+  pageNumbers: readonly number[] | undefined,
+): number[] {
+  if (pageNumbers === undefined) {
+    const pageLimit = resolvePdfPageIterationLimit(numPages, maxPages)
+    return Array.from({ length: pageLimit }, (_value, index) => index + 1)
+  }
+  const selected = [...new Set(pageNumbers)]
+    .filter((pageNumber) => Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= numPages)
+    .sort((left, right) => left - right)
+  return selected.slice(0, Math.max(0, Math.floor(maxPages)))
+}
+
 function normalizePdfText(rawText: string): string | null {
   const normalized = rawText.replace(/\s+/g, ' ').trim()
   return normalized.length > 0 ? normalized : null
@@ -102,7 +122,10 @@ async function renderPdfPageToImageBuffer(
   }
 }
 
-export async function preparePdfPagesForOcr(filePath: string): Promise<PdfOcrPreparationResult> {
+export async function preparePdfPagesForOcr(
+  filePath: string,
+  options: PreparePdfPagesForOcrOptions = {},
+): Promise<PdfOcrPreparationResult> {
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const data = new Uint8Array(await fs.readFile(filePath))
   const loadingTask = getDocument({
@@ -117,23 +140,23 @@ export async function preparePdfPagesForOcr(filePath: string): Promise<PdfOcrPre
   try {
     const pages: PdfPageOcrInput[] = []
     const maxPages = resolveMaxOcrPages()
-    const pageLimit = resolvePdfPageIterationLimit(pdfDocument.numPages, maxPages)
-    if (pdfDocument.numPages > pageLimit) {
+    const selectedPageNumbers = resolveSelectedPageNumbers(pdfDocument.numPages, maxPages, options.pageNumbers)
+    if (options.pageNumbers === undefined && pdfDocument.numPages > selectedPageNumbers.length) {
       logger.warn('PDF page count exceeds OCR cap; truncating', {
         numPages: pdfDocument.numPages,
-        maxPages: pageLimit,
+        maxPages: selectedPageNumbers.length,
         filePath,
       })
     }
 
-    for (let pageNumber = 1; pageNumber <= pageLimit; pageNumber += 1) {
+    for (const pageNumber of selectedPageNumbers) {
       const page = await pdfDocument.getPage(pageNumber)
 
       try {
         const textContent = await page.getTextContent()
         const extractedText = extractPdfTextContent(textContent.items)
 
-        if (extractedText) {
+        if (extractedText && !options.alwaysRender) {
           pages.push({
             pageNumber,
             extractedText,

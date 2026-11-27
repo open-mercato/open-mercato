@@ -8,8 +8,8 @@
 // `compileOutcome` at load time and registers it with `runtime:'opencode'`.
 //
 // Regenerate with `yarn generate`.
-import type { JsonSchemaNode, OutcomeKind } from "../lib/sdk/outcomeSchema.js"
-import type { AgentTokenUsage, FileAgentFile } from "../lib/tokens/types.js"
+import type { JsonSchemaNode, OutcomeKind } from '../lib/sdk/outcomeSchema'
+import type { AgentTokenUsage, FileAgentFile } from '../lib/tokens/types'
 
 export type FileAgentScript = {
   name: string
@@ -41,6 +41,13 @@ export type FileAgentFact = {
   format?: 'text' | 'number' | 'boolean' | 'percent'
 }
 
+export type FileAgentGovernance = {
+  principal?: Record<string, unknown>
+  integrity?: unknown[]
+  untrustedInputs?: unknown[]
+  modelSettings?: Record<string, unknown>
+}
+
 export type FileAgentDescriptor = {
   id: string
   moduleId: string
@@ -63,7 +70,7 @@ export type FileAgentDescriptor = {
   tokenUsage?: AgentTokenUsage
   /**
    * Baked raw content of every construction file (AGENT.md, OUTCOME.md, skills,
-   * tools, sub-agents, and auxiliary SAMPLE.json/FACTS.json), for the read-only
+   * tools, sub-agents, and auxiliary SAMPLE.json/FACTS.json/GOVERNANCE.json), for the read-only
    * Files tab. Each carries its `o200k_base` token count; paths are relative to
    * the agent root (sub-agent files prefixed `sub-agents/<id>/`). Baked so the
    * runtime never reads agent dirs from disk.
@@ -75,6 +82,11 @@ export type FileAgentDescriptor = {
    * 1). Absent for agents without sub-agents and for sub-agents themselves.
    */
   subAgentDescriptors?: FileAgentDescriptor[]
+  /**
+   * ACL features the invoker must hold to run this agent, from AGENT.md
+   * `requiredFeatures`. Absent when the agent declares none.
+   */
+  requiredFeatures?: string[]
   maxSteps?: number
   provider?: string
   model?: string
@@ -89,6 +101,13 @@ export type FileAgentDescriptor = {
    * input / proposal payload / run output.
    */
   facts?: FileAgentFact[]
+  /**
+   * Optional governance declarations read from `agents/<id>/GOVERNANCE.json`:
+   * the same `principal`, `integrity`, `untrustedInputs` and
+   * `modelSettings` keys `defineAgent` accepts, as plain JSON. The loader
+   * validates them with the `defineAgent` parsers.
+   */
+  governance?: FileAgentGovernance
 }
 
 export const fileAgentDescriptors: FileAgentDescriptor[] = [

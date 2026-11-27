@@ -6,6 +6,7 @@ import { Play, Plug, RotateCw, Server, ShieldAlert, SquareCode } from 'lucide-re
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Alert } from '@open-mercato/ui/primitives/alert'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -33,6 +34,22 @@ import { toolPanelStateFromResponse, type ToolPanelState } from '../../component
 import { runErrorStateFromBody } from '../../components/playgroundRunError'
 import { Chip, TYPE_ICON, RUNTIME_ICON, resolveAgentIcon } from '../../components/agentChips'
 import { PlaygroundEvalPanel } from './PlaygroundEvalPanel'
+import {
+  EMPTY_PLAYGROUND_CALL_SETTINGS,
+  buildPlaygroundCallSettings,
+  type PlaygroundCallSettingsDraft,
+} from '../../components/playgroundCallSettings'
+
+const MODEL_SETTING_FIELDS: ReadonlyArray<{
+  field: keyof PlaygroundCallSettingsDraft
+  labelKey: string
+  step: string
+}> = [
+  { field: 'temperature', labelKey: 'agent_orchestrator.playground.modelSettings.temperature', step: '0.1' },
+  { field: 'topP', labelKey: 'agent_orchestrator.playground.modelSettings.topP', step: '0.05' },
+  { field: 'maxOutputTokens', labelKey: 'agent_orchestrator.playground.modelSettings.maxOutputTokens', step: '1' },
+  { field: 'seed', labelKey: 'agent_orchestrator.playground.modelSettings.seed', step: '1' },
+]
 
 type AgentsResponse = { items?: Array<Record<string, unknown>> }
 
@@ -221,6 +238,7 @@ export default function AgentPlaygroundPage() {
   const [agents, setAgents] = React.useState<AgentView[]>([])
   const [agentId, setAgentId] = React.useState<string>('')
   const [input, setInput] = React.useState<string>('{\n  \n}')
+  const [modelSettings, setModelSettings] = React.useState<PlaygroundCallSettingsDraft>(EMPTY_PLAYGROUND_CALL_SETTINGS)
   const [running, setRunning] = React.useState(false)
   const [result, setResult] = React.useState<AgentResult | null>(null)
   const [runId, setRunId] = React.useState<string | null>(null)
@@ -242,10 +260,11 @@ export default function AgentPlaygroundPage() {
         .filter((agent): agent is AgentView => !!agent)
       setAgents(mapped)
       const requested = searchParams?.get('agent')
-      if (requested && mapped.some((agent) => agent.id === requested)) {
+      const firstInvocable = mapped.find((agent) => agent.invocable)
+      if (requested && mapped.some((agent) => agent.id === requested && agent.invocable)) {
         setAgentId(requested)
-      } else if (mapped[0]) {
-        setAgentId(mapped[0].id)
+      } else if (firstInvocable) {
+        setAgentId(firstInvocable.id)
       }
     }
     load()
@@ -277,6 +296,14 @@ export default function AgentPlaygroundPage() {
       setError(t('agent_orchestrator.playground.invalidJson'))
       return
     }
+    const settingsSupported = selectedAgent?.runtime !== 'opencode'
+    const builtSettings = settingsSupported
+      ? buildPlaygroundCallSettings(modelSettings)
+      : { ok: true as const, callSettings: null }
+    if (!builtSettings.ok) {
+      setError(t('agent_orchestrator.playground.modelSettings.invalid'))
+      return
+    }
     setError(null)
     setGuardrailBlock(null)
     setRunning(true)
@@ -290,7 +317,9 @@ export default function AgentPlaygroundPage() {
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ input: parsed }),
+          body: JSON.stringify(
+            builtSettings.callSettings ? { input: parsed, callSettings: builtSettings.callSettings } : { input: parsed },
+          ),
         },
         { fallback: null },
       )
@@ -318,7 +347,7 @@ export default function AgentPlaygroundPage() {
     } finally {
       setRunning(false)
     }
-  }, [agentId, input, t])
+  }, [agentId, input, modelSettings, selectedAgent, t])
 
   // Fetch the run's ACTUAL tool calls from the trace-detail route once the run
   // id is known. That route gates `trace.view` while this page gates
@@ -414,9 +443,14 @@ export default function AgentPlaygroundPage() {
                     {agents.map((agent) => {
                       const Glyph = resolveAgentIcon(agent.icon, agent.resultKind)
                       return (
-                        <SelectItem key={agent.id} value={agent.id}>
+                        <SelectItem key={agent.id} value={agent.id} disabled={!agent.invocable}>
                           {Glyph ? <Glyph className="size-4 text-muted-foreground" /> : null}
                           {agent.label}
+                          {agent.invocable ? null : (
+                            <span className="text-xs text-muted-foreground">
+                              {t('agent_orchestrator.agents.list.notInvocable')}
+                            </span>
+                          )}
                         </SelectItem>
                       )
                     })}
@@ -452,6 +486,43 @@ export default function AgentPlaygroundPage() {
                   className="font-mono"
                 />
               </div>
+
+              <CollapsibleSection
+                title={t('agent_orchestrator.playground.modelSettings.title')}
+                defaultCollapsed
+              >
+                {selectedAgent?.runtime === 'opencode' ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t('agent_orchestrator.playground.modelSettings.unsupported')}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      {t('agent_orchestrator.playground.modelSettings.hint')}
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {MODEL_SETTING_FIELDS.map(({ field, labelKey, step }) => (
+                        <div key={field} className="space-y-1">
+                          <label className="text-xs font-medium" htmlFor={`ao-pg-setting-${field}`}>
+                            {t(labelKey)}
+                          </label>
+                          <Input
+                            id={`ao-pg-setting-${field}`}
+                            type="number"
+                            inputMode="decimal"
+                            step={step}
+                            value={modelSettings[field]}
+                            onChange={(event) => {
+                              const next = event.target.value
+                              setModelSettings((prev) => ({ ...prev, [field]: next }))
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CollapsibleSection>
             </div>
             <div className="space-y-2 border-t border-border px-4 py-3">
               <ProposeOnlyNotice />

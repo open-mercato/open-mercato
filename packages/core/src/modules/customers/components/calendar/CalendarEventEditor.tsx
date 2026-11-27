@@ -5,6 +5,7 @@ import { Calendar, X } from 'lucide-react'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -31,6 +32,7 @@ import {
   computeDurationMinutes,
   createDefaultFormState,
   parseItemToFormState,
+  parseLinkedEntities,
   resolveSavedOwnerUserId,
   type EditorFormState,
 } from '../../lib/calendar/editorPayload'
@@ -41,7 +43,9 @@ import type { CalendarItem } from './types'
 import { EDITOR_SCROLL_EVENT, Field } from './editor/inputs'
 import { SegmentGroup } from './editor/SegmentGroup'
 import { RelatedToField } from './editor/RelatedToField'
-import { useConflictProbe, useEditorLabelResolution } from './editor/hooks'
+import { resolveDraftConflictRange, useConflictProbe, useEditorLabelResolution } from './editor/hooks'
+import { useStaffAvailability } from './useStaffAvailability'
+import { findStaffAvailabilityConflicts, formatStaffAvailabilityConflict } from '../../lib/calendar/staffAvailability'
 import { EventTypePanel } from './editor/EventTypePanel'
 import { eventTypeConfig, eventTypeOptions, isSelectableEventType, selectedEventType, useEventTypeCatalog } from './editor/useEventTypeCatalog'
 import type { ScopedCalendarEventType } from '../../lib/calendar/eventTypeResolver'
@@ -101,18 +105,21 @@ type EditorBodyProps = Pick<CrudFormGroupComponentProps, 'values' | 'errors' | '
   catalogItems: readonly ScopedCalendarEventType[]
   catalogReady: boolean
   catalogError: boolean
+  customFieldsError: boolean
   onRetryCatalog(): void
   onSelectedTypeChange(key: string): void
 }
 
-function CatalogStatusAlert({ error, onRetry }: { error: boolean; onRetry(): void }) {
+function CatalogStatusAlert({ error, customFieldsError, onRetry }: { error: boolean; customFieldsError?: boolean; onRetry(): void }) {
   const t = useT()
   return (
     <Alert status={error ? 'error' : 'information'} className="rounded-lg lg:col-span-2">
       <AlertDescription>
-        {error
-          ? t('customers.calendar.editor.catalogLoadFailed')
-          : t('customers.calendar.editor.catalogLoading')}
+        {customFieldsError
+          ? t('customers.calendar.editor.customFieldsLoadFailed')
+          : error
+            ? t('customers.calendar.editor.catalogLoadFailed')
+            : t('customers.calendar.editor.catalogLoading')}
       </AlertDescription>
       {error ? (
         <Button type="button" variant="outline" onClick={onRetry}>
@@ -153,7 +160,6 @@ const TimezoneField = React.memo(function TimezoneField({
 })
 
 const TypeSwitcher = React.memo(SegmentGroup) as typeof SegmentGroup
-const NO_RESOURCES: EditorFormState['resources'] = []
 const MemoRelatedToField = React.memo(RelatedToField)
 
 // CrudForm re-invokes the group renderer on every one of its own renders;
@@ -174,10 +180,12 @@ const EditorBody = React.memo(function EditorBody({
   catalogItems,
   catalogReady,
   catalogError,
+  customFieldsError,
   onRetryCatalog,
   onSelectedTypeChange,
 }: EditorBodyProps) {
   const t = useT()
+  const activeOrgId = useCurrentOrganization()?.id ?? null
   const form = formStateOfValues(values)
   const selectedType = form.category ?? form.kind
   const definition = selectedEventType(catalogItems, selectedType)
@@ -215,9 +223,47 @@ const EditorBody = React.memo(function EditorBody({
   // Self-exclude by the underlying interaction id (raw.id): findEditorConflictItems
   // drops candidates by raw.id, and every expanded occurrence of a recurring series
   // shares it — so the edited record never conflicts with itself.
-  // Resources count toward a conflict only when the selected type can book them.
-  const draftResources = resourcesEnabled && definition.behavior.fields.resources ? form.resources : NO_RESOURCES
-  const conflict = useConflictProbe(open, form, config, isEdit && item ? item.raw.id : null, draftOwnerUserId, conflictScope, currentUserId, draftResources)
+  const draftResources = resourcesEnabled && definition.behavior.fields.resources
+    ? form.resources
+    : parseLinkedEntities(isEdit ? item?.raw.linkedEntities : undefined).resources
+  const draftRange = React.useMemo(
+    () => resolveDraftConflictRange(form, config),
+    [form.date, form.timezone, form.startTime, form.endDate, form.endTime, form.allDay, config.hasAllDay, config.hasEnd], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const conflict = useConflictProbe(open, form, config, isEdit && item ? item.raw.id : null, draftOwnerUserId, conflictScope, currentUserId, draftResources, draftRange)
+  const eventOrganization = item?.raw.organizationId
+  const organizationId = isEdit && typeof eventOrganization === 'string' ? eventOrganization : activeOrgId
+  const staffAvailabilityRequest = React.useMemo(() => open && draftRange && organizationId ? {
+    range: config.hasAllDay && form.allDay
+      ? { from: draftRange.from, to: new Date(draftRange.to.getTime() + 1) }
+      : draftRange,
+    organizationId,
+  } : null, [open, draftRange, organizationId, config.hasAllDay, form.allDay])
+  const draftPeople = new Map<string, string>()
+  if (draftOwnerUserId) {
+    draftPeople.set(draftOwnerUserId, draftOwnerUserId === form.assigneeUserId ? form.assigneeName ?? '' : '')
+  }
+  if (config.people && config.people !== 'assignee') {
+    for (const person of form.participants) {
+      if (person.userId && !person.isCustomer && !draftPeople.get(person.userId)) {
+        draftPeople.set(person.userId, person.name || person.email || '')
+      }
+    }
+  }
+  const staffAvailability = useStaffAvailability({
+    userIds: [...draftPeople.keys()],
+    range: form.status === 'canceled' ? null : staffAvailabilityRequest?.range ?? null,
+    organizationId,
+    debounceMs: 500,
+  })
+  const staffConflicts = staffAvailabilityRequest
+    ? findStaffAvailabilityConflicts(
+      staffAvailability,
+      staffAvailabilityRequest.range,
+      organizationId,
+      Array.from(draftPeople, ([userId, label]) => ({ userId, label })),
+    )
+    : []
 
   const typeOptions = React.useMemo(
     () => eventTypeOptions(catalogItems, selectedType, t),
@@ -241,14 +287,21 @@ const EditorBody = React.memo(function EditorBody({
 
   return (
     <div className="grid w-full grid-cols-1 items-start gap-4 lg:grid-cols-2 lg:gap-x-6">
-      {conflict ? (
+      {conflict || staffConflicts.length ? (
         <Alert status="warning" className="rounded-lg lg:col-span-2">
           <AlertTitle>{t('customers.calendar.editor.conflictTitle', 'Calendar conflict')}</AlertTitle>
-          <AlertDescription>{conflict}</AlertDescription>
+          <AlertDescription className="space-y-1">
+            {conflict ? <p>{conflict}</p> : null}
+            {staffConflicts.map((staffConflict) => (
+              <p key={JSON.stringify([staffConflict.userId, staffConflict.kind, staffConflict.reason])}>
+                {formatStaffAvailabilityConflict(staffConflict, t)}
+              </p>
+            ))}
+          </AlertDescription>
         </Alert>
       ) : null}
       {!catalogReady ? (
-        <CatalogStatusAlert error={catalogError} onRetry={onRetryCatalog} />
+        <CatalogStatusAlert error={catalogError || customFieldsError} customFieldsError={customFieldsError && !catalogError} onRetry={onRetryCatalog} />
       ) : null}
       {catalogReady && (definition.historical || catalogItems.some((item) => item.key === selectedType && !item.selectable)) ? (
         <Alert status="warning" className="rounded-lg lg:col-span-2">
@@ -288,20 +341,19 @@ const EditorBody = React.memo(function EditorBody({
           />
         </Field>
       </div>
-      {catalogReady ? (
-        <div className="lg:col-span-2">
-          <EventTypePanel
-            definition={definition}
-            panelKey={definition.panelKey}
-            mode={isEdit ? 'edit' : 'create'}
-            values={values}
-            errors={errors}
-            disabled={saving}
-            capabilities={capabilities}
-            setValue={setValue}
-          />
-        </div>
-      ) : null}
+      <div className="lg:col-span-2">
+        <EventTypePanel
+          definition={definition}
+          panelKey={definition.panelKey}
+          mode={isEdit ? 'edit' : 'create'}
+          values={values}
+          errors={errors}
+          disabled={saving}
+          capabilities={capabilities}
+          staffAvailability={staffAvailabilityRequest}
+          setValue={setValue}
+        />
+      </div>
       <Field label={t('customers.calendar.editor.description', 'Description')} className="lg:col-span-2">
         <Textarea
           value={form.description}
@@ -377,9 +429,7 @@ export function CalendarEventEditor({
   const catalog = useEventTypeCatalog(open)
   const { items: catalogItems, status: catalogStatus, retry: retryCatalog } = catalog
   const [selectedTypeKey, setSelectedTypeKey] = React.useState(() => isEdit && item ? item.interactionType : 'meeting')
-  const autoSelectedCreateType = !isEdit && catalog.status === 'ready' && !isSelectableEventType(catalog.items, 'meeting')
-    ? catalog.items.find((entry) => entry.selectable && !entry.historical) ?? null
-    : null
+  const catalogDisplayable = catalog.status === 'ready' || catalog.status === 'stale'
 
   // CrudForm reads initialValues once, so every dialog open gets a fresh form
   // instance keyed by the open sequence + edited record.
@@ -389,6 +439,27 @@ export function CalendarEventEditor({
     if (open && !wasOpenRef.current) setOpenSeq((seq) => seq + 1)
     wasOpenRef.current = open
   }, [open])
+
+  // The type a new event starts with is decided once per dialog opening, from the first
+  // catalog that opening can display. The catalog revalidates in the background while the
+  // form is editable: deriving the fallback from every refresh would change the form key,
+  // remount the keyed CrudForm and drop the draft. A type the refresh made unavailable is
+  // handled in place instead, by the disabled save and the type picker.
+  const createTypePinKey = `${mode}:${openSeq}`
+  const [pinnedCreateType, setPinnedCreateType] = React.useState<{
+    pinKey: string
+    type: ScopedCalendarEventType | null
+  } | null>(null)
+  const createTypePinned = pinnedCreateType?.pinKey === createTypePinKey
+  const createTypeForThisOpening = createTypePinned
+    ? pinnedCreateType.type
+    : !isEdit && catalogDisplayable && !isSelectableEventType(catalogItems, 'meeting')
+      ? catalogItems.find((entry) => entry.selectable && !entry.historical) ?? null
+      : null
+  if (!isEdit && catalogDisplayable && !createTypePinned) {
+    setPinnedCreateType({ pinKey: createTypePinKey, type: createTypeForThisOpening })
+  }
+  const autoSelectedCreateType = isEdit ? null : createTypeForThisOpening
   const formKey = `${mode}:${item?.id ?? 'new'}:${openSeq}:${autoSelectedCreateType?.key ?? 'default'}`
   const labelScopeKey = JSON.stringify([formKey, activeOrgId, item?.entityId, item?.dealId, item?.ownerUserId])
   const [resolvedLabels, setResolvedLabels] = React.useState<{
@@ -428,7 +499,16 @@ export function CalendarEventEditor({
   const customFields = useCalendarCustomFields(open, E.customers.customer_interaction, selectedDefinition.behavior.customFieldsetIds)
   const injectionWidgets = useInjectionWidgets(INTERACTION_INJECTION_SPOT)
   const canCreateType = isSelectableEventType(catalog.items, selectedTypeKey)
-  const formReady = isEdit || catalog.status === 'ready'
+  // Mount the form only once everything that shapes its fields has loaded, so
+  // the dialog does not paint a short form and then grow when the selected
+  // type's fields and the custom-field group arrive.
+  const formReady = catalogDisplayable && customFields.status !== 'loading'
+  const { status: customFieldsStatus, retry: retryCustomFields } = customFields
+  const customFieldsFailed = customFieldsStatus === 'stale' || customFieldsStatus === 'error'
+  const retryFailedReads = React.useCallback(() => {
+    if (catalogStatus !== 'ready') retryCatalog()
+    if (customFieldsStatus !== 'ready') retryCustomFields()
+  }, [catalogStatus, customFieldsStatus, retryCatalog, retryCustomFields])
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
@@ -594,16 +674,17 @@ export function CalendarEventEditor({
             staffEnabled={staffEnabled !== false}
             saving={saving}
             catalogItems={catalogItems}
-            catalogReady={catalogStatus === 'ready'}
-            catalogError={catalogStatus === 'error'}
-            onRetryCatalog={retryCatalog}
+            catalogReady={catalogStatus === 'ready' && !customFieldsFailed}
+            catalogError={catalogStatus === 'error' || catalogStatus === 'stale'}
+            customFieldsError={customFieldsFailed}
+            onRetryCatalog={retryFailedReads}
             onSelectedTypeChange={setSelectedTypeKey}
           />
         ),
       },
       ...(customFields.fields.length ? [{ id: 'customFields', title: t('entities.customFields.title'), fields: customFields.fields.map((field) => field.id) }] : []),
     ],
-    [open, isEdit, item, conflictScope, currentUserId, resourcesEnabled, staffEnabled, saving, catalogItems, catalogStatus, retryCatalog, customFields.fields, t],
+    [open, isEdit, item, conflictScope, currentUserId, resourcesEnabled, staffEnabled, saving, catalogItems, catalogStatus, customFieldsFailed, retryFailedReads, customFields.fields, t],
   )
 
   const handleKeyDown = useDialogKeyHandler({
@@ -682,8 +763,12 @@ export function CalendarEventEditor({
                 injectionSpotId={INTERACTION_INJECTION_SPOT}
                 onSubmit={handleSubmit}
               />
+            ) : catalog.status === 'error' ? (
+              <CatalogStatusAlert error onRetry={catalog.retry} />
             ) : (
-              <CatalogStatusAlert error={catalog.status === 'error'} onRetry={catalog.retry} />
+              <div className="flex min-h-80 items-center justify-center">
+                <LoadingMessage label={t('customers.calendar.editor.catalogLoading')} />
+              </div>
             )}
           </div>
         </div>

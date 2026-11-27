@@ -27,7 +27,7 @@ async function resolveRecipientContext(
   | { ctx: ResolvedCtx; scope: MessageScope; em: EntityManager; recipient: MessageRecipient }
   | { response: Response }
 > {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, id)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
 
   const message = await em.findOne(Message, {

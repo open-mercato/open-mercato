@@ -39,6 +39,14 @@ export type EventTone = {
 const TINT_ALPHA_HEX = '2E'
 const TINT_MIX_PERCENT = 18
 
+/**
+ * Icon/text color derived from a dictionary color: mixed toward the theme
+ * foreground so light tenant colors (amber, yellow) stay readable on the tint.
+ */
+export function readableTypeColor(color: string): string {
+  return `color-mix(in srgb, ${color} 70%, var(--foreground))`
+}
+
 function softTintStyle(color: string): React.CSSProperties {
   if (/^#[0-9a-fA-F]{6}$/.test(color)) return { backgroundColor: `${color}${TINT_ALPHA_HEX}` }
   return { backgroundColor: `color-mix(in srgb, ${color} ${TINT_MIX_PERCENT}%, transparent)` }
@@ -108,7 +116,7 @@ type LocationMetaProps = {
 function LocationMeta({ item, subClassName, accentColor }: LocationMetaProps) {
   const t = useT()
   if (!item.location || !item.locationKind) return null
-  const iconStyle = accentColor ? { color: accentColor } : undefined
+  const iconStyle = accentColor ? { color: readableTypeColor(accentColor) } : undefined
   if (item.locationKind === 'platform' && item.platform) {
     const platform = PLATFORM_LABELS[item.platform]
     return (
@@ -142,6 +150,7 @@ export type EventBlockProps = {
   insetInlineStart: string
   width: string
   conflicted: boolean
+  conflictDescription?: string
   highlighted: boolean
   selected?: boolean
   nowMs: number
@@ -157,6 +166,7 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
     insetInlineStart,
     width,
     conflicted,
+    conflictDescription,
     highlighted,
     selected,
     nowMs,
@@ -172,6 +182,7 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
   const title = item.title || t('customers.calendar.grid.untitled', 'Untitled')
   const timeRange = formatTimeRange(locale, item.start, item.end)
   const visibleTime = compact ? formatTimeLabel(locale, item.start) : timeRange
+  const fullLabel = `${title}, ${timeRange}`
   const showTime = height >= SHOW_TIME_MIN_HEIGHT_PX
   const wrapTitle = height >= WRAP_TITLE_MIN_HEIGHT_PX
   const hasMetaContent = item.participants.length > 0 || (item.location !== null && item.locationKind !== null)
@@ -184,7 +195,9 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
       ref={ref}
       type="button"
       variant="ghost"
-      aria-label={`${title}, ${timeRange}`}
+      aria-label={fullLabel}
+      aria-description={conflictDescription}
+      title={conflictDescription ? `${fullLabel} · ${conflictDescription}` : fullLabel}
       className={cn(
         'pointer-events-auto absolute h-auto flex-col items-start justify-start gap-0.5 whitespace-normal overflow-hidden rounded-md ps-3 pe-1.5 text-start outline-none hover:bg-muted/70',
         !compact && 'sm:gap-1 sm:ps-4 sm:pe-3',

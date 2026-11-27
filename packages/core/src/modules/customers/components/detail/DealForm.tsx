@@ -3,6 +3,13 @@
 import { extractResponseEnricherNamespaces } from '@open-mercato/shared/lib/crud/response-enricher-namespaces'
 import * as React from 'react'
 import { z } from 'zod'
+import {
+  decimalToNumber,
+  decimalToString,
+  isDecimalInput,
+  isNegativeDecimal,
+  resolveExactDecimal,
+} from '@open-mercato/shared/lib/decimal'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -22,6 +29,7 @@ import { createDictionarySelectLabels } from './utils'
 import { E } from '#generated/entities.ids.generated'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
+import { formatCurrencyOptionLabel } from '../../lib/currencyOptionLabel'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
 import { DealOwnerSelect, type DealOwnerOption } from './DealOwnerSelect'
@@ -104,6 +112,8 @@ export type DealFormBaseValues = {
   pipelineId?: string | null
   pipelineStageId?: string | null
   valueAmount?: number | null
+  /** `valueAmount` as an exact decimal string. */
+  valueAmountExact?: string | null
   valueCurrency?: string | null
   probability?: number | null
   expectedCloseAt?: string | null
@@ -112,8 +122,8 @@ export type DealFormBaseValues = {
   companyIds?: string[]
 }
 
-type PipelineOption = { id: string; name: string; isDefault: boolean }
-type PipelineStageOption = { id: string; label: string; order: number }
+type PipelineOption = { id: string; name: string; isDefault: boolean; stageProbabilitiesEnabled?: boolean }
+type PipelineStageOption = { id: string; label: string; order: number; defaultProbability?: number | null }
 
 export type DealFormSubmitPayload = {
   base: DealFormBaseValues
@@ -214,6 +224,7 @@ function normalizePipelineOptions(options: PipelineOption[] | undefined): Pipeli
       id: option.id,
       name: option.name,
       isDefault: option.isDefault === true,
+      stageProbabilitiesEnabled: option.stageProbabilitiesEnabled === true,
     })
   }
   return Array.from(byId.values())
@@ -359,6 +370,24 @@ const schema = z.object({
 }).passthrough()
 
 export const dealFormSchema = schema
+
+// The deal editor keeps the amount as an exact decimal string so an unrelated save
+// never rewrites a stored value that carries more digits than a float holds.
+const exactValueAmountSchema = z
+  .preprocess((value) => {
+    if (value === null || value === undefined) return undefined
+    if (typeof value === 'string' && !value.trim()) return undefined
+    return value
+  }, z
+    .union([z.number(), z.string()])
+    .refine((value) => isDecimalInput(value) && !isNegativeDecimal(value), 'customers.people.detail.deals.valueInvalid')
+    .transform((value) => decimalToString(value))
+    .optional())
+  .optional()
+
+/** `dealFormSchema` with `valueAmount` kept as an exact decimal string. */
+export const dealExactFormSchema = schema.extend({ valueAmount: exactValueAmountSchema })
+const dealEditorSchema = dealExactFormSchema
 
 import { toDateInputValue as toDateInputValueOrNull } from '@open-mercato/shared/lib/date/format'
 
@@ -850,6 +879,8 @@ export function DealForm({
 }: DealFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
+  const initialOrganizationId = initialValues?.organizationId
+  const dealOrganizationId = typeof initialOrganizationId === 'string' ? initialOrganizationId : null
   const {
     data: currencyDictionaryData,
     error: currencyDictionaryErrorRaw,
@@ -901,7 +932,7 @@ export function DealForm({
     const remainder: { value: string; label: string; color: string | null; icon: string | null }[] = []
     payload.entries.forEach((entry) => {
       const value = entry.value.toUpperCase()
-      const label = entry.label && entry.label.length ? `${value} – ${entry.label}` : value
+      const label = formatCurrencyOptionLabel(value, entry.label)
       const option = { value, label, color: null, icon: null }
       if (priorityOrder.has(value)) prioritized.push(option)
       else remainder.push(option)
@@ -1014,6 +1045,7 @@ export function DealForm({
           onChange={(next) => setValue(next ?? '')}
           labels={dictionaryLabels.status}
           selectClassName="w-full"
+          organizationId={dealOrganizationId}
         />
       ),
     } as CrudField,
@@ -1048,10 +1080,17 @@ export function DealForm({
       label: t('customers.people.detail.deals.fields.pipelineStage', 'Pipeline stage'),
       type: 'custom',
       layout: 'half',
-      component: ({ value, setValue }) => (
+      component: ({ value, values, setValue, setFormValue }) => (
         <Select
           value={typeof value === 'string' && value ? value : undefined}
-          onValueChange={(next) => setValue(next ?? '')}
+          onValueChange={(next) => {
+            setValue(next ?? '')
+            const pipeline = pipelines.find((option) => option.id === values?.pipelineId)
+            const stage = pipelineStages.find((option) => option.id === next)
+            if (pipeline?.stageProbabilitiesEnabled && typeof stage?.defaultProbability === 'number') {
+              setFormValue?.('probability', stage.defaultProbability)
+            }
+          }}
           disabled={disabled || !pipelineStages.length}
         >
           <SelectTrigger>
@@ -1068,7 +1107,7 @@ export function DealForm({
     {
       id: 'valueAmount',
       label: t('customers.people.detail.deals.fields.valueAmount', 'Amount'),
-      type: 'number',
+      type: 'decimal',
       layout: 'half',
     },
     {
@@ -1172,7 +1211,7 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, mode, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLabels, dealOrganizationId, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, mode, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const nextGroups: CrudFormGroup[] = [
@@ -1234,7 +1273,7 @@ export function DealForm({
       pipelineStage: initialValues?.pipelineStage ?? '',
       pipelineId: initialValues?.pipelineId ?? (typeof (initialValues as Record<string, unknown>)?.pipeline_id === 'string' ? (initialValues as Record<string, unknown>).pipeline_id as string : ''),
       pipelineStageId: initialValues?.pipelineStageId ?? (typeof (initialValues as Record<string, unknown>)?.pipeline_stage_id === 'string' ? (initialValues as Record<string, unknown>).pipeline_stage_id as string : ''),
-      valueAmount: normalizeNumber(initialValues?.valueAmount ?? null),
+      valueAmount: resolveExactDecimal(initialValues?.valueAmountExact, initialValues?.valueAmount) ?? undefined,
       valueCurrency: normalizeCurrency(initialValues?.valueCurrency ?? null),
       probability: normalizeNumber(initialValues?.probability ?? null),
       expectedCloseAt: toDateInputValue(initialValues?.expectedCloseAt ?? null),
@@ -1258,7 +1297,7 @@ export function DealForm({
       if (pending || isSubmitting) return
       setPending(true)
       try {
-        const parsed = schema.safeParse(values)
+        const parsed = dealEditorSchema.safeParse(values)
         if (!parsed.success) {
           throw buildDealValidationError(parsed.error.issues, t)
         }
@@ -1275,7 +1314,8 @@ export function DealForm({
           pipelineId: parsed.data.pipelineId || undefined,
           pipelineStageId: parsed.data.pipelineStageId || undefined,
           valueAmount:
-            typeof parsed.data.valueAmount === 'number' ? parsed.data.valueAmount : undefined,
+            typeof parsed.data.valueAmount === 'string' ? decimalToNumber(parsed.data.valueAmount) : undefined,
+          valueAmountExact: parsed.data.valueAmount,
           valueCurrency: parsed.data.valueCurrency || undefined,
           probability:
             typeof parsed.data.probability === 'number' ? parsed.data.probability : undefined,
@@ -1325,7 +1365,7 @@ export function DealForm({
       versionHistory={showVersionHistory && mode === 'edit' && initialValues?.id
         ? { resourceKind: 'customers.deal', resourceId: String(initialValues.id) }
         : undefined}
-      schema={schema}
+      schema={dealEditorSchema}
       fields={baseFields}
       groups={groups}
       entityId="customers.deal"

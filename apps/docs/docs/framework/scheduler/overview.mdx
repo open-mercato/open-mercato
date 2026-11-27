@@ -168,8 +168,11 @@ interface SchedulerService {
   // Remove a schedule
   unregister(scheduleId: string): Promise<void>
   
-  // Check if schedule exists
+  // Check if schedule exists (counts disabled and soft-deleted rows too)
   exists(scheduleId: string): Promise<boolean>
+
+  // Check if schedule exists, is enabled and is not soft-deleted — i.e. will run
+  isActive(scheduleId: string): Promise<boolean>
   
   // Update schedule fields
   update(scheduleId: string, changes: Partial<ScheduleRegistration>): Promise<void>

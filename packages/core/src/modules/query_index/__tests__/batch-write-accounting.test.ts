@@ -1,5 +1,6 @@
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
-import { replaceSearchTokensForBatch } from '../lib/search-tokens'
+import { replaceSearchTokensForBatch, deleteSearchTokensForRecord } from '../lib/search-tokens'
+import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import {
   upsertIndexBatch,
   assertIndexBatchWritesLanded,
@@ -13,11 +14,13 @@ jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
 
 jest.mock('../lib/search-tokens', () => ({
   replaceSearchTokensForBatch: jest.fn(async () => undefined),
+  deleteSearchTokensForRecord: jest.fn(async () => undefined),
   isSearchDebugEnabled: () => false,
 }))
 
 const mockRecordIndexerError = recordIndexerError as jest.MockedFunction<typeof recordIndexerError>
 const mockReplaceSearchTokens = replaceSearchTokensForBatch as jest.MockedFunction<typeof replaceSearchTokensForBatch>
+const mockDeleteSearchTokens = deleteSearchTokensForRecord as jest.MockedFunction<typeof deleteSearchTokensForRecord>
 
 type InsertCall = { table: string; onConflict: boolean; values: any }
 
@@ -154,6 +157,43 @@ describe('upsertIndexBatch write accounting (GSM-266)', () => {
     expect(mockRecordIndexerError).not.toHaveBeenCalled()
   })
 
+  it('writes tokens only for records the shouldIndex gate accepts and deletes the rest', async () => {
+    const fake = createFakeDb()
+    const queryEngine = { query: jest.fn() }
+    const gate = jest.fn((ctx: any) => {
+      if (ctx.record.id === '3') throw new Error('lookup failed')
+      return ctx.record.id === '1'
+    })
+    registerSearchModuleConfigs([{ entities: [{ entityId: 'example:todo', shouldIndex: gate }] }])
+    try {
+      const result = await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2', '3']), SCOPE, {
+        searchTokenGateQueryEngine: queryEngine as any,
+      })
+      expect(result.written).toBe(3)
+    } finally {
+      registerSearchModuleConfigs([])
+    }
+
+    expect(gate).toHaveBeenCalledTimes(3)
+    expect(gate.mock.calls[0][0]).toEqual(expect.objectContaining({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      queryEngine,
+    }))
+    expect(mockReplaceSearchTokens).toHaveBeenCalledTimes(1)
+    expect(mockReplaceSearchTokens.mock.calls[0][1].map((payload) => payload.recordId)).toEqual(['1'])
+    expect(mockDeleteSearchTokens.mock.calls.map((call) => call[1].recordId)).toEqual(['2', '3'])
+  })
+
+  it('leaves token writes untouched for entities without a shouldIndex gate', async () => {
+    const fake = createFakeDb()
+
+    await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE)
+
+    expect(mockReplaceSearchTokens.mock.calls[0][1].map((payload) => payload.recordId)).toEqual(['1', '2'])
+    expect(mockDeleteSearchTokens).not.toHaveBeenCalled()
+  })
+
   it('records the bulk failure and still writes every row through the fallback', async () => {
     const fake = createFakeDb({ bulkError: new Error('bulk upsert exploded') })
 
@@ -259,6 +299,67 @@ describe('upsertIndexBatch write accounting (GSM-266)', () => {
       expect.anything(),
       expect.objectContaining({ source: 'fulltext' }),
     )
+  })
+
+  it('reads the ciphertext guard per row, straight after that row is decrypted', async () => {
+    const fake = createFakeDb()
+    const events: string[] = []
+    const decryptDoc = jest.fn(async (_entityType: string, doc: Record<string, unknown>) => {
+      events.push(`decrypt:${String(doc.id)}`)
+      return doc
+    })
+    const ciphertextGuard = jest.fn(() => {
+      events.push('guard')
+      return true
+    })
+
+    await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE, { decryptDoc, ciphertextGuard })
+
+    expect(events).toEqual(['decrypt:1', 'guard', 'decrypt:2', 'guard'])
+    const payloads = mockReplaceSearchTokens.mock.calls[0][1]
+    expect(payloads.map((payload) => [payload.recordId, payload.guardCiphertext])).toEqual([['1', true], ['2', true]])
+  })
+
+  it('keeps the guard on for rows decrypted before Vault recovered mid-batch', async () => {
+    const fake = createFakeDb()
+    let vaultReachable = false
+    const decryptDoc = jest.fn(async (_entityType: string, doc: Record<string, unknown>) => {
+      if (doc.id === '2') vaultReachable = true
+      return doc
+    })
+
+    await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE, {
+      decryptDoc,
+      ciphertextGuard: () => !vaultReachable,
+    })
+
+    const payloads = mockReplaceSearchTokens.mock.calls[0][1]
+    expect(payloads.map((payload) => [payload.recordId, payload.guardCiphertext])).toEqual([['1', true], ['2', false]])
+  })
+
+  it('guards a row whose decrypt failed even while the KMS reports healthy', async () => {
+    const fake = createFakeDb()
+    const decryptDoc = jest.fn(async (_entityType: string, doc: Record<string, unknown>) => {
+      if (doc.id === '1') throw new Error('decrypt failed')
+      return doc
+    })
+
+    await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1', '2']), SCOPE, {
+      decryptDoc,
+      ciphertextGuard: () => false,
+    })
+
+    const payloads = mockReplaceSearchTokens.mock.calls[0][1]
+    expect(payloads.map((payload) => [payload.recordId, payload.guardCiphertext])).toEqual([['1', true], ['2', false]])
+  })
+
+  it('leaves the guard to the token writer when no ciphertextGuard is given', async () => {
+    const fake = createFakeDb()
+
+    await upsertIndexBatch(fake.db, 'example:todo', makeRows(['1']), SCOPE)
+
+    const payloads = mockReplaceSearchTokens.mock.calls[0][1]
+    expect(payloads.every((payload) => !('guardCiphertext' in payload))).toBe(true)
   })
 
   it('returns an empty result for an empty batch', async () => {

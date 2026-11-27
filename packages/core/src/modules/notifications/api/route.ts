@@ -177,7 +177,7 @@ export async function GET(req: Request) {
 
   const [notifications, total] = await Promise.all([
     em.find(Notification, filters, {
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc', id: 'desc' },
       limit: input.pageSize,
       offset: (input.page - 1) * input.pageSize,
     }),

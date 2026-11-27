@@ -16,7 +16,8 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { E } from '#generated/entities.ids.generated'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
-import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
+import { formatLocaleDecimalInput, parseLocaleDecimal } from '@open-mercato/shared/lib/number'
+import { compareDecimals, decimalToNumber, decimalToString, isDecimalInput } from '@open-mercato/shared/lib/decimal'
 import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -71,11 +72,11 @@ type PaymentDialogProps = {
 // the submit handler carrying the separator the surrounding UI displays — `110,70` under
 // Polish (issue #5828, same defect class as #5552). A blank/absent value keeps the old
 // "must be a positive amount" message; only genuinely unparseable input returns null.
-const parseAmountInput = (value: unknown, locale?: string): number | null => {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null
-  if (typeof value !== 'string') return 0
-  if (!value.trim()) return 0
-  return parseLocaleNumber(value, locale)
+const parseAmountInput = (value: unknown, locale?: string): string | null => {
+  if (typeof value === 'number') return Number.isFinite(value) ? decimalToString(value) : null
+  if (typeof value !== 'string') return '0'
+  if (!value.trim()) return '0'
+  return parseLocaleDecimal(value, locale)
 }
 
 export function PaymentDialog({
@@ -109,7 +110,7 @@ export function PaymentDialog({
 
   const initialValues = React.useMemo(
     () => ({
-      amount: payment?.amount ?? '',
+      amount: isDecimalInput(payment?.amount) ? formatLocaleDecimalInput(payment.amount, locale) : '',
       paymentMethodId: payment?.paymentMethodId ?? '',
       paymentReference: payment?.paymentReference ?? '',
       receivedAt: payment?.receivedAt ? payment.receivedAt.slice(0, 10) : '',
@@ -119,6 +120,7 @@ export function PaymentDialog({
       ...extractCustomFieldValues(payment),
     }),
     [
+      locale,
       payment?.amount,
       payment?.customFieldSetId,
       payment?.customValues,
@@ -504,7 +506,7 @@ export function PaymentDialog({
         const message = t('sales.documents.payments.amountInvalid', 'Enter the amount as a number.')
         throw createCrudFormError(message, { amount: message })
       }
-      if (amountValue <= 0) {
+      if (compareDecimals(amountValue, 0) <= 0) {
         throw createCrudFormError(t('sales.documents.payments.amountRequired', 'Enter a positive amount.'), {
           amount: t('sales.documents.payments.amountRequired', 'Enter a positive amount.'),
         })
@@ -512,7 +514,8 @@ export function PaymentDialog({
 
       const payload: Record<string, unknown> = {
         orderId,
-        amount: amountValue,
+        amount: decimalToNumber(amountValue),
+        amountExact: amountValue,
         currencyCode: resolvedCurrency,
         paymentReference:
           typeof values.paymentReference === 'string' && values.paymentReference.trim().length

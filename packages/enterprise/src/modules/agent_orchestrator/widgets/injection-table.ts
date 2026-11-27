@@ -27,6 +27,17 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 30,
     },
   ],
+  // Identity spec §D — from an audit entry back to the agent run / proposal that caused it.
+  'data-table:audit_logs.actions.list:row-actions': [
+    {
+      widgetId: 'agent_orchestrator.injection.audit-run-link',
+      priority: 30,
+    },
+    {
+      widgetId: 'agent_orchestrator.injection.audit-proposal-link',
+      priority: 29,
+    },
+  ],
   // Spec §7.6 — the pending proposal as a draft card on its disposition task,
   // with a one-click link to the run trace. The task detail page can only walk
   // a `formSchema` generically, so without this the operator is asked to

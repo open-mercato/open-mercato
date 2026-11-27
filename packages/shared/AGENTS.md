@@ -46,14 +46,15 @@ yarn workspace @open-mercato/shared build
 | `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |
 | `db/` | When resolving the ORM/connection-pool config (`resolvePoolConfig`, pool/timeout env knobs); when serializing a bounded write across processes under a Postgres transaction advisory lock (`withAdvisoryXactLock` — pass the request EntityManager; `fn` does all DB I/O on `txEm`, flushes its own writes, makes at most one external call, never nests `transactional` or forks; `maxConcurrentHolders` caps holders per process) | `@open-mercato/shared/lib/db/mikro`, `@open-mercato/shared/lib/db/advisoryLock` |
+| `decimal.ts` | When doing ANY money or FX arithmetic - exact add/subtract/multiply, division that keeps at least 17 significant digits, half-up rounding, and `decimalStringSchema` (accepts number or string, outputs a canonical decimal string). MUST NOT do money math on JS `number`; round amounts with `resolveAmountDecimalPlaces(currency.decimalPlaces)` | `@open-mercato/shared/lib/decimal` |
 | `delivery/` | When scheduling delivery/retry attempts — exponential backoff with jitter for delivery pipelines (currently the push delivery worker) | `@open-mercato/shared/lib/delivery/retry` (`calculateBackoffDelayMs`) |
-| `di/` | When setting up dependency injection (Awilix). The app-level hook (`src/di.ts` → `register`) is wired explicitly in BOTH bootstrap paths — `src/bootstrap.ts` for the Next.js runtime, `bootstrapFromAppRoot()` for worker/scheduler/CLI processes. Never rely on the legacy `import('@/di')` fallback: the alias does not exist outside the app bundler | `@open-mercato/shared/lib/di` |
+| `di/` | When setting up dependency injection (Awilix). The app-level hook (`src/di.ts` → `register`) is wired explicitly in BOTH bootstrap paths — `src/bootstrap.ts` for the Next.js runtime, `bootstrapFromAppRoot()` for worker/scheduler/CLI processes. Never rely on the legacy `import('@/di')` fallback: the alias does not exist outside the app bundler. A new HTTP or job entry point that builds containers MUST wrap its work in `runInRequestScope` (`lib/di/request-scope`): module emitters then dispatch on that request's container instead of another request's (#2963) | `@open-mercato/shared/lib/di` |
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
 | `logger/` | When emitting diagnostics — `createLogger(namespace)` instead of raw `console.*` (migrate incrementally, Boy Scout rule). Message-first with structured fields (`logger.warn('Payload too large', { event, maxBytes })`), errors under `err`, `child(bindings)` for context, `getLogLevel()`/`isLevelEnabled()` to gate expensive fields; level via `OM_LOG_LEVEL`. Never log credentials, PII, or payload bodies | `@open-mercato/shared/lib/logger` |
 | `modules/` | When registering or listing modules; `onModulesRegistered(listener)` subscribes to (re-)registrations so a cache derived from the module list can drop what it built from an incomplete one — bootstrap may register an i18n-only set before the full module list merges in, and listeners fire only when the registered set actually changed, so nothing is added to the request path. Its governing contract — notification timing, fail-soft handling of a throwing or rejecting listener, snapshot-based change detection, listener lifetime under HMR, and the globals a test MUST clear — is [`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](../../.ai/specs/2026-08-12-module-registry-registration-listeners.md); `surfaceFingerprint` gives a deploy-time hash of the enabled modules, their declared ACL features, and the backend route manifest — mix it into any cache key whose payload is derived from those (no DB write exists to tag-invalidate on, so an omitted fingerprint serves the pre-deploy payload forever). It cannot see React-element fields such as a route `icon`, so callers MUST still pass a `ttl` | `@open-mercato/shared/lib/modules/registry`, `@open-mercato/shared/lib/modules/surfaceFingerprint` |
-| `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint (`parseNumberWithDefault`), or when parsing a number a USER TYPED, which carries the application locale's decimal/group separators (`parseLocaleNumber`, returns `null` — never a silent `0` — on unparseable input). MUST NOT run API/DB values through `parseLocaleNumber`; those are already numbers. When an input REDISPLAYS a stored number (blur, reload, post-save), render it with `formatLocaleNumberInput(value, locale)`, never `String(value)`, which always emits a dot | `@open-mercato/shared/lib/number` |
+| `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint (`parseNumberWithDefault`), or when parsing a number a USER TYPED, which carries the application locale's decimal/group separators (`parseLocaleNumber`, returns `null` — never a silent `0` — on unparseable input). MUST NOT run API/DB values through `parseLocaleNumber`; those are already numbers. When an input REDISPLAYS a stored number (blur, reload, post-save), render it with `formatLocaleNumberInput(value, locale)` (`formatLocaleDecimalInput` for exact decimal strings; `parseLocaleDecimal` parses them back), never `String(value)`, which always emits a dot | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
 | `search/` | When resolving record ids from the `search_tokens` index — MUST use instead of hand-rolling the Kysely lookup, for raw ORM/Kysely encrypted-column filters; QueryEngine owns this rewrite automatically | `@open-mercato/shared/lib/search/tokenLookup` |
@@ -123,7 +124,7 @@ Both paths require populated `search_tokens` for the entity, encrypted field, an
 
 When fallback would compare with ciphertext, both engines retain the existing warn-once log. Outside production, `meta.ciphertextSearchWarnings` additionally reports entity, field, reason and remediation hint on every affected query/list response, including `no-search-tokens`. No values, hashes or tenant IDs are exposed. Production response metadata is unchanged.
 
-- `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` routes plaintext columns to per-word SQL containment; encrypted columns retain token lookup. The flag remains off by default.
+- `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` routes plaintext columns to per-word SQL containment; encrypted columns retain token lookup. The flag remains off by default; off, plaintext-column token matches are ANDed with folded containment (`lib/search/tokenContainment`).
 - Direct `…WithDecryption` helpers warn outside production about `$like`/`$ilike`/`$re` in encrypted-field ORM predicates (`lib/encryption/likeFilterWarning`); they decrypt returned rows but cannot repair a ciphertext filter.
 
 ### Boolean Parsing — MUST use instead of ad-hoc parsing
@@ -186,6 +187,36 @@ throw new Error('[internal] Event bus not available in container')
 ```
 
 The detection scripts (`yarn i18n:check-hardcoded`, `yarn i18n:check-values`) live in `scripts/`. See `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md` for the full convention and the per-module allowlist format (`<module>/i18n/.hardcoded-allowlist.json`).
+
+### Zod `.refine()`/`superRefine` messages — opt in to translation via `params.i18nKey`
+
+A zod schema's built-in messages (`z.uuid()`'s "Invalid UUID", `min`/`max`, etc.) are not
+translated — that is a separate, larger effort and out of scope here. A `.refine()` or
+`superRefine` call's own `message`, however, is business-rule text this codebase writes, and
+it CAN opt in to translation: attach `params: { i18nKey, i18nFallback }` alongside `message`,
+and `makeCrudRoute`'s `handleError` (via `translateZodIssues` in
+`packages/shared/src/lib/crud/factory.ts`) translates that issue's `message` through
+`translate(i18nKey, i18nFallback)` before it reaches the client.
+
+```typescript
+const schema = z.object({ /* ... */ }).refine(
+  (value) => /* business rule */,
+  {
+    message: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+    params: {
+      i18nKey: 'ledger.errors.journalEntryLineNotOneSided',
+      i18nFallback: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+    },
+  },
+)
+```
+
+This is per-schema, per-message and additive: an issue whose `params` has no `i18nKey` string
+is left exactly as `.refine()` produced it — zero behavior change for every schema that hasn't
+opted in. See `packages/core/src/modules/ledger/data/validators.ts` for the first real usage.
+
+MUST NOT rely on this for a schema's own built-in type/format messages — only a `.refine()`/
+`superRefine` custom `message` carries a `params` bag zod will pass through onto the issue.
 
 ### Request Scoping — use for scoped API payloads
 
@@ -282,6 +313,7 @@ Downstream apps replace or disable any contract a module presents through a sing
 | Notifications / interceptors / enrichers / guards | `applyNotificationTypeOverridesToEntries()`, `applyNotificationHandlerOverridesToEntries()`, `applyApiInterceptorOverridesToEntries()`, `applyCommandInterceptorOverridesToEntries()`, `applyResponseEnricherOverridesToEntries()`, `applyPageGuardOverridesToEntries()` |
 | DI | `applyDiOverridesToContainer()` |
 | Sidebar nav ordering | `applyNavGroupOrderOverrides()`, `getNavGroupOrderOverride()` |
+| CrudForm sections | `applyFormSectionOverrides()`, `composeFormSectionOverrides()` |
 
 MUST rules:
 - `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
@@ -293,6 +325,8 @@ MUST rules:
 - An `enabledModules` entry gated on a **server-only** env var (anything not `NEXT_PUBLIC_*`) MUST NOT carry `widgets` or `notifications` overrides. The browser re-evaluates `modules.ts` with those reads `undefined`, so the entry is absent there: the server dispatches the override and the client does not, and the widget returns on hydration with nothing logged. Declare such an override on an ungated entry, or gate it on a `NEXT_PUBLIC_` var. Outside production `ClientBootstrap` warns for every module id in `enabled-module-ids.generated` that the browser-evaluated list is missing.
 - Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
 - `nav.groupOrder` **prepends** group ids ahead of the built-in ordering; ids it does not name keep their current position. It is a default, resolved beneath role and per-user sidebar preferences, and an absent override MUST leave ordering byte-identical.
+- Address `forms.sections` entries as `<hostId>/<formVariant>/<formOperation>/<sectionId>`. Preserve `null` through composition so the resolver can restore a base section or omit an addition. Runtime descriptors and registry validation belong outside the shared override composer.
+- Declare facts and loader identities with `defineCrudFormSections` and `lazyCrudFormSectionRuntime` from `@open-mercato/shared/modules/form-sections`. Bind conventional hosts with `defineCrudRouteSectionHost` from `@open-mercato/shared/lib/crud/form-sections/derived-route-host`. Authorization, final-input validation, and target locking belong to the [section policy adapter](../../.ai/docs/module-development.md#crudform-section-policies).
 - Nav ordering state lives on `globalThis` because its reader is `@open-mercato/core` while its writer is app bootstrap; a module-local variable would be invisible across duplicated module instances in standalone builds. The injection-widget `key`⇄`widgetId` alias index is on `globalThis` for the same reason — `@open-mercato/ui` writes it while filtering entries, `@open-mercato/core` reads it while filtering tables.
 
 ### Query Engine Extensibility (UMES)

@@ -192,6 +192,21 @@ const result = await sendAsUser(container, { userId, tenantId, organizationId, a
 if (!result.ok) { /* result.status carries 403 / 404 / 409 / 422 */ }
 ```
 
+To send files, add `attachments: [{ kind: 'attachment', attachmentId, owner: { entityId, recordId } }]`
+(at most 10, and 25 MB in total unless the adapter declares `maxTotalBytes`). Each item names a file from the attachments module and the record that
+owns it; as with `parentMessageId`, your code must already have checked that the user may read that
+record. The hub checks the rest — the adapter advertises `fileSharing`, the file is readable in the
+user's tenant and organization and owned by `owner`, its type is in `supportedMimeTypes`, its size
+fits — and answers 422 with a `code` (`attachments_unsupported`, `attachment_not_found`,
+`attachment_type_not_allowed`, `attachments_too_large`, …) otherwise. Only the references are stored;
+the delivery worker reads the bytes when it sends.
+
+On the adapter side, `fileSharing: true` means `convertOutbound` receives `attachments` whose
+`content` holds the file bytes. Send those (or call `resolveOutboundAttachmentBytes` from
+`communication_channels/lib/outbound-attachments`) and never fetch `attachment.url`. Declare the
+provider's limits in the capabilities: `maxFileSize` per file and, when it differs from 25 MB,
+`maxTotalBytes` for the raw total of one message.
+
 :::warning `send-as-user` is email-shaped today
 The HTTP route validates `to` as a list of **email addresses**, so it rejects a Discord channel
 snowflake before the adapter is consulted. The in-process facade does not apply that validation, but

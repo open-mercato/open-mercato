@@ -98,7 +98,10 @@ describe('CrudForm double-submit protection (issue #1539)', () => {
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2))
   })
 
-  it('ignores a second submit after a successful save that redirects, before the route unmounts the form (issue #8645)', async () => {
+  it.each([
+    '/somewhere',
+    () => '/somewhere',
+  ])('ignores a second submit after a successful save that redirects, before the route unmounts the form (issue #8645)', async (successRedirect) => {
     let resolveSubmit: (() => void) | null = null
     const onSubmit = jest.fn(
       () =>
@@ -113,7 +116,7 @@ describe('CrudForm double-submit protection (issue #1539)', () => {
         fields={fields}
         initialValues={{ name: 'alpha' }}
         onSubmit={onSubmit}
-        successRedirect="/somewhere"
+        successRedirect={successRedirect}
       />,
     )
 
@@ -140,7 +143,10 @@ describe('CrudForm double-submit protection (issue #1539)', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 
-  it('releases the lock when onBeforeNavigate blocks the success redirect, so the next submit proceeds normally', async () => {
+  it.each([
+    '/somewhere',
+    () => '/somewhere',
+  ])('releases the lock when onBeforeNavigate blocks the success redirect, so the next submit proceeds normally', async (successRedirect) => {
     triggerInjectionEventMock.mockImplementation(async (eventName: unknown) =>
       eventName === 'onBeforeNavigate' ? { ok: false, message: 'blocked' } : { ok: true },
     )
@@ -153,7 +159,7 @@ describe('CrudForm double-submit protection (issue #1539)', () => {
         fields={fields}
         initialValues={{ name: 'alpha' }}
         onSubmit={onSubmit}
-        successRedirect="/somewhere"
+        successRedirect={successRedirect}
         injectionSpotId="test:crudform-nav-guard"
       />,
     )
@@ -172,6 +178,38 @@ describe('CrudForm double-submit protection (issue #1539)', () => {
     await act(async () => {
       fireEvent.submit(form)
     })
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2))
+  })
+
+  it('resolves the redirect with the saved result after the success lifecycle completes', async () => {
+    const onSubmitSuccess = jest.fn()
+    const successRedirect = jest.fn(() => '/created/123')
+    const { container } = renderWithProviders(
+      <CrudForm
+        fields={fields}
+        initialValues={{ name: 'alpha' }}
+        onSubmit={() => ({ resourceId: '123' })}
+        onSubmitSuccess={onSubmitSuccess}
+        successRedirect={successRedirect}
+      />,
+    )
+
+    await act(async () => { fireEvent.submit(container.querySelector('form')!) })
+
+    await waitFor(() => expect(successRedirect).toHaveBeenCalledWith({ name: 'alpha' }, { resourceId: '123' }))
+    expect(onSubmitSuccess.mock.invocationCallOrder[0]).toBeLessThan(successRedirect.mock.invocationCallOrder[0])
+  })
+
+  it('releases the lock when the redirect resolver returns no destination', async () => {
+    const onSubmit = jest.fn(() => Promise.resolve())
+    const { container } = renderWithProviders(
+      <CrudForm fields={fields} onSubmit={onSubmit} successRedirect={() => undefined} />,
+    )
+    const form = container.querySelector('form')!
+
+    await act(async () => { fireEvent.submit(form) })
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+    await act(async () => { fireEvent.submit(form) })
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2))
   })
 

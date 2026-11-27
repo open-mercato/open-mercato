@@ -5,11 +5,24 @@ import type {
   TaxCalculationResult,
   TaxCalculationService,
 } from '@open-mercato/core/modules/sales/services/taxCalculationService'
+import {
+  DEFAULT_AMOUNT_DECIMAL_PLACES,
+  FX_DECIMAL_PLACES,
+  countDecimalPlaces,
+  decimalToNumber,
+  decimalToString,
+  divideDecimals,
+  isDecimalInput,
+  resolveExactDecimal,
+  roundDecimal,
+  toDecimal,
+  type DecimalValue,
+} from '@open-mercato/shared/lib/decimal'
 import { tryResolve } from './tryResolve'
 
 type ServiceResolver = { resolve: <R = unknown>(name: string) => R }
 
-function roundToFourDecimals(value: number): number {
+function roundRate(value: number): number {
   return Math.round(value * 10_000) / 10_000
 }
 
@@ -19,18 +32,42 @@ function normalizeRate(value: number | string): number {
   return numeric
 }
 
+function toAmountPair(value: DecimalValue): { value: number; exact: string } {
+  return { value: decimalToNumber(value), exact: decimalToString(value) }
+}
+
+/** Mirrors `DefaultTaxCalculationService` exactly, for when the sales module is disabled. */
 export function calculateUnitAmountsLocally(
-  input: Pick<CalculateTaxInput, 'amount' | 'mode' | 'taxRate'>,
+  input: Pick<CalculateTaxInput, 'amount' | 'amountExact' | 'amountDecimalPlaces' | 'mode' | 'taxRate'>,
 ): TaxCalculationResult {
+  const exactInput = resolveExactDecimal(input.amountExact, Number.isFinite(input.amount) ? input.amount : null)
+  const amount = toDecimal(exactInput ?? 0)
   const rate = input.taxRate === undefined || input.taxRate === null ? null : normalizeRate(input.taxRate)
-  const fraction = (rate ?? 0) / 100
-  const netAmount = input.mode === 'net' ? input.amount : fraction > 0 ? input.amount / (1 + fraction) : input.amount
-  const grossAmount = input.mode === 'net' ? input.amount * (1 + fraction) : input.amount
+  const fraction = rate === null ? toDecimal(0) : divideDecimals(rate, 100, FX_DECIMAL_PLACES)
+  const multiplier = fraction.plus(1)
+  const enteredPlaces =
+    typeof input.amountExact === 'string' && isDecimalInput(input.amountExact) && toDecimal(input.amountExact).eq(amount)
+      ? countDecimalPlaces(amount)
+      : 0
+  const decimalPlaces = Math.max(input.amountDecimalPlaces ?? DEFAULT_AMOUNT_DECIMAL_PLACES, enteredPlaces)
+  const netAmount =
+    input.mode === 'net'
+      ? amount
+      : fraction.gt(0)
+        ? roundDecimal(divideDecimals(amount, multiplier, FX_DECIMAL_PLACES), decimalPlaces)
+        : amount
+  const grossAmount = input.mode === 'net' ? roundDecimal(amount.times(multiplier), decimalPlaces) : amount
+  const net = toAmountPair(netAmount)
+  const gross = toAmountPair(grossAmount)
+  const tax = toAmountPair(grossAmount.minus(netAmount))
   return {
-    netAmount: roundToFourDecimals(netAmount),
-    grossAmount: roundToFourDecimals(grossAmount),
-    taxAmount: roundToFourDecimals(grossAmount - netAmount),
-    taxRate: rate === null ? null : roundToFourDecimals(rate),
+    netAmount: net.value,
+    netAmountExact: net.exact,
+    grossAmount: gross.value,
+    grossAmountExact: gross.exact,
+    taxAmount: tax.value,
+    taxAmountExact: tax.exact,
+    taxRate: rate === null ? null : roundRate(rate),
   }
 }
 

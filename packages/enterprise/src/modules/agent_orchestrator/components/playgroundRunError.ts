@@ -29,6 +29,8 @@ export type RunErrorState =
  */
 const RUN_ERROR_MESSAGE_KEYS: Readonly<Record<string, string>> = {
   agent_not_found: 'agent_orchestrator.errors.agent_not_found',
+  agent_invoke_denied: 'agent_orchestrator.errors.agent_invoke_denied',
+  agent_principal_missing: 'agent_orchestrator.errors.agent_principal_missing',
   agent_output_invalid: 'agent_orchestrator.errors.agent_invalid_output',
   agent_run_timeout: 'agent_orchestrator.errors.timeout',
   agent_capacity_exhausted: 'agent_orchestrator.errors.capacity',
@@ -36,6 +38,7 @@ const RUN_ERROR_MESSAGE_KEYS: Readonly<Record<string, string>> = {
   api_key_missing: 'agent_orchestrator.errors.api_key_missing',
   provider_rejected: 'agent_orchestrator.errors.provider_rejected',
   agent_run_failed: 'agent_orchestrator.errors.agent_run_failed',
+  agent_call_settings_unsupported: 'agent_orchestrator.errors.call_settings_unsupported',
 }
 
 export function runErrorMessageKeyForCode(code: unknown): string | null {

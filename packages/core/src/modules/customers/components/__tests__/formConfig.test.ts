@@ -24,6 +24,7 @@ import {
   createCompanyEditSchema,
   createCompanyFormFields,
   createCompanyFormSchema,
+  createDisplayNameSection,
   createPersonEditSchema,
   createPersonFormFields,
   createPersonPersonalDataGroups,
@@ -307,6 +308,29 @@ describe('clearing v2 company plain-text & revenue edit fields (#3050)', () => {
     expect(payload.description).toBe('B2B widgets')
   })
 
+  it('keeps an exact revenue with more than two decimals so an unrelated edit still saves', () => {
+    const parsed = createCompanyEditSchema().safeParse({
+      id: COMPANY_ID,
+      displayName: 'Acme',
+      websiteUrl: 'https://acme.example',
+      annualRevenue: '2500000.125',
+    })
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+
+    const payload = buildCompanyEditPayload(parsed.data as any)
+    expect(payload.annualRevenue).toBe('2500000.125')
+  })
+
+  it('still rejects a negative or non-numeric revenue', () => {
+    for (const annualRevenue of ['-5', 'abc', '1.2.3']) {
+      const parsed = createCompanyEditSchema().safeParse({ id: COMPANY_ID, displayName: 'Acme', annualRevenue })
+      expect(parsed.success).toBe(true)
+      if (!parsed.success) continue
+      expect(() => buildCompanyEditPayload(parsed.data as any)).toThrow('ANNUAL_REVENUE_INVALID')
+    }
+  })
+
   it('leaves create-mode blanks as omitted (no clear semantics on create)', () => {
     const parsed = createCompanyFormSchema().safeParse({
       displayName: 'Acme',
@@ -324,6 +348,57 @@ describe('clearing v2 company plain-text & revenue edit fields (#3050)', () => {
     expect('sizeBucket' in payload).toBe(false)
     expect('annualRevenue' in payload).toBe(false)
     expect('description' in payload).toBe(false)
+  })
+})
+
+describe('annual revenue comma-decimal parsing (#8642)', () => {
+  it('locale-parses a comma-decimal amount instead of stripping the comma as a thousands separator', () => {
+    const payload = buildCompanyPayload(
+      { displayName: 'Acme', annualRevenue: '1 234,50' } as any,
+      undefined,
+      'pl-PL',
+    )
+    expect(payload.annualRevenue).toBe('1234.5')
+  })
+
+  it('still reads a plain-locale thousands-grouped amount correctly', () => {
+    const payload = buildCompanyPayload(
+      { displayName: 'Acme', annualRevenue: '1,500,000' } as any,
+      undefined,
+      'en-US',
+    )
+    expect(payload.annualRevenue).toBe('1500000')
+  })
+
+  it('rejects unparseable annual revenue input instead of silently corrupting it', () => {
+    expect(() =>
+      buildCompanyPayload({ displayName: 'Acme', annualRevenue: 'abc' } as any, undefined, 'pl-PL'),
+    ).toThrow('ANNUAL_REVENUE_INVALID')
+  })
+
+  it('threads the locale through buildCompanyEditPayload', () => {
+    const payload = buildCompanyEditPayload(
+      { id: COMPANY_ID, displayName: 'Acme', annualRevenue: '1 234,50' } as any,
+      undefined,
+      'pl-PL',
+    )
+    expect(payload.annualRevenue).toBe('1234.5')
+  })
+})
+
+describe('display name preview overflow (#8642)', () => {
+  it('wraps a long unbroken display name instead of overflowing the page', () => {
+    const DisplayNameSection = createDisplayNameSection(t)
+    const longWord = 'a'.repeat(300)
+    const html = renderToStaticMarkup(
+      React.createElement(DisplayNameSection, {
+        values: { displayName: longWord, firstName: '', lastName: '' },
+        setValue: () => {},
+        errors: {},
+      }),
+    )
+    expect(html).toContain('min-w-0')
+    expect(html).toContain('break-words')
   })
 })
 

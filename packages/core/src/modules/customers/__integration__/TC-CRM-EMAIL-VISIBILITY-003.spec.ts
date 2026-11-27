@@ -306,7 +306,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-003: owner-initiated conversation sharing
 
         // User A — mailbox owner and author of the private email.
         const userAEmail = `qa-crm-email-vis3-a-${stamp}@acme.com`;
-        const userAPassword = 'Valid1!Pass';
+        const userAPassword = 'QaValid1!Pass';
         userAId = await createUserFixture(request, adminToken, {
           email: userAEmail,
           password: userAPassword,
@@ -318,7 +318,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-003: owner-initiated conversation sharing
 
         // User B — teammate with CRM access, no view_private.
         const userBEmail = `qa-crm-email-vis3-b-${stamp}@acme.com`;
-        const userBPassword = 'Valid1!Pass';
+        const userBPassword = 'QaValid1!Pass';
         userBId = await createUserFixture(request, adminToken, {
           email: userBEmail,
           password: userBPassword,
@@ -330,7 +330,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-003: owner-initiated conversation sharing
 
         // Admin user — holds the reserved view_private.
         const adminUserEmail = `qa-crm-email-vis3-adm-${stamp}@acme.com`;
-        const adminUserPassword = 'Valid1!Pass';
+        const adminUserPassword = 'QaValid1!Pass';
         adminUserId = await createUserFixture(request, adminToken, {
           email: adminUserEmail,
           password: adminUserPassword,

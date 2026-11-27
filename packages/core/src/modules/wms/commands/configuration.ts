@@ -30,6 +30,7 @@
 // =============================================================================
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { withRequiredFeatures } from './featureGuard'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
   emitCrudSideEffects,
@@ -59,7 +60,9 @@ import {
 } from '../data/entities'
 import {
   inventoryLotCreateSchema,
+  inventoryLotDateOrderingSchema,
   inventoryLotUpdateSchema,
+  keepClearedInventoryLotDates,
   productInventoryProfileCreateSchema,
   productInventoryProfileUpdateSchema,
   warehouseCreateSchema,
@@ -1828,6 +1831,10 @@ const createInventoryLotCommand: CommandHandler<InventoryLotCreateInput, { lotId
   },
 }
 
+function patchedOrStoredDate(patched: Date | null | undefined, stored: Date | null | undefined): Date | undefined {
+  return (patched !== undefined ? patched : stored) ?? undefined
+}
+
 const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId: string }> = {
   id: 'wms.lots.update',
   prepare: async (input, ctx) => {
@@ -1837,9 +1844,16 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
     return before ? { before } : {}
   },
   async execute(rawInput, ctx) {
-    const parsed = inventoryLotUpdateSchema.parse(rawInput ?? {})
+    const parsed = keepClearedInventoryLotDates(rawInput, inventoryLotUpdateSchema.parse(rawInput ?? {}))
     const em = resolveEm(ctx)
     const lot = await loadLot(em, ctx, parsed.id)
+    if (parsed.manufacturedAt !== undefined || parsed.bestBeforeAt !== undefined || parsed.expiresAt !== undefined) {
+      inventoryLotDateOrderingSchema.parse({
+        manufacturedAt: patchedOrStoredDate(parsed.manufacturedAt, lot.manufacturedAt),
+        bestBeforeAt: patchedOrStoredDate(parsed.bestBeforeAt, lot.bestBeforeAt),
+        expiresAt: patchedOrStoredDate(parsed.expiresAt, lot.expiresAt),
+      })
+    }
     const nextVariantId = parsed.catalogVariantId ?? lot.catalogVariantId
     const nextLotNumber = parsed.lotNumber ?? lot.lotNumber
     if (
@@ -1988,18 +2002,18 @@ const deleteInventoryLotCommand: CommandHandler<{ id?: string }, { lotId: string
   },
 }
 
-registerCommand(createWarehouseCommand)
-registerCommand(updateWarehouseCommand)
-registerCommand(deleteWarehouseCommand)
-registerCommand(createWarehouseZoneCommand)
-registerCommand(updateWarehouseZoneCommand)
-registerCommand(deleteWarehouseZoneCommand)
-registerCommand(createWarehouseLocationCommand)
-registerCommand(updateWarehouseLocationCommand)
-registerCommand(deleteWarehouseLocationCommand)
-registerCommand(createProductInventoryProfileCommand)
-registerCommand(updateProductInventoryProfileCommand)
-registerCommand(deleteProductInventoryProfileCommand)
-registerCommand(createInventoryLotCommand)
-registerCommand(updateInventoryLotCommand)
-registerCommand(deleteInventoryLotCommand)
+registerCommand(withRequiredFeatures(createWarehouseCommand, [['wms.manage_warehouses']]))
+registerCommand(withRequiredFeatures(updateWarehouseCommand, [['wms.manage_warehouses']]))
+registerCommand(withRequiredFeatures(deleteWarehouseCommand, [['wms.manage_warehouses']]))
+registerCommand(withRequiredFeatures(createWarehouseZoneCommand, [['wms.manage_zones']]))
+registerCommand(withRequiredFeatures(updateWarehouseZoneCommand, [['wms.manage_zones']]))
+registerCommand(withRequiredFeatures(deleteWarehouseZoneCommand, [['wms.manage_zones']]))
+registerCommand(withRequiredFeatures(createWarehouseLocationCommand, [['wms.manage_locations']]))
+registerCommand(withRequiredFeatures(updateWarehouseLocationCommand, [['wms.manage_locations']]))
+registerCommand(withRequiredFeatures(deleteWarehouseLocationCommand, [['wms.manage_locations']]))
+registerCommand(withRequiredFeatures(createProductInventoryProfileCommand, [['wms.manage_inventory']]))
+registerCommand(withRequiredFeatures(updateProductInventoryProfileCommand, [['wms.manage_inventory']]))
+registerCommand(withRequiredFeatures(deleteProductInventoryProfileCommand, [['wms.manage_inventory']]))
+registerCommand(withRequiredFeatures(createInventoryLotCommand, [['wms.manage_inventory']]))
+registerCommand(withRequiredFeatures(updateInventoryLotCommand, [['wms.manage_inventory']]))
+registerCommand(withRequiredFeatures(deleteInventoryLotCommand, [['wms.manage_inventory']]))

@@ -11,6 +11,7 @@ import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '..
 import { isHubPolledChannel } from '../../../../../lib/polling-eligibility'
 import type { PollChannelJobPayload } from '../../../../../workers/poll-channel'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
+import { tryAcquirePollLease, type PollLeaseStore } from '../../../../../lib/poll-lease'
 
 type RbacServiceLike = {
   loadAcl: (
@@ -153,6 +154,34 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   })
   if ('response' in guard) return guard.response
 
+  // Enqueue-time dedupe guard (#8713) — refuse when a poll-channel job is
+  // already believed queued/running for this channel (e.g. the scheduled
+  // tick just enqueued one). `cacheStore` is null only when the DI container
+  // has no cache registered; fail open rather than block manual polls on that.
+  let cacheStore: PollLeaseStore | null = null
+  try {
+    cacheStore = container.resolve('cache') as PollLeaseStore
+  } catch {
+    cacheStore = null
+  }
+  if (cacheStore) {
+    const acquired = await tryAcquirePollLease(cacheStore, {
+      tenantId: auth.tenantId as string,
+      channelId: channel.id,
+    })
+    if (!acquired) {
+      const fallback = 'A poll is already queued or running for this channel. Try again in a moment.'
+      let message = fallback
+      try {
+        const { translate } = await resolveTranslations()
+        message = translate('communication_channels.errors.pollNowAlreadyQueued', fallback)
+      } catch {
+        message = fallback
+      }
+      return NextResponse.json({ error: message }, { status: 409 })
+    }
+  }
+
   const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.poll)
   const payload: PollChannelJobPayload = {
     channelId: channel.id,
@@ -187,7 +216,11 @@ export const openApi = {
         { status: 400, description: 'Invalid channel id' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Channel not found' },
-        { status: 409, description: 'Channel disabled, not connected, or push-driven (never polled)' },
+        {
+          status: 409,
+          description:
+            'Channel disabled, not connected, push-driven (never polled), or a poll is already queued/running for it',
+        },
       ],
     },
   },

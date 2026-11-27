@@ -34,11 +34,25 @@ export function getCurrentOrganizationScopeVersion(): number {
   return currentVersion
 }
 
-export function emitOrganizationScopeChanged(detail: OrganizationScopeChangedDetail): void {
+/**
+ * The scope a request sent now runs under, read from the cookies the server resolves it from.
+ * Null while no organization cookie exists: the server then picks the organization itself, so
+ * the browser cannot name it. A blank or all-organizations cookie is a real selection.
+ */
+export function readRequestOrganizationScope(): OrganizationScopeChangedDetail | null {
+  if (typeof document === 'undefined') return null
+  const hasOrganizationCookie = document.cookie.split(';').some((entry) => entry.trim().startsWith('om_selected_org='))
+  return hasOrganizationCookie ? readPersistedScope() : null
+}
+
+export function emitOrganizationScopeChanged(
+  detail: OrganizationScopeChangedDetail,
+  initialServerScope?: OrganizationScopeChangedDetail,
+): void {
   if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return
   
   // Detect actual changes
-  const previousScope = hasEmitted ? currentScope : initialPersistedScope
+  const previousScope = hasEmitted ? currentScope : (initialServerScope ?? initialPersistedScope)
   const hasChanged = 
     previousScope.organizationId !== detail.organizationId ||
     previousScope.tenantId !== detail.tenantId

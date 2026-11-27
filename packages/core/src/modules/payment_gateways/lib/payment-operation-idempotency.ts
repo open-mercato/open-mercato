@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import { decimalToNumber, decimalsEqual, resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { GatewayPaymentOperation } from '../data/entities'
 import type { ManualGatewayAction } from './status-machine'
@@ -10,6 +11,7 @@ type OperationStatus = 'in_progress' | 'succeeded' | 'failed'
 
 const OPERATION_LEASE_MS = 10 * 60 * 1000
 const OPERATION_UNIQUE_CONSTRAINT = 'gateway_payment_operations_scope_operation_unique'
+const SETTLED_STATUS_KEY = '__settledTransactionStatus'
 
 export type ClaimedPaymentOperation = {
   record: GatewayPaymentOperation
@@ -18,8 +20,13 @@ export type ClaimedPaymentOperation = {
 }
 
 export type PreparedPaymentOperation =
-  | { kind: 'completed'; result: Record<string, unknown> }
+  | { kind: 'completed'; result: Record<string, unknown>; settledStatus: string | null }
   | { kind: 'claimed'; claim: ClaimedPaymentOperation }
+
+export type PaymentOperationSettlement = {
+  statusChanged: boolean
+  settledStatus: string
+}
 
 type PreparePaymentOperationInput = {
   em: EntityManager
@@ -30,6 +37,21 @@ type PreparePaymentOperationInput = {
   payload: Record<string, unknown>
   scope: Scope
   assertInitialAllowed: () => void
+}
+
+/**
+ * The amount as it goes into an operation's request hash. Operations recorded
+ * before amounts became exact hashed the parsed JSON number, so an amount a
+ * number represents exactly keeps that form and a retry across the upgrade keeps
+ * its operation id and provider idempotency key. Only an amount with more digits
+ * than a number holds is hashed as its decimal string.
+ */
+export function toOperationIdentityAmount(amount: number | string | null | undefined): number | string | null {
+  if (amount === null || amount === undefined) return null
+  const exact = resolveExactDecimal(amount, null)
+  if (exact === null) return typeof amount === 'number' ? amount : null
+  const numeric = decimalToNumber(exact)
+  return Number.isFinite(numeric) && decimalsEqual(numeric, exact) ? numeric : exact
 }
 
 function digest(value: unknown): string {
@@ -85,6 +107,11 @@ function claimFields(now: Date) {
   }
 }
 
+function readStoredResult(stored: Record<string, unknown>) {
+  const { [SETTLED_STATUS_KEY]: settledStatus, ...result } = stored
+  return { result, settledStatus: typeof settledStatus === 'string' ? settledStatus : null }
+}
+
 async function resolveExistingOperation(
   em: EntityManager,
   existing: GatewayPaymentOperation,
@@ -105,7 +132,7 @@ async function resolveExistingOperation(
     )
   }
   if (existing.status === 'succeeded' && existing.result) {
-    return { kind: 'completed', result: existing.result }
+    return { kind: 'completed', ...readStoredResult(existing.result) }
   }
 
   const now = new Date()
@@ -201,8 +228,9 @@ export async function completePaymentOperation<T extends Record<string, unknown>
   em: EntityManager,
   claim: ClaimedPaymentOperation,
   result: T,
-  applyResult: (tx: EntityManager) => Promise<boolean>,
+  applyResult: (tx: EntityManager) => Promise<PaymentOperationSettlement>,
 ): Promise<boolean> {
+  let stored: Record<string, unknown> = result
   const statusChanged = await em.transactional(async (tx) => {
     const completed = await tx.nativeUpdate(
       GatewayPaymentOperation,
@@ -216,11 +244,19 @@ export async function completePaymentOperation<T extends Record<string, unknown>
         'Payment operation claim is no longer active',
       )
     }
-    const changed = await applyResult(tx)
+    const settlement = await applyResult(tx)
+    if (settlement.settledStatus !== result.status) {
+      stored = { ...result, [SETTLED_STATUS_KEY]: settlement.settledStatus }
+      await tx.nativeUpdate(
+        GatewayPaymentOperation,
+        { id: claim.record.id, status: 'succeeded', attemptToken: claim.attemptToken },
+        { result: stored },
+      )
+    }
     await tx.flush()
-    return changed
-  })
-  Object.assign(claim.record, { status: 'succeeded', result, leaseExpiresAt: null })
+    return settlement.statusChanged
+  }, { clear: true })
+  Object.assign(claim.record, { status: 'succeeded', result: stored, leaseExpiresAt: null })
   return statusChanged
 }
 

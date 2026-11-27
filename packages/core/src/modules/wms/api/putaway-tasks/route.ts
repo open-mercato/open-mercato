@@ -92,6 +92,8 @@ const crud = makeCrudRoute({
       createdAt: F.created_at,
       updatedAt: F.updated_at,
       quantity: F.quantity,
+      serial: F.serial_number,
+      serialNumber: F.serial_number,
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}

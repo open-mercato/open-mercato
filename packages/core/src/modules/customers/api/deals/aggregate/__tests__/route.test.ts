@@ -176,6 +176,40 @@ describe('customers deals aggregate route', () => {
     expect(unknownValues).toContain('renegotiating')
   })
 
+  it('converts per-stage totals to base with exact decimal math and returns exact siblings', async () => {
+    const stageId = '66666666-6666-4666-8666-666666666666'
+    executeMock.mockReset()
+    executeMock.mockResolvedValueOnce([
+      { stage_id: stageId, currency: 'EUR', total: '1.15', count: '1', open_count: '1' },
+      { stage_id: stageId, currency: 'USD', total: '0.005', count: '1', open_count: '1' },
+      { stage_id: stageId, currency: 'GBP', total: '7.123456789012345678', count: '1', open_count: '0' },
+    ])
+    getRatesMock.mockResolvedValueOnce(new Map([
+      ['EUR/USD', { rates: [{ rate: '1.3' }] }],
+    ]))
+
+    const response = await GET(new Request(`http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}`))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.perStage).toEqual([
+      {
+        stageId,
+        count: 3,
+        openCount: 2,
+        totalInBaseCurrency: 2,
+        totalInBaseCurrencyExact: '1.5',
+        byCurrency: [
+          { currency: 'GBP', total: 7.123456789012345, totalExact: '7.123456789012345678', count: 1 },
+          { currency: 'EUR', total: 1.15, totalExact: '1.15', count: 1 },
+          { currency: 'USD', total: 0.005, totalExact: '0.005', count: 1 },
+        ],
+        convertedAll: false,
+        missingRateCurrencies: ['GBP'],
+      },
+    ])
+  })
+
   it('lets a caller-supplied status filter win over the isOverdue open-status injection', async () => {
     const response = await GET(
       new Request(

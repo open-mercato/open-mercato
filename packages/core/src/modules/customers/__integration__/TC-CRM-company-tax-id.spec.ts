@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+import { fillControlledInput, waitForApiMutation } from '@open-mercato/core/modules/core/__integration__/helpers/ui'
 
 /**
  * TC-CRM-company-tax-id: VAT / tax ID on the company profile
@@ -36,8 +37,7 @@ function readCreatedId(payload: { id?: string; entityId?: string; companyId?: st
 async function fillCompanyName(page: Page, scope: Page | ReturnType<Page['getByRole']>, name: string): Promise<void> {
   const nameInput = scope.locator('[data-crud-field-id="displayName"] input').first()
   await expect(nameInput).toBeVisible({ timeout: 30_000 })
-  await nameInput.fill(name)
-  await expect(nameInput).toHaveValue(name)
+  await fillControlledInput(nameInput, name)
 }
 
 test.describe('TC-CRM-company-tax-id: VAT ID on companies', () => {
@@ -53,13 +53,19 @@ test.describe('TC-CRM-company-tax-id: VAT ID on companies', () => {
       await login(page, 'admin')
       await page.goto('/backend/customers/companies/create', { waitUntil: 'domcontentloaded' })
 
-      await fillCompanyName(page, page, companyName)
+      // A click that lands before the page hydrates submits the form natively and reloads it
+      // empty, so the name is typed and the form submitted again until the create request goes out.
+      const detailUrl = /\/backend\/customers\/companies-v2\/[0-9a-f-]{36}$/i
       const taxIdInput = page.locator('[data-crud-field-id="taxId"] input').first()
-      await expect(taxIdInput).toBeVisible()
-      await expect(taxIdInput).toHaveValue('')
-
-      await page.locator('form').getByRole('button', { name: /Create Company/i }).click()
-      await expect(page).toHaveURL(/\/backend\/customers\/companies-v2\/[0-9a-f-]{36}$/i, { timeout: 30_000 })
+      await expect(async () => {
+        if (detailUrl.test(page.url())) return
+        await fillCompanyName(page, page, companyName)
+        await expect(taxIdInput).toHaveValue('')
+        await waitForApiMutation(page, '/api/customers/companies', () =>
+          page.locator('form').getByRole('button', { name: /Create Company/i }).click(),
+        )
+      }).toPass({ timeout: 45_000 })
+      await expect(page).toHaveURL(detailUrl, { timeout: 30_000 })
       companyId = page.url().match(/companies-v2\/([0-9a-f-]{36})/i)?.[1] ?? null
       expect(companyId, 'created company id').toBeTruthy()
 

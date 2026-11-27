@@ -7,6 +7,7 @@ At runtime: `om-setup-agent-pipeline` copies this file into the repository at `.
 ## Prerequisites
 
 - `gh` CLI installed and authenticated; `jq` is required for JSON operations. Verify with the **auth-check** operation before a batch run; fail fast when unauthenticated.
+- **Minimum recommended `gh` version: 2.82.1.** The **auth-check** operation warns on older clients; REST mutations below remain compatible.
 - All operations accept an optional `{repo}` (`owner/name`); when omitted, `gh` infers it from the current checkout's git remote. Pass `--repo {owner}/{repo}` explicitly whenever a skill operates on a repository other than the current one.
 
 Older GitHub CLI clients can fail mutation commands when GraphQL requests retired
@@ -90,10 +91,20 @@ missing label (404); permission and transport failures stop the transition.
 ### Identity and repository
 
 #### auth-check
-Verify the CLI is authenticated. → exit status.
+Verify the CLI is authenticated and new enough. → exit status (non-zero when unauthenticated), plus a warning on stdout when the client predates the Projects (classic) fix.
 ```bash
-gh auth status
+gh auth status || exit 1
+
+# Clients older than 2.82.1 abort `gh pr edit` / `gh issue edit` on the retired Projects
+# (classic) GraphQL fields (see Prerequisites). The guards mutate through REST, so a run
+# still works — but read paths stay affected, so warn instead of failing silently.
+GH_VERSION=$(gh --version | sed -n '1s/.*gh version \([0-9][0-9.]*\).*/\1/p')
+MIN_GH_VERSION=2.82.1
+if [ "$(printf '%s\n%s\n' "$MIN_GH_VERSION" "$GH_VERSION" | sort -V | head -n1)" != "$MIN_GH_VERSION" ]; then
+  echo "WARNING: gh $GH_VERSION predates $MIN_GH_VERSION — 'gh pr edit'/'gh issue edit' fail on the Projects (classic) deprecation. Upgrade: https://github.com/cli/cli/blob/trunk/docs/install_linux.md#recommended-official"
+fi
 ```
+`sort -V` exists on GNU and BSD/macOS `sort`; where it does not, compare `gh --version` against 2.82.1 by inspection and report the same warning.
 
 #### current-user
 → the automation user's login.
@@ -199,15 +210,22 @@ gh api -X DELETE "repos/${TARGET_REPO}/git/refs/heads/${SHARE_BRANCH}"
 #### get-issue
 `{issueId}`, field list → issue data. Request only the fields the calling skill names.
 ```bash
-gh issue view {issueId} --repo {owner}/{repo} --json number,title,body,state,author,url,labels,assignees,comments
+gh issue view {issueId} --repo {owner}/{repo} --json number,title,body,state,author,url,labels,assignees,comments,createdAt,updatedAt
 ```
 
 #### search-issues
-Query (text, `in:title,body`, state) → matching issues.
+Query (text, `in:title,body`, state) → matching issues. Empty text enumerates issues in that state. The cap defaults to 1000; disclose a result that reaches it as incomplete.
 ```bash
 ISSUE_STATE="{state}"
 case "$ISSUE_STATE" in open|closed|all) ;; *) exit 1 ;; esac
-gh issue list --repo {owner}/{repo} --state "$ISSUE_STATE" --search "<query> in:title,body" --json number,title,url
+ISSUE_QUERY="<query>"
+ISSUE_SEARCH_LIMIT=${ISSUE_SEARCH_LIMIT:-1000}
+case "$ISSUE_SEARCH_LIMIT" in ''|*[!0-9]*|0) echo "Invalid issue search limit" >&2; exit 1 ;; esac
+if [ -n "$ISSUE_QUERY" ]; then
+  gh issue list --repo {owner}/{repo} --state "$ISSUE_STATE" --search "$ISSUE_QUERY in:title,body" --json number,title,url,createdAt --limit "$ISSUE_SEARCH_LIMIT"
+else
+  gh issue list --repo {owner}/{repo} --state "$ISSUE_STATE" --json number,title,url,createdAt --limit "$ISSUE_SEARCH_LIMIT"
+fi
 ```
 
 #### create-issue
@@ -479,15 +497,15 @@ comment leaving the old active candidate in place.
 #### get-pr
 `{prNumber}`, field list → PR data. Request only the fields the calling skill names; the full field set skills use:
 ```bash
-gh pr view {prNumber} --json number,title,url,body,state,author,isDraft,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository,maintainerCanModify,mergeable,mergeStateStatus,reviewDecision,labels,latestReviews,reviews,commits,files,assignees,comments,mergedAt,mergeCommit,closingIssuesReferences
+gh pr view {prNumber} --json number,title,url,body,state,author,isDraft,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository,maintainerCanModify,mergeable,mergeStateStatus,reviewDecision,labels,latestReviews,reviews,commits,files,assignees,comments,mergedAt,mergeCommit,closingIssuesReferences,createdAt,closedAt,additions,changedFiles
 ```
 
 #### list-prs
 State/search filters, field list, limit → PRs.
 ```bash
-gh pr list --state open --json number,title,url,author,labels,reviewDecision,mergeable,mergeStateStatus,headRefName,baseRefName,updatedAt,isDraft,assignees --limit 100
-gh pr list --state merged --search "merged:>=${SINCE_DATE}" --json number,title,url,body,author,mergedAt,mergeCommit,baseRefName,headRefName,closingIssuesReferences,labels --limit {limit}
-gh pr list --state closed --search "closed:>=${SINCE_DATE} is:unmerged" --json number,title,url,body,author,closedAt,baseRefName,headRefName,closingIssuesReferences,labels --limit {limit}
+gh pr list --state open --json number,title,url,author,labels,reviewDecision,mergeable,mergeStateStatus,headRefName,headRefOid,baseRefName,createdAt,updatedAt,additions,changedFiles,isDraft,assignees --limit 100
+gh pr list --state merged --search "merged:>=${SINCE_DATE}" --json number,title,url,body,author,createdAt,mergedAt,mergeCommit,baseRefName,headRefName,closingIssuesReferences,labels --limit {limit}
+gh pr list --state closed --search "closed:>=${SINCE_DATE} is:unmerged" --json number,createdAt,title,url,body,author,closedAt,baseRefName,headRefName,closingIssuesReferences,labels --limit {limit}
 ```
 
 #### search-prs
@@ -601,6 +619,11 @@ GitHub rejects self-approval (reviewing your own PR); surface that instead of wo
 ```bash
 gh pr merge {prNumber} --repo {owner}/{repo} --squash --match-head-commit "{headSha}"
 ```
+Surface GitHub's refusal reason as-is and never retry another way. A refusal that
+identifies an outstanding required review is a host review blocker for the caller
+to report (with the reviewer or maintainer needed and a retry condition); a fresh
+guarded attempt after a verified change in the blocking facts is evaluated under
+the caller's normal finish gates.
 
 #### mark-pr-ready
 Promote a draft PR.
@@ -664,9 +687,9 @@ gh run watch {runId} --exit-status
 ### Labels
 
 #### list-labels
-→ all label names defined in the repo.
+→ all label names defined in the repo. Paginated, so repositories with large taxonomies are not truncated the way a fixed `gh label list --limit` is.
 ```bash
-gh label list --limit 200 --json name --jq '.[].name'
+gh api --paginate repos/{owner}/{repo}/labels --jq '.[].name'
 ```
 
 #### create-label
@@ -698,6 +721,14 @@ gh label create qa-self-verified  --color c5def5 --description "Self-QA exceptio
 gh label create in-progress       --color c5def5 --description "An automated skill is working on this"
 gh label create ci-monitoring     --color 00b8d9 --description "Work complete and reported; agent is watching CI results"
 gh label create do-not-close      --color c5def5 --description "Humans only: never auto-close this issue"
+gh label create claim-reset      --color e4e669 --description "Human-only: retire older stalled claims after stopping the runner"
+gh label create "${AUTOFIX_LABEL:-cez-autofix}" --color 5319e7 --description "Human-confirmed issue ready for the configured autofix worker"
+gh label create "${AUTOMERGE_LABEL:-automerge}" --color 5319e7 --description "Human-confirmed: drive this PR to merge once every gate is green"
+gh label create automerge-signal-1-cr --color 1d76db --description "om-auto-merge-buddy: code review signal holds for the current head"
+gh label create automerge-signal-2-qa --color 1d76db --description "om-auto-merge-buddy: QA signal holds for the current head"
+gh label create automerge-signal-3-ci --color 1d76db --description "om-auto-merge-buddy: CI signal holds for the current head"
+gh label create automerge-signal-3-passes-local-ci-checks --color 1d76db --description "automerge mode: local CI passed on the current head; no host check failed"
+gh label create automerge-blocked --color b60205 --description "om-auto-merge-buddy parked this PR; a human removes this label to retry"
 gh label create priority-low      --color e4e669 --description "Cosmetic or follow-up work"
 gh label create priority-medium   --color fbca04 --description "Ordinary bug or feature"
 gh label create priority-high     --color d93f0b --description "Release-blocking"
@@ -717,12 +748,26 @@ REST does not expose a thread's resolved state (that lives in GraphQL's review t
 
 
 #### approve-pending-runs
-Head SHA → approve every workflow run on that commit that is waiting for maintainer approval (`conclusion` `action_required` — GitHub holds runs from first-time or outside contributors until a maintainer approves them). Prints the approved run ids; an empty result means nothing was waiting. Approving lets the contributor's workflow code run with this repository's CI, so callers approve only on a PR a human has authorized for automation (e.g. an `automerge` label) and read the diff's workflow changes first.
+Head SHA → approve every workflow run on that commit that is waiting for maintainer approval (`conclusion` `action_required` — GitHub holds runs from first-time or outside contributors until a maintainer approves them). Prints the approved run ids. An empty result with exit status 0 means nothing was waiting. A listing or approval failure returns nonzero even when some approvals succeeded. Approving lets the contributor's workflow code run with this repository's CI, so callers approve only on a PR a human has authorized for automation (an `automerge` label, or the repository's `ci.approveHeldRunsOnReview` opt-in on a head `om-auto-review-pr` has just reviewed) and read the diff's workflow changes first.
+
+**Reviewed-SHA binding:** `sha-bound` — every approval names a run id GitHub created for `{headSha}`, and the listing re-checks each run's `head_sha`, so a push made after the caller's head check gets new runs that stay held. `om-auto-review-pr` releases automatically only through operations that declare `sha-bound`.
 ```bash
-gh api "repos/{owner}/{repo}/actions/runs?head_sha={headSha}&status=action_required&per_page=100" \
-  --jq '.workflow_runs[].id' | while read -r run; do
-  gh api -X POST "repos/{owner}/{repo}/actions/runs/$run/approve" >/dev/null && echo "$run"
-done
+(
+  runs=$(gh api --paginate "repos/{owner}/{repo}/actions/runs?head_sha={headSha}&status=action_required&per_page=100" \
+    --jq '.workflow_runs[] | select(.head_sha == "{headSha}") | .id') || exit 1
+  failed=0
+  while IFS= read -r run; do
+    [ -n "$run" ] || continue
+    if gh api -X POST "repos/{owner}/{repo}/actions/runs/$run/approve" >/dev/null; then
+      printf '%s\n' "$run"
+    else
+      failed=1
+    fi
+  done <<EOF
+$runs
+EOF
+  exit "$failed"
+)
 ```
 
 

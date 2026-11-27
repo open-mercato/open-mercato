@@ -9,6 +9,7 @@ The auth module handles authentication, authorization, users, roles, and RBAC.
 3. Use declarative `requireFeatures` in page/API metadata for access control; never add role-name guards such as `requireRoles: ['admin']`.
 4. Declare every module feature in `acl.ts` and seed role grants through `setup.ts`.
 5. Use wildcard-aware helpers such as `matchFeature`, `hasFeature`, and `hasAllFeatures` when inspecting raw granted features.
+6. Direct SQL maintenance writes must preserve ORM lifecycle effects: advance `updated_at` in the same guarded user update. Test successful version advancement and rejected stale-write version preservation against PostgreSQL.
 
 ## Ask First
 

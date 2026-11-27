@@ -3,7 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { ZodError } from 'zod'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { EnforcementScope, MfaEnforcementPolicy, MfaRecoveryCode, UserMfaMethod } from '../data/entities'
 import { emitSecurityEvent } from '../events'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
@@ -84,6 +85,7 @@ export class MfaService {
       type: providerType,
       isActive: false,
       secret: result.setupId,
+      secretHash: hashForLookup(result.setupId),
       providerMetadata: null,
       createdAt: now,
       updatedAt: now,
@@ -101,56 +103,69 @@ export class MfaService {
     providerType?: string,
     context?: MfaProviderRuntimeContext,
   ): Promise<{ recoveryCodes?: string[] }> {
-    const method = await this.em.findOne(UserMfaMethod, {
-      userId,
-      isActive: false,
-      deletedAt: null,
-      secret: setupId,
-    })
-    if (!method) {
-      throw new MfaServiceError('MFA setup session not found', 404)
+    const user = await this.findUserById(userId)
+    if (!user?.tenantId) {
+      throw new MfaServiceError('User not found', 404)
     }
-    if (providerType && method.type !== providerType) {
-      throw new MfaServiceError('MFA setup session does not match the requested provider', 400)
-    }
-
-    const provider = this.mfaProviderRegistry.get(method.type)
-    if (!provider) {
-      throw new MfaServiceError(`MFA provider '${method.type}' is not registered`, 400)
-    }
-
-    await this.ensureProviderCanBeConfigured(userId, method.type, provider.allowMultiple)
-
-    let confirmation: MfaProviderConfirmResult
-    try {
-      confirmation = await provider.confirmSetup(userId, setupId, payload, context)
-    } catch (error) {
-      if (error instanceof ZodError) {
-        throw new MfaServiceError('Invalid payload', 400)
-      }
-      throw error
-    }
-    const resolvedLabel = this.getLabelFromMetadata(confirmation.metadata) ?? method.label ?? null
-
-    if (resolvedLabel && provider.allowMultiple) {
-      const duplicate = await this.em.findOne(UserMfaMethod, {
+    const userScope = { tenantId: user.tenantId, organizationId: user.organizationId ?? null }
+    const method = await this.em.transactional(async (em) => {
+      await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`security:mfa:enrollment:${userId}`])
+      const method = await findOneWithDecryption(em, UserMfaMethod, {
         userId,
-        type: method.type,
-        label: resolvedLabel,
-        isActive: true,
+        tenantId: userScope.tenantId,
+        organizationId: userScope.organizationId,
+        isActive: false,
         deletedAt: null,
-      })
-      if (duplicate) {
-        throw new MfaServiceError(`An MFA method with this name already exists`, 409)
+        $or: [{ secretHash: { $in: lookupHashCandidates(setupId) } }, { secretHash: null, secret: setupId }],
+      }, { refresh: true }, userScope)
+      if (!method) {
+        throw new MfaServiceError('MFA setup session not found', 404)
       }
-    }
+      if (providerType && method.type !== providerType) {
+        throw new MfaServiceError('MFA setup session does not match the requested provider', 400)
+      }
 
-    method.providerMetadata = confirmation.metadata
-    method.secret = confirmation.secret ?? null
-    method.label = resolvedLabel
-    method.isActive = true
-    method.updatedAt = new Date()
-    await this.em.flush()
+      const provider = this.mfaProviderRegistry.get(method.type)
+      if (!provider) {
+        throw new MfaServiceError(`MFA provider '${method.type}' is not registered`, 400)
+      }
+
+      await this.ensureProviderCanBeConfigured(userId, method.type, provider.allowMultiple, em)
+
+      let confirmation: MfaProviderConfirmResult
+      try {
+        confirmation = await provider.confirmSetup(userId, setupId, payload, context)
+      } catch (error) {
+        if (error instanceof ZodError) {
+          throw new MfaServiceError('Invalid payload', 400)
+        }
+        throw error
+      }
+      const resolvedLabel = this.getLabelFromMetadata(confirmation.metadata) ?? method.label ?? null
+
+      if (resolvedLabel && provider.allowMultiple) {
+        const duplicate = await findOneWithDecryption(em, UserMfaMethod, {
+          userId,
+          type: method.type,
+          label: resolvedLabel,
+          isActive: true,
+          deletedAt: null,
+        }, { refresh: true }, { tenantId: method.tenantId, organizationId: method.organizationId })
+        if (duplicate) {
+          throw new MfaServiceError(`An MFA method with this name already exists`, 409)
+        }
+      }
+
+      method.providerMetadata = confirmation.metadata
+      method.secret = confirmation.secret ?? null
+      method.secretHash = confirmation.secret ? hashForLookup(confirmation.secret) : null
+      method.label = resolvedLabel
+      method.isActive = true
+      method.updatedAt = new Date()
+      await em.flush()
+
+      return method
+    })
 
     await emitSecurityEvent('security.mfa.enrolled', {
       userId,
@@ -165,7 +180,8 @@ export class MfaService {
   }
 
   async getUserMethods(userId: string): Promise<UserMfaMethod[]> {
-    return this.em.find(
+    return findWithDecryption(
+      this.em,
       UserMfaMethod,
       {
         userId,
@@ -278,9 +294,11 @@ export class MfaService {
         }
       }
       if (!valid) continue
-      recoveryCode.isUsed = true
-      recoveryCode.usedAt = new Date()
-      await this.em.flush()
+      const claimed = await this.em.execute<Array<{ id: string }>>(
+        'UPDATE mfa_recovery_codes SET is_used = true, used_at = ? WHERE id = ? AND user_id = ? AND tenant_id = ? AND is_used = false RETURNING id',
+        [new Date(), recoveryCode.id, userId, recoveryCode.tenantId],
+      )
+      if (claimed.length === 0) return false
       const remaining = await this.em.count(MfaRecoveryCode, { userId, isUsed: false })
       await emitSecurityEvent('security.recovery.used', { userId, remaining })
       return true
@@ -311,15 +329,16 @@ export class MfaService {
     userId: string,
     providerType: string,
     allowMultiple: boolean,
+    em: EntityManager = this.em,
   ): Promise<void> {
     if (allowMultiple) return
 
-    const existingMethod = await this.em.findOne(UserMfaMethod, {
+    const existingMethod = await findOneWithDecryption(em, UserMfaMethod, {
       userId,
       type: providerType,
       isActive: true,
       deletedAt: null,
-    })
+    }, { refresh: true }, {})
     if (existingMethod) {
       throw new MfaServiceError(`MFA provider '${providerType}' is already configured`, 409)
     }

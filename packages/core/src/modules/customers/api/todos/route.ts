@@ -655,6 +655,7 @@ const todoItemSchema = z.object({
   todoSource: z.string(),
   todoTitle: z.string().nullable(),
   todoIsDone: z.boolean().nullable(),
+  todoStatus: z.string().nullable().optional(),
   todoPriority: z.number().nullable().optional(),
   todoSeverity: z.string().nullable().optional(),
   todoDescription: z.string().nullable().optional(),

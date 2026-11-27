@@ -3,17 +3,20 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { clearPaymentGatewayDescriptors, registerPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CheckoutLink, CheckoutTransaction } from '../../data/entities'
+import { createLinkSchema } from '../../data/validators'
 import {
   applyTerminalTransactionState,
   buildConsentProof,
   ensureUniqueSlug,
   getCheckoutCustomerFieldSemanticType,
+  parseCheckoutInput,
   pickExplicitParsedOverrides,
   resolveLoadedCheckoutCustomFields,
   resolveSubmittedAmount,
   serializeTemplateOrLink,
   serializeTransaction,
   signCheckoutAccessToken,
+  toTemplateOrLinkMutationInput,
   validateCheckoutCustomerData,
   validateDescriptorCurrencies,
   verifyCheckoutAccessToken,
@@ -80,6 +83,7 @@ describe('checkout utils', () => {
       amount: 99.99,
     })).toEqual({
       amount: 99.99,
+      amountExact: '99.99',
       currencyCode: 'USD',
       selectedPriceItemId: null,
     })
@@ -136,9 +140,40 @@ describe('checkout utils', () => {
       selectedPriceItemId: 'vip',
     })).toEqual({
       amount: 149.5,
+      amountExact: '149.5',
       currencyCode: 'EUR',
       selectedPriceItemId: 'vip',
     })
+  })
+
+  it('compares submitted amounts exactly beyond float precision', () => {
+    const link = createLink({ pricingMode: 'custom_amount', fixedPriceAmount: null, customAmountMin: '0.000000000000000001', customAmountMax: '1', customAmountCurrencyCode: 'ETH' })
+    expect(resolveSubmittedAmount(link, {
+      customerData: {},
+      acceptedLegalConsents: {},
+      amount: Number('0.000000000000000002'),
+      amountExact: '0.000000000000000002',
+    }).amountExact).toBe('0.000000000000000002')
+    expect(() => resolveSubmittedAmount(link, {
+      customerData: {},
+      acceptedLegalConsents: {},
+      amount: 0,
+      amountExact: '0',
+    })).toThrow()
+  })
+
+  it('checks custom amounts against the stored, currency-rounded bounds', () => {
+    const link = createLink({ pricingMode: 'custom_amount', fixedPriceAmount: null, customAmountMin: '10', customAmountMax: '10.01', customAmountCurrencyCode: 'USD' })
+    const submit = (amountExact: string) => resolveSubmittedAmount(link, {
+      customerData: {},
+      acceptedLegalConsents: {},
+      amount: Number(amountExact),
+      amountExact,
+    })
+    expect(submit('10').amountExact).toBe('10')
+    expect(submit('10.01').amountExact).toBe('10.01')
+    expect(() => submit('9.999')).toThrow(CrudHttpError)
+    expect(() => submit('10.011')).toThrow(CrudHttpError)
   })
 
   it('stores consent proof only for accepted legal documents with markdown', () => {
@@ -413,6 +448,43 @@ describe('checkout utils', () => {
       name: 'Community Donation',
       title: 'Community donation',
     })
+  })
+
+  it('keeps the exact digits of a money field a template-based link overrides', () => {
+    const template = createLink({
+      fixedPriceAmount: '1.123456789012345678',
+      fixedPriceOriginalAmount: '2.987654321098765432',
+    })
+    const rawInput = {
+      templateId: '7a1f6c1e-2c55-4d8e-9a43-3d1f0b6a9c11',
+      name: 'Precision link',
+      pricingMode: 'fixed',
+      fixedPriceAmount: '3.000000000000000007',
+      fixedPriceCurrencyCode: 'USD',
+      gatewayProviderKey: 'mock',
+    }
+    const { parsed } = parseCheckoutInput(rawInput, createLinkSchema.parse)
+    const merged = toTemplateOrLinkMutationInput(template, pickExplicitParsedOverrides(rawInput, parsed))
+
+    expect(merged.fixedPriceAmountExact).toBe('3.000000000000000007')
+    expect(merged.fixedPriceOriginalAmountExact).toBe('2.987654321098765432')
+  })
+
+  it('rejects custom amount bounds whose exact min exceeds max beyond float precision', () => {
+    const rawInput = {
+      name: 'Precision range',
+      pricingMode: 'custom_amount',
+      customAmountMin: '1.000000000000000002',
+      customAmountMax: '1.000000000000000001',
+      customAmountCurrencyCode: 'USD',
+      gatewayProviderKey: 'mock',
+    }
+
+    expect(() => parseCheckoutInput(rawInput, createLinkSchema.parse)).toThrow('checkout.validation.customAmount.range')
+    expect(() => parseCheckoutInput(
+      { ...rawInput, customAmountMin: '1.000000000000000001', customAmountMax: '1.000000000000000002' },
+      createLinkSchema.parse,
+    )).not.toThrow()
   })
 
   it('normalizes loaded checkout custom fields back to bare keys', () => {

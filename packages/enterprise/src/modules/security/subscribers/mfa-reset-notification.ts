@@ -5,6 +5,7 @@ import { resolveNotificationService } from '@open-mercato/core/modules/notificat
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import MfaResetEmail from '../emails/mfa-reset'
+import { inAppNotificationsAvailable } from '../lib/inAppNotifications'
 import { notificationTypes } from '../notifications'
 
 export const metadata = {
@@ -70,25 +71,26 @@ export default async function mfaResetNotificationSubscriber(
   const user = await resolveUserById(em, payload.targetUserId)
   if (!user) return
 
-  const notificationService = resolveNotificationService(ctx)
   const resetAtIso = payload.resetAt ?? new Date().toISOString()
   const reason = payload.reason.trim() || 'No reason provided'
 
-  await notificationService.create(
-    buildNotificationFromType(typeDef, {
-      recipientUserId: user.id,
-      bodyVariables: {
-        reason,
+  if (inAppNotificationsAvailable(ctx)) {
+    await resolveNotificationService(ctx).create(
+      buildNotificationFromType(typeDef, {
+        recipientUserId: user.id,
+        bodyVariables: {
+          reason,
+        },
+        sourceEntityType: 'security:mfa_reset',
+        sourceEntityId: user.id,
+        linkHref: '/backend/profile/security/mfa',
+      }),
+      {
+        tenantId: user.tenantId,
+        organizationId: user.organizationId,
       },
-      sourceEntityType: 'security:mfa_reset',
-      sourceEntityId: user.id,
-      linkHref: '/backend/profile/security/mfa',
-    }),
-    {
-      tenantId: user.tenantId,
-      organizationId: user.organizationId,
-    },
-  )
+    )
+  }
 
   if (user.email) {
     await sendEmail({

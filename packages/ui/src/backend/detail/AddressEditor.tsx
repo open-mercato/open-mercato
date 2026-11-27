@@ -256,14 +256,14 @@ export function AddressEditor<C = unknown>({
           disabled={disabled}
           aria-invalid={errors.name ? 'true' : undefined}
         />
-        <div className="flex gap-2">
+        <div className="flex min-w-0 gap-2">
           <Select
             value={current.purpose || undefined}
             onValueChange={(next) => update('purpose', next ?? '')}
             disabled={disabled}
           >
             <SelectTrigger
-              className={errors.purpose ? 'border-destructive' : undefined}
+              className={cn('min-w-0 flex-1', errors.purpose && 'border-status-error-border')}
               aria-invalid={errors.purpose ? 'true' : undefined}
             >
               <SelectValue

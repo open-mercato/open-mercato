@@ -1,6 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
-import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteOrganizationIfExists,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures';
+import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
 
 /**
  * TC-AUTH-NAV-ORG-001: `GET /api/auth/admin/nav` reports the organization actually in scope.
@@ -38,7 +47,19 @@ type NavPayload = {
   currentOrganization?: { id?: string; name?: string } | null;
   brand?: { name?: string } | null;
   groups?: unknown[];
+  grantedFeatures?: string[];
 };
+
+async function createBrandedOrganization(
+  request: Parameters<typeof apiRequest>[0],
+  token: string,
+  input: { name: string; tenantId: string; logoUrl: string },
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/directory/organizations', { token, data: input });
+  expect(response.status(), 'POST /api/directory/organizations should return 201').toBe(201);
+  const body = await readJsonSafe<{ id?: string }>(response);
+  return expectId(body?.id, 'Organization creation response should include id');
+}
 
 async function fetchNav(
   request: Parameters<typeof apiRequest>[0],
@@ -122,6 +143,84 @@ test.describe('admin nav current organization', () => {
     for (const selection of [organizationId, ALL_ORGANIZATIONS]) {
       const payload = await fetchNav(request, token, selection);
       expect(Array.isArray(payload.groups), `groups should be present for selection ${selection}`).toBe(true);
+    }
+  });
+
+  /**
+   * A role whose organization visibility list is explicitly empty (`organizations: []`) resolves to
+   * a deny-all scope. Before the guard in `resolveBackendChromePayload`, the brand lookup fell back
+   * to the organization named by the request (or the caller's home organization) and returned its
+   * name and logo. Both organizations carry a logo here because `brand` only populates for one.
+   */
+  test('returns no brand or organization to a caller whose organization scope is empty', async ({ request }) => {
+    const superadminToken = await getAuthToken(request, ROLE);
+    const { tenantId } = getTokenScope(superadminToken);
+    expectId(tenantId, 'Superadmin token should carry the actor tenant');
+
+    const stamp = randomUUID();
+    const password = 'StrongSecret123!';
+    const email = `qa-tc-auth-nav-org-001-${stamp}@example.com`;
+    const grantedFeature = 'api_keys.view';
+    let homeOrganizationId: string | null = null;
+    let otherOrganizationId: string | null = null;
+    let roleId: string | null = null;
+    let userId: string | null = null;
+
+    try {
+      homeOrganizationId = await createBrandedOrganization(request, superadminToken, {
+        name: `QA TC-AUTH-NAV-ORG-001 Home ${stamp}`,
+        tenantId,
+        logoUrl: 'https://cdn.example.com/qa-tc-auth-nav-org-001-home.png',
+      });
+      otherOrganizationId = await createBrandedOrganization(request, superadminToken, {
+        name: `QA TC-AUTH-NAV-ORG-001 Other ${stamp}`,
+        tenantId,
+        logoUrl: 'https://cdn.example.com/qa-tc-auth-nav-org-001-other.png',
+      });
+      roleId = await createRoleFixture(request, superadminToken, {
+        name: `qa-tc-auth-nav-org-001-${stamp}`,
+        tenantId,
+      });
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId,
+        features: [grantedFeature],
+        organizations: [],
+      });
+      userId = await createUserFixture(request, superadminToken, {
+        email,
+        password,
+        organizationId: homeOrganizationId,
+        roles: [roleId],
+        name: 'QA TC-AUTH-NAV-ORG-001 Empty scope',
+      });
+      const token = await getAuthToken(request, email, password);
+
+      for (const [label, organizationId] of [
+        ['another organization', otherOrganizationId],
+        ['the home organization', homeOrganizationId],
+      ] as const) {
+        const payload = await fetchNav(request, token, organizationId);
+
+        // Guards against a vacuous pass: the role grants a feature, so an empty `grantedFeatures`
+        // proves the resolver really produced a deny-all scope for this caller.
+        expect(
+          payload.grantedFeatures ?? [],
+          `an empty organization scope should grant no features when ${label} is requested`,
+        ).toEqual([]);
+        expect(
+          payload.brand ?? null,
+          `an empty organization scope must not receive the brand of ${label}`,
+        ).toBeNull();
+        expect(
+          payload.currentOrganization ?? null,
+          `an empty organization scope must not be told it is viewing ${label}`,
+        ).toBeNull();
+      }
+    } finally {
+      await deleteUserIfExists(request, superadminToken, userId);
+      await deleteRoleIfExists(request, superadminToken, roleId);
+      await deleteOrganizationIfExists(request, superadminToken, otherOrganizationId);
+      await deleteOrganizationIfExists(request, superadminToken, homeOrganizationId);
     }
   });
 });

@@ -26,6 +26,9 @@ function createFakeEm(seed: {
     async find(entity: unknown, where: Record<string, unknown>) {
       return (stores.get(entity) ?? []).filter((row) => matches(row, where))
     },
+    async findOne(entity: unknown, where: Record<string, unknown>) {
+      return (stores.get(entity) ?? []).find((row) => matches(row, where)) ?? null
+    },
   } as unknown as EntityManager
 }
 

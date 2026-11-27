@@ -102,6 +102,16 @@ describe('communication_channels oauth initiate — missing state secret in prod
     else delete process.env.NODE_ENV
   })
 
+  test('starts OAuth when the client and dedicated state key are configured', async () => {
+    process.env.OM_HUB_OAUTH_STATE_KEY = crypto.randomUUID()
+
+    const response = await initiateOAuth(makeRequest(), { params: { provider: PROVIDER } })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ authorizeUrl: 'https://example.test/authorize' })
+    expect(response.headers.get('set-cookie')).toContain('om_cc_oauth_state=')
+  })
+
   test('returns a JSON 500 instead of a bodyless crash', async () => {
     const response = await initiateOAuth(makeRequest(), { params: { provider: PROVIDER } })
     const body = await response.json()

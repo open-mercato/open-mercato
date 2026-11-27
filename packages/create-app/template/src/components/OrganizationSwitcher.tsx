@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { emitOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { OrganizationSelect, type OrganizationTreeNode } from '@open-mercato/core/modules/directory/components/OrganizationSelect'
 import { TenantSelect, type TenantRecord } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { Building2, Check, ChevronDown, Settings2 } from 'lucide-react'
@@ -130,9 +130,11 @@ function findFirstSelectable(nodes: OrganizationMenuNode[] | undefined): string 
 
 type OrganizationSwitcherExternalProps = {
   compact?: boolean
+  initialOrganizationId?: string
+  initialTenantId?: string | null
 }
 
-export default function OrganizationSwitcher({ compact }: OrganizationSwitcherExternalProps = {}) {
+export default function OrganizationSwitcher({ compact, initialOrganizationId, initialTenantId }: OrganizationSwitcherExternalProps = {}) {
   const router = useRouter()
   const pathname = usePathname()
   const t = useT()
@@ -172,7 +174,10 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
     }
   }, [router])
 
-  const persistSelection = React.useCallback((tenantId: string | null, next: string | null, options?: { refresh?: boolean }) => {
+  const persistSelection = React.useCallback((tenantId: string | null, next: string | null, options?: {
+    refresh?: boolean
+    initialServerScope?: OrganizationScopeChangedDetail
+  }) => {
     const resolved = next ?? ''
     const cookieValue = next ?? ALL_ORGANIZATIONS_COOKIE_VALUE
     setCookieState({ value: resolved, hasCookie: true, raw: cookieValue })
@@ -183,7 +188,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
     if (tenantId !== undefined) {
       persistTenant(tenantId ?? null, { refresh: false })
     }
-    emitOrganizationScopeChanged({ organizationId: resolved || null, tenantId: tenantId ?? null })
+    emitOrganizationScopeChanged({ organizationId: resolved || null, tenantId: tenantId ?? null }, options?.initialServerScope)
     if (options?.refresh !== false) {
       try { router.refresh() } catch {}
     }
@@ -262,6 +267,10 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
         isSuperAdmin,
       })
       const currentTenantCookie = tenantCookieRef.current
+      const initialServerScope = !targetTenant && !cookieInfo.hasCookie && !currentTenantCookie.hasCookie
+        && selected && selected === initialOrganizationId && resolvedTenantId && resolvedTenantId === initialTenantId
+        ? { organizationId: selected, tenantId: resolvedTenantId }
+        : undefined
       if (resolvedTenantId !== null) {
         if (!currentTenantCookie.hasCookie || currentTenantCookie.value !== resolvedTenantId) {
           persistTenant(resolvedTenantId, { refresh: false })
@@ -285,7 +294,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
           currentCookie.raw !== fallbackSelected ||
           !tenantMatches
         ) {
-          persistSelection(resolvedTenantId, fallbackSelected, { refresh: false })
+          persistSelection(resolvedTenantId, fallbackSelected, { refresh: false, initialServerScope })
         } else {
           emitOrganizationScopeChanged({ organizationId: fallbackSelected, tenantId: resolvedTenantId ?? null })
         }
@@ -308,7 +317,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
       if (abortRef?.current) return
       setState({ status: 'error' })
     }
-  }, [persistSelection, persistTenant, router, t])
+  }, [initialOrganizationId, initialTenantId, persistSelection, persistTenant, router, t])
 
   const handleTenantChange = React.useCallback((nextTenantId: string | null) => {
     const normalized = typeof nextTenantId === 'string' && nextTenantId.trim().length > 0 ? nextTenantId.trim() : null
@@ -349,6 +358,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
     ? state.tenantId ?? ''
     : tenantValue
   const showTenantSelect = state.status === 'ready' && state.isSuperAdmin && tenantSelectOptions.length > 0
+  const hasSwitcherContent = hasOptions || showAllOption || showTenantSelect
 
   const flatOrgOptions = React.useMemo(() => {
     const out: Array<{ id: string; label: string; selectable: boolean; depth: number }> = []
@@ -441,7 +451,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
   if (state.status === 'error') {
     return <span className="hidden md:inline text-xs text-destructive">{t('organizationSwitcher.error')}</span>
   }
-  if (!hasOptions) {
+  if (!hasSwitcherContent) {
     return <span className="hidden md:inline text-xs text-muted-foreground">{t('organizationSwitcher.empty')}</span>
   }
 
@@ -530,6 +540,11 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
                 </Button>
               )
             })}
+            {!flatOrgOptions.length ? (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                {t('organizationSwitcher.empty', 'No organizations')}
+              </div>
+            ) : null}
           </div>
         </div>
         {canManage ? (

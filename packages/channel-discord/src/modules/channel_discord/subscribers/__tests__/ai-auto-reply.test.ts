@@ -31,6 +31,7 @@ import { CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID } from '../../ai-agents'
 import { DISCORD_CHANNEL_TYPE } from '../../lib/channel-identity'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../../message-types'
 import { hasDiscordProposalOrigin } from '../../lib/ai-proposal-origin'
+import { CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE } from '../../lib/ai-proposal-contract'
 
 const findOne = findOneWithDecryption as unknown as jest.Mock
 const aiMod = jest.requireMock('@open-mercato/ai-assistant') as { runAiAgentObject: jest.Mock }
@@ -39,6 +40,8 @@ type ResolveMap = {
   commandBus?: { execute: jest.Mock }
   aiPresent?: boolean
   threadAssignee?: string | null
+  alreadyHandled?: boolean
+  countError?: Error
 }
 
 function makeCtx(map: ResolveMap) {
@@ -46,6 +49,10 @@ function makeCtx(map: ResolveMap) {
     findOne: jest.fn(async () =>
       map.threadAssignee ? { assignedUserId: map.threadAssignee } : null,
     ),
+    count: jest.fn(async () => {
+      if (map.countError) throw map.countError
+      return map.alreadyHandled ? 1 : 0
+    }),
   }
   const em = { fork: () => forked }
   const commandBus =
@@ -301,6 +308,87 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     await handler(basePayload, ctx)
 
     expect(findOne).toHaveBeenCalledTimes(1)
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('(retry) derives a stable idempotency key for the auto-send compose from the inbound message', async () => {
+    const { ctx, commandBus } = makeCtx({ aiPresent: true })
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
+      await handler(basePayload, ctx)
+    }
+
+    expect(commandBus.execute).toHaveBeenCalledTimes(2)
+    const keys = commandBus.execute.mock.calls.map(([, args]) => args.input.idempotencyKey)
+    expect(keys).toEqual(['channel_discord:ai-auto-reply:m-1', 'channel_discord:ai-auto-reply:m-1'])
+  })
+
+  it('(retry) skips the model and the send when this inbound message was already answered or proposed', async () => {
+    findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
+    const { ctx, commandBus, forked } = makeCtx({ aiPresent: true, alreadyHandled: true })
+
+    await handler(basePayload, ctx)
+
+    expect(aiMod.runAiAgentObject).not.toHaveBeenCalled()
+    expect(commandBus.execute).not.toHaveBeenCalled()
+    const [, where] = forked.count.mock.calls[0]
+    expect(where).toEqual({
+      tenantId: 't-1',
+      organizationId: 'o-1',
+      $or: [
+        { idempotencyKey: 'channel_discord:ai-auto-reply:m-1' },
+        {
+          type: CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE,
+          sourceEntityType: CHANNEL_DISCORD_AI_PROPOSAL_SOURCE_ENTITY_TYPE,
+          sourceEntityId: 'm-1',
+          idempotencyKey: { $like: 'channel\\_discord:ai\\_reply\\_proposal:v1:%' },
+        },
+      ],
+    })
+    expect(JSON.stringify(where)).not.toContain('deletedAt')
+  })
+
+  it('(retry) keeps a null organization in the already-handled check', async () => {
+    findOne
+      .mockResolvedValueOnce(channelRow({ organizationId: null }))
+      .mockResolvedValueOnce(messageRow('What are your opening hours?'))
+    const { ctx, forked } = makeCtx({ aiPresent: true, alreadyHandled: true })
+
+    await handler({ ...basePayload, organizationId: null }, ctx)
+
+    const [, where] = forked.count.mock.calls[0]
+    expect(where.tenantId).toBe('t-1')
+    expect(where.organizationId).toBeNull()
+  })
+
+  it('(retry) the already-handled check matches the proposal the first run files', async () => {
+    findOne
+      .mockResolvedValueOnce(channelRow())
+      .mockResolvedValueOnce(messageRow('I want a refund on my order'))
+      .mockResolvedValueOnce(channelRow())
+    const { ctx, commandBus, forked } = makeCtx({ aiPresent: true, threadAssignee: 'agent-user-1' })
+
+    await handler(basePayload, ctx)
+
+    const [, args] = commandBus.execute.mock.calls[0]
+    const [, where] = forked.count.mock.calls[0]
+    const proposalMatch = where.$or[1]
+    expect(args.input.type).toBe(proposalMatch.type)
+    expect(args.input.sourceEntityType).toBe(proposalMatch.sourceEntityType)
+    expect(args.input.sourceEntityId).toBe(proposalMatch.sourceEntityId)
+    expect(args.input.idempotencyKey.startsWith('channel_discord:ai_reply_proposal:v1:')).toBe(true)
+    expect(proposalMatch).not.toHaveProperty('senderUserId')
+    expect(args.input.tenantId).toBe(where.tenantId)
+    expect(args.input.organizationId).toBe(where.organizationId)
+  })
+
+  it('(retry check fails) degrades to a no-op — no model call, no send', async () => {
+    findOne.mockResolvedValueOnce(channelRow()).mockResolvedValueOnce(messageRow('What are your opening hours?'))
+    const { ctx, commandBus } = makeCtx({ aiPresent: true, countError: new Error('db down') })
+
+    await expect(handler(basePayload, ctx)).resolves.toBeUndefined()
+
+    expect(aiMod.runAiAgentObject).not.toHaveBeenCalled()
     expect(commandBus.execute).not.toHaveBeenCalled()
   })
 

@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recomputeFromEvent } from '../lib/processes/processProjection'
+import { enqueueOtelExportForFinishedProcessEvent } from '../lib/trace/otel/finishedProcessExport'
 
 /** Terminal resolution: a failed instance → `failed`, carrying the instance's own reason. */
 export const metadata = {
@@ -15,9 +16,11 @@ export default async function handle(
   const em = (ctx.resolve('em') as EntityManager).fork()
   const record = (payload ?? {}) as Record<string, unknown>
   const failureReason = typeof record.errorMessage === 'string' ? record.errorMessage : null
-  await recomputeFromEvent(
+  const result = await recomputeFromEvent(
     em,
     { ...record, workflowInstanceId: record.id },
     { createIfMissing: false, terminal: 'failed', failureReason },
   )
+  if (!result) return
+  await enqueueOtelExportForFinishedProcessEvent(em, ctx, { ...record, workflowInstanceId: record.id })
 }

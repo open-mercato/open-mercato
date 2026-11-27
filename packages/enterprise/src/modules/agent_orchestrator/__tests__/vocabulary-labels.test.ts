@@ -38,8 +38,9 @@ describe('enum label maps (consistency pass Area 4)', () => {
 
   it('trace detail renders guardrail phase/result and tool status through t()', () => {
     const source = readFileSync(join(MODULE_ROOT, 'backend/traces/[id]/page.tsx'), 'utf8')
-    expect(source).toContain('agent_orchestrator.traces.detail.guardrailPhase.${check.phase}')
-    expect(source).toContain('agent_orchestrator.traces.detail.guardrailResult.${check.result}')
+    const guardrailsCard = readFileSync(join(MODULE_ROOT, 'components/trace/GuardrailsCard.tsx'), 'utf8')
+    expect(guardrailsCard).toContain('agent_orchestrator.traces.detail.guardrailPhase.${check.phase}')
+    expect(guardrailsCard).toContain('agent_orchestrator.traces.detail.guardrailResult.${check.result}')
     expect(source).toContain("agent_orchestrator.traces.detail.toolStatus.${toolCall.status ?? 'ok'}")
   })
 

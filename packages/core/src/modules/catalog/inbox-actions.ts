@@ -87,7 +87,7 @@ async function executeCreateProductAction(
           tenantId: hCtx.tenantId,
           priceKindId: priceKind.id,
           currencyCode: payload.currencyCode,
-          unitPriceNet: Number(payload.unitPrice),
+          unitPriceNet: payload.unitPrice,
         })
       }
     } catch (priceErr) {

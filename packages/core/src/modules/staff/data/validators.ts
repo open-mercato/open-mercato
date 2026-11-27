@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { decimalToNumber, decimalToString, isDecimalInput, toDecimal } from '@open-mercato/shared/lib/decimal'
 import { PROJECT_COLOR_KEYS } from '../lib/timesheets-ui/colors'
 import { hasTimeEntrySource, timeEntrySourceIds } from '../lib/time-tracking/timeEntrySources'
 import { hasReportGrouping, reportGroupingIds } from '../lib/timesheets-reports/reportGroupings'
@@ -286,7 +287,17 @@ const timeProjectStatusSchema = z.enum(['active', 'on_hold', 'completed'])
 const timeProjectMemberStatusSchema = z.enum(['active', 'inactive'])
 const timeEntrySegmentTypeSchema = z.enum(['work', 'break'])
 const projectCodeSchema = z.string().min(1).max(50).regex(/^[a-zA-Z0-9-]+$/)
-const moneyAmountSchema = z.number().min(0).max(99_999_999)
+/**
+ * A non-negative amount sent as a JSON number or a decimal string. The parsed
+ * value stays a `number` (float copy); commands keep the exact digits through
+ * `withExactAmounts`.
+ */
+const moneyAmountSchema = z
+  .union([z.number(), z.string()])
+  .refine((value) => isDecimalInput(value) && !toDecimal(value).lt(0), {
+    message: 'staff.validation.nonNegativeAmount',
+  })
+  .transform((value) => decimalToNumber(value))
 const timeProjectBudgetKindSchema = z.enum(['none', 'hours', 'amount'])
 
 // Upper-cased at the boundary so every writer stores canonical ISO 4217. The report
@@ -294,8 +305,8 @@ const timeProjectBudgetKindSchema = z.enum(['none', 'hours', 'amount'])
 // otherwise read as two currencies and wrongly block a customer report.
 const currencyCodeSchema = z.string().trim().length(3).transform((value) => value.toUpperCase())
 
-// numeric(14,4): ten integer digits, four decimals, never negative.
-const numericAmountPattern = /^\d{1,10}(?:\.\d{1,4})?$/
+// Unconstrained numeric: any number of digits, never negative.
+const numericAmountPattern = /^\d+(?:\.\d+)?$/
 
 /**
  * `numeric(14,4)` columns are surfaced by MikroORM as strings, and the project
@@ -306,19 +317,28 @@ const numericAmountPattern = /^\d{1,10}(?:\.\d{1,4})?$/
  * `moneyAmountSchema` above: `rate_override_amount` is consumed by the cost
  * calculator as a number, not written straight onto a numeric column.)
  */
+// `String(1e-8)` is "1e-8", which the plain-decimal pattern rejects; write it out in full.
+function numberToPlainDecimal(value: number): string | null {
+  return isDecimalInput(value) ? decimalToString(value) : null
+}
+
 const numericAmountSchema = z
   .union([z.number(), z.string()])
   .transform((value, ctx) => {
-    const raw = typeof value === 'number' ? String(value) : value.trim().replace(',', '.')
+    const raw = typeof value === 'number' ? numberToPlainDecimal(value) : value.trim().replace(',', '.')
+    if (raw === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'staff.validation.nonNegativeAmount' })
+      return z.NEVER
+    }
     if (raw.length === 0) return null
-    if (!numericAmountPattern.test(raw)) {
+    if (!numericAmountPattern.test(raw) || !isDecimalInput(raw)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Expected a non-negative amount with at most 10 digits and 4 decimals.',
+        message: 'staff.validation.nonNegativeAmount',
       })
       return z.NEVER
     }
-    return raw
+    return decimalToString(raw)
   })
 
 export const staffTimeEntryCreateSchema = z.object({
@@ -784,3 +804,16 @@ export const staffSupportFallbackProjectCreateSchema = z.object({
 export type StaffSupportRoutingRuleCreateInput = z.infer<typeof staffSupportRoutingRuleCreateSchema>
 export type StaffSupportRoutingRuleUpdateInput = z.infer<typeof staffSupportRoutingRuleUpdateSchema>
 export type StaffSupportFallbackProjectCreateInput = z.infer<typeof staffSupportFallbackProjectCreateSchema>
+
+const STAFF_AVAILABILITY_WINDOW_MAX_DAYS = 93
+export const staffAvailabilityWindowsQuerySchema = z.object({
+  userIds: z.string().max(4_096).transform((value) => Array.from(new Set(
+    value.split(',').map((userId) => userId.trim().toLowerCase()),
+  ))).pipe(z.array(z.string().uuid()).min(1).max(100)),
+  from: z.string().datetime({ offset: true }),
+  to: z.string().datetime({ offset: true }),
+  organizationId: z.string().uuid().optional(),
+}).refine(({ from, to }) => {
+  const duration = Date.parse(to) - Date.parse(from)
+  return duration > 0 && duration <= STAFF_AVAILABILITY_WINDOW_MAX_DAYS * 24 * 60 * 60 * 1000
+}, { path: ['to'], message: 'Invalid availability range' })

@@ -7,8 +7,8 @@ import { Video } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
-import { EventPeekPopover } from './EventPeekPopover'
-import { formatTimeRange, resolveEventTone } from './EventBlock'
+import { formatTimeRange, readableTypeColor, resolveEventTone } from './EventBlock'
+import { EventPeekPopover, resolveEventTypeIcon } from './EventPeekPopover'
 import type { CalendarItem } from './types'
 
 const HEADER_HEIGHT_PX = 24
@@ -25,8 +25,10 @@ export type OverflowBlockProps = {
   width: string
   open: boolean
   conflictIds: Set<string>
+  conflictDescriptions?: ReadonlyMap<string, string>
   showConflicts: boolean
   highlightItemId?: string | null
+  typeIcons?: Record<string, string | null>
   canManage: boolean
   aiSummaries?: boolean
   nowMs: number
@@ -43,14 +45,16 @@ export type OverflowBlockProps = {
   peekSide?: React.ComponentProps<typeof PopoverContent>['side']
 }
 
-type ToneDotProps = { item: CalendarItem }
+type TypeIconProps = { item: CalendarItem; typeIcons?: Record<string, string | null>; className?: string }
 
-function ToneDot({ item }: ToneDotProps) {
+/** Dictionary icon of the interaction type in its color: names the kind of event, not just its hue. */
+function TypeIcon({ item, typeIcons, className }: TypeIconProps) {
+  const Icon = resolveEventTypeIcon(item, typeIcons?.[item.interactionType])
   return (
-    <span
+    <Icon
       aria-hidden
-      className={cn('size-1.5 shrink-0 rounded-full', !item.color && 'bg-muted-foreground')}
-      style={item.color ? { backgroundColor: item.color } : undefined}
+      className={cn('shrink-0', !item.color && 'text-muted-foreground', className)}
+      style={item.color ? { color: readableTypeColor(item.color) } : undefined}
     />
   )
 }
@@ -65,8 +69,10 @@ export function OverflowBlock({
   width,
   open,
   conflictIds,
+  conflictDescriptions,
   showConflicts,
   highlightItemId,
+  typeIcons,
   canManage,
   aiSummaries = false,
   nowMs,
@@ -118,7 +124,7 @@ export function OverflowBlock({
           </span>
           {previewItems.map((item) => (
             <span key={item.id} className="flex w-full min-w-0 items-center gap-1.5">
-              <ToneDot item={item} />
+              <TypeIcon item={item} typeIcons={typeIcons} className="size-3" />
               <span className={cn('min-w-0 flex-1 truncate text-overline leading-4', resolveEventTone(item, nowMs).subClassName)}>
                 {item.title || untitled}
               </span>
@@ -139,6 +145,7 @@ export function OverflowBlock({
             const title = item.title || untitled
             const timeRange = formatTimeRange(locale, item.start, item.end)
             const joinUrl = resolveJoinUrl(item.location)
+            const conflictDescription = showConflicts ? conflictDescriptions?.get(item.id) : undefined
             const rowClassName = cn(
               'flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-start',
               showConflicts && conflictIds.has(item.id) && 'ring-1 ring-status-warning-icon',
@@ -147,13 +154,13 @@ export function OverflowBlock({
               <>
                 <span className="flex w-full min-w-0 items-start gap-2">
                   <span className="flex h-4 shrink-0 items-center">
-                    <ToneDot item={item} />
+                    <TypeIcon item={item} typeIcons={typeIcons} className="size-3.5" />
                   </span>
                   <span className={cn('min-w-0 flex-1 break-words text-xs font-medium leading-4', rowTone.titleClassName)}>
                     {title}
                   </span>
                 </span>
-                <span className={cn('ps-3.5 text-overline tracking-wide', rowTone.subClassName)}>{timeRange}</span>
+                <span className={cn('ps-5 text-overline tracking-wide', rowTone.subClassName)}>{timeRange}</span>
               </>
             )
             return (
@@ -163,6 +170,8 @@ export function OverflowBlock({
                     type="button"
                     variant="ghost"
                     aria-label={`${title}, ${timeRange}`}
+                    aria-description={conflictDescription}
+                    title={conflictDescription}
                     className={cn('h-auto whitespace-normal', rowClassName)}
                     onClick={() => {
                       onOpenChange(false)
@@ -179,6 +188,7 @@ export function OverflowBlock({
                     joinUrl={joinUrl}
                     aiSummaries={aiSummaries}
                     canManage={false}
+                    typeIcon={typeIcons?.[item.interactionType]}
                     onOpenChange={(next) => setPeekItemId(next ? item.id : null)}
                     onJoin={onJoin}
                     onEdit={onEdit}
@@ -187,6 +197,8 @@ export function OverflowBlock({
                       type="button"
                       variant="ghost"
                       aria-label={`${title}, ${timeRange}`}
+                      aria-description={conflictDescription}
+                      title={conflictDescription}
                       className={cn('h-auto whitespace-normal', rowClassName)}
                     >
                       {rowContent}

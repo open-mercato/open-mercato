@@ -116,7 +116,7 @@ export default function ScheduleCalendar({
       start: item.startsAt,
       end: item.endsAt,
       resource: item,
-      allDay: isAllDay(item),
+      allDay: item.allDay ?? isAllDay(item),
     })),
     [expandedItems],
   )

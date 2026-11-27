@@ -33,8 +33,16 @@
  *   yarn db:migrate
  *
  * Pass --dry-run to print what it would do and roll back.
+ *
+ * SUPERSEDED: the module was re-squashed into
+ * `Migration20260906141535_agent_orchestrator`, which drops `agent_process_runs`
+ * and renames the process tables again. The delta above no longer leads to that
+ * schema, and recording the old squash would leave `db:migrate` failing on the
+ * new one. While `${SQUASH}.ts` is absent from this directory the script refuses
+ * to touch the database; a database on the retired chain must drop and
+ * re-initialise this module's tables (see the current squash's header).
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import pg from 'pg'
@@ -73,7 +81,23 @@ async function columnExists(client, table, column) {
   return result.rowCount > 0
 }
 
+function currentSquashes() {
+  const directory = path.dirname(fileURLToPath(import.meta.url))
+  return readdirSync(directory)
+    .filter((entry) => /^Migration\d+_agent_orchestrator\.ts$/.test(entry))
+    .map((entry) => entry.slice(0, -'.ts'.length))
+}
+
 async function main() {
+  const squashes = currentSquashes()
+  if (!squashes.includes(SQUASH)) {
+    console.error(
+      `[internal] adopt-squash targets ${SQUASH}, but the current agent_orchestrator squash is ${squashes.join(', ') || 'missing'}. ` +
+        'This script cannot adopt it: drop and re-initialise the module tables on a database that ran the retired chain, then run yarn db:migrate.',
+    )
+    process.exitCode = 1
+    return
+  }
   const client = new pg.Client({ connectionString: databaseUrl() })
   await client.connect()
 

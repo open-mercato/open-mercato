@@ -1,6 +1,8 @@
-import { RoleAcl, Session, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
+import { RoleAcl, Session, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { isAuthContextValid, resolveCanonicalStaffAuthContext } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 
 const findOneWithDecryption = jest.fn()
@@ -25,6 +27,7 @@ type MockStore = {
   user?: unknown
   userAcl?: unknown
   roleAcl?: unknown
+  links?: unknown[]
 }
 
 function mockFindOneByEntity(store: MockStore & { session?: SessionLookupResult }) {
@@ -34,9 +37,11 @@ function mockFindOneByEntity(store: MockStore & { session?: SessionLookupResult 
     if (entity === Session) return store.session ?? null
     if (entity === User) return store.user ?? null
     if (entity === UserAcl) return store.userAcl ?? null
-    if (entity === RoleAcl) return store.roleAcl ?? null
     return null
   })
+  findWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => (
+    entity === RoleAcl && store.roleAcl ? [store.roleAcl] : entity === UserRole ? store.links ?? [] : []
+  ))
 }
 
 type SessionLookupResult =
@@ -88,11 +93,11 @@ describe('isAuthContextValid', () => {
       session: validSession,
       user: { id: userId, tenantId, organizationId },
       roleAcl: { isSuperAdmin: true },
+      links: [
+        { role: { id: adminRoleId, name: 'admin' } },
+        { role: { id: impostorRoleId, name: 'superadmin' } },
+      ],
     })
-    findWithDecryption.mockResolvedValue([
-      { role: { id: adminRoleId, name: 'admin' } },
-      { role: { id: impostorRoleId, name: 'superadmin' } },
-    ])
 
     await expect(
       resolveCanonicalStaffAuthContext(em, {
@@ -167,6 +172,19 @@ describe('isAuthContextValid', () => {
     })
   })
 
+  it.each(['userAcl', 'roleAcl'] as const)('keeps a finite %s out of the global staff auth context', async (grant) => {
+    mockFindOneByEntity({
+      session: validSession,
+      user: { id: userId, tenantId, organizationId },
+      [grant]: { isSuperAdmin: true, organizationsJson: [organizationId] },
+      links: [{ role: { id: adminRoleId, name: 'admin' } }],
+    })
+
+    await expect(resolveCanonicalStaffAuthContext(em, {
+      sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [], isSuperAdmin: true,
+    })).resolves.toMatchObject({ isSuperAdmin: false })
+  })
+
   it('rejects an auth context when the user no longer exists', async () => {
     mockFindOneByEntity({ session: validSession, user: null })
 
@@ -191,10 +209,8 @@ describe('isAuthContextValid', () => {
       session: validSession,
       user: { id: userId, tenantId, organizationId },
       roleAcl: { isSuperAdmin: true },
+      links: [{ role: { id: adminRoleId, name: 'admin' } }],
     })
-    findWithDecryption.mockResolvedValue([
-      { role: { id: adminRoleId, name: 'admin' } },
-    ])
 
     await expect(
       isAuthContextValid(em, {
@@ -369,13 +385,13 @@ describe('isAuthContextValid', () => {
         callOrder.push('userAcl')
         return null
       }
-      if (entity === RoleAcl) {
-        callOrder.push('roleAcl')
-        return null
-      }
       return null
     })
-    findWithDecryption.mockImplementation(async () => {
+    findWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === RoleAcl) {
+        callOrder.push('roleAcl')
+        return []
+      }
       callOrder.push('links')
       return linksGate
     })
@@ -399,6 +415,49 @@ describe('isAuthContextValid', () => {
     await pending
 
     expect(callOrder).toContain('roleAcl')
+  })
+
+  it('rejects a session credential bearing an obsolete login email', async () => {
+    mockFindOneByEntity({
+      session: validSession,
+      user: { id: userId, tenantId, organizationId, email: 'current@example.test' },
+    })
+
+    await expect(resolveCanonicalStaffAuthContext(em, {
+      sub: userId, sid: sessionId, tenantId, orgId: organizationId, email: 'previous@example.test', roles: [],
+    })).resolves.toBeNull()
+  })
+
+  it('checks the login email lookup hash when the persisted email is still encrypted', async () => {
+    const email = 'current@example.test'
+    const storedEmail = encryptWithAesGcm(email, generateDek()).value
+    mockFindOneByEntity({
+      session: validSession,
+      user: { id: userId, tenantId, organizationId, email: storedEmail, emailHash: computeEmailHash(email) },
+    })
+    const auth = { sub: userId, sid: sessionId, tenantId, orgId: organizationId, email, roles: [] }
+
+    await expect(resolveCanonicalStaffAuthContext(em, auth)).resolves.toMatchObject({ sub: userId, email })
+    await expect(resolveCanonicalStaffAuthContext(em, {
+      ...auth, email: 'previous@example.test',
+    })).resolves.toBeNull()
+  })
+
+  it.each([true, false])('honors the injected SSO session eligibility result (%s)', async (eligible) => {
+    const user = { id: userId, tenantId, organizationId }
+    const session = {
+      ...validSession,
+      ssoProvenance: { configId: organizationId, configUpdatedAt: 1 },
+    }
+    mockFindOneByEntity({ session, user })
+    const isSessionEligible = jest.fn().mockResolvedValue(eligible)
+    const auth = { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }
+
+    const result = await resolveCanonicalStaffAuthContext(em, auth, () => ({ isSessionEligible }))
+
+    expect(result).toEqual(eligible ? { ...auth, isSuperAdmin: false } : null)
+    expect(isSessionEligible).toHaveBeenCalledWith(session, user)
+    await expect(resolveCanonicalStaffAuthContext(em, auth)).resolves.toBeNull()
   })
 
   it('skips user integrity lookup for api key auth', async () => {

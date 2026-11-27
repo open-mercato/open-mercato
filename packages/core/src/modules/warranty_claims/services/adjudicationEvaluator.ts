@@ -3,6 +3,7 @@ import type { WarrantyClaimEffectiveSettings } from '../lib/settings'
 import type { ClaimRiskAssessment } from '../lib/risk'
 import type { WarrantyClaim, WarrantyClaimLine } from '../data/entities'
 import { tryResolve } from '../lib/tryResolve'
+import { parseDecimal } from '@open-mercato/shared/lib/decimal'
 
 export interface WarrantyAdjudicationDecision {
   decision: 'auto_approve' | 'manual_review'
@@ -133,10 +134,12 @@ function evaluateLightEligibility(args: {
   // A zero/indeterminate claimed amount must NOT satisfy the cap — a valuable claim whose
   // value has not been entered yet would otherwise auto-approve as though it were worth 0
   // (WQA-009). Require a positive claimed amount so undetermined value routes to manual review.
-  const claimedAmount = numericAmount(args.claim.totalClaimedAmount)
-  const amountWithinLimit = args.settings.autoApproveMaxAmount !== null
-    && claimedAmount > 0
-    && claimedAmount <= args.settings.autoApproveMaxAmount
+  const claimedAmount = parseDecimal(args.claim.totalClaimedAmount)
+  const maxAmount = parseDecimal(args.settings.autoApproveMaxAmountExact ?? args.settings.autoApproveMaxAmount)
+  const amountWithinLimit = maxAmount !== null
+    && claimedAmount !== null
+    && claimedAmount.gt(0)
+    && claimedAmount.lte(maxAmount)
   const warrantyRequirementSatisfied = !args.settings.autoApproveRequireInWarranty
     || args.lines.every((line) => line.warrantyStatus === 'in_warranty')
   const eligible = args.settings.autoApproveEnabled

@@ -2,8 +2,10 @@ import { type Kysely, sql } from 'kysely'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { isUniqueViolation } from '@open-mercato/shared/lib/db/pg-errors'
 import { buildIndexDocument, rebuildAggregateSearchField, type IndexCustomFieldValue } from './document'
-import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
+import { replaceSearchTokensForBatch, deleteSearchTokensForRecord, isSearchDebugEnabled } from './search-tokens'
 import { applyIndexDocEnrichers, type IndexDocEnrichmentTarget } from './doc-enrichers'
+import { passesSearchTokenIndexGates, resolveSearchTokenIndexGates } from './search-entity-policy'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 
@@ -101,6 +103,15 @@ export type IndexBatchOptions = {
     doc: Record<string, unknown>,
     scope: { organizationId: string | null; tenantId: string | null },
   ) => Promise<Record<string, unknown> | null | undefined>
+  /** Query engine handed to the entity's `shouldIndex` gates before its search tokens are written. */
+  searchTokenGateQueryEngine?: QueryEngine
+  /**
+   * Whether the token writer must skip ciphertext-shaped fields, evaluated per row straight after
+   * that row's `decryptDoc`, so a Vault that recovers mid-batch cannot clear the guard for rows
+   * decrypted while it was down. Pass `() => resolveCiphertextGuard(encryption)` with the service
+   * `decryptDoc` uses. A row whose `decryptDoc` throws is always guarded.
+   */
+  ciphertextGuard?: () => boolean
 }
 
 function normalizeId(value: unknown): string {
@@ -119,6 +130,7 @@ type IndexRowPayload = {
   tenant_id: string | null
   doc: Record<string, unknown>
   tokenDoc: Record<string, unknown>
+  guardCiphertext?: boolean
   index_version: number
 }
 
@@ -292,6 +304,7 @@ export async function upsertIndexBatch(
     const scopeTenant = built.tenantId
     let doc = built.doc
     let tokenDoc: Record<string, unknown> = doc
+    let guardCiphertext: boolean | undefined
     if (typeof options.encryptDoc === 'function') {
       try {
         const encrypted = await options.encryptDoc(entityType, doc, {
@@ -332,6 +345,7 @@ export async function upsertIndexBatch(
         // Only affects the search tokens built below; the indexed document itself is
         // unharmed, so the row still counts as written.
         logger.warn('Failed to decrypt index document for search tokens', { entityType, recordId })
+        guardCiphertext = true
         await recordIndexerError(
           { db },
           {
@@ -346,6 +360,7 @@ export async function upsertIndexBatch(
         ).catch(() => undefined)
       }
     }
+    guardCiphertext ??= options.ciphertextGuard?.()
     basePayloads.push({
       entity_type: entityType,
       entity_id: recordId,
@@ -353,6 +368,7 @@ export async function upsertIndexBatch(
       tenant_id: scopeTenant ?? null,
       doc,
       tokenDoc,
+      ...(guardCiphertext === undefined ? {} : { guardCiphertext }),
       index_version: 1,
     })
     if (debugEnabled) {
@@ -385,17 +401,41 @@ export async function upsertIndexBatch(
     deleted_at: null,
   }))
 
-  const tokenPayloads = basePayloads.map((payload) => ({
+  const tokenGates = resolveSearchTokenIndexGates(entityType)
+  const gateRejectedPayloads: IndexRowPayload[] = []
+  const tokenSourcePayloads: IndexRowPayload[] = []
+  for (const payload of basePayloads) {
+    const allowed = !tokenGates.length || await passesSearchTokenIndexGates(entityType, tokenGates, {
+      recordId: payload.entity_id,
+      record: payload.tokenDoc,
+      tenantId: payload.tenant_id,
+      organizationId: payload.organization_id,
+      queryEngine: options.searchTokenGateQueryEngine,
+    })
+    if (allowed) tokenSourcePayloads.push(payload)
+    else gateRejectedPayloads.push(payload)
+  }
+
+  const tokenPayloads = tokenSourcePayloads.map((payload) => ({
     entityType: payload.entity_type,
     recordId: payload.entity_id,
     organizationId: payload.organization_id,
     tenantId: payload.tenant_id,
     doc: payload.tokenDoc,
+    ...(payload.guardCiphertext === undefined ? {} : { guardCiphertext: payload.guardCiphertext }),
   }))
 
   const writeSearchTokens = async (payloads = tokenPayloads): Promise<void> => {
-    if (!payloads.length) return
+    if (!payloads.length && !gateRejectedPayloads.length) return
     try {
+      for (const rejected of gateRejectedPayloads) {
+        await deleteSearchTokensForRecord(db, {
+          entityType: rejected.entity_type,
+          recordId: rejected.entity_id,
+          organizationId: rejected.organization_id,
+          tenantId: rejected.tenant_id,
+        })
+      }
       await replaceSearchTokensForBatch(db, payloads)
     } catch (searchTokenError) {
       // Record instead of swallowing: a failed token write leaves fulltext search stale.

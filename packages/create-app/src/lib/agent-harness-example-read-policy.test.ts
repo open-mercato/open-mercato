@@ -1071,7 +1071,11 @@ test('path normalization accepts Windows-style separators and rejects every esca
 // declaring case must be a deliberate edit here, not a silent catalog drift.
 // ---------------------------------------------------------------------------------------------
 
-const DECLARING_CASE_IDS = ['OMH-181', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222', 'OMH-223', 'OMH-225', 'OMH-226', 'OMH-238']
+const CRUD_FORM_POLICY_CASE_IDS = Array.from({ length: 12 }, (_, index) => `OMH-${244 + index}`)
+const DECLARING_CASE_IDS = [
+  'OMH-181', 'OMH-203', 'OMH-219', 'OMH-220', 'OMH-221', 'OMH-222',
+  'OMH-223', 'OMH-225', 'OMH-226', 'OMH-238', 'OMH-243', ...CRUD_FORM_POLICY_CASE_IDS,
+]
 
 /**
  * The exact capability set each declaring case may read.
@@ -1105,6 +1109,8 @@ const DECLARED_CAPABILITY_IDS: Record<string, string[]> = {
   'OMH-225': ['runtime.bulk-operation-progress'],
   'OMH-226': ['ai.agent', 'ai.agent-extension', 'ai.tool-pack'],
   'OMH-238': ['umes.customers.calendar-event-types'],
+  'OMH-243': ['umes.component-replacement'],
+  ...Object.fromEntries(CRUD_FORM_POLICY_CASE_IDS.map((id, index) => [id, [`example.crud-form-extensions.c${index + 1}`]])),
 }
 const REFERENCE_SHEET = '.ai/guides/reference-modules/example/index.md'
 
@@ -1130,6 +1136,11 @@ function undeclaringShippedCases() {
     && entry.context.installedVersionFallback === undefined)
 }
 
+function declaredEntrypoints(entry: CaseRecord): string[] {
+  const roots = entry.context.exampleRoots as Array<{ entrypoints: string[] }>
+  return roots.flatMap((declaration) => declaration.entrypoints)
+}
+
 function declaredCapabilityIds(entry: { context: Record<string, unknown> }): string[] {
   const roots = entry.context.exampleRoots as Array<{ allowedCapabilityIds: string[] }>
   return roots.flatMap((declaration) => declaration.allowedCapabilityIds)
@@ -1153,7 +1164,7 @@ test('reachability: exactly the pinned shipped cases declare an example root, an
       // Entrypoints, the inventory, and every mapped capability source — and nothing else.
       const expected = [
         `${EXAMPLE_ROOT}/references/surface-inventory.json`,
-        ...ENTRYPOINTS.map((entrypoint) => `${EXAMPLE_ROOT}/${entrypoint}`),
+        ...declaredEntrypoints(entry).map((entrypoint) => `${EXAMPLE_ROOT}/${entrypoint}`),
         ...declaredCapabilityIds(entry).flatMap((id) => capability(id).sourcePaths),
         ...((entry.context.sourceReferenceIds as string[] | undefined) ?? [])
           .map((referenceId) => recordIn(projectedInventory().records, referenceId).resolvedPath),
@@ -1220,11 +1231,13 @@ test('reachability: the specialist routing case can use the documented reason-ga
 
 test('reachability: AGENT-HARNESS.md names exactly the declaring case set, which no count guard covers', () => {
   const doc = fs.readFileSync(fileURLToPath(new URL('../../AGENT-HARNESS.md', import.meta.url)), 'utf8')
-  const stated = /(\w+) cases,\s+`(OMH-\d{3})`, `(OMH-\d{3})`…`(OMH-\d{3})` and `(OMH-\d{3})`, declare it today/.exec(doc)
+  const stated = /The (\d+) cases that declare it are ([^.]+)\./.exec(doc)
   assert.ok(stated, 'AGENT-HARNESS.md must state the example-root declaring set')
-  assert.equal(stated[1], 'Ten')
-  assert.equal(DECLARING_CASE_IDS.length, 10)
-  assert.deepEqual([stated[2], stated[3], stated[4], stated[5]], ['OMH-181', 'OMH-203', 'OMH-226', 'OMH-238'])
+  const listed = [...stated[2].matchAll(/`OMH-(\d{3})`(?:–`OMH-(\d{3})`)?/g)].flatMap(([, from, to]) =>
+    Array.from({ length: Number(to ?? from) - Number(from) + 1 }, (_, index) => `OMH-${Number(from) + index}`),
+  )
+  assert.equal(Number(stated[1]), DECLARING_CASE_IDS.length)
+  assert.deepEqual(listed, DECLARING_CASE_IDS)
   // The read-only/writable split is the reviewable half of that sentence: a writable declarer is
   // exactly what immutability precedence has to defend against, so the doc names it by ID.
   const writable = declaringShippedCases().filter((entry) => ['implementation', 'regression'].includes(entry.evaluationKind))
@@ -1256,18 +1269,19 @@ test('reachability: every shipped declaring case reads its own capability set en
   try {
     for (const entry of declaringShippedCases()) {
       const allowed = declaredCapabilityIds(entry)
-      const reads: PolicyRead[] = [
-        ...entrypointReads(),
-        // A case that declares source references must read the owners rendering those links
-        // before it may follow them, so the reachability sequence includes them — exactly the
-        // order a real run produces. Owners are routed context and are not charged to the root.
+      const entrypoints = declaredEntrypoints(entry)
+      const start = [
         ...declaredReferenceOwners(entry).map((owner) => ({ path: owner })),
+        ...entrypoints.map((entrypoint) => ({ path: `${EXAMPLE_ROOT}/${entrypoint}` })),
+      ]
+      const reads: PolicyRead[] = [
+        ...start,
         ...allowed.flatMap((id) => capability(id).sourcePaths.map((source) => ({ path: source }))),
       ]
       const trace = evaluator.evaluateExampleReadPolicy({ caseRecord: entry, appRoot: root, reads })
       assert.equal(trace.firstViolation, null, `${entry.id} must be able to read its own declared capabilities`)
       assert.equal(trace.roots.length, 1, `${entry.id} must account exactly one root`)
-      assert.deepEqual(trace.roots[0].entrypoints, ENTRYPOINTS, `${entry.id} must record both entrypoints`)
+      assert.deepEqual(trace.roots[0].entrypoints, entrypoints, `${entry.id} must record its exact entrypoints`)
       // Only in-root reads are charged to the root budget; a routed owner is ordinary context
       // and is governed by the case's own context budgets instead.
       const inRoot = new Set(reads.map((read) => read.path).filter((read) => read.startsWith(`${EXAMPLE_ROOT}/`)))
@@ -1289,7 +1303,7 @@ test('reachability: every shipped declaring case reads its own capability set en
       const refused = evaluator.evaluateExampleReadPolicy({
         caseRecord: entry,
         appRoot: root,
-        reads: [...entrypointReads(), { path: outside.sourcePaths.find((source) => source.startsWith(`${EXAMPLE_ROOT}/`))! }],
+        reads: [...start, { path: outside.sourcePaths.find((source) => source.startsWith(`${EXAMPLE_ROOT}/`))! }],
       })
       assert.match(refused.firstViolation ?? '', /maps to a capability the case did not declare/, `${entry.id} must refuse ${outside.capabilityId}`)
     }
@@ -1304,7 +1318,7 @@ test('reachability: every shipped declaring case reads its own capability set en
  * AND against the routing budgets that the same reads feed. Example sources carry no `/references/`
  * segment, so they count as INITIAL context — a growing example silently squeezes them otherwise.
  */
-test('reachability: every shipped declaring case can afford the entire surface it declares', async () => {
+test('reachability: every shipped declaring case can afford the entire surface it declares', async (context) => {
   const evaluator = await loadEvaluator()
   const root = stageExampleApp()
   try {
@@ -1312,12 +1326,16 @@ test('reachability: every shipped declaring case can afford the entire surface i
       const declaration = entry.context.exampleRoots[0]
       const files = evaluator.exampleReadAllowlist(entry, root)
       const bytes = files.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
+      if (entry.id === 'OMH-221') {
+        context.diagnostic(`${entry.id}: ${bytes} example bytes / ${declaration.maxBytes} root cap`)
+        assert.ok(declaration.maxBytes - bytes >= 164, `${entry.id}: ${bytes} example bytes need ${bytes + 164} with existing headroom`)
+      }
       assert.ok(files.length <= declaration.maxFiles, `${entry.id} declares ${files.length} files against maxFiles ${declaration.maxFiles}`)
       assert.ok(bytes <= declaration.maxBytes, `${entry.id} declares ${bytes} bytes against maxBytes ${declaration.maxBytes}`)
 
       const initial = files.filter((relative) => !relative.includes('/references/'))
       const instruction = [...entry.context.required, ...(entry.context.allowedExtra ?? [])]
-      const initialFiles = initial.length + instruction.filter((relative) => !relative.includes('/references/')).length
+      const initialFiles = new Set([...initial, ...instruction.filter((relative) => !relative.includes('/references/'))]).size
       assert.ok(
         initialFiles <= entry.maxContextFiles,
         `${entry.id} needs ${initialFiles} initial context files against maxContextFiles ${entry.maxContextFiles}`,

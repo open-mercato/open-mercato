@@ -1,3 +1,4 @@
+import { resolveAttachmentPartition } from '../../../lib/partitionScope'
 import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { getAttachmentStoragePolicy } from '../../../lib/drivers/storageValidation'
 import { LockMode } from '@mikro-orm/core'
@@ -14,7 +15,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Attachment, AttachmentPartition } from '../../../data/entities'
+import { Attachment } from '../../../data/entities'
 import {
   mergeAttachmentMetadata,
   normalizeAttachmentAssignments,
@@ -23,6 +24,7 @@ import {
 } from '../../../lib/metadata'
 import type { StorageDriverFactory } from '../../../lib/drivers'
 import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from '../../../lib/storageReferences'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from '../../../lib/documentStructure/purge'
 import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
@@ -105,7 +107,7 @@ async function getAttachment(req: NextRequest, ctx: RouteContext) {
   await assertAttachmentOwnerAccess({ em, context: createAttachmentAccessContext(container), auth, attachment: record, action: 'metadata' })
   const metadata = readAttachmentMetadata(record.storageMetadata)
   const partition = record.partitionCode
-    ? await em.findOne(AttachmentPartition, { code: record.partitionCode })
+    ? await resolveAttachmentPartition(em, record.partitionCode, record)
     : null
   const customFieldValues = await loadCustomFieldValues({
     em,
@@ -119,6 +121,7 @@ async function getAttachment(req: NextRequest, ctx: RouteContext) {
   const assignments = metadata.assignments ?? []
   const enrichments = await resolveAssignmentEnrichments(assignments, {
     queryEngine,
+    authorization: { auth, container },
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
   })
@@ -224,6 +227,7 @@ async function updateAttachment(req: NextRequest, ctx: RouteContext) {
   const assignments = metadata.assignments ?? []
   const enrichments = await resolveAssignmentEnrichments(assignments, {
     queryEngine,
+    authorization: { auth, container },
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
   })
@@ -285,11 +289,16 @@ async function deleteAttachment(req: NextRequest, ctx: RouteContext) {
     const driver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
       tenantId: record.tenantId ?? auth.tenantId!, organizationId: record.organizationId ?? auth.orgId!,
     })
+    const purgeScope = { tenantId: record.tenantId ?? null, organizationId: record.organizationId ?? null }
+    const purge = await purgeDocumentStructure(tx, { attachmentId: record.id, ...purgeScope }, { flush: false })
     tx.remove(record)
     await tx.flush()
-    return { record, driver, guard, releaseStorage: removal.releaseStorage }
+    return { record, driver, guard, releaseStorage: removal.releaseStorage, purgeScope, indexedSectionIds: purge.indexedSectionIds }
   })
   const { record } = outcome
+  if (outcome.indexedSectionIds.length > 0) {
+    await enqueuePurgedSectionSearchDelete(outcome.purgeScope, outcome.indexedSectionIds)
+  }
   if (outcome.releaseStorage) await outcome.driver.delete(record.partitionCode, record.storagePath)
   await outcome.guard.runAfterSuccess()
 

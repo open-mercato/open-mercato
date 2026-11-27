@@ -66,8 +66,10 @@ describe('company create page injection host', () => {
 
     expect(result).toEqual({ resourceId: 'new-company' })
     expect(pushMock).not.toHaveBeenCalled()
-    await props.onSubmitSuccess?.(values, result)
-    expect(pushMock).toHaveBeenCalledWith('/backend/customers/companies-v2/new-company')
+    expect(typeof props.successRedirect).toBe('function')
+    if (typeof props.successRedirect !== 'function') throw new Error('[internal] Missing success redirect resolver')
+    expect(props.successRedirect(values, result)).toBe('/backend/customers/companies-v2/new-company')
+    expect(pushMock).not.toHaveBeenCalled()
     expect(createCrud).toHaveBeenCalledTimes(1)
   })
 

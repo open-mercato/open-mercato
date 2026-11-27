@@ -8,6 +8,7 @@ jest.mock('../fulltext/drivers', () => ({
 
 import { registerSearchModule } from '../di'
 import type { SearchIndexer } from '../indexer/search-indexer'
+import type { SearchService } from '../service'
 import type { SearchBuildContext, SearchModuleConfig } from '../types'
 import { registerTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
@@ -67,6 +68,31 @@ async function indexCompany(indexer: SearchIndexer) {
 }
 
 describe('registerSearchModule encrypted custom fields wiring', () => {
+  it('passes the tenant encryption service to the registered vector strategy', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({
+      resultTitle: 'Decrypted title', links: '[]', payload: '{"safe":true}',
+    }))
+    const container = createContainer({
+      tenantEncryptionService: { isEnabled: () => true, decryptEntityPayload },
+      vectorEmbeddingService: { available: true, createEmbedding: async () => [0.1] },
+      vectorDrivers: [{
+        id: 'pgvector', ensureReady: async () => undefined,
+        query: async () => [{
+          entityId: 'demo:item', recordId: 'record-1', organizationId: 'org-1',
+          score: 0.9, checksum: 'checksum', resultTitle: 'sealed-title', links: 'sealed-links',
+        }],
+      }],
+    })
+    registerSearchModule(container as never, { skipTokens: true, skipFulltext: true })
+    const service = container.registered.searchService as SearchService
+    const results = await service.getStrategy('vector')!.search('anything', { tenantId: 'tenant-1', organizationId: 'org-1' })
+
+    expect(results[0]).toMatchObject({ presenter: { title: 'Decrypted title' }, links: [], metadata: { safe: true } })
+    expect(decryptEntityPayload).toHaveBeenCalledWith(
+      'vector:vector_search', expect.objectContaining({ resultTitle: 'sealed-title' }), 'tenant-1', 'org-1',
+    )
+  })
+
   it('wires a resolver over the request entity manager into the registered indexer', async () => {
     const contexts: SearchBuildContext[] = []
     const db = createDefinitionsDatabase([{ key: 'tax_number', config_json: { encrypted: true } }])

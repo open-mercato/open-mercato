@@ -240,13 +240,13 @@ describe('GmailChannelAdapter.deleteMessage', () => {
 
 describe('GmailChannelAdapter.sendMessage', () => {
   it('encodes RFC2822 + threadId and posts to gmail.users.messages.send', async () => {
-    const sent: Array<{ rawBase64Url: string; threadId?: string }> = []
+    const sent: Array<{ rawBase64Url: string; rawMessage?: Uint8Array; threadId?: string }> = []
     const api: GmailApiClient = {
       listHistory: async () => ({ historyId: '0' }),
       listMessages: async () => ({}),
       getMessageRaw: async () => ({ id: '', threadId: '', raw: '' }),
       sendRawMessage: async (_auth, input) => {
-        sent.push({ rawBase64Url: input.rawBase64Url, threadId: input.threadId })
+        sent.push({ rawBase64Url: input.rawBase64Url, rawMessage: input.rawMessage, threadId: input.threadId })
         return { id: 'gm-out-1', threadId: 'gm-thread-out', labelIds: ['SENT'] }
       },
       getProfile: async () => ({ emailAddress: 'alice@gmail.com', historyId: '1' }),
@@ -273,6 +273,7 @@ describe('GmailChannelAdapter.sendMessage', () => {
     ).toString('utf-8')
     expect(decoded).toContain('To: bob@example.com')
     expect(decoded).toContain('<p>hi</p>')
+    expect(Buffer.from(sent[0].rawMessage!).toString('utf-8')).toBe(decoded)
   })
 
   function buildSendApi(overrides: Partial<GmailApiClient> = {}): GmailApiClient {
@@ -293,6 +294,112 @@ describe('GmailChannelAdapter.sendMessage', () => {
     scope: { tenantId: 't', organizationId: 'o' },
     metadata: { to: ['bob@example.com'], subject: 'Hi' },
   }
+
+  it('uses the stored mailbox address without requesting the Gmail profile', async () => {
+    const api = buildSendApi()
+    const getProfile = jest.spyOn(api, 'getProfile')
+    const sendRawMessage = jest.spyOn(api, 'sendRawMessage')
+    setGmailApiClient(api)
+
+    const result = await getGmailChannelAdapter().sendMessage(sendInput)
+
+    expect(result.status).toBe('sent')
+    expect(getProfile).not.toHaveBeenCalled()
+    expect(sendRawMessage.mock.calls[0][1].rawMessage?.toString('utf-8'))
+      .toContain('From: alice@gmail.com\r\n')
+  })
+
+  it('uses the authenticated Gmail profile for a legacy channel after outbound conversion', async () => {
+    const api = buildSendApi({
+      getProfile: async () => ({ emailAddress: 'legacy@example.com', historyId: '1' }),
+    })
+    const getProfile = jest.spyOn(api, 'getProfile')
+    const sendRawMessage = jest.spyOn(api, 'sendRawMessage')
+    setGmailApiClient(api)
+    const adapter = getGmailChannelAdapter()
+
+    const converted = await adapter.convertOutbound({
+      body: 'reply',
+      bodyFormat: 'text',
+      channelMetadata: {
+        to: ['bob@example.com'],
+        thread_id: 'gmail-thread:gm-thread-1',
+        inReplyTo: '<parent@example.com>',
+        fromAddress: 'other@example.com',
+      },
+    })
+
+    expect(converted.metadata).not.toHaveProperty('rawMessage')
+    expect(getProfile).not.toHaveBeenCalled()
+
+    const result = await adapter.sendMessage({
+      ...sendInput,
+      credentials: { accessToken: 'legacy-access' },
+      content: converted.content,
+      metadata: { ...converted.metadata, fromAddress: 'other@example.com' },
+    })
+
+    expect(result.status).toBe('sent')
+    expect(getProfile).toHaveBeenCalledWith({ accessToken: 'legacy-access' })
+    expect(sendRawMessage).toHaveBeenCalledTimes(1)
+    const [, sent] = sendRawMessage.mock.calls[0]
+    expect(sent.threadId).toBe('gm-thread-1')
+    expect(sent.rawMessage?.toString('utf-8')).toContain('From: legacy@example.com\r\n')
+    expect(sent.rawMessage?.toString('utf-8')).toContain('In-Reply-To: <parent@example.com>\r\n')
+  })
+
+  it('fails the send when the Gmail profile has no mailbox address', async () => {
+    const api = buildSendApi({
+      getProfile: async () => ({ emailAddress: '', historyId: '1' }),
+    })
+    const sendRawMessage = jest.spyOn(api, 'sendRawMessage')
+    setGmailApiClient(api)
+
+    const result = await getGmailChannelAdapter().sendMessage({
+      ...sendInput,
+      credentials: { accessToken: 'legacy-access' },
+    })
+
+    expect(result.status).toBe('failed')
+    expect(result.error).toMatch(/mailbox address/i)
+    expect(sendRawMessage).not.toHaveBeenCalled()
+  })
+
+  it('returns the reauth sentinel when a legacy mailbox profile lookup returns 401', async () => {
+    const api = buildSendApi({
+      getProfile: async () => {
+        throw new GmailApiError('Gmail profile request failed', 401, '')
+      },
+    })
+    const sendRawMessage = jest.spyOn(api, 'sendRawMessage')
+    setGmailApiClient(api)
+
+    const result = await getGmailChannelAdapter().sendMessage({
+      ...sendInput,
+      credentials: { accessToken: 'legacy-access' },
+    })
+
+    expect(result.status).toBe('failed')
+    expect(result.error).toBe('requires_reauth')
+    expect(sendRawMessage).not.toHaveBeenCalled()
+  })
+
+  it.each([503, 599])('lets the delivery worker retry a Gmail profile failure with status %i', async (status) => {
+    const api = buildSendApi({
+      getProfile: async () => {
+        throw new GmailApiError('Gmail profile request failed', status, 'Backend Error')
+      },
+    })
+    const sendRawMessage = jest.spyOn(api, 'sendRawMessage')
+    setGmailApiClient(api)
+
+    await expect(getGmailChannelAdapter().sendMessage({
+      ...sendInput,
+      credentials: { accessToken: 'legacy-access' },
+    })).rejects.toMatchObject({ status, transient: true })
+
+    expect(sendRawMessage).not.toHaveBeenCalled()
+  })
 
   it('reports the Message-ID Gmail actually sent, which replaces the client-built one', async () => {
     const headerCalls: Array<{ messageId: string; headerNames: string[] }> = []
@@ -359,13 +466,30 @@ describe('GmailChannelAdapter.sendMessage', () => {
       expect(optionsSeen).toEqual([{ maxRetries: 0, timeoutMs: SENT_MESSAGE_ID_READBACK_DEADLINE_MS }])
     })
 
+    function fakeTimersFromReadBack() {
+      let markStarted: () => void = () => undefined
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve
+      })
+      return {
+        started,
+        begin: () => {
+          jest.useFakeTimers()
+          markStarted()
+        },
+      }
+    }
+
     it('returns the accepted send as sent once the deadline passes, even when the headers never arrive', async () => {
-      jest.useFakeTimers()
+      const readBack = fakeTimersFromReadBack()
       const reportError = jest.fn()
       registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
       setGmailApiClient(
         buildSendApi({
-          getMessageHeaders: () => new Promise(() => undefined),
+          getMessageHeaders: () => {
+            readBack.begin()
+            return new Promise(() => undefined)
+          },
         }),
       )
 
@@ -377,6 +501,7 @@ describe('GmailChannelAdapter.sendMessage', () => {
           return result
         })
 
+      await readBack.started
       await jest.advanceTimersByTimeAsync(SENT_MESSAGE_ID_READBACK_DEADLINE_MS - 1)
       expect(settled).toBe(false)
 
@@ -394,11 +519,12 @@ describe('GmailChannelAdapter.sendMessage', () => {
     })
 
     it('uses headers that arrive late but within the deadline', async () => {
-      jest.useFakeTimers()
+      const readBack = fakeTimersFromReadBack()
       setGmailApiClient(
         buildSendApi({
-          getMessageHeaders: (_auth, messageId) =>
-            new Promise((resolve) => {
+          getMessageHeaders: (_auth, messageId) => {
+            readBack.begin()
+            return new Promise((resolve) => {
               setTimeout(
                 () =>
                   resolve({
@@ -408,11 +534,13 @@ describe('GmailChannelAdapter.sendMessage', () => {
                   }),
                 SENT_MESSAGE_ID_READBACK_DEADLINE_MS - 100,
               )
-            }),
+            })
+          },
         }),
       )
 
       const pending = getGmailChannelAdapter().sendMessage(sendInput)
+      await readBack.started
       await jest.advanceTimersByTimeAsync(SENT_MESSAGE_ID_READBACK_DEADLINE_MS)
       const result = await pending
 
@@ -572,6 +700,121 @@ describe('GmailChannelAdapter OAuth flow', () => {
     expect(result.displayName).toBe('Alice')
     expect((result.credentials as { accessToken: string }).accessToken).toBe('new-access')
     expect((result.credentials as { refreshToken: string }).refreshToken).toBe('new-refresh')
+  })
+
+  describe('exchangeOAuthCode mailbox identity', () => {
+    const tokenResponse = async () => ({
+      access_token: 'new-access',
+      refresh_token: 'new-refresh',
+      expires_in: 3600,
+      scope: 'https://www.googleapis.com/auth/gmail.modify',
+      token_type: 'Bearer',
+    })
+
+    type ProfileCall = { accessToken: string; options: Parameters<GmailApiClient['getProfile']>[1] }
+
+    function stubProfile(getProfile: GmailApiClient['getProfile']): ProfileCall[] {
+      const calls: ProfileCall[] = []
+      setGmailApiClient({
+        ...emptyApi(),
+        getProfile: async (auth, options) => {
+          calls.push({ accessToken: auth.accessToken, options })
+          return getProfile(auth, options)
+        },
+      })
+      return calls
+    }
+
+    function captureTelemetry(): jest.Mock {
+      const reportError = jest.fn()
+      registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+      return reportError
+    }
+
+    afterEach(() => {
+      resetTelemetryRuntime()
+    })
+
+    function exchange() {
+      return getGmailChannelAdapter().exchangeOAuthCode!({
+        code: 'code-1',
+        redirectUri: 'https://example.com/cb',
+        credentials: clientCredentials,
+        scope: { tenantId: 't', organizationId: 'o' },
+      })
+    }
+
+    const userInfoError = new Error('Gmail userinfo fetch failed: 503 Service Unavailable')
+    const failingUserInfo = async () => {
+      throw userInfoError
+    }
+
+    it('falls back to the Gmail profile address when the userinfo lookup fails', async () => {
+      setGoogleOAuthClient(stubOAuth({ exchangeCode: tokenResponse, fetchUserInfo: failingUserInfo }))
+      const reportError = captureTelemetry()
+      const profileCalls = stubProfile(async () => ({ emailAddress: 'alice@gmail.com', historyId: '100' }))
+      const result = await exchange()
+      expect(profileCalls).toEqual([{ accessToken: 'new-access', options: { maxRetries: 1, timeoutMs: 10_000 } }])
+      expect(reportError).toHaveBeenCalledTimes(1)
+      expect(reportError).toHaveBeenCalledWith(userInfoError, {
+        module: 'channel_gmail',
+        code: 'channel_gmail.userinfo_fetch_failed',
+      })
+      expect(result.externalIdentifier).toBe('alice@gmail.com')
+      expect(result.displayName).toBe('alice@gmail.com')
+      expect((result.credentials as { email?: string }).email).toBe('alice@gmail.com')
+    })
+
+    it('falls back to the Gmail profile address when userinfo returns no email', async () => {
+      setGoogleOAuthClient(stubOAuth({ exchangeCode: tokenResponse, fetchUserInfo: async () => ({ name: 'Alice' }) }))
+      const reportError = captureTelemetry()
+      const profileCalls = stubProfile(async () => ({ emailAddress: 'alice@gmail.com', historyId: '100' }))
+      const result = await exchange()
+      expect(profileCalls).toHaveLength(1)
+      expect(reportError).not.toHaveBeenCalled()
+      expect(result.externalIdentifier).toBe('alice@gmail.com')
+      expect(result.displayName).toBe('Alice')
+      expect((result.credentials as { email?: string }).email).toBe('alice@gmail.com')
+    })
+
+    it('fails the exchange instead of connecting without an address when no lookup resolves one', async () => {
+      setGoogleOAuthClient(stubOAuth({ exchangeCode: tokenResponse, fetchUserInfo: failingUserInfo }))
+      const reportError = captureTelemetry()
+      const profileCalls = stubProfile(async () => {
+        throw new GmailApiError('Gmail API GET failed: 503', 503, 'Service Unavailable')
+      })
+      await expect(exchange()).rejects.toMatchObject({ name: 'GmailApiError', status: 503 })
+      expect(profileCalls).toHaveLength(1)
+      expect(reportError).toHaveBeenCalledTimes(1)
+    })
+
+    it('fails the exchange when userinfo has no email and the Gmail profile is refused', async () => {
+      setGoogleOAuthClient(stubOAuth({ exchangeCode: tokenResponse, fetchUserInfo: async () => ({ name: 'Alice' }) }))
+      const profileCalls = stubProfile(async () => {
+        throw new GmailApiError('Gmail API GET failed: 403', 403, 'Insufficient Permission')
+      })
+      await expect(exchange()).rejects.toMatchObject({ name: 'GmailApiError', status: 403 })
+      expect(profileCalls).toHaveLength(1)
+    })
+
+    it('fails the exchange when the Gmail profile returns an empty address', async () => {
+      setGoogleOAuthClient(stubOAuth({ exchangeCode: tokenResponse, fetchUserInfo: async () => ({}) }))
+      stubProfile(async () => ({ emailAddress: '', historyId: '100' }))
+      await expect(exchange()).rejects.toThrow('could not resolve the mailbox address')
+    })
+
+    it('does not call the Gmail profile when userinfo returns the address', async () => {
+      setGoogleOAuthClient(
+        stubOAuth({ exchangeCode: tokenResponse, fetchUserInfo: async () => ({ email: 'alice@gmail.com', name: 'Alice' }) }),
+      )
+      const reportError = captureTelemetry()
+      const profileCalls = stubProfile(async () => ({ emailAddress: 'other@gmail.com', historyId: '100' }))
+      const result = await exchange()
+      expect(profileCalls).toEqual([])
+      expect(reportError).not.toHaveBeenCalled()
+      expect(result.externalIdentifier).toBe('alice@gmail.com')
+      expect(result.displayName).toBe('Alice')
+    })
   })
 
   it('refreshCredentials keeps the existing refresh token when Google does not return a new one', async () => {

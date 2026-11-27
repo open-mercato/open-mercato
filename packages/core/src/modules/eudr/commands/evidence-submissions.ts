@@ -31,11 +31,13 @@ import { EudrEvidenceSubmission, EudrPlot } from '../data/entities'
 import {
   evidenceSubmissionCreateSchema,
   evidenceSubmissionUpdateSchema,
+  validateHarvestRangeAgainstStored,
   type EvidenceSubmissionCreateInput,
   type EvidenceSubmissionUpdateInput,
 } from '../data/validators'
 import { computeSubmissionCompleteness, countActivePlots, type CompletenessContext } from '../lib/completeness'
 import { isUnchangedSince, lockForUndo, throwUndoConflict } from '../lib/undo-guard'
+import { guardUpdateRedo, withUpdateRedoLog } from '../lib/redo-guard'
 
 const EVIDENCE_SUBMISSION_ENTITY_ID = 'eudr:eudr_evidence_submission'
 
@@ -516,6 +518,7 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
       const record = await lockForUndo(entityManager, EudrEvidenceSubmission, unlockedRecord)
       if (!record || record.deletedAt) throw new CrudHttpError(404, { error: 'eudr.errors.evidenceSubmissionNotFound' })
       const before = structuredClone(await buildEvidenceSubmissionSnapshot(entityManager, record))
+      await guardUpdateRedo(ctx, before)
       const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
 
       await runCrudCommandWrite({
@@ -537,6 +540,7 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
         }),
         phases: [
           async () => {
+            validateHarvestRangeAgainstStored(record, parsed)
             const nextSupplierEntityId = parsed.supplierEntityId ?? record.supplierEntityId
             const nextPlotIds = parsed.plotIds !== undefined
               ? [...parsed.plotIds]
@@ -557,11 +561,13 @@ const updateEvidenceSubmissionCommand: CommandHandler<ScopedEvidenceSubmissionUp
       })
 
       const result = { entityId: record.id, updatedAt: record.updatedAt }
-      const after = structuredClone(await buildEvidenceSubmissionSnapshot(entityManager, record))
+      const persisted = (await lockForUndo(entityManager, EudrEvidenceSubmission, record)) ?? record
+      const after = structuredClone(await buildEvidenceSubmissionSnapshot(entityManager, persisted))
       updateEvidenceSubmissionSnapshots.set(result, { before, after })
       return result
     })
   },
+  redo: ({ input, ctx, logEntry }) => updateEvidenceSubmissionCommand.execute(input, withUpdateRedoLog(ctx, logEntry)),
   captureAfter: async (_rawInput, result) => updateEvidenceSubmissionSnapshots.get(result)?.after,
   buildLog: async ({ result }) => {
     const lockedSnapshots = updateEvidenceSubmissionSnapshots.get(result)

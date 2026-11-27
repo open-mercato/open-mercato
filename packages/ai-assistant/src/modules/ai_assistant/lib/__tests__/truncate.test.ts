@@ -1,4 +1,4 @@
-import { truncateResult } from '../truncate'
+import { capJsonPayload, truncateResult, truncateTextToBytes } from '../truncate'
 
 describe('truncateResult', () => {
   it('serializes simple values', () => {
@@ -72,5 +72,29 @@ describe('truncateResult', () => {
     const parsed = JSON.parse(result)
     expect(parsed.company.address.city).toBe('New York')
     expect(parsed.company.contacts).toHaveLength(2)
+  })
+})
+
+describe('truncateTextToBytes', () => {
+  it('keeps text within the byte cap untouched', () => {
+    expect(truncateTextToBytes('hello', 5)).toEqual({ value: 'hello', truncated: false, bytes: 5 })
+  })
+
+  it('never splits a multi-byte character', () => {
+    const capped = truncateTextToBytes('ąąą', 3)
+    expect(capped).toEqual({ value: 'ą', truncated: true, bytes: 6 })
+  })
+})
+
+describe('capJsonPayload', () => {
+  it('returns parsed JSON when under the cap and a truncated string when over', () => {
+    expect(capJsonPayload({ alpha: 1 }, 100)).toEqual({ value: { alpha: 1 }, truncated: false, bytes: 11 })
+    const capped = capJsonPayload({ alpha: 'x'.repeat(50) }, 10)
+    expect(capped.truncated).toBe(true)
+    expect(capped.value).toBe('{"alpha":"')
+  })
+
+  it('treats undefined as an empty payload', () => {
+    expect(capJsonPayload(undefined, 10)).toEqual({ value: null, truncated: false, bytes: 0 })
   })
 })

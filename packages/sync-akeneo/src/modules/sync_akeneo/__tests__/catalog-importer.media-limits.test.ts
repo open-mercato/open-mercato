@@ -116,6 +116,7 @@ function createMediaWorld(download: (code: string) => Promise<MediaBinary>) {
 
   const removed: Array<{ id: string }> = []
   const em = {
+    getMetadata: () => ({ has: () => true }),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data, id: nextId('raw-attachment') })),
     persist: jest.fn(),
     remove: jest.fn((entity: { id: string }) => {

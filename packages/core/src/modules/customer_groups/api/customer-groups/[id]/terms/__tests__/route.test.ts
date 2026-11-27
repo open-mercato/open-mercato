@@ -160,9 +160,30 @@ describe('GET /api/customer-groups/[id]/terms', () => {
       paymentTermsDays: 30,
       allowPurchaseOnAccount: true,
       defaultCreditLimit: 1500,
+      defaultCreditLimitExact: '1500',
       creditCurrencyCode: 'USD',
+      approvalRequiredAboveExact: null,
       updatedAt: '2025-06-01T00:00:00.000Z',
     })
+  })
+
+  it('returns money fields beyond float precision as exact string siblings', async () => {
+    setupContainer(
+      createFakeEm({
+        group: existingGroup,
+        terms: {
+          ...existingTerms,
+          defaultCreditLimit: '12345678901234567.123456789',
+          minOrderValue: '0.000000000000000001',
+        },
+      }),
+    )
+
+    const res = await GET(new Request('http://localhost/api/customer-groups/x/terms'), routeCtx())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.terms.defaultCreditLimitExact).toBe('12345678901234567.123456789')
+    expect(body.terms.minOrderValueExact).toBe('0.000000000000000001')
   })
 })
 

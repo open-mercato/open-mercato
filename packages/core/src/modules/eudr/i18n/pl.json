@@ -123,6 +123,7 @@
   "eudr.errors.plot_required": "Identyfikator działki jest wymagany",
   "eudr.errors.pointAreaRequired": "Działki punktowe wymagają dodatniej powierzchni.",
   "eudr.errors.polygonRequired": "Użyj geometrii poligonu dla działek większych niż 4 hektary.",
+  "eudr.errors.redoConflict": "Ten rekord zmienił się po cofnięciu akcji. Ponowienie zostało odrzucone, a bieżąca wersja została zachowana. Odśwież rekord i ponownie wprowadź zmianę ręcznie.",
   "eudr.errors.referenceIssuedAtImmutable": "Daty wydania referencji nie można zmienić.",
   "eudr.errors.referenceIssuedAtInvalid": "Data wydania referencji nie może być w przyszłości.",
   "eudr.errors.referenceNumbersRequired": "Numery referencyjny i weryfikacyjny są wymagane.",

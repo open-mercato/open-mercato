@@ -913,3 +913,67 @@ describe('entity strategy pins on writes', () => {
     expect(vector.delete).toHaveBeenCalledWith('test:entity', 'rec-123', 'tenant-123')
   })
 })
+
+describe('result visibility filter', () => {
+  const viewer = { auth: { sub: 'user-1', tenantId: 'tenant-123', orgId: 'org-456' }, container: {} }
+  const gated = createMockResult({ entityId: 'test:gated', recordId: 'gated-1', organizationId: 'org-456' })
+  const gatedHidden = createMockResult({ entityId: 'test:gated', recordId: 'gated-2', organizationId: 'org-456' })
+  const open = createMockResult({ entityId: 'test:open', recordId: 'open-1', organizationId: 'org-456' })
+
+  function createService(filterResults: jest.Mock) {
+    const strategy = createMockStrategy({ search: jest.fn().mockResolvedValue([gated, gatedHidden, open]) })
+    return new SearchService({
+      strategies: [strategy],
+      defaultStrategies: ['mock'],
+      resolveResultFilter: (entityId) => (entityId === 'test:gated' ? filterResults : undefined),
+    })
+  }
+
+  function recordIds(results: SearchResult[]): string[] {
+    return results.map((result) => result.recordId).sort()
+  }
+
+  it('keeps only the results the hook returns and passes the caller', async () => {
+    const filterResults = jest.fn(async ({ results }: { results: SearchResult[] }) =>
+      results.filter((result) => result.recordId === 'gated-1'),
+    )
+    const results = await createService(filterResults).search('q', { tenantId: 'tenant-123', organizationIds: ['org-456'], viewer })
+    expect(recordIds(results)).toEqual(['gated-1', 'open-1'])
+    expect(filterResults).toHaveBeenCalledTimes(1)
+    expect(filterResults.mock.calls[0][0]).toMatchObject({
+      entityId: 'test:gated',
+      tenantId: 'tenant-123',
+      organizationIds: ['org-456'],
+      viewer,
+    })
+    expect(recordIds(filterResults.mock.calls[0][0].results)).toEqual(['gated-1', 'gated-2'])
+  })
+
+  it('ignores results the hook did not receive', async () => {
+    const filterResults = jest.fn(async () => [createMockResult({ entityId: 'test:gated', recordId: 'gated-1' })])
+    const results = await createService(filterResults).search('q', { tenantId: 'tenant-123', viewer })
+    expect(recordIds(results)).toEqual(['open-1'])
+  })
+
+  it('drops every result of a gated entity when the hook throws', async () => {
+    const filterResults = jest.fn(async () => {
+      throw new Error('lookup failed')
+    })
+    const results = await createService(filterResults).search('q', { tenantId: 'tenant-123', viewer })
+    expect(recordIds(results)).toEqual(['open-1'])
+  })
+
+  it('drops every result of a gated entity when the search has no viewer', async () => {
+    const filterResults = jest.fn()
+    const results = await createService(filterResults).search('q', { tenantId: 'tenant-123' })
+    expect(recordIds(results)).toEqual(['open-1'])
+    expect(filterResults).not.toHaveBeenCalled()
+  })
+
+  it('leaves results unchanged for entities without the hook', async () => {
+    const strategy = createMockStrategy({ search: jest.fn().mockResolvedValue([gated, gatedHidden, open]) })
+    const results = await new SearchService({ strategies: [strategy], defaultStrategies: ['mock'] })
+      .search('q', { tenantId: 'tenant-123' })
+    expect(recordIds(results)).toEqual(['gated-1', 'gated-2', 'open-1'])
+  })
+})

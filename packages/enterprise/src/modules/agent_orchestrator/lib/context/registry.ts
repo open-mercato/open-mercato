@@ -29,6 +29,8 @@ export type ContextSourceHit = {
   score?: number
   /** The redacted record payload that becomes the agent-visible fact. */
   record: Record<string, unknown>
+  /** Retrieval summary (query hash, 1-based rank, requested k) for retrieval-ranked fill. */
+  retrieval?: { queryHash: string; rank: number; k: number }
 }
 
 /**

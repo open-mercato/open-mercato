@@ -19,6 +19,15 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
       instructions: 'BASE',
       result: { kind: 'research', schema },
     })
+    defineAgent({
+      id: 'test.delegate_parent',
+      moduleId: 'agent_orchestrator',
+      label: 'Parent',
+      description: 'Parent that declares the target.',
+      instructions: 'BASE',
+      result: { kind: 'research', schema },
+      subAgents: ['test.delegate_target'],
+    })
 
     const delegateTool = aiTools.find((tool) => tool.name === DELEGATE_TOOL_ID)
     expect(delegateTool).toBeDefined()
@@ -33,6 +42,8 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
     const agentRunSessionStore = {
       resolveActiveRunId: async (token: string) =>
         token === 'sess_test' ? 'run-from-session' : null,
+      resolveActiveAgentId: async (token: string) =>
+        token === 'sess_test' ? 'test.delegate_parent' : null,
     }
     const container = {
       resolve: (name: string) =>
@@ -60,7 +71,7 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
     expect(capturedParentRunId).toBe('run-from-session')
   })
 
-  it('omits parentRunId when the caller session resolves no active run', async () => {
+  it('refuses the delegation when the caller session resolves no active run', async () => {
     defineAgent({
       id: 'test.delegate_target_2',
       moduleId: 'agent_orchestrator',
@@ -71,20 +82,15 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
     })
 
     const delegateTool = aiTools.find((tool) => tool.name === DELEGATE_TOOL_ID)
-    let sawParentRunIdKey = true
-    const agentRuntime = {
-      run: async (_agentId: string, _input: unknown, opts: Record<string, unknown>) => {
-        sawParentRunIdKey = 'parentRunId' in opts
-        return { kind: 'research' as const, data: { ok: true } }
-      },
-    }
+    const run = jest.fn()
     const agentRunSessionStore = {
       resolveActiveRunId: async () => null,
+      resolveActiveAgentId: async () => null,
     }
     const container = {
       resolve: (name: string) =>
         name === 'agentRuntime'
-          ? agentRuntime
+          ? { run }
           : name === 'agentRunSessionStore'
             ? agentRunSessionStore
             : undefined,
@@ -99,10 +105,11 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
       isSuperAdmin: false,
     }
 
-    await delegateTool!.handler(
+    const result = await delegateTool!.handler(
       { agentId: 'test.delegate_target_2', input: {} },
       ctx as never,
     )
-    expect(sawParentRunIdKey).toBe(false)
+    expect(result).toEqual({ ok: false, agentId: 'test.delegate_target_2', error: 'no_active_run' })
+    expect(run).not.toHaveBeenCalled()
   })
 })

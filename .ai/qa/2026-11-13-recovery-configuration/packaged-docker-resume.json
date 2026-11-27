@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "scope": "Actual final backup maintenance image; interrupted restore/default-path same-run resume",
+  "runtime": "Linux arm64 Docker on macOS arm64 host",
+  "owner": "om-recovery-proof-2cf3d97e2476",
+  "cases": [
+    {
+      "case": "private-persistent-nonroot-mount",
+      "passed": true
+    },
+    {
+      "case": "configure",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "configure",
+      "stderrRecords": 0,
+      "ansiFree": true
+    },
+    {
+      "case": "preflight-source",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "preflight",
+      "stderrRecords": 0,
+      "ansiFree": true
+    },
+    {
+      "case": "create",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "create",
+      "stderrRecords": 8,
+      "ansiFree": true
+    },
+    {
+      "case": "verify-after-container-recreation",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "verify",
+      "stderrRecords": 7,
+      "ansiFree": true
+    },
+    {
+      "case": "status-default-custody",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "status",
+      "stderrRecords": 0,
+      "ansiFree": true
+    },
+    {
+      "case": "actual-tty-verify-output",
+      "passed": true,
+      "source": "actual compiled CLI stderr captured via container PTY; stdout stored separately"
+    },
+    {
+      "case": "preflight-interrupted",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "preflight",
+      "stderrRecords": 0,
+      "ansiFree": true
+    },
+    {
+      "case": "preflight-resume-fresh-container",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "preflight",
+      "stderrRecords": 0,
+      "ansiFree": true
+    },
+    {
+      "case": "resume-new-container",
+      "exitCode": 0,
+      "status": "completed",
+      "command": "restore",
+      "stderrRecords": 11,
+      "ansiFree": true
+    }
+  ],
+  "noOperatorKeysUsed": true,
+  "backupsUploaded": false,
+  "source": "exact backup sourcef1d35059067402206b1d24631d6f2a56dfdf6026 maintenance image",
+  "syntheticKeygenSha256": "6b1376c3c4e8b86c748d4625b1ebff417e4d161be32f54850b16a3b846574ce7",
+  "image": "om-recovery-maintenance:backup-f1d-20261113",
+  "nodeVersion": "v24.22.3",
+  "clientVersions": {
+    "psql": "psql (PostgreSQL) 17.12",
+    "pg_dump": "pg_dump (PostgreSQL) 17.12",
+    "pg_restore": "pg_restore (PostgreSQL) 17.12"
+  },
+  "serverVersion": "17.11 (Debian 17.11-1.pgdg13+2)",
+  "volumeMetadata": [
+    "1001",
+    "1001:700",
+    "ext2/ext3"
+  ],
+  "configurationPlan": {
+    "assurance": "configuration-plan-only",
+    "persistentMount": true,
+    "durablePaths": {
+      "base": true,
+      "backupOutput": true,
+      "backupWorkspace": true,
+      "rotationArtifacts": true,
+      "rotationTrust": true,
+      "custody": true
+    },
+    "missingPrerequisites": [],
+    "warnings": []
+  },
+  "consistency": "quiesced",
+  "archiveEncryption": "age-v1",
+  "interruption": {
+    "exitCode": 130,
+    "status": "interrupted",
+    "realSigintAfterAdmittedEntity": true,
+    "restoreRunId": "ff3b286e-e875-4e00-9a36-f93475ed481d"
+  },
+  "durableReport": {
+    "status": "completed",
+    "quarantined": true,
+    "promotionReady": false,
+    "keyRecovery": {
+      "status": "not-tested"
+    }
+  },
+  "resume": {
+    "sameRunId": true,
+    "freshTargetPreflight": true,
+    "newMaintenanceContainer": true,
+    "status": "completed",
+    "quarantined": true,
+    "promotionReady": false
+  },
+  "rows": 143,
+  "orderedSyntheticFingerprintsEqual": true,
+  "automaticDefaultPathsUsed": true,
+  "maintenanceProcessesRecreated": 14,
+  "allPassed": true,
+  "ownedGeneratedResourcesRemoved": true,
+  "sourceHead": "f1d35059067402206b1d24631d6f2a56dfdf6026",
+  "imageId": "sha256:06413141462ecddbdb1567181c7ffe35ed584e0880410c510637d367b3900fd1",
+  "imageConfigId": "sha256:e86726efb17b2f316eb5791170b850ffa98070c51fdfc4c281b7207a1d2fe73a",
+  "imageIndexDigest": "sha256:06413141462ecddbdb1567181c7ffe35ed584e0880410c510637d367b3900fd1",
+  "buildTarget": "maintenance",
+  "buildArgs": {
+    "OM_ENABLE_ENTERPRISE_MODULES": "true",
+    "OM_ENABLE_ENTERPRISE_MODULES_BACKUPS": "true",
+    "POSTGRES_CLIENT_MAJOR": "17"
+  },
+  "platform": "linux/arm64",
+  "imageUser": "1001:1001",
+  "imageConfigIdProvenance": "BuildKit immutable OCI config digest; Docker inspect imageId independently matches exported image-index digest"
+}

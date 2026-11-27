@@ -38,12 +38,14 @@ test.describe('TC-CHKT-037: Template updates sync unchanged fields to existing l
       const updateResponse = await updateTemplate(request, token, templateId, {
         title: 'Template title v2',
         subtitle: 'Template subtitle v2',
+        fixedPriceAmount: 59.99,
       })
       expect(updateResponse.ok(), `Template update failed: ${updateResponse.status()}`).toBeTruthy()
 
       const stored = await readLink(request, token, link.id)
       expect(stored.title).toBe('Manual link title')
       expect(stored.subtitle).toBe('Template subtitle v2')
+      expect(stored.fixedPriceAmount).toBe(59.99)
     } finally {
       await deleteCheckoutEntityIfExists(request, token, 'links', linkId)
       await deleteCheckoutEntityIfExists(request, token, 'templates', templateId)
