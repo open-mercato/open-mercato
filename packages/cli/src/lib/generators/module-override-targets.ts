@@ -807,6 +807,23 @@ const navAdapter: InternalAdapter = {
   },
 }
 
+const formsAdapter: InternalAdapter = {
+  domain: 'forms',
+  run(facts) {
+    const moduleId = moduleIdOf(facts)
+    const targets: ModuleOverrideTarget[] = []
+    const diagnostics: ModuleOverrideTargetDiagnostic[] = []
+    for (const { id, key, source } of facts.formSectionContributions ?? []) {
+      pushTarget(targets, diagnostics, {
+        moduleId, domain: 'forms', key, path: ['forms', 'sections', key], dottedHost: 'forms.sections',
+        factRef: { factSection: 'formSectionContributions', factKey: id },
+        source,
+      })
+    }
+    return { targets, diagnostics }
+  },
+}
+
 const INTERNAL_ADAPTERS: InternalAdapter[] = [
   aiAdapter,
   routesAdapter,
@@ -824,6 +841,7 @@ const INTERNAL_ADAPTERS: InternalAdapter[] = [
   diAdapter,
   encryptionAdapter,
   navAdapter,
+  formsAdapter,
 ]
 
 /**
@@ -850,6 +868,7 @@ const OVERRIDE_DOMAIN_PRESENCE: Record<ModuleOverrideDomain, true> = {
   di: true,
   encryption: true,
   nav: true,
+  forms: true,
 }
 
 export const ALL_OVERRIDE_DOMAINS = Object.keys(OVERRIDE_DOMAIN_PRESENCE) as ModuleOverrideDomain[]

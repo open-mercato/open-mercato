@@ -471,6 +471,37 @@ describe('CRUD Factory', () => {
         cacheEnabled.mockRestore()
       }
     })
+
+    it('keeps cached deleted rows out of a later response when an interceptor disables visibility', async () => {
+      const cacheEnabled = jest.spyOn(crudCacheHelpers, 'isCrudCacheEnabled').mockReturnValue(true)
+      let interceptedFlag = 'true'
+      registerApiInterceptors([{
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.rewrite-deletion-flag',
+          targetRoute: 'example/todos',
+          methods: ['GET'],
+          async before() {
+            return { ok: true, query: { withDeleted: interceptedFlag } }
+          },
+        }],
+      }])
+      const optedInRoute = makeDeletedRoute(true)
+      const request = new Request('http://x/api/example/todos?withDeleted=true')
+      try {
+        queueDeletedRows()
+        const allowed = await optedInRoute.GET(request)
+        expect((await allowed.json()).items).toEqual([liveRow, deletedRow])
+
+        interceptedFlag = 'false'
+        queueDeletedRows()
+        const hidden = await optedInRoute.GET(request)
+        expect((await hidden.json()).items).toEqual([liveRow])
+        expect(queryEngine.query).toHaveBeenCalledTimes(2)
+      } finally {
+        cacheEnabled.mockRestore()
+      }
+    })
   })
 
   it('GET returns an empty page before hooks, cache, query engine, EM, RBAC, or data engine for explicit empty scope', async () => {
@@ -1772,13 +1803,20 @@ describe('CRUD Factory', () => {
     expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
   })
 
-  it('PUT mutation guard uses route resource identity instead of spoofed lock headers', async () => {
+  it('PUT mutation guard uses server-resolved resource identity and organization scope', async () => {
     crudMutationGuardService = {
       validateMutation: jest.fn().mockResolvedValue({
         ok: true,
-        shouldRunAfterSuccess: false,
+        shouldRunAfterSuccess: true,
       }),
       afterMutationSuccess: jest.fn().mockResolvedValue(undefined),
+    }
+
+    mockOrganizationScopeOverride = {
+      selectedId: defaultOrganizationId,
+      filterIds: [defaultOrganizationId],
+      allowedIds: [defaultOrganizationId],
+      tenantId: defaultTenantId,
     }
 
     const created = em.create(Todo, {
@@ -1804,7 +1842,12 @@ describe('CRUD Factory', () => {
     expect(crudMutationGuardService.validateMutation).toHaveBeenCalledWith(expect.objectContaining({
       resourceKind: 'example.todo',
       resourceId: created.id,
+      organizationScope: mockOrganizationScopeOverride,
       requestHeaders: expect.any(Headers),
+    }))
+    expect(crudMutationGuardService.afterMutationSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      resourceId: created.id,
+      organizationScope: mockOrganizationScopeOverride,
     }))
   })
 
@@ -2497,6 +2540,21 @@ describe('CRUD Factory', () => {
     expect(res.status).toBe(200)
     expect(guardValidate).not.toHaveBeenCalled()
     expect(commandBus.execute).toHaveBeenCalledWith('example.todo.delete', expect.anything())
+  })
+
+  it('keeps request admission at the dispatcher and runs only route hooks inside a real CRUD handler', async () => {
+    const requestAdmission = jest.fn(async () => ({ ok: false, statusCode: 403 }))
+    const routeAdmission = jest.fn(async () => ({ ok: true }))
+    registerApiInterceptors([{ moduleId: 'example', interceptors: [
+      { id: 'example.request', targetRoute: '*', scope: 'request', methods: ['GET'], before: requestAdmission },
+      { id: 'example.route', targetRoute: '*', methods: ['GET'], before: routeAdmission },
+    ] }])
+
+    const response = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(response.status).toBe(200)
+    expect(routeAdmission).toHaveBeenCalledTimes(1)
+    expect(requestAdmission).not.toHaveBeenCalled()
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
   })
 
   it('POST is blocked by interceptor before hook', async () => {

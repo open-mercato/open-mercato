@@ -28,6 +28,7 @@ const mockModules: Record<string, string> = {
   [chromeModule]: `
     const payload = { grantedFeatures: ['staff.*'] };
     export const useBackendChrome = () => ({ payload, isReady: true });
+    export const useBackendChromePolicy = () => ({ state: 'ready', features: payload.grantedFeatures });
     export const useCurrentOrganization = () => null;
   `,
   '@open-mercato/shared/lib/frontend/useOrganizationScope': `export const useOrganizationScopeVersion = () => 0;`,

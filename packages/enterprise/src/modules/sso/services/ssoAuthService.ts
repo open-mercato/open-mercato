@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { IsolationLevel, LockMode } from '@mikro-orm/core'
 import { User, type Session } from '@open-mercato/core/modules/auth/data/entities'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
-import { AuthSessionRejectedError, isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { AuthSessionRejectedError, isAuthSessionRejectedError, matchesPasswordSessionProof, type PasswordSessionProof } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -44,8 +44,10 @@ export class SsoAuthService extends AuthService {
   override async createSession(
     user: User,
     expiresAt: Date,
-    scope?: SsoSessionScope,
+    authority?: SsoSessionScope | PasswordSessionProof,
   ): Promise<{ session: Session; token: string }> {
+    const scope = authority && 'ssoConfigId' in authority ? authority : undefined
+    const proof = authority && 'kind' in authority ? authority : undefined
     return this.ssoEm.transactional(async (txEm) => {
       if (scope) {
         await this.assertSsoSessionAuthority(txEm, user, scope)
@@ -58,7 +60,8 @@ export class SsoAuthService extends AuthService {
         { refresh: true },
         { tenantId: user.tenantId ?? null, organizationId: user.organizationId ?? null },
       )
-      if (!currentUser || await isSsoUserDeactivated(txEm, {
+      if (!currentUser || (proof && !matchesPasswordSessionProof(currentUser, proof))
+        || await isSsoUserDeactivated(txEm, {
         userId: user.id,
         tenantId: scope ? scope.tenantId : currentUser.tenantId ?? null,
         organizationId: scope ? scope.organizationId : currentUser.organizationId ?? null,

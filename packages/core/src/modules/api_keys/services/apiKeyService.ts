@@ -2,6 +2,8 @@ import { randomBytes, createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '../data/entities'
 import { createKmsService, resolveEncryptionMode } from '@open-mercato/shared/lib/encryption/kms'
 import { encryptWithAesGcm, decryptWithAesGcm, looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
@@ -391,7 +393,7 @@ export async function findApiKeyByOpencodeSessionId(
 
 /**
  * Find a session API key with its decrypted secret.
- * Returns null if not found, expired, deleted, or decryption fails.
+ * Returns null if the key, its live owner/scope, or its secret is unavailable.
  * This is used by the MCP server to recover the API key secret for making
  * authenticated API calls on behalf of the user.
  */
@@ -408,8 +410,27 @@ export async function findSessionApiKeyWithSecret(
     return null
   }
 
+  const ownerId = record.sessionUserId?.trim()
+  const tenantId = record.tenantId ?? null
+  if (!ownerId || !tenantId) return null
+  const scope = { tenantId, organizationId: record.organizationId ?? null }
+  const owner = await findOneWithDecryption(em, User, {
+    id: ownerId,
+    tenantId,
+    organizationId: scope.organizationId,
+    isConfirmed: true,
+    deletedAt: null,
+  }, { refresh: true }, scope)
+  if (!owner) return null
+  const tenant = await findOneWithDecryption(em, Tenant, {
+    id: tenantId,
+    isActive: true,
+    deletedAt: null,
+  }, { refresh: true }, scope)
+  if (!tenant) return null
+
   // Decrypt the secret
-  const secret = await decryptSessionSecret(record.sessionSecretEncrypted, record.tenantId ?? null)
+  const secret = await decryptSessionSecret(record.sessionSecretEncrypted, tenantId)
   if (!secret) {
     logger.warn('Failed to decrypt session secret', { apiKeyId: record.id })
     return null

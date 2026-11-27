@@ -41,6 +41,10 @@ import {
   variableStatement,
 } from './ast'
 
+function namespaceEntityLookup(namespace: string, name: string) {
+  return propertyAccess(asExpression(identifier(namespace), 'Record<string, unknown>'), name)
+}
+
 export interface ModuleEntitiesOptions {
   resolver: PackageResolver
   quiet?: boolean
@@ -57,7 +61,7 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
   const mods = resolver.loadEnabledModules()
   getEnabledModuleIdentities(resolver, mods)
   const imports: Array<{ name: string; moduleSpecifier: string }> = []
-  const entitySources: Array<{ importName: string; moduleId: string }> = []
+  const entitySources: Array<{ importName: string; moduleId: string; classNames: string[] }> = []
   const classNameEntries: EntityClassNameEntry[] = []
   let n = 0
 
@@ -102,10 +106,10 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
       relImport = `${baseImport}/${sub}/${stripModuleCodeExtension(found.file)}`
     }
     imports.push({ name: importName, moduleSpecifier: relImport })
-    entitySources.push({ importName, moduleId: modId })
-
     const entityFilePath = resolveEntitySourceFile(resolver, entry, found, fromApp)
-    for (const className of parseEntityClassNames(entityFilePath)) {
+    const classNames = parseEntityClassNames(entityFilePath)
+    entitySources.push({ importName, moduleId: modId, classNames })
+    for (const className of classNames) {
       classNameEntries.push({ className, moduleId: modId, sourcePath: entityFilePath })
     }
   }
@@ -210,6 +214,20 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
           spreadExpression(callExpression(identifier('enhanceEntities'), [identifier(entry.importName), entry.moduleId]))(writer)),
       },
     ],
+  })
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [{
+      name: 'ormEntityExportNamespaces',
+      type: 'readonly { moduleId: string; entities: Record<string, unknown> }[]',
+      initializer: arrayLiteral(entitySources.map(({ importName, moduleId, classNames }) => objectLiteral([
+        { name: 'moduleId', value: moduleId },
+        { name: 'entities', value: objectLiteral(classNames.map((name) => ({
+          name, value: namespaceEntityLookup(importName, name),
+        }))) },
+      ])), (writer, entry) => entry(writer)),
+    }],
   })
   const output = getSourceText(sourceFile)
 
