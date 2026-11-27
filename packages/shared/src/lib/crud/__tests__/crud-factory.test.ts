@@ -471,6 +471,37 @@ describe('CRUD Factory', () => {
         cacheEnabled.mockRestore()
       }
     })
+
+    it('keeps cached deleted rows out of a later response when an interceptor disables visibility', async () => {
+      const cacheEnabled = jest.spyOn(crudCacheHelpers, 'isCrudCacheEnabled').mockReturnValue(true)
+      let interceptedFlag = 'true'
+      registerApiInterceptors([{
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.rewrite-deletion-flag',
+          targetRoute: 'example/todos',
+          methods: ['GET'],
+          async before() {
+            return { ok: true, query: { withDeleted: interceptedFlag } }
+          },
+        }],
+      }])
+      const optedInRoute = makeDeletedRoute(true)
+      const request = new Request('http://x/api/example/todos?withDeleted=true')
+      try {
+        queueDeletedRows()
+        const allowed = await optedInRoute.GET(request)
+        expect((await allowed.json()).items).toEqual([liveRow, deletedRow])
+
+        interceptedFlag = 'false'
+        queueDeletedRows()
+        const hidden = await optedInRoute.GET(request)
+        expect((await hidden.json()).items).toEqual([liveRow])
+        expect(queryEngine.query).toHaveBeenCalledTimes(2)
+      } finally {
+        cacheEnabled.mockRestore()
+      }
+    })
   })
 
   it('GET returns an empty page before hooks, cache, query engine, EM, RBAC, or data engine for explicit empty scope', async () => {
