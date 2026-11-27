@@ -84,6 +84,7 @@
   "backups.rotation.reportWritten": "Raport weryfikacji:",
   "backups.rotation.rotating": "Rotacja zaszyfrowanych danych z chronioną kopią odzyskiwania.",
   "backups.rotation.runPrepared": "Identyfikator chronionej rotacji; zachowaj go do jawnego wznowienia:",
+  "backups.rotation.unmappedEntity": "Mapa szyfrowania {mapId} nie ma dostępnych metadanych encji. Przywróć moduł, który zarejestrował encję, i sprawdź zakres weryfikacji przed ponowieniem próby. Usunięcie mapy może wyłączyć zaszyfrowane dane z weryfikacji.",
   "backups.rotation.verificationPassed": "Weryfikacja zapisanych danych w zadanym zakresie zakończona powodzeniem. Zachowaj poprzednie klucze i kopię odzyskiwania.",
   "backups.rotation.verifying": "Weryfikacja zapisanych danych po rotacji kluczy."
 }

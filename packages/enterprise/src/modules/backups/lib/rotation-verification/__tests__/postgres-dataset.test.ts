@@ -16,7 +16,7 @@ import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/e
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import * as moduleRegistry from '@open-mercato/shared/modules/registry'
 import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
-import { canonicalRotationTimestamp, createPostgresRotationDataset } from '../postgres-dataset'
+import { canonicalRotationTimestamp, createPostgresRotationDataset, UnmappedRotationEntityError } from '../postgres-dataset'
 import { prepareRotationVerification, verifyRotationData } from '../verifier'
 import { RotationArtifactStore } from '../store'
 import { createPostgresTarget, restoreBackup, verifyBackup, identitiesFromFile } from '../../engine'
@@ -173,6 +173,27 @@ native('native PostgreSQL persisted verification', () => {
       OM_ROTATION_BACKUP_SOURCE_SERVICE: 'source', OM_BACKUP_BINARIES_DIR: bin, PGSERVICEFILE: serviceFile, PGPASSFILE: passwordFile,
     }
   }
+  test('identifies a soft-deleted map with missing entity metadata before rotation', async () => {
+    const mapId = randomUUID()
+    await client.query(
+      'INSERT INTO encryption_maps VALUES($1,$2,$3,NULL,$4,false,now())',
+      [mapId, 'test:unavailable', tenantId, JSON.stringify([{ field: 'secret' }])],
+    )
+    const environment = await runtimeEnvironment()
+    const protection = createConfiguredRotationProtection({ ...environment, OM_ROTATION_PROGRESS: 'none' })
+    const operation = jest.fn(async () => {})
+    const stderr = jest.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      const result = protection.protect(await inputContext(), operation)
+      await expect(result).rejects.toBeInstanceOf(UnmappedRotationEntityError)
+      await expect(result).rejects.toMatchObject({ mapId, message: '[internal] ROTATION_COVERAGE_UNSUPPORTED' })
+      expect(operation).not.toHaveBeenCalled()
+      expect(stderr.mock.calls.map(([chunk]) => String(chunk)).join('')).toContain(mapId)
+    } finally {
+      stderr.mockRestore()
+    }
+  }, 60000)
+
   test('production protection performs real encrypted backup, pinned rotation and final persisted verification', async () => {
     const environment = await runtimeEnvironment()
     const protection = createConfiguredRotationProtection(environment)

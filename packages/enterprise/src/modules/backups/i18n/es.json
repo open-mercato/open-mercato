@@ -84,6 +84,7 @@
   "backups.rotation.reportWritten": "Informe de verificación:",
   "backups.rotation.rotating": "Rotando datos cifrados con recuperación protegida.",
   "backups.rotation.runPrepared": "Ejecución protegida de rotación; conserve este identificador para reanudarla explícitamente:",
+  "backups.rotation.unmappedEntity": "El mapa de cifrado {mapId} no tiene metadatos de entidad utilizables. Restaure el módulo que registró la entidad y compruebe la cobertura antes de volver a intentarlo. Eliminar el mapa puede dejar datos cifrados fuera del alcance de la verificación.",
   "backups.rotation.verificationPassed": "La verificación de los datos guardados del ámbito indicado finalizó correctamente. Conserve las claves anteriores y la copia de recuperación.",
   "backups.rotation.verifying": "Verificando los datos guardados tras la rotación de claves."
 }

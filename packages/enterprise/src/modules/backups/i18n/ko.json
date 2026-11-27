@@ -84,6 +84,7 @@
   "backups.rotation.reportWritten": "검증 보고서:",
   "backups.rotation.rotating": "보호된 복구를 사용하여 암호화된 데이터를 교체합니다.",
   "backups.rotation.runPrepared": "보호된 키 교체 실행입니다. 명시적으로 재개할 때 사용할 식별자를 보관하세요:",
+  "backups.rotation.unmappedEntity": "암호화 맵 {mapId}에 사용할 수 있는 엔터티 메타데이터가 없습니다. 이 엔터티를 등록한 모듈을 복원하고 다시 시도하기 전에 검증 범위를 확인하세요. 맵을 삭제하면 암호화된 데이터가 검증 범위에서 제외될 수 있습니다.",
   "backups.rotation.verificationPassed": "지정한 범위의 저장 데이터 검증을 통과했습니다. 이전 키와 복구 백업을 보관하세요.",
   "backups.rotation.verifying": "키 교체 후 저장된 데이터를 검증합니다."
 }
