@@ -25,6 +25,7 @@ jest.mock('@open-mercato/shared/modules/registry', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   resolveAuthFromRequestDetailed: async () => ({ auth: mockAuth, status: mockAuth ? 'authenticated' : 'missing' }),
+  shareDispatcherAuthResolution: jest.fn(),
 }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
 jest.mock('@open-mercato/core/bootstrap', () => ({ getCachedRateLimiterService: () => null }))
