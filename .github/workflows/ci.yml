@@ -1189,11 +1189,11 @@ jobs:
         run: yarn workspace @open-mercato/webhooks test:pg-integration
 
       - name: Install Redis durability test client
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y redis-tools
 
       - name: Run webhook receipt and queue durability against real services
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         env:
           OM_WEBHOOKS_TEST_DATABASE_URL: postgresql://webhook_durability:webhook_durability@127.0.0.1:${{ job.services.webhook_postgres.ports[5432] }}/webhook_durability
           OM_QUEUE_TEST_REDIS_URL: redis://127.0.0.1:${{ job.services.webhook_redis.ports[6379] }}
@@ -1205,7 +1205,7 @@ jobs:
           node scripts/ci/check-webhook-durability-results.mjs .ai/qa/test-results/webhook-durability/receipts.json .ai/qa/test-results/webhook-durability/queues.json
 
       - name: Upload webhook durability results
-        if: ${{ always() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         uses: actions/upload-artifact@v7
         with:
           name: webhook-durability-results
