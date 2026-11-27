@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
 import {
@@ -27,6 +29,7 @@ export function createMessagesExtension(): GeneratorExtension {
   const messageTypeEntries: WriterFunction[] = []
   const messageObjectTypeImports: Array<ReturnType<typeof namespaceImportSpec>> = []
   const messageObjectTypeEntries: WriterFunction[] = []
+  const clientMessageObjectPaths = new Map<string, string>()
 
   return {
     id: 'registry.messages',
@@ -81,6 +84,17 @@ export function createMessagesExtension(): GeneratorExtension {
             },
           ]),
       })
+
+      const coreImportBase = `@open-mercato/core/modules/${ctx.moduleId}`
+      if (ctx.imps.pkgBase === coreImportBase) {
+        const clientFile = join(ctx.roots.pkgBase, 'message-objects.client')
+        if (existsSync(`${clientFile}.ts`) || existsSync(`${clientFile}.js`)) {
+          clientMessageObjectPaths.set(
+            ctx.sanitizeGeneratedModuleSpecifier(`${coreImportBase}/message-objects`),
+            ctx.sanitizeGeneratedModuleSpecifier(`${coreImportBase}/message-objects.client`),
+          )
+        }
+      }
     },
     generateOutput() {
       const messageTypesOutput = renderGeneratedTsSource({
@@ -238,7 +252,10 @@ export function createMessagesExtension(): GeneratorExtension {
           { namedImports: ['registerMessageObjectTypes'], moduleSpecifier: '@open-mercato/core/modules/messages/lib/message-objects-registry' },
           { namedImports: ['configureMessageUiComponentRegistry'], moduleSpecifier: '@open-mercato/core/modules/messages/components/utils/typeUiRegistry' },
           ...messageTypeImports,
-          ...messageObjectTypeImports,
+          ...messageObjectTypeImports.map((spec) => ({
+            ...spec,
+            moduleSpecifier: clientMessageObjectPaths.get(spec.moduleSpecifier) ?? spec.moduleSpecifier,
+          })),
         ],
         build(sourceFile) {
           sourceFile.addTypeAlias({ name: 'MessageTypeEntry', type: '{ moduleId: string; types: MessageTypeDefinition[] }' })

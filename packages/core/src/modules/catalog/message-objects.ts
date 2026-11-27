@@ -1,102 +1,45 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
-import { MessageObjectDetail, MessageObjectPreview } from '@open-mercato/ui/backend/messages'
+import clientMessageObjectTypes from './message-objects.client'
 
-const objectMessageTypes = ['default', 'messages.defaultWithObjects']
+type PreviewLoader = NonNullable<MessageObjectTypeDefinition['loadPreview']>
 
-export const messageObjectTypes: MessageObjectTypeDefinition[] = [
-  {
-    module: 'catalog',
-    entityType: 'product',
-    messageTypes: objectMessageTypes,
-    entityId: 'catalog:catalog_product',
-    optionLabelField: 'title',
-    optionSubtitleField: 'subtitle',
-    labelKey: 'catalog.messageObjects.product.title',
-    icon: 'package',
-    PreviewComponent: MessageObjectPreview,
-    DetailComponent: MessageObjectDetail,
-    actions: [
-      {
-        id: 'view',
-        labelKey: 'common.view',
-        variant: 'outline',
-        href: '/backend/catalog/products/{entityId}',
-      },
-    ],
-    loadPreview: async (entityId, ctx) => {
-      if (typeof window !== 'undefined') {
-        return { title: 'Product', subtitle: entityId }
+const previewLoaders: Record<string, PreviewLoader | undefined> = {
+  product: async (entityId, ctx) => {
+    const previews = await import('./lib/messageObjectPreviews')
+    const productLoader = (
+      previews as typeof previews & {
+        loadCatalogProductPreview?: (id: string, previewCtx: typeof ctx) => Promise<{ title: string; subtitle?: string }>
       }
-      const previews = await import('./lib/messageObjectPreviews')
-      const productLoader = (
-        previews as typeof previews & {
-          loadCatalogProductPreview?: (id: string, previewCtx: typeof ctx) => Promise<{ title: string; subtitle?: string }>
-        }
-      ).loadCatalogProductPreview
-      if (productLoader) return productLoader(entityId, ctx)
-      return previews.loadCatalogCategoryPreview(entityId, ctx)
-    },
+    ).loadCatalogProductPreview
+    if (productLoader) return productLoader(entityId, ctx)
+    return previews.loadCatalogCategoryPreview(entityId, ctx)
   },
-  {
-    module: 'catalog',
-    entityType: 'variant',
-    messageTypes: objectMessageTypes,
-    entityId: 'catalog:catalog_product_variant',
-    optionLabelField: 'name',
-    optionSubtitleField: 'sku',
-    labelKey: 'catalog.variants.form.editTitle',
-    icon: 'package-plus',
-    PreviewComponent: MessageObjectPreview,
-    DetailComponent: MessageObjectDetail,
-    actions: [
-      {
-        id: 'view',
-        labelKey: 'common.view',
-        variant: 'outline',
-        href: '/backend/catalog/products',
-      },
-    ],
-    loadPreview: async (entityId, ctx) => {
-      if (typeof window !== 'undefined') {
-        return { title: 'Variant', subtitle: entityId }
+  variant: async (entityId, ctx) => {
+    const previews = await import('./lib/messageObjectPreviews')
+    const variantLoader = (
+      previews as typeof previews & {
+        loadCatalogVariantPreview?: (id: string, previewCtx: typeof ctx) => Promise<{ title: string; subtitle?: string }>
       }
-      const previews = await import('./lib/messageObjectPreviews')
-      const variantLoader = (
-        previews as typeof previews & {
-          loadCatalogVariantPreview?: (id: string, previewCtx: typeof ctx) => Promise<{ title: string; subtitle?: string }>
-        }
-      ).loadCatalogVariantPreview
-      if (variantLoader) return variantLoader(entityId, ctx)
-      return previews.loadCatalogProductPreview(entityId, ctx)
-    },
+    ).loadCatalogVariantPreview
+    if (variantLoader) return variantLoader(entityId, ctx)
+    return previews.loadCatalogProductPreview(entityId, ctx)
   },
-  {
-    module: 'catalog',
-    entityType: 'category',
-    messageTypes: objectMessageTypes,
-    entityId: 'catalog:catalog_product_category',
-    optionLabelField: 'name',
-    optionSubtitleField: 'description',
-    labelKey: 'catalog.messageObjects.category.title',
-    icon: 'tag',
-    PreviewComponent: MessageObjectPreview,
-    DetailComponent: MessageObjectDetail,
-    actions: [
-      {
-        id: 'view',
-        labelKey: 'common.view',
-        variant: 'outline',
-        href: '/backend/catalog/categories/{entityId}/edit',
-      },
-    ],
-    loadPreview: async (entityId, ctx) => {
-      if (typeof window !== 'undefined') {
-        return { title: 'Category', subtitle: entityId }
-      }
-      const { loadCatalogCategoryPreview } = await import('./lib/messageObjectPreviews')
-      return loadCatalogCategoryPreview(entityId, ctx)
-    },
+  category: async (entityId, ctx) => {
+    const { loadCatalogCategoryPreview } = await import('./lib/messageObjectPreviews')
+    return loadCatalogCategoryPreview(entityId, ctx)
   },
-]
+}
+
+export const messageObjectTypes: MessageObjectTypeDefinition[] = clientMessageObjectTypes.map((type) => {
+  const loadServerPreview = previewLoaders[type.entityType]
+  if (!loadServerPreview) return type
+  return {
+    ...type,
+    loadPreview: (entityId, ctx) => {
+      if (typeof window !== 'undefined' && type.loadPreview) return type.loadPreview(entityId, ctx)
+      return loadServerPreview(entityId, ctx)
+    },
+  }
+})
 
 export default messageObjectTypes
