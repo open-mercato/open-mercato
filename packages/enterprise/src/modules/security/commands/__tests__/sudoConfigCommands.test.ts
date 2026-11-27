@@ -244,6 +244,26 @@ describe('sudo config commands through the command bus', () => {
     expect(outcome.undoToken ?? null).toBeNull()
   })
 
+  test.each(commands.slice(1))('$commandId restricts its pre-write snapshot to the authenticated scope', async ({ commandId, serviceMethod, input }) => {
+    const { ctx, em, logs, service } = buildBusContext(commandId, input)
+    const orgId = '33333333-3333-4333-8333-333333333333'
+    ctx.auth = { sub: 'user-1', tenantId, orgId }
+    em.findOne.mockResolvedValueOnce(null)
+
+    await expect(new CommandBus().execute(commandId, { input, ctx, skipCacheInvalidation: true }))
+      .rejects.toMatchObject({ status: 404, body: { error: 'Sudo configuration not found' } })
+
+    expect(em.findOne).toHaveBeenCalledWith(SudoChallengeConfig, {
+      id: configId,
+      deletedAt: null,
+      tenantId,
+      isDeveloperDefault: false,
+      $or: [{ organizationId: null }, { organizationId: orgId }],
+    })
+    expect(service[serviceMethod]).not.toHaveBeenCalled()
+    expect(logs.log).not.toHaveBeenCalled()
+  })
+
   test.each(commands)('$commandId refuses historical undo before claiming or mutating', async ({ commandId, input }) => {
     const { ctx, em, record, logs, service, historicalLog } = buildBusContext(commandId, input)
     const originalRecord = { ...record }

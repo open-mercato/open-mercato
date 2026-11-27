@@ -1,69 +1,54 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { sudoConfigSchema } from '../data/validators'
 import { SudoChallengeConfig } from '../data/entities'
 import type { SudoChallengeService } from '../services/SudoChallengeService'
 import {
-  applySudoConfigSnapshot,
   buildSudoAuthScopeFromAuth,
+  buildSudoConfigAuditLog,
   captureSudoConfigSnapshot,
+  denySudoConfigReplay,
+  parseSudoConfigCommandInput,
+  readSudoConfigForAudit,
   readSudoConfigUndoPayload,
-  type SudoConfigUndoPayload,
 } from './sudoConfig.shared'
 
 export const commandId = 'security.sudo.config.create'
 
-type CommandInput = z.infer<typeof sudoConfigSchema>
-
 registerCommand({
   id: commandId,
   isUndoable: false,
-  authorizeReplay() {
-    throw new Error('[internal] Sudo configuration commands do not support replay')
-  },
-  async execute(rawInput, ctx) {
-    if (!ctx.auth?.sub) {
-      throw new CrudHttpError(401, { error: 'Unauthorized' })
-    }
-    const parsed = sudoConfigSchema.safeParse(rawInput)
-    if (!parsed.success) {
-      throw new CrudHttpError(400, { error: 'Invalid payload', issues: parsed.error.issues })
-    }
+  authorizeReplay: denySudoConfigReplay,
 
-    const service = ctx.container.resolve<SudoChallengeService>('sudoChallengeService')
+  async execute(rawInput, ctx) {
+    const actor = ctx.auth?.sub
+    if (!actor) throw new CrudHttpError(401, { error: 'Unauthorized' })
+
+    const input = parseSudoConfigCommandInput(sudoConfigSchema, rawInput)
     const scope = buildSudoAuthScopeFromAuth(ctx.auth)
-    const config = await service.createConfig(parsed.data, ctx.auth.sub, scope)
-    return { id: config.id }
+    const { id } = await ctx.container.resolve<SudoChallengeService>('sudoChallengeService')
+      .createConfig(input, actor, scope)
+    return { id }
   },
+
   async buildLog({ result, ctx }) {
-    const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const config = await em.findOne(SudoChallengeConfig, { id: (result as { id: string }).id })
-    const after = config ? captureSudoConfigSnapshot(config) : null
-    return {
-      actionLabel: translate('security.audit.sudo.create', 'Create sudo configuration'),
-      resourceKind: 'security.sudo_config',
-      resourceId: config?.id ?? null,
-      actorUserId: ctx.auth?.sub ?? null,
-      payload: {
-        undo: {
-          after,
-        } satisfies SudoConfigUndoPayload,
-      },
-    }
+    const config = await readSudoConfigForAudit(ctx, (result as { id: string }).id)
+    return buildSudoConfigAuditLog(ctx, 'create', config?.id ?? null, {
+      after: config ? captureSudoConfigSnapshot(config) : null,
+    })
   },
-  undo: async ({ logEntry, ctx }) => {
+
+  async undo({ logEntry, ctx }) {
     const after = readSudoConfigUndoPayload(logEntry)?.after
     if (!after) return
 
     const em = ctx.container.resolve<EntityManager>('em')
     const config = await em.findOne(SudoChallengeConfig, { id: after.id, deletedAt: null })
-    if (!config) return
-    config.deletedAt = new Date()
-    config.updatedAt = new Date()
-    await em.flush()
+    if (config) {
+      const now = new Date()
+      Object.assign(config, { deletedAt: now, updatedAt: now })
+      await em.flush()
+    }
   },
 })

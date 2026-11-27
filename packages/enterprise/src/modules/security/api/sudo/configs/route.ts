@@ -1,31 +1,22 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { sudoConfigSchema } from '../../../data/validators'
-import { requireSudo } from '../../../lib/sudo-middleware'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
 import { securityApiError } from '../../i18n'
-import { attachSudoConfigScopeNames, mapSudoError, resolveSudoContext } from '../_shared'
-
-const sudoConfigItemSchema = z.object({
-  id: z.string().uuid(),
-  tenantId: z.string().uuid().nullable(),
-  tenantName: z.string().nullable().optional(),
-  organizationId: z.string().uuid().nullable(),
-  organizationName: z.string().nullable().optional(),
-  label: z.string().nullable(),
-  targetIdentifier: z.string(),
-  isEnabled: z.boolean(),
-  isDeveloperDefault: z.boolean(),
-  ttlSeconds: z.number().int(),
-  challengeMethod: z.string(),
-  configuredBy: z.string().uuid().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-})
+import {
+  attachSudoConfigScopeNames,
+  executeSudoConfigMutation,
+  mapSudoError,
+  parseSudoConfigBody,
+  resolveSudoContext,
+  sudoConfigItemSchema,
+} from '../_shared'
 
 const sudoConfigListSchema = z.object({
-  items: z.array(sudoConfigItemSchema),
+  items: z.array(sudoConfigItemSchema.extend({
+    tenantName: z.string().nullable().optional(),
+    organizationName: z.string().nullable().optional(),
+  })),
 })
 
 const createResponseSchema = z.object({
@@ -42,9 +33,9 @@ export async function GET(req: Request) {
   if (context instanceof NextResponse) return context
 
   try {
-    const items = await context.sudoChallengeService.listConfigs(context.scope)
-    const enriched = await attachSudoConfigScopeNames(context.container, items)
-    return NextResponse.json({ items: enriched })
+    const { container, scope, sudoChallengeService } = context
+    const configs = await sudoChallengeService.listConfigs(scope)
+    return NextResponse.json({ items: await attachSudoConfigScopeNames(container, configs) })
   } catch (error) {
     return mapSudoError(error)
   }
@@ -54,29 +45,12 @@ export async function POST(req: Request) {
   const context = await resolveSudoContext(req)
   if (context instanceof NextResponse) return context
 
-  let body: unknown
-  try {
-    body = await req.json()
-  } catch {
-    body = {}
-  }
-
-  const parsed = sudoConfigSchema.safeParse(body)
+  const parsed = await parseSudoConfigBody(req, sudoConfigSchema)
   if (!parsed.success) {
     return securityApiError(400, 'Invalid payload', { issues: parsed.error.issues })
   }
 
-  try {
-    await requireSudo(req, 'security.sudo.manage')
-    const commandBus = context.container.resolve<CommandBus>('commandBus')
-    const { result } = await commandBus.execute('security.sudo.config.create', {
-      input: parsed.data,
-      ctx: context.commandContext,
-    })
-    return NextResponse.json(result, { status: 201 })
-  } catch (error) {
-    return await mapSudoError(error)
-  }
+  return executeSudoConfigMutation(req, context, 'security.sudo.config.create', parsed.data, 201)
 }
 
 export const openApi = buildSecurityOpenApi({

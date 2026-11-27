@@ -1,18 +1,17 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
+import { buildSudoAuthScopeFromAuth } from '../../commands/sudoConfig.shared'
 import type { SudoChallengeConfig } from '../../data/entities'
-import type {
-  SudoAuthScope,
-  SudoChallengeService,
-  SudoChallengeServiceError,
-} from '../../services/SudoChallengeService'
-import { isSudoRequiredError } from '../../lib/sudo-middleware'
+import type { SudoAuthScope } from '../../lib/sudo-config-scope'
+import { isSudoRequiredError, requireSudo } from '../../lib/sudo-middleware'
+import type { SudoChallengeService, SudoChallengeServiceError } from '../../services/SudoChallengeService'
 import { localizeSecurityApiBody, securityApiError } from '../i18n'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -30,12 +29,23 @@ export type SudoRequestContext = {
 }
 
 export function buildSudoAuthScope(auth: Auth): SudoAuthScope {
-  return {
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
-    isSuperAdmin: auth.isSuperAdmin === true,
-  }
+  return buildSudoAuthScopeFromAuth(auth)
 }
+
+export const sudoConfigItemSchema = z.object({
+  id: z.string().uuid(),
+  tenantId: z.string().uuid().nullable(),
+  organizationId: z.string().uuid().nullable(),
+  label: z.string().nullable(),
+  targetIdentifier: z.string(),
+  isEnabled: z.boolean(),
+  isDeveloperDefault: z.boolean(),
+  ttlSeconds: z.number().int(),
+  challengeMethod: z.string(),
+  configuredBy: z.string().uuid().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
 
 export function toSudoConfigResponse(config: SudoChallengeConfig) {
   return {
@@ -60,50 +70,28 @@ export async function attachSudoConfigScopeNames(
   container: RequestContainer,
   configs: SudoChallengeConfig[],
 ): Promise<Array<ReturnType<typeof toSudoConfigResponse>>> {
-  if (configs.length === 0) return []
+  const items = configs.map(toSudoConfigResponse)
+  if (!items.length) return items
 
+  const tenantIds = new Set<string>()
+  const organizationIds = new Set<string>()
+  for (const item of items) {
+    if (item.tenantId) tenantIds.add(item.tenantId)
+    if (item.organizationId) organizationIds.add(item.organizationId)
+  }
   const em = container.resolve<EntityManager>('em')
-  const tenantIds = Array.from(
-    new Set(
-      configs
-        .map((c) => c.tenantId ?? null)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0),
-    ),
-  )
-  const organizationIds = Array.from(
-    new Set(
-      configs
-        .map((c) => c.organizationId ?? null)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0),
-    ),
-  )
-
   const [tenants, organizations] = await Promise.all([
-    tenantIds.length ? em.find(Tenant, { id: { $in: tenantIds }, deletedAt: null }) : Promise.resolve([]),
-    organizationIds.length ? em.find(Organization, { id: { $in: organizationIds }, deletedAt: null }) : Promise.resolve([]),
+    tenantIds.size ? em.find(Tenant, { id: { $in: [...tenantIds] }, deletedAt: null }) : [],
+    organizationIds.size ? em.find(Organization, { id: { $in: [...organizationIds] }, deletedAt: null }) : [],
   ])
+  const tenantNames = new Map(tenants.map(({ id, name }) => [id, name || id] as const))
+  const organizationNames = new Map(organizations.map(({ id, name }) => [id, name || id] as const))
 
-  const tenantMap = tenants.reduce<Record<string, string>>((acc, tenant) => {
-    const id = tenant?.id ? String(tenant.id) : null
-    if (!id) return acc
-    acc[id] = typeof tenant.name === 'string' && tenant.name.length > 0 ? tenant.name : id
-    return acc
-  }, {})
-  const organizationMap = organizations.reduce<Record<string, string>>((acc, org) => {
-    const id = org?.id ? String(org.id) : null
-    if (!id) return acc
-    acc[id] = typeof org.name === 'string' && org.name.length > 0 ? org.name : id
-    return acc
-  }, {})
-
-  return configs.map((config) => {
-    const response = toSudoConfigResponse(config)
-    return {
-      ...response,
-      tenantName: response.tenantId ? tenantMap[response.tenantId] ?? response.tenantId : null,
-      organizationName: response.organizationId ? organizationMap[response.organizationId] ?? response.organizationId : null,
-    }
-  })
+  return items.map((item) => ({
+    ...item,
+    tenantName: item.tenantId ? tenantNames.get(item.tenantId) ?? item.tenantId : null,
+    organizationName: item.organizationId ? organizationNames.get(item.organizationId) ?? item.organizationId : null,
+  }))
 }
 
 export async function resolveSudoContext(req: Request): Promise<SudoRequestContext | NextResponse> {
@@ -113,6 +101,8 @@ export async function resolveSudoContext(req: Request): Promise<SudoRequestConte
   }
 
   const container = await createRequestContainer()
+  const scope = buildSudoAuthScope(auth)
+  const organizationId = scope.organizationId ?? null
   return {
     auth,
     container,
@@ -120,12 +110,34 @@ export async function resolveSudoContext(req: Request): Promise<SudoRequestConte
       container,
       auth,
       organizationScope: null,
-      selectedOrganizationId: auth.orgId ?? null,
-      organizationIds: auth.orgId ? [auth.orgId] : null,
+      selectedOrganizationId: organizationId,
+      organizationIds: organizationId ? [organizationId] : null,
       request: req,
     },
     sudoChallengeService: container.resolve<SudoChallengeService>('sudoChallengeService'),
-    scope: buildSudoAuthScope(auth),
+    scope,
+  }
+}
+
+export async function parseSudoConfigBody<T>(req: Request, schema: z.ZodType<T>) {
+  const body: unknown = await req.json().catch(() => ({}))
+  return schema.safeParse(body)
+}
+
+export async function executeSudoConfigMutation(
+  req: Request,
+  context: SudoRequestContext,
+  commandId: `security.sudo.config.${'create' | 'update' | 'delete'}`,
+  input: unknown,
+  status: 200 | 201 = 200,
+): Promise<NextResponse> {
+  try {
+    await requireSudo(req, 'security.sudo.manage')
+    const commandBus = context.container.resolve<CommandBus>('commandBus')
+    const { result } = await commandBus.execute(commandId, { input, ctx: context.commandContext })
+    return NextResponse.json(result, { status })
+  } catch (error) {
+    return mapSudoError(error)
   }
 }
 
