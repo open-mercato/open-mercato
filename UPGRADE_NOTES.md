@@ -1,5 +1,15 @@
 # Upgrade Notes
 
+## Staff and ACL changes respect current target privileges
+
+Staff user changes that affect credentials, activation or membership, user
+deletion, and ACL replacements now check the target's current privileges.
+Undo of a sensitive staff update or user creation also checks that ceiling.
+Clients should handle HTTP 403 by directing the request to an authorized
+administrator. Operators should review the target's current role and direct
+grants before delegating these administrative changes. No schema migration is
+required.
+
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
 When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.
