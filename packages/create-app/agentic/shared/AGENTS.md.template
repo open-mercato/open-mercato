@@ -4,7 +4,7 @@
 
 - Route all matches on each axis; missing context: `yarn mercato agentic:init --update-harness`.
 - Lessons: scan `.ai/lessons.md` tags; open/update one matching record + row.
-- Modules: `src/modules/<id>/`; [cache/queue/KMS](.ai/guides/infrastructure-providers.md): `src/providers/`.
+- Modules: `src/modules/<id>/`; `src/providers/` for [cache, queue, and KMS](.ai/guides/infrastructure-providers.md).
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands/`makeCrudRoute`/`CrudForm`/`DataTable`, DI/events/UMES; effects stay post-commit.
 - Entities: `src/modules/<id>/data/entities.ts`; API: per-method `metadata` + `openApi`.
