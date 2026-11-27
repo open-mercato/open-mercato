@@ -64,7 +64,15 @@ test.describe('TC-LOCK-CRM-10242: Keep my changes retries the deal stage update'
         await expect(expandForm).toBeVisible()
         if (panel === 'expanded') {
           await expandForm.click()
-          await expect(page.locator('[data-crud-field-id="title"]').getByRole('textbox')).toBeVisible()
+          const titleField = page.locator('[data-crud-field-id="title"]').getByRole('textbox')
+          await expect(titleField).toBeVisible()
+          await expect.poll(() => titleField.evaluate((field, recordId) => {
+            const owners = (globalThis as Record<string, unknown>).__openMercatoRecordLockWidgetOwners__
+            const owner = owners instanceof Map
+              ? owners.get(`customers.deal:${recordId}`) as { formId: string } | undefined
+              : undefined
+            return Boolean(owner && owner.formId === field.closest('form')?.id)
+          }, dealId)).toBe(true)
         }
         initialLockRequests.resolve()
         await lockAcquired
