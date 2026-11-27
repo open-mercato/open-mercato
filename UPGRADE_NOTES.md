@@ -7113,3 +7113,29 @@ MCP hides Code Mode `execute` when the mutation mode is unset, including reads t
 `GET /api/search/index` requires the view features declared by each returned entity in addition to `search.view`. A request for an unreadable entity returns an empty page. Clients can continue using the existing response shape and paging parameters. Select an authorized organization when entity features are scoped to an organization.
 
 Operators should grant the owning module's view features to diagnostic users and keys that need them. Custom searchable entities declare these features in their `search.ts` configuration. The first-party pgvector driver applies the scope before pagination. Custom vector drivers can honor the additive `entityAccess` list predicate to keep pagination over readable entries. The API filters returned rows regardless of driver support. No database migration or reindex is required.
+
+## Notification command actions enforce target mutation guards (#7674)
+
+`POST /api/notifications/:id/action` now applies the target resource's mutation
+guards before dispatching a declared command. A guard rejection leaves the
+notification pending and preserves the guard's response status and body. Existing
+staff leave notifications already identify their target and need no data change.
+
+Custom notification producers must identify the target through `sourceEntityType`
+and `sourceEntityId`. The default guard resource kind replaces `:` with `.` in the
+source type and uses the `update` operation. When that differs from the target
+route, declare `mutationGuard: { resourceKind, operation? }` on the server-registered
+`NotificationTypeAction`; the operation may be `create`, `update`, or `delete`.
+Request payloads and stored action data cannot override this declaration.
+Command actions without a resolvable target return the existing
+`notification_action_forbidden` error instead of executing without target guards.
+
+Clients must handle target-guard failures (including 403, 409 and 423) without
+assuming the action completed. Resolve the guard conflict and retry the same
+notification. Operators must inventory custom action declarations and pending
+notifications with missing source types before deployment, update the producers
+or declarations, and deploy them together with this change. No database migration
+or startup setting is added. An unguarded compatibility fallback would preserve
+the bypass; the emergency compatibility exception requires named maintainer
+approval before merge. See
+[the specification](.ai/specs/2026-11-20-issue-7674-notification-target-mutation-guards.md).
