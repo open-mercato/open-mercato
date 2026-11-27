@@ -417,7 +417,9 @@ export default function CustomersPeoplePage() {
       } catch (err) {
         if (!cancelled) {
           setCacheStatus(null)
-          const message = err instanceof Error ? err.message : t('customers.people.list.error.load')
+          const message = err instanceof Error && !(err instanceof TypeError)
+            ? err.message
+            : t('customers.people.list.error.load')
           flash(message, 'error')
         }
       } finally {

@@ -4,8 +4,8 @@ import {
   TRACE_INGEST_HEADERS,
 } from '../lib/trace/ingestAuth'
 
-const TENANT = '11111111-1111-1111-1111-111111111111'
-const ORG = '22222222-2222-2222-2222-222222222222'
+const TENANT = '11111111-1111-4111-8111-111111111111'
+const ORG = '22222222-2222-4222-8222-222222222222'
 
 function buildHeaders(opts: {
   tenantId?: string
@@ -26,7 +26,7 @@ function buildHeaders(opts: {
 function signedRequest(tenantId: string, organizationId: string, body: string) {
   const msgId = 'msg_1'
   const timestamp = String(Math.floor(Date.now() / 1000))
-  const signature = signTraceIngest(tenantId, msgId, timestamp, body)
+  const signature = signTraceIngest(tenantId, organizationId, msgId, timestamp, body)
   return { headers: buildHeaders({ tenantId, organizationId, msgId, timestamp, signature }), body }
 }
 
@@ -57,8 +57,14 @@ describe('trace ingest HMAC auth', () => {
     const msgId = 'msg_1'
     const timestamp = String(Math.floor(Date.now() / 1000))
     // Signed for a DIFFERENT tenant, but headers claim TENANT.
-    const signature = signTraceIngest('99999999-9999-9999-9999-999999999999', msgId, timestamp, body)
+    const signature = signTraceIngest('99999999-9999-4999-8999-999999999999', ORG, msgId, timestamp, body)
     const headers = buildHeaders({ tenantId: TENANT, organizationId: ORG, msgId, timestamp, signature })
+    expect(verifyTraceIngestRequest(headers, body)).toBeNull()
+  })
+
+  it('rejects a request signed with a different organization key in the same tenant', () => {
+    const { headers, body } = signedRequest(TENANT, ORG, '{}')
+    headers.set(TRACE_INGEST_HEADERS.organization, '33333333-3333-4333-8333-333333333333')
     expect(verifyTraceIngestRequest(headers, body)).toBeNull()
   })
 
@@ -71,7 +77,7 @@ describe('trace ingest HMAC auth', () => {
     const body = '{}'
     const msgId = 'msg_1'
     const staleTs = String(Math.floor(Date.now() / 1000) - 60 * 60)
-    const signature = signTraceIngest(TENANT, msgId, staleTs, body)
+    const signature = signTraceIngest(TENANT, ORG, msgId, staleTs, body)
     const headers = buildHeaders({ tenantId: TENANT, organizationId: ORG, msgId, timestamp: staleTs, signature })
     expect(verifyTraceIngestRequest(headers, body)).toBeNull()
   })

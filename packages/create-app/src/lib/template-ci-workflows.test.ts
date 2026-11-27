@@ -154,7 +154,7 @@ test('integration.yml job runs the app-only suite and uploads the report on fail
 
   assert.deepEqual(steps[runTests].env, {
     OM_SKIP_NEXT_BUILD_TYPECHECK: '1',
-    OM_NEXT_BUILD_NODE_OPTIONS: '--max-old-space-size=4096',
+    OM_BUILD_NODE_OPTIONS: '--max-old-space-size=4096',
   })
 
   assert.ok(lockfileCheck < install, 'lockfile check must run before install')

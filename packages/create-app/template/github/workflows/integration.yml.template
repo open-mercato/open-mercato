@@ -60,7 +60,7 @@ jobs:
         # type check and cap the heap, which a 7 GB runner needs.
         env:
           OM_SKIP_NEXT_BUILD_TYPECHECK: '1'
-          OM_NEXT_BUILD_NODE_OPTIONS: --max-old-space-size=4096
+          OM_BUILD_NODE_OPTIONS: --max-old-space-size=4096
         run: yarn test:integration:ephemeral --app-only
 
       - name: Upload Playwright report

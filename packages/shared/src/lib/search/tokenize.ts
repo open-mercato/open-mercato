@@ -34,7 +34,7 @@ export type TokenizationResult = {
  * the same reasoning, but each addition forces operators through another `search_tokens`
  * reindex, so extending the range is tracked separately rather than done piecemeal.
  */
-const NON_DECOMPOSING_FOLDS: Record<string, string> = {
+export const NON_DECOMPOSING_FOLDS: Readonly<Record<string, string>> = {
   '\u0142': 'l',
   '\u0141': 'L',
   '\u00f8': 'o',
@@ -70,6 +70,10 @@ const NON_DECOMPOSING_PATTERN = new RegExp(
 
 function foldNonDecomposingLetters(text: string): string {
   return text.replace(NON_DECOMPOSING_PATTERN, (char) => NON_DECOMPOSING_FOLDS[char])
+}
+
+export function normalizeSearchText(text: string): string {
+  return normalizeText(text)
 }
 
 function normalizeText(text: string): string {
