@@ -18,7 +18,7 @@ for (const persona of ['manager', 'employee'] as const) {
           await enterTaskDraft(page, locale, title, 'Working A')
           expect(surface.statusRequests).toBe(1)
           await surface.releaseScope()
-          expect(surface.statusRequests, 'Cold scope settlement must cause a real second status GET').toBe(2)
+          expect(surface.statusRequests, 'Scope settlement and refocus must cause a real second status GET').toBe(2)
           await assertTaskDraft(page, locale, title, 'Working A')
           if (attempt === 10) await page.screenshot({ path: testInfo.outputPath('preserved-cold-scope-draft.png'), fullPage: true })
           await saveAndReopenTask(page, fixture, locale, title, fixture.chosenStatusId, 'Working A')

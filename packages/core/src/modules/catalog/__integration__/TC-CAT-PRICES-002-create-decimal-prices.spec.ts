@@ -279,7 +279,7 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
     expect(stored.map((price) => price.unit_price_net), 'the entered price round-trips unchanged').toEqual(['1.23456']);
   });
 
-  test('preserves Polish decimal-comma price magnitudes', async ({ page, request }) => {
+  test('preserves Polish decimal-comma price magnitudes', async ({ page, request }, testInfo) => {
     await openCreateForm(page, `QA Decimal Comma ${uniqueStamp()}`);
     await openVariantsStep(page, [regular!, sale!]);
     const regularInput = await priceInput(page, regular!, 0);
@@ -290,6 +290,9 @@ test.describe('TC-CAT-PRICES-002: product create form accepts decimal prices', (
     await saleInput.pressSequentially('2,50');
     await expect(saleInput, 'comma decimal is not swallowed character-by-character').toHaveValue('2,50');
     await expect(regularInput, 'typing another price kind preserves the first amount').toHaveValue('12,50');
+    if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+      await page.screenshot({ path: testInfo.outputPath('decimal-price-drafts.png'), fullPage: true });
+    }
 
     const productId = await submitAndReadProductId(page);
     productIds.push(productId);

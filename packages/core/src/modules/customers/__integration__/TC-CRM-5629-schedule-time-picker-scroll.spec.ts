@@ -39,7 +39,7 @@ test('wheel-scrolls the schedule dialog time list and restores the saved time on
     await login(page, 'admin')
     await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' })
     await page.getByRole('tab', { name: /Activity log/i }).click()
-    const activity = page.getByText(title, { exact: true }).first()
+    const activity = page.getByRole('button', { name: new RegExp(title) })
     await activity.click()
 
     const dialog = page.getByRole('dialog', { name: 'Edit activity', exact: true })

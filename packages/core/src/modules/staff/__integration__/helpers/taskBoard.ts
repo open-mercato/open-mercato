@@ -67,6 +67,7 @@ function gate() {
 
 export async function openBoard(page: Page, fixture: BoardFixture, locale: BoardLocale, baseURL: string, options: { coldScope?: boolean; global?: boolean; holdStatuses?: boolean } = {}) {
   const copy = boardCopy(locale)
+  if (options.coldScope) await page.clock.install()
   await page.context().addCookies([
     { name: 'auth_token', value: fixture.token, url: baseURL, httpOnly: true, sameSite: 'Lax' },
     { name: 'locale', value: locale, url: baseURL, sameSite: 'Lax' },
@@ -120,8 +121,13 @@ export async function openBoard(page: Page, fixture: BoardFixture, locale: Board
     forbidden,
     async releaseScope() {
       const before = statusRequests
-      const settled = page.waitForResponse((response) => matchesStatus(response.url()) && response.ok())
+      const scopeSettled = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/directory/organization-switcher' && response.ok())
       organizationGate.release()
+      await scopeSettled
+      await expect.poll(async () => (await page.context().cookies()).find((cookie) => cookie.name === 'om_selected_org')?.value).toBe(fixture.organizationId)
+      const settled = page.waitForResponse((response) => matchesStatus(response.url()) && response.ok())
+      await page.clock.fastForward(31_000)
+      await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
       await settled
       await expect.poll(() => statusRequests).toBe(before + 1)
       await page.unroute(organizationPattern, organizationHandler)
