@@ -164,10 +164,17 @@ test.describe('TC-AI-ACTIONS-OWNER-009: approval cards honour owner scope and th
           response.url().includes(`/api/ai_assistant/ai/actions/${limitedRow.id}/confirm`) &&
           response.request().method() === 'POST',
       );
-      await confirmButton.click();
+      const cancelRequests: string[] = [];
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().includes(`/api/ai_assistant/ai/actions/${limitedRow.id}/cancel`)) {
+          cancelRequests.push(request.url());
+        }
+      });
+      await confirmButton.dblclick();
       expect((await confirmResponse).status()).toBe(403);
       await expect(page.locator('[data-ai-confirmation-error="tool_features_denied"]')).toBeVisible({ timeout: 15_000 });
       await expect(page.locator('[data-ai-mutation-preview-cancel]')).toBeVisible();
+      expect(cancelRequests).toEqual([]);
 
       expect((await readPendingActionStateInDb(limitedRow.id))?.status).toBe('pending');
       expect((await readPendingActionStateInDb(adminRow.id))?.status).toBe('pending');

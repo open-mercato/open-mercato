@@ -194,7 +194,8 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => {
+            onClick={(event) => {
+              if (event.detail > 1) return
               void handleCancel()
             }}
             disabled={!canCancel}

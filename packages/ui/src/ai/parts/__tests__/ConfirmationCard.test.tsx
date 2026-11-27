@@ -221,13 +221,23 @@ describe('ConfirmationCard', () => {
     expect(document.querySelector('[data-ai-confirmation-cancel]')).toBeNull()
   })
 
-  it('dispatches cancelPendingAction on Cancel click', async () => {
+  it('ignores a second click carried over from the preview Confirm button', async () => {
     installPollingMock(baseAction({ status: 'pending' }))
     renderWithProviders(
       <ConfirmationCard componentId="confirmation-card" pendingActionId="pa-1" />,
       { dict },
     )
-    fireEvent.click(document.querySelector('[data-ai-confirmation-cancel]')!)
+    fireEvent.click(document.querySelector('[data-ai-confirmation-cancel]')!, { detail: 2 })
+    expect(cancelPendingAction).not.toHaveBeenCalled()
+  })
+
+  it.each([0, 1])('dispatches cancelPendingAction on a deliberate Cancel click with detail %s', async (detail) => {
+    installPollingMock(baseAction({ status: 'pending' }))
+    renderWithProviders(
+      <ConfirmationCard componentId="confirmation-card" pendingActionId="pa-1" />,
+      { dict },
+    )
+    fireEvent.click(document.querySelector('[data-ai-confirmation-cancel]')!, { detail })
     await waitFor(() => expect(cancelPendingAction).toHaveBeenCalledWith('pa-1', expect.any(Object)))
   })
 })
