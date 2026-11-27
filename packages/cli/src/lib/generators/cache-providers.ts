@@ -36,9 +36,16 @@ export interface CacheProvidersOptions {
   quiet?: boolean
 }
 
+function manifestPaths(appDir: string, extensions: readonly string[]): string[] {
+  return extensions.map((extension) => path.join(appDir, `${CACHE_MANIFEST_BASENAME}${extension}`))
+}
+
+export function getCacheProviderManifestPaths(appDir: string): string[] {
+  return manifestPaths(appDir, [...SUPPORTED_MANIFEST_EXTENSIONS, ...UNSUPPORTED_MANIFEST_EXTENSIONS])
+}
+
 function manifestCandidates(appDir: string, extensions: readonly string[]): string[] {
-  return extensions
-    .map((extension) => path.join(appDir, `${CACHE_MANIFEST_BASENAME}${extension}`))
+  return manifestPaths(appDir, extensions)
     .filter((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile())
 }
 
@@ -94,7 +101,7 @@ export async function generateCacheProviders(options: CacheProvidersOptions): Pr
     checksumFile: path.join(outputDir, CACHE_PROVIDERS_CHECKSUM_FILE),
     content: renderCacheProvidersRegistry(outputDir, manifestFile),
     structureChecksum: calculateStructureChecksum(
-      SUPPORTED_MANIFEST_EXTENSIONS.map((extension) => path.join(appDir, `${CACHE_MANIFEST_BASENAME}${extension}`)),
+      manifestPaths(appDir, SUPPORTED_MANIFEST_EXTENSIONS),
     ),
     result,
     quiet,
