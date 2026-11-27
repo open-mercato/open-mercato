@@ -8,6 +8,11 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 const runMutationMock = jest.fn()
 const apiCallMock = jest.fn()
 const flashMock = jest.fn()
+let mockSearchParams = new URLSearchParams()
+
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => mockSearchParams,
+}))
 
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -111,10 +116,39 @@ const listResponse = {
 
 describe('Integrations marketplace — guarded mutation wiring', () => {
   beforeEach(() => {
+    mockSearchParams = new URLSearchParams()
     runMutationMock.mockReset()
     apiCallMock.mockReset()
     flashMock.mockReset()
     apiCallMock.mockResolvedValue({ ok: true, result: listResponse })
+  })
+
+  it('opens from a communication category link and lets the user clear the filter', async () => {
+    mockSearchParams = new URLSearchParams('category=communication')
+    renderWithProviders(<IntegrationsMarketplacePage />)
+
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith(
+      expect.stringContaining('category=communication'),
+      undefined,
+      expect.anything(),
+    ))
+    fireEvent.click(await screen.findByRole('button', { name: 'integrations.marketplace.categories.all' }))
+    await waitFor(() => expect(apiCallMock).toHaveBeenLastCalledWith(
+      expect.not.stringContaining('category='),
+      undefined,
+      expect.anything(),
+    ))
+  })
+
+  it('ignores an unknown category in an incoming link', async () => {
+    mockSearchParams = new URLSearchParams('category=unknown')
+    renderWithProviders(<IntegrationsMarketplacePage />)
+
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith(
+      expect.not.stringContaining('category='),
+      undefined,
+      expect.anything(),
+    ))
   })
 
   it('routes the integration toggle through runMutation and updates local state on success', async () => {
