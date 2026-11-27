@@ -133,18 +133,23 @@ describe('DS lint gate (repo eslint.ds config, programmatic run)', () => {
 })
 
 describe('TypeScript toolchain diagnostic', () => {
-  it('resolves TypeScript from a directory containing spaces and apostrophes', () => {
+  it('passes a directory containing spaces and apostrophes as a process argument', () => {
     const resolutionDirectory = path.join(tmpDir, "parser's resolution directory")
     const typeScriptDirectory = path.join(resolutionDirectory, 'node_modules', 'typescript')
     const typeScriptEntry = path.join(typeScriptDirectory, 'index.js')
     fs.mkdirSync(typeScriptDirectory, { recursive: true })
-    fs.writeFileSync(typeScriptEntry, "module.exports = { version: 'test-version', Extension: {} }\n")
+    fs.writeFileSync(
+      typeScriptEntry,
+      'module.exports = { version: JSON.stringify(process.argv.slice(2)), Extension: {} }\n',
+    )
 
     const result = readTypeScriptToolchain(resolutionDirectory)
 
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(0)
-    expect(result.stdout.trim()).toBe(`${fs.realpathSync(typeScriptEntry)} vtest-version Extension=object`)
+    expect(result.stdout.trim()).toBe(
+      `${fs.realpathSync(typeScriptEntry)} v${JSON.stringify([resolutionDirectory])} Extension=object`,
+    )
   })
 })
 
