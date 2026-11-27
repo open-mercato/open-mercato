@@ -38,6 +38,35 @@ beforeEach(() => {
 })
 
 describe('createCustomerNotesAdapter — optimistic-lock header', () => {
+  test('passes the saved version from a guarded update response to the caller', async () => {
+    const savedVersion = '2026-06-02T00:00:00.000Z'
+    apiCallOrThrowMock.mockResolvedValueOnce({ ok: true, response: new Response(), result: { updatedAt: savedVersion } })
+    const onSavedVersion = jest.fn()
+    const adapter = createCustomerNotesAdapter(translator, { runMutation: (runner) => runner() })
+
+    await adapter.update({ id: 'note-1', patch: { body: 'edited' }, updatedAt: UPDATED_AT, onSavedVersion })
+
+    expect(onSavedVersion).toHaveBeenCalledWith(savedVersion)
+  })
+
+  test('reports the saved version when the guard replays a failed write', async () => {
+    const failure = new Error('Record changed')
+    const savedVersion = '2026-06-02T00:00:00.000Z'
+    apiCallOrThrowMock.mockRejectedValueOnce(failure).mockResolvedValueOnce({
+      ok: true, response: new Response(), result: { updatedAt: savedVersion },
+    })
+    const onSavedVersion = jest.fn()
+    const runMutation = jest.fn(async (runner: () => Promise<unknown>) => runner())
+    const adapter = createCustomerNotesAdapter(translator, { runMutation })
+
+    await expect(adapter.update({ id: 'note-1', patch: { body: 'edited' }, updatedAt: UPDATED_AT, onSavedVersion })).rejects.toBe(failure)
+    expect(onSavedVersion).not.toHaveBeenCalled()
+    await runMutation.mock.calls[0][0]()
+
+    expect(onSavedVersion).toHaveBeenCalledTimes(1)
+    expect(onSavedVersion).toHaveBeenCalledWith(savedVersion)
+  })
+
   test('update attaches the version header derived from the note updatedAt', async () => {
     const adapter = createCustomerNotesAdapter(translator)
     await adapter.update({ id: 'note-1', patch: { body: 'edited' }, updatedAt: UPDATED_AT })

@@ -445,6 +445,51 @@ describe('NotesSection', () => {
     expect(getRecordConflictForTest()).toBeNull()
   })
 
+  it.each([false, true])('deletes with the saved version (concurrent edit: %s)', async (concurrentEdit) => {
+    const loadedVersion = '2026-06-01T00:00:00.000Z'
+    const savedVersion = '2026-06-02T00:00:00.000Z'
+    const currentVersion = concurrentEdit ? '2026-06-03T00:00:00.000Z' : savedVersion
+    const adapter = createDataAdapter()
+    const list = jest.mocked(adapter.list)
+    const [note] = await list({ entityId: 'person-1', dealId: null })
+    list.mockResolvedValue([{ ...note, updatedAt: loadedVersion }])
+    adapter.update = jest.fn<Promise<void>, Parameters<NotesDataAdapter['update']>>(async ({ onSavedVersion }) => {
+      onSavedVersion?.(savedVersion)
+    })
+    adapter.delete = jest.fn<Promise<void>, Parameters<NotesDataAdapter['delete']>>(async ({ updatedAt }) => {
+      if (updatedAt === currentVersion) return
+      throw Object.assign(new Error('Record changed'), {
+        status: 409,
+        body: { code: OPTIMISTIC_LOCK_CONFLICT_CODE, currentUpdatedAt: currentVersion, expectedUpdatedAt: updatedAt },
+      })
+    })
+    Object.defineProperties(HTMLDialogElement.prototype, {
+      showModal: { configurable: true, value(this: HTMLDialogElement) { this.open = true } },
+      close: { configurable: true, value(this: HTMLDialogElement) { this.open = false } },
+    })
+
+    const { container } = renderWithProviders(<NotesSection {...baseProps(adapter)} disableMarkdown />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing note' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited note' } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ctrlKey: true })
+    await screen.findByRole('button', { name: 'Edited note' })
+    expect(adapter.update).toHaveBeenCalledWith(expect.objectContaining({ updatedAt: loadedVersion }))
+
+    const deleteButton = container.querySelector('svg.lucide-trash2')?.closest('button')
+    if (!deleteButton) throw new Error('[internal] Note delete button missing')
+    fireEvent.click(deleteButton)
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(adapter.delete).toHaveBeenCalledWith(expect.objectContaining({ id: note.id, updatedAt: savedVersion })))
+    if (concurrentEdit) {
+      await waitFor(() => expect(getRecordConflictForTest()).not.toBeNull())
+      expect(screen.getByText('Edited note')).toBeInTheDocument()
+    } else {
+      await waitFor(() => expect(screen.queryByText('Edited note')).not.toBeInTheDocument())
+      expect(getRecordConflictForTest()).toBeNull()
+    }
+  })
+
   it('surfaces the unified conflict bar when a write fails with a 409', async () => {
     const conflict = {
       status: 409,
