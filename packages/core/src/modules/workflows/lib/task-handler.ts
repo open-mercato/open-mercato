@@ -334,6 +334,7 @@ export async function completeUserTask(
   }
 
   const transitionContext = {
+    container,
     workflowContext: instance.context,
     userId,
   }

@@ -1,10 +1,13 @@
 import { EntityManager, type RequiredEntityData } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { compare, hash } from 'bcryptjs'
 import { User, Role, UserRole, Session, PasswordReset, type SessionSsoProvenance } from '@open-mercato/core/modules/auth/data/entities'
 import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
+import { AuthSessionRejectedError, matchesPasswordSessionProof, type PasswordSessionProof } from '../lib/sessionEligibility'
+import { isWithinPasswordByteLimit } from '@open-mercato/shared/lib/auth/passwordPolicy'
 
 // A fixed, valid bcrypt hash (cost 10) of a throwaway value no real password
 // can match. verifyPassword compares against it whenever the user is missing or
@@ -95,8 +98,24 @@ export class AuthService {
   }
 
 
-  async createSession(user: User, expiresAt: Date): Promise<{ session: Session; token: string }> {
-    return this.createSessionWithEntityManager(this.em, user, expiresAt)
+  async createSession(user: User, expiresAt: Date, proof?: PasswordSessionProof): Promise<{ session: Session; token: string }> {
+    if (!proof) return this.createSessionWithEntityManager(this.em, user, expiresAt)
+    return this.em.transactional(async (txEm) => {
+      const currentUser = await this.findLockedSessionUser(txEm, user)
+      if (!currentUser || !matchesPasswordSessionProof(currentUser, proof)) throw new AuthSessionRejectedError()
+      return this.createSessionWithEntityManager(txEm, currentUser, expiresAt)
+    })
+  }
+
+  private async findLockedSessionUser(em: EntityManager, user: User): Promise<User | null> {
+    const tenantId = user.tenantId ?? null
+    const organizationId = user.organizationId ?? null
+    return findOneWithDecryption(
+      em, User,
+      { id: user.id, tenantId, organizationId, deletedAt: null },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      { tenantId, organizationId },
+    )
   }
 
   protected async createSessionWithEntityManager(
@@ -155,12 +174,17 @@ export class AuthService {
   async requestPasswordReset(email: string) {
     const user = await this.findUserByEmail(email)
     if (!user) return null
-    const rawToken = generateAuthToken()
-    const tokenHash = hashAuthToken(rawToken)
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
-    const row = this.em.create(PasswordReset as any, { user, token: tokenHash, expiresAt, createdAt: new Date() } as any)
-    await this.em.persist(row).flush()
-    return { user, token: rawToken }
+    const requestedEmail = user.email
+    return this.em.transactional(async (txEm) => {
+      const currentUser = await this.findLockedSessionUser(txEm, user)
+      if (!currentUser || currentUser.email !== requestedEmail) return null
+      const rawToken = generateAuthToken()
+      const tokenHash = hashAuthToken(rawToken)
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
+      const row = txEm.create(PasswordReset, { user: currentUser, token: tokenHash, expiresAt, createdAt: new Date() })
+      await txEm.persist(row).flush()
+      return { user: currentUser, token: rawToken }
+    })
   }
 
   private async findUnconsumedPasswordReset(token: string): Promise<PasswordReset | null> {
@@ -181,23 +205,28 @@ export class AuthService {
   }
 
   async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
-    const now = new Date()
+    if (!isWithinPasswordByteLimit(newPassword)) return null
     const row = await this.findUnconsumedPasswordReset(token)
     if (!row) return null
-
-    // Atomic compare-and-set: only mark used if still unused — prevents token replay under concurrency
-    const affected = await this.em.nativeUpdate(
-      PasswordReset,
-      { id: row.id, usedAt: null },
-      { usedAt: now },
-    )
-    if (affected === 0) return null
-
-    const user = await findOneWithDecryption(this.em, User, { id: row.user.id, deletedAt: null })
-    if (!user) return null
-    user.passwordHash = await hash(newPassword, 10)
-    await this.em.flush()
-    await this.deleteAllUserSessions(String(user.id))
-    return user
+    const passwordHash = await hash(newPassword, 10)
+    const userId = String(row.user.id)
+    return this.em.transactional(async (txEm) => {
+      const user = await findOneWithDecryption(
+        txEm, User, { id: userId, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      )
+      if (!user) return null
+      const now = new Date()
+      const affected = await txEm.nativeUpdate(
+        PasswordReset,
+        { id: row.id, user: userId, token: hashAuthToken(token), usedAt: null, expiresAt: { $gt: now } },
+        { usedAt: now },
+      )
+      if (affected === 0) return null
+      user.passwordHash = passwordHash
+      await txEm.flush()
+      await txEm.nativeDelete(Session, { user: userId })
+      return user
+    })
   }
 }

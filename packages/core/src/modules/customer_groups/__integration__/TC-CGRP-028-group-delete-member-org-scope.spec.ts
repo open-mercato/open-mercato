@@ -92,7 +92,7 @@ test.describe('TC-CGRP-028: group delete is limited to members in the caller org
     const { tenantId } = getTokenContext(adminToken);
     const stamp = uniqueStamp();
     const email = `qa-cgrp-028-${stamp}@test.invalid`;
-    const password = 'Valid1!Pass';
+    const password = 'QaValid1!Pass';
 
     let orgAId: string | null = null;
     let orgBId: string | null = null;

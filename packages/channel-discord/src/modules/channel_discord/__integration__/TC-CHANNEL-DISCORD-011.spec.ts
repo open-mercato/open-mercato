@@ -115,7 +115,7 @@ test.describe('TC-CHANNEL-DISCORD-011: the AI auto-reply panel listing', () => {
       // (`buildPasswordSchema`) requires all three, so a plainer literal would
       // fail at fixture creation rather than at the assertion under test.
       const otherEmail = `tc-discord-011-${stamp}@integration.test`
-      const otherPassword = 'Secret123!'
+      const otherPassword = 'QaSecret123!'
       otherUserId = await createUserFixture(request, token, {
         email: otherEmail,
         password: otherPassword,

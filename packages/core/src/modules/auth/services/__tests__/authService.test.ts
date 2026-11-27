@@ -1,6 +1,9 @@
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
-import { Session } from '@open-mercato/core/modules/auth/data/entities'
+import { Session, User } from '@open-mercato/core/modules/auth/data/entities'
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
+import { AuthSessionRejectedError, capturePasswordSessionProof } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { LockMode } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn().mockResolvedValue([])
@@ -22,6 +25,7 @@ function makeEm() {
     nativeDelete: jest.fn(async () => 1),
     nativeUpdate: jest.fn(async () => 1),
     find: jest.fn(async () => []),
+    transactional: jest.fn((callback: (txEm: EntityManager) => unknown) => callback(em)),
   }
   mockFindOneWithDecryption.mockImplementation(async (passedEm: any, _cls: any, filter: any) => {
     return passedEm.findOne?.(_cls, filter)
@@ -50,6 +54,38 @@ describe('AuthService', () => {
     const row = persisted[0]
     expect(row.token).toBe(hashAuthToken(result.token))
     expect(row.token).not.toBe(result.token)
+  })
+
+  it.each([{ email: 'new@example.com' }, { passwordHash: 'new-hash' }])(
+    'refuses to issue a password session when locked credentials changed (%j)',
+    async (changed) => {
+      const { em } = makeEm()
+      const user = { id: 'user-1', email: 'old@example.com', passwordHash: 'old-hash' } as User
+      em.findOne.mockResolvedValueOnce({ ...user, ...changed })
+
+      await expect(new AuthService(em).createSession(
+        user, new Date(Date.now() + 1000), capturePasswordSessionProof(user),
+      )).rejects.toBeInstanceOf(AuthSessionRejectedError)
+
+      expect(em.transactional).toHaveBeenCalledTimes(1)
+      expect(mockFindOneWithDecryption).toHaveBeenCalledWith(em, User,
+        expect.objectContaining({ id: user.id }),
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        { tenantId: null, organizationId: null },
+      )
+      expect(em.persist).not.toHaveBeenCalled()
+    },
+  )
+
+  it('creates a remembered password session after the locked credential check', async () => {
+    const { em } = makeEm()
+    const user = { id: 'user-1', email: 'user@example.com', passwordHash: 'stored-hash' } as User
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    em.findOne.mockResolvedValueOnce(user)
+
+    await expect(new AuthService(em).createSession(
+      user, expiresAt, capturePasswordSessionProof(user),
+    )).resolves.toMatchObject({ session: { expiresAt, user } })
   })
 
   // -------------------------------------------------------------------------
@@ -134,7 +170,8 @@ describe('AuthService', () => {
 
   it('requestPasswordReset persists hashed token and returns raw token', async () => {
     const { em, persisted } = makeEm()
-    em.findOne.mockResolvedValueOnce({ id: 'user-1', email: 'user@example.com' })
+    const user = { id: 'user-1', email: 'user@example.com' }
+    em.findOne.mockResolvedValueOnce(user).mockResolvedValueOnce(user)
     const svc = new AuthService(em)
     const result = await svc.requestPasswordReset('user@example.com')
     expect(result).not.toBeNull()
@@ -146,6 +183,16 @@ describe('AuthService', () => {
     const row = persisted[0]
     expect(row.token).toBe(hashAuthToken(rawToken))
     expect(row.token).not.toBe(rawToken)
+  })
+
+  it('does not issue a reset link when the email changed while acquiring its user lock', async () => {
+    const { em } = makeEm()
+    const user = { id: 'user-1', email: 'old@example.com' }
+    em.findOne.mockResolvedValueOnce(user).mockResolvedValueOnce({ ...user, email: 'new@example.com' })
+
+    await expect(new AuthService(em).requestPasswordReset(user.email)).resolves.toBeNull()
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(em.persist).not.toHaveBeenCalled()
   })
 
   it('confirmPasswordReset looks up by the hashed token only', async () => {
@@ -309,8 +356,9 @@ describe('AuthService', () => {
     expect(result).not.toBeNull()
     expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
     const [_entity, filter, update] = em.nativeUpdate.mock.calls[0]
-    expect(filter).toMatchObject({ id: 'reset-1', usedAt: null })
+    expect(filter).toMatchObject({ id: 'reset-1', user: 'u1', token: resetRow.token, usedAt: null, expiresAt: { $gt: expect.any(Date) } })
     expect(update).toMatchObject({ usedAt: expect.any(Date) })
+    expect(em.nativeDelete).toHaveBeenCalledWith(Session, { user: 'u1' })
   })
 
   it('confirmPasswordReset returns null when nativeUpdate affects 0 rows (token already consumed)', async () => {
@@ -324,12 +372,15 @@ describe('AuthService', () => {
     }
     em.findOne.mockResolvedValueOnce(resetRow)
     em.nativeUpdate.mockResolvedValueOnce(0)
+    mockFindOneWithDecryption.mockResolvedValueOnce({ id: 'u1', passwordHash: 'old-hash' })
 
     const svc = new AuthService(em)
     const result = await svc.confirmPasswordReset('raw-token-value', 'NewSecurePass1!')
 
     expect(result).toBeNull()
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
     expect(em.flush).not.toHaveBeenCalled()
+    expect(em.nativeDelete).not.toHaveBeenCalled()
   })
 
   it('confirmPasswordReset does not set usedAt via ORM — only via nativeUpdate', async () => {

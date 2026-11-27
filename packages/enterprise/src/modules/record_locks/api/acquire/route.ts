@@ -129,6 +129,7 @@ export async function POST(req: Request) {
     resourceId: parsed.data.resourceId,
     tenantId: ctxOrResponse.auth.tenantId,
     organizationId: ctxOrResponse.organizationId,
+    organizationScope: ctxOrResponse.organizationScope,
     userId: ctxOrResponse.auth.sub,
     lockedByIp: resolveRequestIp(req),
   })

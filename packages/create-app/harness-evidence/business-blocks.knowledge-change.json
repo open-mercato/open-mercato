@@ -45,7 +45,7 @@
     },
     {
       "path": "packages/create-app/agentic/shared/ai/harness/cases.json",
-      "sha256": "7e9cdd4a28ddf1a497ae1b6a24ce91672b6befbe0bb6083337d7a7d7eb18c143"
+      "sha256": "f50feff22aae4fd9baeb15ac338d8f9f15b0114db22c49d01bca2d3929fb2112"
     },
     {
       "path": "packages/create-app/agentic/shared/ai/harness/cases.schema.json",
@@ -53,7 +53,7 @@
     },
     {
       "path": "packages/create-app/agentic/shared/ai/harness/source-link-inventory.json",
-      "sha256": "4a3d88c266af8cb6d2e227d0044856f2f327158434b1515187a0652dbb7a12ca"
+      "sha256": "275060e3e15a70db543e05ef8b034928c24fdeb52650441d3de911eda5047a12"
     },
     {
       "path": "packages/create-app/agentic/shared/ai/harness/validators.json",
@@ -69,11 +69,11 @@
     },
     {
       "path": "packages/create-app/scripts/source-links/source-link-inventory.json",
-      "sha256": "56e6653b5f391559ab77eb916fbe63154bb9385cce3a25a41428e9bf2eb0bc18"
+      "sha256": "b6086de8c9f7b9e2f936f4fe0b754440fbf3779119e42551b94a476d48ea83c2"
     },
     {
       "path": "packages/create-app/scripts/source-links/source-link-topics.json",
-      "sha256": "fb835c3da51279cdc0474cab83e0c1d003ac44073048756dc5087bc1fbeab071"
+      "sha256": "f56679d9bd2efdf8c2b56915247aafc1616cfdcbb63a5ca9ad95caabc767c04e"
     }
   ],
   "generatedFiles": [],
@@ -89,9 +89,9 @@
   "sourceLinkInventory": {
     "path": "packages/create-app/scripts/source-links/source-link-inventory.json",
     "baselineRef": "f7c941570003f3abe920b1765995cbef98dcad0b",
-    "expectedOwnerCount": 33,
-    "expectedTopicCount": 168,
-    "resolvedLinkCount": 144,
+    "expectedOwnerCount": 34,
+    "expectedTopicCount": 172,
+    "resolvedLinkCount": 148,
     "baselineAssetCount": 8,
     "baselineDispositionCount": 136,
     "baselinePath": "packages/create-app/scripts/source-links/source-link-baseline.json",

@@ -398,6 +398,16 @@ describe('user_task row projection', () => {
     expect(result.total).toBe(1)
     expect(result.rows[0]?.kind).toBe('user_task')
   })
+
+  test('orders the candidate window by due date, recency and an id tiebreak so tied tasks cannot shift between requests', async () => {
+    const findAndCount = jest.fn(async () => [[], 0] as [UserTask[], number])
+    const em = { findAndCount } as unknown as EntityManager
+
+    await userTaskWorkInboxSource.list(makeQuery({ limit: 20, offset: 40 }), makeContext(em))
+
+    const options = (findAndCount.mock.calls[0] as unknown[])[2] as { orderBy: unknown }
+    expect(options.orderBy).toEqual([{ dueDate: 'ASC' }, { createdAt: 'DESC' }, { id: 'ASC' }])
+  })
 })
 
 describe('work inbox merge service', () => {

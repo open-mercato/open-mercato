@@ -1,20 +1,27 @@
 /** @jest-environment node */
 import { POST } from '@open-mercato/core/modules/customer_accounts/api/invitations/accept'
 import {
+  type CustomerInvitationService,
   CustomerInvitationEmailConflictError,
 } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const mockAcceptInvitation = jest.fn()
 const mockGetEffectiveFeatures = jest.fn()
 const mockCreateSession = jest.fn()
 const mockEmitCustomerAccountsEvent = jest.fn()
 const mockResolveTranslations = jest.fn()
+const mockLockAuthorizationState = jest.fn()
+const mockFindInviter = jest.fn()
+const mockCheckInviterFeatures = jest.fn()
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'customerInvitationService') return { acceptInvitation: mockAcceptInvitation }
     if (token === 'customerSessionService') return { createSession: mockCreateSession }
     if (token === 'customerRbacService') return { getEffectiveFeatures: mockGetEffectiveFeatures }
+    if (token === 'rbacService') return { userHasAllFeaturesWithEntityManager: mockCheckInviterFeatures }
     return null
   }),
 }
@@ -25,6 +32,14 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => mockResolveTranslations()),
+}))
+
+jest.mock('@open-mercato/core/modules/auth/lib/authorizationStateLocks', () => ({
+  lockAuthorizationState: (...args: unknown[]) => mockLockAuthorizationState(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockFindInviter(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
@@ -92,6 +107,43 @@ describe('POST /api/customer_accounts/invitations/accept', () => {
     const res = await POST(acceptRequest())
     expect(res.status).toBe(400)
     await expect(res.json()).resolves.toMatchObject({ ok: false })
+  })
+
+  it('checks the inviter and current grants using the invitation transaction', async () => {
+    type AuthorizeInviter = NonNullable<Parameters<CustomerInvitationService['acceptInvitation']>[3]>
+    const transactionEm = {} as EntityManager
+    const inviterUserId = 'inviter-1'
+    const scope = { tenantId: 'tenant-1', organizationId: 'organization-1' }
+    mockFindInviter.mockResolvedValueOnce({ id: inviterUserId })
+    mockCheckInviterFeatures.mockResolvedValueOnce(false)
+    mockAcceptInvitation.mockImplementationOnce(async (
+      _token: string,
+      _password: string,
+      _displayName: string,
+      authorize: AuthorizeInviter,
+    ) => {
+      expect(await authorize(inviterUserId, scope, transactionEm)).toBe(false)
+      return null
+    })
+
+    const res = await POST(acceptRequest())
+
+    expect(res.status).toBe(400)
+    expect(mockLockAuthorizationState).toHaveBeenCalledWith(transactionEm, { userIds: [inviterUserId] })
+    expect(mockFindInviter).toHaveBeenCalledWith(
+      transactionEm,
+      User,
+      { id: inviterUserId, deletedAt: null, isConfirmed: true },
+      { fields: ['id'], refresh: true },
+    )
+    expect(mockCheckInviterFeatures).toHaveBeenCalledWith(
+      transactionEm,
+      inviterUserId,
+      ['customer_accounts.invite', 'customer_accounts.roles.manage'],
+      scope,
+    )
+    expect(mockLockAuthorizationState.mock.invocationCallOrder[0]).toBeLessThan(mockCheckInviterFeatures.mock.invocationCallOrder[0])
+    expect(mockCreateSession).not.toHaveBeenCalled()
   })
 
   it('still creates the account and signs the invitee in on the happy path', async () => {
