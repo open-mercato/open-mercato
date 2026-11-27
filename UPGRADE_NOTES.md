@@ -6896,3 +6896,9 @@ must pass trusted scope in emit options. An all-tenant reindex requires
 ## MCP Code Mode execution requires explicit direct mode
 
 MCP hides Code Mode `execute` when the mutation mode is unset, including reads through that tool. Code Mode discovery and typed tools retain their existing exposure rules. Clients can switch to typed read or write tools, including the approval workflow when configured. Operators who intentionally permit direct Code Mode execution can set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. The full-app Compose manifests forward the variable from the project environment to both the app and the MCP sidecar. Hosts supplying an exposure configuration programmatically must set `explicitDirectMode: true` together with `mutationMode: 'direct'`.
+
+## Vector-index entity authorization (#10693)
+
+`GET /api/search/index` requires the view features declared by each returned entity in addition to `search.view`. A request for an unreadable entity returns an empty page. Clients can continue using the existing response shape and paging parameters. Select an authorized organization when entity features are scoped to an organization.
+
+Operators should grant the owning module's view features to diagnostic users and keys that need them. Custom searchable entities declare these features in their `search.ts` configuration. The first-party pgvector driver applies the scope before pagination. Custom vector drivers can honor the additive `entityAccess` list predicate to keep pagination over readable entries. The API filters returned rows regardless of driver support. No database migration or reindex is required.
