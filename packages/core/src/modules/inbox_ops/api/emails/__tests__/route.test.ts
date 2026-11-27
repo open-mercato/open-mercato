@@ -31,14 +31,23 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
-const email = {
+const logEmail = {
   id: 'email-1',
-  messageId: 'message-1',
-  contentHash: 'content-hash',
+  subject: 'Operational subject',
   forwardedByAddress: 'sender@example.test',
   forwardedByName: 'Sender',
+  status: 'processed',
+  processingError: null,
+  receivedAt: new Date('2026-07-11T10:00:00.000Z'),
+  organizationId: 'org-1',
+  tenantId: 'tenant-1',
+}
+
+const email = {
+  ...logEmail,
+  messageId: 'message-1',
+  contentHash: 'content-hash',
   toAddress: 'inbox@example.test',
-  subject: 'Operational subject',
   replyTo: 'reply@example.test',
   inReplyTo: 'previous-message',
   emailReferences: ['previous-message'],
@@ -48,13 +57,8 @@ const email = {
   threadMessages: [{ body: 'sensitive thread' }],
   detectedLanguage: 'en',
   attachmentIds: ['attachment-1'],
-  receivedAt: new Date('2026-07-11T10:00:00.000Z'),
-  status: 'processed',
-  processingError: null,
   isActive: true,
   metadata: { sensitive: true },
-  organizationId: 'org-1',
-  tenantId: 'tenant-1',
   createdAt: new Date('2026-07-11T10:00:00.000Z'),
   updatedAt: new Date('2026-07-11T10:00:00.000Z'),
   deletedAt: null,
@@ -64,35 +68,45 @@ describe('GET /api/inbox_ops/emails', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
-    mockFindAndCountWithDecryption.mockResolvedValue([[email], 1])
   })
 
-  it('redacts correspondence fields from log-only viewers while preserving metadata and keys', async () => {
+  it('loads only scoped log fields and preserves redacted response keys', async () => {
     mockUserHasAllFeatures.mockResolvedValue(false)
+    mockFindAndCountWithDecryption.mockResolvedValue([[logEmail], 3])
 
-    const response = await GET(new Request('http://localhost/api/inbox_ops/emails'))
+    const response = await GET(new Request('http://localhost/api/inbox_ops/emails?status=processed&page=2&pageSize=2'))
     const payload = await response.json()
 
     expect(response.status).toBe(200)
-    expect(payload.items[0]).toMatchObject({
-      id: 'email-1',
-      subject: 'Operational subject',
-      forwardedByAddress: 'sender@example.test',
-      forwardedByName: 'Sender',
-      status: 'processed',
-      processingError: null,
-      receivedAt: '2026-07-11T10:00:00.000Z',
-      rawText: null,
-      rawHtml: null,
-      cleanedText: null,
-      threadMessages: null,
-      toAddress: null,
-      replyTo: null,
-      metadata: null,
-      organizationId: null,
-      tenantId: null,
+    expect(payload).toEqual({
+      items: [{
+        ...logEmail,
+        receivedAt: '2026-07-11T10:00:00.000Z',
+        messageId: null,
+        contentHash: null,
+        toAddress: null,
+        replyTo: null,
+        inReplyTo: null,
+        emailReferences: null,
+        rawText: null,
+        rawHtml: null,
+        cleanedText: null,
+        threadMessages: null,
+        detectedLanguage: null,
+        attachmentIds: null,
+        isActive: null,
+        metadata: null,
+        organizationId: null,
+        tenantId: null,
+        createdAt: null,
+        updatedAt: null,
+        deletedAt: null,
+      }],
+      total: 3,
+      page: 2,
+      pageSize: 2,
+      totalPages: 2,
     })
-    expect(JSON.stringify(payload)).not.toContain('sensitive')
     expect(mockUserHasAllFeatures).toHaveBeenCalledWith(
       'user-1',
       ['inbox_ops.proposals.view'],
@@ -101,25 +115,31 @@ describe('GET /api/inbox_ops/emails', () => {
     expect(mockFindAndCountWithDecryption).toHaveBeenCalledWith(
       mockEm,
       InboxEmail,
-      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null }),
-      expect.any(Object),
+      { tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null, status: 'processed' },
+      {
+        fields: Object.keys(logEmail),
+        limit: 2,
+        offset: 2,
+        orderBy: { receivedAt: 'DESC' },
+      },
       { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 
   it('preserves the full response for viewers allowed to read email threads', async () => {
     mockUserHasAllFeatures.mockResolvedValue(true)
+    mockFindAndCountWithDecryption.mockResolvedValue([[email], 1])
 
     const response = await GET(new Request('http://localhost/api/inbox_ops/emails'))
     const payload = await response.json()
 
-    expect(payload.items[0]).toMatchObject({
-      rawText: 'sensitive plain body',
-      rawHtml: '<p>sensitive html body</p>',
-      cleanedText: 'sensitive cleaned body',
-      threadMessages: [{ body: 'sensitive thread' }],
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
+    expect(payload.items[0]).toEqual({
+      ...email,
+      receivedAt: email.receivedAt.toISOString(),
+      createdAt: email.createdAt.toISOString(),
+      updatedAt: email.updatedAt.toISOString(),
     })
+    const [, , , options] = mockFindAndCountWithDecryption.mock.calls[0]
+    expect(options).not.toHaveProperty('fields')
   })
 })

@@ -5,7 +5,7 @@ import { InboxEmail } from '../../data/entities'
 import { emailListQuerySchema } from '../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { canViewEmailContent, serializeInboxEmail } from './response'
+import { canViewEmailContent, EMAIL_LOG_FIELDS, serializeInboxEmail } from './response'
 
 const logger = createLogger('inbox_ops').child({ component: 'emails' })
 
@@ -45,6 +45,7 @@ export async function GET(req: Request) {
         limit: query.pageSize,
         offset,
         orderBy: { receivedAt: 'DESC' },
+        ...(includeContent ? {} : { fields: EMAIL_LOG_FIELDS }),
       },
       ctx.scope,
     )
