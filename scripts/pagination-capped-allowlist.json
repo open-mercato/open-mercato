@@ -70,5 +70,9 @@
   {
     "file": "packages/search/src/modules/search/frontend/components/HybridSearchTable.tsx",
     "reason": "pseudo-pagination over in-memory rows; totalPages fixed at 1"
+  },
+  {
+    "file": "packages/core/src/modules/design_system/gallery/demos/data-table.tsx",
+    "reason": "gallery examples page a local in-memory array; the total is always exact"
   }
 ]
