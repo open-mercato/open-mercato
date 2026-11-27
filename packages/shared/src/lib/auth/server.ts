@@ -6,6 +6,7 @@ import { isMfaPendingAccessAllowed } from './mfaPendingAccess'
 import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
 import { isTransientDbError } from '@open-mercato/shared/lib/db/pg-errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 function readRequestPathname(req: Request): string | null {
   try {
@@ -87,6 +88,26 @@ export function attachTrustedAuthContext(
 ): Request {
   ;(request as unknown as Record<symbol, TrustedAuthContextEnvelope>)[TRUSTED_AUTH_CONTEXT_SYMBOL] = envelope
   return request
+}
+
+export function isDispatcherTrustedAuthEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseBooleanWithDefault(env.OM_DISPATCHER_TRUSTED_AUTH, true)
+}
+
+/**
+ * Hand the API dispatcher's auth resolution to the route handler it is about to call, so
+ * `getAuthFromRequest(req)` inside the handler (CRUD factory `ensureAuth`, hand-written routes)
+ * reuses it instead of building another request container and re-running the session-integrity
+ * queries (#2958). Only an `authenticated` resolution is shared: `missing`/`invalid` cost no
+ * session queries to recompute, and a transient `error` must stay retryable inside the handler.
+ * `OM_DISPATCHER_TRUSTED_AUTH=off` restores per-call re-resolution.
+ */
+export function shareDispatcherAuthResolution(request: Request, resolution: AuthResolution): boolean {
+  if (resolution.status !== 'authenticated' || !resolution.auth) return false
+  if (!isDispatcherTrustedAuthEnabled()) return false
+  if (readTrustedAuthContext(request)) return false
+  attachTrustedAuthContext(request, { auth: resolution.auth, status: resolution.status })
+  return true
 }
 
 function readTrustedAuthContext(request: Request): TrustedAuthContextEnvelope | null {

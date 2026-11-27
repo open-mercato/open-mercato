@@ -29,6 +29,7 @@ jest.mock('@/bootstrap', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   resolveAuthFromRequestDetailed: jest.fn(async () => ({ auth: null, status: 'unauthenticated' })),
+  shareDispatcherAuthResolution: jest.fn(),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({

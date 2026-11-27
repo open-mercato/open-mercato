@@ -208,7 +208,7 @@ The 2026-06-10 audit filed fifteen issues from this research. Eleven map to item
 
 | Spec anchor | Issue | State (2026-09-30) |
 |---|---|---|
-| Theme D / P1.4 companion — attach dispatcher-resolved auth via the trusted-auth seam (`OM_DISPATCHER_TRUSTED_AUTH`) | #2958 | open, priority-high |
+| Theme D / P1.4 companion — attach dispatcher-resolved auth via the trusted-auth seam (`OM_DISPATCHER_TRUSTED_AUTH`) | #2958 | implemented 2026-11-23 — on by default, `OM_DISPATCHER_TRUSTED_AUTH=off` kill switch; shares only `authenticated` resolutions |
 | P3.3 — bootstrap services cross-request safe, unlock `OM_BOOTSTRAP_CACHE` (finishes #2044 Phase 5) | #2963 | open |
 | DB [HIGH] "information_schema probes per list / caches cold" — process-scope query_index metadata caches + once-guarded event wiring (`OM_QUERY_INDEX_META_CACHE_MS`) | #2967 | open, priority-high. The anchor finding is partly addressed: process-scope `information_schema` memos landed for the shared `BasicQueryEngine` column probes (#5614, merged 2026-08-26, via #5605) and for the `DefaultDataEngine` and query_index `HybridQueryEngine` table probes (#6277, merged 2026-09-22, via #5619). The once-guarded event wiring and the per-request discovery query moved to a once-per-process setup with the opt-in process root (#9628, merged 2026-11-21). The query_index column map is now a process-wide memo (`OM_QUERY_INDEX_COLUMN_CACHE_MS`, default 5 min; an absent column is always re-checked, so scoping columns apply at once), and custom-field definitions and sort kinds are shared through the DI `cache` under the `entities:definitions` tags, so existing `invalidateDefinitionsCache()` calls clear them (TTL `QUERY_INDEX_CF_KEYS_CACHE_MS`). `customEntityCache` stays per instance on purpose: its database-backed negative answers are the #2939 hazard. The single `OM_QUERY_INDEX_META_CACHE_MS` flag was not introduced |
 | Audit cohort, beyond the P-tables — query_index coverage-snapshot thundering herd, single-flight refresh | #2968 | open — the default path still refreshes the snapshot inline and dedups only per engine instance (`pendingCoverageRefreshKeys`); #5766 (2026-09-23, via #5604) made the coverage *counter adjustments* contention-safe but added no single-flight refresh |
@@ -274,6 +274,12 @@ The 2026-08 evidence also revises two of the original assessments upward. Theme 
 
 Priority implication: the benchmarked build already contained the shipped P0 fixes (the cache singleton and the two-phase encrypted sort are ancestors of the benchmarked commit), so the measured knee characterizes what is **still open** — the request-container/auth duplication cluster (#2958/#2977/#2978), the query_index metadata caches (#2967), and enricher execution — not the items the June–July wave already fixed. The measurements therefore strengthen the remaining-P1 ordering rather than re-litigating P0.
 
+### Dispatcher auth reuse integration coverage (#2958)
+
+`packages/core/src/modules/auth/__integration__/TC-AUTH-10479-dispatcher-auth-reuse.spec.ts` exercises the real `/api/auth/users` handler, which calls `getAuthFromRequest` on the dispatched request. With trusted-auth reuse enabled, coverage includes authorized fixture visibility, missing route permission, valid MFA-pending credentials, revocation through `/api/auth/logout`, allowed organization selection, restricted-organization fallback, and cross-tenant selection. Positive controls and exact fixture IDs distinguish correct denial/filtering from unrelated permission errors. Fixtures create their own roles, users, organizations and tenant and clean them up in reverse dependency order.
+
+Existing helper unit tests establish that the dispatcher result is reused; the HTTP cases establish authentication and scope parity through a real consumer. The HTTP suite is expected to remain valid when the optimization is disabled. This coverage does not change MFA, revocation or scope semantics.
+
 ## Changelog
 - **2026-06-03** — initial research + roadmap from 8 parallel domain audits; no code change.
 - **2026-08-29** — recovered from the local `refs/codex/snapshots/*` history (identical blob in all seven `startup-cleanup` snapshots) and submitted to `develop` for the first time via PR #5777, resolving #4635. Added the Recovery & status addendum: provenance, roadmap→tracker mapping for #2958–#2983 (#2972 implemented), a develop-verified roadmap status table (P0 largely shipped since June — P0.1–P0.3 and P1.1 done, P0.4 done for the shared engines (#3278, #3395) with the custom-handler rollout still open (#3386), P0.5 partial; P1.2–P1.5, P2.2's SSE/NOTIFY half, P2.3, P2.4's webhooks negative cache, and P3.1–P3.3 still open), pointers to the 2026-08 follow-up issues, and empirical validation from the 2026-08 production-topology benchmarks.
@@ -292,3 +298,6 @@ Priority implication: the benchmarked build already contained the shipped P0 fix
   - Added a `[2026-08 correction]` pointer under the Risks table for the superseded 2.1 row.
   - Spelled out the sub-item ids that were undefined before (`P2.2b`, `P2.4d`).
 - **2026-11-21** — #2967 row: process-wide query_index column map and DI-cached custom-field definitions and sort kinds; the event-wiring half shipped with #9628. `customEntityCache` deliberately stays per instance (#2939).
+- **2026-11-23** — #2958 row: the API dispatcher now shares its `authenticated` resolution with the route handler through the trusted-auth hook (`shareDispatcherAuthResolution`), on by default with an `OM_DISPATCHER_TRUSTED_AUTH=off` kill switch.
+
+- **2026-11-24** — Added real HTTP coverage for dispatcher auth reuse across permissions, MFA, session revocation and selected tenant/organization boundaries, addressing PR #10479’s integration review.

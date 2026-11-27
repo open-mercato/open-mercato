@@ -369,3 +369,94 @@ describe('super-admin tenant cookie override', () => {
     await expect(authFor('auth_token=jwt-token; om_selected_tenant=')).resolves.toEqual(staffAuth)
   })
 })
+
+describe('dispatcher auth reuse (#2958)', () => {
+  const staffAuth = {
+    sub: '11111111-1111-4111-8111-111111111111',
+    tenantId: '22222222-2222-4222-8222-222222222222',
+    orgId: '33333333-3333-4333-8333-333333333333',
+    roles: ['admin'],
+  }
+  const originalFlag = process.env.OM_DISPATCHER_TRUSTED_AUTH
+
+  function staffRequest(): Request {
+    return new Request('https://example.test/api/customers/companies', {
+      headers: { authorization: 'Bearer jwt-token' },
+    })
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    delete process.env.OM_DISPATCHER_TRUSTED_AUTH
+    createRequestContainer.mockResolvedValue({
+      resolve: (name: string) => (name === 'em' ? em : null),
+    })
+    verifyJwt.mockReturnValue(staffAuth)
+    resolveCanonicalStaffAuthContext.mockResolvedValue(staffAuth)
+  })
+
+  afterAll(() => {
+    if (originalFlag === undefined) delete process.env.OM_DISPATCHER_TRUSTED_AUTH
+    else process.env.OM_DISPATCHER_TRUSTED_AUTH = originalFlag
+  })
+
+  it('lets a handler reuse the dispatcher resolution without another container or session lookup', async () => {
+    const { resolveAuthFromRequestDetailed, shareDispatcherAuthResolution, getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const request = staffRequest()
+
+    const resolution = await resolveAuthFromRequestDetailed(request)
+    expect(resolution.status).toBe('authenticated')
+    expect(createRequestContainer).toHaveBeenCalledTimes(1)
+    expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledTimes(1)
+
+    expect(shareDispatcherAuthResolution(request, resolution)).toBe(true)
+    await expect(getAuthFromRequest(request)).resolves.toBe(resolution.auth)
+    await expect(resolveAuthFromRequestDetailed(request)).resolves.toEqual(resolution)
+
+    expect(createRequestContainer).toHaveBeenCalledTimes(1)
+    expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledTimes(1)
+    expect(verifyJwt).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['missing', 'invalid', 'error'] as const)('does not share a %s resolution, so the handler re-resolves', async (status) => {
+    const { resolveAuthFromRequestDetailed, shareDispatcherAuthResolution } = await import('@open-mercato/shared/lib/auth/server')
+    const request = staffRequest()
+
+    expect(shareDispatcherAuthResolution(request, { auth: null, status })).toBe(false)
+    await expect(resolveAuthFromRequestDetailed(request)).resolves.toEqual({ auth: staffAuth, status: 'authenticated' })
+    expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['off', 'false', '0'])('re-resolves per call when OM_DISPATCHER_TRUSTED_AUTH=%s', async (flag) => {
+    process.env.OM_DISPATCHER_TRUSTED_AUTH = flag
+    const { resolveAuthFromRequestDetailed, shareDispatcherAuthResolution, getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const request = staffRequest()
+
+    const resolution = await resolveAuthFromRequestDetailed(request)
+    expect(shareDispatcherAuthResolution(request, resolution)).toBe(false)
+    await getAuthFromRequest(request)
+
+    expect(createRequestContainer).toHaveBeenCalledTimes(2)
+    expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps an envelope another trusted producer already attached', async () => {
+    const { attachTrustedAuthContext, shareDispatcherAuthResolution, getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const request = staffRequest()
+    const producerAuth = { ...staffAuth, orgId: '55555555-5555-4555-8555-555555555555' }
+    attachTrustedAuthContext(request, { auth: producerAuth, status: 'authenticated' })
+
+    expect(shareDispatcherAuthResolution(request, { auth: staffAuth, status: 'authenticated' })).toBe(false)
+    await expect(getAuthFromRequest(request)).resolves.toBe(producerAuth)
+  })
+
+  it('does not leak the shared resolution to a different request object', async () => {
+    const { shareDispatcherAuthResolution, resolveAuthFromRequestDetailed } = await import('@open-mercato/shared/lib/auth/server')
+    const dispatched = staffRequest()
+    const otherAuth = { ...staffAuth, sub: '66666666-6666-4666-8666-666666666666' }
+
+    shareDispatcherAuthResolution(dispatched, { auth: otherAuth, status: 'authenticated' })
+    await expect(resolveAuthFromRequestDetailed(staffRequest())).resolves.toEqual({ auth: staffAuth, status: 'authenticated' })
+    expect(resolveCanonicalStaffAuthContext).toHaveBeenCalledTimes(1)
+  })
+})

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
+import { resolveAuthFromRequestDetailed, shareDispatcherAuthResolution } from '@open-mercato/shared/lib/auth/server'
 import type { ApiRouteManifestEntry, HttpMethod } from '@open-mercato/shared/modules/registry'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
@@ -23,7 +23,8 @@ import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory
 
 // Mock the auth module
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  resolveAuthFromRequestDetailed: jest.fn()
+  resolveAuthFromRequestDetailed: jest.fn(),
+  shareDispatcherAuthResolution: jest.fn(),
 }))
 
 // Mock DI container to provide rbacService
@@ -206,6 +207,7 @@ import { registerModules } from '@open-mercato/shared/lib/i18n/server'
 registerModules(getMockedModules() as any)
 
 const mockResolveAuthFromRequestDetailed = resolveAuthFromRequestDetailed as jest.MockedFunction<typeof resolveAuthFromRequestDetailed>
+const mockShareDispatcherAuthResolution = shareDispatcherAuthResolution as jest.MockedFunction<typeof shareDispatcherAuthResolution>
 
 function authenticatedAuth(roles: string[] | undefined, email = 'user@test.com') {
   return {
@@ -503,6 +505,32 @@ describe('API Route Authorization', () => {
 
       expect(response.status).toBe(200)
       expect(await response.text()).toBe('DELETE success')
+    })
+  })
+
+  describe('Dispatcher auth reuse (#2958)', () => {
+    it('shares its auth resolution on the request object the handler receives, before the handler runs', async () => {
+      const resolution = authenticatedAuth(['admin'], 'admin@test.com')
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(resolution)
+      const originalGet = mockedRouteModule.GET
+      const handlerRequests: Request[] = []
+      mockedRouteModule.GET = async (...args: unknown[]) => {
+        handlerRequests.push(args[0] as Request)
+        expect(mockShareDispatcherAuthResolution).toHaveBeenCalledTimes(1)
+        return new Response('GET success')
+      }
+
+      try {
+        const request = new NextRequest('http://localhost:3001/api/example/test')
+        const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+        expect(response.status).toBe(200)
+        expect(handlerRequests).toHaveLength(1)
+        expect(mockShareDispatcherAuthResolution).toHaveBeenCalledWith(handlerRequests[0], resolution)
+        expect(handlerRequests[0]).toBe(request)
+      } finally {
+        mockedRouteModule.GET = originalGet
+      }
     })
   })
 

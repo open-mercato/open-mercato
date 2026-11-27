@@ -14,6 +14,7 @@ jest.mock('@open-mercato/shared/lib/commands', () => ({ commandRegistry: {}, Com
 jest.mock('@open-mercato/shared/modules/overrides', () => ({ ...jest.requireActual('@open-mercato/shared/modules/overrides'), composeDiOverrides: () => ({}) }))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   resolveAuthFromRequestDetailed: async () => ({ auth: { sub: 'staff', tenantId: 'tenant' }, status: 'authenticated' }),
+  shareDispatcherAuthResolution: () => true,
 }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({ t: (_key: string, fallback: string) => fallback }) }))
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
