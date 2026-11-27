@@ -1150,7 +1150,7 @@ jobs:
           node scripts/ci/check-webhook-durability-results.mjs .ai/qa/test-results/webhook-durability/receipts.json .ai/qa/test-results/webhook-durability/queues.json
 
       - name: Upload webhook durability results
-        if: ${{ always() && steps.audit-gate.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         uses: actions/upload-artifact@v7
         with:
           name: webhook-durability-results

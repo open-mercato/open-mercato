@@ -4,10 +4,10 @@
 
 - Route all matches on each axis; missing context: `yarn mercato agentic:init --update-harness`.
 - Lessons: scan `.ai/lessons.md` tags; open/update one matching record + row.
-- Modules: `src/modules/<id>/`; `src/providers/` for [cache, queue, and KMS](.ai/guides/infrastructure-providers.md).
+- Use `src/modules/<id>/` for business modules and `src/providers/` for [cache, queue, and KMS](.ai/guides/infrastructure-providers.md).
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands/`makeCrudRoute`/`CrudForm`/`DataTable`, DI/events/UMES; effects stay post-commit.
-- Entities: `src/modules/<id>/data/entities.ts`; API: per-method `metadata` + `openApi`.
+- Put entities in `src/modules/<id>/data/entities.ts`; API routes need per-method `metadata` + `openApi`.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
 - Run `yarn generate` after discovery files/`src/modules.ts`/routes/pages/events/widgets/agents/tools/workflows change.
@@ -32,7 +32,7 @@ Broad: `yarn ci` (generate, typecheck, lint, ds:check, test, build — stops at 
 
 ## Production Deployment
 
-Route production deployment/go-live/security-readiness: `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; use inventory. Readiness: checked-in `.env.example` names/comments only; never read or report live `.env` values. Ask before credentials, billable infrastructure or live deployments.
+Route production deployment/go-live/security-readiness to `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; use its inventory. Readiness: only names and comments in checked-in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or live deployments.
 
 ## Three-Axis Context Assembler
 
@@ -106,7 +106,7 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ### Token-Efficient Assembly Policy
 
-- Read matched guides once, then required skills/refs/facts.
+- Read each matched guide once, then relevant skills and required references/facts.
 - `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`. Skip it for additive page/form/table/conflict UI.
 - Never bulk-read guide, skill, fact, or source trees.
@@ -121,6 +121,6 @@ Mechanisms: events/subscribers→events; long operation/progress→progress; pro
 ## Working Sequence
 
 1. Route; implement a minimal complete slice via real call sites.
-2. Discovery: `yarn generate`; focused gates/integration paths.
+2. Discovery: `yarn generate`; then focused gates/integration paths.
 
 Precedence: root→BC→installed `AGENTS.md`→facts; stop on skew/conflict; never guess.

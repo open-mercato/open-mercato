@@ -12,7 +12,8 @@ import type { AwilixContainer } from 'awilix'
 import { asScopedService } from '../process-registrar'
 import { createEventBus, type EventBus } from '@open-mercato/events'
 
-// Mock ORM connections and engines before importing container.ts.
+// Mock the deep ORM/engine imports BEFORE importing container.ts so we can
+// exercise the bootstrap once-guard without pulling in MikroORM decorators.
 jest.mock(
   '@open-mercato/shared/lib/db/mikro',
   () => {
