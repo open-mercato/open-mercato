@@ -1,10 +1,18 @@
 import { expect, type APIRequestContext } from '@playwright/test';
 import { apiRequest } from './api';
+import { importFromAppRuntime } from './appRuntime';
 import { readJsonSafe } from './generalFixtures';
 
 type JsonRecord = Record<string, unknown>;
 
 export { readJsonSafe } from './generalFixtures';
+
+export async function loadCustomerMessageObjectTypes() {
+  const { messageObjectTypes } = await importFromAppRuntime<
+    typeof import('../../modules/customers/message-objects')
+  >('@open-mercato/core/modules/customers/message-objects');
+  return messageObjectTypes;
+}
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null;

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_WIDGET_GROUPS } from '../../../lib/aggregations'
 
 export const aggregateFunctionSchema = z.enum(['count', 'sum', 'avg', 'min', 'max'])
 export const dateGranularitySchema = z.enum(['day', 'week', 'month', 'quarter', 'year'])
@@ -42,8 +43,7 @@ export const filterOperatorSchema = z.enum([
  * deep inside query construction; validating here yields a 400 that names the offending
  * filter and is published in the route's OpenAPI schema.
  *
- * 200 is deliberately generous for a dashboard filter: the widest grouping a widget can render
- * is capped at 100 buckets (`groupBy.limit`), and a batch carries at most 50 requests, so even
+ * 200 is deliberately generous for a dashboard filter. A batch carries at most 50 requests, so even
  * a fully saturated batch stays an order of magnitude below PostgreSQL's per-statement limit
  * of 65535 bound parameters. Raising it later is a one-line change to this constant.
  */
@@ -78,7 +78,7 @@ export const widgetDataRequestSchema = z.object({
     .object({
       field: z.string().min(1),
       granularity: dateGranularitySchema.optional(),
-      limit: z.number().int().min(1).max(100).optional(),
+      limit: z.number().int().min(1).max(MAX_WIDGET_GROUPS).optional(),
       resolveLabels: z.boolean().optional(),
     })
     .optional(),
@@ -115,6 +115,7 @@ export const widgetDataResponseSchema = z.object({
   metadata: z.object({
     fetchedAt: z.string(),
     recordCount: z.number(),
+    truncated: z.boolean().optional(),
     currency: z.string().nullable().optional(),
   }),
 })

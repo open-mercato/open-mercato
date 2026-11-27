@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
 import type { StartedTestContainer } from 'testcontainers'
+import { generateWebhookSecret } from '@open-mercato/shared/lib/webhooks/secrets'
 import { WebhookDeliveryEntity, WebhookEntity } from '../../data/entities'
 import { processWebhookDeliveryJob } from '../delivery'
 
@@ -128,7 +129,7 @@ describeWithPostgres('processWebhookDeliveryJob claim on real Postgres', () => {
     const createdWebhook = em.create(WebhookEntity, {
       name: 'Claim test',
       url: 'https://example.com/hook',
-      secret: 'whsec_dGVzdC1zZWNyZXQtZm9yLWNsYWltLXRlc3Q=',
+      secret: generateWebhookSecret(),
       subscribedEvents: ['customers.person.created'],
       httpMethod: 'POST',
       maxRetries: 3,

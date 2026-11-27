@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "head": "cc62df6e86760a7a5049a0909b9d193c3c76f0ce",
+  "commandsPassed": 6,
+  "commandFailed": "yarn test",
+  "commandNotRun": "yarn build:app",
+  "fullWorkspaceDurationMs": 285483,
+  "result": "50successful/51tasks;Core28030passed/1failed",
+  "hostSleepOverlap": false,
+  "failure": {
+    "file": "packages/core/src/__tests__/module-decoupling.test.ts",
+    "line": 263,
+    "expected": "privateAttachments for a disabled catalog entity",
+    "received": "productsMedia"
+  },
+  "independentDiagnosis": "Failing test, production partition resolver, Jest mapping/setup and transformer are unchanged from base. Default generated-ID test mock is an all-module Proxy; an outer mock-instance inheritance theory is plausible but no concrete producer has been established.",
+  "isolatedReproduction": "Unchanged test file13/13PASS0.506s",
+  "disposition": "Preserve failure; rerun unchanged fullgate before making any fixture or production change. No assertion weakened or test quarantined.",
+  "releaseAcceptance": false,
+  "unchangedRetry": "All8 later pass on the SAME cc62 source with no fixture edit. Core28031tests passed182.962s. The initial failure remains an observed unrelated flake; producer unproven."
+}

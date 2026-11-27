@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 
 export type MobilePersonZone = 'details' | 'activity'
 
@@ -78,40 +78,35 @@ export function MobilePersonDetail({
   )
 
   return (
-    <div className="space-y-4">
+    <Tabs
+      value={zone}
+      onValueChange={(value) => handleZoneChange(value as MobilePersonZone)}
+      variant="underline"
+      className="space-y-4"
+    >
       <div onKeyDown={handleKeyDown}>
-        <Tabs
-          value={zone}
-          onValueChange={(value) => handleZoneChange(value as MobilePersonZone)}
-          variant="underline"
+        <TabsList
+          aria-label={t(
+            'customers.people.mobile.zoneSwitcher.ariaLabel',
+            'Zone selector',
+          )}
+          className="w-full"
         >
-          <TabsList
-            aria-label={t(
-              'customers.people.mobile.zoneSwitcher.ariaLabel',
-              'Zone selector',
-            )}
-            className="w-full"
-          >
-            {ZONES.map((entry) => (
-              <TabsTrigger
-                key={entry.id}
-                value={entry.id}
-                className="flex-1 justify-center"
-              >
-                {t(entry.labelKey, entry.fallback)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+          {ZONES.map((entry) => (
+            <TabsTrigger
+              key={entry.id}
+              value={entry.id}
+              className="flex-1 justify-center"
+            >
+              {t(entry.labelKey, entry.fallback)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
       </div>
-      <div
-        id={`mobile-person-zone-${zone}`}
-        role="tabpanel"
-        aria-labelledby={`mobile-person-zone-${zone}-tab`}
-      >
+      <TabsContent value={zone} className="mt-0">
         {zone === 'details' ? zone1 : zone2}
-      </div>
-    </div>
+      </TabsContent>
+    </Tabs>
   )
 }
 

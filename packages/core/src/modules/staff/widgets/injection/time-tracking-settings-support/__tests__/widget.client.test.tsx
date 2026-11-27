@@ -2,12 +2,14 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import SupportSettingsTab from '../widget.client'
+import type { DictionaryFormValues } from '@open-mercato/core/modules/dictionaries/components/DictionaryForm'
+import type { DictionaryTableEntry } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
 
 const FALLBACK_RULE = '55555555-5555-4555-8555-555555555551'
 const BILLING_RULE = '55555555-5555-4555-8555-555555555552'
@@ -20,6 +22,8 @@ const VERSION_X = '2026-05-01T10:00:00.000Z'
 const VERSION_Y = '2026-05-01T10:05:00.000Z'
 const PREVIEW_URL = '/api/staff/timesheets/support-routing-rules/preview'
 
+let mockGrantedFeatures: string[] = []
+
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
@@ -28,11 +32,12 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
+  useOrganizationScopeDetail: () => ({ tenantId: 'tenant-a' }),
   useOrganizationScopeVersion: () => 1,
 }))
 
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
-  useBackendChrome: () => ({ payload: { grantedFeatures: [] }, isReady: true }),
+  useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures }, isReady: true }),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
@@ -78,11 +83,25 @@ jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryForm', () => ({
-  DictionaryForm: () => null,
+  DictionaryForm: ({ initialValues, onSubmit }: { initialValues: DictionaryFormValues; onSubmit: (values: DictionaryFormValues) => Promise<void> }) => (
+    <button onClick={() => { void onSubmit({ ...initialValues, value: 'renamed-category' }) }}>Save category value</button>
+  ),
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/DictionaryTable', () => ({
-  DictionaryTable: () => null,
+  DictionaryTable: ({ entries, canManage, onCreate, onEdit }: {
+    entries: DictionaryTableEntry[]
+    canManage: boolean
+    onCreate: () => void
+    onEdit: (entry: DictionaryTableEntry) => void
+  }) => (
+    canManage ? (
+      <div>
+        <button onClick={onCreate}>Add category</button>
+        {entries[0] ? <button onClick={() => onEdit(entries[0])}>Edit category</button> : null}
+      </div>
+    ) : null
+  ),
 }))
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/dictionaryAppearance', () => ({
@@ -154,11 +173,27 @@ function conflictError() {
 beforeEach(() => {
   jest.clearAllMocks()
   previews = []
+  mockGrantedFeatures = []
   mockReadApiResult.mockImplementation(async (url: unknown) => {
     if (String(url) === PREVIEW_URL) return (previews.length > 1 ? previews.shift() : previews[0]) as never
     return { items: [] } as never
   })
   mockSurfaceConflict.mockImplementation(() => false)
+})
+
+it('writes only the reference prefix for the tenant whose settings are displayed', async () => {
+  previews = [snapshot({ projectId: PROJECT_X, version: VERSION_X })]
+  renderTab()
+  fireEvent.change(await screen.findByLabelText('Reference prefix'), { target: { value: 'HELP' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  await waitFor(() => expect(mockApiCall).toHaveBeenCalledWith(
+    '/api/staff/timesheets/settings?changedKeys=support.referencePrefix&expectedTenantId=tenant-a',
+    expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ support: { referencePrefix: 'HELP' } }),
+    }),
+  ))
 })
 
 describe('support routing settings optimistic lock', () => {
@@ -226,5 +261,58 @@ describe('support routing settings optimistic lock', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+})
+
+describe('support category readiness', () => {
+  it('waits for the dictionary and entries before allowing category creation', async () => {
+    mockGrantedFeatures = ['dictionaries.view', 'dictionaries.manage']
+    previews = [snapshot(null)]
+    let resolveDictionaries!: (value: unknown) => void
+    let resolveEntries!: (value: unknown) => void
+    const dictionaries = new Promise((resolve) => { resolveDictionaries = resolve })
+    const entries = new Promise((resolve) => { resolveEntries = resolve })
+    mockReadApiResult.mockImplementation(async (url: unknown) => {
+      if (String(url) === '/api/dictionaries') return dictionaries as never
+      if (String(url) === '/api/dictionaries/categories/entries') return entries as never
+      return snapshot(null) as never
+    })
+    renderTab()
+
+    expect(screen.queryByRole('button', { name: 'Add category' })).not.toBeInTheDocument()
+    await act(async () => {
+      resolveDictionaries({ items: [{ id: 'categories', key: 'staff.support_ticket_category' }] })
+    })
+    expect(screen.queryByRole('button', { name: 'Add category' })).not.toBeInTheDocument()
+    await act(async () => { resolveEntries({ items: [] }) })
+    fireEvent.click(await screen.findByRole('button', { name: 'Add category' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+})
+
+
+describe('support category edits', () => {
+  it('preserves the existing label when only the category value changes', async () => {
+    mockGrantedFeatures = ['dictionaries.view', 'dictionaries.manage']
+    previews = [snapshot(null)]
+    mockReadApiResult.mockImplementation(async (url: unknown) => {
+      if (String(url) === '/api/dictionaries') return { items: [{ id: 'categories', key: 'staff.support_ticket_category' }] } as never
+      if (String(url) === '/api/dictionaries/categories/entries') return {
+        items: [{ id: 'category-1', value: 'original-category', label: 'Customer-facing category', color: null, icon: null, updatedAt: VERSION_X }],
+      } as never
+      return snapshot(null) as never
+    })
+    renderTab()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit category' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save category value' }))
+
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledWith(
+      '/api/dictionaries/categories/entries/category-1',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ value: 'renamed-category', label: 'Customer-facing category' }),
+      }),
+    ))
   })
 })

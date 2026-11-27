@@ -3,6 +3,11 @@ import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { registerCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import cli from '@open-mercato/core/modules/auth/cli'
+import { setupInitialTenant } from '../lib/setup-app'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { TenantSetupContext } from '@open-mercato/shared/modules/setup'
+import { bindRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { createTransactionalEntityManagerDouble } from '../../../test-utils/transactionalEntityManagerDouble'
 
 // Regression test for https://github.com/open-mercato/open-mercato/issues/6076:
@@ -14,16 +19,16 @@ import { createTransactionalEntityManagerDouble } from '../../../test-utils/tran
 // all, until someone manually ran `mercato auth sync-role-acls`.
 
 let claimsClerkRoleCreated = false
+const mockOnTenantCreated = jest.fn(async (_context: TenantSetupContext) => {
+  claimsClerkRoleCreated = true
+})
 
 const testModules: Module[] = [
   {
     id: 'claims',
     setup: {
       defaultRoleFeatures: { 'claims-clerk': ['claims.read', 'claims.update'] },
-      onTenantCreated: async () => {
-        // Simulates a module persisting its custom role once the tenant exists.
-        claimsClerkRoleCreated = true
-      },
+      onTenantCreated: mockOnTenantCreated,
     },
   },
 ]
@@ -46,42 +51,98 @@ const persist = jest.fn(function persist(this: any, entity: any) {
 })
 const flush = jest.fn(async () => {})
 
+const mockDispose = jest.fn(async () => {})
+const mockCreateRequestContainer = jest.fn(async () => {
+  const em = createTransactionalEntityManagerDouble({ findOne, findOneOrFail, create, find, persist, flush })
+  const scope = { resolve: () => em, dispose: mockDispose }
+  bindRequestScopeContainer(scope as unknown as AppContainer)
+  return scope
+})
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({ resolve: (_: string) => {
-    const baseEm = { findOne, findOneOrFail, create, find, persist, flush }
-    return createTransactionalEntityManagerDouble(baseEm)
-  } }),
+  createRequestContainer: () => mockCreateRequestContainer(),
 }))
 
 describe('auth CLI setup seeds ACLs for roles created inside onTenantCreated', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     claimsClerkRoleCreated = false
-  })
-
-  it('grants defaultRoleFeatures to a custom role a module creates in its own onTenantCreated hook', async () => {
-    const setup = cli.find((c: any) => c.command === 'setup')!
-
-    findOne.mockImplementation(async (_Entity: any, where: any) => {
+    findOne.mockImplementation(async (_Entity, where) => {
       if (where?.name === 'superadmin') return { id: 'r-superadmin', name: 'superadmin' }
       if (where?.name === 'admin') return { id: 'r-admin', name: 'admin' }
       if (where?.name === 'employee') return { id: 'r-employee', name: 'employee' }
       if (where?.name === 'claims-clerk') {
-        // Only resolvable once the onTenantCreated hook has run, exactly like a
-        // real DB lookup after the role row has been persisted.
         return claimsClerkRoleCreated ? { id: 'r-claims-clerk', name: 'claims-clerk' } : null
       }
       return null
     })
-    findOneOrFail.mockImplementation(async (_: any, where: any) => ({ id: 'role-' + where.name, name: where.name }))
+    findOneOrFail.mockImplementation(async (_Entity, where) => ({ id: 'role-' + where.name, name: where.name }))
+  })
+
+  afterEach(() => registerModules(testModules))
+
+  it('grants defaultRoleFeatures to a custom role a module creates inside its setup scope', async () => {
+    const setup = cli.find((entry) => entry.command === 'setup')!
 
     await setup.run(['--orgName', 'Acme', '--email', 'root@acme.com', '--password', 'secret', '--skip-password-policy'])
 
     expect(claimsClerkRoleCreated).toBe(true)
+    expect(mockCreateRequestContainer).toHaveBeenCalledTimes(1)
+    const cliContainer = await mockCreateRequestContainer.mock.results[0]!.value
+    expect(mockOnTenantCreated).toHaveBeenCalledWith({
+      em: cliContainer.resolve(),
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      container: cliContainer,
+      enabledModuleIds: new Set(['claims']),
+    })
 
     const roleAclCreates = persistedEntities.filter((row) => 'tenantId' in row && Array.isArray(row.featuresJson))
     const claimsClerkAcl = roleAclCreates.find((row) => row.featuresJson.includes('claims.read'))
     expect(claimsClerkAcl).toBeDefined()
     expect(claimsClerkAcl?.featuresJson).toEqual(expect.arrayContaining(['claims.read', 'claims.update']))
   }, 20000)
+
+  it('bootstraps and disposes the hook scope for legacy setup calls that include Configs', async () => {
+    const em = (await mockCreateRequestContainer()).resolve() as unknown as EntityManager
+    mockCreateRequestContainer.mockClear()
+    registerModules([{ id: 'configs' }, ...testModules])
+
+    await setupInitialTenant(em, {
+      orgName: 'Acme',
+      primaryUser: { email: 'root@example.com', password: 'secret' },
+      includeDerivedUsers: false,
+    })
+
+    expect(mockCreateRequestContainer).toHaveBeenCalledTimes(1)
+    const hookContainer = await mockCreateRequestContainer.mock.results[0]!.value
+    expect(mockOnTenantCreated).toHaveBeenCalledWith(expect.objectContaining({
+      em,
+      container: hookContainer,
+      enabledModuleIds: new Set(['configs', 'claims']),
+    }))
+    expect(mockDispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the supplied container and its explicit effective setup module set', async () => {
+    const callerScope = await mockCreateRequestContainer()
+    const em = callerScope.resolve() as unknown as EntityManager
+    mockCreateRequestContainer.mockClear()
+    registerModules([{ id: 'configs' }, ...testModules])
+
+    await setupInitialTenant(em, {
+      orgName: 'Acme',
+      primaryUser: { email: 'root@example.com', password: 'secret' },
+      includeDerivedUsers: false,
+      container: callerScope as unknown as AppContainer,
+      modules: testModules,
+    })
+
+    expect(mockCreateRequestContainer).not.toHaveBeenCalled()
+    expect(mockDispose).not.toHaveBeenCalled()
+    expect(mockOnTenantCreated).toHaveBeenCalledWith(expect.objectContaining({
+      em,
+      container: callerScope,
+      enabledModuleIds: new Set(['claims']),
+    }))
+  })
 })

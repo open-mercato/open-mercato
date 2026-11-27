@@ -1,0 +1,14 @@
+{
+  "skill": "om-rotate-encryption-keys",
+  "installedCopyMatchesCommittedSource": true,
+  "sourceCommit": "9e98978a07",
+  "bundledMarkdownLinksResolve": 7,
+  "systemValidatorPassed": true,
+  "officialGuideMdxCompilePassed": true,
+  "additionalInstructionWalkthrough": {
+    "case": "Partial org / single-tenant derived result offered as global restart permission",
+    "expected": "Keep full maintenance fence and require coverage of all data sharing changed DEK/root and app profile; no cutover on scoped pass",
+    "result": "passed-read-only-instruction-review"
+  },
+  "noRealOperationalCommandRun": true
+}

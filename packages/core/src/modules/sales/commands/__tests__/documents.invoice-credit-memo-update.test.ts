@@ -134,10 +134,12 @@ function makeHarness(entity: SalesInvoice | SalesCreditMemo) {
   entityManager.fork.mockReturnValue(entityManager)
 
   const markOrmEntityChange = jest.fn((_change: unknown) => undefined)
+  const userHasAllFeatures = jest.fn(async () => true)
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
   container.register({
     em: asValue(entityManager as unknown as EntityManager),
     dataEngine: asValue({ markOrmEntityChange }),
+    rbacService: asValue({ userHasAllFeatures }),
   })
 
   const ctx: CommandRuntimeContext = {
@@ -159,6 +161,7 @@ function makeHarness(entity: SalesInvoice | SalesCreditMemo) {
     findOne,
     flush,
     markOrmEntityChange,
+    userHasAllFeatures,
   }
 }
 
@@ -266,6 +269,29 @@ describe('invoice and credit memo header updates', () => {
 
   afterEach(() => {
     invalidateMock.mockClear()
+  })
+
+  it.each([
+    { numberField: 'invoiceNumber', makeEntity: makeInvoice, getHandler: getInvoiceUpdateHandler },
+    { numberField: 'creditMemoNumber', makeEntity: makeCreditMemo, getHandler: getCreditMemoUpdateHandler },
+  ] as const)('checks permission only when changing $numberField', async ({ numberField, makeEntity, getHandler }) => {
+    const entity = makeEntity()
+    const { ctx, flush, userHasAllFeatures } = makeHarness(entity)
+    userHasAllFeatures.mockResolvedValue(false)
+    const handler = getHandler()
+    const input = { id: entity.id, organizationId: ORGANIZATION_ID, tenantId: TENANT_ID }
+    const existingNumber = 'invoiceNumber' in entity ? entity.invoiceNumber : entity.creditMemoNumber
+    const existingCurrency = entity.currencyCode
+
+    await expect(handler.execute({ ...input, [numberField]: 'MANUAL-1', currencyCode: 'PLN' }, ctx))
+      .rejects.toMatchObject({ status: 403 })
+    expect(entity).toMatchObject({ [numberField]: existingNumber, currencyCode: existingCurrency })
+    expect(flush).not.toHaveBeenCalled()
+
+    userHasAllFeatures.mockClear()
+    await handler.execute({ ...input, [numberField]: existingNumber, currencyCode: 'PLN' }, ctx)
+    expect(entity).toMatchObject({ [numberField]: existingNumber, currencyCode: 'PLN' })
+    expect(userHasAllFeatures).not.toHaveBeenCalled()
   })
 
   it('sales.invoices.update assigns scalar values, normalizes numbers, and preserves omitted fields', async () => {

@@ -214,13 +214,14 @@ describe('aggregations', () => {
       expect(result?.params).toContain(end)
     })
 
-    it('includes groupBy clause', () => {
+    it('bounds groups by default when no limit is supplied', () => {
       const result = buildAggregationQuery({
         ...baseOptions,
         groupBy: { field: 'status' },
       })
       expect(result?.sql).toContain('GROUP BY status')
       expect(result?.sql).toContain('status AS group_key')
+      expect(result?.sql).toContain('LIMIT 101')
     })
 
     it('includes groupBy with granularity for timestamp fields', () => {
@@ -715,6 +716,189 @@ describe('aggregations', () => {
 
       expect(query!.sql).toContain("UPPER(NULLIF(BTRIM(currency_code), ''))")
       expect(query!.sql).toContain('LIMIT 2')
+    })
+  })
+
+  describe('identifier validation & own-property safety (#10332)', () => {
+    it('supports valid schema-qualified table names and optional absent schema', () => {
+      const schemaRegistry = createAnalyticsRegistry([
+        {
+          entities: [
+            {
+              entityId: 'analytics:orders',
+              requiredFeatures: ['sales.orders.view'],
+              entityConfig: {
+                tableName: 'sales_orders',
+                schema: 'reporting_v2',
+                dateField: 'placed_at',
+                defaultScopeFields: ['tenant_id', 'organization_id'],
+                currencyField: 'currencyCode',
+              },
+              fieldMappings: {
+                id: { dbColumn: 'id', type: 'uuid' },
+                amount: { dbColumn: 'grand_total_gross_amount', type: 'numeric' },
+                currencyCode: { dbColumn: 'currency_code', type: 'text' },
+              },
+            },
+          ],
+        },
+      ])
+
+      const agg = buildAggregationQuery({
+        entityType: 'analytics:orders',
+        metric: { field: 'amount', aggregate: 'sum' },
+        scope: { tenantId: 'tenant-1' },
+        registry: schemaRegistry,
+      })
+      expect(agg?.sql).toContain('FROM "reporting_v2"."sales_orders"')
+
+      const distinct = buildDistinctCurrencyQuery({
+        entityType: 'analytics:orders',
+        scope: { tenantId: 'tenant-1' },
+        registry: schemaRegistry,
+      })
+      expect(distinct?.sql).toContain('FROM "reporting_v2"."sales_orders"')
+
+      const rows = buildGroupSourceRowsQuery({
+        entityType: 'analytics:orders',
+        metric: { field: 'amount', aggregate: 'sum' },
+        scope: { tenantId: 'tenant-1' },
+        registry: schemaRegistry,
+        groupColumn: 'currency_code',
+        rowLimit: 50,
+      })
+      expect(rows?.sql).toContain('FROM "reporting_v2"."sales_orders"')
+    })
+
+    it('rejects unsafe columns directly in expression builders', () => {
+      expect(() => buildAggregateExpression('sum', 'amount::numeric) FROM users--')).toThrow(/Invalid column name/)
+      expect(() => buildAggregateExpression('count', 'id; DROP TABLE sales_orders')).toThrow(/Invalid column name/)
+      expect(() => buildAggregateExpression('invalid' as any, 'amount')).toThrow(/Invalid aggregate/)
+      expect(() => buildDateTruncExpression('placed_at); DROP TABLE x--', 'day')).toThrow(/Invalid column name/)
+      expect(() => buildJsonbFieldExpression('data; DROP TABLE x--', 'region')).toThrow(/Invalid column name/)
+    })
+
+    it('rejects unsafe tableName, schema, and column identifiers even from a custom registry stub', () => {
+      const makeStub = (overrides: {
+        tableName?: string
+        schema?: string
+        dbColumn?: string
+        currencyField?: string
+        currencyColumn?: string
+      }) => ({
+        getAllEntityConfigs: () => [],
+        getEntityConfig: () => null,
+        isValidEntityType: () => true,
+        getEntityTypeConfig: () => ({
+          tableName: overrides.tableName ?? 'sales_orders',
+          ...(overrides.schema !== undefined ? { schema: overrides.schema } : {}),
+          dateField: 'placed_at',
+          defaultScopeFields: ['tenant_id', 'organization_id'],
+          ...(overrides.currencyField !== undefined ? { currencyField: overrides.currencyField } : {}),
+        }),
+        getFieldMapping: (_entityId: string, field: string) => {
+          if (field === 'currencyCode') {
+            return { dbColumn: overrides.currencyColumn ?? 'currency_code', type: 'text' as const }
+          }
+          return { dbColumn: overrides.dbColumn ?? 'amount', type: 'numeric' as const }
+        },
+        getRequiredFeatures: () => null,
+        getLabelResolverConfig: () => null,
+        getAllFieldMappings: () => null,
+      })
+
+      expect(() =>
+        buildAggregationQuery({
+          entityType: 'sales:orders',
+          metric: { field: 'amount', aggregate: 'sum' },
+          scope: { tenantId: 't1' },
+          registry: makeStub({ tableName: 'sales_orders" ; DROP TABLE x--' }),
+        }),
+      ).toThrow(/Invalid table name/)
+
+      expect(() =>
+        buildAggregationQuery({
+          entityType: 'sales:orders',
+          metric: { field: 'amount', aggregate: 'sum' },
+          scope: { tenantId: 't1' },
+          registry: makeStub({ schema: 'bad schema' }),
+        }),
+      ).toThrow(/Invalid schema name/)
+
+      expect(() =>
+        buildAggregationQuery({
+          entityType: 'sales:orders',
+          metric: { field: 'amount', aggregate: 'sum' },
+          scope: { tenantId: 't1' },
+          registry: makeStub({ schema: '' }),
+        }),
+      ).toThrow(/Invalid schema name/)
+
+      expect(() =>
+        buildAggregationQuery({
+          entityType: 'sales:orders',
+          metric: { field: 'amount', aggregate: 'sum' },
+          scope: { tenantId: 't1' },
+          registry: makeStub({ dbColumn: 'amount + 1' }),
+        }),
+      ).toThrow(/Invalid column name/)
+
+      expect(() =>
+        buildDistinctCurrencyQuery({
+          entityType: 'sales:orders',
+          scope: { tenantId: 't1' },
+          registry: makeStub({ currencyField: 'currencyCode', currencyColumn: 'currency_code; --' }),
+        }),
+      ).toThrow(/Invalid currency column/)
+
+      expect(() =>
+        buildGroupSourceRowsQuery({
+          entityType: 'sales:orders',
+          metric: { field: 'amount', aggregate: 'sum' },
+          scope: { tenantId: 't1' },
+          registry: makeStub({ dbColumn: 'amount; --' }),
+          groupColumn: 'status',
+          rowLimit: 10,
+        }),
+      ).toThrow(/Invalid column name/)
+    })
+
+    it('ignores inherited schema, currencyField, and fieldMappings on prototype-backed objects', () => {
+      const entityConfig = Object.create({
+        schema: 'injected schema',
+        currencyField: 'inheritedCurrency',
+      })
+      entityConfig.tableName = 'sales_orders'
+      entityConfig.dateField = 'placed_at'
+      entityConfig.defaultScopeFields = ['tenant_id', 'organization_id']
+
+      const stubRegistry = {
+        getAllEntityConfigs: () => [],
+        getEntityConfig: () => null,
+        isValidEntityType: () => true,
+        getEntityTypeConfig: () => entityConfig,
+        getFieldMapping: (_entityId: string, field: string) =>
+          field === 'amount' ? { dbColumn: 'grand_total_gross_amount', type: 'numeric' as const } : null,
+        getRequiredFeatures: () => null,
+        getLabelResolverConfig: () => null,
+        getAllFieldMappings: () => null,
+      }
+
+      const agg = buildAggregationQuery({
+        entityType: 'sales:orders',
+        metric: { field: 'amount', aggregate: 'sum' },
+        scope: { tenantId: 't1' },
+        registry: stubRegistry,
+      })
+      expect(agg?.sql).toContain('FROM "sales_orders"')
+      expect(agg?.sql).not.toContain('injected schema')
+
+      const distinct = buildDistinctCurrencyQuery({
+        entityType: 'sales:orders',
+        scope: { tenantId: 't1' },
+        registry: stubRegistry,
+      })
+      expect(distinct).toBeNull()
     })
   })
 

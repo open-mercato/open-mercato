@@ -127,6 +127,20 @@ describe('example.todos.update expected_updated_at', () => {
     })
   })
 
+  it('honors the legacy environment opt-out when no configured policy is present', async () => {
+    const original = process.env.OM_OPTIMISTIC_LOCK
+    process.env.OM_OPTIMISTIC_LOCK = 'off'
+    try {
+      const { ctx } = createCtx()
+      await expect(getUpdateCommand().prepare!(
+        { id: TODO_ID, is_done: true, expected_updated_at: STALE_VERSION.toISOString() }, ctx,
+      )).resolves.toEqual({ before: expect.objectContaining({ id: TODO_ID }) })
+    } finally {
+      if (original === undefined) delete process.env.OM_OPTIMISTIC_LOCK
+      else process.env.OM_OPTIMISTIC_LOCK = original
+    }
+  })
+
   it('keeps the version out of the persisted column patch', async () => {
     // Asserts the REAL patch handed to `nativeUpdate`, via the exported builder.
     // The earlier version inspected `prepare`'s undo snapshot instead — an object built

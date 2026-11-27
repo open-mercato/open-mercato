@@ -1,6 +1,7 @@
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { isPublicExamplePortalCredential } from '../lib/exampleAccounts'
 import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
@@ -21,11 +22,11 @@ export class CustomerUserService {
 
   async createUser(
     email: string,
-    password: string,
+    password: string | null,
     displayName: string,
     scope: { tenantId: string; organizationId: string },
   ): Promise<CustomerUser> {
-    const passwordHash = await hash(password, BCRYPT_COST)
+    const passwordHash = password === null ? null : await hash(password, BCRYPT_COST)
     const emailHash = hashForLookup(email)
     const user = this.em.create(CustomerUser, {
       email: email.toLowerCase().trim(),
@@ -72,7 +73,7 @@ export class CustomerUserService {
   }
 
   async verifyPassword(user: CustomerUser, password: string): Promise<boolean> {
-    if (!user.passwordHash) return false
+    if (!user.passwordHash || isPublicExamplePortalCredential(user.email, password)) return false
     return compare(password, user.passwordHash)
   }
 

@@ -33,12 +33,11 @@ export async function POST(request: Request) {
   try {
     const container = await createRequestContainer()
 
-    // §15a: `CART_CREATE` is IP-keyed only — no token exists before this call succeeds.
-    const limited = await enforceCartRateLimit(container, request, 'create', null)
-    if (limited) return limited
-
     const resolved = await resolveRouteContextOrError(request, container)
     if (!resolved.ok) return resolved.response
+
+    const limited = await enforceCartRateLimit(container, request, 'create', null, resolved.routeContext.storeId)
+    if (limited) return limited
 
     const rawBody = (await readJsonSafe<Record<string, unknown>>(request, {})) ?? {}
     try {
@@ -105,11 +104,11 @@ export async function GET(request: Request) {
     const container = await createRequestContainer()
     const token = readCartToken(request)
 
-    const limited = await enforceCartRateLimit(container, request, 'read', token)
-    if (limited) return limited
-
     const resolved = await resolveRouteContextOrError(request, container)
     if (!resolved.ok) return resolved.response
+
+    const limited = await enforceCartRateLimit(container, request, 'read', token, resolved.routeContext.storeId)
+    if (limited) return limited
     if (!token) return notFoundCartResponse()
 
     const ctx = buildCommandContext(container, request, resolved.routeContext)

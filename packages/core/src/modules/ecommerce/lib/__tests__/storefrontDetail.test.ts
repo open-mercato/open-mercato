@@ -549,7 +549,7 @@ function publicMediaRows(): Array<{ id: string; mime_type: string }> {
 }
 
 const mediaKysely: Record<string, unknown> = {}
-for (const method of ['selectFrom', 'innerJoin', 'select', 'where']) {
+for (const method of ['selectFrom', 'innerJoinLateral', 'select', 'where']) {
   mediaKysely[method] = () => mediaKysely
 }
 mediaKysely.execute = async () => {
@@ -766,7 +766,14 @@ describe('getStorefrontProductDetail — payload (§5.2)', () => {
     expect(mediaIds).not.toContain('media-pdf')
     expect(mediaIds).not.toContain('media-foreign')
     const partitionCall = mockedFind.mock.calls.find(([, entity]) => entity === AttachmentPartition)
-    expect(partitionCall?.[2]).toMatchObject({ isPublic: true, code: { $in: ['productsMedia', 'privateAttachments', 'otherTenantMedia'] } })
+    expect(partitionCall?.[2]).toMatchObject({
+      code: { $in: ['productsMedia', 'privateAttachments', 'otherTenantMedia'] },
+      $or: [
+        { tenantId: null, organizationId: null },
+        { tenantId: TENANT_ID, organizationId: null },
+        { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      ],
+    })
   })
 
   it('derives defaultMediaUrl from the public gallery when the default media is not public', async () => {
