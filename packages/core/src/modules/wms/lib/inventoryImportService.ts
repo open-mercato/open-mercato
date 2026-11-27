@@ -739,7 +739,9 @@ export async function applyInventoryImport(
               ...(mode === 'reconcile' ? { targetQuantity: row.quantity } : {}),
             },
           },
-          ctx,
+          // Let the adjust command reuse this row's lock transaction instead of opening a
+          // second pooled connection — see the matching note in inventory-actions.ts.
+          ctx: { ...ctx, transactionalEm: trx },
         })
         return { movementId: (execution.result as { movementId?: string }).movementId }
       })

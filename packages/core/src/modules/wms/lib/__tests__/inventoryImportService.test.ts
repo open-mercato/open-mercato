@@ -405,6 +405,52 @@ describe('applyInventoryImport', () => {
     expect(result.summary.applied).toBe(1)
   })
 
+  // The row lock (pg_advisory_xact_lock) holds its own pooled connection for the whole
+  // check-then-adjust section; if the adjust command opened a second connection of its
+  // own, a contended row could need two pooled connections per holder and starve the
+  // pool. Passing the lock's transaction through as transactionalEm lets the adjust
+  // command reuse it instead.
+  it('passes the row lock transaction to wms.inventory.adjust as transactionalEm instead of letting it open its own connection', async () => {
+    mockWarehouseLocationVariant(0)
+    const em = createEm()
+    const executeMock = jest.fn(async () => ({ result: { movementId: 'movement-1' } }))
+    const ctx = {
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          if (name === 'commandBus') return { execute: executeMock }
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+      auth: { sub: USER_ID, tenantId: TENANT, orgId: ORG },
+      organizationScope: null,
+      selectedOrganizationId: ORG,
+      organizationIds: [ORG],
+    }
+
+    await applyInventoryImport(ctx, {
+      tenantId: TENANT,
+      organizationId: ORG,
+      importBatchId: '88888888-8888-4888-8888-888888888888',
+      performedBy: USER_ID,
+      rows: [
+        {
+          rowNumber: 1,
+          warehouseId: WAREHOUSE_ID,
+          locationId: LOCATION_ID,
+          catalogVariantId: VARIANT_ID,
+          quantity: 5,
+          delta: 5,
+        },
+      ],
+    })
+
+    expect(executeMock).toHaveBeenCalledWith(
+      'wms.inventory.adjust',
+      expect.objectContaining({ ctx: expect.objectContaining({ transactionalEm: em }) }),
+    )
+  })
+
   // Reconcile mode restores the pre-#4105 opening-balance semantics, but only when the
   // caller explicitly opts in via mode: 'reconcile'; the delta is recalculated server-side
   // against the live balance rather than trusting the client-submitted value.

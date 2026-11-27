@@ -1356,7 +1356,10 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
     const input = inventoryAdjustSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = resolveEm(ctx)
+    // Reuse a caller-supplied transaction (e.g. the CSV import row lock) instead of
+    // forking a second pooled connection: a holder of a blocking advisory lock that also
+    // needs a connection of its own for this call can starve the pool under contention.
+    const em = ctx.transactionalEm ?? resolveEm(ctx)
     const result = await runInTransaction(em, async (trx) => {
       const scope = resolveScope(ctx, input)
       await requireWarehouse(trx, ctx, input.warehouseId, scope)
