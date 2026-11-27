@@ -1,4 +1,4 @@
-import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import type { ModuleConfigRecord, ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { StaffTimeTrackingSettingsInput } from '../../data/validators'
 import {
   type RoundingDirection,
@@ -153,16 +153,25 @@ export async function readTimeTrackingSettings(
   scope: TimeTrackingSettingsScope,
 ): Promise<TimeTrackingSettings> {
   const configScope = { tenantId: scope.tenantId }
-  // `getRecord` rather than `getValue` so an explicitly stored `null`
-  // (`targets.dailyHours` = "no daily target") stays distinguishable from an
-  // absent row, which must fall back to the default.
+  const entries = listTimeTrackingSettingKeys()
   const stored: TimeTrackingSettingsRecord = {}
-  for (const entry of listTimeTrackingSettingKeys()) {
-    const record = await configService.getRecord(STAFF_TIME_TRACKING_MODULE_ID, entry.id, configScope)
-    if (!record) continue
+  const applyRecord = (entry: TimeTrackingSettingKeyDefinition, record: ModuleConfigRecord | null) => {
+    if (!record) return
     const group = stored[entry.group] ?? {}
     group[entry.key] = record.value
     stored[entry.group] = group
+  }
+  if (configService.getRecords) {
+    const records = await configService.getRecords(
+      STAFF_TIME_TRACKING_MODULE_ID,
+      entries.map((entry) => entry.id),
+      configScope,
+    )
+    for (const entry of entries) applyRecord(entry, records[entry.id] ?? null)
+  } else {
+    for (const entry of entries) {
+      applyRecord(entry, await configService.getRecord(STAFF_TIME_TRACKING_MODULE_ID, entry.id, configScope))
+    }
   }
   return normalizeTimeTrackingSettings(stored)
 }

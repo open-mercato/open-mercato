@@ -32,7 +32,7 @@ it('explicit semantic identity reaches callbacks independently of custom-field I
   const before = jest.fn(async () => true)
   register({ onLoad, onBeforeSave: before })
   const native = jest.fn()
-  const { container } = renderForm({ entityId: 'customers.person', entityIds: ['customers:customer_entity', 'customers:customer_person_profile'], resourceKind: 'customers.person', resourceId: 'person-1', onSubmit: native, onDelete: async () => {} })
+  const { container } = renderForm({ entityId: 'customers.person', entityIds: ['customers:customer_entity', 'customers:customer_person_profile'], resourceKind: 'customers.person', resourceId: 'person-1', formVariant: 'showcase', formOperation: 'create', onSubmit: native, onDelete: async () => {} })
   await waitFor(() => expect(onLoad).toHaveBeenCalledTimes(1))
   expect(onLoad.mock.calls[0][0]).toEqual(expect.objectContaining({ entityId: 'customers.person', resourceKind: 'customers.person', resourceId: 'person-1', recordId: 'person-1', operation: 'update' }))
   await waitFor(() => expect(mockFetchStructure).toHaveBeenCalled())

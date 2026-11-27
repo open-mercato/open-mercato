@@ -10,7 +10,7 @@ import { defaultRepeatDaysForDateInput, type EditorFormState } from '../../../li
 import { extensionPoints } from '../../../extension-points'
 import { Field } from './inputs'
 import { LocationField } from './LocationField'
-import { PeopleField } from './PeopleField'
+import { PeopleField, type PeopleFieldAvailability } from './PeopleField'
 import { PriorityField } from './PriorityField'
 import { RepeatField } from './RepeatField'
 import { ResourcesField } from './ResourcesField'
@@ -23,6 +23,8 @@ const PEOPLE_FIELD_TEXT = {
   to: { labelKey: 'customers.calendar.editor.to', label: 'To', placeholderKey: 'customers.calendar.editor.addRecipientPlaceholder', placeholder: 'Add recipient…' },
 } as const
 
+const StaffAvailabilityContext = React.createContext<PeopleFieldAvailability | null>(null)
+
 const MemoScheduleSection = React.memo(ScheduleSection)
 const MemoRepeatField = React.memo(RepeatField)
 const MemoPeopleField = React.memo(PeopleField)
@@ -32,6 +34,7 @@ const MemoPriorityField = React.memo(PriorityField)
 
 export function DefaultEventTypePanel({ definition, values, errors, disabled, capabilities, setValue }: CalendarEventTypePanelProps) {
   const t = useT()
+  const staffAvailability = React.useContext(StaffAvailabilityContext)
   const form = values as unknown as EditorFormState
   const config = eventTypeConfig(definition)
   // The handlers read the latest draft through a ref so their identities depend
@@ -135,6 +138,7 @@ export function DefaultEventTypePanel({ definition, values, errors, disabled, ca
               mode="multi"
               includeCustomers
               includeStaff={capabilities.staffEnabled}
+              staffAvailability={staffAvailability}
               placeholder={t(PEOPLE_FIELD_TEXT[config.people].placeholderKey, PEOPLE_FIELD_TEXT[config.people].placeholder)}
               ariaLabel={t(PEOPLE_FIELD_TEXT[config.people].labelKey, PEOPLE_FIELD_TEXT[config.people].label)}
               value={form.participants}
@@ -149,6 +153,7 @@ export function DefaultEventTypePanel({ definition, values, errors, disabled, ca
               mode="single"
               includeCustomers={false}
               includeStaff
+              staffAvailability={staffAvailability}
               placeholder={t('customers.calendar.editor.assigneePlaceholder', 'Assign to a team member…')}
               ariaLabel={t('customers.calendar.editor.assignee', 'Assignee')}
               value={assigneeValue}
@@ -221,10 +226,17 @@ registerComponent<CalendarEventTypePanelProps>({
   },
 })
 
-export function EventTypePanel(props: CalendarEventTypePanelProps) {
+export function EventTypePanel({
+  staffAvailability,
+  ...props
+}: CalendarEventTypePanelProps & { staffAvailability?: PeopleFieldAvailability | null }) {
   const Resolved = useRegisteredComponent<CalendarEventTypePanelProps>(
     extensionPoints.hosts.calendarEventTypePanel.componentId,
     DefaultEventTypePanel,
   )
-  return <Resolved {...props} />
+  return (
+    <StaffAvailabilityContext.Provider value={staffAvailability ?? null}>
+      <Resolved {...props} />
+    </StaffAvailabilityContext.Provider>
+  )
 }

@@ -24,7 +24,7 @@ test.describe('TC-NOTIF-003: Notification bulk targeting APIs', () => {
 
     const roleName = `qa_notif_role_${Date.now()}`
     const userEmail = `qa-notif-${Date.now()}@acme.com`
-    const userPassword = 'Valid1!Pass'
+    const userPassword = 'QaValid1!Pass'
 
     let roleId: string | null = null
     let userId: string | null = null
@@ -111,7 +111,7 @@ test.describe('TC-NOTIF-003: Notification bulk targeting APIs', () => {
     const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(superadminToken)
     const userEmail = `qa-notif-scope-${Date.now()}@acme.com`
-    const userPassword = 'Valid1!Pass'
+    const userPassword = 'QaValid1!Pass'
 
     let userId: string | null = null
     let recipientToken: string | null = null
