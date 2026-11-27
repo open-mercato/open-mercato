@@ -304,6 +304,7 @@
   "example.todos.form.edit.title": "Edit Todo",
   "example.todos.form.error.load": "Failed to load todo.",
   "example.todos.form.error.notFound": "Todo not found.",
+  "example.todos.form.error.organizationRequired": "Organization is required to create todos",
   "example.todos.form.fields.isDone.label": "Done",
   "example.todos.form.fields.notes.description": "Encrypted at rest: not sortable, not exported to CSV, and findable only through the search index.",
   "example.todos.form.fields.notes.label": "Notes",

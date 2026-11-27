@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { readRequestOrganizationScope } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { isRecord } from '@open-mercato/shared/lib/utils'
 import { CrudForm, type CrudFormSubmitContext } from '@open-mercato/ui/backend/CrudForm'
 import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { detailsSection, statusSection, titleSection } from '../todo-showcase-sections.client'
 import { readTodoShowcase, showcaseSinks, todoShowcaseMutationEndpoint, todoShowcaseHref } from '../lib/todoShowcaseClient'
 import { toTodoFormValues } from './TodoForm'
@@ -84,6 +85,9 @@ export function TodoShowcaseForm({ id }: { id?: string }) {
       successRedirect={id ? undefined : (_values, result) => result?.resourceId ? `${todoShowcaseHref}/${result.resourceId}` : '/backend/todos'}
       deleteRedirect="/backend/todos"
       onSubmit={async (_values, context) => {
+        if (!id && readRequestOrganizationScope()?.organizationId === null) {
+          throw createCrudFormError(t('example.todos.form.error.organizationRequired'))
+        }
         if (!context?.mutation || !context.sectionPayload) throw new Error('[internal] Todo showcase requires an accepted section mutation')
         const payload = attachExtensionVersions(context.sectionPayload, extensions?.__updatedAt)
         const result = await context.mutation.write(todoShowcaseMutationEndpoint, id ? { ...payload, id } : payload)
