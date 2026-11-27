@@ -78,9 +78,10 @@ env:
 # `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
 # `main`, and while it is absent from these lists no job is scheduled for them at all.
 # Drop the entry once its stack has landed on `main`.
-# `stabilize/**` is a pull_request base only: fix PRs into the daily batch
-# (`stabilize/main-<date>`, CONTRIBUTING.md § Daily batch) get the normal scoped run. The batch
-# PR itself has a `stabilize/` head, so FORCE_FULL_SUITE keeps it on the full suite.
+# `stabilize/**` is a pull_request base only: a PR into a batch (`stabilize/main-<date>`,
+# CONTRIBUTING.md § Batch: stabilizer runbook) gets the normal scoped run, though batch fixes
+# are pushed by the stabilizer onto the batch branch. The batch PR itself has a `stabilize/`
+# head, so FORCE_FULL_SUITE keeps it on the full suite.
 on:
   push:
     branches:

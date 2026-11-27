@@ -17,19 +17,21 @@ If this overview and policy differ, follow the policy and update the overview.
    publish the result. Follow `BACKWARD_COMPATIBILITY.md` for public surfaces.
 4. Complete applicable QA. The implementing run promotes its draft when complete;
    a ready PR is a request for review, not permission to merge.
-5. Merge only after current-head review, QA and CI gates pass. Release and
+5. Merge when the ready-to-merge rule holds on the current head (CI, approval, no
+   changes requested, no conflicts, Enterprise guard); QA follows on the batch. Release and
    deployment follow `CONTRIBUTING.md`; they are separate maintainer actions.
 
 ## Labels and ownership
 
 Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`,
 `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`. Review approval routes to
-`merge-queue`; that label alone does not satisfy QA or CI. Only a QA reviewer
+`merge-queue`, which is optional routing and does not satisfy CI. Only a QA reviewer
 sets `qa` to indicate manual testing is underway.
 
 Every ready PR needs a category, one priority and one risk label, using the
 configuration's taxonomy. Priority measures urgency; risk measures blast radius.
-A `needs-qa` PR cannot merge without `qa-approved`. Never combine `skip-qa` with
+`needs-qa` routes a PR to QA on the next on-demand batch; it does not hold the
+merge, and a missing `qa-approved` never blocks it. Never combine `skip-qa` with
 `needs-qa` or `qa-approved`. QA sign-off describes evidence and the tested head;
 changed scope needs fresh verification. Self-QA follows the exception and evidence
 requirements in the PR workflow, including both approval and self-verification labels.
@@ -63,8 +65,7 @@ on an issue, the fixer copies the label to the implementation PR. The buddy owns
 every automated merge. `automerge-force` grants nothing alone: only together
 with `automerge-now` does it select the automation-only approval policy, and
 the buddy then posts a PR notice that human QA and the protected-area check were
-skipped. That pair never overrides this repository's QA-approval gate: a
-`needs-qa` PR still needs `qa-approved`. Removing either label restores the
+skipped. QA for every merged PR still happens on the batch. Removing either label restores the
 ordinary rules; `automerge-prepare` limits the buddy to preparation.
 
 `automerge-signal-3-passes-local-ci-checks` is the alternative CI signal: every
@@ -80,11 +81,12 @@ GitHub's branch rules enforced. Neither a replacement PR nor a fresh commit
 attests to a contributor's CLA: the CLA service must evaluate the new head.
 
 The configuration records the collection's default triage eligibility and QA
-gate keys explicitly. `qaGateLabel` stays `needs-qa`; `qaReadyLabel` is unset.
+gate keys explicitly. `qaGate` is `false` (QA runs on the batch, not before merge);
+`qaGateLabel` stays `needs-qa`; `qaReadyLabel` is unset.
 The `claim-reset`, `automerge-signal-*` and `automerge-blocked` labels are additive
 audit and queue markers. `claim-reset` is human-owned; automation only reads its
 audit history. A local-CI signal does not waive this repository's required host
-checks, independent review, QA gate or branch rules.
+checks, independent review or branch rules.
 
 Inspect workflow runs as well as individual checks. Pending workflows can exist
 before jobs appear; partial check lists cannot establish success. Report completed

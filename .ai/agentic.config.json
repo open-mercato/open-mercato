@@ -25,9 +25,12 @@
     "priority": ["priority-low", "priority-medium", "priority-high", "priority-extreme"],
     "risk": ["risk-low", "risk-medium", "risk-high"]
   },
-  "qaGate": true,
+  "qaGate": false,
   "qaGateLabel": "needs-qa",
   "qaReadyLabel": null,
+  "humanQaPolicy": { "batchCheckLabel": "qa-batch-check" },
+  "qaBatch": { "branchPrefix": "stabilize/", "greenTagPrefix": "green/", "bugLabels": ["bug", "daily-qa"], "blockerLabel": "qa-blocker", "inProgressLabel": "qa-in-progress" },
+  "prTriage": { "acceptanceLabel": "needs-triage" },
   "ci": { "maxWaitMinutes": 40 },
   "autofix": { "label": "cez-autofix", "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] } },
   "automerge": {

@@ -184,7 +184,7 @@ export function dropUnreleased(changelog: string): string {
 
 const GREEN_TAG = /^green\/(\d{4})-(\d{2})-(\d{2})$/
 
-// A green tag names the day a daily batch passed the full suite and QA: `green/YYYY-MM-DD`.
+// A green tag names the day a batch passed the full suite and QA: `green/YYYY-MM-DD`.
 export function isGreenTag(name: string): boolean {
   const match = GREEN_TAG.exec(String(name ?? '').trim())
   if (!match) return false
