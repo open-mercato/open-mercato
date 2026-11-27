@@ -250,14 +250,14 @@ function createTestSetup(options?: {
     return new Date(value)
   }
 
-  const events: Array<{ id: string; payload: unknown }> = []
+  const events: Array<{ id: string; payload: unknown; scope?: { tenantId: string; organizationId: string } }> = []
   const service = new SubmissionService({
     emFactory: () => em as unknown as never,
     formVersionCompiler: compiler,
     encryptionService,
     rolePolicyService,
-    emitEvent: async (id, payload) => {
-      events.push({ id, payload })
+    emitEvent: async (id, payload, scope) => {
+      events.push({ id, payload, scope })
     },
     now,
     autosaveIntervalMs: options?.autosaveIntervalMs ?? 10_000,
@@ -268,6 +268,71 @@ function createTestSetup(options?: {
 }
 
 describe('SubmissionService', () => {
+  it('lists only in-progress drafts with saved progress for the selected form and subject', async () => {
+    const { service, em, formId, formVersionId } = createTestSetup({ autosaveIntervalMs: 0 })
+    const subject = { organizationId: ORG_ID, tenantId: TENANT_ID, subjectType: 'patient', subjectId: randomUUID() }
+    const starter = { ...subject, formKey: FORM_KEY, startedBy: randomUUID() }
+    async function createSavedDraft(args: typeof starter) {
+      const view = await service.start(args)
+      await service.save({
+        organizationId: args.organizationId,
+        tenantId: args.tenantId,
+        submissionId: view.submission.id,
+        baseRevisionId: view.revision.id,
+        patch: { full_name: 'Saved answer' },
+        savedBy: args.startedBy,
+      })
+      return view
+    }
+    const saved = await createSavedDraft(starter)
+
+    const nextVersion = { ...saved.formVersion, id: randomUUID(), versionNumber: 2 }
+    const form = await em.findOne<Row>(Form, { id: formId })
+    em.persist(nextVersion as unknown as Row)
+    em.persist({ ...form!, id: formId, currentPublishedVersionId: nextVersion.id })
+
+    const untouched = await service.start({ ...starter, prefill: { full_name: 'Prefilled answer' } })
+    const otherFormId = randomUUID()
+    const otherVersionId = randomUUID()
+    const otherFormKey = 'follow_up'
+    em.persist({ ...form!, id: otherFormId, key: otherFormKey, currentPublishedVersionId: otherVersionId })
+    em.persist({ ...nextVersion, id: otherVersionId, formId: otherFormId } as unknown as Row)
+    const otherForm = await createSavedDraft({ ...starter, formKey: otherFormKey })
+    await createSavedDraft({ ...starter, subjectId: randomUUID() })
+    const reopened = await service.start(starter)
+    reopened.submission.status = 'reopened'
+    const submitted = await createSavedDraft(starter)
+    submitted.submission.status = 'submitted'
+
+    expect(saved.submission.formVersionId).toBe(formVersionId)
+    expect(untouched.submission.formVersionId).toBe(nextVersion.id)
+    const list = await service.listSubmissionsBySubject({ ...subject, resumeFormId: formId })
+    expect(list.map((entry) => entry.id).sort()).toEqual([saved.submission.id, reopened.submission.id].sort())
+    const legacyList = await service.listSubmissionsBySubject(subject)
+    expect(legacyList.map((entry) => entry.id).sort()).toEqual([
+      saved.submission.id, untouched.submission.id, otherForm.submission.id, reopened.submission.id, submitted.submission.id,
+    ].sort())
+  })
+
+  it('recognizes progress when the revision cap coalesces a save into the initial revision', async () => {
+    const { service, formId } = createTestSetup({ autosaveIntervalMs: 0, revisionCap: 1 })
+    const subject = { organizationId: ORG_ID, tenantId: TENANT_ID, subjectType: 'patient', subjectId: randomUUID() }
+    const startedBy = randomUUID()
+    const draft = await service.start({ ...subject, formKey: FORM_KEY, startedBy })
+    expect(await service.listSubmissionsBySubject({ ...subject, resumeFormId: formId })).toEqual([])
+
+    const saved = await service.save({
+      ...subject,
+      submissionId: draft.submission.id,
+      baseRevisionId: draft.revision.id,
+      patch: { full_name: 'Saved answer' },
+      savedBy: startedBy,
+    })
+    expect(saved.revision.revisionNumber).toBe(1)
+    expect((await service.listSubmissionsBySubject({ ...subject, resumeFormId: formId })).map((entry) => entry.id))
+      .toEqual([draft.submission.id])
+  })
+
   it('starts a submission, assigns the default actor role, and emits started event', async () => {
     const { service, events } = createTestSetup()
     const startedBy = randomUUID()
@@ -842,7 +907,11 @@ describe('SubmissionService', () => {
     })
 
     expect(submitted.status).toBe('submitted')
-    expect(events.some((event) => event.id === 'forms.submission.submitted')).toBe(true)
+    expect(events).toContainEqual({
+      id: 'forms.submission.submitted',
+      payload: { submissionId: submitted.id },
+      scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+    })
   })
 
   it('redacts sensitive log payloads via tampering marker (no raw values)', async () => {

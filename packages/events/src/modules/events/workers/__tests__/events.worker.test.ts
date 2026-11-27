@@ -1,7 +1,7 @@
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createEventBus } from '../../../../bus'
-import type { EventBus, SubscriberDescriptor } from '../../../../types'
+import type { EmitOptions, EventBus, SubscriberDescriptor } from '../../../../types'
 import handle, { metadata, EVENTS_QUEUE_NAME } from '../events.worker'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -23,7 +23,7 @@ const workerLoggerDebug = createLogger('events').debug as jest.Mock
 type WorkerJobPayload = {
   event: string
   payload: unknown
-  options?: { tenantId?: string | null; organizationId?: string | null }
+  options?: Pick<EmitOptions, 'tenantId' | 'organizationId' | 'allowAllTenants'>
   persistentDeliveredInline?: boolean
 }
 
@@ -32,7 +32,7 @@ type WorkerContext = JobContext & { resolve: <T = unknown>(name: string) => T }
 const createMockJob = (
   event: string,
   payload: unknown,
-  options?: { tenantId?: string | null; organizationId?: string | null },
+  options?: WorkerJobPayload['options'],
   extra?: { persistentDeliveredInline?: boolean },
 ): QueuedJob<WorkerJobPayload> => ({
   id: 'test-job-id',
@@ -116,6 +116,25 @@ describe('Events Worker', () => {
       await handle(createMockJob('customers.deal.won', { id: 'deal-1' }), createMockContext(bus))
 
       expect(calls).toEqual([{ id: 'deal-1' }])
+    })
+
+    it('hands subscribers the per-job container from ctx.container', async () => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+      const seen: unknown[] = []
+      const bus = createBusWith([
+        {
+          id: 'demo:container-probe',
+          event: 'user.created',
+          persistent: true,
+          handler: (_payload, ctx) => { seen.push(ctx.container) },
+        },
+      ])
+      const baseContext = createMockContext(bus)
+      const jobContainer = { resolve: baseContext.resolve, register: jest.fn() }
+
+      await handle(createMockJob('user.created', {}), { ...baseContext, container: jobContainer })
+
+      expect(seen).toEqual([jobContainer])
     })
 
     it('throws an actionable error when the job container has no event bus', async () => {
@@ -321,6 +340,7 @@ describe('Events Worker', () => {
     })
 
     it('should not trust payload scope when trusted scope is omitted', async () => {
+      let eventScope: unknown = null
       let capturedContext: { tenantId?: string | null; organizationId?: string | null } | null = null
       const bus = createBusWith([
         {
@@ -328,6 +348,7 @@ describe('Events Worker', () => {
           event: 'test.event',
           persistent: true,
           handler: (_p, ctx) => {
+            eventScope = ctx.eventScope
             capturedContext = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
           },
         },
@@ -339,6 +360,13 @@ describe('Events Worker', () => {
       )
 
       expect(capturedContext).toEqual({ tenantId: null, organizationId: null })
+      expect(eventScope).toBeUndefined()
+
+      await handle(createMockJob('test.event', {}, { tenantId: null }), createMockContext(bus))
+      expect(eventScope).toStrictEqual({ tenantId: null, organizationId: undefined })
+
+      await handle(createMockJob('test.event', {}, { tenantId: null, allowAllTenants: true }), createMockContext(bus))
+      expect(eventScope).toStrictEqual({ tenantId: null, organizationId: undefined, allowAllTenants: true })
     })
 
     it('should handle synchronous handlers', async () => {

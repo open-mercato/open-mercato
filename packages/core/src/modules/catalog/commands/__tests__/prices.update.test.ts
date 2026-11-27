@@ -448,3 +448,64 @@ describe('catalog price update checks the validity window against the stored dat
     expect(record.endsAt).toEqual(JANUARY)
   })
 })
+
+describe('catalog price update checks the quantity range against the stored quantities', () => {
+  async function expectQuantityRejected(input: Row, recordOverrides: Row) {
+    const record = buildPriceRecord(recordOverrides)
+    findOneWithDecryption.mockResolvedValue(record)
+    const { ctx, commandEm } = buildContext()
+    await expect(updateCommand().execute({ id: PRICE_ID, ...input }, ctx)).rejects.toMatchObject({
+      status: 400,
+      body: {
+        fieldErrors: {
+          maxQuantity: 'Maximum quantity must be greater than or equal to the minimum quantity.',
+        },
+      },
+    })
+    expect(commandEm.flush).not.toHaveBeenCalled()
+    return record
+  }
+
+  it('rejects a maxQuantity-only edit that is below the stored minQuantity', async () => {
+    const record = await expectQuantityRejected({ maxQuantity: 2 }, { minQuantity: 10, maxQuantity: null })
+    expect(record.minQuantity).toBe(10)
+    expect(record.maxQuantity).toBeNull()
+  })
+
+  it('rejects a minQuantity-only edit that is above the stored maxQuantity', async () => {
+    const record = await expectQuantityRejected({ minQuantity: 10 }, { minQuantity: 1, maxQuantity: 5 })
+    expect(record.minQuantity).toBe(1)
+    expect(record.maxQuantity).toBe(5)
+  })
+
+  it('accepts a maxQuantity-only edit that is greater than or equal to stored minQuantity', async () => {
+    const { record } = await runUpdate({ maxQuantity: 10 }, { minQuantity: 5 })
+    expect(record.minQuantity).toBe(5)
+    expect(record.maxQuantity).toBe(10)
+  })
+
+  it('accepts an edit setting maxQuantity equal to stored minQuantity', async () => {
+    const { record } = await runUpdate({ maxQuantity: 5 }, { minQuantity: 5 })
+    expect(record.minQuantity).toBe(5)
+    expect(record.maxQuantity).toBe(5)
+  })
+
+  it('accepts a minQuantity-only edit when stored maxQuantity is null', async () => {
+    const { record } = await runUpdate({ minQuantity: 20 }, { minQuantity: 1, maxQuantity: null })
+    expect(record.minQuantity).toBe(20)
+    expect(record.maxQuantity).toBeNull()
+  })
+
+  it('accepts an edit that moves both quantities together to a valid range', async () => {
+    const { record } = await runUpdate({ minQuantity: 20, maxQuantity: 50 }, { minQuantity: 1, maxQuantity: 5 })
+    expect(record.minQuantity).toBe(20)
+    expect(record.maxQuantity).toBe(50)
+  })
+
+  it('still reprices a stored price whose quantities are already inverted', async () => {
+    const { record } = await runUpdate({ unitPriceGross: 31 }, { minQuantity: 20, maxQuantity: 5 })
+    expect(record.unitPriceGross).toBe('31')
+    expect(record.minQuantity).toBe(20)
+    expect(record.maxQuantity).toBe(5)
+  })
+})

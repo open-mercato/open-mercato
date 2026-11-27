@@ -29,6 +29,7 @@ import { createDictionarySelectLabels } from './utils'
 import { E } from '#generated/entities.ids.generated'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
+import { formatCurrencyOptionLabel } from '../../lib/currencyOptionLabel'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
 import { DealOwnerSelect, type DealOwnerOption } from './DealOwnerSelect'
@@ -878,6 +879,8 @@ export function DealForm({
 }: DealFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
+  const initialOrganizationId = initialValues?.organizationId
+  const dealOrganizationId = typeof initialOrganizationId === 'string' ? initialOrganizationId : null
   const {
     data: currencyDictionaryData,
     error: currencyDictionaryErrorRaw,
@@ -929,7 +932,7 @@ export function DealForm({
     const remainder: { value: string; label: string; color: string | null; icon: string | null }[] = []
     payload.entries.forEach((entry) => {
       const value = entry.value.toUpperCase()
-      const label = entry.label && entry.label.length ? `${value} – ${entry.label}` : value
+      const label = formatCurrencyOptionLabel(value, entry.label)
       const option = { value, label, color: null, icon: null }
       if (priorityOrder.has(value)) prioritized.push(option)
       else remainder.push(option)
@@ -1042,6 +1045,7 @@ export function DealForm({
           onChange={(next) => setValue(next ?? '')}
           labels={dictionaryLabels.status}
           selectClassName="w-full"
+          organizationId={dealOrganizationId}
         />
       ),
     } as CrudField,
@@ -1207,7 +1211,7 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, mode, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLabels, dealOrganizationId, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialOwnerOption, mode, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const nextGroups: CrudFormGroup[] = [

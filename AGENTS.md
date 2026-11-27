@@ -33,7 +33,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 
 - Never expose cross-tenant data or skip tenant/organization scoping.
 - Never edit generated files by hand.
-- Never add code directly under `apps/mercato/src/` except committed, typed `*.generated.ts` registries described below.
+- Never put app source outside its [allowed locations](#where-to-put-code).
 - Never create direct ORM relationships between modules.
 - Never bypass mutation guards, command side effects, encryption helpers, RBAC wildcard matching, or shared UI data-call helpers.
 - Never hard-code user-facing strings or design-system status colors.
@@ -107,8 +107,9 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | MCP tools (`registerMcpTool`), OpenCode config, AI chat debugging, session tokens, command palette, two-tier auth | `ai-assistant` |
 | Generators (`yarn generate`), migrations (`yarn db:generate`), module scaffolding, build order | `cli` |
 | Event bus architecture, ephemeral vs persistent subscriptions, queue integration, event workers | `events` |
-| Cache in a module, tag-based invalidation, tenant-scoped caching, strategy (memory/SQLite/Redis) | `cache` |
-| Background workers, concurrency (I/O vs CPU-bound), idempotent jobs, queue strategies | `queue` |
+| Scoped caching and invalidation | `cache` |
+| Workers, concurrency, idempotent jobs | `queue` |
+| App infrastructure providers (cache, queue, KMS) | `apps/mercato/src/providers/` + matching package guide |
 | Operation progress in the top bar, `ProgressJob`s, client-local progress events | `core:progress` + `events` → DOM Event Bridge |
 | Onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `onboarding` |
 | Static content pages (privacy policies, terms, legal pages) | `content` |
@@ -148,15 +149,15 @@ Most `om-*` skills come from the shared [open-mercato/skills](https://github.com
 
 ## PR Workflow
 
-Full policy — label taxonomy, priority/risk inference tables, pipeline transitions, the automated-verification exemption, the self-QA exception and the auto-skill claim protocol: [`.ai/docs/pr-workflow.md`](.ai/docs/pr-workflow.md). The boundaries:
+Full policy (labels, priority/risk inference, pipeline moves, QA exemption, self-QA, batch QA, claims): [`.ai/docs/pr-workflow.md`](.ai/docs/pr-workflow.md). The boundaries:
 
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`. A ready non-draft PR carries `review` unless it is already in another pipeline state.
-- Category (`bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`) and meta (`needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`) labels are additive.
+- Category (`bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`) and meta (`needs-qa`, `needs-human-qa`, `qa-batch-check`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`) labels are additive.
 - Every non-draft PR carries **exactly one** priority label (`priority-low|medium|high|extreme`, urgency) and **exactly one** risk label (`risk-low|medium|high`, blast radius). They are orthogonal; when signals conflict pick the higher one and say why in the label comment.
-- **QA-approval merge gate (hard rule): a PR carrying `needs-qa` MUST NOT be merged unless it also carries `qa-approved`**, even when every other check is green. `skip-qa` is the explicit opt-out; never combine it with `needs-qa`/`qa-approved`. `qa-failed`, `do-not-merge` and `blocked` are likewise hard merge blocks.
+- **QA-approval merge gate (hard rule): a PR carrying `needs-human-qa` MUST NOT be merged unless it also carries `qa-approved`**, even when every other check is green; `needs-qa`/`qa-batch-check` never gate it. `skip-qa` is the explicit opt-out; never combine it with `needs-qa`/`qa-approved`. `qa-failed`, `do-not-merge` and `blocked` are likewise hard merge blocks.
 - **Automated-verification exemption:** a change touching no UI-rendering file (no `.tsx` outside tests, nothing under `packages/ui/src/` or `**/components/**`) takes `skip-qa` — **but only** with the database structure and API surface unchanged, no `BACKWARD_COMPATIBILITY.md` contract broken, and automated tests for the changed behavior in the same PR; otherwise it keeps `needs-qa`.
 - `qa-approved`/`qa-self-verified` are label writes: a `read`-permission contributor posts the QA evidence comment and a maintainer applies the labels; a skill that cannot apply them MUST report it stopped there.
-- The `qa` pipeline label means manual QA is **in progress** and is set by QA reviewers only — `om-auto-*` skills request QA with `needs-qa` and never touch `qa`.
+- The `qa` pipeline label means manual QA is **in progress** and is set by QA reviewers only — `om-auto-*` skills request QA with labels and never touch `qa`.
 - Auto-skills claim a PR/issue with all three signals (assignee, `in-progress` label, claim comment), release `in-progress` even on failure, and comment the rationale whenever they change a pipeline/meta label.
 - `ci-monitoring` is a meta label, **not** a claim signal: it means the work is finished and reported and only CI is still being watched. A PR carrying it without `in-progress`, a non-self assignee or a fresh claim comment MUST NOT be treated as in progress — it is free to claim.
 
@@ -184,7 +185,7 @@ All packages use the `@open-mercato/<package>` naming convention: **shared** (cr
 - Put shared utilities and types in `packages/shared/src/lib/` or `packages/shared/src/modules/`
 - Put UI components in `packages/ui/src/`
 - Put user/app-specific modules in `apps/mercato/src/modules/<module>/`
-- MUST NOT add code directly in `apps/mercato/src/` — it's a boilerplate for user apps. Narrow exception: committed, typed *generated registries* (`*.generated.ts`) that must survive `yarn clean-generated` and travel with the repo — see [Generated Files: versioned vs ephemeral](.ai/docs/module-development.md#generated-files-versioned-vs-ephemeral).
+- Register infrastructure npm packages in `apps/mercato/src/providers/`. Other app code belongs in modules, except [versioned generated registries](.ai/docs/module-development.md#generated-files-versioned-vs-ephemeral).
 
 ### `external/official-modules/` (git submodule)
 

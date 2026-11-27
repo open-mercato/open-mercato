@@ -167,6 +167,15 @@ export class CommunicationChannel {
   lastPolledAt?: Date | null
 
   /**
+   * When a connect last created, healed or adopted this row (`createConnectedChannelRow`).
+   * Delete undo compares it with `deleted_at` to tell a reconnect that reused an
+   * older row from a row that only lived next to the deleted one. NULL on rows
+   * last connected before the column existed; `created_at` stands in for them.
+   */
+  @Property({ name: 'connected_at', type: Date, nullable: true })
+  connectedAt?: Date | null
+
+  /**
    * Per-channel lifecycle status. See {@link CommunicationChannelStatus}.
    * Migration sets `status = 'connected'` for all existing active channels (default value).
    */

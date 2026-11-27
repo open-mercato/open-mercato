@@ -1,93 +1,104 @@
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { deleteAttachmentIfExists, uploadAttachmentFixture } from '@open-mercato/core/helpers/integration/attachmentsFixtures'
-import { buildWorkbook } from './helpers/xlsxWorkbook'
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import {
+  deleteAttachmentIfExists,
+  uploadAttachmentFixture,
+} from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures'
 
-const XLSX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
+const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..', '..')
+const MAX_SEARCH_DEPTH = 5
 
-type ExtractionPartition = { code: string; createdId: string | null }
+function candidateStorageRoots(): string[] {
+  const configured = process.env.ATTACHMENTS_STORAGE_ROOT?.trim()
+  return [
+    ...(configured ? [configured] : []),
+    path.join(PROJECT_ROOT, 'apps', 'mercato', 'storage', 'attachments'),
+    path.join(PROJECT_ROOT, 'storage', 'attachments'),
+  ]
+}
 
-async function prepareExtractionPartition(request: APIRequestContext, token: string): Promise<ExtractionPartition | null> {
-  const code = `qa_xlsx_${Date.now()}`
-  const createResponse = await apiRequest(request, 'POST', '/api/attachments/partitions', {
-    token,
-    data: { code, title: 'QA XLSX extraction', isPublic: false, requiresOcr: true },
-  })
-  if (createResponse.status() === 201) {
-    const createBody = await readJsonSafe<{ item?: { id?: string } }>(createResponse)
-    return { code, createdId: createBody?.item?.id ?? null }
+async function findStoredFile(directory: string, storedNameSuffix: string, depth = 0): Promise<string | null> {
+  if (depth > MAX_SEARCH_DEPTH) return null
+  const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => [])
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name)
+    if (entry.isFile() && entry.name.endsWith(storedNameSuffix)) return entryPath
+    if (entry.isDirectory()) {
+      const found = await findStoredFile(entryPath, storedNameSuffix, depth + 1)
+      if (found) return found
+    }
   }
-  expect(createResponse.status(), 'partition creation is either allowed or managed by the environment').toBe(403)
-  const listResponse = await apiRequest(request, 'GET', '/api/attachments/partitions', { token })
-  const listBody = await readJsonSafe<{ items?: Array<{ code: string; requiresOcr?: boolean }> }>(listResponse)
-  const fallback = listBody?.items?.find((item) => item.code === 'privateAttachments')
-  return fallback?.requiresOcr ? { code: fallback.code, createdId: null } : null
+  return null
 }
 
-async function readAttachmentContent(request: APIRequestContext, token: string, attachmentId: string): Promise<string | null> {
-  const response = await apiRequest(request, 'GET', `/api/attachments/library/${encodeURIComponent(attachmentId)}`, {
-    token,
+async function locateStoredFile(storedNameSuffix: string): Promise<string | null> {
+  for (const root of candidateStorageRoots()) {
+    const found = await findStoredFile(root, storedNameSuffix)
+    if (found) return found
+  }
+  return null
+}
+
+async function fetchAttachmentFile(request: APIRequestContext, token: string, attachmentId: string) {
+  return request.fetch(`${BASE_URL}/api/attachments/file/${encodeURIComponent(attachmentId)}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
   })
-  expect(response.status()).toBe(200)
-  const body = await readJsonSafe<{ item?: { content?: string | null } }>(response)
-  return body?.item?.content ?? null
 }
 
-test.describe('TC-ATT-028: XLSX upload stores extracted sheet text', () => {
-  test('stores the sheets of an uploaded workbook as text and keeps a corrupt workbook upload working', async ({
-    request,
-  }) => {
+test.describe('TC-ATT-028: file route distinguishes missing files from failed storage reads', () => {
+  test('returns 404 STORAGE_FILE_MISSING for a removed file and 500 STORAGE_READ_FAILED for an unreadable one', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
-    const recordId = `qa-xlsx-record-${Date.now()}`
-    const attachmentIds: string[] = []
-    let partition: ExtractionPartition | null = null
+    const uniqueName = `qa_att_028_${Date.now()}_${Math.random().toString(36).slice(2, 10)}.txt`
+    const originalContent = Buffer.from(`TC-ATT-028 ${uniqueName}`, 'utf8')
+    let attachmentId: string | null = null
+    let storedFilePath: string | null = null
 
     try {
-      partition = await prepareExtractionPartition(request, token)
-      if (!partition) {
-        test.skip(true, 'No partition with text extraction (requiresOcr) is available in this environment')
-        return
-      }
-      const partitionCode = partition.code
-
-      const workbook = await buildWorkbook([
-        { name: 'Cennik', rows: [['Indeks', 'Cena'], ['CEM-42', 23.5]] },
-        { name: 'Uwagi', rows: [['Ceny netto']] },
-      ])
       const uploaded = await uploadAttachmentFixture(request, token, {
         entityId: 'attachments:library',
-        recordId,
-        fileName: 'cennik.xlsx',
-        mimeType: XLSX_MIME_TYPE,
-        buffer: workbook,
-        partitionCode,
+        recordId: `qa-att-028-${Date.now()}`,
+        fileName: uniqueName,
+        mimeType: 'text/plain',
+        buffer: originalContent,
       })
-      attachmentIds.push(uploaded.id)
-      expect(uploaded.partitionCode).toBe(partitionCode)
-      expect(await readAttachmentContent(request, token, uploaded.id)).toBe(
-        ['## Cennik', 'Indeks\tCena', 'CEM-42\t23.5', '## Uwagi', 'Ceny netto'].join('\n'),
-      )
+      attachmentId = uploaded.id
 
-      const corrupt = await uploadAttachmentFixture(request, token, {
-        entityId: 'attachments:library',
-        recordId,
-        fileName: 'uszkodzony.xlsx',
-        mimeType: XLSX_MIME_TYPE,
-        buffer: Buffer.from('not a zip archive', 'utf8'),
-        partitionCode,
-      })
-      attachmentIds.push(corrupt.id)
-      expect(await readAttachmentContent(request, token, corrupt.id)).toBeNull()
+      const okResponse = await fetchAttachmentFile(request, token, attachmentId)
+      expect(okResponse.status()).toBe(200)
+
+      storedFilePath = await locateStoredFile(`_${uniqueName}`)
+      test.skip(
+        !storedFilePath,
+        'Stored file is not reachable from the test runner (remote app or non-local storage driver); this scenario needs a shared filesystem.',
+      )
+      const filePath = storedFilePath as string
+
+      await fs.rm(filePath)
+      const missingResponse = await fetchAttachmentFile(request, token, attachmentId)
+      expect(missingResponse.status()).toBe(404)
+      const missingBody = await readJsonSafe<Record<string, unknown>>(missingResponse)
+      expect(missingBody).toEqual({ error: 'File not available', code: 'STORAGE_FILE_MISSING' })
+
+      await fs.mkdir(filePath)
+      const failedResponse = await fetchAttachmentFile(request, token, attachmentId)
+      expect(failedResponse.status()).toBe(500)
+      const failedBody = await readJsonSafe<Record<string, unknown>>(failedResponse)
+      expect(failedBody).toEqual({ error: 'File not available', code: 'STORAGE_READ_FAILED' })
+      const rawFailedBody = JSON.stringify(failedBody)
+      expect(rawFailedBody).not.toContain(uniqueName)
+      expect(rawFailedBody).not.toContain('EISDIR')
     } finally {
-      for (const attachmentId of attachmentIds) {
-        await deleteAttachmentIfExists(request, token, attachmentId)
+      if (storedFilePath) {
+        await fs.rm(storedFilePath, { recursive: true, force: true }).catch(() => undefined)
+        await fs.writeFile(storedFilePath, originalContent).catch(() => undefined)
       }
-      if (partition?.createdId) {
-        await apiRequest(request, 'DELETE', `/api/attachments/partitions?id=${encodeURIComponent(partition.createdId)}`, {
-          token,
-        })
-      }
+      await deleteAttachmentIfExists(request, token, attachmentId)
     }
   })
 })
