@@ -7114,7 +7114,7 @@ MCP hides Code Mode `execute` when the mutation mode is unset, including reads t
 
 Operators should grant the owning module's view features to diagnostic users and keys that need them. Custom searchable entities declare these features in their `search.ts` configuration. The first-party pgvector driver applies the scope before pagination. Custom vector drivers can honor the additive `entityAccess` list predicate to keep pagination over readable entries. The API filters returned rows regardless of driver support. No database migration or reindex is required.
 
-## Notification command actions enforce target mutation guards (#7674)
+## Action guards (#7674)
 
 `POST /api/notifications/:id/action` now applies the target resource's mutation
 guards before dispatching a declared command. A guard rejection leaves the

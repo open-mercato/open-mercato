@@ -765,22 +765,4 @@ STABLE superadmin reset and invite email uses the instance provider. Tenant fall
 
 STABLE APIs §7 require organization grants and return `403` for explicitly empty scope. Grant scope and handle `403`. `PUT /api/auth/profile` requires current-password proof for email changes. Send proof and reauthenticate. ADDITIVE-ONLY schema §8 uses owner-unique partition codes. Rehome incompatible references. Bridging prior behavior retains unscoped access or unverified changes. [Migration and specs](UPGRADE_NOTES.md). Named waiver pending.
 
-
-## Notification action target guards (2026-11-27, #7674)
-
-Surface: STABLE notification command execution and the response behavior of
-`POST /api/notifications/:id/action`. Actions now pass the target resource's
-mutation guards; commands without a resolvable target are refused with the
-existing forbidden response. Previously accepted execution without those guards
-is the bypass itself, so retaining it as a bridge keeps the vulnerability
-reachable. The narrowing is limited to command actions; link actions and the
-existing declaration, feature and notification guards retain their behavior.
-
-The optional `NotificationTypeAction.mutationGuard` and
-`NotificationServiceContext.request` fields are additive. Producers whose target
-kind differs from their source must declare the target; clients handle target
-guard errors and operators audit pending source-less actions before deployment.
-See [client and operator migration instructions](UPGRADE_NOTES.md#notification-command-actions-enforce-target-mutation-guards-7674)
-and [the specification](.ai/specs/2026-11-20-issue-7674-notification-target-mutation-guards.md#migration--backward-compatibility).
-Named human maintainer approval of the emergency exception is pending; automated
-validation and review do not grant that waiver.
+2026-11-27 #7674. STABLE notification action API. An unguarded bridge retains the bypass. [Migration](UPGRADE_NOTES.md#action-guards-7674).
