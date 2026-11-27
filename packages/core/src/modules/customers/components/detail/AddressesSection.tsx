@@ -8,6 +8,7 @@ import { AddressesSection as SharedAddressesSection } from '@open-mercato/ui/bac
 import type { AddressDataAdapter, AddressTypesAdapter, AddressFormatStrategy, SectionAction } from '@open-mercato/ui/backend/detail'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { GuardedMutationRunner } from './hooks/useInteractionMutations'
 
 export type AddressesSectionProps = {
   entityId: string | null
@@ -17,6 +18,7 @@ export type AddressesSectionProps = {
   onActionChange?: (action: SectionAction | null) => void
   translator?: (key: string, fallback?: string, params?: Record<string, string | number>) => string
   onLoadingChange?: (isLoading: boolean) => void
+  runGuardedMutation?: GuardedMutationRunner
 }
 
 type ApiAddressPayload = Record<string, unknown>
@@ -29,10 +31,23 @@ export function AddressesSection({
   onActionChange,
   translator,
   onLoadingChange,
+  runGuardedMutation,
 }: AddressesSectionProps) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo(() => createTranslatorWithFallback(tHook), [tHook])
   const t = translator ?? fallbackTranslator
+  const mutationRunnerRef = React.useRef(runGuardedMutation)
+  React.useEffect(() => {
+    mutationRunnerRef.current = runGuardedMutation
+  }, [runGuardedMutation])
+
+  const runWriteMutation = React.useCallback<GuardedMutationRunner>(
+    (operation, payload) => {
+      const runner = mutationRunnerRef.current
+      return runner ? runner(operation, payload) : operation()
+    },
+    [],
+  )
 
   const dataAdapter = React.useMemo<AddressDataAdapter>(() => ({
     list: async ({ entityId: listEntityId }) => {
@@ -120,39 +135,43 @@ export function AddressesSection({
         .filter((value): value is NonNullable<typeof value> => value !== null)
     },
     create: async ({ entityId: targetId, payload }) => {
-      const response = await apiCallOrThrow<Record<string, unknown>>(
-        '/api/customers/addresses',
-        {
-          // optimistic-lock-exempt: address create-only (no prior version to compare)
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            entityId: targetId,
-            ...payload,
-            country: payload.country ? payload.country.toUpperCase() : undefined,
-          }),
-        },
-        { errorMessage: t('customers.people.detail.addresses.error') },
+      const input = {
+        entityId: targetId,
+        ...payload,
+        country: payload.country ? payload.country.toUpperCase() : undefined,
+      }
+      const response = await runWriteMutation(
+        () => apiCallOrThrow<Record<string, unknown>>(
+          '/api/customers/addresses',
+          {
+            // optimistic-lock-exempt: address create-only (no prior version to compare)
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(input),
+          },
+          { errorMessage: t('customers.people.detail.addresses.error') },
+        ),
+        { entityId: targetId, operation: 'createAddress' },
       )
       return response.result ?? {}
     },
     update: async ({ id, payload, updatedAt }) => {
+      const input = { id, ...payload, country: payload.country ? payload.country.toUpperCase() : undefined }
       try {
-        await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(updatedAt ?? null),
-          () => apiCallOrThrow(
-            '/api/customers/addresses',
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({
-                id,
-                ...payload,
-                country: payload.country ? payload.country.toUpperCase() : undefined,
-              }),
-            },
-            { errorMessage: t('customers.people.detail.addresses.error') },
+        await runWriteMutation(
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(updatedAt ?? null),
+            () => apiCallOrThrow(
+              '/api/customers/addresses',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(input),
+              },
+              { errorMessage: t('customers.people.detail.addresses.error') },
+            ),
           ),
+          { addressId: id, operation: 'updateAddress' },
         )
       } catch (err) {
         surfaceRecordConflict(err, t)
@@ -161,24 +180,27 @@ export function AddressesSection({
     },
     delete: async ({ id, updatedAt }) => {
       try {
-        await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(updatedAt ?? null),
-          () => apiCallOrThrow(
-            '/api/customers/addresses',
-            {
-              method: 'DELETE',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id }),
-            },
-            { errorMessage: t('customers.people.detail.addresses.error') },
+        await runWriteMutation(
+          () => withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(updatedAt ?? null),
+            () => apiCallOrThrow(
+              '/api/customers/addresses',
+              {
+                method: 'DELETE',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id }),
+              },
+              { errorMessage: t('customers.people.detail.addresses.error') },
+            ),
           ),
+          { addressId: id, operation: 'deleteAddress' },
         )
       } catch (err) {
         surfaceRecordConflict(err, t)
         throw err
       }
     },
-  }), [t])
+  }), [runWriteMutation, t])
 
   const addressTypesAdapter = React.useMemo<AddressTypesAdapter>(() => ({
     list: async () => {
@@ -200,15 +222,18 @@ export function AddressesSection({
         .filter((entry): entry is { value: string; label: string } => !!entry)
     },
     create: async (value: string) => {
-      const response = await apiCallOrThrow<Record<string, unknown>>(
-        '/api/customers/dictionaries/address-types',
-        {
-          // optimistic-lock-exempt: address-type dictionary create-only
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ value }),
-        },
-        { errorMessage: t('customers.people.detail.addresses.types.saveError', 'Failed to save address type') },
+      const response = await runWriteMutation(
+        () => apiCallOrThrow<Record<string, unknown>>(
+          '/api/customers/dictionaries/address-types',
+          {
+            // optimistic-lock-exempt: address-type dictionary create-only
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ value }),
+          },
+          { errorMessage: t('customers.people.detail.addresses.types.saveError', 'Failed to save address type') },
+        ),
+        { operation: 'createAddressType' },
       )
       const payload = response.result ?? {}
       const createdValue = typeof payload.value === 'string' ? payload.value : value
@@ -216,7 +241,7 @@ export function AddressesSection({
       return { value: createdValue, label }
     },
     manageHref: '/backend/config/customers',
-  }), [t])
+  }), [runWriteMutation, t])
 
   const loadFormat = React.useCallback(async (): Promise<AddressFormatStrategy> => {
     const call = await apiCall<{ addressFormat?: string; error?: string }>(

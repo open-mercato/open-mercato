@@ -78,6 +78,9 @@ env:
 # `feat/wms` is a temporary stacking base. PRs stacked on it target that branch rather than
 # `main`, and while it is absent from these lists no job is scheduled for them at all.
 # Drop the entry once its stack has landed on `main`.
+# `stabilize/**` is a pull_request base only: fix PRs into the daily batch
+# (`stabilize/main-<date>`, CONTRIBUTING.md § Daily batch) get the normal scoped run. The batch
+# PR itself has a `stabilize/` head, so FORCE_FULL_SUITE keeps it on the full suite.
 on:
   push:
     branches:
@@ -85,11 +88,14 @@ on:
       - 'release/v*'
       - feat/wms
   pull_request:
-    types: [opened, synchronize, reopened]
+    # Draft PRs get no CI: `audit-scope` detects the draft, `test` fails on purpose and every
+    # other job skips. `ready_for_review` starts the full run the moment the PR is marked ready.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
       - 'release/v*'
       - feat/wms
+      - 'stabilize/**'
 
 # PR runs: a new push cancels the in-progress run, so only the latest commit is tested.
 # Branch pushes (main, release lines): never cancel a running suite. A full run takes about
@@ -113,6 +119,8 @@ jobs:
   #                      skipped for CI/docs-only PRs to save ~2 min.
   prepare:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: audit-scope
+    if: needs.audit-scope.outputs.draft != 'true'
     outputs:
       skip_integration: ${{ steps.integration-scope.outputs.skip }}
       affected_modules: ${{ steps.integration-scope.outputs.modules }}
@@ -283,12 +291,42 @@ jobs:
   # ── Audit scope ─────────────────────────────────────────────────────────────
   # Determines whether dependency audit needs to run. Package manifests and
   # lockfiles are the only inputs that can change the dependency graph.
+  #
+  # Also the draft detector: on a draft PR every other job skips, except
+  # `test`, which fails on purpose (see its note). The draft state is read live,
+  # so re-running an old draft run after the PR was marked ready runs the suite
+  # instead of re-publishing draft results.
   audit-scope:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       should_run: ${{ steps.dependency-files.outputs.should_run }}
+      draft: ${{ steps.draft.outputs.draft }}
     steps:
+      - name: Detect draft pull request
+        id: draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          DRAFT=false
+          if [ "${EVENT_DRAFT}" = "true" ]; then
+            DRAFT=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.draft' 2>/dev/null || echo false)
+          fi
+          if [ "${DRAFT}" = "true" ]; then
+            echo "Draft pull request: CI skipped. Mark it ready for review to run the checks." >> "$GITHUB_STEP_SUMMARY"
+          else
+            DRAFT=false
+          fi
+          echo "draft=${DRAFT}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
+        if: steps.draft.outputs.draft != 'true'
         uses: actions/checkout@v6
         with:
           # A pull_request checkout is GitHub's merge commit; its first parent is
@@ -297,6 +335,7 @@ jobs:
           fetch-depth: 2
 
       - name: Detect dependency file changes
+        if: steps.draft.outputs.draft != 'true'
         id: dependency-files
         shell: bash
         run: |
@@ -450,6 +489,8 @@ jobs:
   # no-op job (issue #4472).
   lint:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: audit-scope
+    if: needs.audit-scope.outputs.draft != 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -520,6 +561,8 @@ jobs:
   # redirected to `typescript-js`.
   ds-lint:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: audit-scope
+    if: needs.audit-scope.outputs.draft != 'true'
     permissions:
       contents: read
       pull-requests: write   # sticky comment; no-op on fork PRs (read-only token)
@@ -624,16 +667,29 @@ jobs:
   # Typechecking and unit tests. Runs in parallel with ephemeral-integration
   # so typecheck cost does not add to the integration wall time.
   # merge-coverage and docker-build both wait for this job to complete.
+  #
+  # Draft gate: on a draft PR this required job FAILS instead of skipping. A
+  # skipped check counts as passing, so a draft run that only skipped would
+  # leave every required check green on the commit until the ready run's jobs
+  # replaced them. A failing `test` stays red until a non-draft run reports a
+  # real result, so marking a PR ready never opens a merge window.
+  #
+  # Audit gate: `audit` is not a required check, and a failed or cancelled
+  # audit used to skip this job, which also reads as passing. It now runs and
+  # fails at its first step instead. documents-multi-instance does the same.
   test:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
       !cancelled() &&
-      needs.prepare.result == 'success' &&
-      needs.audit-scope.result == 'success' &&
-      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
-      needs.lint.result == 'success'
+      (needs.audit-scope.outputs.draft == 'true' ||
+       needs.audit.result == 'failure' ||
+       needs.audit.result == 'cancelled' ||
+       (needs.prepare.result == 'success' &&
+        needs.audit-scope.result == 'success' &&
+        (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+        needs.lint.result == 'success'))
     services:
       # `@open-mercato/queue` translates its `coalesce` option into BullMQ deduplication,
       # and the rest of its tests — which mock BullMQ — prove only that the right options
@@ -662,6 +718,18 @@ jobs:
       # which is what keeps it out of every environment that has no Redis.
       QUEUE_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
+      - name: Fail on draft pull request
+        if: needs.audit-scope.outputs.draft == 'true'
+        run: |
+          echo "::error::Draft pull request: CI does not run on drafts. Mark the PR ready for review to run the checks."
+          exit 1
+
+      - name: Fail on failed audit
+        if: needs.audit.result == 'failure' || needs.audit.result == 'cancelled'
+        run: |
+          echo "::error::Audit failed: the dependency audit did not pass, so this required check fails instead of skipping. Fix the audit job first."
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
@@ -841,6 +909,36 @@ jobs:
         # suite unconditionally here so template drift fails the PR, not main.
         run: yarn workspace create-mercato-app test
 
+      - name: Scaffold-and-lint DS module UI (always, unfiltered)
+        # Spec .ai/specs/2026-07-05-ds-module-ui-scaffold.md §Testing layer 3:
+        # scaffold a throwaway module with the real CLI, regenerate, DS-lint the
+        # generated pages with the repo eslint.ds config at --max-warnings 0,
+        # typecheck, then remove the module and require a clean tree. This
+        # exercises the real repo wiring (path aliases, tsconfig, lint:ds
+        # surface) that the temp-dir golden/contract tests cannot. The probe
+        # uses --target packages/core because the backend-page rules in
+        # eslint.ds.config.mjs scope their `files` globs to packages/**, so an
+        # apps-target probe would skip them.
+        run: |
+          trap 'rm -rf packages/core/src/modules/scaffold_ci' EXIT
+          yarn mercato module scaffold scaffold_ci --entity ci_probe --fields "name:text:required,status:select(open|closed),notes:textarea" --with-ui --target packages/core
+          yarn generate
+          node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/eslint.js --config eslint.ds.config.mjs packages/core/src/modules/scaffold_ci --max-warnings 0
+          yarn typecheck
+          rm -rf packages/core/src/modules/scaffold_ci
+          # The probe's create page uses the `plus` icon string, which the ui
+          # build adds to the committed icon registry. Restore it so the check
+          # below only fails on files the scaffold itself left behind.
+          git checkout -- packages/ui/src/backend/icons/lucideRegistry.generated.tsx
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Scaffold CI probe left the tree dirty:"
+            git status --porcelain
+            exit 1
+          fi
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
       - name: Run repo-wide audit guards (always, unfiltered)
         # Same class as the create-app parity step above, generalized (#4534). A handful of
         # tests are repo-wide AUDITS rather than package unit tests: they deliberately scan
@@ -927,18 +1025,53 @@ jobs:
   # regression. Run it as a dedicated required job on GitHub's Docker-capable
   # runner so every change proves the two-sidecar Redis/PostgreSQL persistence
   # path rather than relying on an opt-in local command.
+  #
+  # Required check: a failed or cancelled audit makes it fail at its first step
+  # rather than skip (a skip reads as passing). See the audit gate on `test`.
   documents-multi-instance:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      webhook_postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: webhook_durability
+          POSTGRES_USER: webhook_durability
+          POSTGRES_PASSWORD: webhook_durability
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U webhook_durability -d webhook_durability"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      webhook_redis:
+        image: redis:7-alpine
+        ports:
+          - 6379/tcp
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     needs: [prepare, audit-scope, audit, lint]
     if: |
       always() &&
       !cancelled() &&
-      needs.prepare.result == 'success' &&
-      needs.audit-scope.result == 'success' &&
-      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
-      needs.lint.result == 'success'
+      (needs.audit.result == 'failure' ||
+       needs.audit.result == 'cancelled' ||
+       (needs.prepare.result == 'success' &&
+        needs.audit-scope.result == 'success' &&
+        (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+        needs.lint.result == 'success'))
     steps:
+      - name: Fail on failed audit
+        id: audit-gate
+        if: needs.audit.result == 'failure' || needs.audit.result == 'cancelled'
+        run: |
+          echo "::error::Audit failed: the dependency audit did not pass, so this required check fails instead of skipping. Fix the audit job first."
+          exit 1
+
       - name: Checkout repository
         uses: actions/checkout@v7
 
@@ -980,27 +1113,52 @@ jobs:
         run: yarn workspace @open-mercato/documents test:multi-instance
 
       - name: Run advisory lock suite against real Postgres
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/shared test:pg-integration
 
       - name: Run integrations module suites against real Postgres
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/core test:pg-integration
 
       - name: Run Discord auto-reply repeat-delivery suite against real Postgres
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/channel-discord test:pg-integration
 
       - name: Run checkout migration suite against real Postgres
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/checkout test:pg-integration
 
       - name: Run webhook delivery claim suite against real Postgres
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/webhooks test:pg-integration
 
+      - name: Install Redis durability test client
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y redis-tools
+
+      - name: Run webhook receipt and queue durability against real services
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        env:
+          OM_WEBHOOKS_TEST_DATABASE_URL: postgresql://webhook_durability:webhook_durability@127.0.0.1:${{ job.services.webhook_postgres.ports[5432] }}/webhook_durability
+          OM_QUEUE_TEST_REDIS_URL: redis://127.0.0.1:${{ job.services.webhook_redis.ports[6379] }}
+        run: |
+          command -v redis-cli
+          mkdir -p .ai/qa/test-results/webhook-durability
+          node node_modules/jest/bin/jest.js --config packages/webhooks/jest.config.cjs --runInBand --runTestsByPath packages/webhooks/src/modules/webhooks/lib/__tests__/inbound-receipt.postgres.test.ts --verbose --json --outputFile=.ai/qa/test-results/webhook-durability/receipts.json
+          node node_modules/jest/bin/jest.js --config packages/queue/jest.config.cjs --runInBand --runTestsByPath packages/queue/src/__tests__/publication.test.ts --verbose --json --outputFile=.ai/qa/test-results/webhook-durability/queues.json
+          node scripts/ci/check-webhook-durability-results.mjs .ai/qa/test-results/webhook-durability/receipts.json .ai/qa/test-results/webhook-durability/queues.json
+
+      - name: Upload webhook durability results
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: webhook-durability-results
+          path: .ai/qa/test-results/webhook-durability/
+          include-hidden-files: true
+          if-no-files-found: error
+
       - name: Check OAuth grant import paths resolve against the built dist
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: node scripts/check-oauth-publish-shape.mjs
 
   # ── Integration tests ───────────────────────────────────────────────────────
@@ -1242,6 +1400,17 @@ jobs:
             .ai/qa/test-results/results.json
             .ai/qa/test-results/coverage-shard-${{ steps.shard-meta.outputs.shard_index }}/
           if-no-files-found: ignore
+
+      - name: Verify staff and portal auth rate limits
+        if: matrix.shard == 'none' || matrix.shard == '1/15'
+        env:
+          OM_INTEGRATION_AUTH_RATE_LIMIT_FIXTURE: '1'
+          OM_TEST_RATE_LIMIT_MODE: enabled
+          RATE_LIMIT_TRUST_PROXY_DEPTH: '0'
+          RATE_LIMIT_STRATEGY: memory
+          RATE_LIMIT_LOGIN_IP_POINTS: '2'
+          RATE_LIMIT_CUSTOMER_LOGIN_IP_POINTS: '2'
+        run: yarn test:integration:ephemeral TC-AUTH-016 --no-reuse-env
 
   # ── Merge shard coverage ─────────────────────────────────────────────────────
   # Final gate — runs after all integration shards AND the test job complete.

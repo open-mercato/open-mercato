@@ -114,6 +114,34 @@ describe('resolveMcpExposureConfig', () => {
   })
 })
 
+describe('explicit direct tool exposure', () => {
+  const execute = tool('execute', {
+    isMutation: true,
+    mcp: { approvalMode: 'refuse', explicitDirectOnly: true },
+  })
+
+  it('preserves typed tools and discovery in default mode', () => {
+    const config = resolveMcpExposureConfig({})
+    expect(filterToolsForCaller(
+      [tool('search'), tool('customers.get_person'), tool('customers.create_person', { isMutation: true }), execute],
+      config,
+      { features: [], isSuperAdmin: true },
+    ).map((entry) => entry.name)).toEqual(['search', 'customers.get_person', 'customers.create_person'])
+  })
+
+  it('requires an explicit direct mode even on an allowlist', () => {
+    const config = resolveMcpExposureConfig({ OM_MCP_TOOL_ALLOWLIST: 'execute' })
+    expect(resolveToolHiddenReason(execute, config)).toBe('mutation_mode')
+  })
+
+  it('supports deliberate direct mode via environment or CLI and keeps CLI precedence', () => {
+    expect(isToolExposed(execute, resolveMcpExposureConfig({ OM_MCP_MUTATION_MODE: ' direct ' }))).toBe(true)
+    expect(isToolExposed(execute, resolveMcpExposureConfig({ OM_MCP_MUTATION_MODE: 'deny' }, { 'mutation-mode': 'direct' }))).toBe(true)
+    expect(isToolExposed(execute, resolveMcpExposureConfig({ OM_MCP_MUTATION_MODE: 'direct' }, { 'mutation-mode': 'approval' }))).toBe(false)
+    expect(isToolExposed(execute, resolveMcpExposureConfig({ OM_MCP_MUTATION_MODE: 'deny' }))).toBe(false)
+  })
+})
+
 describe('isMcpMutationMode', () => {
   it('accepts only the known modes', () => {
     expect(isMcpMutationMode('direct')).toBe(true)

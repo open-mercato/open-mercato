@@ -16,6 +16,7 @@ export type ScheduleItem = {
   title: string
   startsAt: Date
   endsAt: Date
+  allDay?: boolean
   status?: 'draft' | 'negotiation' | 'confirmed' | 'cancelled'
   subjectType?: 'member' | 'resource'
   subjectId?: string

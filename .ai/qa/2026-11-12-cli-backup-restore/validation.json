@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "productionSourceCommit": "d6c6e3e0bb68171397925448bab7ea8e42144e8b",
+  "commands": [
+    {
+      "command": "yarn build:packages",
+      "exitCode": 0,
+      "seconds": 2.53
+    },
+    {
+      "command": "yarn generate",
+      "exitCode": 0,
+      "seconds": 9.02
+    },
+    {
+      "command": "yarn build:packages",
+      "exitCode": 0,
+      "seconds": 0.96
+    },
+    {
+      "command": "yarn i18n:check-sync",
+      "exitCode": 0,
+      "seconds": 0.97
+    },
+    {
+      "command": "yarn i18n:check-usage",
+      "exitCode": 0,
+      "seconds": 3.06
+    },
+    {
+      "command": "yarn typecheck",
+      "exitCode": 0,
+      "seconds": 2.01
+    },
+    {
+      "command": "yarn test",
+      "exitCode": 0,
+      "seconds": 304.81
+    },
+    {
+      "command": "yarn build:app",
+      "exitCode": 0,
+      "seconds": 20.8
+    }
+  ],
+  "moduleTests": {
+    "suites": 8,
+    "passed": 96,
+    "seconds": 61.774,
+    "realPostgresql": true
+  },
+  "review": "https://github.com/open-mercato/open-mercato/pull/9333#pullrequestreview-5878610354",
+  "notes": [
+    "Final documentation-only verification commit follows this exact source freeze.",
+    "Review provenance and performance limits are documented in the plan and QA README.",
+    "Required hosted CI and manual QA remain independent merge gates."
+  ]
+}

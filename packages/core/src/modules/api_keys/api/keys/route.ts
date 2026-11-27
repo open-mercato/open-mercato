@@ -205,7 +205,7 @@ const crud = makeCrudRoute<
 
       const em = (ctx.container.resolve('em') as EntityManager)
       const qb = em.createQueryBuilder(ApiKey, 'k')
-      qb.where({ deletedAt: null })
+      qb.where({ deletedAt: null, sessionToken: null, sessionTokenHash: null })
       qb.andWhere({ tenantId: auth.tenantId })
       const organizationConstraint = organizationIds?.length
         ? { organizationId: { $in: organizationIds } }

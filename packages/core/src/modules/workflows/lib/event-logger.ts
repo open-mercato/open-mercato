@@ -246,7 +246,7 @@ export async function getWorkflowEvents(
     WorkflowEvent,
     where,
     {
-      orderBy: { occurredAt: 'ASC' },
+      orderBy: { occurredAt: 'ASC', id: 'ASC' },
       limit: options?.limit,
       offset: options?.offset,
     }

@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import { asValue, asFunction } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -53,33 +54,57 @@ import { formsEventPayloadSchemas } from './events-payloads'
  *    request scoping is honoured.
  */
 export function register(container: AppContainer): void {
-  const formVersionCompiler = new FormVersionCompiler({ registry: defaultFieldTypeRegistry })
-  const formVersionDiffer = new FormVersionDiffer()
-  const rolePolicyService = new RolePolicyService()
+  const states = new WeakMap<AppContainer, ReturnType<typeof createState>>()
+  function createState() {
+    const formVersionCompiler = new FormVersionCompiler({ registry: defaultFieldTypeRegistry })
+    const formVersionDiffer = new FormVersionDiffer()
+    const rolePolicyService = new RolePolicyService()
 
-  // T7 — async-batched access audit. `FORMS_ACCESS_AUDIT_BATCH_MS=0` (default)
-  // keeps the synchronous insert-per-read posture on the request's own EM
-  // (deterministic for tests). A positive value buffers events and flushes them
-  // as a bulk insert on a fresh forked EM, off the read hot path.
-  const accessAuditBatchMs = resolveAccessAuditBatchMs(process.env)
-  const accessAuditLogger: AccessAuditLogger =
-    accessAuditBatchMs > 0
-      ? new BatchingAccessAuditLogger({
-          batchMs: accessAuditBatchMs,
-          // Fork a fresh EM at flush time — the request EM is long gone.
-          emFactory: async (): Promise<EntityManager> => {
-            const orm = await getOrm()
-            return orm.em.fork() as unknown as EntityManager
-          },
-        })
-      : new FormsAccessAuditLogger()
+    // T7 — async-batched access audit. `FORMS_ACCESS_AUDIT_BATCH_MS=0` (default)
+    // keeps the synchronous insert-per-read posture on the request's own EM
+    // (deterministic for tests). A positive value buffers events and flushes them
+    // as a bulk insert on a fresh forked EM, off the read hot path.
+    const accessAuditBatchMs = resolveAccessAuditBatchMs(process.env)
+    const accessAuditLogger: AccessAuditLogger =
+      accessAuditBatchMs > 0
+        ? new BatchingAccessAuditLogger({
+            batchMs: accessAuditBatchMs,
+            // Fork a fresh EM at flush time — the request EM is long gone.
+            emFactory: async (): Promise<EntityManager> => {
+              const orm = await getOrm()
+              return orm.em.fork() as unknown as EntityManager
+            },
+          })
+        : new FormsAccessAuditLogger()
+    return { formVersionCompiler, formVersionDiffer, rolePolicyService, accessAuditLogger }
+  }
+  function stateFor(scope: AppContainer) {
+    let state = states.get(scope)
+    if (!state) {
+      state = createState()
+      states.set(scope, state)
+    }
+    return state
+  }
 
   container.register({
     fieldTypeRegistry: asValue(defaultFieldTypeRegistry),
-    formVersionCompiler: asValue(formVersionCompiler),
-    formVersionDiffer: asValue(formVersionDiffer),
-    formsRolePolicyService: asValue(rolePolicyService),
-    formsAccessAuditLogger: asValue(accessAuditLogger),
+    formVersionCompiler: asScopedService((scope) => {
+      const { formVersionCompiler } = stateFor(scope)
+      return formVersionCompiler
+    }),
+    formVersionDiffer: asScopedService((scope) => {
+      const { formVersionDiffer } = stateFor(scope)
+      return formVersionDiffer
+    }),
+    formsRolePolicyService: asScopedService((scope) => {
+      const { rolePolicyService } = stateFor(scope)
+      return rolePolicyService
+    }),
+    formsAccessAuditLogger: asScopedService((scope) => {
+      const { accessAuditLogger } = stateFor(scope)
+      return accessAuditLogger
+    }),
     formsEncryptionService: asFunction(({ em }: { em: EntityManager }): EncryptionService => {
       // resolveKmsAdapter picks the production env master-key adapter (or an
       // operator-injected cloud-KMS adapter) and refuses the DEV-ONLY fallback
@@ -89,19 +114,21 @@ export function register(container: AppContainer): void {
         emFactory: () => em,
         kmsAdapter: resolveKmsAdapter(process.env),
       })
-    }).proxy().singleton(),
-    formsSubmissionService: asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): SubmissionService => {
+    }).proxy().scoped(),
+    formsSubmissionService: asScopedService((scope) => {
+      const { formVersionCompiler, rolePolicyService, accessAuditLogger } = stateFor(scope)
+      return (asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): SubmissionService => {
       return new SubmissionService({
         emFactory: () => em,
         formVersionCompiler,
         encryptionService: formsEncryptionService,
         rolePolicyService,
-        emitEvent: async (eventId, payload) => {
+        emitEvent: async (eventId, payload, ...eventOptions) => {
           // Validate against catalogued payload schema before forwarding to the
           // global event bus. Keeps the event contract tight per AGENTS.md.
           const schema = formsEventPayloadSchemas[eventId as keyof typeof formsEventPayloadSchemas]
           const validated = schema ? schema.parse(payload) : payload
-          await emitFormsEvent(eventId, validated as never)
+          await emitFormsEvent(eventId, validated as never, ...eventOptions)
         },
         auditAccess: async (args) => {
           // Phase 2b — replaces the no-op hook from phase 1c. Writes one
@@ -118,7 +145,8 @@ export function register(container: AppContainer): void {
           await accessAuditLogger.log(em, event)
         },
       })
-    }).proxy().singleton(),
+    }).proxy().scoped()).resolve(scope)
+    }),
     formsDistributionService: asFunction(({ em, formsSubmissionService }: { em: EntityManager; formsSubmissionService: SubmissionService }): DistributionService => {
       return new DistributionService({
         emFactory: () => em,
@@ -129,30 +157,38 @@ export function register(container: AppContainer): void {
           await emitFormsEvent(eventId, validated as never)
         },
       })
-    }).proxy().singleton(),
-    formsAnonymizeService: asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): AnonymizeService => {
+    }).proxy().scoped(),
+    formsAnonymizeService: asScopedService((scope) => {
+      const { formVersionCompiler } = stateFor(scope)
+      return (asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): AnonymizeService => {
       return new AnonymizeService({
         em,
         compiler: formVersionCompiler,
         encryption: formsEncryptionService,
       })
-    }).proxy().singleton(),
+    }).proxy().scoped()).resolve(scope)
+    }),
     // Phase 3 Track B — aggregate, PII-safe form analytics. Decrypts revision
     // payloads only to tally enumerable answers; never returns decrypted
     // values. Lazy-resolves `em` per request so EM request scoping is honoured.
-    formsAnalyticsService: asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): AnalyticsService => {
+    formsAnalyticsService: asScopedService((scope) => {
+      const { formVersionCompiler } = stateFor(scope)
+      return (asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): AnalyticsService => {
       return new AnalyticsService({
         emFactory: () => em,
         compiler: formVersionCompiler,
         encryption: formsEncryptionService,
       })
-    }).proxy().singleton(),
+    }).proxy().scoped()).resolve(scope)
+    }),
     // Phase 3 Track D — projects signed `signature` answers into the
     // `forms_consent_record` per-subject consent aggregate. Loads the
     // submission via the submission service (admin/full read, no role slice)
     // so signature answers are present, then upserts + supersedes. PII-free.
     // Lazy-resolves `em` per request so EM request scoping is honoured.
-    formsConsentRecordService: asFunction(
+    formsConsentRecordService: asScopedService((scope) => {
+      const { formVersionCompiler } = stateFor(scope)
+      return (asFunction(
       ({ em, formsSubmissionService }: { em: EntityManager; formsSubmissionService: SubmissionService }): ConsentRecordService => {
         return new ConsentRecordService({
           emFactory: () => em,
@@ -176,16 +212,20 @@ export function register(container: AppContainer): void {
           },
         })
       },
-    ).proxy().singleton(),
+    ).proxy().scoped()).resolve(scope)
+    }),
     // W5 (DP-5) — builds the structured GDPR data-subject export document.
     // Lazy-resolves `em` per request so EM request scoping is honoured.
-    formsExportService: asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): ExportService => {
+    formsExportService: asScopedService((scope) => {
+      const { formVersionCompiler } = stateFor(scope)
+      return (asFunction(({ em, formsEncryptionService }: { em: EntityManager; formsEncryptionService: EncryptionService }): ExportService => {
       return new ExportService({
         emFactory: () => em,
         compiler: formVersionCompiler,
         encryption: formsEncryptionService,
       })
-    }).proxy().singleton(),
+    }).proxy().scoped()).resolve(scope)
+    }),
     // W4 — no-op virus/malware scanner. Operators inject a real scanner by
     // overriding `formsUploadScanner` with their own `UploadScanner`.
     formsUploadScanner: asValue<UploadScanner>(new NoopUploadScanner()),
@@ -219,11 +259,13 @@ export function register(container: AppContainer): void {
           scanner: formsUploadScanner,
         })
       },
-    ).proxy().singleton(),
+    ).proxy().scoped(),
     // W3 — renders + stores the immutable signed PDF snapshot as an encrypted
     // `forms_form_attachment` (`kind = 'snapshot'`). Generated once (on-submit
     // subscriber or lazily on first download) and idempotent thereafter.
-    formsPdfSnapshotService: asFunction(
+    formsPdfSnapshotService: asScopedService((scope) => {
+      const { formVersionCompiler } = stateFor(scope)
+      return (asFunction(
       ({
         em,
         formsEncryptionService,
@@ -242,6 +284,9 @@ export function register(container: AppContainer): void {
           },
         })
       },
-    ).proxy().singleton(),
+    ).proxy().scoped()).resolve(scope)
+    }),
   })
 }
+
+defineProcessDiRegistrar(register)

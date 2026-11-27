@@ -1,3 +1,4 @@
+import { resolveAttachmentPartition } from '../../../lib/partitionScope'
 import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { assertAttachmentStoragePartitionExists } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
 import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../../../lib/access-runner'
@@ -8,7 +9,6 @@ import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
 import {
   Attachment,
-  AttachmentPartition,
 } from "@open-mercato/core/modules/attachments/data/entities";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { checkAttachmentAccess, isSuperAdminAuth } from "@open-mercato/core/modules/attachments/lib/access";
@@ -20,6 +20,21 @@ import {
 } from "@open-mercato/core/modules/attachments/lib/security";
 import { StorageDriverFactory } from '../../../lib/drivers';
 import { resolveAttachmentRequestScope } from '@open-mercato/core/modules/attachments/lib/requestScope';
+import { createLogger } from '@open-mercato/shared/lib/logger';
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime';
+
+const logger = createLogger('attachments').child({ component: 'file' });
+
+const MISSING_STORAGE_OBJECT_CODES = new Set(['ENOENT', 'NoSuchKey', 'NotFound']);
+
+function readStorageErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const candidate = error as { code?: unknown; Code?: unknown; name?: unknown };
+  const values = [candidate.code, candidate.Code, candidate.name].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  );
+  return values.find((value) => MISSING_STORAGE_OBJECT_CODES.has(value)) ?? values[0] ?? null;
+}
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -63,9 +78,7 @@ async function readAttachmentFile(
       { status: 404 },
     );
   }
-  const partition = await em.findOne(AttachmentPartition, {
-    code: attachment.partitionCode,
-  });
+  const partition = await resolveAttachmentPartition(em, attachment.partitionCode, attachment);
   assertAttachmentStoragePartitionExists(Boolean(partition))
   if (!partition) {
     return NextResponse.json(
@@ -91,8 +104,30 @@ async function readAttachmentFile(
   try {
     const result = await driver.read(attachment.partitionCode, attachment.storagePath);
     buffer = result.buffer;
-  } catch {
-    return NextResponse.json({ error: "File not available" }, { status: 404 });
+  } catch (error) {
+    const errorCode = readStorageErrorCode(error);
+    const logContext = {
+      attachmentId: attachment.id,
+      partitionCode: attachment.partitionCode,
+      storagePath: attachment.storagePath,
+      storageDriver: driver.key,
+      errorCode,
+      err: error,
+    };
+    if (errorCode && MISSING_STORAGE_OBJECT_CODES.has(errorCode)) {
+      logger.warn('Attachment file missing from storage', logContext);
+      getTelemetryRuntime()?.reportError(error, { module: 'attachments', code: 'attachments.storage_file_missing' });
+      return NextResponse.json(
+        { error: "File not available", code: "STORAGE_FILE_MISSING" },
+        { status: 404 },
+      );
+    }
+    logger.error('Attachment storage read failed', logContext);
+    getTelemetryRuntime()?.reportError(error, { module: 'attachments', code: 'attachments.storage_read_failed' });
+    return NextResponse.json(
+      { error: "File not available", code: "STORAGE_READ_FAILED" },
+      { status: 500 },
+    );
   }
 
   const headers: Record<string, string> = {
@@ -160,7 +195,7 @@ export const openApi: OpenApiRouteDoc = {
         },
         {
           status: 500,
-          description: "Partition misconfigured",
+          description: "Partition misconfigured or storage read failed",
           schema: attachmentErrorSchema,
         },
         { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },

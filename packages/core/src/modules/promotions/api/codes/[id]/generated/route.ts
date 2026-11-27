@@ -93,7 +93,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
     const [rows, total] = await Promise.all([
       em.find(GeneratedCode, where, {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'desc', id: 'desc' },
         limit: query.pageSize,
         offset: (query.page - 1) * query.pageSize,
       }),

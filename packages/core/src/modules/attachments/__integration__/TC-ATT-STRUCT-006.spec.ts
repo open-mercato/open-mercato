@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import {
   deleteAttachmentIfExists,
   uploadAttachmentFixture,
@@ -44,7 +45,7 @@ const SECTION_ENTITY = 'attachments:attachment_document_section'
 const SEARCH_TEST_TIMEOUT_MS = 480_000
 const SEARCH_POLL_TIMEOUT_MS = 120_000
 const SEARCH_POLL_INTERVALS_MS = [1_000, 2_000, 3_000]
-const VALID_PASSWORD = 'Valid1!Pass'
+const VALID_PASSWORD = 'QaValid1!Pass'
 
 type SearchResultItem = {
   entityId?: string
@@ -85,6 +86,7 @@ async function expectHitState(
   expected: 'present' | 'absent',
   message: string,
 ): Promise<SearchResultItem | null> {
+  await drainIntegrationQueue('attachments-document-structure')
   let lastHit: SearchResultItem | null = null
   await expect
     .poll(

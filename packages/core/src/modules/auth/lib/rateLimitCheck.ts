@@ -8,7 +8,9 @@ import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 export interface CheckAuthRateLimitOptions {
   req: Request
   ipConfig: RateLimitConfig
+  ipCheck?: 'trusted-only' | 'untrusted-only'
   compoundConfig?: RateLimitConfig
+  isolateByIdentifierWithoutTrustedIp?: boolean
   /** Raw identifier for compound key (e.g., email). Hashed internally before use. */
   compoundIdentifier?: string
 }
@@ -20,7 +22,8 @@ export interface CheckAuthRateLimitResult {
 
 /**
  * Fail-open rate limit check for auth endpoints.
- * Layer 1: IP-only check with ipConfig.
+ * Layer 1: IP check with ipConfig. Opted-in callers with an identifier but no
+ * trusted address scope this limit to the identifier.
  * Layer 2 (optional): compound IP + hashed identifier check with compoundConfig.
  */
 export async function checkAuthRateLimit(options: CheckAuthRateLimitOptions): Promise<CheckAuthRateLimitResult> {
@@ -37,17 +40,26 @@ export async function checkAuthRateLimit(options: CheckAuthRateLimitOptions): Pr
     if (!rateLimiterService) return { error: null, compoundKey: null }
 
     const clientIp = getClientIp(options.req, rateLimiterService.trustProxyDepth)
+    if (options.ipCheck === 'trusted-only' && !clientIp) {
+      return { error: null, compoundKey: null }
+    }
     const clientKey = clientIp ?? RATE_LIMIT_FALLBACK_KEY
 
     const { translate } = await resolveTranslations()
     const errorMessage = translate(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK)
 
-    const ipError = await checkRateLimit(rateLimiterService, options.ipConfig, clientKey, errorMessage)
-    if (ipError) return { error: ipError, compoundKey: null }
+    const compoundKey = options.compoundConfig && options.compoundIdentifier
+      ? `${clientKey}:${computeEmailHash(options.compoundIdentifier)}`
+      : null
+    const ipKey = !clientIp && options.isolateByIdentifierWithoutTrustedIp && compoundKey
+      ? `identifier:${compoundKey}`
+      : clientKey
+    if (options.ipCheck !== 'untrusted-only' || !clientIp) {
+      const ipError = await checkRateLimit(rateLimiterService, options.ipConfig, ipKey, errorMessage)
+      if (ipError) return { error: ipError, compoundKey: null }
+    }
 
-    if (options.compoundConfig && options.compoundIdentifier) {
-      const hash = computeEmailHash(options.compoundIdentifier)
-      const compoundKey = `${clientKey}:${hash}`
+    if (options.compoundConfig && compoundKey) {
       const compoundError = await checkRateLimit(rateLimiterService, options.compoundConfig, compoundKey, errorMessage)
       if (compoundError) return { error: compoundError, compoundKey }
       return { error: null, compoundKey }

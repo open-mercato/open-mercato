@@ -7,8 +7,7 @@
  * a fresh `active` record and supersedes any prior `active` record for the
  * same subject + form + clause.
  *
- * Org/tenant scope is re-derived from the persisted submission row inside the
- * service (the event payload is id-only by catalog construction).
+ * The emitter supplies the persisted submission scope through the trusted event context.
  *
  * Idempotent (the service no-ops when a record already exists for the
  * submission + field) and fail-soft: any error is logged + swallowed so a
@@ -17,6 +16,7 @@
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { FormSubmission } from '../data/entities'
 import type { ConsentRecordService } from '../services/consent-record-service'
 import { emitFormsEvent } from '../events'
@@ -33,6 +33,8 @@ type ResolveContainer = {
 }
 
 type SubscriberContext = {
+  tenantId?: string | null
+  organizationId?: string | null
   container: ResolveContainer
 }
 
@@ -48,12 +50,14 @@ export default async function handleSubmissionSubmitted(
   payload: SubmissionSubmittedPayload,
   ctx: SubscriberContext,
 ): Promise<void> {
+  const { tenantId, organizationId } = ctx
+  if (!tenantId || !organizationId) return
   try {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const submission = await em.findOne(FormSubmission, {
-      id: payload.submissionId,
-      deletedAt: null,
-    })
+    const submission = await findOneWithDecryption(
+      em, FormSubmission, { id: payload.submissionId, tenantId, organizationId, deletedAt: null },
+      undefined, { tenantId, organizationId },
+    )
     if (!submission || submission.status !== 'submitted') return
 
     const service = ctx.container.resolve('formsConsentRecordService') as ConsentRecordService

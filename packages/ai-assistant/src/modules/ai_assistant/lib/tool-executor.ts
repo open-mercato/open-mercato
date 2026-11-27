@@ -123,12 +123,12 @@ async function resolveMutationGate(
   return buildMutationRequiresApprovalResult(tool.name)
 }
 
-async function enforceAgentToolRateLimit(
+async function enforceExpensiveToolRateLimit(
   tool: McpToolDefinition,
   context: McpToolContext,
   options: ExecuteToolOptions,
 ): Promise<ToolExecutionResult | null> {
-  if (!(tool as AiToolDefinition).agentRef) return null
+  if (!(tool as AiToolDefinition).agentRef && tool.name !== 'search') return null
   if (options.channel !== 'mcp' && options.channel !== 'tools-api') return null
   const decision = await checkAgentToolRateLimit(context.container, {
     tenantId: context.tenantId,
@@ -137,15 +137,15 @@ async function enforceAgentToolRateLimit(
   })
   if (decision.allowed) return null
   if (decision.reason === 'rate_limited') {
-    logger.warn('Agent tool call rate limited', { toolName: tool.name, channel: options.channel })
+    logger.warn('Tool call rate limited', { toolName: tool.name, channel: options.channel })
     return {
       success: false,
-      error: `Tool "${tool.name}" was rate limited: too many agent tool calls, retry in ${decision.retryAfterSeconds}s`,
+      error: `Tool "${tool.name}" was rate limited: too many resource-intensive tool calls, retry in ${decision.retryAfterSeconds}s`,
       errorCode: 'RATE_LIMITED',
       retryAfterSeconds: decision.retryAfterSeconds,
     }
   }
-  logger.warn('Agent tool call refused: rate limiter unavailable', { toolName: tool.name, channel: options.channel })
+  logger.warn('Tool call refused: rate limiter unavailable', { toolName: tool.name, channel: options.channel })
   return {
     success: false,
     error: `Tool "${tool.name}" cannot run: the rate limiter is unavailable`,
@@ -220,7 +220,7 @@ export async function executeTool(
     if (gateResult) return gateResult
   }
 
-  const rateLimitResult = await enforceAgentToolRateLimit(tool, context, options)
+  const rateLimitResult = await enforceExpensiveToolRateLimit(tool, context, options)
   if (rateLimitResult) return rateLimitResult
 
   // Execute tool. Attach `tool` to the context so handlers that build an
@@ -232,7 +232,7 @@ export async function executeTool(
     return { success: true, result }
   } catch (error) {
     if (isAgentToolError(error)) {
-      logger.warn('Agent tool call refused', { toolName, code: error.code, denyCode: error.denyCode })
+      logger.warn('Tool call refused', { toolName, code: error.code, denyCode: error.denyCode })
       return {
         success: false,
         error: error.code === 'AGENT_POLICY_DENIED'

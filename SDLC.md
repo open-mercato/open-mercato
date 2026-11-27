@@ -23,16 +23,31 @@ If this overview and policy differ, follow the policy and update the overview.
 ## Labels and ownership
 
 Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`,
-`qa-failed`, `merge-queue`, `blocked`, `do-not-merge`. Review approval routes to
-`merge-queue`; that label alone does not satisfy QA or CI. Only a QA reviewer
+`qa-failed`, `merge-queue`, `blocked`, `do-not-merge`. `merge-queue` means every
+gate holds on the current head; review approval routes there only then. A
+`needs-human-qa` PR without a current-head `qa-approved` keeps `review`, and
+`merge-queue-guard.yml` removes `merge-queue` from it. Only a QA reviewer
 sets `qa` to indicate manual testing is underway.
 
 Every ready PR needs a category, one priority and one risk label, using the
 configuration's taxonomy. Priority measures urgency; risk measures blast radius.
-A `needs-qa` PR cannot merge without `qa-approved`. Never combine `skip-qa` with
-`needs-qa` or `qa-approved`. QA sign-off describes evidence and the tested head;
+A `needs-human-qa` PR cannot merge without `qa-approved`; `needs-qa` asks for
+automatic QA and `qa-batch-check` for a check in the next daily batch, and neither
+blocks the merge. Never combine `skip-qa` with `needs-qa`, `needs-human-qa` or
+`qa-approved`. QA sign-off describes evidence and the tested head;
 changed scope needs fresh verification. Self-QA follows the exception and evidence
 requirements in the PR workflow, including both approval and self-verification labels.
+
+QA evidence records `QA head: <sha>` and identifies the scenario, environment,
+test data, result and negative cases. For UI changes, exercise default, empty,
+loading, error, no-permission, long-content and narrow-viewport states, and check
+the design contract when `.uxproof/` exists. Automated self-QA sign-off is limited
+to changes below `risk-high`; higher-risk work needs independent QA evidence.
+
+Use `om-prepare-test-env` to start or reuse the test environment, `om-auto-qa-pr`
+to exercise the change and capture evidence, and `om-integration-tests` to retain
+regression coverage. User-facing changes can use `om-ux-shape` or `om-ux-design`
+before implementation and the advisory `om-ux-review-pr` during review.
 
 Automations acquire the tracker’s atomic claim before mutation, then record
 assignment when supported, `in-progress`, and a timestamped claim comment.
@@ -46,11 +61,37 @@ it stops that processing. It grants no code-review, QA, legal or CI approval.
 Configured human-only labels/authors and `blocked`, `do-not-merge`, `qa-failed`
 and active manual QA remain gates.
 
+`automerge-now` also enrolls a PR and asks either fixer (`om-auto-fix-issue`,
+`om-auto-fix-pr`) to hand off to `om-auto-merge-buddy` for one immediate visit;
+on an issue, the fixer copies the label to the implementation PR. The buddy owns
+every automated merge. `automerge-force` grants nothing alone: only together
+with `automerge-now` does it select the automation-only approval policy, and
+the buddy then posts a PR notice that human QA and the protected-area check were
+skipped. That pair never overrides this repository's QA-approval gate: a
+`needs-human-qa` PR still needs `qa-approved`. Removing either label restores the
+ordinary rules; `automerge-prepare` limits the buddy to preparation.
+
+`automerge-signal-3-passes-local-ci-checks` is the alternative CI signal: every
+configured validation command and the selected integration suite passed locally
+on the current head ([local integration tests](.ai/docs/automerge-local-integration.md)),
+no host check failed and there are no conflicts. Pending host checks are never
+reported as green, and a current host failure invalidates the signal.
+
 The configured mode is `prepare-and-merge`, with independent review required.
 The worker may prepare and squash-merge only after all applicable gates pass on
 the reviewed head. The tracker merge operation matches that commit SHA and keeps
 GitHub's branch rules enforced. Neither a replacement PR nor a fresh commit
 attests to a contributor's CLA: the CLA service must evaluate the new head.
+
+The configuration records the collection's default triage eligibility and QA
+gate keys explicitly. `qaGateLabel` is `needs-human-qa`; `qaReadyLabel` is unset.
+`humanQaPolicy` holds the triage rules and `qaBatch` the daily batch QA settings
+([PR workflow](.ai/docs/pr-workflow.md#daily-batch-qa)); `qaBatch.testers` lists
+the tester logins trusted to give a batch verdict or `--retest`.
+The `claim-reset`, `automerge-signal-*` and `automerge-blocked` labels are additive
+audit and queue markers. `claim-reset` is human-owned; automation only reads its
+audit history. A local-CI signal does not waive this repository's required host
+checks, independent review, QA gate or branch rules.
 
 Inspect workflow runs as well as individual checks. Pending workflows can exist
 before jobs appear; partial check lists cannot establish success. Report completed

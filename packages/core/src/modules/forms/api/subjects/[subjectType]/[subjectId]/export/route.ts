@@ -20,6 +20,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { buildJsonExportDisposition } from '../../../../../lib/export-filename'
 import { ExportService } from '../../../../../services/export-service'
 import {
   FormsAccessAuditLogger,
@@ -94,12 +95,13 @@ export async function GET(
         ua: req.headers.get('user-agent') ?? null,
       })
     }
-    const filename = `forms-export-${subjectType}-${subjectId}.json`
+    const filenameSubjectType = subjectType.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const filename = `forms-export-${filenameSubjectType}-${subjectId}.json`
     return new NextResponse(JSON.stringify(document, null, 2), {
       status: 200,
       headers: {
         'content-type': 'application/json; charset=utf-8',
-        'content-disposition': `attachment; filename="${filename}"`,
+        'content-disposition': buildJsonExportDisposition(filename),
       },
     })
   } catch (error) {

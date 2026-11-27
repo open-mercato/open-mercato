@@ -586,7 +586,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
 
         <div className="flex flex-col gap-3 border-t px-5 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <span>
-            {t('customers.changelog.showingWithPeriod', 'Showing {{shown}} of {{total}} entries · last {{days}} days', {
+            {t('customers.changelog.showingWithPeriod', 'Showing {{shown}} of {{total}} entries, last {{days}} days', {
               shown: shownCount,
               total: totalCount,
               days,
