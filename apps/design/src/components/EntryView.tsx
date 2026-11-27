@@ -1,17 +1,19 @@
 'use client'
 
 import * as React from 'react'
-import { ExternalLink } from 'lucide-react'
+import { Check, ExternalLink, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Anchor, type AnchorItem } from '@open-mercato/ui/primitives/anchor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { entryTabSearch, parseEntryTab, resolveEntryTab, tabsForGroup, type EntryTab } from '@/lib/entry-tabs'
 import { GROUP_LABEL_FALLBACKS } from '@/lib/groups'
 import { githubFileUrl, issuesUrl, publicSourceUrl } from '@/lib/links'
+import { splitRuleText } from '@/lib/rule-text'
 import type { EntryViewData } from './entry-types'
 import { PageHeader } from './PageHeader'
 import { PropsTable } from './PropsTable'
 import { StatesMatrix } from './StatesMatrix'
+import { UsageVisuals, hasUsageVisuals, visibleUsageRules } from './UsageVisuals'
 import { VariantExample } from './VariantExample'
 
 function ImportLine({ importPath, source = false }: { importPath: string; source?: boolean }) {
@@ -36,30 +38,51 @@ function CopyCommandLine({ blockId }: { blockId: string }) {
   )
 }
 
-function WhenToUse({ usage }: { usage: EntryViewData['usage'] }) {
+function RuleList({ tone, title, rules }: { tone: 'do' | 'avoid'; title: string; rules: string[] }) {
+  const Icon = tone === 'do' ? Check : X
+  const iconTone = tone === 'do' ? 'bg-status-success-bg text-status-success-icon' : 'bg-status-error-bg text-status-error-icon'
+  const markTone = tone === 'do' ? 'text-status-success-icon' : 'text-status-error-icon'
+  return (
+    <div className="flex flex-col overflow-hidden rounded-card border border-border bg-card" data-usage-tone={tone}>
+      <h3 className="flex items-center gap-3 border-b border-border px-panel py-3 text-base font-normal text-foreground">
+        <span aria-hidden className={`flex size-6 items-center justify-center rounded-full ${iconTone}`}>
+          <Icon className="size-4" />
+        </span>
+        {title}
+      </h3>
+      <ul className="divide-y divide-border px-panel">
+        {rules.map((rule) => (
+          <li key={rule} className="flex gap-3 py-3 text-sm leading-6 text-foreground">
+            <Icon aria-hidden className={`mt-1 size-4 shrink-0 ${markTone}`} />
+            <span className="min-w-0">
+              {splitRuleText(rule).map((part, index) =>
+                part.kind === 'code'
+                  ? <code key={index} className="rounded-sm bg-muted px-1 font-mono text-xs text-foreground">{part.value}</code>
+                  : <React.Fragment key={index}>{part.value}</React.Fragment>,
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function WhenToUse({ entryId, usage }: { entryId: string; usage: EntryViewData['usage'] }) {
   const t = useT()
-  if (usage.do.length === 0 && usage.dont.length === 0) return null
+  const withVisuals = hasUsageVisuals(entryId)
+  if (usage.do.length === 0 && usage.dont.length === 0 && !withVisuals) return null
+  const rules = visibleUsageRules(entryId, usage)
   return (
     <section className="scroll-mt-20 space-y-4" id="when-to-use" aria-labelledby="entry-when-to-use">
       <h2 id="entry-when-to-use" className="text-xl font-normal text-foreground">{t('design.entry.whenToUse')}</h2>
-      <div className="grid gap-4 md:grid-cols-2">
-        {usage.do.length > 0 ? (
-          <div className="rounded-xl border border-border p-4">
-            <h3 className="mb-2 text-sm text-status-success-text">{t('design.entry.do')}</h3>
-            <ul className="list-disc space-y-2 pl-4 text-sm text-muted-foreground">
-              {usage.do.map((rule) => <li key={rule}>{rule}</li>)}
-            </ul>
-          </div>
-        ) : null}
-        {usage.dont.length > 0 ? (
-          <div className="rounded-xl border border-border p-4">
-            <h3 className="mb-2 text-sm text-status-error-text">{t('design.entry.dont')}</h3>
-            <ul className="list-disc space-y-2 pl-4 text-sm text-muted-foreground">
-              {usage.dont.map((rule) => <li key={rule}>{rule}</li>)}
-            </ul>
-          </div>
-        ) : null}
-      </div>
+      <UsageVisuals entryId={entryId} />
+      {rules.do.length > 0 || rules.dont.length > 0 ? (
+        <div className="grid items-start gap-4 md:grid-cols-2">
+          {rules.do.length > 0 ? <RuleList tone="do" title={t('design.entry.do')} rules={rules.do} /> : null}
+          {rules.dont.length > 0 ? <RuleList tone="avoid" title={t('design.entry.dont')} rules={rules.dont} /> : null}
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -68,7 +91,7 @@ function UsagePanel({ data }: { data: EntryViewData }) {
   const t = useT()
   return (
     <div className="space-y-12">
-      <WhenToUse usage={data.usage} />
+      <WhenToUse entryId={data.id} usage={data.usage} />
       <section className="scroll-mt-20 space-y-8" id="examples" aria-labelledby="entry-examples">
         <h2 id="entry-examples" className="text-xl font-normal text-foreground">{t('design.entry.examples')}</h2>
         {data.variants.map((variant) => (
@@ -221,7 +244,7 @@ function EntryMeta({ data }: { data: EntryViewData }) {
 
 function tableOfContents(data: EntryViewData, t: ReturnType<typeof useT>): AnchorItem[] {
   const items: AnchorItem[] = []
-  if (data.usage.do.length > 0 || data.usage.dont.length > 0) items.push({ href: '#when-to-use', title: t('design.entry.whenToUse') })
+  if (data.usage.do.length > 0 || data.usage.dont.length > 0 || hasUsageVisuals(data.id)) items.push({ href: '#when-to-use', title: t('design.entry.whenToUse') })
   items.push({
     href: '#examples',
     title: t('design.entry.examples'),
@@ -281,7 +304,16 @@ export function EntryView({ data }: { data: EntryViewData }) {
             <TabsTrigger value="source">{t('design.entry.tabSource')}</TabsTrigger>
             {showStates ? <TabsTrigger value="states">{t('design.entry.tabStates')}</TabsTrigger> : null}
           </TabsList>
-          <TabsContent value="usage"><UsagePanel data={data} /></TabsContent>
+          <TabsContent value="usage">
+            <div className="flex gap-10">
+              <div className="min-w-0 flex-1"><UsagePanel data={data} /></div>
+              <aside className="hidden w-56 shrink-0 xl:block">
+                <div className="sticky top-20 max-h-screen overflow-y-auto pb-24">
+                  <Anchor items={tableOfContents(data, t)} offset={80} label={t('design.entry.onThisPage')} />
+                </div>
+              </aside>
+            </div>
+          </TabsContent>
           {showApi ? <TabsContent value="api"><ApiPanel data={data} /></TabsContent> : null}
           <TabsContent value="source"><SourcePanel data={data} /></TabsContent>
           {showStates ? (
@@ -291,13 +323,6 @@ export function EntryView({ data }: { data: EntryViewData }) {
           ) : null}
         </Tabs>
       </article>
-      {tab === 'usage' ? (
-        <aside className="hidden w-56 shrink-0 xl:block">
-          <div className="sticky top-20 max-h-screen overflow-y-auto pb-24">
-            <Anchor items={tableOfContents(data, t)} offset={80} label={t('design.entry.onThisPage')} />
-          </div>
-        </aside>
-      ) : null}
     </div>
   )
 }
