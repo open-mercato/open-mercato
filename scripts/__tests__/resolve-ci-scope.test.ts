@@ -161,6 +161,67 @@ test('a base that predates the scope rules uses the default branch copy and says
   assert.equal(step.summary, 'CI scope: scoped · sales (changed) · scope rules from main (base release/v0.10.x predates them)\n')
 })
 
+test('the step env maps every input from the event, so fork detection compares the real head and base repos', () => {
+  assert.deepEqual(scopeStep.env, {
+    EVENT_NAME: '${{ github.event_name }}',
+    GH_TOKEN: '${{ github.token }}',
+    REPOSITORY: '${{ github.repository }}',
+    DEFAULT_BRANCH: '${{ github.event.repository.default_branch }}',
+    PR_NUMBER: '${{ github.event.pull_request.number }}',
+    BASE_SHA: '${{ github.event.pull_request.base.sha }}',
+    BASE_REF: '${{ github.base_ref }}',
+    HEAD_REF: '${{ github.head_ref }}',
+    HEAD_REPO: '${{ github.event.pull_request.head.repo.full_name }}',
+  })
+})
+
+test('a fork PR is detected from HEAD_REPO and keeps its scope despite ci-full', () => {
+  const step = runCiScopeStep({ changedFiles: ['packages/core/src/modules/catalog/a.ts'], labels: ['ci-full'], headRepo: 'contributor/open-mercato' })
+  assert.equal(step.status, 0, step.stderr)
+  assert.equal(step.full, false)
+  assert.equal(step.values.modules, 'catalog')
+})
+
+test('a base commit missing from the shallow checkout is fetched by SHA before the scope files are read', () => {
+  const step = runCiScopeStep({ changedFiles: ['packages/core/src/modules/sales/a.ts'], baseCommitPresent: false })
+  assert.equal(step.status, 0, step.stderr)
+  const fetchIndex = step.calls.indexOf('git fetch --no-tags --depth=1 origin base-sha')
+  assert.ok(fetchIndex >= 0, step.calls.join('\n'))
+  assert.ok(step.calls.indexOf('git show base-sha:scripts/ci/resolve-ci-scope.mts') > fetchIndex, step.calls.join('\n'))
+  assert.equal(step.values.modules, 'sales')
+})
+
+test('a failing fetch of the base commit fails the step without running the resolver', () => {
+  const step = runCiScopeStep({ changedFiles: ['packages/core/src/modules/sales/a.ts'], baseCommitPresent: false, fetchFails: true })
+  assert.notEqual(step.status, 0)
+  assert.ok(step.calls.includes('git fetch --no-tags --depth=1 origin base-sha'), step.calls.join('\n'))
+  assert.ok(!step.calls.some((call) => call.startsWith('git show')), step.calls.join('\n'))
+  assert.deepEqual(step.values, {})
+  assert.equal(step.summary, '')
+})
+
+test('an empty diff runs the full suite in the step (the pre-resolver script skipped integration)', (t) => {
+  const step = runCiScopeStep({ changedFiles: [] })
+  assert.equal(step.status, 0, step.stderr)
+  assert.equal(step.full, true)
+  assert.equal(step.values.skip, 'false')
+  assert.equal(step.values.modules, '')
+  assert.match(step.summary, /^CI scope: full · no changed files reported/)
+  if (!gnuGrepAvailable) return t.skip('GNU grep -P unavailable: pre-resolver comparison skipped')
+  assert.deepEqual(runTodayPrepareScope({ changedFiles: [], labels: [], headRef: 'fix/example', baseRef: 'main', isFork: false }), { level: 'scoped', modules: [], skip: true })
+})
+
+test('risk-high on a same-repo scripts-only PR runs the full suite in the step (the pre-resolver script skipped integration)', (t) => {
+  const input: CiScopeInput = { changedFiles: ['scripts/dev.mjs', 'package.json'], labels: ['risk-high'], headRef: 'fix/example', baseRef: 'main', isFork: false }
+  const step = runCiScopeStep({ changedFiles: [...input.changedFiles], labels: [...input.labels] })
+  assert.equal(step.status, 0, step.stderr)
+  assert.equal(step.full, true)
+  assert.deepEqual(JSON.parse(step.values.shard_matrix), FULL_SHARDS)
+  assert.match(step.summary, /^CI scope: full · .*label risk-high implies ci-targeted; targeted requested but no module changed and no ci-area label/)
+  if (!gnuGrepAvailable) return t.skip('GNU grep -P unavailable: pre-resolver comparison skipped')
+  assert.deepEqual(runTodayPrepareScope(input), { level: 'scoped', modules: [], skip: true })
+})
+
 test('the prepare job reads labels from the API at job time, not from the event payload', () => {
   assert.doesNotMatch(JSON.stringify(scopeStep), /pull_request\.labels/)
   const step = runCiScopeStep({ changedFiles: ['README.md'], labels: ['ci-full'] })
@@ -197,10 +258,12 @@ test('an unknown ci-* label fails the prepare job with a clear error and summary
   assert.equal(step.values.shard_matrix, undefined)
 })
 
-test('a failing diff fails the prepare job instead of guessing a scope', () => {
+test('a failing diff fails the prepare job before the API or the resolver runs', () => {
   const step = runCiScopeStep({ diffFails: true })
   assert.notEqual(step.status, 0)
-  assert.equal(step.values.shard_matrix, undefined)
+  assert.deepEqual(step.calls, ['git diff --name-only HEAD^1 HEAD'])
+  assert.deepEqual(step.values, {})
+  assert.equal(step.summary, '')
 })
 
 test('docsOnly is an allow-list without blanket markdown and covers apps/docs mdx', () => {

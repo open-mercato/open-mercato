@@ -152,9 +152,12 @@ jobs:
         #
         # PRs: scripts/ci/resolve-ci-scope.mts and .github/ci-scope.json are read from the PR's
         # base commit (`git show <base_sha>:<path>`), never from the PR checkout, so a PR cannot
-        # narrow its own scope. A base that predates them (an older release line) uses the
-        # default branch's copy. Labels are read from the API now, not from the event payload.
-        # The driver stays inline here: editing it edits ci.yml, which resolves to the full suite.
+        # change the resolver or the scope file that decide its own scope. This protects only
+        # those two files: on pull_request events ci.yml itself comes from the PR merge commit.
+        # The driver below stays inline for that reason: editing it edits ci.yml, which the
+        # scope rules always send to the full suite. A base that predates the scope files (an
+        # older release line) uses the default branch's copy. Labels are read from the API at
+        # job time, not from the event payload.
         # Spec: .ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md, Phase 2.
         # scripts/__tests__/resolve-ci-scope.test.ts runs this script against the pre-resolver one.
         id: integration-scope

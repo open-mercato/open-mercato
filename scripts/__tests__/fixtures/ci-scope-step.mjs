@@ -23,10 +23,11 @@ git() {
     cat-file)
       case "$3" in
         *:*) [ "$STUB_SCOPE_RULES_AT_BASE" = "true" ] ;;
-        *) return 0 ;;
+        *'^{commit}') [ "$STUB_BASE_COMMIT_PRESENT" = "true" ] ;;
+        *) return 97 ;;
       esac
       ;;
-    fetch) return 0 ;;
+    fetch) [ "$STUB_FETCH_FAILS" != "true" ] || return 128 ;;
     rev-parse) echo default-branch-tip ;;
     show) cat "$STUB_REPO_ROOT/$(printf '%s' "$2" | cut -d: -f2-)" ;;
     *) return 98 ;;
@@ -54,6 +55,8 @@ export function runCiScopeStep({
   baseRef = 'main',
   headRepo = REPOSITORY,
   scopeRulesAtBase = true,
+  baseCommitPresent = true,
+  fetchFails = false,
   diffFails = false,
 } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-scope-step-'))
@@ -85,6 +88,8 @@ export function runCiScopeStep({
         STUB_LABELS: labels.join('\n'),
         STUB_SCOPE_RULES_AT_BASE: String(scopeRulesAtBase),
         STUB_DIFF_FAILS: String(diffFails),
+        STUB_BASE_COMMIT_PRESENT: String(baseCommitPresent),
+        STUB_FETCH_FAILS: String(fetchFails),
         STUB_REPO_ROOT: repoRoot,
       },
       encoding: 'utf8',
