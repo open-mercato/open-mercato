@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { Clock } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -16,6 +17,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ScheduleSendDialog, useComposeScheduling } from '@open-mercato/ui/backend/messages'
 
 export interface ComposeEmailChannel {
   id: string
@@ -38,6 +40,8 @@ export interface ComposeEmailValues {
   references?: string[]
   /** When replying, the messages.message id of the parent so the reply joins its thread. */
   parentMessageId?: string
+  /** Send later: ISO instant the email is released at; absent sends now. */
+  scheduledAt?: string
 }
 
 export interface ComposeEmailDialogProps {
@@ -54,6 +58,18 @@ export interface ComposeEmailDialogProps {
     parentMessageId?: string
   } | null
   onSend: (values: ComposeEmailValues) => Promise<{ messageId: string | null }>
+}
+
+type Translate = ReturnType<typeof useT>
+
+/** Flash copy for an email scheduled through this dialog; scheduled emails are managed in Messages → Scheduled. */
+export function scheduledEmailFlashMessage(t: Translate, scheduledAt: string): string {
+  const date = new Date(scheduledAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return t(
+    'customers.email.compose.scheduledFor',
+    'Email scheduled for {date}. Find it in Messages → Scheduled.',
+    { date },
+  )
 }
 
 function parseRecipients(raw: string): string[] {
@@ -102,6 +118,11 @@ export function ComposeEmailDialog({
   const [to, setTo] = React.useState(initial.to)
   const [showCc, setShowCc] = React.useState(initial.showCc)
   const [cc, setCc] = React.useState(initial.cc)
+  const [showBcc, setShowBcc] = React.useState(false)
+  const [bcc, setBcc] = React.useState('')
+  const [scheduleOpen, setScheduleOpen] = React.useState(false)
+  const scheduling = useComposeScheduling(open)
+  const canSchedule = scheduling?.available === true
   const [subject, setSubject] = React.useState(initial.subject)
   const [body, setBody] = React.useState('')
   const [visibility, setVisibility] = React.useState<'private' | 'shared'>('private')
@@ -116,6 +137,9 @@ export function ComposeEmailDialog({
     setTo(next.to)
     setCc(next.cc)
     setShowCc(next.showCc)
+    setBcc('')
+    setShowBcc(false)
+    setScheduleOpen(false)
     setSubject(next.subject)
     setBody('')
     setVisibility('private')
@@ -132,15 +156,17 @@ export function ComposeEmailDialog({
     body.trim().length === 0 ||
     !channelId
 
-  const handleSend = React.useCallback(async () => {
+  const handleSend = React.useCallback(async (scheduledAt?: string) => {
     setError(null)
     setBusy(true)
     try {
       const ccList = showCc ? parseRecipients(cc) : undefined
+      const bccList = showBcc ? parseRecipients(bcc) : undefined
       const values: ComposeEmailValues = {
         userChannelId: channelId,
         to: toList,
         cc: ccList && ccList.length > 0 ? ccList : undefined,
+        bcc: bccList && bccList.length > 0 ? bccList : undefined,
         subject: subject.trim(),
         body: body.trim(),
         bodyFormat: 'text',
@@ -148,6 +174,7 @@ export function ComposeEmailDialog({
         inReplyTo: replyTo?.inReplyTo,
         references: replyTo?.references,
         parentMessageId: replyTo?.parentMessageId,
+        ...(scheduledAt ? { scheduledAt } : {}),
       }
       await onSend(values)
       onOpenChange(false)
@@ -157,17 +184,19 @@ export function ComposeEmailDialog({
     } finally {
       setBusy(false)
     }
-  }, [showCc, cc, channelId, toList, subject, body, visibility, replyTo, onSend, onOpenChange])
+  }, [showCc, cc, showBcc, bcc, channelId, toList, subject, body, visibility, replyTo, onSend, onOpenChange])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
+      // The schedule picker is portalled but its key events still bubble through this tree.
+      if (scheduleOpen) return
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
         if (!isSendDisabled) {
           void handleSend()
         }
       }
     },
-    [isSendDisabled, handleSend],
+    [scheduleOpen, isSendDisabled, handleSend],
   )
 
   return (
@@ -188,18 +217,32 @@ export function ComposeEmailDialog({
               <Label htmlFor="compose-to">
                 {t('customers.email.compose.to', 'To')}
               </Label>
-              {!showCc && (
-                <Button
-                  type="button"
-                  variant="link"
-                  size="2xs"
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={() => setShowCc(true)}
-                  aria-label={t('customers.email.compose.addCc.ariaLabel', 'Add Cc recipients')}
-                >
-                  {t('customers.email.compose.addCc', '+ Cc')}
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {!showCc && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="2xs"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowCc(true)}
+                    aria-label={t('customers.email.compose.addCc.ariaLabel', 'Add Cc recipients')}
+                  >
+                    {t('customers.email.compose.addCc', '+ Cc')}
+                  </Button>
+                )}
+                {!showBcc && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="2xs"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowBcc(true)}
+                    aria-label={t('customers.email.compose.addBcc.ariaLabel', 'Add Bcc recipients')}
+                  >
+                    {t('customers.email.compose.addBcc', '+ Bcc')}
+                  </Button>
+                )}
+              </div>
             </div>
             <Input
               id="compose-to"
@@ -221,6 +264,21 @@ export function ComposeEmailDialog({
                 value={cc}
                 onChange={(e) => setCc(e.target.value)}
                 placeholder={t('customers.email.compose.ccPlaceholder', 'cc@example.com')}
+                autoComplete="off"
+              />
+            </div>
+          )}
+
+          {showBcc && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="compose-bcc">
+                {t('customers.email.compose.bcc', 'Bcc')}
+              </Label>
+              <Input
+                id="compose-bcc"
+                value={bcc}
+                onChange={(e) => setBcc(e.target.value)}
+                placeholder={t('customers.email.compose.bccPlaceholder', 'bcc@example.com')}
                 autoComplete="off"
               />
             </div>
@@ -313,6 +371,17 @@ export function ComposeEmailDialog({
           >
             {t('customers.email.compose.cancel', 'Cancel')}
           </Button>
+          {canSchedule ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setScheduleOpen(true)}
+              disabled={isSendDisabled}
+            >
+              <Clock className="mr-2 size-4" />
+              {t('customers.email.compose.sendLater', 'Send later…')}
+            </Button>
+          ) : null}
           <Button
             type="button"
             onClick={() => void handleSend()}
@@ -324,6 +393,18 @@ export function ComposeEmailDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      {canSchedule ? (
+        <ScheduleSendDialog
+          open={scheduleOpen}
+          onOpenChange={setScheduleOpen}
+          maxDays={scheduling.maxDays}
+          submitting={busy}
+          onConfirm={(scheduledAt) => {
+            setScheduleOpen(false)
+            void handleSend(scheduledAt)
+          }}
+        />
+      ) : null}
     </Dialog>
   )
 }

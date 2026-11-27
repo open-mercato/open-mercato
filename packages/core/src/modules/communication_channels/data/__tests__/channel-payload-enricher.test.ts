@@ -18,7 +18,7 @@ function getPayloadEnricher(): ResponseEnricher {
   return enricher
 }
 
-function makeContext(messageId: string): EnricherContext {
+function makeContext(messageId: string, senderUserId = 'author-1'): EnricherContext {
   const joinBuilder: any = {
     onRef: jest.fn(() => joinBuilder),
     on: jest.fn(() => joinBuilder),
@@ -32,7 +32,7 @@ function makeContext(messageId: string): EnricherContext {
     select: jest.fn(() => participantQuery),
     distinct: jest.fn(() => participantQuery),
     where: jest.fn(() => participantQuery),
-    execute: jest.fn(async () => [{ id: messageId }]),
+    execute: jest.fn(async () => [{ id: messageId, sender_user_id: senderUserId }]),
   }
   return {
     organizationId: 'org-1',
@@ -43,9 +43,9 @@ function makeContext(messageId: string): EnricherContext {
   }
 }
 
-async function enrichOne(record: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function enrichOne(record: Record<string, unknown>, senderUserId?: string): Promise<Record<string, unknown>> {
   const enricher = getPayloadEnricher()
-  const [out] = await enricher.enrichMany!([record], makeContext(String(record.id)))
+  const [out] = await enricher.enrichMany!([record], makeContext(String(record.id), senderUserId))
   return out as Record<string, unknown>
 }
 
@@ -153,5 +153,34 @@ describe('communication_channels message-channel-payload enricher', () => {
     const payload = out._channelPayload as { sanitizedHtml?: unknown }
 
     expect(payload.sanitizedHtml).toBeNull()
+  })
+
+  describe.each(['pending', 'failed'])('BCC in %s mailbox link metadata', (deliveryStatus) => {
+    const legacyLink = () => ({
+      messageId: 'msg-bcc',
+      deliveryStatus,
+      channelContentType: 'text/plain',
+      channelPayload: { text: 'Hi' },
+      channelMetadata: { to: ['a@example.com'], cc: ['c@example.com'], bcc: ['hidden@example.com'], subject: 'Quote' },
+    })
+
+    it('hides BCC from a recipient who is not the author', async () => {
+      findWithDecryptionMock.mockResolvedValue([legacyLink()])
+
+      const out = await enrichOne({ id: 'msg-bcc' }, 'author-1')
+      const payload = out._channelPayload as { channelMetadata: Record<string, unknown> }
+
+      expect(payload.channelMetadata).toEqual({ to: ['a@example.com'], cc: ['c@example.com'], subject: 'Quote' })
+      expect(JSON.stringify(out)).not.toContain('hidden@example.com')
+    })
+
+    it('keeps BCC for the author', async () => {
+      findWithDecryptionMock.mockResolvedValue([legacyLink()])
+
+      const out = await enrichOne({ id: 'msg-bcc' }, 'user-1')
+      const payload = out._channelPayload as { channelMetadata: Record<string, unknown> }
+
+      expect(payload.channelMetadata.bcc).toEqual(['hidden@example.com'])
+    })
   })
 })

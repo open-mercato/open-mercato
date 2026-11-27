@@ -3,7 +3,6 @@ import { FileCode, Globe, Lock } from 'lucide-react'
 import { type CrudField } from '../CrudForm'
 import { IconButton } from '../../primitives/icon-button'
 import { Input } from '../../primitives/input'
-import { EmailInput } from '../../primitives/email-input'
 import { Label } from '../../primitives/label'
 import {
   Select,
@@ -19,6 +18,9 @@ import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { TagsInput } from '../inputs/TagsInput'
 import { MessagePrioritySelector } from './MessagePrioritySelector'
 import type { UseMessageComposeResult } from './useMessageCompose'
+import { isValidEmailAddress } from './useMessageComposeOperations'
+
+const MAX_EXTERNAL_EMAILS = 50
 
 type ComposeProps = {
   compose: UseMessageComposeResult
@@ -36,6 +38,63 @@ function RecipientTagsInput({ compose }: ComposeProps) {
       allowCustomValues={false}
       showSuggestionsOnFocus={false}
     />
+  )
+}
+
+function ExternalEmailsInput({ compose }: ComposeProps) {
+  const handleChange = React.useCallback((next: string[]) => {
+    const seen = new Set<string>()
+    const accepted = next
+      .map((value) => value.trim())
+      .filter((value) => {
+        const key = value.toLowerCase()
+        if (!isValidEmailAddress(value) || seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .slice(0, MAX_EXTERNAL_EMAILS)
+    compose.setExternalEmails(accepted)
+  }, [compose])
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor="messages-compose-external-emails">{compose.t('messages.compose.to', 'To')}</Label>
+        <span className="text-xs text-muted-foreground" aria-live="polite">
+          {compose.t('messages.compose.toLimit', '{count} / {max}', {
+            count: compose.externalEmails.length,
+            max: MAX_EXTERNAL_EMAILS,
+          })}
+        </span>
+      </div>
+      <div id="messages-compose-external-emails">
+        <TagsInput
+          value={compose.externalEmails}
+          onChange={handleChange}
+          placeholder={compose.t('messages.compose.toPlaceholder', 'Type an email address and press Enter')}
+        />
+      </div>
+    </>
+  )
+}
+
+function SendSeparatelyField({ compose }: ComposeProps) {
+  const id = 'messages-compose-send-separately'
+  return (
+    <div className="shrink-0 space-y-2">
+      <Label htmlFor={id}>{compose.t('messages.compose.sendSeparately', 'Send separately')}</Label>
+      <div className="flex h-9 items-center">
+        <Switch
+          id={id}
+          checked={compose.sendSeparately}
+          onCheckedChange={compose.setSendSeparately}
+          aria-describedby={`${id}-hint`}
+        />
+      </div>
+      <p id={`${id}-hint`} className="whitespace-nowrap text-xs text-muted-foreground">
+        {compose.t('messages.compose.sendSeparatelyHint', 'Each recipient gets a private copy.')}
+      </p>
+    </div>
   )
 }
 
@@ -230,15 +289,7 @@ function ComposeModeFields({ compose }: ComposeProps) {
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-2">
             {compose.visibility === 'public' ? (
-              <>
-                <Label htmlFor="messages-compose-external-email">{compose.t('messages.externalEmail', 'External email')}</Label>
-                <EmailInput
-                  id="messages-compose-external-email"
-                  value={compose.externalEmail}
-                  onChange={(event) => compose.setExternalEmail(event.target.value)}
-                  placeholder={compose.t('messages.placeholders.externalEmail', 'name@example.com')}
-                />
-              </>
+              <ExternalEmailsInput compose={compose} />
             ) : (
               <>
                 <Label htmlFor="messages-compose-recipients">{compose.t('messages.to', 'To')}</Label>
@@ -252,7 +303,16 @@ function ComposeModeFields({ compose }: ComposeProps) {
           </div>
         </div>
 
-        <SenderSelector compose={compose} />
+        {compose.senderOptions.length > 0 || compose.visibility === 'public' ? (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-6">
+            {compose.senderOptions.length > 0 ? (
+              <div className="min-w-0 flex-1">
+                <SenderSelector compose={compose} />
+              </div>
+            ) : null}
+            {compose.visibility === 'public' ? <SendSeparatelyField compose={compose} /> : null}
+          </div>
+        ) : null}
 
         <ContextActionsSection compose={compose} />
       </div>
@@ -282,14 +342,40 @@ function ComposeModeFields({ compose }: ComposeProps) {
         textareaClassName="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
-      <MessageAttachments compose={compose} />
+      <ComposeAttachmentsField compose={compose} />
     </>
   )
+}
+
+function ComposeAttachmentsField({ compose }: ComposeProps) {
+  const sender = compose.senderOptions.find((option) => option.id === compose.senderChannelId)
+  if (sender?.supportsAttachments === false) {
+    return (
+      <div className="space-y-2">
+        <Label>{compose.t('messages.attachedFiles', 'Attachments')}</Label>
+        <p className="text-sm text-muted-foreground">
+          {compose.t(
+            'messages.composer.senderAttachmentsUnsupported',
+            'The selected mailbox cannot send attachments. Choose another sender to add or remove files.',
+          )}
+        </p>
+      </div>
+    )
+  }
+  return <MessageAttachments compose={compose} />
 }
 
 function ReplyModeFields({ compose }: ComposeProps) {
   return (
     <>
+      {compose.replyAll && compose.externalEmails.length > 0 ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="min-w-0 flex-1 space-y-2">
+            <ExternalEmailsInput compose={compose} />
+          </div>
+          <SendSeparatelyField compose={compose} />
+        </div>
+      ) : null}
       <MarkdownBodySection
         compose={compose}
         label={compose.t('messages.replyBody', 'Reply')}
@@ -299,7 +385,7 @@ function ReplyModeFields({ compose }: ComposeProps) {
         textareaClassName="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
-      <MessageAttachments compose={compose} />
+      <ComposeAttachmentsField compose={compose} />
     </>
   )
 }

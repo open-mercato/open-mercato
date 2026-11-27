@@ -15,7 +15,7 @@ jest.mock('../../lib/outbound-routing', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
-  findWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(async () => []),
 }))
 
 jest.mock('../../events', () => ({
@@ -38,7 +38,7 @@ jest.mock('../../lib/thread-token', () => ({
 import deliverOutboundMessageCommand, {
   COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID,
 } from '../deliver-outbound-message'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCommunicationChannelsEvent } from '../../events'
 import { ExternalMessage } from '../../data/entities'
 import { buildBodyFooter } from '../../lib/thread-token'
@@ -49,6 +49,7 @@ import {
 } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockFind = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 const mockEmit = emitCommunicationChannelsEvent as jest.MockedFunction<typeof emitCommunicationChannelsEvent>
 const mockBuildBodyFooter = buildBodyFooter as jest.MockedFunction<typeof buildBodyFooter>
 
@@ -119,7 +120,7 @@ describe('deliverOutboundMessageCommand — idempotency (no double-send)', () =>
   const VALID_ORG = '550e8400-e29b-41d4-a716-446655440030'
 
   function makeCtx(adapter: Record<string, unknown>) {
-    const em: any = { create: jest.fn(), persist: jest.fn(), flush: jest.fn() }
+    const em: any = { create: jest.fn(), persist: jest.fn(), flush: jest.fn(), nativeUpdate: jest.fn(async () => 0), count: jest.fn(async () => 0) }
     em.fork = () => em
     return {
       container: {
@@ -172,6 +173,8 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
       }),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
+      nativeUpdate: jest.fn(async () => 0),
+      count: jest.fn(async () => 0),
     }
     em.fork = () => em
     const channel = {
@@ -374,6 +377,8 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
       create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
+      nativeUpdate: jest.fn(async () => 0),
+      count: jest.fn(async () => 0),
     }
     em.fork = () => em
     const adapter = {
@@ -443,12 +448,14 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
 
   it('hands a threading adapter the parent message external id', async () => {
     primeFinds(PARENT_MSG)
-    mockFindOne
-      .mockResolvedValueOnce({
+    mockFind
+      .mockResolvedValueOnce([] as never) // participants of the delivered message
+      .mockResolvedValueOnce([{
         id: 'link-parent',
         externalMessageId: PARENT_EXTERNAL_ROW,
         externalConversationId: 'conv-1',
-      } as never) // parent link
+      }] as never) // parent links
+    mockFindOne
       .mockResolvedValueOnce({
         id: PARENT_EXTERNAL_ROW,
         externalMessageId: PARENT_SNOWFLAKE,
@@ -542,6 +549,13 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
 
   it('does not let caller-supplied link metadata override the hub-resolved parent', async () => {
     mockFindOne.mockReset()
+    mockFind
+      .mockResolvedValueOnce([] as never) // participants of the delivered message
+      .mockResolvedValueOnce([{
+        id: 'link-parent',
+        externalMessageId: PARENT_EXTERNAL_ROW,
+        externalConversationId: 'conv-1',
+      }] as never) // parent links
     mockFindOne
       .mockResolvedValueOnce({
         id: 'msg-1',
@@ -571,11 +585,6 @@ describe('deliverOutboundMessageCommand — outbound reply threading', () => {
         userId: 'u-1',
         credentialsRef: null,
         status: 'connected',
-      } as never)
-      .mockResolvedValueOnce({
-        id: 'link-parent',
-        externalMessageId: PARENT_EXTERNAL_ROW,
-        externalConversationId: 'conv-1',
       } as never)
       .mockResolvedValueOnce({
         id: PARENT_EXTERNAL_ROW,
@@ -670,6 +679,8 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
     create: jest.Mock
     persist: jest.Mock
     flush: jest.Mock
+    nativeUpdate: jest.Mock
+    count: jest.Mock
     fork?: () => unknown
     transactional?: (callback: (tx: unknown) => Promise<unknown>) => Promise<unknown>
   }
@@ -683,6 +694,8 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       create: jest.fn((_entity: unknown, data: Row) => ({ ...data })),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
+      nativeUpdate: jest.fn(async () => 0),
+      count: jest.fn(async () => 0),
     }
     em.fork = () => em
     em.transactional = (callback) => callback(em)
@@ -880,6 +893,8 @@ describe('deliverOutboundMessageCommand: provider ids of the sent message', () =
       create: jest.fn((_entity: unknown, data: Row) => ({ ...data })),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
+      nativeUpdate: jest.fn(async () => 0),
+      count: jest.fn(async () => 0),
     }
     const adoptionFork: Pick<TestEm, 'flush' | 'transactional'> = {
       flush: jest.fn(async () => {

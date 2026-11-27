@@ -12,6 +12,13 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'action_result' },
     ],
   },
+  {
+    entityId: 'messages:message_external_participant',
+    fields: [
+      { field: 'email', hashField: 'email_hash' },
+      { field: 'name' },
+    ],
+  },
 ]
 
 export default defaultEncryptionMaps

@@ -3,11 +3,12 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
 }))
 
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../outbound-reply-ref'
 import { ExternalMessage, MessageChannelLink } from '../../data/entities'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockFind = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 
 const TENANT = '11111111-1111-1111-1111-111111111111'
 const ORG = '22222222-2222-2222-2222-222222222222'
@@ -54,17 +55,20 @@ function parentExternalMessage(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   mockFindOne.mockReset()
+  mockFind.mockReset()
+  mockFind.mockResolvedValue([])
 })
 
 describe('resolveOutboundReplyExternalId', () => {
   it('resolves the provider-native id of the message a reply answers', async () => {
-    mockFindOne.mockResolvedValueOnce(parentLink()).mockResolvedValueOnce(parentExternalMessage())
+    mockFind.mockResolvedValueOnce([parentLink()])
+    mockFindOne.mockResolvedValueOnce(parentExternalMessage())
 
     await expect(resolveOutboundReplyExternalId(em(), baseInput())).resolves.toBe(PARENT_SNOWFLAKE)
 
-    // The link is looked up by the parent hub message id, under the caller's
+    // The links are looked up by the parent hub message id, under the caller's
     // tenant/org scope — never unscoped.
-    const [, linkEntity, linkWhere] = mockFindOne.mock.calls[0]
+    const [, linkEntity, linkWhere] = mockFind.mock.calls[0]
     expect(linkEntity).toBe(MessageChannelLink)
     expect(linkWhere).toEqual({
       messageId: PARENT_MESSAGE,
@@ -72,7 +76,7 @@ describe('resolveOutboundReplyExternalId', () => {
       organizationId: ORG,
     })
 
-    const [, externalEntity, externalWhere] = mockFindOne.mock.calls[1]
+    const [, externalEntity, externalWhere] = mockFindOne.mock.calls[0]
     expect(externalEntity).toBe(ExternalMessage)
     expect(externalWhere).toEqual({
       id: PARENT_EXTERNAL_ROW,
@@ -90,53 +94,59 @@ describe('resolveOutboundReplyExternalId', () => {
     await expect(
       resolveOutboundReplyExternalId(em(), baseInput({ capabilities: null })),
     ).resolves.toBeNull()
-    expect(mockFindOne).not.toHaveBeenCalled()
+    expect(mockFind).not.toHaveBeenCalled()
   })
 
   it('returns null when the message is not a reply', async () => {
     await expect(
       resolveOutboundReplyExternalId(em(), baseInput({ parentMessageId: null })),
     ).resolves.toBeNull()
-    expect(mockFindOne).not.toHaveBeenCalled()
+    expect(mockFind).not.toHaveBeenCalled()
   })
 
   it('returns null when the parent never reached this channel', async () => {
-    mockFindOne.mockResolvedValueOnce(null as never)
     await expect(resolveOutboundReplyExternalId(em(), baseInput())).resolves.toBeNull()
 
     // A link exists but delivery never produced an ExternalMessage row (e.g. the
     // parent is still `pending` or `failed`).
-    mockFindOne.mockReset()
-    mockFindOne.mockResolvedValueOnce(parentLink({ externalMessageId: null }))
+    mockFind.mockResolvedValueOnce([parentLink({ externalMessageId: null })])
     await expect(resolveOutboundReplyExternalId(em(), baseInput())).resolves.toBeNull()
-    expect(mockFindOne).toHaveBeenCalledTimes(1)
+    expect(mockFindOne).not.toHaveBeenCalled()
   })
 
   it('refuses a parent that belongs to a different conversation', async () => {
     // Discord answers `400 Unknown message` for a cross-channel reference, so an
     // unthreaded reply is the better degradation.
-    mockFindOne.mockResolvedValueOnce(
-      parentLink({ externalConversationId: OTHER_CONVERSATION }),
-    )
+    mockFind.mockResolvedValueOnce([parentLink({ externalConversationId: OTHER_CONVERSATION })])
 
     await expect(resolveOutboundReplyExternalId(em(), baseInput())).resolves.toBeNull()
+    expect(mockFindOne).not.toHaveBeenCalled()
+  })
+
+  it('picks the delivered link in this conversation when the parent was sent separately', async () => {
+    mockFind.mockResolvedValueOnce([
+      parentLink({ id: 'link-pending', externalMessageId: null }),
+      parentLink({ id: 'link-other', externalConversationId: OTHER_CONVERSATION }),
+      parentLink({ id: 'link-sent' }),
+    ])
+    mockFindOne.mockResolvedValueOnce(parentExternalMessage())
+
+    await expect(resolveOutboundReplyExternalId(em(), baseInput())).resolves.toBe(PARENT_SNOWFLAKE)
     expect(mockFindOne).toHaveBeenCalledTimes(1)
   })
 
   it('re-checks the conversation on the row that carries the provider id', async () => {
     // The link and the ExternalMessage are written together, so they cannot
     // disagree today; the guard holds independently of that coupling.
-    mockFindOne
-      .mockResolvedValueOnce(parentLink())
-      .mockResolvedValueOnce(parentExternalMessage({ conversationId: OTHER_CONVERSATION }))
+    mockFind.mockResolvedValueOnce([parentLink()])
+    mockFindOne.mockResolvedValueOnce(parentExternalMessage({ conversationId: OTHER_CONVERSATION }))
 
     await expect(resolveOutboundReplyExternalId(em(), baseInput())).resolves.toBeNull()
   })
 
   it('returns null when the external row carries no usable provider id', async () => {
-    mockFindOne
-      .mockResolvedValueOnce(parentLink())
-      .mockResolvedValueOnce(parentExternalMessage({ externalMessageId: '' }))
+    mockFind.mockResolvedValueOnce([parentLink()])
+    mockFindOne.mockResolvedValueOnce(parentExternalMessage({ externalMessageId: '' }))
 
     await expect(resolveOutboundReplyExternalId(em(), baseInput())).resolves.toBeNull()
   })

@@ -1,6 +1,9 @@
 "use client"
 
-import { MessageComposer } from '@open-mercato/ui/backend/messages'
+import * as React from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { MessageComposer, useComposeScheduling } from '@open-mercato/ui/backend/messages'
+import { useComposeSenderOptions } from '@open-mercato/core/modules/messages/components/useComposeSenderOptions'
 import type { MessageAttachment, MessageDetail } from '../types'
 
 type ComposerDialogsProps = {
@@ -9,17 +12,32 @@ type ComposerDialogsProps = {
   attachments: MessageAttachment[] | undefined
   editOpen: boolean
   setEditOpen: (value: boolean) => void
-  onRefresh: () => Promise<unknown>
 }
 
 export function MessageDetailComposerDialogs(props: ComposerDialogsProps) {
+  const queryClient = useQueryClient()
+  const editable = props.editOpen && props.detail.isDraft && props.detail.canEditDraft
+  const senderOptions = useComposeSenderOptions(editable)
+  const scheduling = useComposeScheduling(editable)
+
+  // The attachments query key is nested under the detail key, so one prefix covers both.
+  const invalidateDetail = React.useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['messages', 'detail', props.id] }),
+    [props.id, queryClient],
+  )
+
   return (
     <MessageComposer
       variant="compose"
       messageId={props.id}
       expectedUpdatedAt={props.detail.updatedAt}
-      open={props.editOpen && props.detail.isDraft && props.detail.canEditDraft}
-      onOpenChange={props.setEditOpen}
+      open={editable}
+      onOpenChange={(next) => {
+        props.setEditOpen(next)
+        if (!next) void invalidateDetail()
+      }}
+      senderOptions={senderOptions}
+      scheduling={scheduling}
       defaultValues={{
         type: props.detail.type,
         recipients: props.detail.recipients.map((recipient) => recipient.userId),
@@ -31,12 +49,18 @@ export function MessageDetailComposerDialogs(props: ComposerDialogsProps) {
         sourceEntityType: props.detail.sourceEntityType ?? null,
         sourceEntityId: props.detail.sourceEntityId ?? null,
         externalEmail: props.detail.externalEmail ?? null,
+        externalEmails: (props.detail.externalParticipants ?? [])
+          .filter((participant) => participant.role === 'to')
+          .map((participant) => participant.email),
+        sendSeparately: props.detail.emailSendSeparately ?? false,
         externalName: props.detail.externalName ?? null,
+        senderChannelId: props.detail.senderChannelId ?? null,
+        scheduledAt: props.detail.scheduledAt ?? null,
         attachmentIds: props.attachments?.map((attachment) => attachment.id) ?? [],
       }}
       onSuccess={() => {
         props.setEditOpen(false)
-        void props.onRefresh()
+        void invalidateDetail()
       }}
     />
   )

@@ -1147,6 +1147,106 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
   })
 })
 
+describe('ingestInboundMessageCommand — extra inbound To/CC participants', () => {
+  function makeCtx() {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-1', threadId: 'thread-1' } })),
+    }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'imap', capabilities: {} }) }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+      commandBus,
+    }
+  }
+
+  function primeLookups() {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'imap',
+        channelType: 'email',
+        userId: 'u-1',
+        externalIdentifier: 'Mailbox@Company.com',
+      } as never)
+      .mockResolvedValue(null as never)
+  }
+
+  function makeInput(channelPayload: Record<string, unknown>): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'imap',
+      channelType: 'email',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'ext-cc-1',
+        externalConversationId: 'conv-1',
+        senderIdentifier: 'jane@example.com',
+        body: 'Hello',
+        bodyFormat: 'text',
+        timestamp: new Date(),
+        channelPayload,
+        channelContentType: 'email/mime',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function composedInput(commandBus: { execute: jest.Mock }) {
+    const call = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'messages.messages.compose')
+    expect(call).toBeDefined()
+    return (call as unknown[])[1] as { input: Record<string, unknown> }
+  }
+
+  it('passes extra To/CC as participants, excluding the sender and the channel mailbox', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(makeInput({
+      from: { address: 'jane@example.com', name: 'Jane' },
+      to: [{ address: 'mailbox@company.com', name: 'Support' }, { address: 'peer@example.com', name: 'Peer' }],
+      cc: [{ address: 'cc@example.com', name: '' }, { address: 'JANE@example.com', name: 'Jane' }],
+    }), ctx)
+
+    const { input } = composedInput(commandBus)
+    expect(input.externalParticipants).toEqual([
+      { email: 'peer@example.com', role: 'to', name: 'Peer' },
+      { email: 'cc@example.com', role: 'cc' },
+    ])
+  })
+
+  it('omits externalParticipants when the mail has no extra addressees', async () => {
+    primeLookups()
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(makeInput({
+      to: [{ address: 'mailbox@company.com', name: '' }],
+    }), ctx)
+
+    expect(composedInput(commandBus).input).not.toHaveProperty('externalParticipants')
+  })
+})
+
 // ── Security (#9738): a provider-native conversation must not be grafted onto
 // a thread via a copied token/JWZ/subject match — that layered matcher is
 // specified for email. ──

@@ -3,11 +3,16 @@
  */
 
 import * as React from 'react'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { SendObjectMessageDialog } from '../SendObjectMessageDialog'
 
 const messageComposerMock = jest.fn()
+const apiCallMock = jest.fn()
+
+jest.mock('../../utils/apiCall', () => ({
+  apiCall: (...args: unknown[]) => apiCallMock(...args),
+}))
 
 jest.mock('../MessageComposer', () => ({
   MessageComposer: (props: Record<string, unknown>) => {
@@ -19,6 +24,28 @@ jest.mock('../MessageComposer', () => ({
 describe('SendObjectMessageDialog', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    apiCallMock.mockResolvedValue({ ok: false, status: 404, result: null })
+  })
+
+  it('loads scheduling capabilities only once the composer opens', async () => {
+    apiCallMock.mockResolvedValue({ ok: true, status: 200, result: { schedulingAvailable: true, scheduleMaxDays: 30 } })
+    renderWithProviders(
+      <SendObjectMessageDialog
+        object={{ entityModule: 'customers', entityType: 'person', entityId: '11111111-1111-4111-8111-111111111111' }}
+      />,
+      { dict: {} },
+    )
+
+    expect(apiCallMock).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole('button', { name: 'Compose message' }))
+
+    await waitFor(() => {
+      const latestCall = messageComposerMock.mock.calls[messageComposerMock.mock.calls.length - 1]?.[0]
+      expect(latestCall).toEqual(expect.objectContaining({ scheduling: { available: true, maxDays: 30 } }))
+    })
+    expect(apiCallMock).toHaveBeenCalledWith('/api/messages/compose-capabilities', expect.objectContaining({ method: 'GET' }))
+    const latestCall = messageComposerMock.mock.calls[messageComposerMock.mock.calls.length - 1]?.[0]
+    expect(latestCall.senderOptions).toBeUndefined()
   })
 
   it('opens composer with object-only defaults', async () => {

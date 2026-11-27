@@ -1,14 +1,7 @@
 import { generateMessageId, getSmtpClient, setSmtpClient, type SmtpConnectionOptions } from '../smtp-client'
 
-type SendMailInfo = {
-  messageId?: string
-  response?: string
-  accepted?: string[]
-  rejected?: string[]
-}
-
-const sendMail = jest.fn(async (_options: { messageId?: string }): Promise<SendMailInfo> => ({
-  messageId: '<server@example.com>',
+const sendMail = jest.fn(async (_options: { messageId?: string }): Promise<Record<string, unknown>> => ({
+  messageId: '<server@example.com>' as string | undefined,
   response: '250 OK',
 }))
 const close = jest.fn()
@@ -130,6 +123,25 @@ describe('NodemailerClient.send — recipients refused by the server', () => {
 
     expect(result.accepted).toEqual(['good@example.com'])
     expect(result.rejected).toEqual(['bad@example.com'])
+  })
+
+  it('normalizes address objects to plain addresses', async () => {
+    sendMail.mockImplementationOnce(async () => ({
+      messageId: '<server@example.com>',
+      response: '250 OK',
+      accepted: [{ address: 'a@example.com' }],
+      rejected: ['b@example.com'],
+    }))
+
+    const result = await getSmtpClient().send(connection, {
+      from: 'sender@example.com',
+      to: ['a@example.com', 'b@example.com'],
+      subject: 'Split',
+      text: 'body',
+    })
+
+    expect(result.accepted).toEqual(['a@example.com'])
+    expect(result.rejected).toEqual(['b@example.com'])
   })
 
   it('reports no rejected recipients when the server accepts everyone', async () => {

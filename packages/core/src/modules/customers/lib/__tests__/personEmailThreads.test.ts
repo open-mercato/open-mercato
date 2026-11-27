@@ -114,6 +114,27 @@ beforeEach(() => {
 })
 
 describe('buildPersonEmailThreads', () => {
+  it('shows a separately sent message once when the Person holds several of its links', async () => {
+    const separateCopy = { ...links[1], id: 'L2b', channelMetadata: { ...links[1].channelMetadata, to: ['alice.private@example.com'] } }
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === CustomerInteraction) {
+        return [
+          ...interactions,
+          { externalMessageId: 'L2b', occurredAt: new Date('2026-05-20T11:00:00.000Z'), createdAt: new Date('2026-05-20T11:00:00.000Z'), visibility: 'shared', authorUserId: 'u1' },
+        ] as never
+      }
+      if (entity === 'MessageChannelLink') return [...links, separateCopy] as never
+      if (entity === 'Message') return messages as never
+      if (entity === User) return defaultUsers as never
+      return [] as never
+    })
+
+    const threads = await buildPersonEmailThreads({} as never, { ...baseOpts, userFeatures: [] })
+    const thread = threads.find((candidate) => candidate.threadKey === 'T1')
+
+    expect(thread?.messages.map((message) => message.messageId)).toEqual(['M1', 'M2'])
+  })
+
   it('keeps sentAt null instead of falling back to link or interaction creation time', async () => {
     mockHubReads(interactions, defaultUsers, messages.map((message) => (
       message.id === 'M3' ? { ...message, sentAt: null } : message

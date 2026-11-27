@@ -82,6 +82,7 @@ class SmtpChannelAdapter implements ChannelAdapter {
         ...(info.response ? { response: info.response } : {}),
         ...(info.accepted ? { accepted } : {}),
         ...(rejected.length ? { rejected } : {}),
+        ...(info.rejectedTransient?.length ? { rejectedTransient: info.rejectedTransient } : {}),
       }
       // The relay resolves the send once it accepts *any* recipient, so a
       // partial rejection would otherwise be reported as an unqualified

@@ -2,9 +2,8 @@ import { defaultEncryptionMaps } from '../../encryption'
 
 describe('messages defaultEncryptionMaps', () => {
   it('encrypts message PII fields and provides a deterministic hash for external_email lookup', () => {
-    expect(defaultEncryptionMaps).toHaveLength(1)
-    const [entry] = defaultEncryptionMaps
-    expect(entry.entityId).toBe('messages:message')
+    const entry = defaultEncryptionMaps.find((map) => map.entityId === 'messages:message')
+    if (!entry) throw new Error('messages:message encryption map missing')
 
     const byField = new Map(entry.fields.map((field) => [field.field, field]))
     const encryptedFields = [
@@ -21,5 +20,14 @@ describe('messages defaultEncryptionMaps', () => {
     expect(byField.get('external_email')?.hashField).toBe('external_email_hash')
     expect(byField.get('subject')?.hashField).toBeUndefined()
     expect(byField.get('body')?.hashField).toBeUndefined()
+  })
+
+  it('encrypts external participant addresses with a lookup hash for search', () => {
+    const entry = defaultEncryptionMaps.find((map) => map.entityId === 'messages:message_external_participant')
+    if (!entry) throw new Error('messages:message_external_participant encryption map missing')
+    const byField = new Map(entry.fields.map((field) => [field.field, field]))
+    expect(byField.get('email')?.hashField).toBe('email_hash')
+    expect(byField.has('name')).toBe(true)
+    expect(byField.get('name')?.hashField).toBeUndefined()
   })
 })

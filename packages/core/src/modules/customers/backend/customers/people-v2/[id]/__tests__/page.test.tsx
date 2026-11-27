@@ -98,6 +98,7 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/translate', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/i18n/translate'),
   createTranslatorWithFallback: () => (_key: string, fallback?: string) => fallback ?? '',
 }))
 

@@ -1748,6 +1748,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "external_participant_id": {
+          "name": "external_participant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "id": {
           "name": "id",
           "type": "uuid",
@@ -1789,7 +1806,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": true,
+          "unique": false,
           "length": null,
           "precision": null,
           "scale": null,
@@ -1883,14 +1900,22 @@
           "unique": false
         },
         {
-          "columnNames": [
-            "message_id"
-          ],
+          "columnNames": [],
           "composite": false,
-          "constraint": true,
-          "keyName": "message_channel_links_message_uq",
+          "constraint": false,
+          "keyName": "message_channel_links_message_joint_uq",
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"message_channel_links_message_joint_uq\" on \"message_channel_links\" (\"message_id\") where \"external_participant_id\" is null"
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "message_channel_links_message_participant_uq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"message_channel_links_message_participant_uq\" on \"message_channel_links\" (\"message_id\", \"external_participant_id\") where \"external_participant_id\" is not null"
         },
         {
           "columnNames": [

@@ -9,6 +9,7 @@ import { PriorityBadge } from '../../utils/PriorityBadge'
 
 type MainMessageHeaderProps = {
   subject: string
+  backHref?: string
   priority: 'low' | 'normal' | 'high' | 'urgent'
   canReply: boolean
   canForwardAll: boolean
@@ -95,7 +96,7 @@ export function MainMessageHeader(props: MainMessageHeaderProps) {
   return (
     <FormHeader
       mode="detail"
-      backHref="/backend/messages"
+      backHref={props.backHref ?? '/backend/messages'}
       backLabel={t('messages.actions.backToList', 'Back to messages')}
       title={(
         <h1 className="flex min-w-0 max-w-full flex-wrap items-center gap-2">

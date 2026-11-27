@@ -198,4 +198,80 @@ describe('outbound-delivery worker behaviour', () => {
     ).rejects.toThrow('DB connection lost permanently')
     expect(enqueueMock).not.toHaveBeenCalled()
   })
+
+  it('re-enqueues at the participants next attempt time, past the short-backoff limit', async () => {
+    const nextAttemptAt = new Date(Date.now() + 300_000).toISOString()
+    const execute = jest.fn(async () => ({
+      result: {
+        status: 'failed' as const,
+        messageId: 'm',
+        channelLinkId: 'l',
+        providerKey: 'p',
+        error: 'rate limited',
+        transient: true,
+        requiresReauth: false,
+        participantDelivery: { nextAttemptAt },
+      },
+      logEntry: null,
+    }))
+    await handler(makeJob({ attempt: OUTBOUND_DELIVERY_MAX_ATTEMPTS + 2 }), makeCtx(execute))
+
+    const commandInput = (execute.mock.calls[0] as unknown as [string, { input: Record<string, unknown> }])[1].input
+    expect(commandInput.transientRetryDelayMs).toBeUndefined()
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    const [payload, options] = enqueueMock.mock.calls[0] as unknown as [OutboundDeliveryPayload, { delayMs: number; coalesce?: unknown }]
+    expect(payload.attempt).toBe(OUTBOUND_DELIVERY_MAX_ATTEMPTS + 3)
+    expect(options.coalesce).toBeUndefined()
+    expect(options.delayMs).toBeGreaterThan(295_000)
+    expect(options.delayMs).toBeLessThanOrEqual(301_000)
+  })
+
+  it('passes its short backoff to the command while attempts remain', async () => {
+    const execute = jest.fn(async () => ({
+      result: { status: 'not_due' as const, messageId: 'm', channelLinkId: 'l' },
+      logEntry: null,
+    }))
+    await handler(makeJob({ attempt: 1 }), makeCtx(execute))
+
+    const commandInput = (execute.mock.calls[0] as unknown as [string, { input: Record<string, unknown> }])[1].input
+    expect(commandInput.transientRetryDelayMs).toEqual(expect.any(Number))
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('stops when no participant is left pending', async () => {
+    const execute = jest.fn(async () => ({
+      result: {
+        status: 'failed' as const,
+        messageId: 'm',
+        channelLinkId: 'l',
+        providerKey: 'p',
+        error: 'timeout',
+        transient: true,
+        requiresReauth: false,
+        participantDelivery: { nextAttemptAt: null },
+      },
+      logEntry: null,
+    }))
+    await handler(makeJob({ attempt: 1 }), makeCtx(execute))
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('forces one credential refresh on a reauth failure even after the short-backoff attempts', async () => {
+    const execute = jest.fn(async () => ({
+      result: {
+        status: 'failed' as const,
+        messageId: 'm',
+        channelLinkId: 'l',
+        providerKey: 'p',
+        error: 'requires_reauth',
+        transient: false,
+        requiresReauth: true,
+        participantDelivery: { nextAttemptAt: new Date().toISOString() },
+      },
+      logEntry: null,
+    }))
+    await handler(makeJob({ attempt: OUTBOUND_DELIVERY_MAX_ATTEMPTS }), makeCtx(execute))
+    expect(enqueueMock).toHaveBeenCalledTimes(1)
+    expect((enqueueMock.mock.calls[0] as unknown as [OutboundDeliveryPayload])[0].forceCredentialRefresh).toBe(true)
+  })
 })

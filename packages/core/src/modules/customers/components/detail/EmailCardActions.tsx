@@ -6,6 +6,7 @@ import { Lock, Users } from 'lucide-react'
 import { EmailReplyForwardActions } from './EmailReplyForwardActions'
 import {
   ComposeEmailDialog,
+  scheduledEmailFlashMessage,
   type ComposeEmailChannel,
   type ComposeEmailValues,
 } from './ComposeEmailDialog'
@@ -130,7 +131,7 @@ export function EmailCardActions({ data }: EmailCardActionsProps) {
 
   const onSend = async (values: ComposeEmailValues): Promise<{ messageId: string | null }> => {
     const operation = async () => {
-      const response = await apiCall<{ messageId?: string }>(
+      const response = await apiCall<{ messageId?: string; scheduledAt?: string }>(
         `/api/customers/people/${encodeURIComponent(personId)}/emails`,
         {
           method: 'POST',
@@ -142,9 +143,9 @@ export function EmailCardActions({ data }: EmailCardActionsProps) {
         const err = response.result as { error?: string } | null
         throw new Error(err?.error ?? t('customers.email.errors.sendFailed', 'Send failed'))
       }
-      return response.result?.messageId ?? null
+      return { messageId: response.result?.messageId ?? null, scheduledAt: response.result?.scheduledAt ?? null }
     }
-    const messageId = await runMutation({
+    const result = await runMutation({
       operation,
       context: {
         formId: PERSON_EMAIL_CARD_ACTIONS_CONTEXT_ID,
@@ -154,8 +155,13 @@ export function EmailCardActions({ data }: EmailCardActionsProps) {
       },
       mutationPayload: values as unknown as Record<string, unknown>,
     })
-    flash(t('customers.email.compose.sent', 'Email sent'), 'success')
-    return { messageId }
+    flash(
+      result?.scheduledAt
+        ? scheduledEmailFlashMessage(t, result.scheduledAt)
+        : t('customers.email.compose.sent', 'Email sent'),
+      'success',
+    )
+    return { messageId: result?.messageId ?? null }
   }
 
   const noChannels = channels.length === 0

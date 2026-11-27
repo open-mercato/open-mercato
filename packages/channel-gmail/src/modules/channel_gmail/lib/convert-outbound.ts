@@ -58,11 +58,11 @@ export function prepareOutboundForGmail(input: ConvertOutboundInput, fromAddress
   const meta = input.channelMetadata ?? {}
   const subject = stringOrUndefined(meta.subject)
   const to = toAddressList(meta.to)
-  if (to.length === 0) {
-    throw new Error('[internal] Gmail outbound conversion requires at least one recipient (channelMetadata.to)')
-  }
   const cc = toAddressList(meta.cc)
   const bcc = toAddressList(meta.bcc)
+  if (to.length + cc.length + bcc.length === 0) {
+    throw new Error('[internal] Gmail outbound conversion requires at least one recipient (channelMetadata.to, cc or bcc)')
+  }
   const inReplyTo = stringOrUndefined(meta.inReplyTo)
   const references = referencesFromMeta(meta.references)
   const messageId = stringOrUndefined(meta.messageId) ?? generateMessageId(fromAddress, 'gmail.com')

@@ -271,9 +271,16 @@ export async function buildPersonEmailThreads(
   // ── (4) Build per-message DTOs grouped by thread ────────────────────────
   const threadsByKey = new Map<string, PersonEmailThread>()
 
+  // A "send separately" message has one link per recipient; one Person shows it once.
+  const renderedMessageIds = new Set<string>()
   for (const link of links) {
     const linkId = typeof link.id === 'string' ? (link.id as string) : null
     if (!linkId) continue
+    const linkMessageId = typeof link.messageId === 'string' ? (link.messageId as string) : null
+    if (linkMessageId) {
+      if (renderedMessageIds.has(linkMessageId)) continue
+      renderedMessageIds.add(linkMessageId)
+    }
     const direction: EmailThreadDirection = link.direction === 'outbound' ? 'outbound' : 'inbound'
     // `authorUserId` on the interaction is the MAILBOX OWNER, which on an
     // inbound message is the recipient, not the sender — so authorship is an

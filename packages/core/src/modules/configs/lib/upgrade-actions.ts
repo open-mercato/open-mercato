@@ -246,6 +246,54 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     },
   },
   {
+    id: 'messages.backfill-external-participants',
+    version: '0.10.0',
+    messageKey: 'messages.upgradeActions.backfillExternalParticipants.message',
+    ctaKey: 'messages.upgradeActions.backfillExternalParticipants.cta',
+    successKey: 'messages.upgradeActions.backfillExternalParticipants.success',
+    loadingKey: 'messages.upgradeActions.backfillExternalParticipants.loading',
+    requiredModules: ['messages'],
+    // Batches commit on a forked EntityManager so a long backfill is resumable; rows already
+    // present are skipped, so re-running after a partial failure is safe.
+    run: async ({ container, tenantId, organizationId }) => {
+      const { backfillExternalParticipants } = await import(
+        '@open-mercato/core/modules/messages/lib/externalParticipantsBackfill'
+      )
+      const report = await backfillExternalParticipants(container.resolve<EntityManager>('em'), { tenantId, organizationId })
+      logger.info('messages external participants backfill completed', { tenantId, organizationId, ...report })
+    },
+  },
+  {
+    id: 'messages.register-email-retry-schedule',
+    version: '0.10.0',
+    messageKey: 'messages.upgradeActions.emailRetrySchedule.message',
+    ctaKey: 'messages.upgradeActions.emailRetrySchedule.cta',
+    successKey: 'messages.upgradeActions.emailRetrySchedule.success',
+    loadingKey: 'messages.upgradeActions.emailRetrySchedule.loading',
+    requiredModules: ['messages'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerMessagesEmailRetrySchedule } = await import(
+        '@open-mercato/core/modules/messages/lib/emailRetrySchedule'
+      )
+      await registerMessagesEmailRetrySchedule(container, { tenantId, organizationId })
+    },
+  },
+  {
+    id: 'messages.register-scheduled-release',
+    version: '0.10.0',
+    messageKey: 'messages.upgradeActions.scheduledRelease.message',
+    ctaKey: 'messages.upgradeActions.scheduledRelease.cta',
+    successKey: 'messages.upgradeActions.scheduledRelease.success',
+    loadingKey: 'messages.upgradeActions.scheduledRelease.loading',
+    requiredModules: ['messages', 'scheduler'],
+    run: async ({ container, tenantId, organizationId }) => {
+      const { registerMessagesScheduledReleaseSchedule } = await import(
+        '@open-mercato/core/modules/messages/lib/scheduledSend'
+      )
+      await registerMessagesScheduledReleaseSchedule(container, { tenantId, organizationId })
+    },
+  },
+  {
     id: 'customers.seed-deal-loss-reasons',
     version: '0.10.0',
     messageKey: 'customers.config.upgradeActions.dealLossReasons.message',

@@ -115,6 +115,10 @@ export interface SendMessageResult {
   status: 'sent' | 'queued' | 'failed'
   error?: string
   metadata?: Record<string, unknown>
+  /** For a failed send: whether a later attempt may succeed. Absent means the hub classifies `error`. */
+  transient?: boolean
+  /** For a failed send: earliest time the provider asked to be retried (e.g. a 429 `Retry-After`). */
+  retryAt?: Date
 }
 
 export interface VerifyWebhookInput {

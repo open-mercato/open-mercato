@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { Message, MessageObject, MessageRecipient, type MessageActionData, type RecipientStatus } from '../data/entities'
+import { Message, MessageObject, MessageRecipient, type MessageActionData, type MessageStatus, type RecipientStatus } from '../data/entities'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { isAttachmentsModuleAvailable } from '../lib/optionalModules'
 import {
@@ -59,9 +59,10 @@ export type MessageSnapshot = {
   body: string
   bodyFormat: 'text' | 'markdown'
   priority: 'low' | 'normal' | 'high' | 'urgent'
-  status: 'draft' | 'sent'
+  status: MessageStatus
   isDraft: boolean
   sentAt: string | null
+  scheduledAt?: string | null
   actionData: MessageActionData | null
   actionResult: Record<string, unknown> | null
   actionTaken: string | null
@@ -156,6 +157,7 @@ export async function loadMessageAggregateSnapshot(
       status: message.status,
       isDraft: message.isDraft,
       sentAt: toIso(message.sentAt),
+      scheduledAt: toIso(message.scheduledAt),
       actionData: (message.actionData as MessageActionData | null) ?? null,
       actionResult: message.actionResult ?? null,
       actionTaken: message.actionTaken ?? null,
@@ -233,6 +235,7 @@ export async function restoreMessageAggregateSnapshot(
         status: snapshot.message.status,
         isDraft: snapshot.message.isDraft,
         sentAt: toDate(snapshot.message.sentAt),
+        scheduledAt: toDate(snapshot.message.scheduledAt),
         actionData: snapshot.message.actionData as MessageActionData,
         actionResult: snapshot.message.actionResult,
         actionTaken: snapshot.message.actionTaken,
@@ -261,6 +264,7 @@ export async function restoreMessageAggregateSnapshot(
       existingMessage.status = snapshot.message.status
       existingMessage.isDraft = snapshot.message.isDraft
       existingMessage.sentAt = toDate(snapshot.message.sentAt)
+      existingMessage.scheduledAt = toDate(snapshot.message.scheduledAt)
       existingMessage.actionData = snapshot.message.actionData as MessageActionData
       existingMessage.actionResult = snapshot.message.actionResult
       existingMessage.actionTaken = snapshot.message.actionTaken

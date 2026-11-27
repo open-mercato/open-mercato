@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { MessageChannelLink } from '../data/entities'
-import { Message } from '../../messages/data/entities'
+import { Message, MessageExternalParticipant } from '../../messages/data/entities'
 import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 import { isIngestedInboundMessage } from '../lib/inbound-message-origin'
 import { isOutboundDeliveryIntended } from '../lib/outbound-delivery-intent'
@@ -30,6 +30,8 @@ import type { OutboundDeliveryPayload } from '../workers/outbound-delivery'
  * Internal-only messages (no `ChannelThreadMapping` for the threadId) are skipped
  * silently — this is the expected steady-state for the majority of platform messages.
  */
+const ACTIVE_LINK_STATUSES = new Set(['queued', 'pending', 'sent', 'delivered', 'read'])
+
 export const metadata = {
   event: 'messages.message.sent',
   persistent: true,
@@ -113,7 +115,9 @@ export default async function handler(
   }
   if (!message.threadId) return // Internal-only; no channel routing.
 
-  const existingLink = await findOneWithDecryption(
+  // (c) Idempotency — skip if already delivered. A "send separately" message
+  // has one link per participant, so every link of the message is checked.
+  const existingLinks = await findWithDecryption(
     em,
     MessageChannelLink,
     {
@@ -124,6 +128,7 @@ export default async function handler(
     undefined,
     dscope,
   )
+  const existingLink = existingLinks.find((link) => link.direction === 'inbound') ?? existingLinks[0] ?? null
   // (c1) Inbound ingest path: when `ingest-inbound-message` composes a platform
   // Message for an incoming message, the messages module also emits
   // `messages.message.sent` (the Message row is fresh and marked sent). Without
@@ -141,14 +146,7 @@ export default async function handler(
     return
   }
 
-  if (
-    existingLink &&
-    (existingLink.deliveryStatus === 'queued' ||
-      existingLink.deliveryStatus === 'pending' ||
-      existingLink.deliveryStatus === 'sent' ||
-      existingLink.deliveryStatus === 'delivered' ||
-      existingLink.deliveryStatus === 'read')
-  ) {
+  if (existingLinks.some((link) => ACTIVE_LINK_STATUSES.has(link.deliveryStatus))) {
     return
   }
 
@@ -166,15 +164,36 @@ export default async function handler(
     return
   }
 
-  // (d) Enqueue the delivery worker.
+  // (d) Enqueue the delivery worker — one job per "to" participant when the
+  // message is sent separately, otherwise one job for the joint link.
+  const separateParticipants = message.emailSendSeparately
+    ? await findWithDecryption(
+        em,
+        MessageExternalParticipant,
+        {
+          messageId: message.id,
+          role: 'to',
+          tenantId: payload.tenantId,
+          organizationId: payload.organizationId ?? null,
+        },
+        { orderBy: { createdAt: 'asc' } },
+        dscope,
+      )
+    : []
+  const participantIds: Array<string | null> = separateParticipants.length > 1
+    ? separateParticipants.map((participant) => participant.id)
+    : [null]
   const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
-  const job: OutboundDeliveryPayload = {
-    messageId: message.id,
-    scope: {
-      tenantId: payload.tenantId,
-      organizationId: payload.organizationId ?? null,
-    },
-    attempt: 1,
+  for (const externalParticipantId of participantIds) {
+    const job: OutboundDeliveryPayload = {
+      messageId: message.id,
+      scope: {
+        tenantId: payload.tenantId,
+        organizationId: payload.organizationId ?? null,
+      },
+      attempt: 1,
+      ...(externalParticipantId ? { externalParticipantId } : {}),
+    }
+    await queue.enqueue(job as unknown as Record<string, unknown>)
   }
-  await queue.enqueue(job as unknown as Record<string, unknown>)
 }

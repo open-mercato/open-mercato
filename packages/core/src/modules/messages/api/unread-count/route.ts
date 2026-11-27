@@ -55,6 +55,7 @@ export async function GET(req: Request) {
     .where('r.archived_at', 'is', null)
     .where('m.tenant_id', '=', scope.tenantId)
     .where('m.deleted_at', 'is', null)
+    .where('m.is_draft', '=', false)
 
   if (scope.organizationId) {
     query = query.where('m.organization_id', '=', scope.organizationId)

@@ -289,6 +289,8 @@ async function handleThreadingInheritance(
   //   - RFC Message-IDs are rewritten by some providers (e.g. Gmail) on send,
   //     so the legacy In-Reply-To/References inheritance below also misses.
   // The hub thread id survives both, so we resolve by it first.
+  // "Send separately" links are skipped: each recipient's copy is private to its
+  // Person, so a reply inherits it only through its own Message-ID (fallback below).
   const inboundMessageId = typeof _link.messageId === 'string' ? _link.messageId : null
   if (inboundMessageId && organizationId) {
     const threadPersonRows = (await em.getConnection().execute(
@@ -307,6 +309,7 @@ async function handleThreadingInheritance(
          AND thread_m.deleted_at IS NULL
          AND mcl.tenant_id = ?
          AND mcl.organization_id = ?
+         AND mcl.external_participant_id IS NULL
          AND ci.tenant_id = ?
          AND ci.organization_id = ?
          AND ci.interaction_type = 'email'

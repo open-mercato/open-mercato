@@ -52,6 +52,7 @@ type SerializedChannel = {
   providerKey: string
   supportsRealtimePush: boolean
   supportsPushRegistration: boolean
+  supportsAttachments: boolean
   pushStatus: string | null
   pushExpiresAt: string | null
   pushExpired: boolean
@@ -105,6 +106,17 @@ describe('communication_channels me/channels route', () => {
 
     expect(row.supportsRealtimePush).toBe(true)
     expect(row.supportsPushRegistration).toBe(false)
+  })
+
+  it('reports whether the adapter can send attachments', async () => {
+    adapterGetMock.mockImplementation((providerKey: string) =>
+      providerKey === 'gmail' ? { capabilities: { fileSharing: true } } : { capabilities: { fileSharing: false } },
+    )
+    findWithDecryptionMock.mockResolvedValue([channel('gmail', null), channel('discord', null)])
+
+    const rows = await invoke()
+
+    expect(rows.map((row) => row.supportsAttachments)).toEqual([true, false])
   })
 
   it('reports a polling provider as not push-driven', async () => {

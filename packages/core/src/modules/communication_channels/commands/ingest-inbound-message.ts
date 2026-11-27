@@ -18,6 +18,7 @@ import {
 } from '../data/entities'
 import { normalizedInboundMessageSchema } from '../data/validators'
 import { buildInboundIdempotencyKey } from '../lib/inbound-message-origin'
+import { buildInboundExtraParticipants } from '../lib/inbound-participants'
 import { resolveCommunicationChannelsSystemUserId } from '../lib/system-user'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -400,12 +401,22 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     // manual assignment stays authoritative; tenant-wide channels have no owner.
     const routedAssigneeId = mapping?.assignedUserId ?? channel.userId ?? null
 
+    const payloadFrom = m.channelPayload?.from
+    const inboundExtraParticipants = buildInboundExtraParticipants(m.channelPayload, [
+      contactHint?.email,
+      m.senderIdentifier,
+      extractStringFromMeta(metaForMatcher, 'from'),
+      payloadFrom && typeof payloadFrom === 'object' ? (payloadFrom as { address?: string }).address : null,
+      channel.externalIdentifier,
+    ])
+
     const composeInput = {
       type: `channel.${input.providerKey}`,
       visibility: 'public' as const,
       sourceEntityType: 'communication_channels.external_conversation',
       sourceEntityId: conversation.id,
       externalEmail: contactHint?.email ?? undefined,
+      ...(inboundExtraParticipants.length > 0 ? { externalParticipants: inboundExtraParticipants } : {}),
       externalName: contactHint?.displayName ?? m.senderDisplayName,
       // #4975: tells the hub which identity contract applies to this sender.
       // Email-typed channels keep the mandatory `externalEmail`; providers whose

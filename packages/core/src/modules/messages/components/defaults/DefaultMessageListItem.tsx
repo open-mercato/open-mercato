@@ -43,8 +43,11 @@ export function DefaultMessageListItem({ message, onClick }: MessageListItemProp
   const subject = message.subject.trim() || t('messages.list.noSubject', '(No subject)')
   const unknownDate = t('messages.unknownDate', 'Unknown date')
   const notSentYet = '—'
-  const absoluteSentAt = message.isDraft ? notSentYet : formatDateTime(message.sentAt, unknownDate)
-  const sentAtLabel = message.isDraft ? notSentYet : formatSentTime(message.sentAt, unknownDate)
+  const scheduledLabel = message.scheduledAt
+    ? t('messages.detail.scheduledFor', 'Scheduled for {date}', { date: formatDateTime(message.scheduledAt, unknownDate) })
+    : null
+  const absoluteSentAt = scheduledLabel ?? (message.isDraft ? notSentYet : formatDateTime(message.sentAt, unknownDate))
+  const sentAtLabel = scheduledLabel ?? (message.isDraft ? notSentYet : formatSentTime(message.sentAt, unknownDate))
   const bodyPreview = truncateWords(message.body || '', 16)
 
   return (

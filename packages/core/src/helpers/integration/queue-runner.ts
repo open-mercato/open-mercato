@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
+import { installNextSubpathResolveHook } from '@open-mercato/shared/lib/bootstrap/next-subpath-resolve-hook'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createQueue } from '@open-mercato/queue'
 
@@ -85,6 +86,7 @@ const currentFile = fileURLToPath(import.meta.url)
 const invokedFile = process.argv[1] ? path.resolve(process.argv[1]) : null
 
 if (invokedFile === currentFile) {
+  installNextSubpathResolveHook()
   runQueueDrainFromEnv()
     .then(() => {
       process.exit(0)

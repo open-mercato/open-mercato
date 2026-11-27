@@ -126,6 +126,8 @@ function serialize(channel: CommunicationChannel, adapterRegistry: ChannelAdapte
     lastPushError,
     supportsRealtimePush,
     supportsPushRegistration,
+    /** The adapter can send files with an outbound message. */
+    supportsAttachments: adapter?.capabilities?.fileSharing === true,
     createdAt: channel.createdAt?.toISOString?.() ?? null,
   }
 }

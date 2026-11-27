@@ -81,7 +81,9 @@ class ImapChannelAdapter implements ChannelAdapter {
     }
     const meta = (native.metadata ?? {}) as Record<string, unknown>
     const to = Array.isArray(meta.to) ? (meta.to as string[]) : []
-    if (to.length === 0) {
+    const cc = Array.isArray(meta.cc) ? (meta.cc as string[]) : []
+    const bcc = Array.isArray(meta.bcc) ? (meta.bcc as string[]) : []
+    if (to.length + cc.length + bcc.length === 0) {
       return { externalMessageId: '', status: 'failed', error: '[internal] Email send requires at least one recipient' }
     }
 
@@ -106,8 +108,8 @@ class ImapChannelAdapter implements ChannelAdapter {
       result = await smtp.send(credentialsToSmtpConnection(credentials), {
         from: credentials.fromAddress,
         to,
-        cc: Array.isArray(meta.cc) ? (meta.cc as string[]) : undefined,
-        bcc: Array.isArray(meta.bcc) ? (meta.bcc as string[]) : undefined,
+        cc: Array.isArray(meta.cc) ? cc : undefined,
+        bcc: Array.isArray(meta.bcc) ? bcc : undefined,
         subject: typeof meta.subject === 'string' ? (meta.subject as string) : undefined,
         text: native.content.text,
         html: native.content.html,
@@ -145,6 +147,9 @@ class ImapChannelAdapter implements ChannelAdapter {
     }
 
     const rejected = result.rejected ?? []
+    // A partial rejection is reported like channel-smtp does: failed, carrying the
+    // accepted/rejected split so the hub marks only the rejected recipients failed.
+    // The error text carries counts only: the hub classifies failures by scanning it.
     if (rejected.length > 0) {
       const accepted = result.accepted ?? []
       return {
@@ -152,7 +157,7 @@ class ImapChannelAdapter implements ChannelAdapter {
         conversationId: input.conversationId,
         status: 'failed',
         error: `SMTP_SEND_PARTIALLY_REJECTED: relay rejected ${rejected.length} of ${accepted.length + rejected.length} recipients`,
-        metadata: { ...(result.response ? { response: result.response } : {}), accepted, rejected },
+        metadata: { response: result.response, accepted, rejected, ...(result.rejectedTransient ? { rejectedTransient: result.rejectedTransient } : {}) },
       }
     }
 

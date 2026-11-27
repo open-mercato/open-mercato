@@ -334,6 +334,7 @@ class FetchGmailApiClient implements GmailApiClient {
           `Gmail API ${method} ${url.pathname} timed out`,
           599,
           'request timed out',
+          { transient: true },
         )
         if (attempt === maxRetries) throw timeoutError
         lastError = timeoutError
@@ -347,24 +348,25 @@ class FetchGmailApiClient implements GmailApiClient {
         return JSON.parse(text) as T
       }
       const detail = parseErrorMessage(text) ?? `${res.status} ${res.statusText}`
-      const apiError = new GmailApiError(
-        `Gmail API ${method} ${url.pathname} failed: ${detail}`,
-        res.status,
-        detail,
-      )
       const transient =
         res.status === 429 ||
         (res.status >= 500 && res.status < 600) ||
         // Gmail signals per-user/project quota exhaustion with HTTP 403 +
         // `rateLimitExceeded`/`userRateLimitExceeded` (not only 429).
         (res.status === 403 && isRateLimit403(text))
+      const retryAt = transient ? resolveRetryAt(res.headers.get('retry-after'), text) : undefined
+      const apiError = new GmailApiError(
+        `Gmail API ${method} ${url.pathname} failed: ${detail}`,
+        res.status,
+        detail,
+        { transient, retryAt },
+      )
       if (!transient || attempt === maxRetries) {
         throw apiError
       }
       lastError = apiError
-      const retryAfterHeader = res.headers.get('retry-after')
-      const waitMs =
-        parseRetryAfter(retryAfterHeader) ?? computeBackoff(attempt)
+      const retryDelta = retryAt ? retryAt.getTime() - Date.now() : 0
+      const waitMs = retryDelta > 0 ? Math.min(retryDelta, GMAIL_BACKOFF_CAP_MS) : computeBackoff(attempt)
       await sleep(waitMs)
       attempt += 1
     }
@@ -382,18 +384,21 @@ function isRateLimit403(body: string): boolean {
   return /rateLimitExceeded|userRateLimitExceeded/i.test(body)
 }
 
-function parseRetryAfter(value: string | null): number | null {
-  if (!value) return null
-  const asNumber = Number(value)
-  if (Number.isFinite(asNumber) && asNumber >= 0) {
-    return Math.min(asNumber * 1000, GMAIL_BACKOFF_CAP_MS)
+/**
+ * Absolute retry time from `Retry-After` (seconds or HTTP date) or, when the
+ * header is missing, from the Gmail error body ("Retry after 2026-11-20T10:00:00.000Z").
+ */
+export function resolveRetryAt(header: string | null, body: string): Date | undefined {
+  if (header) {
+    const seconds = Number(header)
+    if (Number.isFinite(seconds) && seconds >= 0) return new Date(Date.now() + seconds * 1000)
+    const asDate = Date.parse(header)
+    if (Number.isFinite(asDate)) return new Date(asDate)
   }
-  const asDate = Date.parse(value)
-  if (Number.isFinite(asDate)) {
-    const delta = asDate - Date.now()
-    if (delta > 0) return Math.min(delta, GMAIL_BACKOFF_CAP_MS)
-  }
-  return null
+  const match = /retry after\s+(\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:?\d{2}))/i.exec(body)
+  if (!match) return undefined
+  const parsed = Date.parse(match[1])
+  return Number.isFinite(parsed) ? new Date(parsed) : undefined
 }
 
 function computeBackoff(attempt: number): number {
@@ -409,11 +414,15 @@ function sleep(ms: number): Promise<void> {
 export class GmailApiError extends Error {
   readonly status: number
   readonly detail: string
-  constructor(message: string, status: number, detail: string) {
+  readonly transient?: boolean
+  readonly retryAt?: Date
+  constructor(message: string, status: number, detail: string, hints: { transient?: boolean; retryAt?: Date } = {}) {
     super(message)
     this.name = 'GmailApiError'
     this.status = status
     this.detail = detail
+    this.transient = hints.transient
+    this.retryAt = hints.retryAt
   }
 }
 

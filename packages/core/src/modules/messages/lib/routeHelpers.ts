@@ -1,4 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { z } from 'zod'
+import { isSchedulingAvailableFor } from './scheduledSend'
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -242,4 +244,23 @@ export async function canUseMessageEmailFeature(
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
   })
+}
+
+/** First message per top-level field of a zod error, e.g. `{ scheduledAt: 'messages.errors.scheduleInPast' }`. */
+export function buildValidationFieldErrors(error: z.ZodError): Record<string, string> {
+  const fieldErrors: Record<string, string> = {}
+  for (const issue of error.issues) {
+    const field = issue.path[0]
+    if (field === undefined || String(field) in fieldErrors) continue
+    fieldErrors[String(field)] = issue.message
+  }
+  return fieldErrors
+}
+
+/** Scheduling needs the scheduler module and an organization, whose release tick sends the message. */
+export async function refuseUnsupportedSchedule(container: unknown, organizationId: string | null | undefined): Promise<Response | null> {
+  if (isSchedulingAvailableFor(container, organizationId)) return null
+  const { translate } = await resolveTranslations()
+  const error = translate('messages.errors.schedulingUnavailable', 'Scheduled sending is not available.')
+  return Response.json({ error, fieldErrors: { scheduledAt: error } }, { status: 422 })
 }

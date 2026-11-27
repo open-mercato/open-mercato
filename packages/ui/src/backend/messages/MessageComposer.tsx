@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Forward, Reply, Send } from 'lucide-react'
+import { Clock, Forward, Reply, Send } from 'lucide-react'
 import { CrudForm } from '../CrudForm'
 import { Button } from '../../primitives/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../primitives/dialog'
@@ -10,6 +10,7 @@ import { getMessageUiComponentRegistry } from '@open-mercato/core/modules/messag
 import { getMessageObjectType } from '@open-mercato/core/modules/messages/lib/message-objects-registry'
 import { createMessageComposeFormGroups } from './message-compose-form-groups'
 import { useMessageCompose } from './useMessageCompose'
+import { ScheduleSendDialog } from './ScheduleSendDialog'
 import type { MessageComposerContextObject, MessageComposerProps } from './message-composer.types'
 
 export type {
@@ -62,6 +63,7 @@ function ContextObjectPreview({ contextObject }: { contextObject: MessageCompose
 
 export function MessageComposer(props: MessageComposerProps) {
   const compose = useMessageCompose(props)
+  const [scheduleOpen, setScheduleOpen] = React.useState(false)
   const inlineBackHref = props.inlineBackHref
   const SubmitIcon = compose.variant === 'reply'
     ? Reply
@@ -80,6 +82,17 @@ export function MessageComposer(props: MessageComposerProps) {
             disabled={compose.submitting}
           >
             {compose.t('messages.saveDraft', 'Save draft')}
+          </Button>
+        ) : null}
+        {compose.canSchedule ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => { if (compose.validateBeforeSchedule()) setScheduleOpen(true) }}
+            disabled={compose.submitting}
+          >
+            <Clock className="mr-2 size-4" />
+            {compose.t('messages.compose.sendLater', 'Send later…')}
           </Button>
         ) : null}
         {compose.variant !== 'compose' ? (
@@ -107,6 +120,17 @@ export function MessageComposer(props: MessageComposerProps) {
             disabled={compose.submitting}
           >
             {compose.t('messages.saveDraft', 'Save draft')}
+          </Button>
+        ) : null}
+        {compose.canSchedule ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => { if (compose.validateBeforeSchedule()) setScheduleOpen(true) }}
+            disabled={compose.submitting}
+          >
+            <Clock className="mr-2 size-4" />
+            {compose.t('messages.compose.sendLater', 'Send later…')}
           </Button>
         ) : null}
         <Button
@@ -138,6 +162,26 @@ export function MessageComposer(props: MessageComposerProps) {
     [compose, fallbackContextPreview],
   )
 
+  const storedScheduledAt = props.defaultValues?.scheduledAt ?? null
+  const scheduleInitialValue = React.useMemo(
+    () => (storedScheduledAt ? new Date(storedScheduledAt) : null),
+    [storedScheduledAt],
+  )
+
+  const scheduleDialog = compose.canSchedule ? (
+    <ScheduleSendDialog
+      open={scheduleOpen}
+      onOpenChange={setScheduleOpen}
+      maxDays={compose.scheduleMaxDays}
+      initialValue={scheduleInitialValue}
+      submitting={compose.submitting}
+      onConfirm={(scheduledAt) => {
+        setScheduleOpen(false)
+        void compose.handleSchedule(scheduledAt)
+      }}
+    />
+  ) : null
+
   const composePanel = (
     <CrudForm<Record<string, unknown>>
       backHref={backHref}
@@ -159,6 +203,7 @@ export function MessageComposer(props: MessageComposerProps) {
     return (
       <div className="space-y-4">
         {composePanel}
+        {scheduleDialog}
       </div>
     )
   }
@@ -173,6 +218,7 @@ export function MessageComposer(props: MessageComposerProps) {
           </DialogDescription>
         </DialogHeader>
         {composePanel}
+        {scheduleDialog}
         <div className="flex items-center justify-end gap-2 border-t pt-4">
           <Button
             type="button"
@@ -182,6 +228,17 @@ export function MessageComposer(props: MessageComposerProps) {
           >
             {compose.t('ui.forms.actions.cancel', 'Cancel')}
           </Button>
+          {compose.canSchedule ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => { if (compose.validateBeforeSchedule()) setScheduleOpen(true) }}
+              disabled={compose.submitting}
+            >
+              <Clock className="mr-2 size-4" />
+              {compose.t('messages.compose.sendLater', 'Send later…')}
+            </Button>
+          ) : null}
           <Button
             type="button"
             onClick={() => {

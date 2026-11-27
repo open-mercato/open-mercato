@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { type Kysely, sql } from 'kysely'
+import { expressionBuilder, type Kysely, sql } from 'kysely'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import {
@@ -16,13 +16,14 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
+import { buildRecipientSummaries } from '../lib/recipientSummary'
 import { composeMessageSchema, listMessagesSchema, type ComposeMessageInput, type ListMessagesInput } from '../data/validators'
 import {
   composeRequiresChannelTypeResolution,
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
-import { delegateComposeToSender, requiresSenderDelegation } from '../lib/composeSenderDelegation'
+import { delegateComposeToSender, hasSenderAttachments, requiresSenderDelegation, validateMessageSender } from '../lib/composeSenderDelegation'
 import { getExternalEmailBudgetErrorResponse } from '../lib/externalEmailBudget'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
@@ -40,6 +41,8 @@ import {
   canUseChannelThreadFallback,
   resolveReplyParentMessage,
   canUseMessageEmailFeature,
+  buildValidationFieldErrors,
+  refuseUnsupportedSchedule,
   resolveMessageContext,
 } from '../lib/routeHelpers'
 import { applyMessageParticipantScope } from '../lib/participantScope'
@@ -63,6 +66,44 @@ const NO_MATCH_ID = '00000000-0000-0000-0000-000000000000'
 const MESSAGE_LIST_CACHE_TTL_MS = 30_000
 const MESSAGE_LIST_RESOURCE = 'messages.message'
 
+type ExternalEmailFilterDatabase = {
+  m: { id: string; external_email_hash: string | null; sender_user_id: string }
+  message_external_participants: {
+    message_id: string
+    tenant_id: string
+    organization_id: string | null
+    email_hash: string
+    role: string
+  }
+}
+
+/**
+ * Messages addressed to an external email: the primary address, or any participant
+ * with the same hash. A blind copy matches only for the author, so the filter cannot
+ * reveal who was copied.
+ */
+function buildExternalEmailFilter(
+  scope: { tenantId: string; organizationId: string | null; userId: string },
+  hashCandidates: string[],
+) {
+  const eb = expressionBuilder<ExternalEmailFilterDatabase, 'm'>()
+  return eb.or([
+    eb('m.external_email_hash', 'in', hashCandidates),
+    eb.exists(
+      eb.selectFrom('message_external_participants as mep')
+        .select(sql<number>`1`.as('one'))
+        .whereRef('mep.message_id', '=', 'm.id')
+        .where('mep.tenant_id', '=', scope.tenantId)
+        .where('mep.organization_id', scope.organizationId ? '=' : 'is', scope.organizationId ?? null)
+        .where('mep.email_hash', 'in', hashCandidates)
+        .where((participant) => participant.or([
+          participant('mep.role', '<>', 'bcc'),
+          participant('m.sender_user_id', '=', scope.userId),
+        ])),
+    ),
+  ])
+}
+
 function getDb(em: EntityManager): Kysely<any> {
   return em.getKysely<any>()
 }
@@ -71,6 +112,7 @@ type MessageListScopeRow = {
   id: string
   sender_user_id: string
   is_draft: boolean
+  message_status: string
   recipient_status: string | null
   read_at: string | null
 }
@@ -222,6 +264,7 @@ export async function GET(req: Request) {
           .where('r.message_id', 'is not', null)
           .where('r.deleted_at', 'is', null)
           .where('r.archived_at', 'is not', null)
+          .where('m.is_draft', '=', false)
         break
       case 'sent':
         q = q
@@ -233,12 +276,19 @@ export async function GET(req: Request) {
         q = q
           .where('m.sender_user_id', '=', scope.userId)
           .where('m.is_draft', '=', true)
+          .where('m.status', 'not in', ['scheduled', 'releasing'])
+        joinRecipient()
+        break
+      case 'scheduled':
+        q = q
+          .where('m.sender_user_id', '=', scope.userId)
+          .where('m.status', 'in', ['scheduled', 'releasing'])
         joinRecipient()
         break
       case 'all':
         // Sender-OR-recipient participant scope shared with the
         // communication_channels message enricher — see participantScope.ts (#4133).
-        q = applyMessageParticipantScope(q, scope.userId)
+        q = applyMessageParticipantScope(q.where('m.is_draft', '=', false), scope.userId)
         break
       default: {
         const unsupportedFolder: never = input.folder
@@ -251,7 +301,9 @@ export async function GET(req: Request) {
     if (input.visibility) q = q.where('m.visibility', '=', input.visibility)
     if (input.sourceEntityType) q = q.where('m.source_entity_type', '=', input.sourceEntityType)
     if (input.sourceEntityId) q = q.where('m.source_entity_id', '=', input.sourceEntityId)
-    if (input.externalEmail) q = q.where('m.external_email_hash', 'in', lookupHashCandidates(input.externalEmail))
+    if (input.externalEmail) {
+      q = q.where(buildExternalEmailFilter(scope, lookupHashCandidates(input.externalEmail)))
+    }
     if (input.senderId) q = q.where('m.sender_user_id', '=', input.senderId)
 
     if (input.search) {
@@ -324,10 +376,11 @@ export async function GET(req: Request) {
       'm.id',
       'm.sender_user_id',
       'm.is_draft',
+      'm.status as message_status',
       'r.status as recipient_status',
       'r.read_at',
     ])
-    .orderBy(sql`${sql.ref('m.sent_at')} desc nulls last`)
+    .orderBy(input.folder === 'scheduled' ? sql`${sql.ref('m.scheduled_at')} asc` : sql`${sql.ref('m.sent_at')} desc nulls last`)
     .orderBy('m.id', 'desc')
     .offset(offset)
     .limit(input.pageSize)
@@ -391,6 +444,11 @@ export async function GET(req: Request) {
     return acc
   }, {})
 
+  const isAuthorFolder = input.folder === 'sent' || input.folder === 'drafts' || input.folder === 'scheduled'
+  const recipientSummaryByMessage = isAuthorFolder
+    ? await buildRecipientSummaries(em, messageEntities, { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null })
+    : null
+
   const senderUserIds = Array.from(new Set(typedRows.map((row) => row.sender_user_id).filter(Boolean)))
   const senderUsers = senderUserIds.length > 0
     ? await findWithDecryption(
@@ -434,19 +492,21 @@ export async function GET(req: Request) {
           bodyPreview,
           senderUserId: message.senderUserId,
           priority: message.priority,
-          status: row.recipient_status ?? (row.is_draft ? 'draft' : 'sent'),
+          status: row.recipient_status ?? (row.message_status === 'scheduled' || row.message_status === 'releasing' ? 'scheduled' : row.is_draft ? 'draft' : 'sent'),
           isDraft: row.is_draft,
           hasObjects: (objectsByMessage[message.id] || []).length > 0,
           objectCount: (objectsByMessage[message.id] || []).length,
           hasAttachments: (attachmentCountByMessage[message.id] || 0) > 0,
           attachmentCount: attachmentCountByMessage[message.id] || 0,
           recipientCount: recipientCountByMessage[message.id] || 0,
+          ...(recipientSummaryByMessage ? { recipientSummary: recipientSummaryByMessage.get(message.id) ?? null } : {}),
           hasActions:
             Boolean(actionData?.actions?.length)
             || Boolean(getMessageType(message.type)?.defaultActions?.length)
             || (objectsByMessage[message.id] || []).some((item) => item.actionRequired && Boolean(item.actionType)),
           actionTaken: message.actionTaken ?? null,
           sentAt: message.sentAt ? message.sentAt.toISOString() : null,
+          scheduledAt: message.scheduledAt ? message.scheduledAt.toISOString() : null,
           readAt: row.read_at,
           threadId: message.threadId ?? null,
         }
@@ -503,7 +563,7 @@ export async function POST(req: Request) {
         sourceHint.data,
       )
     : undefined
-  // `inboundFromChannel` and `sentAt` are likewise server-only (#6093, #6095):
+  // `inboundFromChannel`, `sentAt`, `externalParticipants` and `senderDeliveryOptions` are likewise server-only (#6093, #6095):
   // channel ingest sets them so an inbound message can be addressed to the
   // conversation's assignee and stamped with the provider's receive time, but
   // a request body must not be able to waive the recipients rule or backdate
@@ -512,6 +572,8 @@ export async function POST(req: Request) {
     sourceChannelType: _clientSuppliedChannelType,
     inboundFromChannel: _clientSuppliedInboundFlag,
     sentAt: _clientSuppliedSentAt,
+    externalParticipants: _clientSuppliedParticipants,
+    senderDeliveryOptions: _clientSuppliedDeliveryOptions,
     ...clientBody
   } = (body ?? {}) as Record<string, unknown>
   let input: ComposeMessageInput
@@ -524,11 +586,34 @@ export async function POST(req: Request) {
     if (err instanceof z.ZodError) {
       const { translate } = await resolveTranslations()
       return Response.json(
-        { error: translate('messages.errors.invalidComposePayload', 'Invalid message payload'), details: err.issues },
+        {
+          error: translate('messages.errors.invalidComposePayload', 'Invalid message payload'),
+          details: err.issues,
+          fieldErrors: buildValidationFieldErrors(err),
+        },
         { status: 400 },
       )
     }
     throw err
+  }
+
+  // Attachments need the message to own them before a mailbox can send them, so such a send is composed as a draft and sent right after.
+  const sendsDraftThroughMailbox = requiresSenderDelegation(input) && hasSenderAttachments(input)
+  if (input.scheduledAt || sendsDraftThroughMailbox) {
+    if (input.scheduledAt) {
+      const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container, scope.organizationId)
+      if (scheduleRefusal) return scheduleRefusal
+    }
+    if (input.senderChannelId) {
+      const senderCheck = await validateMessageSender(
+        ctx.container,
+        { userId: scope.userId, tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+        input,
+      )
+      if (!senderCheck.ok) {
+        return Response.json({ error: senderCheck.error, fieldErrors: senderCheck.fieldErrors }, { status: senderCheck.status })
+      }
+    }
   }
 
   const isPublicVisibility = input.visibility === 'public'
@@ -657,7 +742,7 @@ export async function POST(req: Request) {
   // communication-channels facade, which writes the conversation, thread mapping
   // and outbound channel link the inbound thread matcher needs. Without the
   // field this stays the platform-sender path, unchanged.
-  if (requiresSenderDelegation(input)) {
+  if (requiresSenderDelegation(input) && !sendsDraftThroughMailbox) {
     const delegated = await delegateComposeToSender(
       ctx.container,
       {
@@ -692,25 +777,40 @@ export async function POST(req: Request) {
   }
 
   let execution: Awaited<ReturnType<CommandBus['execute']>>
+  const commandCtx = {
+    container: ctx.container,
+    auth: ctx.auth ?? null,
+    organizationScope: null,
+    selectedOrganizationId: scope.organizationId,
+    organizationIds: scope.organizationId ? [scope.organizationId] : null,
+    request: req,
+  }
   try {
     execution = await commandBus.execute('messages.messages.compose', {
       input: {
         ...input,
+        ...(sendsDraftThroughMailbox ? { isDraft: true } : {}),
         parentMessageId: composeParentMessageId,
         sendViaEmail,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         userId: scope.userId,
       },
-      ctx: {
-        container: ctx.container,
-        auth: ctx.auth ?? null,
-        organizationScope: null,
-        selectedOrganizationId: scope.organizationId,
-        organizationIds: scope.organizationId ? [scope.organizationId] : null,
-        request: req,
-      },
+      ctx: commandCtx,
     })
+    if (sendsDraftThroughMailbox) {
+      const { id: draftId } = execution.result as unknown as MessageCommandExecuteResultWithThreadId
+      await commandBus.execute('messages.messages.update_draft', {
+        input: {
+          messageId: draftId,
+          isDraft: false,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          userId: scope.userId,
+        },
+        ctx: commandCtx,
+      })
+    }
   } catch (error) {
     const budgetResponse = getExternalEmailBudgetErrorResponse(error)
     if (budgetResponse) return budgetResponse
@@ -721,7 +821,8 @@ export async function POST(req: Request) {
     throw error
   }
   const { result, logEntry } = execution
-  const { id: messageId, threadId: responseThreadId } = result as unknown as MessageCommandExecuteResultWithThreadId
+  const { id: messageId, threadId: composedThreadId } = result as unknown as MessageCommandExecuteResultWithThreadId
+  const responseThreadId = sendsDraftThroughMailbox ? composedThreadId ?? messageId : composedThreadId
 
   const response = Response.json({ id: messageId, threadId: responseThreadId }, { status: 201 })
   attachOperationMetadataHeader(response, logEntry, {
@@ -780,6 +881,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Compose payload failed validation', schema: errorResponseSchema },
         { status: 403, description: 'Access denied, including a parentMessageId the caller cannot read', schema: errorResponseSchema },
         { status: 404, description: 'parentMessageId is unknown, deleted, or outside the caller organization', schema: errorResponseSchema },
+        { status: 422, description: 'scheduledAt given while scheduling is unavailable (scheduler module disabled) or with a mailbox sender', schema: errorResponseSchema },
         { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
         { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
       ],

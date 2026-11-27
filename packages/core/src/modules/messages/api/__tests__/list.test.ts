@@ -15,6 +15,7 @@ import {
 } from 'kysely'
 import { Message, MessageObject } from '../../data/entities'
 import { User } from '../../../auth/data/entities'
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const orgId = '22222222-2222-4222-8222-222222222222'
@@ -180,6 +181,30 @@ describe('messages GET — encrypted-sort audit (#3386 P3)', () => {
     expect(body.items).toHaveLength(2)
     expect(body.items[0]!.subject).toBe('Subject msg-a')
     expect(body.items[1]!.subject).toBe('Subject msg-b')
+  })
+})
+
+describe('messages GET — externalEmail filter', () => {
+  it('matches external_email_hash OR a scoped participant with the same hash candidates', async () => {
+    const res = await GET(new Request(`http://localhost/api/messages?externalEmail=second%40example.com`))
+    expect(res.status).toBe(200)
+
+    const scopeQuery = recordedQueries.find(isScopeQuery)
+    expect(scopeQuery).toBeDefined()
+    const sqlText = scopeQuery!.sql.toLowerCase()
+    expect(sqlText).toMatch(/"m"\."external_email_hash" in \(.+\) or exists \(select 1 as "one" from "message_external_participants" as "mep"/)
+    expect(sqlText).toContain('"mep"."message_id" = "m"."id"')
+    expect(sqlText).toContain('"mep"."tenant_id" = $')
+    expect(sqlText).toContain('"mep"."organization_id" = $')
+    expect(sqlText).toContain('"mep"."email_hash" in (')
+    expect(sqlText).toMatch(/\("mep"\."role" <> \$\d+ or "m"\."sender_user_id" = \$\d+\)/)
+    expect(scopeQuery!.parameters).toEqual(expect.arrayContaining(['bcc', userId]))
+
+    const candidates = lookupHashCandidates('second@example.com')
+    for (const candidate of candidates) {
+      expect(scopeQuery!.parameters.filter((value) => value === candidate)).toHaveLength(2)
+    }
+    expect(scopeQuery!.parameters).toEqual(expect.arrayContaining([tenantId, orgId]))
   })
 })
 

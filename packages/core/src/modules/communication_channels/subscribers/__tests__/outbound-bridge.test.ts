@@ -35,11 +35,16 @@ describe('outbound-bridge subscriber behaviour', () => {
     jest.mocked(resolveOutboundRouting).mockClear()
   })
 
-  function makeCtx(em: { findOne: jest.Mock }) {
+  // The bridge lists every link of the message; the fixtures queue a single link (or none) on `findOne`.
+  function makeCtx(em: { findOne: jest.Mock; find?: jest.Mock }) {
+    const find = em.find ?? jest.fn(async (...args: unknown[]) => {
+      const link = await em.findOne(...args)
+      return link ? [link] : []
+    })
     return {
       container: {
         resolve: ((name: string) => {
-          if (name === 'em') return { fork: () => em }
+          if (name === 'em') return { fork: () => ({ ...em, find }) }
           return null
         }) as <T>(name: string) => T,
       },
@@ -124,6 +129,30 @@ describe('outbound-bridge subscriber behaviour', () => {
     expect((payload as any).scope.tenantId).toBe(tenantId)
     expect((payload as any).scope.organizationId).toBe('org-1')
     expect((payload as any).attempt).toBe(1)
+  })
+
+  it('enqueues one job per "to" participant for a separately sent message', async () => {
+    const findOne = jest.fn()
+    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', visibility: 'public', emailSendSeparately: true }) // Message
+    findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
+    findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // channel
+    const find = jest.fn()
+      .mockResolvedValueOnce([]) // links
+      .mockResolvedValueOnce([{ id: 'p-a' }, { id: 'p-b' }]) // "to" participants
+    await handler({ messageId, tenantId, organizationId: 'org-1' }, makeCtx({ findOne, find }))
+    expect(enqueueMock.mock.calls.map(([job]) => (job as any).externalParticipantId)).toEqual(['p-a', 'p-b'])
+  })
+
+  it('skips when one of several links is still in flight', async () => {
+    const findOne = jest.fn()
+    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', visibility: 'public' }) // Message
+    findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
+    const find = jest.fn().mockResolvedValueOnce([
+      { id: 'link-a', direction: 'outbound', deliveryStatus: 'failed' },
+      { id: 'link-b', direction: 'outbound', deliveryStatus: 'pending' },
+    ])
+    await handler({ messageId, tenantId }, makeCtx({ findOne, find }))
+    expect(enqueueMock).not.toHaveBeenCalled()
   })
 
   it('skips when an existing link is already in a delivered state', async () => {

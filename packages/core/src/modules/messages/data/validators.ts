@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
 import { sanitizeRichTextHref } from '@open-mercato/shared/lib/html/sanitizeRichText'
 import { channelTypeRequiresExternalEmail } from '../lib/channel-sender-identity'
+import { getScheduleMaxDays } from '../lib/scheduleLimits'
 
 export const messageRouteIdSchema = z.guid()
 
@@ -63,6 +64,35 @@ function validateDefaultWithObjectsPayload(
   })
 }
 
+export const SCHEDULE_ERROR_KEYS = {
+  inPast: 'messages.errors.scheduleInPast',
+  tooFar: 'messages.errors.scheduleTooFar',
+  notMinute: 'messages.errors.scheduleNotMinute',
+} as const
+
+const scheduledAtSchema = z.coerce.date()
+
+function refineScheduledAt(
+  value: { scheduledAt?: Date | null; isDraft?: boolean },
+  ctx: z.RefinementCtx,
+): void {
+  const scheduledAt = value.scheduledAt
+  if (!(scheduledAt instanceof Date)) return
+  if (value.isDraft === true) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledAt'], message: 'scheduledAt cannot be combined with isDraft' })
+    return
+  }
+  const time = scheduledAt.getTime()
+  const now = Date.now()
+  if (scheduledAt.getUTCSeconds() !== 0 || scheduledAt.getUTCMilliseconds() !== 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledAt'], message: SCHEDULE_ERROR_KEYS.notMinute })
+  } else if (time <= now) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledAt'], message: SCHEDULE_ERROR_KEYS.inPast })
+  } else if (time > now + getScheduleMaxDays() * 86_400_000) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledAt'], message: SCHEDULE_ERROR_KEYS.tooFar })
+  }
+}
+
 export const messageRecipientSchema = z.object({
   userId: z.string().uuid(),
   type: z.enum(['to', 'cc', 'bcc']).optional().default('to'),
@@ -102,12 +132,39 @@ export const messageActionDataSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 })
 
+export const senderDeliveryOptionsSchema = z.object({
+  channelMetadata: z.record(z.string(), z.unknown()).optional(),
+  inReplyTo: z.string().max(998).nullable().optional(),
+  references: z.array(z.string().max(998)).max(100).optional(),
+})
+
+export type SenderDeliveryOptions = z.infer<typeof senderDeliveryOptionsSchema>
+
+export const MAX_COMPOSE_EXTERNAL_EMAILS = 50
+// Inbound mail may carry long To/CC headers; ingest must never fail on them.
+export const MAX_COMPOSE_EXTERNAL_PARTICIPANTS = 500
+
+export const externalParticipantSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1).max(255).optional(),
+  role: z.enum(['to', 'cc', 'bcc']),
+})
+
 const composeMessageBaseSchema = z.object({
   type: z.string().optional().default('default'),
   visibility: z.enum(['public', 'internal']).nullable().optional(),
   sourceEntityType: z.string().min(1).optional(),
   sourceEntityId: z.string().uuid().optional(),
   externalEmail: z.string().email().optional(),
+  externalEmails: z.array(z.string().email()).min(1).max(MAX_COMPOSE_EXTERNAL_EMAILS).optional(),
+  /** Deliver one email per external address so recipients do not see each other. */
+  sendSeparately: z.boolean().optional(),
+  /**
+   * Additional external addressees with their role. Server-only: set by
+   * channel ingest (extra inbound To/CC) and mailbox sends; the HTTP route
+   * strips any client-sent value.
+   */
+  externalParticipants: z.array(externalParticipantSchema).max(MAX_COMPOSE_EXTERNAL_PARTICIPANTS).optional(),
   externalName: z.string().min(1).max(255).optional(),
   /**
    * Channel type the message originates from, when the caller knows it (#4975).
@@ -157,18 +214,39 @@ const composeMessageBaseSchema = z.object({
    * external occurrence time; omission uses the send time. Ignored for drafts.
    */
   sentAt: z.coerce.date().nullable().optional(),
+  /** Send later: the message is stored as a scheduled draft and released at this instant (whole minute, UTC). */
+  scheduledAt: scheduledAtSchema.optional(),
+  /**
+   * Mailbox delivery context replayed when a scheduled message is handed to its
+   * sender channel (CRM metadata, reply threading headers). Server-only: set by
+   * the send-as-user facade; the HTTP route strips any client-sent value.
+   */
+  senderDeliveryOptions: senderDeliveryOptionsSchema.optional(),
 })
 
 type ComposeMessageRefinementValue = Omit<
   z.infer<typeof composeMessageBaseSchema>,
-  'sourceChannelType' | 'sentAt'
+  'sourceChannelType' | 'sentAt' | 'externalParticipants' | 'senderDeliveryOptions'
 > & { sourceChannelType?: string; sentAt?: Date | null }
+
+function refineExternalEmailsExclusive(
+  value: { externalEmail?: string; externalEmails?: string[] },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.externalEmail !== undefined && value.externalEmails !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['externalEmails'],
+      message: 'externalEmails cannot be combined with externalEmail',
+    })
+  }
+}
 
 function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.RefinementCtx): void {
   const isDraft = value.isDraft ?? false
   const visibility = value.visibility ?? 'internal'
   const recipientCount = value.recipients.length
-  const hasExternalEmail = Boolean(value.externalEmail?.trim())
+  const hasExternalEmail = Boolean(value.externalEmail?.trim()) || (value.externalEmails?.length ?? 0) > 0
   const hasSubject = value.subject.trim().length > 0
   const hasBody = value.body.trim().length > 0
 
@@ -219,6 +297,8 @@ function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.Refin
     }
   }
 
+  refineExternalEmailsExclusive(value, ctx)
+
   const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
   if (duplicateRecipientIds.length > 0) {
     ctx.addIssue({
@@ -229,6 +309,7 @@ function refineComposeMessage(value: ComposeMessageRefinementValue, ctx: z.Refin
   }
 
   validateDefaultWithObjectsPayload(value, ctx)
+  refineScheduledAt(value, ctx)
 }
 
 /**
@@ -249,7 +330,7 @@ export const composeMessageSchema = composeMessageBaseSchema.superRefine(refineC
  * then validates against {@link composeMessageSchema}.
  */
 export const composeMessageRequestSchema = composeMessageBaseSchema
-  .omit({ sourceChannelType: true, inboundFromChannel: true, sentAt: true })
+  .omit({ sourceChannelType: true, inboundFromChannel: true, sentAt: true, externalParticipants: true, senderDeliveryOptions: true })
   .superRefine(refineComposeMessage)
 
 export const updateDraftSchema = z.object({
@@ -258,6 +339,9 @@ export const updateDraftSchema = z.object({
   sourceEntityType: z.string().min(1).optional(),
   sourceEntityId: z.string().uuid().optional(),
   externalEmail: z.string().email().optional(),
+  /** Replaces the draft's external addressees ("to"). */
+  externalEmails: z.array(z.string().email()).min(1).max(MAX_COMPOSE_EXTERNAL_EMAILS).optional(),
+  sendSeparately: z.boolean().optional(),
   externalName: z.string().min(1).max(255).optional(),
   recipients: z.array(messageRecipientSchema).optional(),
   subject: z.string().max(500).optional(),
@@ -269,9 +353,17 @@ export const updateDraftSchema = z.object({
   actionData: messageActionDataSchema.optional(),
   sendViaEmail: z.boolean().optional(),
   isDraft: z.literal(false).optional(),
-  /** Accepted only so the route can refuse it explicitly; zod would otherwise strip it and the send would fall back to the platform sender unnoticed. */
+  /** Stored on the draft; sending or releasing it goes through this mailbox (falls back to the stored one when omitted). */
   senderChannelId: z.string().uuid().optional(),
+  /** A date (re)schedules the draft; `null` turns a scheduled message back into a plain draft. */
+  scheduledAt: scheduledAtSchema.nullable().optional(),
 }).superRefine((value, ctx) => {
+  refineExternalEmailsExclusive(value, ctx)
+  if (value.scheduledAt instanceof Date && value.isDraft === false) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['scheduledAt'], message: 'scheduledAt cannot be combined with isDraft false' })
+  } else {
+    refineScheduledAt(value, ctx)
+  }
   if (value.recipients) {
     const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
     if (duplicateRecipientIds.length > 0) {
@@ -287,7 +379,7 @@ export const updateDraftSchema = z.object({
 })
 
 export const listMessagesSchema = z.object({
-  folder: z.enum(['inbox', 'sent', 'drafts', 'archived', 'all']).optional().default('inbox'),
+  folder: z.enum(['inbox', 'sent', 'drafts', 'scheduled', 'archived', 'all']).optional().default('inbox'),
   status: z.enum(['unread', 'read', 'archived']).optional(),
   type: z.string().optional(),
   visibility: z.enum(['public', 'internal']).optional(),
@@ -305,12 +397,21 @@ export const listMessagesSchema = z.object({
 })
 
 export const forwardMessageSchema = z.object({
-  recipients: z.array(messageRecipientSchema).min(1).max(100),
+  recipients: z.array(messageRecipientSchema).max(100),
+  externalEmails: z.array(z.string().email()).min(1).max(MAX_COMPOSE_EXTERNAL_EMAILS).optional(),
+  sendSeparately: z.boolean().optional(),
   body: z.string().max(50000).optional(),
   additionalBody: z.string().max(10000).optional(),
   includeAttachments: z.boolean().optional().default(true),
   sendViaEmail: z.boolean().optional().default(false),
 }).superRefine((value, ctx) => {
+  if (value.recipients.length === 0 && !value.externalEmails) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['recipients'],
+      message: 'at least one recipient is required',
+    })
+  }
   const duplicateRecipientIds = collectDuplicateRecipientIds(value.recipients)
   if (duplicateRecipientIds.length > 0) {
     ctx.addIssue({
@@ -328,6 +429,9 @@ export const replyMessageSchema = z.object({
   attachmentIds: z.array(z.string().uuid()).optional(),
   attachmentRecordId: z.string().min(1).max(255).optional(),
   replyAll: z.boolean().optional().default(false),
+  /** Overrides the inherited external counterpart; reply-all pre-fills it from the source participants. */
+  externalEmails: z.array(z.string().email()).min(1).max(MAX_COMPOSE_EXTERNAL_EMAILS).optional(),
+  sendSeparately: z.boolean().optional(),
   sendViaEmail: z.boolean().optional().default(false),
 }).superRefine((value, ctx) => {
   if (!value.recipients) return
@@ -370,7 +474,14 @@ export const unlinkAttachmentPayloadSchema = z.object({
   { message: 'attachmentId or attachmentIds is required' }
 )
 
+export const resendFailedSchema = z.object({
+  /** Failed participants to resend to; omitted means every failed participant of the message. */
+  participantIds: z.array(z.string().uuid()).min(1).max(MAX_COMPOSE_EXTERNAL_PARTICIPANTS).optional(),
+})
+
 export type ComposeMessageInput = z.infer<typeof composeMessageSchema>
+export type ResendFailedInput = z.infer<typeof resendFailedSchema>
+export type ExternalParticipantInput = z.infer<typeof externalParticipantSchema>
 export type UpdateDraftInput = z.infer<typeof updateDraftSchema>
 export type ListMessagesInput = z.infer<typeof listMessagesSchema>
 export type ForwardMessageInput = z.infer<typeof forwardMessageSchema>

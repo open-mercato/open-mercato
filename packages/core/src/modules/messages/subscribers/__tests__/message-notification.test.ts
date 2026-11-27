@@ -130,7 +130,7 @@ describe('messages sent subscriber', () => {
     )
     expect(enqueueMock).toHaveBeenNthCalledWith(
       3,
-      expect.objectContaining({ type: 'external', email: 'ext@example.com' }),
+      expect.objectContaining({ type: 'external_participants', messageId: expect.any(String) }),
     )
   })
 
@@ -152,7 +152,7 @@ describe('messages sent subscriber', () => {
       expect.objectContaining({ type: 'recipient', recipientUserId: 'u1' }),
     )
     expect(enqueueMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'external' }),
+      expect.objectContaining({ type: 'external_participants' }),
     )
   })
 
@@ -175,12 +175,70 @@ describe('messages sent subscriber', () => {
     }, ctx)
 
     expect(enqueueMock).toHaveBeenCalledWith({
-      type: 'external',
+      type: 'external_participants',
       messageId: 'message-1',
-      email: 'ext@example.com',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
     })
+  })
+
+  it('routes an external_conversation whose channel is gone to the platform sender before queueing it', async () => {
+    const nativeUpdate = jest.fn(async () => 1)
+    const ctxWithEm = { resolve: jest.fn(() => ({ fork: () => ({ nativeUpdate }) })) }
+    findOneWithDecryptionMock.mockResolvedValueOnce({
+      sourceEntityType: 'communication_channels.external_conversation',
+      threadId: 'thread-1',
+      visibility: 'public',
+    })
+    resolveMessageChannelThreadAccessMock.mockResolvedValue(null)
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      sendViaEmail: true,
+      externalEmail: 'ext@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctxWithEm)
+
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      { id: 'message-1', tenantId: 'tenant-1', organizationId: 'org-1', emailDeliveryRoute: null },
+      { emailDeliveryRoute: 'system' },
+    )
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external_participants', messageId: 'message-1' }))
+  })
+
+  it('routes an external_conversation to the platform sender when the channel lookup throws', async () => {
+    const nativeUpdate = jest.fn(async () => 1)
+    const ctxWithEm = { resolve: jest.fn(() => ({ fork: () => ({ nativeUpdate }) })) }
+    findOneWithDecryptionMock.mockResolvedValueOnce({
+      sourceEntityType: 'communication_channels.external_conversation',
+      threadId: 'thread-1',
+      visibility: 'public',
+    })
+    resolveMessageChannelThreadAccessMock.mockRejectedValueOnce(new Error('[internal] lookup failed'))
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      sendViaEmail: true,
+      externalEmail: 'ext@example.com',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctxWithEm)
+
+    expect(nativeUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      { id: 'message-1', tenantId: 'tenant-1', organizationId: 'org-1', emailDeliveryRoute: null },
+      { emailDeliveryRoute: 'system' },
+    )
+    expect(nativeUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      enqueueMock.mock.invocationCallOrder[enqueueMock.mock.calls.length - 1],
+    )
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external_participants', messageId: 'message-1' }))
   })
 
   it('skips the external job for an external_conversation sourced message', async () => {
@@ -201,7 +259,7 @@ describe('messages sent subscriber', () => {
       expect.objectContaining({ type: 'recipient', recipientUserId: 'u1' }),
     )
     expect(enqueueMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'external' }),
+      expect.objectContaining({ type: 'external_participants' }),
     )
   })
 
@@ -230,9 +288,9 @@ describe('messages sent subscriber', () => {
     }, ctx)
 
     if (shouldEnqueueExternal) {
-      expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external' }))
+      expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external_participants' }))
     } else {
-      expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'external' }))
+      expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'external_participants' }))
     }
     expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'recipient', recipientUserId: 'u1' }))
     if (sourceEntityType === 'communication_channels.send_as_user') {
@@ -321,7 +379,7 @@ describe('messages sent subscriber', () => {
     )
     expect(enqueueMock).toHaveBeenCalledTimes(2)
     expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ recipientUserId: systemUserId }))
-    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external', email: 'customer@example.com' }))
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external_participants', messageId: 'message-1' }))
   })
 
   it('skips the notification batch when the system user was the only recipient (#6391)', async () => {
@@ -337,7 +395,7 @@ describe('messages sent subscriber', () => {
 
     expect(createBatchMock).not.toHaveBeenCalled()
     expect(enqueueMock).toHaveBeenCalledTimes(1)
-    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external', email: 'customer@example.com' }))
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'external_participants', messageId: 'message-1' }))
   })
 
   it('leaves a channel-routed reply to the outbound bridge without failing on the system user (#6391)', async () => {
@@ -361,7 +419,7 @@ describe('messages sent subscriber', () => {
     expect(enqueueMock).toHaveBeenCalledTimes(1)
     expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'recipient', recipientUserId: 'u1' }))
     expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ recipientUserId: systemUserId }))
-    expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'external' }))
+    expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'external_participants' }))
   })
 
   it('uses local strategy by default', async () => {

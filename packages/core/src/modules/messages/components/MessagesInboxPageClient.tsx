@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/messages/extension-points'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -16,12 +16,13 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useAppEventCoalesced } from '@open-mercato/ui/backend/injection/useAppEventCoalesced'
-import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
+import { Archive, ChevronDown, Clock, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
 import { DefaultMessageListItem } from './defaults/DefaultMessageListItem'
 import { getMessageListParticipantLabel } from './messageListLabels'
 import { toErrorMessage } from './message-detail/utils'
 import { useMessagesInboxBulkActions, type MessageFolder } from './useMessagesInboxBulkActions'
+import { messageDetailHref, messageListHref, parseMessageFolder } from './messageFolderRoutes'
 import {
   buildMessagesInboxFilters,
   buildMessagesListParams,
@@ -51,9 +52,11 @@ type MessageListItem = {
   hasAttachments: boolean
   attachmentCount: number
   recipientCount?: number
+  recipientSummary?: { labels: string[]; total: number } | null
   hasActions: boolean
   actionTaken?: string | null
   sentAt?: string | null
+  scheduledAt?: string | null
   readAt?: string | null
   threadId?: string | null
 }
@@ -97,7 +100,8 @@ export function MessagesInboxPageClient() {
   // Reconnect means events were missed while offline, so it refreshes uncoalesced.
   useAppEvent(BRIDGE_RECONNECTED_EVENT_ID, invalidateMessageListQueries, [invalidateMessageListQueries])
 
-  const [folder, setFolder] = React.useState<MessageFolder>('inbox')
+  const searchParams = useSearchParams()
+  const [folder, setFolder] = React.useState<MessageFolder>(() => parseMessageFolder(searchParams?.get('folder')))
   const [folderMenuOpen, setFolderMenuOpen] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -306,6 +310,7 @@ export function MessagesInboxPageClient() {
               priority: (item.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal',
               sentAt: item.sentAt ? new Date(item.sentAt) : null,
               isDraft: item.isDraft,
+              scheduledAt: item.scheduledAt ? new Date(item.scheduledAt) : null,
               senderName: getMessageListParticipantLabel(item, folder, t),
               hasObjects: item.hasObjects,
               objectCount: item.objectCount,
@@ -316,7 +321,7 @@ export function MessagesInboxPageClient() {
               actionTaken: item.actionTaken ?? null,
               unread: item.status === 'unread',
             }}
-            onClick={() => router.push(`/backend/messages/${item.id}`)}
+            onClick={() => router.push(messageDetailHref(item.id, folder))}
           />
         )
       },
@@ -327,6 +332,7 @@ export function MessagesInboxPageClient() {
     { id: 'inbox' as const, label: t('messages.folder.inbox', 'Inbox'), icon: Inbox },
     { id: 'sent' as const, label: t('messages.folder.sent', 'Sent'), icon: Send },
     { id: 'drafts' as const, label: t('messages.folder.drafts', 'Drafts'), icon: FilePenLine },
+    { id: 'scheduled' as const, label: t('messages.folder.scheduled', 'Scheduled'), icon: Clock },
     { id: 'archived' as const, label: t('messages.folder.archived', 'Archived'), icon: Archive },
     { id: 'all' as const, label: t('messages.folder.all', 'All'), icon: Layers },
   ], [t])
@@ -434,6 +440,7 @@ export function MessagesInboxPageClient() {
                         className={`w-full justify-start h-auto px-2 py-1.5 text-sm font-normal ${isActive ? 'bg-accent/60' : ''}`}
                         onClick={() => {
                           setFolder(option.id)
+                          router.replace(messageListHref(option.id))
                           setPage(1)
                           setFolderMenuOpen(false)
                         }}
@@ -452,7 +459,7 @@ export function MessagesInboxPageClient() {
           </div>
         }
         onRowClick={(row) => {
-          router.push(`/backend/messages/${row.id}`)
+          router.push(messageDetailHref(row.id, folder))
         }}
         emptyState={(
           <ListEmptyState

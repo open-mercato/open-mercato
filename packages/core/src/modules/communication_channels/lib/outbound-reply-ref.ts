@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ChannelCapabilities } from './adapter'
 import { ExternalMessage, MessageChannelLink } from '../data/entities'
 
@@ -25,7 +25,8 @@ export interface OutboundReplyRefInput {
  * missing producer.
  *
  * The hub stores everything needed already: the parent hub message owns a
- * `MessageChannelLink` (unique per `message_id`) whose `external_message_id`
+ * `MessageChannelLink` (one per `message_id`, or one per participant for a
+ * "send separately" email) whose `external_message_id`
  * points at the `ExternalMessage` row carrying the provider's own id — written
  * by both the inbound ingest and outbound delivery paths, so a reply can answer
  * an inbound message or one of our own sends.
@@ -57,7 +58,7 @@ export async function resolveOutboundReplyExternalId(
     organizationId: input.scope.organizationId,
   }
 
-  const parentLink = await findOneWithDecryption(
+  const parentLinks = await findWithDecryption(
     em,
     MessageChannelLink,
     {
@@ -65,16 +66,17 @@ export async function resolveOutboundReplyExternalId(
       tenantId: input.scope.tenantId,
       organizationId: input.scope.organizationId,
     },
-    undefined,
+    { orderBy: { createdAt: 'asc' } },
     dscope,
   )
-  if (!parentLink?.externalMessageId) return null
-
   // A parent that lives in another conversation would make the provider reject
   // the send (Discord answers `400 Unknown message` for a cross-channel
   // reference). Dropping the reference degrades to an unthreaded reply, which
   // is strictly better than a failed delivery.
-  if (parentLink.externalConversationId !== input.externalConversationId) return null
+  const parentLink = parentLinks.find(
+    (link) => Boolean(link.externalMessageId) && link.externalConversationId === input.externalConversationId,
+  )
+  if (!parentLink?.externalMessageId) return null
 
   const parentExternal = await findOneWithDecryption(
     em,

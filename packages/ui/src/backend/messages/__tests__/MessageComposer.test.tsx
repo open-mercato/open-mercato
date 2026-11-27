@@ -752,4 +752,16 @@ describe('MessageComposer draft flow', () => {
 
     expect(await screen.findByRole('radio', { name: 'High' })).toHaveAttribute('aria-checked', 'true')
   })
+
+  it('left-aligns Send separately when there is no sender selector', async () => {
+    renderWithProviders(
+      <MessageComposer inline variant="compose" defaultValues={{ visibility: 'public' }} />,
+      { dict: {} },
+    )
+
+    const sendSeparately = await screen.findByRole('switch', { name: 'Send separately' })
+    const row = sendSeparately.closest('.sm\\:flex-row')
+    expect(row).not.toBeNull()
+    expect(row?.querySelector('.flex-1')).toBeNull()
+  })
 })

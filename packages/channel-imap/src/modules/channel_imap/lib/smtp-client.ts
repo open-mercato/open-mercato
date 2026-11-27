@@ -52,10 +52,30 @@ export interface SmtpSendResult {
   raw: Buffer
   /** Provider response string. */
   response?: string
-  /** Recipients the server accepted at RCPT TO. */
+  /** Recipients the relay accepted; nodemailer resolves once any recipient is accepted. */
   accepted?: string[]
-  /** Recipients the server refused at RCPT TO while still delivering to the others. */
+  /** Recipients the relay rejected while still accepting others. */
   rejected?: string[]
+  /** The rejected recipients the relay refused only temporarily (SMTP 4xx); worth retrying. */
+  rejectedTransient?: string[]
+}
+
+function toAddressStrings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.map((entry) =>
+    entry && typeof entry === 'object' && 'address' in entry ? String((entry as { address: unknown }).address) : String(entry),
+  )
+}
+
+/** Recipients the relay refused with a temporary (4xx) code; nodemailer lists them in `rejectedErrors`. */
+export function toTransientRejections(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const addresses = value
+    .filter((entry): entry is { recipient?: unknown; responseCode?: unknown } => Boolean(entry) && typeof entry === 'object')
+    .filter((entry) => typeof entry.responseCode === 'number' && entry.responseCode >= 400 && entry.responseCode < 500)
+    .map((entry) => entry.recipient)
+    .filter((recipient): recipient is string => typeof recipient === 'string')
+  return addresses.length ? addresses : undefined
 }
 
 export interface SmtpClient {
@@ -186,12 +206,23 @@ class NodemailerClient implements SmtpClient {
         messageId?: string
         envelope?: { messageId?: string }
         response?: string
-        accepted?: string[]
-        rejected?: string[]
+        accepted?: unknown
+        rejected?: unknown
+        rejectedErrors?: unknown
       }
       const id = info.messageId ?? composedMessageId ?? info.envelope?.messageId
       if (!id) throw new Error('[internal] SMTP server did not return a Message-ID')
-      return { messageId: id, raw, response: info.response, accepted: info.accepted, rejected: info.rejected }
+      const accepted = toAddressStrings(info.accepted)
+      const rejected = toAddressStrings(info.rejected)
+      const rejectedTransient = toTransientRejections(info.rejectedErrors)
+      return {
+        messageId: id,
+        raw,
+        response: info.response,
+        ...(accepted ? { accepted } : {}),
+        ...(rejected ? { rejected } : {}),
+        ...(rejectedTransient ? { rejectedTransient } : {}),
+      }
     } finally {
       transporter.close()
     }

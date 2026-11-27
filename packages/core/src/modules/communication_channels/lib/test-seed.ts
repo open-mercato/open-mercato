@@ -314,6 +314,8 @@ async function captureTestSeedMessage(record: TestSeedCapturedMessage): Promise<
  * edit/delete, nor conversation history — so the strict registry validator
  * (`validateAdapterCapabilities`) requires only the core method surface.
  */
+const TEST_SEED_RETRY_AFTER_MS = 120_000
+
 const testSeedCapabilities: ChannelCapabilities = {
   ...baseEmailCapabilities,
   fileSharing: true,
@@ -379,6 +381,23 @@ class TestSeedChannelAdapter implements ChannelAdapter {
   readonly capabilities = testSeedCapabilities
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
+    // Delivery-outcome fixtures for the integration harness: a `+ratelimit@`
+    // recipient makes the whole send a transient 429 with a retry time, a
+    // `+reject@` recipient is rejected while the others are accepted.
+    const recipients = (['to', 'cc', 'bcc'] as const).flatMap((role) => {
+      const value = input.metadata?.[role]
+      return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
+    })
+    if (recipients.some((address) => /\+ratelimit@/i.test(address))) {
+      return {
+        externalMessageId: '',
+        status: 'failed',
+        error: 'TEST_SEED_RATE_LIMITED: 429 Too Many Requests',
+        transient: true,
+        retryAt: new Date(Date.now() + TEST_SEED_RETRY_AFTER_MS),
+      }
+    }
+    const rejected = recipients.filter((address) => /\+reject@/i.test(address))
     // Synthesize a deterministic-looking RFC2822-style message id; never touches
     // the network. The delivery worker persists this as the external message id.
     const externalMessageId = `test-seed-${Date.now()}-${Math.random().toString(16).slice(2, 10)}@test-seed.local`
@@ -395,6 +414,19 @@ class TestSeedChannelAdapter implements ChannelAdapter {
       metadata: input.metadata,
       captureCorrelationToken: resolveTestEmailCaptureCorrelationToken() ?? undefined,
     })
+    if (rejected.length > 0) {
+      return {
+        externalMessageId,
+        conversationId: input.conversationId,
+        status: 'failed',
+        error: `TEST_SEED_PARTIALLY_REJECTED: 550 5.1.1 rejected ${rejected.join(', ')}`,
+        metadata: {
+          testSeed: true,
+          accepted: recipients.filter((address) => !rejected.includes(address)),
+          rejected,
+        },
+      }
+    }
     return {
       externalMessageId,
       conversationId: input.conversationId,

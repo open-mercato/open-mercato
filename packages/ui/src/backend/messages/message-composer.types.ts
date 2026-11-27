@@ -46,6 +46,8 @@ export type MessageSenderOption = {
    * sender stays the default.
    */
   isDefault?: boolean
+  /** `false` hides the composer's attachments while this sender is selected. Omitted means the sender can carry attachments. */
+  supportsAttachments?: boolean
 }
 
 export type MessageComposerContextObject = {
@@ -94,6 +96,11 @@ export type MessageComposerProps = {
    * PATCH so a stale tab cannot silently overwrite a concurrently-changed draft.
    */
   expectedUpdatedAt?: string | null
+  /**
+   * "Send later" capability supplied by the host. Omitted, or `available: false`,
+   * hides the action. Only the compose variant offers it.
+   */
+  scheduling?: { available: boolean; maxDays: number } | null
   defaultValues?: {
     type?: string
     recipients?: string[]
@@ -105,11 +112,18 @@ export type MessageComposerProps = {
     sourceEntityType?: string | null
     sourceEntityId?: string | null
     externalEmail?: string | null
+    /** All "to" addresses of a saved draft; takes precedence over `externalEmail`. */
+    externalEmails?: string[] | null
+    sendSeparately?: boolean
     externalName?: string | null
     attachmentIds?: string[]
     sendViaEmail?: boolean
     replyAll?: boolean
     includeAttachments?: boolean
+    /** Stored "Send from" mailbox of a saved draft/scheduled message. */
+    senderChannelId?: string | null
+    /** ISO time of an already scheduled message; seeds the "Send later" picker. */
+    scheduledAt?: string | null
   }
   onSuccess?: (result: { id?: string }) => void
   onCancel?: () => void

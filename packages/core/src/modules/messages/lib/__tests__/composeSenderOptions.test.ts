@@ -49,6 +49,14 @@ describe('toComposeSenderOptions', () => {
     expect(option.label).toBe('agent@example.com')
   })
 
+  it('carries whether the mailbox can send attachments, treating a missing flag as no', () => {
+    const [capable] = toComposeSenderOptions([{ ...connectedMailbox, supportsAttachments: true }])
+    const [unknown] = toComposeSenderOptions([connectedMailbox])
+
+    expect(capable.supportsAttachments).toBe(true)
+    expect(unknown.supportsAttachments).toBe(false)
+  })
+
   it('returns an empty list for a non-array payload', () => {
     expect(toComposeSenderOptions(undefined)).toEqual([])
     expect(toComposeSenderOptions({ items: [] })).toEqual([])

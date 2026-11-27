@@ -11,7 +11,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { toErrorMessage } from './message-detail/utils'
 
-export type MessageFolder = 'inbox' | 'sent' | 'drafts' | 'archived' | 'all'
+export type MessageFolder = 'inbox' | 'sent' | 'drafts' | 'scheduled' | 'archived' | 'all'
 
 export type MessageBulkActionId = 'markRead' | 'markUnread' | 'archive' | 'unarchive' | 'delete'
 
@@ -136,6 +136,7 @@ const MESSAGE_BULK_ACTION_IDS_BY_FOLDER = {
   archived: ['markRead', 'markUnread', 'unarchive', 'delete'],
   sent: ['delete'],
   drafts: ['delete'],
+  scheduled: ['delete'],
   all: [],
 } satisfies Record<MessageFolder, readonly MessageBulkActionId[]>
 

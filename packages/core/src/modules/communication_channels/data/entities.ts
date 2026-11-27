@@ -296,9 +296,18 @@ export class ExternalMessage {
 @Index({ name: 'message_channel_links_message_idx', properties: ['messageId'] })
 @Index({ name: 'message_channel_links_ext_conv_idx', properties: ['externalConversationId'] })
 @Index({ name: 'message_channel_links_ext_msg_idx', properties: ['externalMessageId'] })
-@Unique({ name: 'message_channel_links_message_uq', properties: ['messageId'] })
+@Index({
+  name: 'message_channel_links_message_joint_uq',
+  expression:
+    'create unique index "message_channel_links_message_joint_uq" on "message_channel_links" ("message_id") where "external_participant_id" is null',
+})
+@Index({
+  name: 'message_channel_links_message_participant_uq',
+  expression:
+    'create unique index "message_channel_links_message_participant_uq" on "message_channel_links" ("message_id", "external_participant_id") where "external_participant_id" is not null',
+})
 export class MessageChannelLink {
-  [OptionalProps]?: 'createdAt' | 'deliveryStatus' | 'externalMessageId' | 'channelPayload' | 'channelContentType' | 'interactiveState' | 'channelMetadata' | 'organizationId'
+  [OptionalProps]?: 'createdAt' | 'deliveryStatus' | 'externalMessageId' | 'channelPayload' | 'channelContentType' | 'interactiveState' | 'channelMetadata' | 'organizationId' | 'externalParticipantId'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -313,6 +322,10 @@ export class MessageChannelLink {
 
   @Property({ name: 'external_message_id', type: 'uuid', nullable: true })
   externalMessageId?: string | null
+
+  /** Logical link to messages.message_external_participant.id (cross-module, no DB FK). Set for a "send separately" delivery; NULL for a joint send. */
+  @Property({ name: 'external_participant_id', type: 'uuid', nullable: true })
+  externalParticipantId?: string | null
 
   @Property({ name: 'provider_key', type: 'text' })
   providerKey!: string

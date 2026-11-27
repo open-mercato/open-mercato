@@ -7,7 +7,7 @@ import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/opti
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { User } from '../../../auth/data/entities'
-import { Message, MessageObject, MessageRecipient } from '../../data/entities'
+import { Message, MessageExternalParticipant, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
 import { buildResolvedMessageActions } from '../../lib/actions'
 import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../../lib/constants'
@@ -15,11 +15,15 @@ import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
 import {
+  buildValidationFieldErrors,
   canPostToChannelThread,
   hasOrganizationAccess,
+  refuseUnsupportedSchedule,
   resolveMessageContext,
   resolveMessageReadAccess,
 } from '../../lib/routeHelpers'
+import { validateMessageSender } from '../../lib/composeSenderDelegation'
+import { getMessageAttachments } from '../../lib/attachments'
 import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from '../guards'
 import {
   errorResponseSchema,
@@ -268,12 +272,27 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     })
   }
 
+  const externalParticipants = await findWithDecryption(
+    em,
+    MessageExternalParticipant,
+    {
+      messageId: message.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId ?? null,
+    },
+    { orderBy: { createdAt: 'asc' } },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+
   const detail: Record<string, unknown> = {
     id: message.id,
     updatedAt: message.updatedAt ?? null,
     type: message.type,
     isDraft: message.isDraft,
-    canEditDraft: message.isDraft && message.senderUserId === scope.userId,
+    status: message.status,
+    scheduledAt: message.scheduledAt ? message.scheduledAt.toISOString() : null,
+    senderChannelId: message.senderUserId === scope.userId ? message.senderChannelId ?? null : null,
+    canEditDraft: message.isDraft && message.status !== 'releasing' && message.senderUserId === scope.userId,
     canArchive: Boolean(recipient),
     isArchived: recipient?.status === 'archived',
     visibility: message.visibility,
@@ -281,6 +300,20 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     sourceEntityId: message.sourceEntityId,
     externalEmail: message.externalEmail,
     externalName: message.externalName,
+    emailSendSeparately: message.emailSendSeparately ?? false,
+    canResendFailed: message.senderUserId === scope.userId && !message.isDraft,
+    // Blind copies stay with the author: other thread viewers must not learn who was copied.
+    externalParticipants: externalParticipants
+      .filter((participant) => participant.role !== 'bcc' || message.senderUserId === scope.userId)
+      .map((participant) => ({
+      id: participant.id,
+      role: participant.role,
+      email: participant.email,
+      name: participant.name ?? null,
+      deliveryStatus: participant.deliveryStatus ?? null,
+      deliveryError: participant.deliveryError ?? null,
+      sentAt: participant.sentAt ? participant.sentAt.toISOString() : null,
+    })),
     typeDefinition: {
       labelKey: messageType.labelKey,
       icon: messageType.icon,
@@ -374,7 +407,19 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const body = await req.json().catch(() => ({}))
-  const input = updateDraftSchema.parse(body)
+  const parsed = updateDraftSchema.safeParse(body)
+  if (!parsed.success) {
+    const { t } = await resolveTranslations()
+    return Response.json(
+      {
+        error: t('messages.errors.invalidComposePayload', 'Invalid message payload'),
+        details: parsed.error.issues,
+        fieldErrors: buildValidationFieldErrors(parsed.error),
+      },
+      { status: 400 },
+    )
+  }
+  const input = parsed.data
 
   const message = await em.findOne(Message, {
     id: params.id,
@@ -398,27 +443,36 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
   }
 
-  // `sendAsUser` composes a fresh message rather than updating an existing
-  // one, so sending a saved draft through a connected mailbox is not
-  // implemented yet. Refuse explicitly instead of silently stripping the
-  // field and falling back to the platform sender.
-  if (input.senderChannelId) {
-    const { t } = await resolveTranslations()
-    const errorMessage = t(
-      'messages.errors.senderDraftSendUnsupported',
-      'Sending a saved draft through a connected mailbox is not supported yet.',
+  if (input.scheduledAt) {
+    const scheduleRefusal = await refuseUnsupportedSchedule(ctx.container, message.organizationId)
+    if (scheduleRefusal) return scheduleRefusal
+  }
+
+  const finalVisibility = input.visibility !== undefined ? input.visibility : message.visibility
+  const senderChannelId = input.senderChannelId ?? message.senderChannelId ?? null
+  if (senderChannelId && (input.isDraft === false || input.scheduledAt instanceof Date)) {
+    const senderCheck = await validateMessageSender(
+      ctx.container,
+      { userId: scope.userId, tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+      {
+        senderChannelId,
+        visibility: finalVisibility,
+        externalEmails: input.externalEmails
+          ?? (input.externalEmail ? [input.externalEmail] : message.externalEmail ? [message.externalEmail] : []),
+        attachmentIds: input.attachmentIds
+          ?? (await getMessageAttachments(em, message.id, message.organizationId ?? null, message.tenantId)).map((attachment) => attachment.id),
+        objects: input.objects,
+      },
     )
-    return Response.json(
-      { error: errorMessage, fieldErrors: { senderChannelId: errorMessage } },
-      { status: 422 },
-    )
+    if (!senderCheck.ok) {
+      return Response.json({ error: senderCheck.error, fieldErrors: senderCheck.fieldErrors }, { status: senderCheck.status })
+    }
   }
 
   // A draft is filed on its parent's thread and skips the compose route's
   // channel gate, so sending it publicly must pass the same gate (#6432).
-  const finalVisibility = input.visibility !== undefined ? input.visibility : message.visibility
   if (
-    input.isDraft === false &&
+    (input.isDraft === false || input.scheduledAt instanceof Date) &&
     finalVisibility === 'public' &&
     !(await canPostToChannelThread(ctx, scope, message.threadId ?? message.id))
   ) {
@@ -664,7 +718,9 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
-        { status: 409, description: 'Only drafts can be edited, or the draft was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
+        { status: 400, description: 'Payload failed validation (e.g. scheduledAt in the past, too far ahead or not a whole minute)', schema: errorResponseSchema },
+        { status: 409, description: 'Only drafts and scheduled messages can be edited, or the draft was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
+        { status: 422, description: 'scheduledAt given while scheduling is unavailable', schema: errorResponseSchema },
         { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
         { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
       ],

@@ -166,7 +166,7 @@ test.describe('TC-CRM-5629: schedule activity dialog time list and occurrences c
       interactionId = interactionId ?? saved?.id ?? null
       expect(saved?.recurrenceRule).toMatch(/COUNT=4$/)
 
-      await page.getByText(title).first().click()
+      await page.getByRole('button', { name: new RegExp(`^${title} `) }).click()
       const editDialog = page.getByRole('dialog').filter({ has: page.getByRole('spinbutton', { name: 'After occurrences' }) })
       await expect(editDialog).toBeVisible({ timeout: 15_000 })
       await expect(editDialog.getByRole('spinbutton', { name: 'After occurrences' })).toHaveValue('4')

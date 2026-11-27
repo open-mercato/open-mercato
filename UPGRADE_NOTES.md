@@ -297,6 +297,146 @@ feature to intended custom roles. Superadministrator access is preserved. Client
 that link to the backend page must allow for permission denial. No database
 migration, environment change, or startup-command change is required.
 
+## Messages sent through a user mailbox carry attachments
+
+Composing, sending a draft or releasing a scheduled message through a user mailbox no longer refuses attachments with `messages.errors.senderPayloadUnsupported` when the mailbox adapter declares `capabilities.fileSharing` (Gmail and IMAP do). The files are taken from the message's current attachments at hand-off; a file deleted before the send is not sent, and a CRM scheduled send skips a stored attachment whose file is gone. Linked records (`objects`) are still refused. A mailbox without file support refuses attachments with 422 `messages.errors.senderAttachmentsUnsupported` on `senderChannelId`; at release the external participants fail with that reason.
+
+Additive fields: `supportsAttachments` on `GET /api/communication_channels/me/channels` items, on the `communicationChannelsValidateSenderChannel` result and on `MessageSenderOption` (`@open-mercato/ui/backend/messages`). Custom hosts that pass `senderOptions` and omit it keep the attachments section visible.
+
+## Scheduled messages charge the external email budget at release
+
+A scheduled message (Messages compose or draft "Send later", and `sendAsUser` with `scheduledAt`) no longer charges the external email budget (`message_external_email_windows`, `message_external_recipient_days`) when it is scheduled or rescheduled. The release worker charges it once, for every external addressee (to, cc, bcc, every "send separately" copy), before anything is delivered. When the budget refuses, nothing is sent: the message goes back to the author's drafts (scheduled time cleared, content, recipients and sender kept) and the author gets a `messages.scheduled_send_failed` notification with the `messages.notifications.scheduledSendFailed.budgetExceeded` body. This is not retried. Immediate sends, draft "Send now" and "Resend to failed" charge as before.
+
+## `sendEmail` accepts multiple recipients; `sendEmailWithResult` reports the delivery result
+
+`sendEmail()` from `@open-mercato/shared/lib/email/send` now accepts `to: string | string[]` and
+`sendSeparately?: boolean`. Its signature still resolves with `void`, so existing callers and typed
+wrappers are unaffected; it still throws when no address was accepted. The new
+`sendEmailWithResult()` takes the same options and resolves with `EmailSendResult`
+(`{ accepted, rejected, retryAt? }`) for callers that need per-address outcomes.
+
+**Custom `EmailTransport` authors:** nothing is required. `ResolvedEmailPayload.to` stays a single
+string, and `sendSeparately` makes one `send()` call per address. A joint send to more than one
+address throws `EMAIL_TRANSPORT_MULTI_RECIPIENT_UNSUPPORTED` unless the transport sets
+`supportsMultipleRecipients: true`; such a transport receives every address in
+`payload.recipients` (`payload.to` is the first). The `send(): Promise<void>` signature is
+unchanged. A transport that can report a partial rejection may additionally implement the optional
+`sendWithResult(payload): Promise<EmailSendResult>`; `sendEmailWithResult()` prefers it and otherwise
+calls `send()`, treating a resolved call as every address accepted.
+
+## Mailbox sends: one channel link per recipient for "send separately"
+
+`message_channel_links` gains `external_participant_id`, and the unique constraint
+`message_channel_links_message_uq (message_id)` is replaced by two partial unique indexes: one link
+per message when `external_participant_id IS NULL` (joint send, unchanged for every existing row)
+and one per `(message_id, external_participant_id)` otherwise. A message sent separately through a
+mailbox therefore has one link (and one `communication_channels.message.sent` event, so one CRM
+interaction) per recipient. Code that looks a link up by `message_id` alone and expects a single row
+should list the links or filter on `externalParticipantId: null` for the joint link.
+
+**Rollback:** the migration's `down` deletes every link with `external_participant_id IS NOT NULL`
+before restoring the single `(message_id)` unique constraint, so reply threading and CRM
+interactions of separate sends made after the upgrade are lost. Prefer rolling forward.
+
+`sendAsUser` / `POST /api/communication_channels/send-as-user` accept `sendSeparately?: boolean`
+(400 with `fieldErrors.cc` / `fieldErrors.bcc` when combined with copies for more than one "to"), and
+CC/BCC addressees now become message participants. Outbound delivery addresses the adapter from the
+participants and no longer fails the whole send on an SMTP/IMAP partial rejection: accepted
+participants are `sent`, rejected ones `failed`.
+
+## External email delivery: retries, delivery window, resend
+
+A recipient the provider deferred (429, SMTP 4xx, HTTP 5xx, network) now stays `pending` and is
+retried at the provider's retry time or after `OM_EMAIL_DELIVERY_RETRY_DELAY_SECONDS` (300); after
+`OM_EMAIL_DELIVERY_MAX_HOURS` (24) from the send it becomes `failed`. Run the
+`messages.register-email-retry-schedule` upgrade action to schedule the 60 s retry tick (queue
+`messages-email-retry`) for existing organizations. Additive contracts: `EmailSendError` and
+`readEmailDeliveryErrorHints` in `@open-mercato/shared/lib/email/send` (custom transports may throw
+`EmailSendError` with `transient` / `retryAt`, and `EmailSendResult.rejected[]` may carry them);
+`SendMessageResult.transient` / `retryAt` for channel adapters; event
+`messages.message.delivery_finished`; notification type `messages.delivery_failed`; command
+`messages.messages.resend_failed` and `POST /api/messages/[id]/resend-failed`; DI facade
+`communicationChannelsEnqueueOutboundDelivery`. The channel outbound worker's
+`OUTBOUND_DELIVERY_MAX_ATTEMPTS` cap now applies only to links without participant rows; with
+participants the retry schedule follows `next_attempt_at`.
+
+## Wall-time helper moved to `@open-mercato/shared/lib/time/wall-time`
+
+The DST-safe wall-time conversion now lives in `@open-mercato/shared/lib/time/wall-time`
+(`wallTimeToInstant`, `instantToWallTime`, `isValidTimezone`, `resolveBrowserTimezone`). The old
+exports in `@open-mercato/core/modules/customers/lib/calendar/timezone`
+(`calendarWallTimeToInstant`, `calendarInstantToWallTime`, `isCalendarTimezone`,
+`defaultCalendarTimezone`) remain as `@deprecated` aliases with unchanged behavior; switch imports to
+the shared path before the next minor release.
+
+## Messages: scheduled send
+
+Compose (`POST /api/messages`) and draft edit (`PATCH /api/messages/[id]`) accept `scheduledAt`
+(ISO UTC, whole minute, future, at most `OM_MESSAGES_SCHEDULE_MAX_DAYS` days ahead, default 30). A
+scheduled message stays a draft (`status = 'scheduled'`, `is_draft = true`) until the release worker
+sends it; `scheduledAt: null` turns it back into a plain draft. Additive contracts: `MessageStatus`
+value `scheduled`, folder `scheduled`, event `messages.message.scheduled`, notification type
+`messages.scheduled_send_failed`, queue `messages-scheduled-release`, command
+`messages.messages.release_scheduled`. Run the `messages.register-scheduled-release` upgrade action
+to schedule the 60 s release tick for existing organizations. Requires the `scheduler` module;
+without it the API answers 422 `messages.errors.schedulingUnavailable`. Drafts no longer count
+towards the unread badge and no longer appear in the `all` and `archived` folders.
+
+While the worker sends a due message it holds it as `status = 'releasing'` (still `is_draft = true`,
+listed in the `scheduled` folder, not editable: a draft edit answers 409). A message whose worker
+stopped is claimed again after 10 minutes; its hand-off is idempotent. Code that reads
+`MessageStatus` should treat `releasing` like `scheduled`. A draft edit locks the message row, so an
+edit and a release never both win.
+
+Scheduling needs an organization: the release tick runs per organization, so a tenant-wide caller
+without one gets `schedulingAvailable: false` from `GET /api/messages/compose-capabilities`, and
+compose, draft edit and `sendAsUser` answer 422 `messages.errors.schedulingUnavailable`. A draft edit
+that sends only "to" addresses (the standard editor) keeps the message's cc and bcc participants.
+
+**Mailbox partial rejections:** the IMAP and SMTP channel adapters add `metadata.rejectedTransient`,
+the rejected recipients the relay refused with a temporary 4xx code. Outbound delivery retries those
+recipients inside the delivery window (`OM_EMAIL_DELIVERY_MAX_HOURS`) and keeps the link `pending`
+until they settle; permanently rejected recipients fail as before. Custom adapters that do not set
+the field keep the previous behaviour.
+
+## Messages: scheduled send and saved drafts through a connected mailbox
+
+A message with `senderChannelId` can now be scheduled (the mailbox is checked when scheduling and
+stored as `messages.sender_channel_id`; channel rows are created only at release) and a saved draft
+can be sent through a mailbox (`PATCH /api/messages/[id]` with `isDraft: false` uses the request's
+`senderChannelId` or the one stored on the draft). The former 422 errors
+`messages.errors.senderScheduleUnsupported` and `messages.errors.senderDraftSendUnsupported` are gone.
+Additive `communication_channels` contracts: `POST /api/communication_channels/send-as-user` and the
+`communicationChannelsSendAsUser` DI facade accept `{ userChannelId, messageId }` to deliver an existing
+sent message of the caller (409 when it is already linked or still a draft); failure results may carry
+`code: 'already_linked' | 'channel_unavailable'`; new DI service
+`communicationChannelsValidateSenderChannel`. When the mailbox cannot deliver at release
+(`requires_reauth`, disconnected, module absent) the participants become `failed` with
+`delivery_error = 'mailbox unavailable'` and the author gets `messages.delivery_failed`.
+
+## Messages: "Send later" from CRM email and record compose dialogs
+
+New nullable column `messages.sender_delivery_options` (jsonb, migration
+`messages/Migration20261121120000`) — run `yarn db:migrate`. It stores the mailbox delivery context
+(`channelMetadata`, `inReplyTo`, `references`) of a scheduled mailbox send so the release keeps CRM
+person, visibility and reply threading. Additive contracts: `sendAsUser` (DI facade
+`communicationChannelsSendAsUser`) compose mode accepts `scheduledAt: Date` and then returns
+`scheduledAt` (ISO) without creating a channel link; failure code `scheduling_unavailable`;
+existing-message mode falls back to the stored options when no `channelMetadata` is passed.
+`POST /api/customers/people/[id]/emails` accepts `scheduledAt` and responds with `scheduledAt` instead
+of `queuedAt` when scheduled. New UI hook `useComposeScheduling` in `@open-mercato/ui/backend/messages`.
+
+## Messages: recorded email delivery route
+
+New nullable column `messages.email_delivery_route` (`system` | `send_as_user`, migration
+`messages/Migration20261126120000`) — run `yarn db:migrate`. It is written in the same transaction
+that marks external participants `pending`; the retry tick and the email worker send platform email
+only for `system`, so a mailbox send, a channel conversation or a message without email delivery is
+never picked up by the platform sender. The migration fills it for existing mailbox sends and for sent
+platform-email messages that already have participant delivery statuses. Messages without participant
+rows keep the single-address send. A message sent without email delivery keeps its external
+participants without a delivery status. Additive: `SendAsUserFailureCode` gains `release_superseded`.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.

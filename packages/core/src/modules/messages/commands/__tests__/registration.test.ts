@@ -54,6 +54,8 @@ describe('messages command registration', () => {
         'messages.messages.reply',
         'messages.messages.forward',
         'messages.messages.delete_for_actor',
+        'messages.messages.resend_failed',
+        'messages.messages.release_scheduled',
       ],
     },
   ]

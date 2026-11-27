@@ -247,7 +247,7 @@ export function assembleRfc2822(input: AssembleRfc2822Input): Buffer {
   const boundary = `omc_${crypto.randomUUID()}`
   const headers: string[] = []
   headers.push(`From: ${encodeAddressHeaderWord(sanitizeHeaderValue(input.from))}`)
-  headers.push(`To: ${input.to.map((value) => encodeAddressHeaderWord(sanitizeHeaderValue(value))).join(', ')}`)
+  if (input.to.length) headers.push(`To: ${input.to.map((value) => encodeAddressHeaderWord(sanitizeHeaderValue(value))).join(', ')}`)
   if (input.cc.length) headers.push(`Cc: ${input.cc.map((value) => encodeAddressHeaderWord(sanitizeHeaderValue(value))).join(', ')}`)
   if (input.bcc.length) headers.push(`Bcc: ${input.bcc.map((value) => encodeAddressHeaderWord(sanitizeHeaderValue(value))).join(', ')}`)
   if (input.subject) headers.push(`Subject: ${encodeHeaderWord(sanitizeHeaderValue(input.subject))}`)

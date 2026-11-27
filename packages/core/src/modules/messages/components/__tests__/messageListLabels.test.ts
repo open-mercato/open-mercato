@@ -15,6 +15,19 @@ describe('messageListLabels', () => {
     expect(getMessageListParticipantLabel(item, 'sent', t)).toBe('(No recipient)')
   })
 
+  it('lists recipients comma-separated in author folders, with a +N overflow', () => {
+    const base = { senderUserId: 'user-1', senderName: 'Current User', recipientCount: 0 }
+    expect(getMessageListParticipantLabel({
+      ...base,
+      recipientSummary: { labels: ['a@example.com', 'b@example.com'], total: 2 },
+    }, 'sent', t)).toBe('a@example.com, b@example.com')
+    expect(getMessageListParticipantLabel({
+      ...base,
+      recipientSummary: { labels: ['Anna', 'a@example.com', 'b@example.com'], total: 5 },
+    }, 'drafts', t)).toBe('Anna, a@example.com, b@example.com +2')
+    expect(getMessageListParticipantLabel({ ...base, recipientSummary: null }, 'drafts', t)).toBe('(No recipient)')
+  })
+
   it('keeps sender labels for recipient-owned folders', () => {
     expect(getMessageListParticipantLabel({
       senderUserId: 'user-1',

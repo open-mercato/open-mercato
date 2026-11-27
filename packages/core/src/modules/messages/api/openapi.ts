@@ -44,9 +44,11 @@ export const messageListItemSchema = z.object({
   hasAttachments: z.boolean(),
   attachmentCount: z.number(),
   recipientCount: z.number(),
+  recipientSummary: z.object({ labels: z.array(z.string()), total: z.number() }).nullable().optional(),
   hasActions: z.boolean(),
   actionTaken: z.string().nullable().optional(),
   sentAt: z.string().nullable().optional(),
+  scheduledAt: z.string().nullable().optional(),
   readAt: z.string().nullable().optional(),
   threadId: z.string().uuid().nullable().optional(),
 })
@@ -69,11 +71,24 @@ export const messageThreadItemSchema = z.object({
   sentAt: z.string().nullable().optional(),
 })
 
+export const messageExternalParticipantSchema = z.object({
+  id: z.string().uuid(),
+  role: z.enum(['to', 'cc', 'bcc']),
+  email: z.string(),
+  name: z.string().nullable(),
+  deliveryStatus: z.enum(['pending', 'sent', 'failed']).nullable(),
+  deliveryError: z.string().nullable(),
+  sentAt: z.string().nullable(),
+})
+
 export const messageDetailResponseSchema = z.object({
   id: z.string().uuid(),
   updatedAt: z.string().nullable().optional(),
   type: z.string(),
   isDraft: z.boolean(),
+  status: z.enum(['draft', 'sent', 'scheduled']).optional(),
+  scheduledAt: z.string().nullable().optional(),
+  senderChannelId: z.string().uuid().nullable().optional(),
   canEditDraft: z.boolean(),
   canArchive: z.boolean(),
   isArchived: z.boolean(),
@@ -82,6 +97,9 @@ export const messageDetailResponseSchema = z.object({
   sourceEntityId: z.string().uuid().nullable().optional(),
   externalEmail: z.string().nullable().optional(),
   externalName: z.string().nullable().optional(),
+  emailSendSeparately: z.boolean().optional(),
+  canResendFailed: z.boolean().optional(),
+  externalParticipants: z.array(messageExternalParticipantSchema).optional(),
   typeDefinition: z.object({
     labelKey: z.string(),
     icon: z.string(),
@@ -239,6 +257,7 @@ export const errorResponseSchema = z.object({
   code: z.string().optional(),
   error: z.string(),
   details: z.array(validationIssueSchema).optional(),
+  fieldErrors: z.record(z.string(), z.string()).optional(),
 })
 
 export const messageTypeResponseItemSchema = z.object({

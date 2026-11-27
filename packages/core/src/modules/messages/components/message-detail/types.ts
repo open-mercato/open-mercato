@@ -44,11 +44,24 @@ export type MessageAction = {
   confirmMessage?: string
 }
 
+export type MessageDetailExternalParticipant = {
+  id: string
+  role: 'to' | 'cc' | 'bcc'
+  email: string
+  name: string | null
+  deliveryStatus: 'pending' | 'sent' | 'failed' | null
+  deliveryError: string | null
+  sentAt: string | null
+}
+
 export type MessageDetail = {
   id: string
   updatedAt?: string | null
   type: string
   isDraft: boolean
+  status?: 'draft' | 'sent' | 'scheduled' | 'releasing'
+  scheduledAt?: string | null
+  senderChannelId?: string | null
   canEditDraft: boolean
   canArchive: boolean
   isArchived: boolean
@@ -57,6 +70,9 @@ export type MessageDetail = {
   sourceEntityId?: string | null
   externalEmail?: string | null
   externalName?: string | null
+  emailSendSeparately?: boolean
+  canResendFailed?: boolean
+  externalParticipants?: MessageDetailExternalParticipant[]
   typeDefinition: {
     labelKey: string
     icon: string

@@ -85,7 +85,7 @@ function makeContainer() {
     }),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
-    transactional: jest.fn(async (work: () => Promise<void>) => work()),
+    transactional: jest.fn(async (work: (trx: unknown) => Promise<void>) => work(em)),
     fork: (): unknown => em,
   }
   const commandBus = {

@@ -142,6 +142,28 @@ describe('SmtpChannelAdapter.sendMessage', () => {
     }))
   })
 
+  it('carries the temporarily refused recipients so the hub can retry them', async () => {
+    stubTransport({
+      async send() {
+        return {
+          messageId: '<partial@example.com>',
+          response: '250 OK',
+          accepted: ['one@example.com'],
+          rejected: ['two@example.com'],
+          rejectedTransient: ['two@example.com'],
+        }
+      },
+    })
+    const result = await getSmtpChannelAdapter().sendMessage({
+      credentials,
+      scope,
+      content: { text: 'Body' },
+      metadata: { to: 'one@example.com, two@example.com', subject: 'Welcome' },
+    })
+
+    expect(result.metadata).toEqual(expect.objectContaining({ rejectedTransient: ['two@example.com'] }))
+  })
+
   it('reports a fully accepted multi-recipient send as sent and carries the accepted list', async () => {
     stubTransport({
       async send() {

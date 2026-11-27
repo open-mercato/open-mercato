@@ -22,6 +22,7 @@ import {
   MessageListComponent,
   MessageHeader,
   MessageDetailMetaSection,
+  MessageDetailScheduledAlert,
   MessageDetailObjectsSection,
 } from './message-detail/detail-panels'
 import { useMessageDetails } from './message-detail/hooks/useMessageDetails'
@@ -100,7 +101,15 @@ function MessageConversationDetailItem({
             data={state.detail}
           />
 
-          <MessageDetailMetaSection detail={state.detail} />
+          {state.detail.status === 'scheduled' ? (
+            <MessageDetailScheduledAlert
+              detail={state.detail}
+              onEdit={() => state.setEditOpen(true)}
+              onChanged={() => state.refreshDetailWithoutAutoMarkRead()}
+            />
+          ) : null}
+
+          <MessageDetailMetaSection detail={state.detail} onResent={() => state.refreshDetailWithoutAutoMarkRead()} />
 
           {/* UMES — channel sidebar widgets (channel info panel, contact preview, delivery status).
               `userFeatures` lets feature-gated widgets (e.g. the channel reassignment editor,
@@ -139,7 +148,6 @@ function MessageConversationDetailItem({
         attachments={state.attachments}
         editOpen={state.editOpen}
         setEditOpen={state.setEditOpen}
-        onRefresh={() => state.detailQuery.refetch()}
       />
 
       <MessageDetailDialogs
@@ -227,6 +235,7 @@ export function MessageDetailPageClient({ id }: { id: string }) {
   return (
     <div className="space-y-3">
       <MainMessageHeader
+        backHref={state.listHref}
         subject={detail.subject}
         priority={(detail.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal'}
         canReply={!detail.isDraft && detail.typeDefinition.allowReply && Boolean(firstConversationMessageId)}

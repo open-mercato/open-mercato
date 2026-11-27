@@ -27,6 +27,7 @@ type MessageParticipantSource = {
   sourceEntityType?: string | null
   senderUserId: string
   recipientCount?: number | null
+  recipientSummary?: { labels: string[]; total: number } | null
 }
 
 function normalizeLabel(value: string | null | undefined): string | null {
@@ -70,8 +71,15 @@ export function getMessageListParticipantLabel(
   folder: MessageFolder,
   t: Translate,
 ): string {
-  if ((folder === 'sent' || folder === 'drafts') && Number(item.recipientCount ?? 0) <= 0) {
-    return t('messages.list.noRecipient', '(No recipient)')
+  if (folder === 'sent' || folder === 'drafts' || folder === 'scheduled') {
+    const labels = item.recipientSummary?.labels ?? []
+    if (labels.length > 0) {
+      const hidden = Number(item.recipientSummary?.total ?? labels.length) - labels.length
+      return hidden > 0 ? `${labels.join(', ')} +${hidden}` : labels.join(', ')
+    }
+    if (Number(item.recipientCount ?? 0) <= 0) {
+      return t('messages.list.noRecipient', '(No recipient)')
+    }
   }
 
   return getMessageParticipantLabel(item)

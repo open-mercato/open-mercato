@@ -2,7 +2,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
-  findWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(async () => []),
 }))
 
 jest.mock('../../events', () => ({
@@ -42,6 +42,8 @@ function makeCtx(options: { fileSharing?: boolean; readScoped?: jest.Mock; descr
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
+    nativeUpdate: jest.fn(async () => 0),
+    count: jest.fn(async () => 0),
   }
   em.fork = () => em
   const adapter = {
@@ -119,6 +121,7 @@ function pendingLink(): Record<string, unknown> {
   return {
     id: 'link-1',
     messageId: MSG,
+    externalParticipantId: null,
     tenantId: TENANT,
     organizationId: ORG,
     direction: 'outbound',

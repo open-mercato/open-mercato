@@ -15,6 +15,8 @@ import type {
 import type { MessagePriority } from './message-priority'
 import type { TagsInputOption } from '../inputs/TagsInput'
 import {
+  buildReplyAllExternalEmails,
+  type ReplyAllSource,
   useComposeDraftOperation,
   useComposeSendOperation,
   useForwardSubmitOperation,
@@ -104,6 +106,10 @@ export type UseMessageComposeResult = {
   setVisibility: React.Dispatch<React.SetStateAction<'public' | 'internal'>>
   externalEmail: string
   setExternalEmail: React.Dispatch<React.SetStateAction<string>>
+  externalEmails: string[]
+  setExternalEmails: React.Dispatch<React.SetStateAction<string[]>>
+  sendSeparately: boolean
+  setSendSeparately: React.Dispatch<React.SetStateAction<boolean>>
   senderOptions: MessageSenderOption[]
   senderChannelId: string
   setSenderChannelId: React.Dispatch<React.SetStateAction<string>>
@@ -129,7 +135,11 @@ export type UseMessageComposeResult = {
   loadAttachmentIds: () => Promise<string[]>
   handleSaveDraft: () => void
   handleBack: () => void
-  handleSubmit: ({ saveAsDraft }?: { saveAsDraft?: boolean }) => Promise<boolean>
+  handleSubmit: ({ saveAsDraft, scheduledAt }?: { saveAsDraft?: boolean; scheduledAt?: string }) => Promise<boolean>
+  canSchedule: boolean
+  scheduleMaxDays: number
+  handleSchedule: (scheduledAt: string) => Promise<boolean>
+  validateBeforeSchedule: () => boolean
   handleDialogOpenChange: (nextOpen: boolean) => void
   handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
 }
@@ -152,6 +162,7 @@ export function useMessageCompose({
   senderOptions,
   defaultValues,
   expectedUpdatedAt = null,
+  scheduling = null,
   onSuccess,
   onCancel,
 }: UseMessageComposeParams): UseMessageComposeResult {
@@ -168,7 +179,15 @@ export function useMessageCompose({
   const [bodyFormat, setBodyFormat] = React.useState<'text' | 'markdown'>('text')
   const [priority, setPriority] = React.useState<MessagePriority>('normal')
   const [visibility, setVisibility] = React.useState<'public' | 'internal'>('internal')
-  const [externalEmail, setExternalEmail] = React.useState('')
+  const [externalEmails, setExternalEmails] = React.useState<string[]>([])
+  const [sendSeparately, setSendSeparately] = React.useState(false)
+  const externalEmail = externalEmails[0] ?? ''
+  const setExternalEmail = React.useCallback<React.Dispatch<React.SetStateAction<string>>>((value) => {
+    setExternalEmails((current) => {
+      const next = (typeof value === 'function' ? value(current[0] ?? '') : value).trim()
+      return next ? [next] : []
+    })
+  }, [])
   const [attachmentIds, setAttachmentIds] = React.useState<string[]>([])
   const [sendViaEmail, setSendViaEmail] = React.useState(false)
   const [contextActionRequired, setContextActionRequired] = React.useState(false)
@@ -305,13 +324,19 @@ export function useMessageCompose({
     setBodyFormat(defaultValues?.bodyFormat ?? 'text')
     setPriority(defaultValues?.priority ?? 'normal')
     setVisibility(defaultValues?.visibility ?? 'internal')
-    setExternalEmail(defaultValues?.externalEmail ?? '')
+    setExternalEmails(
+      defaultValues?.externalEmails?.length
+        ? defaultValues.externalEmails
+        : defaultValues?.externalEmail ? [defaultValues.externalEmail] : [],
+    )
+    setSendSeparately(Boolean(defaultValues?.sendSeparately))
     setAttachmentIds(
       Array.isArray(defaultValues?.attachmentIds)
         ? defaultValues.attachmentIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
         : [],
     )
     setSendViaEmail(Boolean(defaultValues?.sendViaEmail))
+    setSenderChannelId(defaultValues?.senderChannelId ?? '')
     if (contextObject) {
       const defaultContextActionType = requiredActionConfig?.defaultActionType?.trim() ?? ''
       const fallbackContextActionType = contextObject.actionType?.trim() ?? ''
@@ -365,6 +390,32 @@ export function useMessageCompose({
     submitLockReleaseRef.current?.()
     submitLockReleaseRef.current = null
   }, [])
+
+  const [replyAllSource, setReplyAllSource] = React.useState<ReplyAllSource | null>(null)
+
+  React.useEffect(() => {
+    setReplyAllSource(null)
+    if (!isOpen || variant !== 'reply' || !messageId) return
+    let isActive = true
+    void apiCall<ReplyAllSource & { visibility?: string | null }>(`/api/messages/${encodeURIComponent(messageId)}`)
+      .then((call) => {
+        if (isActive && call.ok && call.result?.visibility === 'public') setReplyAllSource(call.result)
+      })
+      .catch(() => null)
+    return () => {
+      isActive = false
+    }
+  }, [isOpen, messageId, variant])
+
+  const ownMailboxAddresses = React.useMemo(
+    () => (senderOptions ?? []).map((option) => option.description ?? '').filter(Boolean),
+    [senderOptions],
+  )
+
+  React.useEffect(() => {
+    if (variant !== 'reply') return
+    setExternalEmails(replyAll && replyAllSource ? buildReplyAllExternalEmails(replyAllSource, ownMailboxAddresses) : [])
+  }, [ownMailboxAddresses, replyAll, replyAllSource, variant])
 
   React.useEffect(() => {
     if (!isOpen) return
@@ -540,6 +591,8 @@ export function useMessageCompose({
     priority,
     visibility,
     externalEmail,
+    externalEmails,
+    sendSeparately,
     recipientIds,
     subject,
     body,
@@ -562,6 +615,8 @@ export function useMessageCompose({
     priority,
     visibility,
     externalEmail,
+    externalEmails,
+    sendSeparately,
     recipientIds,
     subject,
     body,
@@ -584,6 +639,8 @@ export function useMessageCompose({
     replyAll,
     recipientIds,
     sendViaEmail,
+    externalEmails,
+    sendSeparately,
   })
 
   const forwardOperation = useForwardSubmitOperation({
@@ -603,6 +660,8 @@ export function useMessageCompose({
     priority,
     visibility,
     externalEmail,
+    externalEmails,
+    sendSeparately,
     recipientIds,
     subject,
     body,
@@ -625,6 +684,8 @@ export function useMessageCompose({
     priority,
     visibility,
     externalEmail,
+    externalEmails,
+    sendSeparately,
     recipientIds,
     subject,
     body,
@@ -639,7 +700,7 @@ export function useMessageCompose({
     contextActionType,
   })
 
-  const handleSubmit = React.useCallback(async ({ saveAsDraft = false }: { saveAsDraft?: boolean } = {}) => {
+  const handleSubmit = React.useCallback(async ({ saveAsDraft = false, scheduledAt }: { saveAsDraft?: boolean; scheduledAt?: string } = {}) => {
     if (submitting) return false
 
     setSubmitError(null)
@@ -683,7 +744,10 @@ export function useMessageCompose({
       }
 
       if (!shouldReturnFalse) {
-        const { endpoint, method, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
+        const { endpoint, method, payload: operationPayload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
+        const payload = scheduledAt ? { ...operationPayload, scheduledAt } : operationPayload
+        // Scheduling keeps the message a draft until release: PATCH must not also ask to send now.
+        if (scheduledAt && method === 'PATCH') delete payload.isDraft
 
         // Editing an existing draft is a PATCH on the message aggregate, so carry
         // the OSS optimistic-lock header to reject a stale overwrite. New
@@ -719,7 +783,9 @@ export function useMessageCompose({
           }
           shouldReturnFalse = true
         } else {
-          flash(operation.successMessage, 'success')
+          flash(scheduledAt
+            ? t('messages.flash.scheduledInFolder', 'Message scheduled for {date}. You will find it in Messages → Scheduled.', { date: new Date(scheduledAt).toLocaleString() })
+            : operation.successMessage, 'success')
           keepSubmitLock = true
 
           onSuccess?.({ id: call.result?.id })
@@ -772,6 +838,23 @@ export function useMessageCompose({
     updateDraftOperation,
     variant,
   ])
+
+  const canSchedule = variant === 'compose' && scheduling?.available === true
+  const scheduleMaxDays = scheduling?.maxDays ?? 0
+
+  const handleSchedule = React.useCallback(
+    (scheduledAt: string) => handleSubmit({ scheduledAt }),
+    [handleSubmit],
+  )
+
+  const validateBeforeSchedule = React.useCallback(() => {
+    const operation = messageId ? sendDraftOperation : composeSendOperation
+    const validationMessage = operation.validate()
+    if (!validationMessage) return true
+    setSubmitError(validationMessage)
+    flash(validationMessage, 'error')
+    return false
+  }, [messageId, sendDraftOperation, composeSendOperation])
 
   const handleSaveDraft = React.useCallback(() => {
     if (variant !== 'compose') return
@@ -854,6 +937,10 @@ export function useMessageCompose({
     setVisibility,
     externalEmail,
     setExternalEmail,
+    externalEmails,
+    setExternalEmails,
+    sendSeparately,
+    setSendSeparately,
     senderOptions: resolvedSenderOptions,
     senderChannelId: effectiveSenderChannelId,
     setSenderChannelId,
@@ -880,6 +967,10 @@ export function useMessageCompose({
     handleSaveDraft,
     handleBack,
     handleSubmit,
+    canSchedule,
+    scheduleMaxDays,
+    handleSchedule,
+    validateBeforeSchedule,
     handleDialogOpenChange,
     handleKeyDown,
   }

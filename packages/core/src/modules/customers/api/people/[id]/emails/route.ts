@@ -40,6 +40,7 @@ const composeSchema = z
     inReplyTo: z.string().max(500).optional(),
     references: z.array(z.string().max(500)).max(50).optional(),
     parentMessageId: z.string().uuid().optional(),
+    scheduledAt: z.coerce.date().optional(),
   })
   .strict()
 
@@ -198,6 +199,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       inReplyTo: body.inReplyTo,
       references: body.references,
       parentMessageId: body.parentMessageId,
+      scheduledAt: body.scheduledAt,
       channelMetadata: {
         crmVisibility: body.visibility,
         crmPersonId: personId,
@@ -206,7 +208,10 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   )
 
   if (!sendResult.ok) {
-    return NextResponse.json({ error: sendResult.error }, { status: sendResult.status, headers: sendResult.headers })
+    return NextResponse.json(
+      { error: sendResult.error, ...(sendResult.fieldErrors ? { fieldErrors: sendResult.fieldErrors } : {}) },
+      { status: sendResult.status, headers: sendResult.headers },
+    )
   }
 
   if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
@@ -220,6 +225,14 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
       requestMethod: req.method,
       requestHeaders: req.headers,
       metadata: guardResult.metadata ?? null,
+    })
+  }
+
+  if (sendResult.scheduledAt) {
+    return NextResponse.json({
+      messageId: sendResult.messageId,
+      threadId: sendResult.threadId,
+      scheduledAt: sendResult.scheduledAt,
     })
   }
 
@@ -240,13 +253,13 @@ export const openApi = {
       summary: 'Compose + send an email anchored to a Person',
       tags: ['Customers', 'Email'],
       responses: [
-        { status: 200, description: 'Email queued for send' },
-        { status: 400, description: 'Invalid person id' },
+        { status: 200, description: 'Email queued for send, or scheduled when `scheduledAt` is set (response carries `scheduledAt` instead of `queuedAt`)' },
+        { status: 400, description: 'Invalid person id, or `scheduledAt` is in the past, too far ahead or not a whole minute (`fieldErrors.scheduledAt`)' },
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'Missing customers.email.compose feature or mutation guard rejection' },
         { status: 404, description: 'Person or channel not found, or the reply parent is not an email the caller can see on this Person' },
         { status: 409, description: 'Channel not connected' },
-        { status: 422, description: 'Invalid request body' },
+        { status: 422, description: 'Invalid request body, or `scheduledAt` set while scheduled sending is unavailable' },
         { status: 500, description: 'Send failed' },
       ],
     },
