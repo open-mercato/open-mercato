@@ -23,8 +23,10 @@ If this overview and policy differ, follow the policy and update the overview.
 ## Labels and ownership
 
 Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`,
-`qa-failed`, `merge-queue`, `blocked`, `do-not-merge`. Review approval routes to
-`merge-queue`; that label alone does not satisfy QA or CI. Only a QA reviewer
+`qa-failed`, `merge-queue`, `blocked`, `do-not-merge`. `merge-queue` means every
+gate holds on the current head; review approval routes there only then. A
+`needs-human-qa` PR without a current-head `qa-approved` keeps `review`, and
+`merge-queue-guard.yml` removes `merge-queue` from it. Only a QA reviewer
 sets `qa` to indicate manual testing is underway.
 
 Every ready PR needs a category, one priority and one risk label, using the

@@ -116,23 +116,24 @@ the higher risk and say why in the label comment. A `risk-high` PR strengthens t
 ## Pipeline transitions
 
 - A ready non-draft PR should carry `review` unless it is already in another pipeline state.
-- `auto-review-pr` MUST move approved PRs to `merge-queue`. For a PR that carries
-  `needs-human-qa` it keeps it in place, so the QA-approval gate holds the actual merge until a
-  QA reviewer adds `qa-approved`. Auto-skills MUST NOT set the `qa` pipeline label — see the
-  `qa` rule below.
+- `auto-review-pr` MUST move approved PRs to `merge-queue` only when every gate holds on the
+  current head. A PR that carries `needs-human-qa` without a current-head `qa-approved` keeps
+  `review` ("waiting for a human tester") and MUST NOT be moved to `merge-queue`;
+  `merge-queue-guard.yml` takes `merge-queue` off such a PR. Auto-skills MUST NOT set the `qa`
+  pipeline label — see the `qa` rule below.
 - `auto-review-pr` MUST move review failures to `changes-requested`.
 - `qa` (pipeline) means **manual QA is in progress**: a QA reviewer has picked the PR up and is
   actively testing it. It is applied **manually by a QA reviewer**, never by an `om-auto-*`
   skill. Auto-skills request QA with the `needs-qa` / `needs-human-qa` meta labels only; they
-  never set, move to, or remove `qa`. A QA reviewer flips a queued `needs-human-qa` PR from
-  `merge-queue` to `qa` (or adds `qa-in-progress`) while testing, then records the outcome with
+  never set, move to, or remove `qa`. A QA reviewer flips an approved `needs-human-qa` PR from
+  `review` to `qa` (or adds `qa-in-progress`) while testing, then records the outcome with
   `qa-approved` (pass) or `qa-failed` (fail).
 
 The `qa` pipeline label is driven manually by QA reviewers, not by auto-skills. When a QA
-reviewer starts testing a queued `needs-human-qa` PR, they move it from `merge-queue` to `qa`
-(`gh pr edit <number> --remove-label merge-queue --add-label qa`) to signal QA is in progress.
-When QA passes, move it back and record approval (`gh pr edit <number> --remove-label qa
---add-label merge-queue --add-label qa-approved`); via the self-QA exception add
+reviewer starts testing an approved `needs-human-qa` PR, they move it from `review` to `qa`
+(`gh pr edit <number> --remove-label review --add-label qa`) to signal QA is in progress.
+When QA passes on the current head, record approval and route it to the queue (`gh pr edit
+<number> --remove-label qa --add-label merge-queue --add-label qa-approved`); via the self-QA exception add
 `qa-self-verified` as well. When QA fails, route to `qa-failed` (`gh pr edit <number>
 --remove-label qa --add-label qa-failed`) and do not add `qa-approved`.
 
@@ -191,8 +192,8 @@ When QA passes, move it back and record approval (`gh pr edit <number> --remove-
 
 **QA-approval merge gate (hard rule): a PR that carries `needs-human-qa` MUST NOT be merged
 unless it also carries `qa-approved`, even when every other check is green.** `needs-qa` and
-`qa-batch-check` do not gate the merge. Moving a gated PR to
-`merge-queue` without `qa-approved` is not sufficient — the QA-approval gate blocks it. This is
+`qa-batch-check` do not gate the merge. A gated PR without `qa-approved` MUST NOT carry
+`merge-queue`: review skills withhold it and `merge-queue-guard.yml` removes it. This is
 a **label policy enforced by reviewers and the PR-automation tooling** (`om-merge-buddy`
 classifies it as not-mergeable; `om-approve-merge-pr` and the auto-review/continue skills refuse
 to merge it); there is no longer a dedicated `merge-gate` CI workflow, so the maintainer is
