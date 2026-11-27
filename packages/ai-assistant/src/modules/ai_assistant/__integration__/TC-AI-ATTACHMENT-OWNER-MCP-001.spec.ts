@@ -64,7 +64,7 @@ test('TC-AI-ATTACHMENT-OWNER-MCP-001: HTTP MCP session tokens apply attachment o
       const serverKey = await fixture.key()
       const recipientSession = await issueSessionToken(request, await fixture.recipient.refreshToken())
       const unsharedSession = await issueSessionToken(request, await fixture.unshared.refreshToken())
-      server = await startMcpHttpServer()
+      server = await startMcpHttpServer(serverKey.secret)
       const mcp = server
 
       const read = async (attachmentId: string, sessionToken: string) => {

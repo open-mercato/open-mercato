@@ -84,7 +84,7 @@ test('TC-AI-ATTACHMENT-OWNER-TRANSFER-001: transferring attachments refuses prot
     try {
       const serverKey = await fixture.key()
       const session = await issueSessionToken(request, await fixture.recipient.refreshToken())
-      server = await startMcpHttpServer()
+      server = await startMcpHttpServer(serverKey.secret)
       const mcp = server
       const transfer = async (input: Record<string, unknown>) => {
         const outcome = await mcp.callTool(serverKey.secret, TOOL, { ...input, _sessionToken: session })

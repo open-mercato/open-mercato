@@ -84,12 +84,12 @@ function parseToolText(text: string | undefined): unknown {
   }
 }
 
-export async function startMcpHttpServer(): Promise<McpHttpServerHandle> {
+export async function startMcpHttpServer(delegationKey: string): Promise<McpHttpServerHandle> {
   const port = await findFreePort()
   const baseUrl = `http://127.0.0.1:${port}`
   const child = spawn('yarn', ['mercato', 'ai_assistant', 'mcp:serve-http', '--port', String(port), '--host', '127.0.0.1'], {
     cwd: resolveAppRoot(),
-    env: { ...process.env, FORCE_COLOR: '0', NODE_NO_WARNINGS: '1' },
+    env: { ...process.env, MCP_SERVER_API_KEY: delegationKey, FORCE_COLOR: '0', NODE_NO_WARNINGS: '1' },
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
