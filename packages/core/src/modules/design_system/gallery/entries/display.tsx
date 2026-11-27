@@ -55,6 +55,30 @@ import avatarMemoji from '../assets/avatar-memoji.png'
 import avatarIllustration from '../assets/avatar-illustration.png'
 import { BorderBeamBasicExample, BorderBeamCustomContainerExample, BorderBeamDurationExample, BorderBeamGradientsExample, BorderBeamHoverExample, BorderBeamLineWidthExample, BorderBeamMultipleExample, BorderBeamSizeExample } from '../demos/layout-primitives'
 import type { GalleryEntry } from '../types'
+import {
+  DataTableBasicExample,
+  DataTableBulkActionsExample,
+  DataTableEmbeddedExample,
+  DataTableEmptyExample,
+  DataTableErrorExample,
+  DataTableLoadingExample,
+  DataTableNoResultsExample,
+  DataTablePinnedColumnsExample,
+  DataTableRowActionsExample,
+  DataTableSearchFiltersExample,
+  DataTableSortingPaginationExample,
+  dataTableBasicCode,
+  dataTableBulkActionsCode,
+  dataTableEmbeddedCode,
+  dataTableEmptyCode,
+  dataTableErrorCode,
+  dataTableLoadingCode,
+  dataTableNoResultsCode,
+  dataTablePinnedColumnsCode,
+  dataTableRowActionsCode,
+  dataTableSearchFiltersCode,
+  dataTableSortingPaginationCode,
+} from '../demos/data-table'
 function BadgeEntrySemanticPreview() {
   const t = useT()
   return (
@@ -1525,6 +1549,127 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
     },
   ],
 }
+const dataTableEntry: GalleryEntry = {
+  id: 'data-table',
+  title: 'DataTable',
+  importPath: '@open-mercato/ui/backend/DataTable',
+  descriptionKey: 'design_system.entries.data-table.description',
+  keywords: ['table', 'list', 'records', 'grid', 'sorting', 'pagination', 'bulk actions', 'row actions'],
+  usage: {
+    do: [
+      'Use it for every list of records in the back office; it is a backend component, not a block, so import it from the package instead of copying it',
+      'Render it inside an application that provides the Next.js router and a QueryClientProvider; both are required even when all data is local',
+      'Sort, filter and paginate in the host and pass the resulting page through data; the table reports changes through onSortingChange, onSearchChange, onFiltersApply and pagination.onPageChange',
+      'Pass ListEmptyState as emptyState for a list with no records; the no-results state for a search is rendered by the table itself',
+      'Pass embedded when the table sits inside a card or a section that already has its own border and title, and give that container overflow-x-auto: an embedded table does not scroll sideways on its own',
+      'Give the main row action the id edit or open so that a click on the row triggers it, or pass onRowClick',
+    ],
+    dont: [
+      'Do not use it for a small static table inside content; use the Table primitive',
+      'Do not expect saved views, custom-field columns and filters, auto-discovered filters or export to work without the server; they call the application API and are left out of these examples',
+      'Do not put destructive actions in the title row; keep them in row actions or bulk actions',
+      'Do not request more than 100 rows per page',
+    ],
+  },
+  accessibility: [
+    'Renders a native table with column headers; sortable headers are buttons that can be reached with the keyboard',
+    'Row actions open from a button with an accessible name and can be operated with arrow keys, Enter and Escape',
+    'Selection uses checkboxes with labels for each row and for the whole page',
+    'Below the md breakpoint the table keeps a minimum width of 640 px and scrolls horizontally; pinned columns are turned off there so every column stays reachable',
+  ],
+  faq: [
+    {
+      question: 'What does the host application have to provide?',
+      answer: 'The Next.js app router (the table reads it for row links and for refresh after a bulk action) and a QueryClientProvider above the table. Translations come from the same provider the rest of the interface uses. Extension widgets are optional; the table renders without them.',
+    },
+    {
+      question: 'Which features are not shown here and why?',
+      answer: 'Saved views (perspective), custom-field columns and filters (entityId, entityIds), auto-discovered filters (advancedFilter.auto, columnChooser.auto) and export read from or write to the application API. The examples use local data only, so these features are left out.',
+    },
+    {
+      question: 'Is it a block?',
+      answer: 'No. It is a backend component shared by all list pages. Import it from the package; do not copy its source into a module.',
+    },
+  ],
+  variants: [
+    {
+      id: 'basic',
+      title: 'Basic',
+      description: 'Columns, rows, a title and a create action in the title row.',
+      render: () => <DataTableBasicExample />,
+      code: dataTableBasicCode,
+    },
+    {
+      id: 'sorting-pagination',
+      title: 'Sorting and pagination',
+      description: 'The host keeps the sort order and the page in local state and passes one page of rows.',
+      render: () => <DataTableSortingPaginationExample />,
+      code: dataTableSortingPaginationCode,
+    },
+    {
+      id: 'search-filters',
+      title: 'Search and filters',
+      description: 'The built-in search field and filter button; the host filters the rows.',
+      render: () => <DataTableSearchFiltersExample />,
+      code: dataTableSearchFiltersCode,
+    },
+    {
+      id: 'row-actions',
+      title: 'Row actions and row click',
+      description: 'A menu of actions for each row and a click on the row itself.',
+      render: () => <DataTableRowActionsExample />,
+      code: dataTableRowActionsCode,
+    },
+    {
+      id: 'bulk-actions',
+      title: 'Selection and bulk actions',
+      description: 'Checkboxes appear when bulk actions are passed; the actions act on the selected rows.',
+      render: () => <DataTableBulkActionsExample />,
+      code: dataTableBulkActionsCode,
+    },
+    {
+      id: 'pinned-columns',
+      title: 'Pinned first column and actions',
+      description: 'On a wide table the first column and the actions column stay in place while the rest scrolls sideways. Pinning applies from the md breakpoint up.',
+      render: () => <DataTablePinnedColumnsExample />,
+      code: dataTablePinnedColumnsCode,
+    },
+    {
+      id: 'embedded',
+      title: 'Embedded in a card',
+      description: 'Without its own frame, for use inside a card or a section.',
+      render: () => <DataTableEmbeddedExample />,
+      code: dataTableEmbeddedCode,
+    },
+    {
+      id: 'loading',
+      title: 'Loading',
+      render: () => <DataTableLoadingExample />,
+      code: dataTableLoadingCode,
+    },
+    {
+      id: 'empty',
+      title: 'Empty list',
+      description: 'No records yet: the list empty state with a create action.',
+      render: () => <DataTableEmptyExample />,
+      code: dataTableEmptyCode,
+    },
+    {
+      id: 'no-results',
+      title: 'No search results',
+      description: 'A search that matches nothing; the table offers to clear it.',
+      render: () => <DataTableNoResultsExample />,
+      code: dataTableNoResultsCode,
+    },
+    {
+      id: 'error',
+      title: 'Error',
+      description: 'The error text replaces the rows; the reload button sits in the title row.',
+      render: () => <DataTableErrorExample />,
+      code: dataTableErrorCode,
+    },
+  ],
+}
 const cardEntry: GalleryEntry = {
   id: 'card',
   title: 'Card',
@@ -2406,6 +2551,7 @@ export const entries: GalleryEntry[] = [
   avatarEntry,
   kbdEntry,
   tableEntry,
+  dataTableEntry,
   cardEntry,
   separatorEntry,
   scrollAreaEntry,

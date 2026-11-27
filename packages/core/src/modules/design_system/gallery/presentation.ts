@@ -29,6 +29,7 @@ export const fullWidthEntryIds: ReadonlySet<string> = new Set([
   'accordion',
   'payment-icon',
   'table',
+  'data-table',
   'activity-feed',
   'marketing-widgets',
   'bar-chart',
