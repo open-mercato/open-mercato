@@ -29,7 +29,10 @@ import { EventPeekPopover } from './EventPeekPopover'
 import { OverflowBlock } from './OverflowBlock'
 import type { CalendarItem, TimeGridProps } from './types'
 
-const HOUR_HEIGHT_PX = 120
+// 48px per hour keeps a typical working day (~10 hours) visible without scrolling,
+// in line with common calendar apps. Block geometry, drag-to-create and scrolling
+// all derive from this value.
+export const HOUR_HEIGHT_PX = 48
 const HOURS_PER_DAY = 24
 const GRID_BODY_MAX_HEIGHT_PX = 654
 const INITIAL_SCROLL_HOUR = 8

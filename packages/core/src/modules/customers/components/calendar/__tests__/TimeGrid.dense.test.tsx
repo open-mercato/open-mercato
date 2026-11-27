@@ -4,9 +4,12 @@ import * as React from 'react'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { TimeGrid } from '../TimeGrid'
+import { HOUR_HEIGHT_PX, TimeGrid } from '../TimeGrid'
 import type { CalendarItem } from '../types'
 import { buildCalendarItem } from './fixtures'
+
+/** Vertical offset (px) of a time of day, expressed in minutes since midnight. */
+const yAt = (minutes: number) => (minutes / 60) * HOUR_HEIGHT_PX
 
 const anchor = new Date(2026, 9, 13)
 
@@ -247,8 +250,8 @@ describe('TimeGrid dense overlaps (#7500)', () => {
     fireEvent.click(screen.getByRole('button', { name: /^5 more events, / }))
     expect(screen.getByRole('list')).toBeInTheDocument()
     const layer = document.querySelector('.cursor-cell')!
-    fireEvent(layer, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: 1300 }))
-    fireEvent(layer, new MouseEvent('pointerup', { bubbles: true, button: 0, clientY: 1300 }))
+    fireEvent(layer, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: yAt(10 * 60 + 50) }))
+    fireEvent(layer, new MouseEvent('pointerup', { bubbles: true, button: 0, clientY: yAt(10 * 60 + 50) }))
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
     expect(onCreateRange).not.toHaveBeenCalled()
   })

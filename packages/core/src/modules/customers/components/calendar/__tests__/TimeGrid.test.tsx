@@ -4,8 +4,11 @@
 import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { TimeGrid } from '../TimeGrid'
+import { HOUR_HEIGHT_PX, TimeGrid } from '../TimeGrid'
 import type { TimeGridProps } from '../types'
+
+/** Vertical offset (px) of a time of day, expressed in minutes since midnight. */
+const yAt = (minutes: number) => (minutes / 60) * HOUR_HEIGHT_PX
 
 const ANCHOR = new Date(2026, 7, 10)
 
@@ -51,10 +54,10 @@ describe('TimeGrid drag-to-create', () => {
   })
 
   it.each([
-    { days: 1 as const, dayIndex: 0, startY: 1080, endY: 1200 },
-    { days: 1 as const, dayIndex: 0, startY: 1200, endY: 1080 },
-    { days: 7 as const, dayIndex: 2, startY: 1080, endY: 1200 },
-    { days: 7 as const, dayIndex: 2, startY: 1200, endY: 1080 },
+    { days: 1 as const, dayIndex: 0, startY: yAt(9 * 60), endY: yAt(10 * 60) },
+    { days: 1 as const, dayIndex: 0, startY: yAt(10 * 60), endY: yAt(9 * 60) },
+    { days: 7 as const, dayIndex: 2, startY: yAt(9 * 60), endY: yAt(10 * 60) },
+    { days: 7 as const, dayIndex: 2, startY: yAt(10 * 60), endY: yAt(9 * 60) },
   ])('creates one range without updating the parent during render in the $days-day view ($startY to $endY)', ({ days, dayIndex, startY, endY }) => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
     const { layers, onCreateRange } = renderGrid(days)
@@ -74,15 +77,15 @@ describe('TimeGrid drag-to-create', () => {
     expect(screen.queryByText('New event')).not.toBeInTheDocument()
   })
 
-  it.each([null, 1140])('uses the latest pointer movement before React renders it (previous movement: %s)', (previousMovement) => {
+  it.each([null, yAt(9 * 60 + 30)])('uses the latest pointer movement before React renders it (previous movement: %s)', (previousMovement) => {
     const { layers, onCreateRange } = renderGrid(1)
     const layer = layers[0]
-    dispatchPointer(layer, 'pointerdown', 1080)
+    dispatchPointer(layer, 'pointerdown', yAt(9 * 60))
     if (previousMovement !== null) dispatchPointer(layer, 'pointermove', previousMovement)
 
     act(() => {
-      layer.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientY: 1200 }))
-      layer.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientY: 1200 }))
+      layer.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientY: yAt(10 * 60) }))
+      layer.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientY: yAt(10 * 60) }))
     })
 
     expect(onCreateRange).toHaveBeenCalledTimes(1)
@@ -92,8 +95,8 @@ describe('TimeGrid drag-to-create', () => {
 
   it('creates the half-hour slot under the pointer for a plain click', () => {
     const { layers, onCreateRange } = renderGrid(1)
-    dispatchPointer(layers[0], 'pointerdown', 1080)
-    dispatchPointer(layers[0], 'pointerup', 1080)
+    dispatchPointer(layers[0], 'pointerdown', yAt(9 * 60))
+    dispatchPointer(layers[0], 'pointerup', yAt(9 * 60))
 
     expect(onCreateRange).toHaveBeenCalledTimes(1)
     const [start, end] = onCreateRange.mock.calls[0] as [Date, Date]
@@ -104,11 +107,11 @@ describe('TimeGrid drag-to-create', () => {
 
   it('clears a canceled drag without creating a range', () => {
     const { layers, onCreateRange } = renderGrid(1)
-    dispatchPointer(layers[0], 'pointerdown', 1080)
-    dispatchPointer(layers[0], 'pointermove', 1200)
+    dispatchPointer(layers[0], 'pointerdown', yAt(9 * 60))
+    dispatchPointer(layers[0], 'pointermove', yAt(10 * 60))
     expect(screen.getByText('New event')).toBeInTheDocument()
-    dispatchPointer(layers[0], 'pointercancel', 1200)
-    dispatchPointer(layers[0], 'pointerup', 1200)
+    dispatchPointer(layers[0], 'pointercancel', yAt(10 * 60))
+    dispatchPointer(layers[0], 'pointerup', yAt(10 * 60))
 
     expect(onCreateRange).not.toHaveBeenCalled()
     expect(screen.queryByText('New event')).not.toBeInTheDocument()
