@@ -7,6 +7,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, conflict, forbidden, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { Currency, ExchangeRate } from '../data/entities'
 import {
@@ -20,6 +21,8 @@ import {
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { buildCurrencyCommandWhere, ensureCurrencyCommandScope } from './scope'
+
+const logger = createLogger('currencies').child({ component: 'currency-commands' })
 
 const currencyCrudEvents: CrudEventsConfig = {
   module: 'currencies',
@@ -522,6 +525,14 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, CurrencyCommand
           ) as Record<string, { from: unknown; to: unknown }>
 
           promoted = changes.isBase?.to === true
+          if (changes.isActive?.to === false && (record.isBase || promoted)) {
+            logger.warn('[deprecated] Deactivating the base currency will be rejected in a future minor release', {
+              currencyId: record.id,
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+              promoted,
+            })
+          }
           if (promoted) {
             demotedBaseCurrencyIds = await findLiveBaseCurrencyIds(em, scope, record.id)
           }

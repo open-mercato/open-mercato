@@ -3240,6 +3240,15 @@ byte budget):
   for each other. No contract change.
 - Database schema, event IDs, ACL features, DI names and generated files are unchanged.
 
+### Deactivating the base currency is deprecated (#9674)
+
+`PUT /api/currencies/currencies` with `isActive: false` on an active base currency, or with
+`isBase: true` and `isActive: false` on a currency that is currently active, still works but logs a
+`[deprecated]` warning; a future minor release will reject it with `400`. Set another currency as
+the base first, then deactivate the old one. On the edit-currency form, Active is locked on an
+active base, and ticking Base Currency while Active is off is refused, including on a currency that
+is already inactive. Existing inactive base currencies are not changed.
+
 ### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
 
 `GET /api/communication_channels/oauth/[provider]/callback` used to redirect back to `returnUrl`
