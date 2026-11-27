@@ -36,7 +36,7 @@
     "portal": ["portal", "customer_accounts"],
     "workflows": ["workflows", "business_rules", "forms", "resources", "staff", "availability"],
     "ai": ["ai_assistant", "agent_orchestrator"],
-    "enterprise": ["sso", "security", "record_locks", "system_status_overlays", "backups"]
+    "enterprise": ["sso", "security", "record_locks", "system_status_overlays", "backups", "tenant_boundaries"]
   },
   "ignoredLabels": ["ci-monitoring"],
   "fullSuitePatterns": [

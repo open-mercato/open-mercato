@@ -1,4 +1,5 @@
 import type { JobContext, JobHandler, QueuedJob } from '@open-mercato/queue'
+import type { ResolveOptions } from 'awilix'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { runInOwnedRequestScope, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { resolveDeclaredDatabaseJobContext, validateDeclaredDatabaseBinding } from '@open-mercato/shared/lib/db/declarations'
@@ -12,7 +13,9 @@ export function createSearchWorkerHandler<T>(handler: SearchWorker<T>): JobHandl
     const execute = () => runInOwnedRequestScope(async () => {
       const container = await createRequestContainer()
       try {
-        await runWithRequestScopeContainer(container, () => handler(job, context, { resolve: container.resolve.bind(container) }))
+        await runWithRequestScopeContainer(container, () => handler(job, context, {
+          resolve: <Value = unknown>(name: string | symbol, options?: ResolveOptions) => container.resolve<Value>(name, options),
+        }))
       } finally {
         await container.dispose()
       }

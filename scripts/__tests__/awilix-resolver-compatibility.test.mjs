@@ -13,7 +13,7 @@ const consumers = [
   ['packages/core/src/modules/business_rules/api/execute/route.ts', 2],
   ['packages/core/src/modules/business_rules/api/rules/route.ts', 3],
   ['packages/core/src/modules/workflows/setup.ts', 1],
-  ['packages/search/src/modules/search/cli.ts', 2],
+  ['packages/search/src/modules/search/lib/worker-database.ts', 1],
 ]
 
 function resolverExpressions(file) {
@@ -38,7 +38,7 @@ function resolverExpressions(file) {
 function typeErrors(expressions) {
   const file = path.join(root, 'scripts/__tests__/awilix-resolver-fixture.ts')
   const source = `
-    import type { AwilixContainer } from 'awilix'
+    import type { AwilixContainer, ResolveOptions } from 'awilix'
     interface Container {
       resolve: {
         <Key extends keyof { value: string }>(this: void, name: Key, options?: { allowUnregistered?: boolean }): { value: string }[Key]
