@@ -45,8 +45,8 @@ export async function verifyCustomerEmail(
   return { user, newlyVerified }
 }
 
-export function emitCustomerEmailVerified(user: CustomerUser, verifiedBy?: string): void {
-  void emitCustomerAccountsEvent('customer_accounts.email.verified', {
+export function emitCustomerEmailVerified(user: CustomerUser, verifiedBy?: string): Promise<void> {
+  return emitCustomerAccountsEvent('customer_accounts.email.verified', {
     id: user.id,
     userId: user.id,
     recipientUserId: user.id,

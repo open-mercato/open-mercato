@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript-js'
+import { databaseDeclarationsPlugin } from './generators/database-declarations'
 import {
   MODULE_CODE_EXTENSIONS,
   SCAN_CONFIGS,
@@ -632,7 +633,7 @@ export function collectGenerateWatchStructureSnapshot(
   const collector = new SnapshotCollector(cacheState)
   for (const reason of options.webResearchAdapterFullReasons ?? []) collector.fullReasons.add(reason)
   collector.file(`configuration:${options.modulesFile}`, options.modulesFile, { category: 'configuration' })
-  const plugins = new Set<string>()
+  const plugins = new Set([databaseDeclarationsPlugin.conventionFile])
   options.moduleRoots.forEach((roots, index) => addModule(collector, roots, index, plugins))
   options.moduleRoots.forEach((roots, index) => {
     const identity = `module:${index}:${roots.moduleId ?? path.basename(roots.appBase)}:${roots.appBase}:${roots.pkgBase}`

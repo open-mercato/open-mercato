@@ -61,6 +61,7 @@ const customerRbacService = {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
+    dispose: jest.fn(async () => undefined),
     resolve: (name: string) => {
       if (name === 'customerUserService') return customerUserService
       if (name === 'customerSessionService') return customerSessionService

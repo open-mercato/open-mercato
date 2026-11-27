@@ -35,6 +35,7 @@ async function resolveTenantScopedRole(em: any, name: string, normalizedTenantId
 }
 
 const addUser: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'add-user',
   async run(rest) {
     const args: Record<string, string> = {}
@@ -179,6 +180,7 @@ function decryptWithOldKey(
 }
 
 const seedRoles: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'seed-roles',
   async run(rest) {
     const args: Record<string, string> = {}
@@ -211,6 +213,7 @@ const seedRoles: ModuleCli = {
 }
 
 const rotateEncryptionKey: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'rotate-encryption-key',
   async run(rest) {
     const args = parseArgs(rest)
@@ -416,6 +419,7 @@ const rotateEncryptionKey: ModuleCli = {
 // will be exported at the bottom with all commands
 
 const addOrganization: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'add-org',
   async run(rest) {
     const args: Record<string, string> = {}
@@ -450,6 +454,7 @@ const addOrganization: ModuleCli = {
 const SETUP_USAGE = 'Usage: mercato auth setup --orgName <name> --email <email> --password <password> [--orgSlug <slug>] [--roles superadmin,admin,employee] [--skip-password-policy] [--include-demo-users] [--with-examples] [--json]'
 
 const setupApp: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'setup',
   async run(rest) {
     const args = parseArgs(rest)
@@ -661,6 +666,7 @@ function pickAdminSnapshot(
 }
 
 const listOrganizations: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'list-orgs',
   async run() {
     const { resolve } = await createRequestContainer()
@@ -694,6 +700,7 @@ const listOrganizations: ModuleCli = {
 }
 
 const listTenants: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'list-tenants',
   async run() {
     const { resolve } = await createRequestContainer()
@@ -720,6 +727,7 @@ const listTenants: ModuleCli = {
 }
 
 const listUsers: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'list-users',
   async run(rest) {
     const args: Record<string, string> = {}
@@ -788,6 +796,7 @@ const listUsers: ModuleCli = {
 }
 
 const setPassword: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'set-password',
   async run(rest) {
     const args: Record<string, string> = {}
@@ -861,6 +870,7 @@ async function syncCustomerRoleAcls(
 }
 
 const syncRoleAcls: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'sync-role-acls',
   async run(rest) {
     const args: Record<string, string> = {}

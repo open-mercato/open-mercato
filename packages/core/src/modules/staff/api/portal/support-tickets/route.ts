@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 /**
  * `GET|POST /api/staff/portal/support-tickets` — customer portal support intake.
  *
@@ -103,69 +104,71 @@ export async function GET(req: Request) {
   try {
     const scope = await resolveSupportPortalScope(req, PORTAL_SUPPORT_TICKETS_VIEW_FEATURE)
     if (scope instanceof Response) return scope
-    const url = new URL(req.url)
-    const query = listQuerySchema.parse(Object.fromEntries(url.searchParams.entries()))
-    const statusIds = query.status ? await statusIdsFor(scope, query.status) : null
-    const page = await listPortalTicketPage(scope, {
-      statusIds,
-      limit: query.pageSize,
-      offset: (query.page - 1) * query.pageSize,
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: scope.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const url = new URL(req.url)
+      const query = listQuerySchema.parse(Object.fromEntries(url.searchParams.entries()))
+      const statusIds = query.status ? await statusIdsFor(scope, query.status) : null
+      const page = await listPortalTicketPage(scope, {
+        statusIds,
+        limit: query.pageSize,
+        offset: (query.page - 1) * query.pageSize,
+      })
+      const total = page.total
+      const pageIds = page.rows.map((row) => row.id)
+      const lastActivityByTask = new Map(page.rows.map((row) => [row.id, row.lastActivityAt]))
+      const loadedTasks = pageIds.length
+        ? await scope.em.find(StaffTimeTask, { id: { $in: pageIds }, ...portalOwnedTaskWhere(scope) })
+        : []
+      const taskById = new Map(loadedTasks.map((task) => [task.id, task]))
+      const tasks = pageIds.flatMap((id) => {
+        const task = taskById.get(id)
+        return task ? [task] : []
+      })
+      const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+      const taskIds = tasks.map((task) => task.id)
+      const tickets = taskIds.length
+        ? await findWithDecryption(
+            scope.em,
+            StaffSupportTicket,
+            { taskId: { $in: taskIds }, ...decryptionScope, deletedAt: null },
+            undefined,
+            decryptionScope,
+          )
+        : []
+      const ticketByTask = new Map(tickets.map((ticket) => [ticket.taskId, ticket]))
+      const taskStatusIds = [...new Set(tasks.map((task) => task.taskStatusId))]
+      const statuses = taskStatusIds.length
+        ? await scope.em.find(StaffTimeTaskStatus, { id: { $in: taskStatusIds }, ...decryptionScope }, { fields: ['id', 'isDefault', 'isDone'] })
+        : []
+      const statusById = new Map(statuses.map((status) => [status.id, status]))
+      const items = tasks.flatMap((task) => {
+        const ticket = ticketByTask.get(task.id)
+        if (!ticket) return []
+        const request = ticket.customerRequestSnapshot
+        const lastActivity = lastActivityByTask.get(task.id) ?? task.createdAt
+        return [
+          {
+            id: task.id,
+            supportReference: ticket.supportReference,
+            subject: request && typeof request.subject === 'string' ? request.subject : '',
+            category: ticket.categorySnapshot,
+            portalStatus: derivePortalStatus(statusById.get(task.taskStatusId) ?? null),
+            createdAt: isoOrNull(task.createdAt),
+            updatedAt: isoOrNull(task.updatedAt),
+            lastActivityAt: isoOrNull(lastActivity),
+          },
+        ]
+      })
+      return NextResponse.json(
+        listResponseSchema.parse({
+          items,
+          total,
+          page: query.page,
+          pageSize: query.pageSize,
+          totalPages: Math.max(1, Math.ceil(total / query.pageSize)),
+        }),
+      )
     })
-    const total = page.total
-    const pageIds = page.rows.map((row) => row.id)
-    const lastActivityByTask = new Map(page.rows.map((row) => [row.id, row.lastActivityAt]))
-    const loadedTasks = pageIds.length
-      ? await scope.em.find(StaffTimeTask, { id: { $in: pageIds }, ...portalOwnedTaskWhere(scope) })
-      : []
-    const taskById = new Map(loadedTasks.map((task) => [task.id, task]))
-    const tasks = pageIds.flatMap((id) => {
-      const task = taskById.get(id)
-      return task ? [task] : []
-    })
-    const decryptionScope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
-    const taskIds = tasks.map((task) => task.id)
-    const tickets = taskIds.length
-      ? await findWithDecryption(
-          scope.em,
-          StaffSupportTicket,
-          { taskId: { $in: taskIds }, ...decryptionScope, deletedAt: null },
-          undefined,
-          decryptionScope,
-        )
-      : []
-    const ticketByTask = new Map(tickets.map((ticket) => [ticket.taskId, ticket]))
-    const taskStatusIds = [...new Set(tasks.map((task) => task.taskStatusId))]
-    const statuses = taskStatusIds.length
-      ? await scope.em.find(StaffTimeTaskStatus, { id: { $in: taskStatusIds }, ...decryptionScope }, { fields: ['id', 'isDefault', 'isDone'] })
-      : []
-    const statusById = new Map(statuses.map((status) => [status.id, status]))
-    const items = tasks.flatMap((task) => {
-      const ticket = ticketByTask.get(task.id)
-      if (!ticket) return []
-      const request = ticket.customerRequestSnapshot
-      const lastActivity = lastActivityByTask.get(task.id) ?? task.createdAt
-      return [
-        {
-          id: task.id,
-          supportReference: ticket.supportReference,
-          subject: request && typeof request.subject === 'string' ? request.subject : '',
-          category: ticket.categorySnapshot,
-          portalStatus: derivePortalStatus(statusById.get(task.taskStatusId) ?? null),
-          createdAt: isoOrNull(task.createdAt),
-          updatedAt: isoOrNull(task.updatedAt),
-          lastActivityAt: isoOrNull(lastActivity),
-        },
-      ]
-    })
-    return NextResponse.json(
-      listResponseSchema.parse({
-        items,
-        total,
-        page: query.page,
-        pageSize: query.pageSize,
-        totalPages: Math.max(1, Math.ceil(total / query.pageSize)),
-      }),
-    )
   } catch (err) {
     return portalErrorResponse(err, 'staff portal support tickets GET failed')
   }
@@ -175,42 +178,44 @@ export async function POST(req: Request) {
   try {
     const scope = await resolveSupportPortalScope(req, PORTAL_SUPPORT_TICKETS_MANAGE_FEATURE)
     if (scope instanceof Response) return scope
-    const limited = await checkPortalRateLimit(scope, 'create')
-    if (limited) return limited
-    const body = createBodySchema.parse(await readJsonSafe<Record<string, unknown>>(req, {}))
-    const guarded = await runRouteMutationGuards({
-      container: scope.container,
-      req,
-      auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
-      input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: null, operation: 'create', mutationPayload: body },
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: scope.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
+      const limited = await checkPortalRateLimit(scope, 'create')
+      if (limited) return limited
+      const body = createBodySchema.parse(await readJsonSafe<Record<string, unknown>>(req, {}))
+      const guarded = await runRouteMutationGuards({
+        container: scope.container,
+        req,
+        auth: { userId: scope.auth.sub, tenantId: scope.tenantId, organizationId: scope.organizationId, userFeatures: [] },
+        input: { resourceKind: SUPPORT_TICKET_RESOURCE_KIND, resourceId: null, operation: 'create', mutationPayload: body },
+      })
+      if (!guarded.ok) return guarded.response
+      const effectiveBody = guarded.modifiedPayload
+        ? createBodySchema.parse({ ...body, ...guarded.modifiedPayload })
+        : body
+      const customer = await resolveCustomerDisplay(scope)
+      const input: SupportTicketCreateFromPortalInput = {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        customerId: scope.customerId,
+        customerUserId: scope.auth.sub,
+        customerDisplayName: customer.displayName,
+        customerKind: customer.kind,
+        reporterDisplayName: scope.auth.displayName ?? null,
+        categoryValue: effectiveBody.categoryValue,
+        subject: effectiveBody.subject,
+        description: effectiveBody.description,
+      }
+      const commandBus = scope.container.resolve('commandBus') as CommandBus
+      const { result } = await commandBus.execute<SupportTicketCreateFromPortalInput, SupportTicketCreateResult>(
+        staffSupportTicketCommandIds.createFromPortal,
+        { input, ctx: buildPortalCommandContext(scope, req) },
+      )
+      await guarded.runAfterSuccess()
+      return NextResponse.json(
+        createResponseSchema.parse({ ok: true, id: result.taskId, supportReference: result.supportReference }),
+        { status: 201 },
+      )
     })
-    if (!guarded.ok) return guarded.response
-    const effectiveBody = guarded.modifiedPayload
-      ? createBodySchema.parse({ ...body, ...guarded.modifiedPayload })
-      : body
-    const customer = await resolveCustomerDisplay(scope)
-    const input: SupportTicketCreateFromPortalInput = {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      customerId: scope.customerId,
-      customerUserId: scope.auth.sub,
-      customerDisplayName: customer.displayName,
-      customerKind: customer.kind,
-      reporterDisplayName: scope.auth.displayName ?? null,
-      categoryValue: effectiveBody.categoryValue,
-      subject: effectiveBody.subject,
-      description: effectiveBody.description,
-    }
-    const commandBus = scope.container.resolve('commandBus') as CommandBus
-    const { result } = await commandBus.execute<SupportTicketCreateFromPortalInput, SupportTicketCreateResult>(
-      staffSupportTicketCommandIds.createFromPortal,
-      { input, ctx: buildPortalCommandContext(scope, req) },
-    )
-    await guarded.runAfterSuccess()
-    return NextResponse.json(
-      createResponseSchema.parse({ ok: true, id: result.taskId, supportReference: result.supportReference }),
-      { status: 201 },
-    )
   } catch (err) {
     const rejection = getCommandInterceptorHttpRejection(err)
     if (rejection) return NextResponse.json(rejection.body, { status: rejection.status })

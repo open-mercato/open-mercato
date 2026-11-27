@@ -88,6 +88,7 @@ function buildCommandContext(container: Awaited<ReturnType<typeof createRequestC
 }
 
 const createToggle: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'toggle-create',
   async run(rest) {
     const args = parseArgs(rest)
@@ -140,6 +141,7 @@ const createToggle: ModuleCli = {
 }
 
 const updateToggle: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'toggle-update',
   async run(rest) {
     const args = parseArgs(rest)
@@ -201,6 +203,7 @@ const updateToggle: ModuleCli = {
 }
 
 const deleteToggle: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'toggle-delete',
   async run(rest) {
     const args = parseArgs(rest)
@@ -238,6 +241,7 @@ const deleteToggle: ModuleCli = {
 }
 
 const setOverrideValue: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'override-set-value',
   async run(rest) {
     const args = parseArgs(rest)
@@ -292,6 +296,7 @@ const setOverrideValue: ModuleCli = {
 }
 
 const seedDefaults: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'seed-defaults',
   async run(rest) {
     const args = parseArgs(rest)

@@ -13,6 +13,7 @@ jest.mock('@open-mercato/shared/lib/data/engine', () => ({ DefaultDataEngine: cl
 jest.mock('@open-mercato/shared/lib/commands', () => ({ commandRegistry: {}, CommandBus: class {} }))
 jest.mock('@open-mercato/shared/modules/overrides', () => ({ ...jest.requireActual('@open-mercato/shared/modules/overrides'), composeDiOverrides: () => ({}) }))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  attachTrustedAuthContext: jest.requireActual('@open-mercato/shared/lib/auth/server').attachTrustedAuthContext,
   resolveAuthFromRequestDetailed: async () => ({ auth: { sub: 'staff', tenantId: 'tenant' }, status: 'authenticated' }),
 }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({ t: (_key: string, fallback: string) => fallback }) }))

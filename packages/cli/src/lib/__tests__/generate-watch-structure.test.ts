@@ -712,6 +712,32 @@ describe('structured generator inputs', () => {
     expect(changesSince(merged).changes).toContainEqual(expect.objectContaining({ category: 'i18n', kind: 'delete', path: locale }))
   })
 
+  it('plans regeneration for built-in database declarations without a plugin descriptor', () => {
+    const database = path.join(pkg, 'database.ts')
+    const before = capture()
+
+    write(database, 'export const databaseDeclarations = {}')
+    const added = changesSince(before)
+    expect(added.changes).toContainEqual(
+      expect.objectContaining({ category: 'generator-plugin', kind: 'add', path: database }),
+    )
+    expect(planGenerateWatchChanges(added.changes).mode).toBe('full')
+
+    write(database, 'export const databaseDeclarations = { bindingValidators: [] }')
+    const changed = changesSince(added.next)
+    expect(changed.changes).toContainEqual(
+      expect.objectContaining({ category: 'generator-plugin', kind: 'change', path: database }),
+    )
+    expect(planGenerateWatchChanges(changed.changes).mode).toBe('full')
+
+    fs.rmSync(database)
+    const removed = changesSince(changed.next)
+    expect(removed.changes).toContainEqual(
+      expect.objectContaining({ category: 'generator-plugin', kind: 'delete', path: database }),
+    )
+    expect(planGenerateWatchChanges(removed.changes).mode).toBe('full')
+  })
+
   it('reads built-in-style static plugin descriptors and watches arbitrary nested contributions', () => {
     write(path.join(pkg, 'generators.ts'), `
       import type { GeneratorPlugin } from '@open-mercato/shared/modules/generators'

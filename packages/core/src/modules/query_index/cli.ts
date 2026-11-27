@@ -513,6 +513,7 @@ async function verifyAndRepairIndexCoverage(
 }
 
 const rebuild: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'rebuild',
   async run(rest) {
     const args = parseArgs(rest)
@@ -621,6 +622,7 @@ const rebuild: ModuleCli = {
 }
 
 const rebuildAll: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'rebuild-all',
   async run(rest) {
     const args = parseArgs(rest)
@@ -726,6 +728,7 @@ const rebuildAll: ModuleCli = {
 }
 
 const reindex: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'reindex',
   async run(rest) {
     const args = parseArgs(rest)
@@ -1119,6 +1122,7 @@ const reindex: ModuleCli = {
 }
 
 const purge: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'purge',
   async run(rest) {
     const args = parseArgs(rest)

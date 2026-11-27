@@ -1,11 +1,13 @@
 import { GET } from '../modules/onboarding/api/get/onboarding/verify'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { validateDeclaredDatabaseBinding } from '@open-mercato/shared/lib/db/declarations'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 
 jest.mock('next/server', () => ({ ...jest.requireActual<typeof import('next/server')>('next/server'), after: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/db/declarations', () => ({ validateDeclaredDatabaseBinding: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/modules/registry', () => ({ getModules: jest.fn() }))
 jest.mock('@open-mercato/core/modules/auth/lib/setup-app', () => ({ setupInitialTenant: jest.fn() }))
 jest.mock('@open-mercato/onboarding/modules/onboarding/lib/service')
@@ -21,14 +23,33 @@ test('verification uses the live onboarding container and manager for tenant set
   })
 
   try {
-    const manager = {}
-    const container = { resolve: () => manager }
+    const manager = { fork: jest.fn(() => manager), getUnitOfWork: () => ({ unsetIdentity: jest.fn() }) }
+    const container = { resolve: () => manager, dispose: jest.fn() }
     const modules = [{ id: 'configs' }, { id: 'record_locks' }]
     const email = 'owner@example.com'
-    const updateProvisioningIds = jest.fn()
-    const markCompleted = jest.fn()
+    const workspace = { tenantId: 'tenant-id', organizationId: 'organization-id', userId: 'user-id' }
+    const pending = {
+      id: 'request-id',
+      tokenHash: 'fixture-token-hash',
+      email,
+      firstName: 'Tenant',
+      lastName: 'Owner',
+      organizationName: 'Test Workspace',
+      status: 'pending',
+      passwordHash: 'test-password-hash',
+      expiresAt: new Date(Date.now() + 60_000),
+      marketingConsent: false,
+    }
+    const claimed = { ...pending, ...workspace, status: 'processing' }
+    const heldSince = new Date()
+    const updateProvisioningIds = jest.fn(async () => {
+      Object.assign(pending, workspace, { processingStartedAt: heldSince })
+      return heldSince
+    })
+    const markCompleted = jest.fn().mockResolvedValue(true)
 
     jest.mocked(createRequestContainer).mockResolvedValue(container as never)
+    jest.mocked(validateDeclaredDatabaseBinding).mockResolvedValue(true)
     jest.mocked(getModules).mockReturnValue(modules)
     jest.mocked(setupInitialTenant).mockResolvedValue({
       tenantId: 'tenant-id',
@@ -37,16 +58,8 @@ test('verification uses the live onboarding container and manager for tenant set
       reusedExistingUser: false,
     } as never)
     jest.mocked(OnboardingService).mockImplementation(() => ({
-      findByToken: jest.fn().mockResolvedValue({
-        email,
-        firstName: 'Tenant',
-        lastName: 'Owner',
-        organizationName: 'Test Workspace',
-        status: 'pending',
-        passwordHash: 'test-password-hash',
-        expiresAt: new Date(Date.now() + 60_000),
-        marketingConsent: false,
-      }),
+      findByToken: jest.fn().mockResolvedValue(pending),
+      findById: jest.fn().mockResolvedValue(claimed),
       startProcessing: jest.fn().mockResolvedValue(true),
       updateProvisioningIds,
       markCompleted,
@@ -64,6 +77,7 @@ test('verification uses the live onboarding container and manager for tenant set
       includeSuperadminRole: false,
     }))
     expect(markCompleted).toHaveBeenCalledTimes(1)
+    expect(markCompleted).toHaveBeenCalledWith(claimed, workspace, heldSince)
   } finally {
     env.restore()
   }

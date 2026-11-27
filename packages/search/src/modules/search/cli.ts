@@ -12,7 +12,7 @@ import type { SearchService } from '../../service'
 import type { SearchIndexer } from '../../indexer/search-indexer'
 import { VECTOR_INDEXING_QUEUE_NAME, type VectorIndexJobPayload } from '../../queue/vector-indexing'
 import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload } from '../../queue/fulltext-indexing'
-import type { QueuedJob, JobContext } from '@open-mercato/queue'
+import { createSearchWorkerHandler } from './lib/worker-database'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
@@ -381,6 +381,7 @@ async function testMeilisearchCommand(): Promise<void> {
 
 const searchCli: ModuleCli = {
   command: 'query',
+  databaseAccess: 'tenant-or-maintenance',
   async run(rest) {
     await searchCommand(rest)
   },
@@ -395,6 +396,7 @@ const statusCli: ModuleCli = {
 
 const indexCli: ModuleCli = {
   command: 'index',
+  databaseAccess: 'tenant-or-maintenance',
   async run(rest) {
     await indexCommand(rest)
   },
@@ -402,6 +404,7 @@ const indexCli: ModuleCli = {
 
 const testMeilisearchCli: ModuleCli = {
   command: 'test-meilisearch',
+  databaseAccess: 'tenant-or-maintenance',
   async run() {
     await testMeilisearchCommand()
   },
@@ -731,6 +734,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
 
 const reindexCli: ModuleCli = {
   command: 'reindex',
+  databaseAccess: 'tenant-or-maintenance',
   async run(rest) {
     await reindexCommand(rest)
   },
@@ -802,25 +806,17 @@ async function workerCommand(rest: string[]): Promise<void> {
 
   if (queueName === VECTOR_INDEXING_QUEUE_NAME) {
     const { handleVectorIndexJob } = await import('./workers/vector-index.worker')
-    const container = await createRequestContainer()
-
     await runWorker<VectorIndexJobPayload>({
       queueName: VECTOR_INDEXING_QUEUE_NAME,
-      handler: async (job: QueuedJob<VectorIndexJobPayload>, ctx: JobContext) => {
-        await handleVectorIndexJob(job, ctx, { resolve: container.resolve })
-      },
+      handler: createSearchWorkerHandler(handleVectorIndexJob),
       connection: { url: redisUrl },
       concurrency,
     })
   } else if (queueName === FULLTEXT_INDEXING_QUEUE_NAME) {
     const { handleFulltextIndexJob } = await import('./workers/fulltext-index.worker')
-    const container = await createRequestContainer()
-
     await runWorker<FulltextIndexJobPayload>({
       queueName: FULLTEXT_INDEXING_QUEUE_NAME,
-      handler: async (job: QueuedJob<FulltextIndexJobPayload>, ctx: JobContext) => {
-        await handleFulltextIndexJob(job, ctx, { resolve: container.resolve })
-      },
+      handler: createSearchWorkerHandler(handleFulltextIndexJob),
       connection: { url: redisUrl },
       concurrency,
     })

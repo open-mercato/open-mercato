@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { passwordResetConfirmSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runWithCustomerTokenTenant } from '../../lib/token-tenant'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
@@ -25,37 +25,37 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
-  const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
-  const customerUserService = container.resolve('customerUserService') as CustomerUserService
-  const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
+  const response = await runWithCustomerTokenTenant(parsed.data.token, 'password_reset', 'customer-password-reset', async (container, tenantId) => {
+    const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
+    const customerUserService = container.resolve('customerUserService') as CustomerUserService
+    const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
 
-  const em = container.resolve('em') as EntityManager
-  const result = await em.transactional(async (tx) => {
-    const identity = await customerTokenService.verifyPasswordResetToken(parsed.data.token, undefined, tx)
-    if (!identity) return null
-    return verifyCustomerEmail(tx, identity, customerSessionService, {
-      password: parsed.data.password,
-      users: customerUserService,
-      reset: true,
+    const em = container.resolve('em') as EntityManager
+    const result = await em.transactional(async (tx) => {
+      const identity = await customerTokenService.verifyPasswordResetToken(parsed.data.token, tenantId, tx)
+      if (!identity) return null
+      return verifyCustomerEmail(tx, identity, customerSessionService, {
+        password: parsed.data.password,
+        users: customerUserService,
+        reset: true,
+      })
     })
+    if (!result) return null
+    const { user, newlyVerified } = result
+    if (newlyVerified) await emitCustomerEmailVerified(user)
+
+    await emitCustomerAccountsEvent('customer_accounts.password.changed', {
+      userId: user.id,
+      tenantId: user.tenantId,
+      organizationId: user.organizationId ?? null,
+      changedBy: 'reset',
+      changedById: null,
+      at: new Date().toISOString(),
+    }).catch(() => undefined)
+
+    return NextResponse.json({ ok: true })
   })
-  if (!result) {
-    return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
-  }
-  const { user, newlyVerified } = result
-  if (newlyVerified) emitCustomerEmailVerified(user)
-
-  void emitCustomerAccountsEvent('customer_accounts.password.changed', {
-    userId: user.id,
-    tenantId: user.tenantId,
-    organizationId: user.organizationId ?? null,
-    changedBy: 'reset',
-    changedById: null,
-    at: new Date().toISOString(),
-  }).catch(() => undefined)
-
-  return NextResponse.json({ ok: true })
+  return response ?? NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
 }
 
 const successSchema = z.object({ ok: z.literal(true) })

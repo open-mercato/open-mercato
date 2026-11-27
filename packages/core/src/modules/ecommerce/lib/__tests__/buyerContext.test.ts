@@ -1,3 +1,12 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { DatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+
+const mockDatabaseScopes = new AsyncLocalStorage<DatabaseExecutionContext>()
+const mockRunDatabaseContext = jest.fn((context: DatabaseExecutionContext, callback: () => unknown) => mockDatabaseScopes.run(context, callback))
+jest.mock('@open-mercato/shared/lib/db/runtime', () => ({
+  runWithDatabaseExecutionContext: (context: DatabaseExecutionContext, callback: () => unknown) => mockRunDatabaseContext(context, callback),
+}))
+
 import {
   DummyDriver,
   Kysely,
@@ -77,6 +86,7 @@ function createHarness(options: HarnessOptions = {}) {
   })
   const executor = db.getExecutor() as unknown as { executeQuery: (query: CompiledQuery) => Promise<{ rows: unknown[] }> }
   executor.executeQuery = async (query: CompiledQuery) => {
+    expect(mockDatabaseScopes.getStore()).toMatchObject({ kind: 'tenant', tenantId: TENANT_ID })
     queries.push(query)
     const overlay = (options.overlayCustomerIds ?? []).filter((id) => query.parameters.includes(id))
     return { rows: [...overlay].reverse().map((id) => ({ customer_id: id })) }
@@ -85,6 +95,7 @@ function createHarness(options: HarnessOptions = {}) {
   const users = options.users ?? []
   const priceKinds = options.priceKinds ?? {}
   const findOne = jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+    expect(mockDatabaseScopes.getStore()).toMatchObject({ kind: 'tenant', tenantId: TENANT_ID })
     if (entity === CustomerUser) {
       return (
         users.find(
@@ -695,4 +706,25 @@ describe('composeStoreContext digest', () => {
     expect(context.tenantId).toBe(TENANT_ID)
     expect(context.currencyCode).toBe('EUR')
   })
+})
+
+it('validates the portal identity before entering the persisted store tenant continuation', async () => {
+  const { container } = createHarness()
+  mockedAuth.mockImplementationOnce(async () => {
+    expect(mockDatabaseScopes.getStore()).toBeUndefined()
+    return null
+  })
+  await resolveBuyerContext(container, resolvedStore(), new Request('https://shop.example.test/'))
+  expect(mockRunDatabaseContext).toHaveBeenLastCalledWith({
+    kind: 'tenant', tenantId: TENANT_ID, source: 'public-token', operation: 'storefront-buyer',
+  }, expect.any(Function))
+  expect(mockDatabaseScopes.getStore()).toBeUndefined()
+})
+
+it('rejects a portal identity from another store tenant before opening the buyer continuation', async () => {
+  jest.clearAllMocks()
+  mockedAuth.mockResolvedValueOnce({ sub: OTHER_ID, tenantId: OTHER_ID, orgId: ORG_ID })
+  const { container } = createHarness()
+  await expectResolutionError(resolveBuyerContext(container, resolvedStore(), request()), 401, 'portal_session_scope_mismatch')
+  expect(mockRunDatabaseContext).not.toHaveBeenCalled()
 })

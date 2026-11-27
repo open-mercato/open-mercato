@@ -1,3 +1,6 @@
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { runCustomerMaintenanceTenant } from '../database'
+import { isDatabaseRuntimeEnabled } from '@open-mercato/shared/lib/db/runtime'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -22,33 +25,55 @@ export default async function handle(job: QueuedJob, ctx: HandlerContext): Promi
   const em = ctx.resolve<EntityManager>('em')
   const now = new Date()
 
-  await em.nativeUpdate(CustomerUser, {
-    ...pendingSignup,
-    createdAt: { $lte: signupExpiryCutoff(now) },
-  }, { deletedAt: now, isActive: false, passwordHash: null, sessionsRevokedAt: now })
+  const cleanup = async (scopedEm: EntityManager, tenantId?: string) => {
+    await scopedEm.nativeUpdate(CustomerUser, {
+      ...(tenantId ? { tenantId } : {}),
+      ...pendingSignup,
+      createdAt: { $lte: signupExpiryCutoff(now) },
+    }, { deletedAt: now, isActive: false, passwordHash: null, sessionsRevokedAt: now })
 
-  // Cleanup expired email verifications
-  await em.nativeDelete(CustomerUserEmailVerification, {
-    $or: [
-      { expiresAt: { $lt: now }, usedAt: null },
-      { usedAt: { $ne: null } },
-    ],
-  } as any)
+    // Cleanup expired email verifications
+    await scopedEm.nativeDelete(CustomerUserEmailVerification, {
+      ...(tenantId ? { user: { tenantId } } : {}),
+      $or: [
+        { expiresAt: { $lt: now }, usedAt: null },
+        { usedAt: { $ne: null } },
+      ],
+    })
 
-  // Cleanup expired password resets
-  await em.nativeDelete(CustomerUserPasswordReset, {
-    $or: [
-      { expiresAt: { $lt: now }, usedAt: null },
-      { usedAt: { $ne: null } },
-    ],
-  } as any)
+    // Cleanup expired password resets
+    await scopedEm.nativeDelete(CustomerUserPasswordReset, {
+      ...(tenantId ? { user: { tenantId } } : {}),
+      $or: [
+        { expiresAt: { $lt: now }, usedAt: null },
+        { usedAt: { $ne: null } },
+      ],
+    })
 
-  // Cleanup expired/accepted/cancelled invitations
-  await em.nativeDelete(CustomerUserInvitation, {
-    $or: [
-      { expiresAt: { $lt: now }, acceptedAt: null, cancelledAt: null },
-      { acceptedAt: { $ne: null } },
-      { cancelledAt: { $ne: null } },
-    ],
-  } as any)
+    // Cleanup expired/accepted/cancelled invitations
+    await scopedEm.nativeDelete(CustomerUserInvitation, {
+      ...(tenantId ? { tenantId } : {}),
+      $or: [
+        { expiresAt: { $lt: now }, acceptedAt: null, cancelledAt: null },
+        { acceptedAt: { $ne: null } },
+        { cancelledAt: { $ne: null } },
+      ],
+    })
+  }
+  if (!isDatabaseRuntimeEnabled()) return cleanup(em)
+  const tenants: unknown = await em.getConnection().execute(
+    'select tenant_id from customer_users union select tenant_id from customer_user_invitations',
+  )
+  if (!Array.isArray(tenants)) throw new Error('[internal] Invalid customer cleanup tenant discovery result')
+  for (const row of tenants as Array<{ tenant_id: string }>) {
+    try {
+      await runCustomerMaintenanceTenant({ tenantId: row.tenant_id }, ctx, (container) =>
+        cleanup(container.resolve<EntityManager>('em'), row.tenant_id))
+    } catch {
+      getTelemetryRuntime()?.reportError(new Error('[internal] Customer tokens cleanup tenant failed binding validation or execution'), {
+        module: 'customer_accounts',
+        code: 'customer_accounts.tokens_cleanup_tenant_failed',
+      })
+    }
+  }
 }

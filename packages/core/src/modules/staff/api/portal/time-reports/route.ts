@@ -1,3 +1,4 @@
+import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 /**
  * `GET /api/staff/portal/time-reports` — EP-50, the customer-facing half of the
  * time-tracking suite.
@@ -188,64 +189,66 @@ export async function GET(req: Request) {
     const scopeOrResponse = await resolvePortalScope(req)
     if (scopeOrResponse instanceof Response) return scopeOrResponse
     const scope = scopeOrResponse
+    return await runWithDatabaseExecutionContext({ kind: 'tenant', tenantId: scope.tenantId, source: 'portal', operation: 'portal-request' }, async () => {
 
-    const url = new URL(req.url)
-    const parsedQuery = listQuerySchema.safeParse({
-      page: url.searchParams.get('page') ?? undefined,
-      pageSize: url.searchParams.get('pageSize') ?? undefined,
-    })
-    if (!parsedQuery.success) {
-      return NextResponse.json({ ok: false, error: 'staff.errors.invalidInput' }, { status: 400 })
-    }
-    const { page, pageSize } = parsedQuery.data
-
-    const connection = scope.em.getConnection()
-    const owned = portalOwnedReportClause(scope)
-    const countRows = (await connection.execute(
-      `SELECT COUNT(*)::bigint AS total FROM staff_time_reports WHERE ${owned.sql}`,
-      owned.params,
-    )) as Array<{ total: string | number | null }>
-    const total = toMinutes(countRows?.[0]?.total)
-
-    const rows = (await connection.execute(
-      `
-        SELECT id, reference, title, period_from, period_to, closed_at,
-               total_billable_minutes, total_nonbillable_minutes
-        FROM staff_time_reports
-        WHERE ${owned.sql}
-        ORDER BY period_from DESC, reference DESC
-        LIMIT ? OFFSET ?
-      `,
-      [...owned.params, pageSize, (page - 1) * pageSize],
-    )) as ReportRow[]
-
-    const items = rows
-      .map((row) => {
-        const periodFrom = toIsoDate(row.period_from)
-        const periodTo = toIsoDate(row.period_to)
-        if (!periodFrom || !periodTo) return null
-        return {
-          id: row.id,
-          reference: row.reference,
-          title: row.title,
-          periodFrom,
-          periodTo,
-          closedAt: toIsoDateTime(row.closed_at),
-          totalBillableMinutes: toMinutes(row.total_billable_minutes),
-          totalNonbillableMinutes: toMinutes(row.total_nonbillable_minutes),
-        }
+      const url = new URL(req.url)
+      const parsedQuery = listQuerySchema.safeParse({
+        page: url.searchParams.get('page') ?? undefined,
+        pageSize: url.searchParams.get('pageSize') ?? undefined,
       })
-      .filter((item): item is z.infer<typeof reportItemSchema> => item !== null)
+      if (!parsedQuery.success) {
+        return NextResponse.json({ ok: false, error: 'staff.errors.invalidInput' }, { status: 400 })
+      }
+      const { page, pageSize } = parsedQuery.data
 
-    return NextResponse.json(
-      listResponseSchema.parse({
-        items,
-        total,
-        page,
-        pageSize,
-        totalPages: Math.max(1, Math.ceil(total / pageSize)),
-      }),
-    )
+      const connection = scope.em.getConnection()
+      const owned = portalOwnedReportClause(scope)
+      const countRows = (await connection.execute(
+        `SELECT COUNT(*)::bigint AS total FROM staff_time_reports WHERE ${owned.sql}`,
+        owned.params,
+      )) as Array<{ total: string | number | null }>
+      const total = toMinutes(countRows?.[0]?.total)
+
+      const rows = (await connection.execute(
+        `
+          SELECT id, reference, title, period_from, period_to, closed_at,
+                 total_billable_minutes, total_nonbillable_minutes
+          FROM staff_time_reports
+          WHERE ${owned.sql}
+          ORDER BY period_from DESC, reference DESC
+          LIMIT ? OFFSET ?
+        `,
+        [...owned.params, pageSize, (page - 1) * pageSize],
+      )) as ReportRow[]
+
+      const items = rows
+        .map((row) => {
+          const periodFrom = toIsoDate(row.period_from)
+          const periodTo = toIsoDate(row.period_to)
+          if (!periodFrom || !periodTo) return null
+          return {
+            id: row.id,
+            reference: row.reference,
+            title: row.title,
+            periodFrom,
+            periodTo,
+            closedAt: toIsoDateTime(row.closed_at),
+            totalBillableMinutes: toMinutes(row.total_billable_minutes),
+            totalNonbillableMinutes: toMinutes(row.total_nonbillable_minutes),
+          }
+        })
+        .filter((item): item is z.infer<typeof reportItemSchema> => item !== null)
+
+      return NextResponse.json(
+        listResponseSchema.parse({
+          items,
+          total,
+          page,
+          pageSize,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+        }),
+      )
+    })
   } catch (err) {
     logger.error('staff portal time-reports list failed', { err })
     return NextResponse.json({ ok: false, error: 'staff.errors.internal' }, { status: 500 })

@@ -24,7 +24,7 @@
 - Never edit `node_modules`/`.mercato/generated/**`/generated facts/shipped migrations.
 - Never use cross-module ORM relations; use IDs/snapshots/events/enrichers/extensions/optional DI.
 - Never use raw admin `fetch`/`<form>`, ad hoc crypto/cache/queues, role-name guards, or direct mutations when helpers exist.
-- Never hard-code user strings/status colors; expose secrets/transcripts; or guess answerable contracts.
+- Never hard-code user strings/status colors, expose secrets/transcripts, or guess contracts.
 
 ## Validation
 
@@ -32,7 +32,7 @@ Broad: `yarn ci` (generate, typecheck, lint, ds:check, test, build — stops at 
 
 ## Production Deployment
 
-Route production deployment/go-live/security-readiness to `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; use its inventory. Readiness: only names and comments in checked-in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or live deployments.
+Route production readiness to `architecture` and `.ai/guides/production-deployment.md`. During routing, do not open `.env*`. Use tracked `.env.example` names/comments. Never read or report live `.env` values. Ask before credentials, billable infrastructure, or live deployment.
 
 ## Three-Axis Context Assembler
 
@@ -106,7 +106,7 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ### Token-Efficient Assembly Policy
 
-- Read each matched guide once, then relevant skills and required references/facts.
+- Read matched guides once, then required skills, references, and facts.
 - `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`. Skip it for additive page/form/table/conflict UI.
 - Never bulk-read guide, skill, fact, or source trees.

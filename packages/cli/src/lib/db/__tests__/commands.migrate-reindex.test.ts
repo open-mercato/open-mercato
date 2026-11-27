@@ -8,6 +8,17 @@ import type { ModuleEntry, PackageResolver } from '../../resolver'
 const collectQueryIndexReindexEntityTypes = jest.fn<Promise<string[]>, [any, any]>()
 const requestQueryIndexReindex = jest.fn<Promise<{ requested: string[]; queued: boolean }>, [any, any]>()
 const isMigrationReindexEnabled = jest.fn<boolean, []>()
+const beforeMigrate = jest.fn<Promise<void>, []>()
+const afterMigrate = jest.fn<Promise<void>, []>()
+const recoverHistory = jest.fn<boolean, []>()
+
+jest.mock('@open-mercato/shared/lib/db/runtime', () => ({
+  beforeDatabaseMigrate: () => beforeMigrate(),
+  afterDatabaseMigrate: () => afterMigrate(),
+  shouldRecoverDatabaseMigrationReindex: () => recoverHistory(),
+  resolveDatabaseConnectionUrl: (_purpose: string, defaultUrl: string) => recoverHistory() ? 'postgres://maintenance@localhost:5432/test' : defaultUrl,
+  runWithDatabaseExecutionContext: (_context: unknown, callback: () => unknown) => callback(),
+}))
 
 jest.mock('../migration-reindex', () => ({
   collectQueryIndexReindexEntityTypes: (...args: any[]) => collectQueryIndexReindexEntityTypes(...(args as [any, any])),
@@ -19,7 +30,7 @@ jest.mock('../migration-reindex', () => ({
 // real `MikroORM` class at import time, so replacing the module export breaks the driver import.
 const ormInit = jest.fn()
 
-type PendingPlan = { pending: string[]; failOn?: string }
+type PendingPlan = { pending: string[]; executed?: string[]; failOn?: string }
 
 const tempDirs: string[] = []
 const ormCloses: string[] = []
@@ -68,6 +79,7 @@ function stubOrmsFor(plans: Record<string, PendingPlan>): void {
     const plan = moduleId ? plans[moduleId] : { pending: [] }
     return {
       migrator: {
+        getExecuted: async () => (plan.executed ?? []).map((name) => ({ name })),
         getPending: async () => plan.pending.map((name) => ({ name, path: null })),
         up: async (options: { migrations?: string[] } = {}) => {
           const name = options.migrations?.[0]
@@ -89,6 +101,9 @@ describe('dbMigrate discharges query-index reindex declarations', () => {
 
   beforeEach(() => {
     process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgres://noop@localhost:5432/test'
+    beforeMigrate.mockReset().mockResolvedValue(undefined)
+    afterMigrate.mockReset().mockResolvedValue(undefined)
+    recoverHistory.mockReset().mockReturnValue(false)
     ormCloses.length = 0
     ormInit.mockReset()
     initSpy = jest.spyOn(MikroORM, 'init').mockImplementation((...args: any[]) => ormInit(...args))
@@ -186,4 +201,60 @@ describe('dbMigrate discharges query-index reindex declarations', () => {
     expect(collectQueryIndexReindexEntityTypes).not.toHaveBeenCalled()
     expect(requestQueryIndexReindex).not.toHaveBeenCalled()
   })
+  it('preflights before opening module ORMs and reconciles even with no pending migrations', async () => {
+    recoverHistory.mockReturnValue(true)
+    const module = { id: 'alpha', dir: createTempModule('alpha') }
+    stubOrmsFor({ alpha: { pending: [], executed: ['MigrationCommittedBeforeRetry'] } })
+    beforeMigrate.mockImplementation(async () => { expect(ormInit).not.toHaveBeenCalled() })
+    afterMigrate.mockImplementation(async () => {
+      expect(ormCloses).toEqual(['alpha'])
+      expect(requestQueryIndexReindex).not.toHaveBeenCalled()
+    })
+    await dbMigrate(createMockResolver([module]))
+    expect(afterMigrate).toHaveBeenCalledTimes(1)
+    expect(ormInit.mock.calls[0][0].clientUrl).toBe('postgres://maintenance@localhost:5432/test')
+    expect(collectQueryIndexReindexEntityTypes.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ moduleId: 'alpha', name: 'MigrationCommittedBeforeRetry' }),
+    ])
+    expect(requestQueryIndexReindex).toHaveBeenCalledTimes(1)
+  })
+
+  it('recovers committed history together with newly applied declarations after reconciliation', async () => {
+    recoverHistory.mockReturnValue(true)
+    const module = { id: 'alpha', dir: createTempModule('alpha') }
+    stubOrmsFor({ alpha: { pending: ['MigrationNew'], executed: ['MigrationCommitted'] } })
+    await dbMigrate(createMockResolver([module]))
+    expect(collectQueryIndexReindexEntityTypes.mock.calls[0][0].map((migration: { name: string }) => migration.name))
+      .toEqual(['MigrationCommitted', 'MigrationNew'])
+  })
+
+  it('dispatches no protected reindex after a partial schema failure', async () => {
+    recoverHistory.mockReturnValue(true)
+    const module = { id: 'alpha', dir: createTempModule('alpha') }
+    stubOrmsFor({ alpha: { pending: ['MigrationCommitted', 'MigrationBroken'], failOn: 'MigrationBroken' } })
+    await expect(dbMigrate(createMockResolver([module]))).rejects.toThrow('MigrationBroken')
+    expect(afterMigrate).not.toHaveBeenCalled()
+    expect(collectQueryIndexReindexEntityTypes).not.toHaveBeenCalled()
+    expect(requestQueryIndexReindex).not.toHaveBeenCalled()
+    expect(ormCloses).toEqual(['alpha'])
+  })
+
+  it('propagates reconciliation failure without dispatching protected reindex', async () => {
+    recoverHistory.mockReturnValue(true)
+    const module = { id: 'alpha', dir: createTempModule('alpha') }
+    stubOrmsFor({ alpha: { pending: [] } })
+    afterMigrate.mockRejectedValue(new Error('[internal] policy reconciliation failed'))
+    await expect(dbMigrate(createMockResolver([module]))).rejects.toThrow('policy reconciliation failed')
+    expect(requestQueryIndexReindex).not.toHaveBeenCalled()
+    expect(ormCloses).toEqual(['alpha'])
+  })
+
+  it('opens no module ORM if privileged preflight fails', async () => {
+    beforeMigrate.mockRejectedValue(new Error('[internal] unsafe maintenance role'))
+    const module = { id: 'alpha', dir: createTempModule('alpha') }
+    await expect(dbMigrate(createMockResolver([module]))).rejects.toThrow('unsafe maintenance role')
+    expect(ormInit).not.toHaveBeenCalled()
+    expect(requestQueryIndexReindex).not.toHaveBeenCalled()
+  })
+
 })

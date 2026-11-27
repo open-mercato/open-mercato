@@ -7,6 +7,10 @@ import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createCliMaintenanceClient } from './lib/db/maintenance-client'
+import { runDatabaseTenantSetup } from '@open-mercato/shared/lib/db/setup'
+import { runWithFreshDatabaseExecutionContext, isDatabaseRuntimeEnabled } from '@open-mercato/shared/lib/db/runtime'
+import { runDatabaseCliCommand } from '@open-mercato/shared/lib/db/cli'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { formatInitSummary } from './lib/init-summary'
@@ -286,6 +290,7 @@ function formatInitFailureMessage(error: unknown): string {
 }
 
 async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
+  if (isDatabaseRuntimeEnabled()) return true
   let parsed: URL
   try {
     parsed = new URL(dbUrl)
@@ -810,7 +815,7 @@ async function runModuleCommand(
     }
   }
 
-  await resolved.command.run(args)
+  await runDatabaseCliCommand(resolved.command, args, `${moduleName}:${commandName}`)
   return true
 }
 
@@ -1150,7 +1155,7 @@ export async function run(argv = process.argv) {
         }
         const dbExists = await ensureDatabaseExists(dbUrl)
         if (!dbExists) return 1
-        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
+        const client = await createCliMaintenanceClient(dbUrl)
         try {
           await client.connect()
           // Collect all user tables in the configured schema (uses search_path from DATABASE_URL)
@@ -1228,7 +1233,7 @@ export async function run(argv = process.argv) {
         const { Client } = await import('pg')
         const dbExists = await ensureDatabaseExists(dbUrl)
         if (!dbExists) return 1
-        const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
+        const client = await createCliMaintenanceClient(dbUrl)
         try {
           await client.connect()
           const tableCheck = await client.query<{ regclass: string | null }>(
@@ -1374,7 +1379,7 @@ export async function run(argv = process.argv) {
       // Query DB to get tenant/org IDs using pg directly
       const { Client } = await import('pg')
       const dbUrl = process.env.DATABASE_URL
-      const pgClient = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
+      const pgClient = await createCliMaintenanceClient(dbUrl)
       await pgClient.connect()
       const orgResult = await pgClient.query(
         `SELECT o.id as org_id, o.tenant_id FROM organizations o
@@ -1424,13 +1429,13 @@ export async function run(argv = process.argv) {
         // Seed module defaults (structural data: dictionaries, tax rates, units, etc.)
         console.log('📚 Seeding module defaults...')
         const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-        const seedContainer = await createRequestContainer()
+        const seedContainer = await runWithFreshDatabaseExecutionContext({ kind: 'maintenance', tenantId: null, source: 'cli', operation: 'seed-bootstrap' }, () => createRequestContainer())
         const seedEm = seedContainer.resolve('em') as any
         const seedCtx = { em: seedEm, tenantId, organizationId: orgId, container: seedContainer }
         for (const mod of allModules) {
           if (mod.setup?.seedDefaults) {
             console.log(`  📦 ${mod.id}...`)
-            await mod.setup.seedDefaults(seedCtx)
+            await runDatabaseTenantSetup(seedCtx, (context) => mod.setup!.seedDefaults!(context))
           }
         }
         console.log('✅ Module defaults seeded\n')
@@ -1439,7 +1444,7 @@ export async function run(argv = process.argv) {
         // ensureDefaultRoleAcls runs before seedDefaults (in setupTenantAndPrimaryUser),
         // so custom roles don't exist yet at that point. This second pass picks them up.
         const { ensureCustomRoleAcls } = await import('@open-mercato/core/modules/auth/lib/setup-app')
-        await ensureCustomRoleAcls(seedEm, tenantId, allModules)
+        await runDatabaseTenantSetup({ em: seedEm, tenantId, organizationId: orgId }, (context) => ensureCustomRoleAcls(context.em, tenantId, allModules))
 
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
@@ -1449,7 +1454,7 @@ export async function run(argv = process.argv) {
           for (const mod of allModules) {
             if (mod.setup?.seedExamples) {
               console.log(`  📦 ${mod.id}...`)
-              await mod.setup.seedExamples(seedCtx)
+              await runDatabaseTenantSetup(seedCtx, (context) => mod.setup!.seedExamples!(context))
             }
           }
           console.log('✅ Example data seeded\n')
@@ -1693,11 +1698,14 @@ export async function run(argv = process.argv) {
       }
 
       const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-      const seedContainer = await createRequestContainer()
+      const seedContainer = await runWithFreshDatabaseExecutionContext({ kind: 'maintenance', tenantId: null, source: 'cli', operation: 'seed-bootstrap' }, () => createRequestContainer())
       const seedEm = seedContainer.resolve('em') as any
 
       const { Organization } = await import('@open-mercato/core/modules/directory/data/entities')
-      const orgs = await seedEm.find(Organization, { deletedAt: null }, { populate: ['tenant'] as const })
+      const orgs = !isDatabaseRuntimeEnabled() ? await seedEm.find(Organization, { deletedAt: null }, { populate: ['tenant'] as const }) : await runWithFreshDatabaseExecutionContext({ kind: 'maintenance', tenantId: null, source: 'cli', operation: 'seed-discovery' }, async () => {
+        const discovery = await createRequestContainer()
+        try { return await discovery.resolve<import('@mikro-orm/postgresql').EntityManager>('em').find(Organization, { deletedAt: null }, { populate: ['tenant'] as const }) } finally { await discovery.dispose() }
+      })
 
       if (orgs.length === 0) {
         console.error('❌ No organizations found. Run yarn initialize first.')
@@ -1714,12 +1722,12 @@ export async function run(argv = process.argv) {
         for (const mod of modulesToSeed) {
           if (mod.setup?.seedDefaults) {
             console.log(`    📦 ${mod.id}...`)
-            await mod.setup.seedDefaults(seedCtx)
+            await runDatabaseTenantSetup(seedCtx, (context) => mod.setup!.seedDefaults!(context))
           }
         }
 
         const { ensureCustomRoleAcls } = await import('@open-mercato/core/modules/auth/lib/setup-app')
-        await ensureCustomRoleAcls(seedEm, tenantId, allModules)
+        await runDatabaseTenantSetup({ em: seedEm, tenantId, organizationId }, (context) => ensureCustomRoleAcls(context.em, tenantId, allModules))
       }
 
       console.log('\n✅ seed:defaults complete.')
@@ -2928,7 +2936,7 @@ export async function run(argv = process.argv) {
   }
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {
-      await cmd.run(rest)
+      await runDatabaseCliCommand(cmd, rest, `${modName}:${cmdName}`)
     })
     if (!quietGeneration && (modName !== 'deploy' || cmdName !== 'railway')) {
       const ms = Date.now() - started

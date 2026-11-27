@@ -12,11 +12,13 @@ const mockGetEffectiveFeatures = jest.fn()
 const mockCreateSession = jest.fn()
 const mockEmitCustomerAccountsEvent = jest.fn()
 const mockResolveTranslations = jest.fn()
+const mockRunDatabaseContext = jest.fn((_context: unknown, callback: () => unknown) => callback())
 const mockLockAuthorizationState = jest.fn()
 const mockFindInviter = jest.fn()
 const mockCheckInviterFeatures = jest.fn()
 
 const mockContainer = {
+  dispose: jest.fn(async () => undefined),
   resolve: jest.fn((token: string) => {
     if (token === 'customerInvitationService') return { acceptInvitation: mockAcceptInvitation }
     if (token === 'customerSessionService') return { createSession: mockCreateSession }
@@ -25,6 +27,10 @@ const mockContainer = {
     return null
   }),
 }
+
+jest.mock('@open-mercato/shared/lib/db/runtime', () => ({
+  runWithDatabaseExecutionContext: (context: unknown, callback: () => unknown) => mockRunDatabaseContext(context, callback),
+}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
@@ -44,8 +50,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
   emitCustomerAccountsEvent: jest.fn((...args: unknown[]) => {
-    mockEmitCustomerAccountsEvent(...args)
-    return Promise.resolve()
+    return mockEmitCustomerAccountsEvent(...args)
   }),
 }))
 
@@ -60,6 +65,7 @@ function acceptRequest(): Request {
 describe('POST /api/customer_accounts/invitations/accept', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockEmitCustomerAccountsEvent.mockResolvedValue(undefined)
     mockGetEffectiveFeatures.mockResolvedValue(['portal.dashboard.view'])
     mockCreateSession.mockResolvedValue({ rawToken: 'session-token', jwt: 'jwt-token' })
     mockResolveTranslations.mockReturnValue({
@@ -106,6 +112,7 @@ describe('POST /api/customer_accounts/invitations/accept', () => {
 
     const res = await POST(acceptRequest())
     expect(res.status).toBe(400)
+    expect(mockRunDatabaseContext).not.toHaveBeenCalled()
     await expect(res.json()).resolves.toMatchObject({ ok: false })
   })
 
@@ -162,5 +169,6 @@ describe('POST /api/customer_accounts/invitations/accept', () => {
     expect(res.status).toBe(201)
     await expect(res.json()).resolves.toMatchObject({ ok: true, user: { email: 'new@example.com' } })
     expect(mockCreateSession).toHaveBeenCalledTimes(1)
+    expect(mockRunDatabaseContext).toHaveBeenCalledWith({ kind: 'tenant', tenantId: '11111111-1111-4111-8111-111111111111', source: 'public-token', operation: 'customer-invitation-accepted' }, expect.any(Function))
   })
 })

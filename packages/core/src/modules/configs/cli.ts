@@ -289,6 +289,7 @@ async function runStructuralCachePurge(args: ParsedArgs) {
 }
 
 const restoreDefaults: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'restore-defaults',
   async run() {
     const entries = collectInstanceConfigDefaults()
@@ -339,6 +340,7 @@ const restoreDefaults: ModuleCli = {
 }
 
 const help: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'help',
   async run() {
     console.log('⚙️ Configs CLI')
@@ -351,6 +353,7 @@ const help: ModuleCli = {
 }
 
 const cacheCommand: ModuleCli = {
+  databaseAccess: 'tenant-or-maintenance' as const,
   command: 'cache',
   // Prints subcommand-aware help itself, so the dispatcher must forward --help/-h here.
   handlesHelp: true,

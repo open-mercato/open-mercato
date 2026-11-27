@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { magicLinkVerifySchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runWithCustomerTokenTenant } from '../../lib/token-tenant'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
@@ -32,75 +32,75 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid token' }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
-  const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
-  const customerUserService = container.resolve('customerUserService') as CustomerUserService
-  const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
-  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
-  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+  const response = await runWithCustomerTokenTenant(parsed.data.token, 'magic_link', 'customer-magic-link', async (container, tenantId) => {
+    const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
+    const customerUserService = container.resolve('customerUserService') as CustomerUserService
+    const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
+    const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
+    const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const result = await em.transactional(async (tx) => {
-    const identity = await customerTokenService.verifyEmailToken(parsed.data.token, 'magic_link', undefined, tx)
-    if (!identity) return null
-    return { account: await verifyCustomerEmail(tx, identity, customerSessionService) }
-  })
-  if (!result) {
-    return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
-  }
+    const result = await em.transactional(async (tx) => {
+      const identity = await customerTokenService.verifyEmailToken(parsed.data.token, 'magic_link', tenantId, tx)
+      if (!identity) return null
+      return { account: await verifyCustomerEmail(tx, identity, customerSessionService) }
+    })
+    if (!result) return null
 
-  if (!result.account) {
-    return NextResponse.json({ ok: false, error: 'Account not found or deactivated' }, { status: 401 })
-  }
+    if (!result.account) {
+      return NextResponse.json({ ok: false, error: 'Account not found or deactivated' }, { status: 401 })
+    }
 
-  const { user, newlyVerified } = result.account
-  if (newlyVerified) emitCustomerEmailVerified(user)
+    const { user, newlyVerified } = result.account
+    if (newlyVerified) await emitCustomerEmailVerified(user)
 
-  await customerUserService.resetFailedAttempts(user)
-  await customerUserService.updateLastLoginAt(user)
+    await customerUserService.resetFailedAttempts(user)
+    await customerUserService.updateLastLoginAt(user)
 
-  const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
-    tenantId: user.tenantId,
-    organizationId: user.organizationId,
-  })
+    const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
+      tenantId: user.tenantId,
+      organizationId: user.organizationId,
+    })
 
-  const ip = getClientIp(req, 0)
-  const userAgent = req.headers.get('user-agent') || null
-  const { rawToken, jwt } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
+    const ip = getClientIp(req, 0)
+    const userAgent = req.headers.get('user-agent') || null
+    const { rawToken, jwt } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
 
-  void emitCustomerAccountsEvent('customer_accounts.login.success', {
-    id: user.id,
-    email: user.email,
-    tenantId: user.tenantId,
-    organizationId: user.organizationId,
-  }).catch(() => undefined)
-
-  const res = NextResponse.json({
-    ok: true,
-    user: {
+    await emitCustomerAccountsEvent('customer_accounts.login.success', {
       id: user.id,
       email: user.email,
-      displayName: user.displayName,
-      emailVerified: true,
-    },
-    resolvedFeatures,
-  })
+      tenantId: user.tenantId,
+      organizationId: user.organizationId,
+    }).catch(() => undefined)
 
-  res.cookies.set('customer_auth_token', jwt, {
-    httpOnly: true,
-    path: '/',
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 60 * 60 * 8,
-  })
-  res.cookies.set('customer_session_token', rawToken, {
-    httpOnly: true,
-    path: '/',
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 60 * 60 * 24 * 30,
-  })
+    const res = NextResponse.json({
+      ok: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        emailVerified: true,
+      },
+      resolvedFeatures,
+    })
 
-  return res
+    res.cookies.set('customer_auth_token', jwt, {
+      httpOnly: true,
+      path: '/',
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 60 * 60 * 8,
+    })
+    res.cookies.set('customer_session_token', rawToken, {
+      httpOnly: true,
+      path: '/',
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 60 * 60 * 24 * 30,
+    })
+
+    return res
+  })
+  return response ?? NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
 }
 
 const loginSuccessSchema = z.object({

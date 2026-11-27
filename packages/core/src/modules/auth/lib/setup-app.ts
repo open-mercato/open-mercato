@@ -1,3 +1,4 @@
+import { runDatabaseTenantSetup } from '@open-mercato/shared/lib/db/setup'
 import { hash } from 'bcryptjs'
 import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -537,7 +538,10 @@ async function runTenantCreatedHooks(
   const enabledModuleIds = new Set(modules.map((mod) => mod.id))
   const runHooks = async (setupContainer?: AppContainer) => {
     for (const mod of modules) {
-      await mod.setup?.onTenantCreated?.({ em, ...scope, container: setupContainer, enabledModuleIds })
+      const onTenantCreated = mod.setup?.onTenantCreated
+      if (onTenantCreated) {
+        await runDatabaseTenantSetup({ em, ...scope, container: setupContainer, enabledModuleIds }, onTenantCreated)
+      }
     }
   }
 

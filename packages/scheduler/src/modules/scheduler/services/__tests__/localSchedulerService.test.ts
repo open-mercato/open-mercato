@@ -742,7 +742,7 @@ describe('LocalSchedulerService', () => {
 
       await service.start()
 
-      expect(mockLockStrategy.runWithLock).toHaveBeenCalledWith('schedule:test-1', expect.any(Function))
+      expect(mockLockStrategy.runWithLock).toHaveBeenCalledWith('schedule:test-1', expect.any(Function), expect.any(Function))
     })
 
     it('should check feature flag if required', async () => {

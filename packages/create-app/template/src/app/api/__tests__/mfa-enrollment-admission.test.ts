@@ -1,5 +1,7 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { NextRequest } from 'next/server'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { registerDatabaseRuntimeAdapter, type DatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findApiRouteManifestMatch } from '@open-mercato/shared/modules/registry'
 import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
@@ -24,6 +26,7 @@ jest.mock('@open-mercato/shared/modules/registry', () => ({
   findApiRouteManifestMatch: jest.fn(), getApiRouteManifests: () => [], registerApiRouteManifests: jest.fn(),
 }))
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  attachTrustedAuthContext: jest.requireActual('@open-mercato/shared/lib/auth/server').attachTrustedAuthContext,
   resolveAuthFromRequestDetailed: async () => ({ auth: mockAuth, status: mockAuth ? 'authenticated' : 'missing' }),
 }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContainer: jest.fn() }))
@@ -119,6 +122,32 @@ describe('MFA enrollment through the real API dispatcher and interceptor runner'
     expect(createRequestContainer).toHaveBeenCalledTimes(1)
     expect(mockResolve).toHaveBeenCalledWith('rbacService')
     expect(mockResolve).toHaveBeenCalledWith('mfaEnforcementService')
+  })
+
+  test('checks MFA admission inside the verified database tenant scope', async () => {
+    const tenantId = 'a3c6a483-ba43-4415-a445-078442e9a264'
+    mockAuth = { ...mockAuth!, tenantId }
+    const storage = new AsyncLocalStorage<DatabaseExecutionContext>()
+    const runtimeKey = Symbol.for('@open-mercato/shared.databaseRuntime.v1')
+    const globals = globalThis as Record<symbol, unknown>
+    registerDatabaseRuntimeAdapter({
+      id: 'mfa-admission-test', version: '1', configurationKey: 'mfa-admission-test',
+      configurePool: () => { throw new Error('[internal] No pool in the admission test') },
+      run: (context, callback) => storage.run(context, callback),
+    })
+    let admissionScope: DatabaseExecutionContext | undefined
+    mockCompliance.mockImplementationOnce(async () => {
+      admissionScope = storage.getStore()
+      return { enforced: true, compliant: false, deadline: new Date(0) }
+    })
+    try {
+      expect((await dispatch()).status).toBe(403)
+      expect(mockCompliance).toHaveBeenCalledTimes(1)
+      expect(admissionScope).toMatchObject({ kind: 'tenant', tenantId, source: 'api' })
+      expect(mockHandler).not.toHaveBeenCalled()
+    } finally {
+      delete globals[runtimeKey]
+    }
   })
 
   test('preserves canonical superadmin wildcard policy for feature-gated request hooks', async () => {

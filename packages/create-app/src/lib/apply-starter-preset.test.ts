@@ -1,9 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolvePreset, generateModulesTs, applyStarterPreset } from './apply-starter-preset.js'
 import { STARTER_PRESETS, type ModuleEntry } from './starter-presets.js'
 
@@ -211,6 +212,49 @@ function makeTempDir(): string {
   mkdirSync(join(dir, '.mercato'), { recursive: true })
   writeFileSync(join(dir, 'src', 'modules.ts'), '// original')
   return dir
+}
+
+const tenantBoundaries = [{ id: 'tenant_boundaries', from: '@open-mercato/enterprise' }]
+
+for (const { enterprise, rls, expectedStatus, expectedModules } of [
+  { enterprise: 'off', rls: 'off', expectedStatus: 0, expectedModules: [] },
+  { enterprise: 'on', rls: 'off', expectedStatus: 0, expectedModules: tenantBoundaries },
+  { enterprise: 'on', rls: 'on', expectedStatus: 0, expectedModules: tenantBoundaries },
+  { enterprise: 'off', rls: 'on', expectedStatus: 1 },
+]) {
+  test(`applyStarterPreset: enforces activation with enterprise ${enterprise} and RLS ${rls}`, (context) => {
+    const dir = makeTempDir()
+    context.after(() => rmSync(dir, { recursive: true, force: true }))
+    applyStarterPreset('empty', dir)
+
+    const modulesUrl = pathToFileURL(join(dir, 'src', 'modules.ts')).href
+    const booleanUrl = new URL('../../../shared/src/lib/boolean.ts', import.meta.url).href
+    const result = spawnSync(process.execPath, ['--input-type=module', '--eval', `
+      import { registerHooks } from 'node:module'
+      registerHooks({
+        resolve(specifier, context, nextResolve) {
+          if (specifier === '@open-mercato/shared/lib/boolean') {
+            return { url: ${JSON.stringify(booleanUrl)}, shortCircuit: true }
+          }
+          return nextResolve(specifier, context)
+        },
+      })
+      const { enabledModules } = await import(${JSON.stringify(modulesUrl)})
+      console.log(JSON.stringify(enabledModules.filter((entry) => entry.id === 'tenant_boundaries')))
+    `], {
+      env: { ...process.env, OM_ENABLE_ENTERPRISE_MODULES: enterprise, OM_TENANT_RLS: rls },
+      encoding: 'utf8',
+      timeout: 10_000,
+    })
+
+    assert.ifError(result.error)
+    assert.equal(result.status, expectedStatus, result.stderr)
+    if (expectedStatus === 1) {
+      assert.match(result.stderr, /OM_TENANT_RLS requires enterprise modules to be enabled/)
+    } else {
+      assert.deepEqual(JSON.parse(result.stdout), expectedModules)
+    }
+  })
 }
 
 function extractExampleModuleEntry(content: string): string {

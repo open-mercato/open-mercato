@@ -15,6 +15,7 @@ function getKysely(em: EntityManager): Kysely<any> {
 
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000 // 15 minutes
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000 // 60 minutes
+export type CustomerTokenPurpose = 'email_verification' | 'magic_link' | 'password_reset'
 
 export class CustomerTokenService {
   constructor(private em: EntityManager) {}
@@ -61,6 +62,17 @@ export class CustomerTokenService {
     } as any)
     await this.em.persist(record).flush()
     return rawToken
+  }
+
+  async findActiveTokenTenant(token: string, purpose: CustomerTokenPurpose): Promise<string | null> {
+    const where = { token: hashToken(token), usedAt: null, expiresAt: { $gt: new Date() } }
+    const record = purpose === 'password_reset'
+      ? await this.em.findOne(CustomerUserPasswordReset, where, { populate: ['user'] })
+      : await this.em.findOne(CustomerUserEmailVerification, { ...where, purpose }, { populate: ['user'] })
+    const tenantId = record?.user?.tenantId
+    if (!tenantId) return null
+    if (purpose === 'magic_link' && !(await isCustomerTenantActive(this.em, tenantId))) return null
+    return tenantId
   }
 
   async verifyEmailToken(token: string, purpose: string, tenantId?: string, em = this.em): Promise<{ userId: string; tenantId: string } | null> {

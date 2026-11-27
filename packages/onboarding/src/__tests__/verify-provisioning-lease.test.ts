@@ -153,6 +153,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => {
   }
   return {
     createRequestContainer: jest.fn(async () => ({
+      dispose: jest.fn(async () => undefined),
       resolve: (name: string) => {
         if (name === 'em') return em
         throw new Error(`unexpected resolve(${name})`)
@@ -160,6 +161,8 @@ jest.mock('@open-mercato/shared/lib/di/container', () => {
     })),
   }
 })
+
+jest.mock('@open-mercato/shared/lib/db/declarations', () => ({ validateDeclaredDatabaseBinding: jest.fn(async () => true) }))
 
 jest.mock('@open-mercato/onboarding/modules/onboarding/lib/service', () => ({
   OnboardingService: jest.fn().mockImplementation(() => new InMemoryOnboardingService()),

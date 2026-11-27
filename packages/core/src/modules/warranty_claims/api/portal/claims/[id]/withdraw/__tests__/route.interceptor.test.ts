@@ -1,5 +1,12 @@
 /** @jest-environment node */
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { DatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
+
+const mockDatabaseScope = new AsyncLocalStorage<DatabaseExecutionContext>()
+jest.mock('@open-mercato/shared/lib/db/runtime', () => ({
+  runWithDatabaseExecutionContext: (context: DatabaseExecutionContext, callback: () => unknown) => mockDatabaseScope.run(context, callback),
+}))
 
 const mockExecute = jest.fn()
 const mockResolvePortalActionContext = jest.fn()
@@ -9,7 +16,10 @@ const mockRunAfterSuccess = jest.fn()
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
-    if (token === 'commandBus') return { execute: mockExecute }
+    if (token === 'commandBus') return { execute: (...args: unknown[]) => {
+      expect(mockDatabaseScope.getStore()).toMatchObject({ kind: 'tenant', tenantId: '11111111-1111-4111-8111-111111111111', source: 'portal' })
+      return mockExecute(...args)
+    } }
     return undefined
   }),
 }
@@ -49,6 +59,7 @@ describe('warranty_claims portal withdraw route — command interceptor HTTP sta
     jest.clearAllMocks()
     mockResolvePortalActionContext.mockResolvedValue({
       customerId: 'customer-1',
+      tenantId: '11111111-1111-4111-8111-111111111111',
       commandCtx: { container: mockContainer },
     })
     mockLoadOwnedClaim.mockResolvedValue({ id: CLAIM_ID, status: 'submitted' })
@@ -76,6 +87,7 @@ describe('warranty_claims portal withdraw route — command interceptor HTTP sta
     expect(response.status).toBe(422)
     await expect(response.json()).resolves.toEqual({ error: 'Withdrawal window closed' })
     expect(mockRunAfterSuccess).not.toHaveBeenCalled()
+    expect(mockDatabaseScope.getStore()).toBeUndefined()
   })
 
   it('still rethrows a rejection that carries no status', async () => {

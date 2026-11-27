@@ -1,3 +1,4 @@
+import { isDatabaseRuntimeEnabled } from '@open-mercato/shared/lib/db/runtime'
 import { asClass } from 'awilix'
 import { asScopedService, defineProcessDiRegistrar, registerCallerSetup, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
 import { runInRequestScope, runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
@@ -17,6 +18,16 @@ const logger = createLogger('scheduler')
 let schedulerSynced = false
 
 async function reconcileScheduler(): Promise<void> {
+  if (isDatabaseRuntimeEnabled()) {
+    const service = new BullMQSchedulerService(() => { throw new Error('[internal] Scheduler discovery requires a fresh maintenance EntityManager') })
+    try {
+      await service.syncAll()
+      logger.info('BullMQ cold start sync complete')
+    } finally {
+      await service.destroy()
+    }
+    return
+  }
   const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
   const scope = await createRequestContainer()
   try {
