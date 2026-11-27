@@ -168,11 +168,17 @@ test.each([
   ['complete', runComplete, 'completeUserTask'],
 ] as const)('%s refuses a malformed task ID before the task lookup', async (_action, runAction, handler) => {
   const malformed = await bodyAndStatus(await runAction('invalid-id'))
+  const compactId = MISSING_ID.replaceAll('-', '')
 
   expect(mockEm.findOne).not.toHaveBeenCalled()
   expect(malformed).toEqual({ status: 404, body: { error: 'Task not found' } })
-  expect(await bodyAndStatus(await runAction(MISSING_ID))).toEqual(malformed)
+  expect(await bodyAndStatus(await runAction(compactId))).toEqual(malformed)
   expect(mockEm.findOne).toHaveBeenCalledTimes(1)
+  expect(mockEm.findOne).toHaveBeenCalledWith(UserTask, {
+    id: compactId,
+    tenantId: TENANT_ID,
+    organizationId: ORG_ID,
+  })
   expect(taskHandler[handler]).not.toHaveBeenCalled()
 })
 

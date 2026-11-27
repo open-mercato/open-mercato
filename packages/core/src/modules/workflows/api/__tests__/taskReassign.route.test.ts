@@ -143,11 +143,17 @@ beforeEach(() => {
 test('reassign refuses a malformed task ID before the task lookup', async () => {
   const payload = { assignedTo: ADMIN_ID }
   const malformed = await bodyAndStatus(await runReassign(payload, {}, 'invalid-id'))
+  const wrappedId = `{${TASK_ID}}`
 
   expect(mockEm.findOne).not.toHaveBeenCalled()
   expect(malformed).toEqual({ status: 404, body: { error: 'Task not found' } })
-  expect(await bodyAndStatus(await runReassign(payload))).toEqual(malformed)
+  expect(await bodyAndStatus(await runReassign(payload, {}, wrappedId))).toEqual(malformed)
   expect(mockEm.findOne).toHaveBeenCalledTimes(1)
+  expect(mockEm.findOne).toHaveBeenCalledWith(UserTask, {
+    id: wrappedId,
+    tenantId: TENANT_ID,
+    organizationId: ORG_ID,
+  })
   expect(taskHandler.reassignUserTask).not.toHaveBeenCalled()
 })
 
