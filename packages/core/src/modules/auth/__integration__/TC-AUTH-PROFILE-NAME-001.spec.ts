@@ -25,7 +25,8 @@ import {
  * The profile page (`/backend/auth/profile`) and the change password page users reach from the user
  * menu (`/backend/profile/change-password`) save through a bar at the bottom of the screen that is
  * shown only while there is something to report. The last block covers that flow on both pages: no Save control on a
- * clean form, Save and Reset after an edit, Reset restoring the saved value, and Save persisting it.
+ * clean form, Save and Reset after an edit, Reset restoring the saved value, and Save persisting it
+ * once the current password is given, after which the user signs in again.
  */
 
 const PROFILE_PATH = '/api/auth/profile';
@@ -67,6 +68,10 @@ function profileSaveBar(page: Page) {
 
 function profileEmailInput(page: Page) {
   return page.locator('[data-crud-field-id="email"] input').first();
+}
+
+function profileCurrentPasswordInput(page: Page) {
+  return page.locator('[data-crud-field-id="currentPassword"] input').first();
 }
 
 test.describe('profile self-read display name', () => {
@@ -161,6 +166,14 @@ test.describe('profile self-read display name', () => {
 
 for (const saveBarPage of SAVE_BAR_PAGES) {
   test.describe(`${saveBarPage.label} save bar`, () => {
+    test.beforeEach(async ({ request }) => {
+      const securityProbe = await request.get('/api/security/mfa');
+      test.skip(
+        securityProbe.status() !== 404,
+        'Enterprise Security replaces these pages with its own Security profile',
+      );
+    });
+
     test('offers Save only after an edit and restores the saved value on Reset', async ({ page, request }) => {
       const adminToken = await getAuthToken(request, 'admin');
       const { organizationId } = getTokenScope(adminToken);
@@ -201,7 +214,7 @@ for (const saveBarPage of SAVE_BAR_PAGES) {
       }
     });
 
-    test('saves an edited email from the bar and hides the bar afterwards', async ({ page, request }) => {
+    test('saves an edited email from the bar and asks the user to sign in again', async ({ page, request }) => {
       const adminToken = await getAuthToken(request, 'admin');
       const { organizationId } = getTokenScope(adminToken);
       const stamp = Date.now();
@@ -224,10 +237,18 @@ for (const saveBarPage of SAVE_BAR_PAGES) {
         await emailInput.fill(editedEmail);
         await expect(emailInput).toHaveValue(editedEmail);
         await profileSaveBar(page).getByRole('button', { name: 'Save changes' }).click();
+        await expect(
+          page.getByText('Current password is required.').first(),
+          'an email change needs the current password',
+        ).toBeVisible();
+        await expect(profileSaveBar(page), 'the bar stays while the change is not saved').toBeVisible();
 
-        await expect(page.getByText('Profile updated.').first()).toBeVisible();
-        await expect(profileSaveBar(page), 'the bar should hide once the save is done').toHaveCount(0);
-        await expect(profileEmailInput(page)).toHaveValue(editedEmail);
+        const currentPasswordInput = profileCurrentPasswordInput(page);
+        await currentPasswordInput.fill(PASSWORD);
+        await expect(currentPasswordInput).toHaveValue(PASSWORD);
+        await profileSaveBar(page).getByRole('button', { name: 'Save changes' }).click();
+
+        await expect(page, 'a credential change ends the session').toHaveURL(/\/login/);
 
         const userToken = await getAuthToken(request, editedEmail, PASSWORD);
         const profile = await readOwnProfile(request, userToken);
