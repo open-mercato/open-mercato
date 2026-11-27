@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Check, Code2, Contrast, Copy, Dices, ImagePlus, Link2, RotateCcw, Shuffle, X } from 'lucide-react'
+import { Check, Code2, Columns2, Contrast, Copy, Dices, ImagePlus, Link2, Moon, RotateCcw, Shuffle, Sun, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createColorStudio, type Harmony, type NeutralTone, type Shade } from '@open-mercato/core/modules/design_system/gallery/components/colorStudio'
 import { readBrandLogo } from '@open-mercato/core/modules/design_system/gallery/components/styleAgentBranding'
@@ -258,15 +258,14 @@ export function ThemeCreator() {
         </Select>
         <div className="contents">
           <SegmentedControl size="sm" value={mode} aria-label={t('design.home.panel.mode')} onValueChange={(value) => { if (value === 'light' || value === 'dark' || value === 'compare') setMode(value) }}>
-            <SegmentedControlItem value="light">{t('design.home.panel.modeLight')}</SegmentedControlItem>
-            <SegmentedControlItem value="dark">{t('design.home.panel.modeDark')}</SegmentedControlItem>
-            <SegmentedControlItem value="compare">{t('design.create.compare')}</SegmentedControlItem>
+            <SegmentedControlItem value="light" aria-label={t('design.home.panel.modeLight')} title={t('design.home.panel.modeLight')}><Sun aria-hidden className="size-4" /></SegmentedControlItem>
+            <SegmentedControlItem value="dark" aria-label={t('design.home.panel.modeDark')} title={t('design.home.panel.modeDark')}><Moon aria-hidden className="size-4" /></SegmentedControlItem>
+            <SegmentedControlItem value="compare" aria-label={t('design.create.compare')} title={t('design.create.compare')}><Columns2 aria-hidden className="size-4" /></SegmentedControlItem>
           </SegmentedControl>
           <Popover>
             <PopoverTrigger asChild>
-              <Button type="button" size="sm" variant="outline">
+              <Button type="button" size="sm" variant="outline" aria-label={t('design.create.contrast')} title={t('design.create.contrast')}>
                 <Contrast aria-hidden />
-                {t('design.create.contrast')}
                 <StatusBadge variant={failing === 0 ? 'success' : 'error'}>{failing === 0 ? t('design.create.pass') : t('design.create.failCount', { count: failing })}</StatusBadge>
               </Button>
             </PopoverTrigger>

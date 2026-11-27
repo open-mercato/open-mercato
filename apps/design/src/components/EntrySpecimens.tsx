@@ -192,7 +192,21 @@ function ChartLegendDotSpecimen() {
   )
 }
 
+function TypesetSpecimen() {
+  return (
+    <div className="flex w-64 items-start gap-4 rounded-lg bg-card p-4">
+      <span className="text-4xl leading-none text-foreground">Aa</span>
+      <span className="flex min-w-0 flex-1 flex-col gap-3">
+        <span className="h-3 w-2/3 rounded-full bg-foreground/70" />
+        <Lines count={3} />
+        <Lines count={2} />
+      </span>
+    </div>
+  )
+}
+
 const SPECIMENS: Record<string, React.ComponentType> = {
+  typeset: TypesetSpecimen,
   dialog: DialogSpecimen,
   drawer: DrawerSpecimen,
   sheet: SheetSpecimen,
