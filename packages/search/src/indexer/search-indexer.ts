@@ -1382,10 +1382,13 @@ export class SearchIndexer {
         }
       }
 
+      const recordOrganizationId = typeof item.organization_id === 'string' || item.organization_id === null
+        ? item.organization_id
+        : organizationId
       const buildContext: SearchBuildContext = {
         record: withoutExcludedRecordCustomFields(item, exclusion),
         customFields: withoutExcludedCustomFields(customFields, exclusion),
-        organizationId,
+        organizationId: recordOrganizationId,
         tenantId,
         queryEngine: buildQueryEngine,
       }
@@ -1459,7 +1462,7 @@ export class SearchIndexer {
         entityId,
         recordId,
         tenantId,
-        organizationId,
+        organizationId: recordOrganizationId,
         fields: item,
         plaintextExcludedCustomFields,
         presenter,

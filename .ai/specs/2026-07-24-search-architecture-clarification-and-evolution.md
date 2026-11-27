@@ -67,6 +67,13 @@ There are two axes: **incremental** (on every record write) and **bulk / reindex
 
 Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + a running `yarn mercato search worker fulltext-indexing` (in `local` mode jobs process from `.mercato/queue/`).
 
+Fulltext batch/reindex documents and their `SearchBuildContext` preserve the source
+row's `organization_id`, including during tenant-wide reindexing and queued batch
+reloads. Explicit null ownership stays global; only a missing ownership column
+uses the existing request-scope fallback. Tenant scope remains the trusted request
+tenant. This keeps organization-scoped filtering and later purge aligned with the
+record's owner (#8397).
+
 ### A.3 Division of labor (who consumes which store)
 
 - **Global search / Cmd+K palette** — `GET /api/search/global` uses the tenant's saved strategy set (default `['fulltext','vector','tokens']`; ignores URL `strategies`). `GET /api/search` accepts a `strategies` override. Fulltext (Meili) is the intended fuzzy/typo-tolerant backend; tokens participate as an always-available fallback.
@@ -350,6 +357,8 @@ writer inputs without external services.
 ## Changelog
 
 - 2026-11-25 — Retired stale vector documents on explicit null from `buildSource`, preserving fulltext fields and token indexing (#5930).
+
+- 2026-11-21 — Preserved source-row organization ownership through direct and queued batch reindexing (#8397), including callback context, global rows and omitted-column compatibility. Historical null-owner documents require a tenant-wide fulltext rebuild; no public shape or configuration changes.
 
 - 2026-11-05 — Extended effective entity strategy enforcement to queued and synchronous reindex writes, module defaults, and disabled entities (#8773).
 

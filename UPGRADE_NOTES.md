@@ -28,6 +28,21 @@ see no organization. Grant the intended organizations in the user's or role's ac
 **Action for integrators:** a client that treated an empty list or a `404` as "nothing visible"
 for such a principal must also handle `403`.
 
+## Fulltext reindex preserves record organization ownership (#8397)
+
+Tenant-wide fulltext reindexing now keeps each source row's `organization_id`
+in the indexed document and search build context. An explicit `null` stays
+global; a projection that omits the column keeps the existing request-scope
+fallback. Direct reindexes and queued batch reloads use the same rule.
+
+Operators with documents written by an older tenant-wide reindex should run a
+tenant-wide fulltext rebuild through Settings > Search or `POST /api/search/reindex`
+with All organizations selected. An organization-scoped rebuild cannot identify
+the original owners of historical documents incorrectly stored with a null
+organization. The general `search reindex` CLI does not rebuild fulltext.
+No startup command, environment variable, database migration, provider default,
+or public API shape changes.
+
 ## Relation options and explicit global query scope (#9106)
 
 Generic relation lookups for Staff time projects, tasks, and reports return 403. These records have dedicated access rules, so custom pickers should load options through the Staff timesheet APIs and adapt the authorized records to option values and labels. Review existing relation field `optionsUrl` settings for these targets before upgrading. Stored relation values remain available to the owning modules.
