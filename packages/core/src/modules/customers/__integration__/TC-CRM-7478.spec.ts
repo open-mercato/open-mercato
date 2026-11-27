@@ -113,6 +113,8 @@ test.describe('TC-CRM-7478: schedule activities on the selected local day', () =
           await expect(page.getByRole('dialog').getByRole('button', { name: firstDay.dateLabel, exact: true })).toBeVisible()
         }
         await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).first().click()
+        await page.getByRole('alertdialog', { name: 'Discard unsaved changes?' })
+          .getByRole('button', { name: 'Discard', exact: true }).click()
         await composer.getByRole('button', { name: secondDay.numericDay, exact: true }).click()
 
         const dialog = await openMeeting(page)

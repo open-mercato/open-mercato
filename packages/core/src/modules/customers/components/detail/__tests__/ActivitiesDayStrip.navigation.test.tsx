@@ -2,17 +2,21 @@
 import * as React from 'react'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import german from '../../../i18n/de.json'
+import spanish from '../../../i18n/es.json'
+import korean from '../../../i18n/ko.json'
 import { ActivitiesDayStrip } from '../ActivitiesDayStrip'
 
-function renderCalendar() {
+function renderCalendar(selectedDate = new Date(2026, 10, 3), locale = 'en', dict: Record<string, string> = {}) {
   const onSelectDate = jest.fn()
   renderWithProviders(
     <ActivitiesDayStrip
       entityId="owned-person"
-      selectedDate={new Date(2026, 10, 3)}
+      selectedDate={selectedDate}
       onSelectDate={onSelectDate}
       events={[]}
     />,
+    { locale, dict },
   )
   return onSelectDate
 }
@@ -71,5 +75,15 @@ describe('ActivitiesDayStrip navigation', () => {
     expect(screen.getByRole('group', { name: 'December 2026' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Previous month' }))
     expect(screen.getByRole('group', { name: 'November 2026' })).toBeInTheDocument()
+  })
+
+  it.each([
+    { locale: 'de', dict: german, selectedDate: new Date(2026, 2, 3), name: 'März 2026' },
+    { locale: 'es', dict: spanish, selectedDate: new Date(2026, 0, 3), name: 'enero de 2026' },
+    { locale: 'ko', dict: korean, selectedDate: new Date(2026, 10, 3), name: '2026년 11월' },
+  ])('renders the month and year in $locale', ({ locale, dict, selectedDate, name }) => {
+    renderCalendar(selectedDate, locale, dict)
+
+    expect(screen.getByRole('group', { name })).toBeInTheDocument()
   })
 })
