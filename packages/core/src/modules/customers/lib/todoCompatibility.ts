@@ -15,6 +15,11 @@ import {
   resolveExampleIntegrationHref,
 } from './interactionCompatibility'
 import { hydrateCanonicalInteractions, loadCustomerSummaries } from './interactionReadModel'
+import {
+  INTERACTION_STATUS_COMPLETED,
+  TERMINAL_INTERACTION_STATUS_LIST,
+  isOpenInteractionStatus,
+} from './interactionStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -61,6 +66,7 @@ export type CustomerTodoRow = {
   todoCustomValues?: Record<string, unknown> | null
   todoOrganizationId: string | null
   todoUpdatedAt?: string | null
+  todoOwnerUserId?: string | null
   organizationId: string
   tenantId: string
   createdAt: string
@@ -181,15 +187,141 @@ export function normalizeTodoSearch(value: string | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
-export function sortTodoRows(rows: CustomerTodoRow[]): CustomerTodoRow[] {
-  return [...rows].sort((left, right) => {
-    const leftTime = new Date(left.createdAt).getTime()
-    const rightTime = new Date(right.createdAt).getTime()
-    if (leftTime === rightTime) {
-      return right.id.localeCompare(left.id)
+export type TodoStatusFilter = 'open' | 'done'
+
+export type TodoListFilters = {
+  status?: TodoStatusFilter | null
+  dueFrom?: Date | null
+  dueBefore?: Date | null
+  priorityMin?: number | null
+  priorityMax?: number | null
+  ownerUserId?: string | null
+}
+
+export type TodoSortField = 'createdAt' | 'dueAt' | 'priority'
+
+export type TodoListSort = { field: TodoSortField; dir: 'asc' | 'desc' }
+
+const DEFAULT_TODO_SORT: TodoListSort = { field: 'createdAt', dir: 'desc' }
+
+const COMPLETED_TODO_STATUSES: readonly string[] = [INTERACTION_STATUS_COMPLETED, 'completed']
+
+export function hasActiveTodoListFilters(filters: TodoListFilters | null | undefined): filters is TodoListFilters {
+  if (!filters) return false
+  return Boolean(
+    filters.status ||
+      filters.dueFrom ||
+      filters.dueBefore ||
+      filters.ownerUserId ||
+      typeof filters.priorityMin === 'number' ||
+      typeof filters.priorityMax === 'number',
+  )
+}
+
+function readTimestamp(value: string | null | undefined): number | null {
+  if (!value) return null
+  const timestamp = new Date(value).getTime()
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function compareNullableNumbers(left: number | null, right: number | null, dir: 'asc' | 'desc'): number {
+  if (left === right) return 0
+  if (left === null) return 1
+  if (right === null) return -1
+  return dir === 'asc' ? left - right : right - left
+}
+
+type TodoSortKey = { id: string; createdAt: number; dueAt: number | null; priority: number | null }
+
+function todoRowSortKey(row: CustomerTodoRow): TodoSortKey {
+  return {
+    id: row.id,
+    createdAt: new Date(row.createdAt).getTime(),
+    dueAt: readTimestamp(row.todoDueAt),
+    priority: row.todoPriority ?? null,
+  }
+}
+
+function compareTodoSortKeys(left: TodoSortKey, right: TodoSortKey, sort: TodoListSort): number {
+  if (sort.field === 'dueAt') {
+    const byDue = compareNullableNumbers(left.dueAt, right.dueAt, sort.dir)
+    if (byDue !== 0) return byDue
+  } else if (sort.field === 'priority') {
+    const byPriority = compareNullableNumbers(left.priority, right.priority, sort.dir)
+    if (byPriority !== 0) return byPriority
+  }
+  const createdDir = sort.field === 'createdAt' ? sort.dir : 'desc'
+  if (left.createdAt === right.createdAt) {
+    return createdDir === 'asc' ? left.id.localeCompare(right.id) : right.id.localeCompare(left.id)
+  }
+  return createdDir === 'asc' ? left.createdAt - right.createdAt : right.createdAt - left.createdAt
+}
+
+export function sortTodoRows(rows: CustomerTodoRow[], sort: TodoListSort = DEFAULT_TODO_SORT): CustomerTodoRow[] {
+  return [...rows].sort((left, right) => compareTodoSortKeys(todoRowSortKey(left), todoRowSortKey(right), sort))
+}
+
+function matchesTodoStatus(row: CustomerTodoRow, status: TodoStatusFilter): boolean {
+  const isCanonical = typeof row.todoStatus === 'string' && row.todoStatus.length > 0
+  if (status === 'done') {
+    return isCanonical ? COMPLETED_TODO_STATUSES.includes(row.todoStatus as string) : row.todoIsDone === true
+  }
+  return isCanonical ? isOpenInteractionStatus(row.todoStatus) : row.todoIsDone !== true
+}
+
+export function filterTodoRowsByCriteria(
+  rows: CustomerTodoRow[],
+  filters: TodoListFilters | null | undefined,
+): CustomerTodoRow[] {
+  if (!hasActiveTodoListFilters(filters)) return rows
+  const dueFrom = filters.dueFrom ? filters.dueFrom.getTime() : null
+  const dueBefore = filters.dueBefore ? filters.dueBefore.getTime() : null
+  const hasPriorityRange = typeof filters.priorityMin === 'number' || typeof filters.priorityMax === 'number'
+  return rows.filter((row) => {
+    if (filters.status && !matchesTodoStatus(row, filters.status)) return false
+    if (dueFrom !== null || dueBefore !== null) {
+      const due = readTimestamp(row.todoDueAt)
+      if (due === null) return false
+      if (dueFrom !== null && due < dueFrom) return false
+      if (dueBefore !== null && due >= dueBefore) return false
     }
-    return rightTime - leftTime
+    if (hasPriorityRange) {
+      const priority = row.todoPriority ?? null
+      if (priority === null) return false
+      if (typeof filters.priorityMin === 'number' && priority < filters.priorityMin) return false
+      if (typeof filters.priorityMax === 'number' && priority > filters.priorityMax) return false
+    }
+    if (filters.ownerUserId && row.todoOwnerUserId !== filters.ownerUserId) return false
+    return true
   })
+}
+
+function buildCanonicalTodoFilterConditions(filters: TodoListFilters | null | undefined): Record<string, unknown>[] {
+  if (!hasActiveTodoListFilters(filters)) return []
+  const conditions: Record<string, unknown>[] = []
+  if (filters.status === 'done') {
+    conditions.push({ status: { $in: [...COMPLETED_TODO_STATUSES] } })
+  } else if (filters.status === 'open') {
+    conditions.push({ $or: [{ status: null }, { status: { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] } }] })
+  }
+  if (filters.dueFrom) conditions.push({ scheduledAt: { $gte: filters.dueFrom } })
+  if (filters.dueBefore) conditions.push({ scheduledAt: { $lt: filters.dueBefore } })
+  if (typeof filters.priorityMin === 'number') conditions.push({ priority: { $gte: filters.priorityMin } })
+  if (typeof filters.priorityMax === 'number') conditions.push({ priority: { $lte: filters.priorityMax } })
+  if (filters.ownerUserId) conditions.push({ ownerUserId: filters.ownerUserId })
+  return conditions
+}
+
+function buildCanonicalTodoOrderBy(sort: TodoListSort | null | undefined): Record<string, string> {
+  const resolved = sort ?? DEFAULT_TODO_SORT
+  const direction = resolved.dir === 'asc' ? 'ASC' : 'DESC'
+  if (resolved.field === 'dueAt') {
+    return { scheduledAt: `${direction} NULLS LAST`, createdAt: 'DESC', id: 'DESC' }
+  }
+  if (resolved.field === 'priority') {
+    return { priority: `${direction} NULLS LAST`, createdAt: 'DESC', id: 'DESC' }
+  }
+  return { createdAt: resolved.dir }
 }
 
 export function filterTodoRows(rows: CustomerTodoRow[], search: string | null): CustomerTodoRow[] {
@@ -431,7 +563,7 @@ export async function listLegacyTodoRows(
   tenantId: string,
   organizationIds: string[] | null,
   entityId: string | undefined,
-  options?: { limit?: number | null; isUnrestricted?: boolean },
+  options?: { limit?: number | null; isUnrestricted?: boolean; excludeBridged?: boolean },
 ): Promise<CustomerTodoRow[]> {
   if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
     return []
@@ -442,6 +574,14 @@ export async function listLegacyTodoRows(
   }
   if (entityId) {
     where.entity = entityId
+  }
+  if (options?.excludeBridged) {
+    where.todoId = {
+      $nin: em
+        .createQueryBuilder(CustomerInteraction)
+        .select('id')
+        .where({ tenantId, interactionType: 'task' }),
+    }
   }
 
   const findOptions: Record<string, unknown> = {
@@ -469,27 +609,21 @@ export async function listLegacyTodoRows(
   })
 }
 
-export async function listCanonicalTodoRows(
-  em: EntityManager,
-  container: CustomersContainerLike,
-  auth: CustomersAuthLike,
-  selectedOrganizationId: string | null,
+type CanonicalTodoQueryOptions = {
+  entityId?: string
+  includeDeleted?: boolean
+  source?: string | string[] | null
+  searchText?: string | null
+  filters?: TodoListFilters | null
+}
+
+function buildCanonicalTodoWhere(
+  tenantId: string | null,
   organizationIds: string[] | null,
-  options?: {
-    entityId?: string
-    includeDeleted?: boolean
-    source?: string | string[] | null
-    pagination?: ListTodosPagination | null
-    searchText?: string | null
-    limit?: number | null
-    isUnrestricted?: boolean
-  },
-): Promise<CanonicalTodoListResult> {
-  if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
-    return emptyCanonicalTodoList()
-  }
+  options?: CanonicalTodoQueryOptions,
+): Record<string, unknown> {
   const where: Record<string, unknown> = {
-    tenantId: auth.tenantId,
+    tenantId,
     interactionType: 'task',
   }
   if (!options?.includeDeleted) {
@@ -513,36 +647,23 @@ export async function listCanonicalTodoRows(
       { body: { $ilike: pattern } },
     ]
   }
+  const filterConditions = buildCanonicalTodoFilterConditions(options?.filters)
+  if (filterConditions.length > 0) {
+    where.$and = filterConditions
+  }
+  return where
+}
 
-  const findOptions: Record<string, unknown> = {
-    orderBy: { createdAt: 'desc' },
-  }
-  const pagination = options?.pagination ?? null
-  if (pagination) {
-    findOptions.offset = Math.max(0, (pagination.page - 1) * pagination.pageSize)
-    findOptions.limit = pagination.pageSize
-  } else if (
-    typeof options?.limit === 'number' &&
-    Number.isFinite(options.limit) &&
-    options.limit > 0
-  ) {
-    findOptions.limit = options.limit
-  }
-
-  let interactions: CustomerInteraction[]
-  let total: number
-  if (pagination) {
-    const [rows, count] = await em.findAndCount(CustomerInteraction, where, findOptions as any)
-    interactions = rows
-    total = count
-  } else {
-    interactions = await em.find(CustomerInteraction, where, findOptions as any)
-    total = interactions.filter((interaction) => !interaction.deletedAt).length
-  }
-  const activeInteractions = interactions.filter((interaction) => !interaction.deletedAt)
+async function hydrateCanonicalTodoRows(
+  em: EntityManager,
+  container: CustomersContainerLike,
+  auth: CustomersAuthLike,
+  selectedOrganizationId: string | null,
+  interactions: CustomerInteraction[],
+): Promise<Map<string, CustomerTodoRow>> {
   const groups = new Map<string, CustomerInteraction[]>()
 
-  for (const interaction of activeInteractions) {
+  for (const interaction of interactions) {
     const organizationId =
       typeof interaction.organizationId === 'string' && interaction.organizationId.trim().length > 0
         ? interaction.organizationId
@@ -594,12 +715,197 @@ export async function listCanonicalTodoRows(
     }
   }
 
+  return rowByInteractionId
+}
+
+export async function listCanonicalTodoRows(
+  em: EntityManager,
+  container: CustomersContainerLike,
+  auth: CustomersAuthLike,
+  selectedOrganizationId: string | null,
+  organizationIds: string[] | null,
+  options?: CanonicalTodoQueryOptions & {
+    pagination?: ListTodosPagination | null
+    limit?: number | null
+    isUnrestricted?: boolean
+    sort?: TodoListSort | null
+  },
+): Promise<CanonicalTodoListResult> {
+  if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
+    return emptyCanonicalTodoList()
+  }
+  const where = buildCanonicalTodoWhere(auth.tenantId, organizationIds, options)
+
+  const findOptions: Record<string, unknown> = {
+    orderBy: buildCanonicalTodoOrderBy(options?.sort),
+  }
+  const pagination = options?.pagination ?? null
+  if (pagination) {
+    findOptions.offset = Math.max(0, (pagination.page - 1) * pagination.pageSize)
+    findOptions.limit = pagination.pageSize
+  } else if (
+    typeof options?.limit === 'number' &&
+    Number.isFinite(options.limit) &&
+    options.limit > 0
+  ) {
+    findOptions.limit = options.limit
+  }
+
+  let interactions: CustomerInteraction[]
+  let total: number
+  if (pagination) {
+    const [rows, count] = await em.findAndCount(CustomerInteraction, where, findOptions as any)
+    interactions = rows
+    total = count
+  } else {
+    interactions = await em.find(CustomerInteraction, where, findOptions as any)
+    total = interactions.filter((interaction) => !interaction.deletedAt).length
+  }
+  const activeInteractions = interactions.filter((interaction) => !interaction.deletedAt)
+  const rowByInteractionId = await hydrateCanonicalTodoRows(
+    em,
+    container,
+    auth,
+    selectedOrganizationId,
+    activeInteractions,
+  )
+
   return {
     items: activeInteractions
       .map((interaction) => rowByInteractionId.get(interaction.id) ?? null)
       .filter((row): row is CustomerTodoRow => !!row),
     bridgeIds: new Set(interactions.map((interaction) => interaction.id)),
     total,
+  }
+}
+
+export const MERGED_TODO_FETCH_CAP = 2000
+
+export type MergedTodoListOptions = {
+  entityId?: string
+  filters?: TodoListFilters | null
+  sort?: TodoListSort | null
+  search?: string | null
+  pagination: ListTodosPagination | null
+  isUnrestricted?: boolean
+  fetchCap?: number
+  includeLegacy?: boolean
+}
+
+export type MergedTodoListResult = {
+  items: CustomerTodoRow[]
+  total: number
+  totalIsCapped: boolean
+}
+
+type MergeCandidate =
+  | { kind: 'legacy'; key: TodoSortKey; row: CustomerTodoRow }
+  | { kind: 'canonical'; key: TodoSortKey; interaction: CustomerInteraction }
+
+function interactionSortKey(interaction: CustomerInteraction): TodoSortKey {
+  return {
+    id: interaction.id,
+    createdAt: interaction.createdAt instanceof Date ? interaction.createdAt.getTime() : new Date(interaction.createdAt).getTime(),
+    dueAt: interaction.scheduledAt ? new Date(interaction.scheduledAt).getTime() : null,
+    priority: typeof interaction.priority === 'number' ? interaction.priority : null,
+  }
+}
+
+/**
+ * Task list over native CRM tasks plus, in compatibility mode, the legacy todo
+ * links that no canonical interaction bridges (`includeLegacy: false` skips them). Criteria and ordering are applied before the
+ * page window so a matching row is never lost to a recency window. Canonical
+ * filters and sort run in SQL; free-text search stays in memory because task
+ * titles and bodies may be encrypted at rest, and reads at most `fetchCap`
+ * candidates per source (reported through `totalIsCapped`).
+ */
+export async function listMergedTodoRows(
+  em: EntityManager,
+  queryEngine: QueryEngine,
+  container: CustomersContainerLike,
+  auth: CustomersAuthLike,
+  selectedOrganizationId: string | null,
+  organizationIds: string[] | null,
+  options: MergedTodoListOptions,
+): Promise<MergedTodoListResult> {
+  if (isCollapsedRestrictedOrganizationScope(organizationIds, options.isUnrestricted)) {
+    return { items: [], total: 0, totalIsCapped: false }
+  }
+  const fetchCap = options.fetchCap ?? MERGED_TODO_FETCH_CAP
+  const sort = options.sort ?? DEFAULT_TODO_SORT
+  const search = options.search ?? null
+  const pagination = options.pagination
+  const offset = pagination ? Math.max(0, (pagination.page - 1) * pagination.pageSize) : 0
+
+  const legacyRows = options.includeLegacy === false
+    ? []
+    : await listLegacyTodoRows(em, queryEngine, auth.tenantId ?? '', organizationIds, options.entityId, {
+        limit: fetchCap,
+        isUnrestricted: options.isUnrestricted,
+        excludeBridged: true,
+      })
+  const legacyMatches = filterTodoRowsByCriteria(filterTodoRows(legacyRows, search), options.filters)
+  const legacyCapped = legacyRows.length >= fetchCap
+
+  const where = buildCanonicalTodoWhere(auth.tenantId, organizationIds, {
+    entityId: options.entityId,
+    filters: options.filters,
+  })
+  const orderBy = buildCanonicalTodoOrderBy(sort)
+
+  if (search) {
+    const candidates = await em.find(CustomerInteraction, where, { orderBy, limit: fetchCap } as any)
+    const rowById = await hydrateCanonicalTodoRows(em, container, auth, selectedOrganizationId, candidates)
+    const canonicalMatches = filterTodoRows(
+      candidates
+        .map((interaction) => rowById.get(interaction.id) ?? null)
+        .filter((row): row is CustomerTodoRow => !!row),
+      search,
+    )
+    const ordered = sortTodoRows([...legacyMatches, ...canonicalMatches], sort)
+    return {
+      items: pagination ? ordered.slice(offset, offset + pagination.pageSize) : ordered,
+      total: ordered.length,
+      totalIsCapped: legacyCapped || candidates.length >= fetchCap,
+    }
+  }
+
+  let canonicalCandidates: CustomerInteraction[]
+  let canonicalTotal: number
+  if (pagination) {
+    const [rows, count] = await em.findAndCount(
+      CustomerInteraction,
+      where,
+      { orderBy, limit: offset + pagination.pageSize } as any,
+    )
+    canonicalCandidates = rows
+    canonicalTotal = count
+  } else {
+    canonicalCandidates = await em.find(CustomerInteraction, where, { orderBy } as any)
+    canonicalTotal = canonicalCandidates.length
+  }
+
+  const merged: MergeCandidate[] = [
+    ...legacyMatches.map((row): MergeCandidate => ({ kind: 'legacy', key: todoRowSortKey(row), row })),
+    ...canonicalCandidates.map((interaction): MergeCandidate => ({
+      kind: 'canonical',
+      key: interactionSortKey(interaction),
+      interaction,
+    })),
+  ].sort((left, right) => compareTodoSortKeys(left.key, right.key, sort))
+  const window = pagination ? merged.slice(offset, offset + pagination.pageSize) : merged
+
+  const pageInteractions = window
+    .filter((candidate): candidate is Extract<MergeCandidate, { kind: 'canonical' }> => candidate.kind === 'canonical')
+    .map((candidate) => candidate.interaction)
+  const rowById = await hydrateCanonicalTodoRows(em, container, auth, selectedOrganizationId, pageInteractions)
+
+  return {
+    items: window
+      .map((candidate) => (candidate.kind === 'legacy' ? candidate.row : rowById.get(candidate.interaction.id) ?? null))
+      .filter((row): row is CustomerTodoRow => !!row),
+    total: canonicalTotal + legacyMatches.length,
+    totalIsCapped: legacyCapped,
   }
 }
 
@@ -675,6 +981,7 @@ export function mapInteractionRecordToTodoRow(
     todoCustomValues: Object.keys(customValues).length > 0 ? customValues : null,
     todoOrganizationId: interaction.organizationId ?? null,
     todoUpdatedAt: interaction.updatedAt ?? null,
+    todoOwnerUserId: interaction.ownerUserId ?? null,
     organizationId: interaction.organizationId ?? '',
     tenantId: interaction.tenantId ?? '',
     createdAt: interaction.createdAt,

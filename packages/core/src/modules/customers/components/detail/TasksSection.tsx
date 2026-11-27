@@ -24,6 +24,7 @@ import { formatDate, resolveTodoHref } from './utils'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { TaskDialog } from './TaskDialog'
+import { buildCanonicalTaskUpdatePayload, buildTaskFormInitialValues } from './taskFormValues'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { useInteractions, type InteractionCreatePayload } from './hooks/useInteractions'
@@ -51,8 +52,6 @@ type TasksSectionProps = {
   useCanonicalInteractions?: boolean
   runGuardedMutation?: GuardedMutationRunner
 }
-
-const RESERVED_TASK_CUSTOM_KEYS = new Set(['priority', 'description', 'due_at', 'dueAt'])
 
 function isRecordConflict(error: unknown): boolean {
   return Boolean(extractOptimisticLockConflict(error) || extractRecordLockConflict(error))
@@ -84,26 +83,6 @@ const STATUS_BADGE_VARIANTS = new Set<StatusBadgeVariant>(['success', 'warning',
 
 function coerceStatusBadgeVariant(tone: ReturnType<typeof mapDictionaryColorToTone>): StatusBadgeVariant {
   return tone && STATUS_BADGE_VARIANTS.has(tone as StatusBadgeVariant) ? (tone as StatusBadgeVariant) : 'neutral'
-}
-
-function buildInitialFormValues(task: TodoLinkSummary | null): Record<string, unknown> | undefined {
-  if (!task) return undefined
-  const values: Record<string, unknown> = {
-    title: task.title ?? '',
-    is_done: task.isDone ?? false,
-    status: task.status ?? 'planned',
-    description: task.description ?? '',
-    priority: task.priority ?? '',
-    scheduledAt: task.dueAt ?? '',
-  }
-  if (task.customValues) {
-    for (const [key, value] of Object.entries(task.customValues)) {
-      if (RESERVED_TASK_CUSTOM_KEYS.has(key)) continue
-      const formKey = `cf_${key}`
-      if (values[formKey] === undefined) values[formKey] = value
-    }
-  }
-  return values
 }
 
 export function TasksSection({
@@ -175,14 +154,7 @@ export function TasksSection({
 
   const canonicalUpdateTask = React.useCallback(
     async (task: TodoLinkSummary, payload: TaskFormPayload) => {
-      await canonicalResult.updateInteraction(task.todoId, {
-        title: payload.base.title,
-        status: payload.base.status ?? (payload.base.is_done ? 'done' : 'planned'),
-        priority: payload.base.priority ?? null,
-        body: payload.base.description ?? null,
-        scheduledAt: payload.base.scheduledAt ?? null,
-        customValues: payload.custom,
-      })
+      await canonicalResult.updateInteraction(task.todoId, buildCanonicalTaskUpdatePayload(payload))
     },
     [canonicalResult],
   )
@@ -653,7 +625,7 @@ export function TasksSection({
           if (!next) closeDialog()
           else setDialogOpen(true)
         }}
-        initialValues={buildInitialFormValues(editingTask)}
+        initialValues={buildTaskFormInitialValues(editingTask)}
         onSubmit={handleDialogSubmit}
         isSubmitting={isMutating}
         contextMessage={dialogContextMessage}

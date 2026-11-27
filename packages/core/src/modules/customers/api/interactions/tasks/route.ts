@@ -8,18 +8,26 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema } from '../../openapi'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
-import { resolveCustomersRequestContext } from '../../../lib/interactionRequestContext'
+import { resolveAuthActorId, resolveCustomersRequestContext } from '../../../lib/interactionRequestContext'
 import {
-  filterTodoRows,
   listCanonicalTodoRows,
-  listLegacyTodoRows,
+  listMergedTodoRows,
   normalizeTodoSearch,
-  paginateTodoRows,
-  sortTodoRows,
+  type TodoListFilters,
+  type TodoListSort,
 } from '../../../lib/todoCompatibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const DAY_MS = 24 * 60 * 60 * 1000
+const OWNER_SELF_TOKEN = 'me'
+
+const dateBoundarySchema = z
+  .string()
+  .trim()
+  .refine((value) => !Number.isNaN(new Date(value).getTime()), { message: 'Invalid date' })
 
 const querySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -27,16 +35,49 @@ const querySchema = z.object({
   search: z.string().optional(),
   all: z.string().optional(),
   entityId: z.string().uuid().optional(),
+  status: z.enum(['open', 'done']).optional()
+    .describe('`open` keeps tasks in a non-terminal status, `done` keeps completed tasks. Omit for all tasks.'),
+  dueFrom: dateBoundarySchema.optional()
+    .describe('Inclusive lower bound for the due date (ISO date or date-time). Tasks without a due date are excluded.'),
+  dueTo: dateBoundarySchema.optional()
+    .describe('Inclusive upper bound for the due date. A date without a time covers that whole day (UTC).'),
+  priorityMin: z.coerce.number().int().min(0).max(100).optional(),
+  priorityMax: z.coerce.number().int().min(0).max(100).optional(),
+  ownerUserId: z.union([z.string().uuid(), z.literal(OWNER_SELF_TOKEN)]).optional()
+    .describe('Owner user id, or `me` for the signed-in user.'),
+  sortField: z.enum(['createdAt', 'dueAt', 'priority']).optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
 })
+
+type TasksListQuery = z.infer<typeof querySchema>
+
+function resolveDueBefore(value: string): Date {
+  if (DATE_ONLY_PATTERN.test(value)) return new Date(new Date(`${value}T00:00:00.000Z`).getTime() + DAY_MS)
+  return new Date(new Date(value).getTime() + 1)
+}
+
+function resolveTodoListFilters(query: TasksListQuery, resolveActorId: () => string): TodoListFilters {
+  return {
+    status: query.status ?? null,
+    dueFrom: query.dueFrom
+      ? new Date(DATE_ONLY_PATTERN.test(query.dueFrom) ? `${query.dueFrom}T00:00:00.000Z` : query.dueFrom)
+      : null,
+    dueBefore: query.dueTo ? resolveDueBefore(query.dueTo) : null,
+    priorityMin: query.priorityMin ?? null,
+    priorityMax: query.priorityMax ?? null,
+    ownerUserId: query.ownerUserId === OWNER_SELF_TOKEN ? resolveActorId() : query.ownerUserId ?? null,
+  }
+}
+
+function resolveTodoListSort(query: TasksListQuery): TodoListSort {
+  const field = query.sortField ?? 'createdAt'
+  return { field, dir: query.sortDir ?? (field === 'dueAt' ? 'asc' : 'desc') }
+}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.interactions.view'] },
 }
 
-// Per-source fetch cap used when compatibility mode must merge legacy todo
-// links and canonical task rows without DB-side union. Bounds memory on
-// tenants with large task history.
-const MERGED_TASK_FETCH_CAP = 2000
 
 export async function GET(request: Request): Promise<Response> {
   const { translate } = await resolveTranslations()
@@ -66,9 +107,11 @@ export async function GET(request: Request): Promise<Response> {
       })
     }
     const search = normalizeTodoSearch(query.search)
+    const filters = resolveTodoListFilters(query, () => resolveAuthActorId(auth))
+    const sort = resolveTodoListSort(query)
     const queryEngine = container.resolve('queryEngine') as QueryEngine
 
-    if (flags.unified) {
+    if (flags.unified && !search) {
       const canonical = await listCanonicalTodoRows(
         em,
         container,
@@ -78,8 +121,9 @@ export async function GET(request: Request): Promise<Response> {
         {
           entityId: query.entityId,
           pagination: exportAll ? null : { page: query.page, pageSize: query.pageSize },
-          searchText: search,
           isUnrestricted,
+          filters,
+          sort,
         },
       )
       const total = canonical.total
@@ -92,44 +136,31 @@ export async function GET(request: Request): Promise<Response> {
       })
     }
 
-    const legacyWindow = exportAll
-      ? null
-      : Math.min(
-          MERGED_TASK_FETCH_CAP,
-          Math.max(query.pageSize, query.page * query.pageSize + query.pageSize),
-        )
-    const [legacyRows, canonicalRows] = await Promise.all([
-      listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, query.entityId, {
-        limit: legacyWindow,
+    const merged = await listMergedTodoRows(
+      em,
+      queryEngine,
+      container,
+      auth,
+      selectedOrganizationId,
+      organizationIds,
+      {
+        entityId: query.entityId,
+        filters,
+        sort,
+        search,
+        pagination: exportAll ? null : { page: query.page, pageSize: query.pageSize },
         isUnrestricted,
-      }),
-      listCanonicalTodoRows(
-        em,
-        container,
-        auth,
-        selectedOrganizationId,
-        organizationIds,
-        {
-          entityId: query.entityId,
-          includeDeleted: true,
-          limit: legacyWindow,
-          isUnrestricted,
-        },
-      ),
-    ])
-    const mergedRows = [
-      ...legacyRows.filter((row) => !canonicalRows.bridgeIds.has(row.todoId)),
-      ...canonicalRows.items,
-    ]
-    const filteredRows = filterTodoRows(sortTodoRows(mergedRows), search)
-    const paged = paginateTodoRows(filteredRows, query.page, query.pageSize, exportAll)
+        includeLegacy: !flags.unified,
+      },
+    )
 
     return NextResponse.json({
-      items: paged.items,
-      total: paged.total,
-      page: paged.page,
-      pageSize: paged.pageSize,
-      totalPages: paged.totalPages,
+      items: merged.items,
+      total: merged.total,
+      page: exportAll ? 1 : query.page,
+      pageSize: exportAll ? merged.items.length : query.pageSize,
+      totalPages: exportAll ? 1 : Math.max(1, Math.ceil(merged.total / query.pageSize)),
+      ...(merged.totalIsCapped ? { totalIsCapped: true } : {}),
     })
   } catch (err) {
     if (isCrudHttpError(err)) {
@@ -157,6 +188,8 @@ const todoItemSchema = z.object({
   todoTimezone: z.string().nullable().optional(),
   todoCustomValues: z.record(z.string(), z.unknown()).nullable().optional(),
   todoOrganizationId: z.string().nullable(),
+  todoUpdatedAt: z.string().nullable().optional(),
+  todoOwnerUserId: z.string().nullable().optional(),
   organizationId: z.string(),
   tenantId: z.string(),
   createdAt: z.string(),

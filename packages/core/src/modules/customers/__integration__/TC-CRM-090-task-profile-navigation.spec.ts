@@ -207,6 +207,7 @@ test.describe('TC-CRM-090: Customer task navigation to the person Tasks tab', ()
 
         await page.goto('/backend/customer-tasks')
         await expect(page.getByRole('heading', { name: 'Customer related tasks', exact: true })).toBeVisible()
+        await page.getByRole('button', { name: /^Completion status: Open/ }).click()
         await page.getByRole('searchbox', { name: 'Search', exact: true }).fill(stamp)
         const taskRow = page.getByRole('row').filter({ hasText: taskTitles[0] })
         await expect(taskRow).toBeVisible()

@@ -7,10 +7,10 @@ import { resolveCustomerInteractionFeatureFlags } from '../../../../lib/interact
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
-  listLegacyTodoRows,
   listCanonicalTodoRows,
-  sortTodoRows,
+  listMergedTodoRows,
   type CustomerTodoRow,
+  type TodoListFilters,
 } from '../../../../lib/todoCompatibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -27,6 +27,8 @@ export const metadata = {
 }
 
 type WidgetContext = WidgetScopeContext & { limit: number }
+
+const OPEN_TODOS_FILTER: TodoListFilters = { status: 'open' }
 
 async function resolveContext(
   req: Request,
@@ -69,7 +71,6 @@ export async function GET(req: Request) {
       sub: 'customers.dashboard.todos',
     }
     const flags = await resolveCustomerInteractionFeatureFlags(container, tenantId)
-    const mergedWindow = Math.min(limit * 4, 50)
     const isUnrestricted = isUnrestrictedOrganizationScope === true
     const rows = flags.unified
       ? (await listCanonicalTodoRows(
@@ -78,35 +79,17 @@ export async function GET(req: Request) {
           auth,
           organizationIds?.[0] ?? null,
           organizationIds ?? null,
-          { pagination: { page: 1, pageSize: limit }, isUnrestricted },
+          { pagination: { page: 1, pageSize: limit }, isUnrestricted, filters: OPEN_TODOS_FILTER },
         )).items
-      : await Promise.all([
-          listLegacyTodoRows(
-            em,
-            container.resolve('queryEngine') as QueryEngine,
-            tenantId,
-            organizationIds ?? null,
-            undefined,
-            { limit: mergedWindow, isUnrestricted },
-          ),
-          listCanonicalTodoRows(
-            em,
-            container,
-            auth,
-            organizationIds?.[0] ?? null,
-            organizationIds ?? null,
-            {
-              includeDeleted: true,
-              limit: mergedWindow,
-              isUnrestricted,
-            },
-          ),
-        ]).then(([legacyRows, canonicalRows]) =>
-          sortTodoRows([
-            ...legacyRows.filter((row) => !canonicalRows.bridgeIds.has(row.todoId)),
-            ...canonicalRows.items,
-          ]),
-        )
+      : (await listMergedTodoRows(
+          em,
+          container.resolve('queryEngine') as QueryEngine,
+          container,
+          auth,
+          organizationIds?.[0] ?? null,
+          organizationIds ?? null,
+          { pagination: { page: 1, pageSize: limit }, isUnrestricted, filters: OPEN_TODOS_FILTER },
+        )).items
 
     const items = rows.slice(0, limit).map((row: CustomerTodoRow) => {
       const entity = row.customer ?? null
