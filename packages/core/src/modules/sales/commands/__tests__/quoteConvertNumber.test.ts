@@ -154,11 +154,12 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
     })
   }
 
-  function buildCtx(): CommandRuntimeContext {
+  function buildCtx(canEditNumber = false): CommandRuntimeContext {
     const container = createContainer({ injectionMode: InjectionMode.PROXY })
     container.register({
       em: asValue(mockEm),
       salesDocumentNumberGenerator: asValue(mockGenerator),
+      rbacService: asValue({ userHasAllFeatures: jest.fn().mockResolvedValue(canEditNumber) }),
       eventBus: asValue({ emit: jest.fn() }),
     })
     return {
@@ -225,7 +226,20 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
     expect(orderEntity!.orderNumber).not.toBe(quote.quoteNumber)
   })
 
-  it('allows explicit orderNumber override from the caller', async () => {
+  it('rejects manual numbering without permission before reserving a number', async () => {
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quotes.convert_to_order')!
+    const quote = buildQuote()
+    setupQuoteMocks(quote)
+
+    await expect(handler.execute({ quoteId: quote.id, orderNumber: 'CUSTOM-001' }, buildCtx()))
+      .rejects.toMatchObject({ status: 403 })
+
+    expect(mockGenerator.generate).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(mockEm.remove).not.toHaveBeenCalled()
+  })
+
+  it('allows an explicit orderNumber from a caller with permission', async () => {
     const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quotes.convert_to_order')
     expect(handler).toBeTruthy()
 
@@ -234,7 +248,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
 
     await handler!.execute(
       { quoteId: quote.id, orderNumber: 'CUSTOM-001' },
-      buildCtx(),
+      buildCtx(true),
     )
 
     const orderEntity = createdEntities.find(
