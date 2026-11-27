@@ -353,7 +353,7 @@ describe('runAiAgentText', () => {
     )
   })
 
-  it('skips resolvePageContext when recordType is null (list-level triggers)', async () => {
+  it.each([null, { kind: 'deal' }, ' '])('skips resolvePageContext for an unusable recordType (%j)', async (recordType) => {
     const resolvePageContext = jest.fn(async () => 'should-not-append')
     seedAgentRegistryForTests([
       makeAgent({
@@ -367,7 +367,7 @@ describe('runAiAgentText', () => {
       agentId: 'customers.assistant',
       messages: baseMessages as never,
       authContext: baseAuth,
-      pageContext: { view: 'customers.people.list', recordType: null, recordId: 'a,b' },
+      pageContext: { view: 'customers.people.list', recordType, recordId: 'a,b' },
       container: {} as never,
     })
 
