@@ -122,7 +122,8 @@ describe('useGuardedMutation — surfaces optimistic-lock conflict on the unifie
   it('replays the original write through the currently registered guards', async () => {
     triggerEventMock.mockResolvedValueOnce({ ok: false, message: 'blocked' })
     const { result, rerender } = renderHook(() => useGuardedMutation({ contextId: 'original-form' }))
-    const operation = jest.fn(async () => 'old write')
+    const operation = jest.fn(async (_headers?: Readonly<Record<string, string>>) => 'old write')
+    const onSuccess = jest.fn()
     const payload = { pipelineStageId: 'stage-2' }
     const context = { formId: 'original-form', resourceId: 'deal-1' }
     const errors: BackendMutationErrorEventDetail[] = []
@@ -130,11 +131,15 @@ describe('useGuardedMutation — surfaces optimistic-lock conflict on the unifie
     window.addEventListener(BACKEND_MUTATION_ERROR_EVENT, captureError)
 
     try {
-      await expect(result.current.runMutation({ operation, context, mutationPayload: payload })).rejects.toThrow('blocked')
+      await expect(result.current.runMutation({
+        operation, context, mutationPayload: payload, headerMode: 'request-local', onSuccess,
+      })).rejects.toThrow('blocked')
+      expect(onSuccess).not.toHaveBeenCalled()
       mockReplacementTriggerEvent = jest.fn().mockResolvedValue({ ok: true })
       rerender()
       await result.current.runMutation({ operation: async () => 'new write', context })
       mockReplacementTriggerEvent.mockClear()
+      mockReplacementTriggerEvent.mockResolvedValueOnce({ ok: true, requestHeaders: { 'x-sudo-token': 'retry' } })
 
       await expect(errors[0].retryMutation?.('active-form')).resolves.toBe(true)
 
@@ -144,9 +149,25 @@ describe('useGuardedMutation — surfaces optimistic-lock conflict on the unifie
       expect(mockReplacementTriggerEvent).toHaveBeenNthCalledWith(
         2, 'onAfterSave', payload, { ...context, formId: 'active-form' },
       )
-      expect(operation).toHaveBeenCalledTimes(1)
+      expect(operation.mock.calls).toEqual([[{ 'x-sudo-token': 'retry' }]])
+      expect(onSuccess).toHaveBeenCalledTimes(1)
     } finally {
+      mockReplacementTriggerEvent = null
       window.removeEventListener(BACKEND_MUTATION_ERROR_EVENT, captureError)
     }
   })
+})
+
+it('passes new request-local guard headers directly on retry', async () => {
+  const run = jest.fn(async (_headers?: Readonly<Record<string, string>>) => undefined)
+  triggerEventMock.mockResolvedValueOnce({ ok: true, requestHeaders: { 'x-sudo-token': 'first' } })
+    .mockResolvedValueOnce({ ok: true })
+    .mockResolvedValueOnce({ ok: true, requestHeaders: { 'x-sudo-token': 'retry' } })
+    .mockResolvedValueOnce({ ok: true })
+  const { result } = renderHook(() => useGuardedMutation({ contextId: 'test-form' }))
+  await act(async () => {
+    await result.current.runMutation({ context: {}, operation: run, headerMode: 'request-local' })
+    await result.current.retryLastMutation()
+  })
+  expect(run.mock.calls).toEqual([[{ 'x-sudo-token': 'first' }], [{ 'x-sudo-token': 'retry' }]])
 })

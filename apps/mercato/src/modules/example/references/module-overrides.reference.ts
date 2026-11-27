@@ -13,7 +13,7 @@
  *
  * WHAT IT IS
  * ----------
- * One typed, exhaustively commented `ModuleOverrides` value covering all sixteen wired
+ * One typed, exhaustively commented `ModuleOverrides` value covering all seventeen wired
  * domains. It is **inert by construction**: nothing imports it into a `ModuleEntry`, so
  * the dispatcher never sees it in a running app. It compiles against the real
  * `ModuleOverrides` interface, so a domain that is renamed or retyped upstream breaks
@@ -67,6 +67,9 @@ import type { ModuleOverrides } from '@open-mercato/shared/modules/overrides'
  * Rename every one of them when you adopt the shape.
  */
 export const exampleModuleOverridesReference: ModuleOverrides = {
+  // Paste this block into the Example entry's overrides in src/modules.ts.
+  // The exact address masks the observer on edit while keeping create and other sections available.
+  forms: { sections: { 'example.todo/showcase/update/observer': null } },
   // AI agents and tools. `agents`/`tools` are keyed replace-or-disable maps;
   // `extensions` is additive and never takes `null`.
   ai: {

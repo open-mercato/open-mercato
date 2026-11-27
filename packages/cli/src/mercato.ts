@@ -1571,12 +1571,13 @@ export async function run(argv = process.argv) {
       const commandArgs = remaining.filter(Boolean)
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
-        console.log('Usage: yarn mercato module <add|enable|eject|search|info> ...')
+        console.log('Usage: yarn mercato module <add|enable|eject|search|info|scaffold> ...')
         console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module eject <moduleId>')
         console.log('  yarn mercato module search [<query>] [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]')
         console.log('  yarn mercato module info <package-or-module-id> [--json]')
+        console.log('  yarn mercato module scaffold <moduleId> --entity <entity> --fields "<fields>" [--with-ui] [--target app|packages/core] [--features-prefix <prefix>] [--dry-run]')
         return 0
       }
 
@@ -1619,6 +1620,11 @@ export async function run(argv = process.argv) {
 
       if (subcommand === 'eject') {
         return handleDirectEjectCommand(commandArgs)
+      }
+
+      if (subcommand === 'scaffold') {
+        const { runModuleScaffold } = await import('./lib/scaffold')
+        return await runModuleScaffold(commandArgs)
       }
 
       console.error(`Unknown module subcommand "${subcommand}".`)
@@ -2930,7 +2936,24 @@ export async function run(argv = process.argv) {
     }
     return commandExitCode
   } catch (e: any) {
-    console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
+    const message = formatCliFailureMessage(modName, cmdName, e)
+    if (modName === 'entities' && cmdName === 'rotate-encryption-key' && process.env.OM_ROTATION_PROGRESS === 'json') {
+      process.stderr.write(JSON.stringify({
+        schemaVersion: 1,
+        type: 'phase.changed',
+        runId: 'rotation',
+        phase: 'rotation.failed',
+        entity: message,
+        rowsDone: '0',
+        rowsTotal: '0',
+        rowsTotalExact: false,
+        bytesDone: '0',
+        chunksDone: 0,
+        at: new Date().toISOString(),
+      }) + '\n')
+    } else {
+      console.error(`💥 Failed: ${message}`)
+    }
     return 1
   }
 }

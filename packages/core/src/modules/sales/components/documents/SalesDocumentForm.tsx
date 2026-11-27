@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -32,6 +33,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { E } from '#generated/entities.ids.generated'
 import {
   DictionaryEntrySelect,
@@ -829,6 +831,8 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
 
 export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind, inboxPreFill }: SalesDocumentFormProps) {
   const t = useT()
+  const { payload: backendChrome, isReady: backendChromeReady } = useBackendChrome()
+  const canEditDocumentNumber = backendChromeReady && hasFeature(backendChrome?.grantedFeatures, 'sales.documents.number.edit')
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
@@ -1183,13 +1187,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         )
       },
     },
-    {
+    ...(canEditDocumentNumber ? [{
       id: 'documentNumber',
       label: t('sales.documents.form.number', 'Document number'),
       type: 'custom',
       required: true,
       component: (props) => <DocumentNumberField {...props} t={t} />,
-    },
+    } satisfies CrudField] : []),
     {
       id: 'currencyCode',
       label: t('sales.documents.form.currency', 'Currency'),
@@ -1359,6 +1363,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     addressOptions,
     addressesError,
     addressesLoading,
+    canEditDocumentNumber,
     channelsEnabled,
     currencyLabels,
     defaultCurrency,
@@ -1373,7 +1378,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   ])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'docType', title: '', column: 1, fields: ['documentKind', 'documentNumber'] },
+    { id: 'docType', title: '', column: 1, fields: canEditDocumentNumber ? ['documentKind', 'documentNumber'] : ['documentKind'] },
     {
       id: 'customer',
       title: '',
@@ -1388,6 +1393,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     { id: 'billing', title: '', column: 2, fields: ['billingAddressSection'] },
     { id: 'custom', title: t('sales.documents.form.customFields', 'Custom fields'), column: 2, kind: 'customFields' },
   ], [
+    canEditDocumentNumber,
     channelsEnabled,
     customers,
     fetchCustomerEmail,
@@ -1451,12 +1457,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         metadata: base.customerEmail ? { customerEmail: base.customerEmail } : undefined,
       }
       payload.channelId = base.channelId || undefined
-      const documentNumber = typeof base.documentNumber === 'string' ? base.documentNumber.trim() : ''
-      if (!documentNumber) {
-        throw createCrudFormError(t('sales.documents.form.errors.numberRequired', 'Document number is required.'))
+      if (canEditDocumentNumber) {
+        const documentNumber = typeof base.documentNumber === 'string' ? base.documentNumber.trim() : ''
+        if (!documentNumber) {
+          throw createCrudFormError(t('sales.documents.form.errors.numberRequired', 'Document number is required.'))
+        }
+        payload[documentKind === 'order' ? 'orderNumber' : 'quoteNumber'] = documentNumber
       }
       if (documentKind === 'order') {
-        payload.orderNumber = documentNumber
         const lines = Array.isArray(base.lines) ? base.lines : []
         if (lines.length === 0) {
           const message = t('sales.orders.linesRequired', 'Add at least one line item before creating the order.')
@@ -1472,8 +1480,6 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           } = line.payload
           return { ...linePayload, currencyCode: linePayload.currencyCode || payload.currencyCode }
         })
-      } else {
-        payload.quoteNumber = documentNumber
       }
       const shippingSnapshot = base.useCustomShipping ? normalizeAddressDraft(base.shippingAddressDraft) : null
       let billingSnapshot = base.useCustomBilling ? normalizeAddressDraft(base.billingAddressDraft) : null
@@ -1556,7 +1562,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         throw createCrudFormError(t('sales.documents.form.errors.submit', 'Failed to create document.'))
       }
     },
-    [onCreated, t],
+    [canEditDocumentNumber, onCreated, t],
   )
 
   const cancelHref = initialKind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'

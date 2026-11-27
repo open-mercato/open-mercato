@@ -14,7 +14,7 @@ const mockKey = Buffer.alloc(32, 23).toString('base64')
 let mockManager: unknown
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({ resolve: () => mockManager }),
+  createRequestContainer: async () => ({ resolve: (name: string) => name === 'em' ? mockManager : undefined }),
 }))
 jest.mock('@open-mercato/shared/lib/encryption/kms', () => ({
   createKmsService: () => ({
@@ -102,7 +102,7 @@ describePostgres('encryption maintenance compares original PostgreSQL JSON value
     await pool.query('INSERT INTO access_logs VALUES ($1, $2, $3, $4, $5)',
       ['row-1', tenantId, organizationId, JSON.stringify(jsonbCiphertext), JSON.stringify(jsonCiphertext)])
 
-    await run('rotate-encryption-key', ['--allow-unsafe-old-key', '--old-key', oldRoot])
+    await run('rotate-encryption-key', ['--acknowledge-unprotected-key-rotation', '--allow-unsafe-old-key', '--old-key', oldRoot])
 
     const rotated = (await pool.query('SELECT context_json, legacy_json FROM access_logs')).rows[0]
     expect(decryptWithAesGcm(rotated.context_json, mockKey)).toBe('{"synthetic":[1,2]}')
@@ -125,7 +125,7 @@ describePostgres('encryption maintenance compares original PostgreSQL JSON value
     await pool.query('INSERT INTO access_logs VALUES ($1, $2, $3, $4, $5)',
       ['row-1', tenantId, organizationId, JSON.stringify(ciphertext), JSON.stringify(ciphertext)])
 
-    await run('rotate-encryption-key', ['--allow-unsafe-old-key', '--old-key', oldRoot])
+    await run('rotate-encryption-key', ['--acknowledge-unprotected-key-rotation', '--allow-unsafe-old-key', '--old-key', oldRoot])
 
     const rotated = (await pool.query('SELECT context_json, legacy_json FROM access_logs')).rows[0]
     for (const envelope of [rotated.context_json, rotated.legacy_json]) {
@@ -185,7 +185,7 @@ describePostgres('encryption maintenance compares original PostgreSQL JSON value
       await pool.query('UPDATE access_logs SET context_json = $1 WHERE id = $2', ['9007199254740993', 'row-1'])
     }
 
-    await expect(run('rotate-encryption-key', [])).rejects.toThrow('changed concurrently')
+    await expect(run('rotate-encryption-key', ['--acknowledge-unprotected-key-rotation'])).rejects.toThrow('changed concurrently')
     expect((await pool.query('SELECT context_json::text AS snapshot FROM access_logs')).rows).toEqual([
       { snapshot: '9007199254740993' },
     ])

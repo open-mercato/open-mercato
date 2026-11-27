@@ -535,6 +535,8 @@ function addModule(collector: SnapshotCollector, roots: WatchRoots, index: numbe
   ]))
   const convention = (relativePath: string, kind: InputKind) => collector.pair(identity, roots, `${relativePath}.ts`, kind)
   for (const relativePath of REGISTRY_CONVENTIONS) convention(relativePath, { category: 'registry-convention' })
+  // Section definitions can change shared field sets, route manifests, and OpenAPI together.
+  convention('form-sections', { category: 'configuration' })
   for (const [relativePath, extensionId] of Object.entries(EXTENSION_CONVENTIONS)) {
     convention(relativePath, { category: 'extension', extensionId })
   }

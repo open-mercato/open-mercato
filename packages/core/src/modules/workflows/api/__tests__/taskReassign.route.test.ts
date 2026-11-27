@@ -104,14 +104,14 @@ function setAuth(overrides: { sub?: string; roles?: string[] } = {}) {
   })
 }
 
-function runReassign(body: Record<string, unknown>, headers: Record<string, string> = {}) {
+function runReassign(body: Record<string, unknown>, headers: Record<string, string> = {}, id = TASK_ID) {
   return reassignTask(
-    new NextRequest(`http://localhost/api/workflows/tasks/${TASK_ID}/reassign`, {
+    new NextRequest(`http://localhost/api/workflows/tasks/${id}/reassign`, {
       method: 'POST',
       body: JSON.stringify(body),
       headers: { 'content-type': 'application/json', ...headers },
     }),
-    { params: { id: TASK_ID } },
+    { params: { id } },
   )
 }
 
@@ -138,6 +138,23 @@ beforeEach(() => {
     resolveOrganizationScopeForRequest,
   } = require('@open-mercato/core/modules/directory/utils/organizationScope')
   resolveOrganizationScopeForRequest.mockResolvedValue({ selectedId: ORG_ID })
+})
+
+test('reassign refuses a malformed task ID before the task lookup', async () => {
+  const payload = { assignedTo: ADMIN_ID }
+  const malformed = await bodyAndStatus(await runReassign(payload, {}, 'invalid-id'))
+  const wrappedId = `{${TASK_ID}}`
+
+  expect(mockEm.findOne).not.toHaveBeenCalled()
+  expect(malformed).toEqual({ status: 404, body: { error: 'Task not found' } })
+  expect(await bodyAndStatus(await runReassign(payload, {}, wrappedId))).toEqual(malformed)
+  expect(mockEm.findOne).toHaveBeenCalledTimes(1)
+  expect(mockEm.findOne).toHaveBeenCalledWith(UserTask, {
+    id: wrappedId,
+    tenantId: TENANT_ID,
+    organizationId: ORG_ID,
+  })
+  expect(taskHandler.reassignUserTask).not.toHaveBeenCalled()
 })
 
 describe('route feature gate', () => {

@@ -9,11 +9,13 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('ui').child({ component: 'useGuardedMutation' })
+const noMutationWidgets: [] = []
 
 type GuardedMutationContext = Record<string, unknown>
 
 type GuardedMutationRunInput<TResult, TContext extends GuardedMutationContext> = {
-  operation: () => Promise<TResult>
+  operation: (requestHeaders?: Readonly<Record<string, string>>) => Promise<TResult>
+  headerMode?: 'request-local'
   context: TContext
   mutationPayload?: Record<string, unknown>
   onSuccess?: () => void | Promise<void>
@@ -23,6 +25,7 @@ type UseGuardedMutationOptions = {
   contextId: string
   blockedMessage?: string
   spotId?: string
+  enabled?: boolean
 }
 
 type GuardedMutationExecutor<TContext extends GuardedMutationContext> = <TResult>(
@@ -34,9 +37,10 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
   contextId,
   blockedMessage = 'Save blocked by validation',
   spotId = GLOBAL_MUTATION_INJECTION_SPOT_ID,
+  enabled = true,
 }: UseGuardedMutationOptions) {
   const t = useT()
-  const { triggerEvent } = useInjectionSpotEvents<TContext, Record<string, unknown>>(spotId)
+  const { triggerEvent } = useInjectionSpotEvents<TContext, Record<string, unknown>>(spotId, enabled ? undefined : noMutationWidgets)
   const lastMutationRef = React.useRef<BackendMutationErrorEventDetail['retryMutation']>(undefined)
   const executeMutationRef = React.useRef<GuardedMutationExecutor<TContext> | null>(null)
 
@@ -69,6 +73,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
     operation,
     context,
     mutationPayload,
+    headerMode,
     onSuccess,
   }: GuardedMutationRunInput<TResult, TContext>, retryFormId?: string): Promise<TResult> => {
     const payload = mutationPayload ?? {}
@@ -76,7 +81,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
       const execute = executeMutationRef.current
       if (!execute) return false
       try {
-        await execute({ operation, context, mutationPayload: payload, onSuccess }, formId)
+        await execute({ operation, context, mutationPayload: payload, headerMode, onSuccess }, formId)
         return true
       } catch {
         return false
@@ -94,8 +99,9 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
 
     let result: TResult
     try {
-      result =
-        beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
+      result = headerMode === 'request-local'
+        ? await operation(beforeSave.requestHeaders)
+        : beforeSave.requestHeaders && Object.keys(beforeSave.requestHeaders).length > 0
           ? await withScopedApiRequestHeaders(beforeSave.requestHeaders, operation)
           : await operation()
 

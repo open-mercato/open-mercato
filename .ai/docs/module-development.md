@@ -24,6 +24,7 @@
 | `search.ts` | `searchConfig` | Search indexing configuration |
 | `events.ts` | `eventsConfig` | Typed event declarations |
 | `extension-points.ts` | `extensionPoints` | Canonical serializable UI host declarations for generated UMES facts |
+| `form-sections.ts` | `crudFormExtensions`, `crudFormSections` | CrudForm section extension declarations and optional hand-written host facts and adapters |
 | `translations.ts` | `translatableFields` | Translatable field declarations per entity |
 | `notifications.ts` | `notificationTypes` | Notification type definitions |
 | `notifications.client.ts` | — | Client-side notification renderers |
@@ -38,6 +39,17 @@
 | `widgets/injection-table.ts` | — | Widget-to-slot mappings |
 | `widgets/components.ts` | `componentOverrides` | Component replacement/wrapper/props override definitions |
 | `data/enrichers.ts` | `enrichers` | Response enrichers for data federation |
+
+## CrudForm section policies
+
+1. Find the published `crud-form:<hostId>` and its supported variant and operation. Add one `defineCrudFormExtension` for that host to the module-root `form-sections.ts` export `crudFormExtensions`. Import the builders from `@open-mercato/ui/backend/crud-form-extensions`.
+2. Use `add`, `hide`, `replace`, or `modify` for sections. Use `field.add`, `field.patch`, and `field.remove` on field-granular sections. Keep labels and validation messages as i18n keys. Leave a field's store omitted to inherit its section store or the default custom-field store.
+3. Run `yarn generate` with the same enabled modules on server and browser. Review the compiled summary and commit `form-sections.revisions.json`. Resolve competing contributions with an exact `overrides.forms.sections` selector in `modules.ts`, or mask the address with `null`.
+4. Verify the configured form, its guarded write, and the behavior when its overrides are masked. Use `crudFormSections` with `defineCrudFormSections` for hand-written capabilities, custom host adapters, and independent mutation surfaces. Conventional single-resource CRUD factories can publish a `derivedHosts` entry with `defineCrudRouteSectionHost`.
+
+The [Todo showcase](../../apps/mercato/src/modules/example/form-sections.ts) demonstrates the supported operations. See the [required leaf coverage reference](../../apps/mercato/src/modules/example/references/crud-form-extensions/required-coverage.md) for blocked forms and the [typed configuration example](../../apps/mercato/src/modules/example/references/module-overrides.reference.ts) for masking one section.
+
+See the [wrapper and advanced recipes](../../apps/docs/docs/framework/admin-ui/crud-form.mdx#server-verified-section-policies), the [framework spec](../specs/2026-10-22-crudform-section-overrides-framework.md), and the [non-production parity fixture](../qa/fixtures/crudform-section-policy/README.md).
 
 ## Module Rules
 
