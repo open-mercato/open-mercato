@@ -82,7 +82,7 @@ test.describe('TC-CRM-EMAIL-005: threading inheritance via shared hub thread', (
         expect(aclResp.ok(), 'PUT ACL should succeed').toBeTruthy();
 
         const userEmail = `qa-crm-email-005-${stamp}@acme.com`;
-        const userPassword = 'Valid1!Pass';
+        const userPassword = 'QaValid1!Pass';
         userId = await createUserFixture(request, adminToken, {
           email: userEmail,
           password: userPassword,

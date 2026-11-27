@@ -1150,14 +1150,13 @@
       },
       "indexes": [
         {
-          "columnNames": [
-            "code"
-          ],
+          "columnNames": [],
           "composite": false,
-          "constraint": true,
-          "keyName": "attachment_partitions_code_unique",
+          "constraint": false,
+          "keyName": "attachment_partitions_scope_code_unique",
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"attachment_partitions_scope_code_unique\" on \"attachment_partitions\" (\"code\", \"tenant_id\", \"organization_id\") nulls not distinct"
         },
         {
           "columnNames": [

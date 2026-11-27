@@ -2,15 +2,11 @@ jest.mock('../workflow-executor', () => ({
   startWorkflow: jest.fn(),
   executeWorkflow: jest.fn().mockResolvedValue(undefined),
 }))
-jest.mock('../../../api_keys/services/apiKeyService', () => ({
-  withOnetimeApiKey: jest.fn().mockResolvedValue({ status: 200 }),
-}))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
   findOneWithDecryption: jest.fn(),
 }))
 
-import { withOnetimeApiKey } from '../../../api_keys/services/apiKeyService'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
@@ -128,17 +124,27 @@ describe('trigger-to-activity authorization boundary', () => {
       if (typeof entity === 'function' && entity.name === 'User' && where.id === 'victim-user') return { id: 'victim-user' }
       return null
     }) as typeof findOneWithDecryption)
+    const apiKeyOneTimeIssuer = {
+      withOneTimeApiKey: jest.fn().mockResolvedValue({ status: 200 }),
+    }
     const em = { fork: jest.fn() }
     em.fork.mockReturnValue(em)
     const container = {
+      hasRegistration: (name: string) =>
+        name === 'em' ||
+        name === 'commandBus' ||
+        name === 'rbacService' ||
+        name === 'moduleConfigService' ||
+        name === 'apiKeyOneTimeIssuer',
       resolve: (name: string): unknown => {
         if (name === 'em') return em
         if (name === 'commandBus') return commandBus
         if (name === 'rbacService') return rbacService
         if (name === 'moduleConfigService') return { getValue: jest.fn().mockResolvedValue(null) }
+        if (name === 'apiKeyOneTimeIssuer') return apiKeyOneTimeIssuer
         throw new Error('[internal] Unexpected authorization boundary dependency')
       },
-    } as AwilixContainer
+    } as unknown as AwilixContainer
     registerWorkflowSafeCommands([
       { commandId: 'customers.people.update', requiredFeatures: ['customers.people.edit'], defaultEnabled: true },
     ])
@@ -169,7 +175,7 @@ describe('trigger-to-activity authorization boundary', () => {
       }
       expect(commandBus.execute).not.toHaveBeenCalled()
       expect(rbacService.userHasAllFeatures).not.toHaveBeenCalled()
-      expect(withOnetimeApiKey).not.toHaveBeenCalled()
+      expect(apiKeyOneTimeIssuer.withOneTimeApiKey).not.toHaveBeenCalled()
     } finally {
       clearWorkflowSafeCommandsForTests()
     }
@@ -199,7 +205,6 @@ describe('persisted pre-fix event identities', () => {
     await expect(resolveCallApiRoleIds(em, instance)).rejects.toThrow('Untrusted legacy event-triggered workflow identity')
     await expect(resolveWorkflowPrincipalUserId(em, instance)).rejects.toThrow('Untrusted legacy event-triggered workflow identity')
     expect(container.resolve).not.toHaveBeenCalled()
-    expect(withOnetimeApiKey).not.toHaveBeenCalled()
     expect(findOneWithDecryption).not.toHaveBeenCalled()
   })
 })

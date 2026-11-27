@@ -94,6 +94,11 @@ export class IntegrationCredentials {
 
 @Entity({ tableName: 'integration_states' })
 @Index({ properties: ['integrationId', 'organizationId', 'tenantId'] })
+@Index({
+  name: 'integration_states_scope_unique_idx',
+  expression:
+    `create unique index "integration_states_scope_unique_idx" on "integration_states" ("integration_id", "organization_id", "tenant_id") where "deleted_at" is null`,
+})
 export class IntegrationState {
   [OptionalProps]?: 'isEnabled' | 'apiVersion' | 'reauthRequired' | 'lastHealthStatus' | 'lastHealthCheckedAt' | 'lastHealthLatencyMs' | 'enabledAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })

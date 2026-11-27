@@ -45,8 +45,8 @@ This catalog indexes 199 focused lessons. Route the task first, then read only r
 
 - [Carry authorized SSO role IDs through synchronization](lessons/carry-authorized-sso-role-ids-through-synchronization.md) — area:module-data,testing; module:sso,auth; topic:access-control,concurrency,role-mappings
 - [Serialize deprovisioning with final session issuance](lessons/serialize-deprovisioning-with-session-issuance.md) — area:module-data,testing; module:auth,sso; topic:security,concurrency,session-revocation,tenant-isolation
-- [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso; topic:testing,api-contracts,redirects,session-revocation
-- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord,catalog,workflows; topic:testing,fixture-cleanup,fixture-setup,api-contracts,proposal-origin,error-handling
+- [Assert auth redirect responses before following them](lessons/assert-auth-redirects-before-following-them.md) — area:integration,testing; module:auth,sso,security; topic:testing,api-contracts,redirects,session-revocation
+- [Verify integration fixture cleanup against the actual endpoint](lessons/verify-integration-fixture-cleanup-contracts.md) — area:testing,integration; module:resources,entities,customers,sales,warranty_claims,channel_discord,catalog,workflows,security; topic:testing,fixture-cleanup,fixture-setup,api-contracts,proposal-origin,error-handling
 - [Realtime detail refreshes must preserve drafts and reject stale responses](lessons/realtime-detail-refreshes-preserve-drafts-and-response-order.md) — area:backend-ui,testing; module:warranty_claims,ui,events; topic:events,realtime,request-ordering,testing,telemetry
 
 - [Bounded trackers need per-admission identity](lessons/bounded-trackers-need-per-admission-identity.md) — area:architecture,testing; module:shared,audit_logs; topic:concurrency,observability,testing,security,tenant-isolation
@@ -60,7 +60,7 @@ This catalog indexes 199 focused lessons. Route the task first, then read only r
 - [Dev-session orphan recovery requires consent and full descendant cleanup](lessons/dev-session-orphan-recovery-requires-consent.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,shutdown,concurrency,template-sync
 - [Serialize dev-session stale recovery across ownership changes](lessons/serialize-dev-session-stale-recovery.md) — area:architecture,testing,debugging; module:create_app; topic:dev-runtime,concurrency,template-sync
 
-- [Business extensions belong to the owning module](lessons/business-extensions-belong-to-the-owning-module.md) — area:architecture,backend-ui,testing; module:customers,example,shared,ui; topic:module-boundaries,testing,template-sync,public-contracts
+- [Business extensions belong to the owning module](lessons/business-extensions-belong-to-the-owning-module.md) — area:architecture,backend-ui,testing; module:customers,example,sales,shared,ui; topic:module-boundaries,testing,template-sync,public-contracts
 - [Durable owner policies need visible partition state](lessons/durable-owner-policies-need-visible-partition-state.md) — area:module-data,architecture,testing; module:attachments; topic:access-control,data-integrity,database-migrations
 - [Real WebAuthn tests need a valid relying-party hostname](lessons/real-webauthn-tests-need-valid-rp-hostname.md) — area:testing,integration; module:security; topic:webauthn,testing
 - [Provider validation boundaries must catch synchronous errors](lessons/provider-validation-boundaries-must-catch-synchronous-errors.md) — area:architecture,testing; module:security; topic:validation-errors,provider-lifecycle
@@ -109,7 +109,7 @@ This catalog indexes 199 focused lessons. Route the task first, then read only r
 - [Classify entity metadata by ORM ownership before custom declarations](lessons/classify-entity-metadata-by-orm-ownership-before-custom.md) — area:module-data; module:entities; topic:access-control,filters
 - [Concurrent index migrations must recover from invalid build stubs](lessons/concurrent-index-migrations-must-recover-from-invalid-build-stubs.md) — area:module-data,debugging,testing; module:query_index; topic:concurrency,database-migrations,data-integrity
 - [Data migrations must declare the query-index projections they invalidate](lessons/data-migrations-must-declare-the-projections-they.md) — area:module-data,architecture,debugging; module:query_index,cli,customers; topic:database-migrations,query-index,events
-- [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers; topic:data-scoping,access-control,command-pattern,historical-attribution,row-locking,reference-integrity
+- [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers,resources; topic:data-scoping,access-control,command-pattern,historical-attribution,row-locking,reference-integrity
 - [Cross-module query precedent is not permission to copy storage coupling](lessons/cross-module-query-precedent-is-not-permission-to-copy.md) — area:module-data,debugging; module:customers; topic:access-control,module-boundaries,testing
 - [CRUD-owned custom-field writes should not emit a second entity event](lessons/crud-owned-custom-field-writes-should-not-emit-a-second.md) — area:module-data,umes; module:entities,query_index,cli; topic:command-pattern,custom-fields,data-integrity
 - [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
@@ -256,7 +256,7 @@ This catalog indexes 199 focused lessons. Route the task first, then read only r
 
 ### framework-context
 
-- [Check pending compatibility disclosures as a union](lessons/check-pending-compatibility-disclosures-as-a-union.md) — area:framework-context,spec-pr,testing; module:create_app,attachments; topic:backward-compatibility,instruction-budget,testing
+- [Check pending compatibility disclosures as a union](lessons/check-pending-compatibility-disclosures-as-a-union.md) — area:framework-context,spec-pr,testing; module:create_app,attachments,agent_orchestrator; topic:backward-compatibility,instruction-budget,testing,merge-conflicts
 - [Docker entrypoints must verify required binaries, not just non-empty node_modules](lessons/docker-entrypoints-must-verify-required-binaries-not.md) — area:framework-context,module-data,architecture; module:cli,create_app; topic:build-output,command-pattern,package-runtime
 - [Standalone agent context must follow the installed package, not the checkout layout](lessons/standalone-agent-context-must-follow-the-installed.md) — area:framework-context,architecture; module:checkout,create_app; topic:generated-files,database-migrations,package-runtime
 - [Standalone source-mirror discovery must remap source extensions to runtime files](lessons/standalone-source-mirror-discovery-must-remap-source.md) — area:framework-context,architecture,umes; module:create_app,cli; topic:access-control,build-output,generated-files
