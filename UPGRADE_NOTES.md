@@ -356,6 +356,24 @@ feature to intended custom roles. Superadministrator access is preserved. Client
 that link to the backend page must allow for permission denial. No database
 migration, environment change, or startup-command change is required.
 
+## Payment gateway scoped not-found responses (#9441)
+
+Capture, refund and cancel now return HTTP 404 when the transaction is missing,
+deleted or outside the caller's tenant/organization scope. Previously the scoped
+lookup failure was reported as a provider 502. Missing and foreign records share
+the same localized not-found response, before provider calls or operation writes.
+Treat this 404 as a final invalid transaction/scope request rather than retrying it
+as a provider outage; genuine provider errors remain 502. Status refresh also
+preserves the scoped not-found 404 if the transaction disappears after its first
+read. Missing-adapter and unrelated typed provider failures retain their previous
+502 response. A capture reservation first observed under the cancellation lock
+returns the documented `payment_cancel_captured_funds` code with the existing
+reservation message.
+No schema, configuration, route or successful-payment migration is required.
+The capture/cancel serialization fix from #8224 is included: cancellation holds
+the transaction lock through provider completion, and capture reserves its exact
+amount against that same row. Protected current-head financial QA remains open.
+
 ## Deal loss reasons seeded by customers (#8801)
 
 `customers` now seeds the `sales.deal_loss_reason` dictionary (key unchanged); `seedSalesStatusDictionaries` and `mercato sales seed-statuses` no longer create it. Existing tenants get it from the `customers.seed-deal-loss-reasons` upgrade action; as a fallback run `mercato seed:defaults --module customers` or `mercato sales backfill-deal-loss-reasons`. Seeding restores a deleted loss-reason dictionary, because the deal-lost dialog needs it, and keeps tenant-set colors and icons.
@@ -1338,6 +1356,28 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 
 **Compatibility:** Piotr Karwatka (@pkarw) explicitly approved the Emergency Security Exception on 2026-11-12, waiving deprecation steps 1–3 for this STABLE API/command narrowing; the dated ledger records the approval. No bridge can retain the old unrestricted assignment safely. See [the focused spec](.ai/specs/2026-11-05-customer-comment-author-attribution.md).
 
+### Currencies adds opt-in official NBP average rates
+
+The `currencies` module now provides the explicit-only `nbp_average` provider for NBP
+tables A and B. It persists official `average` rates as foreign-currency-to-PLN values and
+stores the NBP publication number in the nullable `exchange_rates.external_reference` column.
+The migration is additive and existing `NBP` table-C buy/sell behavior is unchanged.
+
+**Action for consumers:** existing unfiltered `ExchangeRateService` calls retain their
+default-provider behavior. To request an official rate, call it with
+`options: { provider: 'nbp_average', rateType: 'average' }`. Enable the separate
+`nbp_average` fetch configuration only for organizations that should ingest these rates.
+`externalReference` is provider-owned provenance and is deliberately read-only in manual
+exchange-rate create/update payloads. The machine-readable `nbp_average` source is intentional;
+the existing `NBP` and `Raiffeisen Bank Polska` source values remain frozen legacy spellings.
+
+`POST /api/currencies/fetch-rates` keeps its previous request shapes during a bridge release: a
+date-only `date` such as `2026-08-24`, an empty `providers` list (which continues to select the
+default providers) and unknown request properties are still accepted, and unknown properties are
+ignored instead of rejected. Arbitrary string provider entries, duplicate names and lists longer
+than twenty entries remain accepted. Non-string entries and unparseable dates are rejected. A later
+release will require a complete RFC 3339 timestamp, reject unknown properties and reject an empty
+provider list; update callers that still send the legacy shapes before upgrading past the bridge.
 ### Money and exchange-rate amounts are arbitrary precision (exact decimals)
 
 Money columns and `exchange_rates.rate` are now unconstrained `numeric`, and all built-in money math
@@ -1634,6 +1674,39 @@ No tool input or result-field migration is required.
 Creating or renumbering a line with a number already used by another live line now returns `409`, with a localized `error` and `code: warranty_claims.errors.duplicateLineNo`. Initial claim batches also reject duplicate resolved numbers, including collisions between explicit and default numbers. Valid inputs and automatic numbering remain unchanged.
 
 An undo that would restore an occupied line number is refused before changing the line or totals. Remove the occupying line or move it to a free number through the API, then retry the same undo. Existing duplicates are not automatically renumbered. No database migration is required.
+
+### QueryEngine rejects empty OR and unsupported filter operators (#7831)
+
+`BasicQueryEngine` and `HybridQueryEngine` now throw `TypeError` for `{ $or: [] }`
+(including nested occurrences) and unsupported field operators in object or array
+filters. These predicates previously could be discarded, returning every otherwise
+visible row. Objects mixing supported and unsupported operators are rejected too.
+
+Module authors: omit an optional OR condition when no restriction is intended;
+use `{ id: { $in: [] } }` to match nothing. Replace unsupported operators with
+supported `FilterOp` values. Absent filters, `{}`, `[]`, and `{ $and: [] }` retain
+their existing unconstrained meaning. Operators: audit custom modules and saved
+filter presets before upgrading. No database migration or configuration change
+is required. See the [filter specification](.ai/specs/implemented/2026-04-03-advanced-datatable-ux.md#migration--backward-compatibility).
+
+### Advanced-filter all-of and staff role filters (PR #7996)
+
+The built-in advanced-filter compilers now emit supported `$overlap` predicates
+for `has_all_of`. Staff role filtering uses the same operator. Native SQL arrays,
+JSONB string arrays, and custom-field value rows preserve their storage-specific
+membership semantics. No schema migration or configuration change is required.
+
+The approved additive `FilterOp` member `not_ilike` also accepts the existing
+field-level `{ $not: { $ilike: pattern } }` compiler output. Plaintext patterns
+retain PostgreSQL ILIKE wildcard/escaping semantics. Encrypted fields use scoped
+hashed-token exclusion, including the tokenizer's minimum-length/prefix behavior
+and order-independent multiword matching; arbitrary encrypted substring matching
+is not promised. Known encrypted base fields reject unindexable terms or disabled
+search. Custom-field/document plaintext remains literal, while encrypted values
+without usable scoped evidence are excluded. Missing values and empty arrays do
+not satisfy negation. Other negative forms remain unsupported and throw TypeError.
+Downstream exhaustive switches over `FilterOp` must account for `not_ilike`; no
+existing union member or signature is removed. There is no new HTTP 400 mapping.
 
 ### Workflow webhook responses have resource limits (#7814)
 
