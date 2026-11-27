@@ -13,7 +13,11 @@ import {
   type CrudIndexerConfig,
   type CrudEntityIdentifiers,
 } from '../crud/types'
-import { getTransactionLifetime, onTransactionLifetimeComplete } from '../commands/transaction-lifetime'
+import {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+  type TransactionOutcome,
+} from '../commands/transaction-lifetime'
 import type { BulkImportSuppression } from '../commands/types'
 import { conflict, CrudHttpError, isUniqueViolation, notFound } from '../crud/errors'
 import { AdvisoryLockUnavailableError, withAdvisoryXactLock } from '../db/advisoryLock'
@@ -104,6 +108,11 @@ type QueuedCrudSideEffect = {
 export type DefaultCrudIndexerConfig = {
   indexer: CrudIndexerConfig<unknown>
   entityClass: abstract new (...args: never[]) => object
+}
+
+export type CommandTransactionDataEngine = {
+  dataEngine: DataEngine
+  complete(outcome: TransactionOutcome, suppress?: BulkImportSuppression): Promise<void>
 }
 
 export interface DataEngine {
@@ -219,6 +228,11 @@ export interface DataEngine {
    * obligation was discharged by nobody. Optional for the same reason as the setter.
    */
   hasIndexedDefaultEntityClass?(): boolean
+
+  createCommandTransactionScope?(
+    em: EntityManager,
+    container: AwilixContainer,
+  ): CommandTransactionDataEngine
 }
 
 export const SYSTEM_ENTITY_RECORDS_BLOCKED_CODE = 'system_entity_records_blocked'
@@ -257,6 +271,8 @@ export function assertCustomEntityStorageEntityId(em: EntityManager, entityId: s
 }
 
 export class DefaultDataEngine implements DataEngine {
+  private deferredNotifications: Array<(suppress: BulkImportSuppression | undefined, failures: unknown[]) => Promise<void>> | null = null
+  private commandEffectsDiscarded = false
   private pendingSideEffects = new Map<string, QueuedCrudSideEffect>()
   private defaultIndexer: DefaultCrudIndexerConfig | null = null
   private indexedDefaultEntityClass = false
@@ -280,6 +296,36 @@ export class DefaultDataEngine implements DataEngine {
     return this.indexedDefaultEntityClass
   }
 
+  createCommandTransactionScope(em: EntityManager, container: AwilixContainer): CommandTransactionDataEngine {
+    const dataEngine = new DefaultDataEngine(em, container)
+    dataEngine.defaultIndexer = this.defaultIndexer
+    dataEngine.deferredNotifications = []
+    return {
+      dataEngine,
+      async complete(outcome, suppress) {
+        const deferred = dataEngine.deferredNotifications
+        if (!deferred) return
+        dataEngine.deferredNotifications = null
+        if (outcome === 'rolled_back') {
+          dataEngine.commandEffectsDiscarded = true
+          dataEngine.pendingSideEffects.clear()
+          deferred.length = 0
+          return
+        }
+        const failures: unknown[] = []
+        for (const notify of deferred) {
+          try {
+            await notify(suppress, failures)
+          } catch (error) {
+            failures.push(error)
+          }
+        }
+        await dataEngine.flushPendingOrmEntityChanges(suppress, failures)
+        if (failures.length) throw new AggregateError(failures, '[internal] Ambient CRUD effects failed after commit')
+      },
+    }
+  }
+
   private matchesDefaultEntityClass(entity: unknown): boolean {
     const declared = this.defaultIndexer?.entityClass
     // `OrmEntityConfig.entity` is `any` and this repository treats `EntitySchema` instances as a
@@ -298,6 +344,9 @@ export class DefaultDataEngine implements DataEngine {
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
     const { entityId, recordId, organizationId = null, tenantId = null, values } = opts
     const em = opts.transactionalEm ?? this.em
+    if (this.deferredNotifications && em !== this.em) {
+      throw new Error('[internal] Custom-field writes must use the ambient command transaction')
+    }
     if (opts.transactionalEm && (!em.isInTransaction() || !getTransactionLifetime(em))) {
       throw new Error('[internal] Custom-field writes require an active managed transaction')
     }
@@ -325,36 +374,51 @@ export class DefaultDataEngine implements DataEngine {
     })
     if (opts.notify === false) return
 
-    const notify = async () => {
-      let bus: EventBus | null = null
-      try {
-        bus = (this.container.resolve('eventBus') as EventBus)
-      } catch {
-        bus = null
-      }
-      if (bus) {
-        const [mod, ent] = (entityId || '').split(':')
-        if (mod && ent) {
-          const eventName = `${mod}.${ent}.updated`
-          try {
-            await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, {
-              persistent: true,
-              tenantId,
-              organizationId,
-              emitterModuleId: mod,
-            })
-          } catch {
-            // non-blocking
-          }
+    const signal = { entityId, recordId, organizationId, tenantId }
+    if (opts.transactionalEm && !this.deferredNotifications) {
+      onTransactionLifetimeComplete(em, async (outcome) => {
+        if (outcome === 'committed') await this.emitCustomFieldUpdate(signal)
+      })
+      return
+    }
+    await this.emitCustomFieldUpdate(signal)
+  }
+
+  private async emitCustomFieldUpdate(input: {
+    entityId: string
+    recordId: string
+    organizationId: string | null
+    tenantId: string | null
+  }): Promise<void> {
+    if (this.commandEffectsDiscarded) return
+    if (this.deferredNotifications) {
+      this.deferredNotifications.push(async (suppress) => {
+        if (!suppress?.skipEvents) await this.emitCustomFieldUpdate(input)
+      })
+      return
+    }
+    const { entityId, recordId, organizationId, tenantId } = input
+    let bus: EventBus | null = null
+    try {
+      bus = (this.container.resolve('eventBus') as EventBus)
+    } catch {
+      bus = null
+    }
+    if (bus) {
+      const [mod, ent] = (entityId || '').split(':')
+      if (mod && ent) {
+        const eventName = `${mod}.${ent}.updated`
+        try {
+          await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, {
+            persistent: true,
+            tenantId,
+            organizationId,
+            emitterModuleId: mod,
+          })
+        } catch {
+          // non-blocking
         }
       }
-    }
-    if (opts.transactionalEm) {
-      onTransactionLifetimeComplete(em, async (outcome) => {
-        if (outcome === 'committed') await notify()
-      })
-    } else {
-      await notify()
     }
   }
 
@@ -540,7 +604,7 @@ export class DefaultDataEngine implements DataEngine {
         return error
       }
       const lockKey = `custom_entity_create:${JSON.stringify([tenantId, orgId, opts.entityId, id.toLowerCase()])}`
-      await withAdvisoryXactLock(this.em, lockKey, async (txEm) => {
+      await this.withCustomEntityStorageLock(lockKey, async (txEm) => {
         const storage = txEm.getKysely<CustomEntityStorageDatabase>()
         const existing = await storage
           .selectFrom('custom_entities_storage')
@@ -743,6 +807,18 @@ export class DefaultDataEngine implements DataEngine {
     actorUserId?: string | null
     suppress?: BulkImportSuppression
   }): Promise<void> {
+    if (this.commandEffectsDiscarded) return
+    if (this.deferredNotifications) {
+      this.deferredNotifications.push(async (suppress) => this.emitOrmEntityEvent({
+        ...opts,
+        suppress: {
+          ...opts.suppress,
+          skipEvents: opts.suppress?.skipEvents || suppress?.skipEvents,
+          skipReindex: opts.suppress?.skipReindex || suppress?.skipReindex,
+        },
+      }))
+      return
+    }
     const { action, entity, events, indexer, identifiers, syncOrigin, suppress } = opts
     // Bulk-import deferral: an entry may suppress its domain event and/or inline reindex. When both
     // the config is absent AND (for the present one) suppressed, there is nothing left to do.
@@ -895,7 +971,7 @@ export class DefaultDataEngine implements DataEngine {
     actorUserId?: string | null
   }): void {
     const { entity, identifiers } = opts
-    if (!entity) return
+    if (this.commandEffectsDiscarded || !entity) return
     if (!identifiers?.id) return
     // A command handler that marks `events:` only still discharges the route's declared
     // query-index obligation — the route hands its `indexer:` down as the default so the
@@ -938,9 +1014,29 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void> {
-    if (!this.pendingSideEffects.size) return
+    await this.flushPendingOrmEntityChanges(suppress)
+  }
+
+  private async flushPendingOrmEntityChanges(suppress?: BulkImportSuppression, failures?: unknown[]): Promise<void> {
+    if (this.commandEffectsDiscarded || !this.pendingSideEffects.size) return
     const entries = Array.from(this.pendingSideEffects.values())
     this.pendingSideEffects.clear()
+    if (this.deferredNotifications) {
+      this.deferredNotifications.push(async (commandSuppression, commandFailures) => this.emitQueuedCrudEffects(entries, {
+        ...suppress,
+        skipEvents: suppress?.skipEvents || commandSuppression?.skipEvents,
+        skipReindex: suppress?.skipReindex || commandSuppression?.skipReindex,
+      }, commandFailures))
+      return
+    }
+    await this.emitQueuedCrudEffects(entries, suppress, failures)
+  }
+
+  private async emitQueuedCrudEffects(
+    entries: readonly QueuedCrudSideEffect[],
+    suppress?: BulkImportSuppression,
+    failures?: unknown[],
+  ): Promise<void> {
     for (const entry of entries) {
       if (entry.indexer && !suppress?.skipReindex && this.matchesDefaultEntityClass(entry.entity)) {
         this.indexedDefaultEntityClass = true
@@ -957,10 +1053,8 @@ export class DefaultDataEngine implements DataEngine {
           suppress,
         })
       } catch (error) {
-        if (isReadProjectionAlwaysConsistent()) {
-          throw error
-        }
-        // best-effort; continue with remaining side effects
+        if (failures) failures.push(error)
+        else if (isReadProjectionAlwaysConsistent()) throw error
       }
     }
   }

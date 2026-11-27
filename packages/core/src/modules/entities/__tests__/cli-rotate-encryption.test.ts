@@ -56,6 +56,7 @@ const defaultEncryptEntityPayload = async (_entityId: string, payload: Record<st
 }
 
 jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () => ({
+  parseDecryptedFieldValue: jest.requireActual('@open-mercato/shared/lib/encryption/tenantDataEncryptionService').parseDecryptedFieldValue,
   TenantDataEncryptionService: jest.fn().mockImplementation(() => ({
     isEnabled: () => true,
     getDek: (...args: unknown[]) => getDek(...args),
@@ -63,12 +64,6 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
   })),
   resolveEncryptionKeyId: (entityId: string, keyScope: string | undefined, tenantId: string | null | undefined) =>
     (keyScope === 'system' ? `system:${entityId}` : tenantId ?? null),
-  parseDecryptedFieldValue: (decrypted: string) => {
-    if (decrypted.length === 0) return decrypted
-    const first = decrypted[0]
-    if (first !== '{' && first !== '[') return decrypted
-    try { return JSON.parse(decrypted) } catch { return decrypted }
-  },
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -167,7 +162,7 @@ describe('entities rotate-encryption-key CLI', () => {
     singleMapFixture()
 
     execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
-      { id: 'row-1', resource_id: encryptedValue, context_json: encryptedValue },
+      { id: 'row-1', resource_id: encryptedValue, context_json: JSON.stringify(encryptedValue) },
     ])
     ;(decryptWithAesGcm as jest.Mock)
       .mockReturnValueOnce('resource-value')
@@ -179,11 +174,42 @@ describe('entities rotate-encryption-key CLI', () => {
     expect(execute).toHaveBeenCalledTimes(3)
     const updateCall = execute.mock.calls[2]
     expect(updateCall[0]).toMatch(/UPDATE\s+"access_logs"/)
-    expect(updateCall[1]).toEqual(expect.arrayContaining([
+    expect(updateCall[0]).toContain('"context_json" IS NOT DISTINCT FROM ?::jsonb')
+    expect(updateCall[1]).toEqual([
       'enc:resource-value',
       '"enc:{\\"note\\":\\"hello\\"}"',
       'row-1',
-    ]))
+      'tenant-1',
+      'org-1',
+      encryptedValue,
+      JSON.stringify(encryptedValue),
+    ])
+  })
+
+  it.each([
+    '{"number":9007199254740993}',
+    '[9007199254740993]',
+    '{"number":0.123456789012345678901234567890}',
+    ' { "number": 9007199254740993 } ',
+  ])('preserves the original decrypted JSON text during rotation: %s', async (plaintext) => {
+    const rotate = cli.find((candidate) => candidate.command === 'rotate-encryption-key')!
+    const ciphertext = shapeValidCiphertext('cipher')
+    singleMapFixture()
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { id: 'row-1', resource_id: null, context_json: JSON.stringify(ciphertext) },
+    ])
+    jest.mocked(decryptWithAesGcm).mockReturnValueOnce(plaintext)
+
+    await rotate.run(['--acknowledge-unprotected-key-rotation', '--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(encryptEntityPayload).toHaveBeenCalledWith(
+      'audit_logs:access_log',
+      { context_json: plaintext },
+      'tenant-1',
+      'org-1',
+      { createMissingDek: true },
+    )
+    expect(execute.mock.calls[2][1][0]).toBe(JSON.stringify(`enc:${plaintext}`))
   })
 
   it('uses a protected previous KMS to rotate Vault source rows without a previous derived root', async () => {
@@ -293,7 +319,7 @@ describe('entities rotate-encryption-key CLI', () => {
     singleMapFixture()
     const foreignDekEnvelope = shapeValidCiphertext('cipher')
     execute.mockResolvedValueOnce([]).mockResolvedValueOnce([
-      { id: 'row-1', resource_id: foreignDekEnvelope, context_json: 'plain text' },
+      { id: 'row-1', resource_id: foreignDekEnvelope, context_json: JSON.stringify('plain text') },
     ])
     const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
@@ -616,7 +642,7 @@ describe('entities rotate-encryption-key CLI', () => {
     find.mockImplementation(async(entity:unknown)=>entity===EncryptionMap?[{id:'precision-map',entityId:'audit_logs:access_log',tenantId:'tenant-1',organizationId:'org-1',fieldsJson:[{field:'contextJson',hashField:'contextHash'}],deletedAt:null}]:[])
     const kms={isHealthy:()=>true,getTenantDek:async()=>({tenantId:'tenant-1',key:'old-key',fetchedAt:0}),createTenantDek:async()=>null}
     mockProtectionService={protect:async(_context,operation)=>operation({kms,previousKms:kms})}
-    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{id:'row-1',context_json:ciphertext,context_hash:'legacy-old'}]).mockResolvedValueOnce([{id:'row-1'}]).mockResolvedValueOnce([{verified:'1'}])
+    execute.mockResolvedValueOnce([]).mockResolvedValueOnce([{id:'row-1',context_json:JSON.stringify(ciphertext),context_hash:'legacy-old'}]).mockResolvedValueOnce([{id:'row-1'}]).mockResolvedValueOnce([{verified:'1'}])
     ;(decryptWithAesGcm as jest.Mock).mockReturnValueOnce(plaintext)
     await cli.find(entry=>entry.command==='rotate-encryption-key')!.run(['--allow-unsafe-old-key','--old-key','old-secret','--tenant','tenant-1','--org','org-1'])
     const payload=encryptEntityPayload.mock.calls[0]![1] as Record<string,unknown>
