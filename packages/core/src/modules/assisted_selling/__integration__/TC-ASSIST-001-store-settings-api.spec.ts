@@ -256,7 +256,7 @@ test.describe('TC-ASSIST-001: assisted selling store settings API', () => {
         organizations: [storeOrganizationId],
       });
       const email = `qa-assist-dual-${stamp}@test.invalid`;
-      const password = 'Valid1!Pass';
+      const password = 'Valid1!Pass123';
       dualOrgUserId = await createUserFixture(request, superadminToken, {
         email,
         password,
