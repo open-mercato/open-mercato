@@ -87,6 +87,7 @@ export type VectorDriverListParams = {
   limit?: number
   offset?: number
   orderBy?: 'created' | 'updated'
+  entityAccess?: Array<{ organizationId: string | null; entityIds: string[] | null }>
 }
 
 export type VectorDriverCountParams = {
