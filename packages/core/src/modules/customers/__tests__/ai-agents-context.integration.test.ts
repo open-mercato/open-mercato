@@ -198,6 +198,23 @@ describe('Step 5.16 — customers.account_assistant.resolvePageContext (integrat
     expect(handler).not.toHaveBeenCalled()
   })
 
+  it('leaves input unchanged (returns null) for the portal trigger recordType=customer', async () => {
+    const handler = jest.fn()
+    const resolvePageContext = await loadWithMockedToolPack(
+      'customers.get_person',
+      handler,
+    )
+    const result = await resolvePageContext({
+      entityType: 'customer',
+      recordId: VALID_UUID_A,
+      container: buildFakeContainer() as never,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(result).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it('leaves input unchanged (returns null) when recordId is not a UUID', async () => {
     const handler = jest.fn()
     const resolvePageContext = await loadWithMockedToolPack(

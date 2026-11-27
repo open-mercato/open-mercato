@@ -19,6 +19,7 @@ export const aiChatPageContextSchema = z
   .object({
     pageId: z.string().min(1).max(256).optional(),
     entityType: z.string().min(1).max(256).optional(),
+    recordType: z.string().max(256).nullable().optional(),
     recordId: z.string().min(1).max(256).optional(),
   })
   .passthrough()
