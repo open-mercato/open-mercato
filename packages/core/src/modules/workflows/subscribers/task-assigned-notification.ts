@@ -29,13 +29,14 @@ export default async function handle(
   payload: TaskAssignedPayload,
   ctx: TaskNotificationResolverContext
 ) {
-  const quickAction = payload?.quickAction ?? null
+  const completion = payload?.completion ?? payload?.quickAction?.completion ?? null
+  const quickAction = payload?.quickAction ? { ...payload.quickAction, completion } : null
 
   await notifyTaskLifecycleEvent({
     ctx,
     notificationTypes,
     notificationType: 'workflows.task.assigned',
-    payload,
+    payload: { ...payload, completion },
     ...(quickAction
       ? {
           actions: buildTaskQuickActions(quickAction),
