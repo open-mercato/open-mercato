@@ -644,7 +644,7 @@ export function ScheduleActivityDialog({
         <div className="flex flex-col gap-1.5">
           <label className="text-overline font-semibold text-muted-foreground tracking-wider">
             {getFieldLabel(presentationType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
-            <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+            <span aria-hidden="true" className="ml-1 text-status-error-text">*</span>
           </label>
           <input
             type="text"
