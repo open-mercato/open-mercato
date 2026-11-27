@@ -263,3 +263,61 @@ it('resolves the search-delete indexer from the later legacy caller', async () =
   expect(secondIndexer.deleteRecord).toHaveBeenCalledWith(payload)
   await second.dispose()
 })
+
+it('hands inline subscribers the later legacy caller container, never the bootstrap one', async () => {
+  const observed: unknown[] = []
+  modulesMock.mockReturnValue([{
+    id: 'probe',
+    subscribers: [{
+      id: 'legacy-container-probe',
+      event: 'probe.created',
+      persistent: false,
+      handler: (_payload, context) => {
+        observed.push(context.container)
+        context.container?.register({ auth: asValue(`override-${context.resolve('identity')}`) })
+      },
+    }],
+  }])
+  const first = createContainer().register({ identity: asValue('first'), auth: asValue('first-auth') })
+  await bootstrap(first)
+  const cachedResolver = first.registrations.eventBus
+  const second = createContainer().register({
+    identity: asValue('second'),
+    auth: asValue('second-auth'),
+    eventBus: cachedResolver,
+  })
+
+  await second.resolve<EventBus>('eventBus').emit('probe.created', {})
+
+  expect(observed).toEqual([second])
+  expect(second.resolve('auth')).toBe('override-second')
+  expect(first.resolve('auth')).toBe('first-auth')
+  await first.dispose()
+  await second.dispose()
+})
+
+it('binds process-root subscriber containers to the resolving caller and forwards a queued-job container', async () => {
+  const root = createContainer()
+  const seen: unknown[] = []
+  registerProcessEventSetup(root, (bus) => {
+    bus.on('probe.created', (_payload, context) => { seen.push(context.container) })
+    bus.on('probe.queued', async (_payload, context) => {
+      seen.push(context.container)
+      await getRequestScopeContainer()?.resolve<EventBus>('eventBus').emit('probe.nested', {})
+    }, { persistent: true })
+    bus.on('probe.nested', (_payload, context) => { seen.push(context.resolve('identity')) })
+  })
+  await prepareProcessRoot(root)
+  const first = root.createScope().register({ identity: asValue('first') })
+  const second = root.createScope().register({ identity: asValue('second') })
+  const job = root.createScope().register({ identity: asValue('job') })
+
+  await first.resolve<EventBus>('eventBus').emit('probe.created', {})
+  await second.resolve<EventBus>('eventBus').emit('probe.created', {})
+  await runWithRequestScopeContainer(second, async () => {
+    await first.resolve<EventBus>('eventBus').dispatchQueued!('probe.queued', {}, undefined, job.resolve.bind(job), job)
+    expect(getRequestScopeContainer()).toBe(second)
+  })
+
+  expect(seen).toEqual([first, second, job, 'job'])
+})

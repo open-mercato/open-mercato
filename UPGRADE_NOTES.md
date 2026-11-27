@@ -380,6 +380,25 @@ amount against that same row. Protected current-head financial QA remains open.
 
 `backfillDealLossReasonDictionary` and `BackfillDealLossReasonDictionaryResult` exported from `sales/lib/dictionaries` are deprecated (removal no earlier than 0.12.0); import them from `@open-mercato/core/modules/customers/lib/dealLossReasons`.
 
+## Event subscribers and worker jobs receive the real DI container (eComm Release 5, step F2)
+
+**Additive (`events`, `cli`, `shared`).** `SubscriberContext` gains an optional `container`: the real DI container behind `ctx.resolve`. Its lifetime is the scope that `ctx.resolve` already uses:
+
+- **Inline delivery:** the container of the caller that resolved the event bus — the current API request or queue job container, also when `OM_BOOTSTRAP_CACHE` replays the bus into later requests and under `OM_PROCESS_CONTAINER_ROOT`. It is never the container that ran `bootstrap`, except for an emit outside any request or job scope through the global bus. The emitter and every other inline subscriber of that request share this container. A `register()` call on it therefore stays for the rest of that request or job, and is not undone when the handler returns.
+- **Queued delivery (events worker):** the job's own per-job container, created for that job and dropped after it. When no job container is passed, the bus's container is used only if the bus's own resolver is used too, so `ctx.resolve` and `ctx.container` always share one scope.
+
+`CreateBusOptions.container`, the optional second argument of the `createScopedEventBusFactory` caller factory, and the fifth `EventBus.dispatchQueued(..., container?)` argument carry it. A queue worker's job context gets `container` too, but only when the per-job container factory returns one with `register()` (`WorkerJobContainer.register?` is new and optional). Queued subscribers for the same event run concurrently and share the job container. Only change a registration from a queued subscriber if the change is safe for every subscriber in that job. A subscriber that needs a private override before nested command resolution cannot get one by changing a registration in this shared container. Inline subscribers must not override registrations on `ctx.container` unless the change may apply to the entire emitter scope. For private registrations on a real Awilix container, create a child with `createScope()`, register the override there, resolve scoped services such as `promotionsService` from that child, and dispose it when finished. The parent and sibling scopes keep their own registrations. `@open-mercato/shared/lib/di/scopedContainer` adds `buildScopedContainerFromResolve(resolve)`, a fallback overlay for callers that only hold a bound `resolve`. Its `register()` is visible only to its own callers, not to services already bound to the real container. Subscribers that read only `ctx.resolve` are unchanged.
+
+**Behaviour change (`forms`).** Three `forms` subscribers read `ctx.container` and never got one. `forms.pdf-snapshot.submitted` failed with a `TypeError` on every delivery; the other two swallowed the error and did nothing. They now run:
+
+- `forms.pdf-snapshot.submitted` (`forms.submission.submitted`) enqueues the PDF snapshot of a submitted form. The snapshot is stored as a submission attachment of `kind: 'snapshot'`, so it appears in the submission's attachments and in the GDPR export.
+- `forms.consent-projector.submitted` (`forms.submission.submitted`) writes consent records for submitted consent fields and emits `forms.consent.recorded`.
+- `forms.invitation-email` (`forms.invitation.sent`) sends the reminder e-mail. It sends it only for `forms.invitation.send` (send and resend). `forms.invitation.create` already e-mails the personal link and now marks its `forms.invitation.sent` payload with the additive optional field `source: 'create'`, which the subscriber skips; send and resend emit `source: 'send'`.
+
+The Forms emitters pass the persisted tenant and organization in event options. Invitation reminders, consent projection and snapshot generation require both identifiers and load the record within that scope. Queued events created before this change can lack those options and are skipped by these handlers.
+
+If you relied on a submission having no attachments, filter out `kind: 'snapshot'`. If you consume `forms.invitation.sent` and want to tell the two paths apart, read `source` (absent on events emitted before this release).
+
 ## Notification mark-all-read follows the bell scope (#9244)
 
 `PUT /api/notifications/mark-all-read` now marks exactly the unread in-app
