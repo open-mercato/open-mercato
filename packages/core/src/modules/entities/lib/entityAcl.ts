@@ -61,6 +61,10 @@ const ENTITY_ACL_REQUIREMENTS: Record<string, EntityAclRequirement> = {
     view: ['sales.quotes.view'],
     manage: ['sales.quotes.manage'],
   },
+  [SALES_ADDRESS_FIELD_HOST]: {
+    view: ['sales.orders.view', 'sales.quotes.view'],
+    manage: ['sales.orders.manage', 'sales.quotes.manage'],
+  },
   'auth:user': {
     view: ['auth.users.list'],
     manage: ['auth.users.edit'],
@@ -331,8 +335,8 @@ export function canReadEntityMetadata(args: {
     })
   }
   if (canReadAllEntityMetadata(args.acl)) return true
-  if (args.entityId === SALES_ADDRESS_FIELD_HOST) {
-    return ['sales.orders.view', 'sales.quotes.view'].some((feature) => authorizeFeatures([feature], {
+  if (args.entityId === SALES_ADDRESS_FIELD_HOST && requirement) {
+    return requirement.view.some((feature) => authorizeFeatures([feature], {
       grantedFeatures: args.acl.features ?? [],
       unrestricted: Boolean(args.acl.isSuperAdmin),
     }))

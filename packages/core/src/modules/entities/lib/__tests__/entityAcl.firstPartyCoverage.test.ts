@@ -130,6 +130,7 @@ describe('ENTITY_ACL_REQUIREMENTS first-party coverage', () => {
     ['wms:asn', ['wms.view'], ['wms.manage_asn']],
     ['staff:staff_time_entry', ['staff.timesheets.view'], ['staff.timesheets.manage_own']],
     ['sales:sales_order_line', ['sales.orders.view'], ['sales.orders.manage']],
+    ['sales:sales_document_address', ['sales.orders.view', 'sales.quotes.view'], ['sales.orders.manage', 'sales.quotes.manage']],
     ['sales:sales_invoice', ['sales.invoices.manage'], ['sales.invoices.manage']],
     ['warranty_claims:warranty_claim_registration', ['warranty_claims.registration.view'], ['warranty_claims.registration.manage']],
     ['eudr:eudr_mitigation_action', ['eudr.risk.view'], ['eudr.risk.manage']],
