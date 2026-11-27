@@ -30,6 +30,7 @@ function buildParams(overrides: Partial<Parameters<typeof useComposeSendOperatio
     body: 'Body',
     bodyFormat: 'text' as const,
     sendViaEmail: false,
+    senderChannelId: '',
     contextObject: null,
     defaultValues: undefined,
     contextActionOptions: [],
@@ -71,5 +72,20 @@ describe('useComposeSendOperation payload sendViaEmail', () => {
 
     const request = result.current.buildRequest({ attachmentIds: [] })
     expect(request.payload.sendViaEmail).toBe(false)
+  })
+})
+
+it('pairs selected mailbox attachments with their compose upload record', () => {
+  const { result } = renderHook(() => useComposeSendOperation(buildParams({
+    visibility: 'public',
+    externalEmail: 'user@example.com',
+    senderChannelId: 'mailbox-1',
+    attachmentRecordId: 'messages-composer:session-1',
+  })))
+
+  expect(result.current.buildRequest({ attachmentIds: ['file-1'] }).payload).toMatchObject({
+    senderChannelId: 'mailbox-1',
+    attachmentRecordId: 'messages-composer:session-1',
+    attachmentIds: ['file-1'],
   })
 })

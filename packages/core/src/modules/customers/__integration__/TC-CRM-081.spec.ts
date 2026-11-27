@@ -25,7 +25,7 @@ test.describe('TC-CRM-081: RBAC denial on protected customers endpoints', () => 
     test.slow();
 
     const stamp = Date.now();
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     const restrictedEmail = `tc-crm-081-${stamp}@example.com`;
     let adminToken: string | null = null;
     let roleId: string | null = null;

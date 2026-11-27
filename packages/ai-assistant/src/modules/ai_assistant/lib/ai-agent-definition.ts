@@ -394,7 +394,10 @@ export interface AiAgentDefinition {
    * `baseUrl`, `loopBudget`) and the per-tenant settings override stored in
    * `ai_agent_runtime_overrides` are both suppressed. Steps 1 and 3 of the
    * model-factory resolution chain are skipped for this agent, and the
-   * `loopBudget` query parameter is ignored by the chat dispatcher.
+   * `loopBudget` query parameter is ignored by the chat dispatcher. Per-call
+   * `callSettings` passed to `runAiAgentText` / `runAiAgentObject` are
+   * rejected with `AgentPolicyError` code `runtime_override_disabled`; the
+   * agent's own `modelSettings` still apply.
    *
    * Default is `true` (permissive). Agents that pin a specific model for
    * correctness reasons (e.g. a structured-output agent whose JSON-mode schema

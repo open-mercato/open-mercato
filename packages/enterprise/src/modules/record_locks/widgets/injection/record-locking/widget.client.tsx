@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
-import { BACKEND_MUTATION_ERROR_EVENT } from '@open-mercato/ui/backend/injection/mutationEvents'
+import { BACKEND_MUTATION_ERROR_EVENT, type BackendMutationErrorEventDetail } from '@open-mercato/ui/backend/injection/mutationEvents'
 import { registerRecordLockConflictHandler } from '@open-mercato/ui/backend/conflicts'
 import { useSearchParams } from 'next/navigation'
 import { Mail } from 'lucide-react'
@@ -91,12 +91,6 @@ type ValidateResponse = {
   latestActionLogId?: string | null
   lock?: RecordLockUiView | null
   conflict?: RecordLockUiConflict | null
-}
-
-type CrudSaveErrorEventDetail = {
-  contextId?: string
-  formId?: string
-  error?: unknown
 }
 
 type RecordLockContendedEventDetail = {
@@ -648,6 +642,13 @@ export default function RecordLockingWidget({
     token: string
   } | null>(null)
   const keepMineRetryVersionRef = React.useRef(0)
+  const conflictRetryRef = React.useRef<{
+    formId: string
+    conflictId: string
+    error: unknown
+    retry: NonNullable<BackendMutationErrorEventDetail['retryMutation']>
+    sourceFormId?: string
+  } | null>(null)
   const hasAnotherOwnerForForm = React.useCallback(() => {
     if (!ownerKey) return false
     const owner = getRecordLockOwnerMap().get(ownerKey)
@@ -1177,7 +1178,7 @@ export default function RecordLockingWidget({
       })
       }
 
-      const detail = (event as CustomEvent<CrudSaveErrorEventDetail>).detail
+      const detail = (event as CustomEvent<BackendMutationErrorEventDetail>).detail
       if (!detail) return
       const eventContextId = detail.contextId ?? detail.formId
       const currentState = getRecordLockFormState(formId)
@@ -1188,6 +1189,15 @@ export default function RecordLockingWidget({
         currentState,
       })
       if (decision.action === 'ignore') return
+      conflictRetryRef.current = decision.action === 'apply-conflict' && typeof detail.retryMutation === 'function'
+        ? {
+            formId,
+            conflictId: decision.payload.conflict.id,
+            error: detail.error,
+            retry: detail.retryMutation,
+            sourceFormId: detail.formId ?? detail.contextId,
+          }
+        : null
       if (decision.action === 'record-deleted') {
         setIsConflictDialogOpen(true)
         setRecordLockFormState(formId, {
@@ -1232,6 +1242,7 @@ export default function RecordLockingWidget({
       const payloadKind = payload.conflict.resourceKind?.trim() ?? ''
       const payloadId = payload.conflict.resourceId?.trim() ?? ''
       if (payloadKind && payloadId && (payloadKind !== resourceKind || payloadId !== resourceId)) return false
+      if (conflictRetryRef.current?.error !== error) conflictRetryRef.current = null
       setIsConflictDialogOpen(true)
       setRecordLockFormState(formId, {
         conflict: payload.conflict,
@@ -1349,11 +1360,30 @@ export default function RecordLockingWidget({
       window.setTimeout(async () => {
         if (keepMineRetryVersionRef.current !== keepMineRetryVersion) return
         const currentState = getRecordLockFormState(formId)
-        if (currentState?.pendingResolution !== 'accept_mine') return
-        const submitted = submitCrudForm(formId)
-        if (submitted) return
-        const retried = await Promise.resolve(context.retryLastMutation?.()).catch(() => false)
+        if (currentState?.pendingResolution !== 'accept_mine' || currentState.pendingConflictId !== conflictId) return
+        const recordedRetry = conflictRetryRef.current
+        const guardedRetry = recordedRetry?.formId === formId && recordedRetry.conflictId === state.conflict?.id
+          ? recordedRetry
+          : null
+        if (!guardedRetry && submitCrudForm(formId)) return
+
+        const sourceFormId = guardedRetry?.sourceFormId
+        const sourceConflict = sourceFormId && sourceFormId !== formId
+          ? getRecordLockFormState(sourceFormId)?.conflict
+          : null
+        const retried = guardedRetry
+          ? await guardedRetry.retry(formId)
+          : await Promise.resolve(context.retryLastMutation?.()).catch(() => false)
+        if (retried && sourceFormId && sourceConflict?.id === conflictId
+          && getRecordLockFormState(sourceFormId)?.conflict === sourceConflict
+          && (!ownerKey || getRecordLockOwnerMap().get(ownerKey)?.formId !== sourceFormId)) {
+          clearRecordLockFormState(sourceFormId)
+        }
         if (!retried) {
+          const retryState = getRecordLockFormState(formId)
+          if (guardedRetry && retryState?.pendingConflictId === conflictId && retryState.pendingResolutionArmed) {
+            setRecordLockFormState(formId, { pendingResolution: 'normal', pendingResolutionArmed: false })
+          }
           flash(
             t(
               'record_locks.conflict.retry_save_after_accept_mine',
@@ -1365,7 +1395,7 @@ export default function RecordLockingWidget({
       }, 0)
     }
     void applyAcceptMine()
-  }, [context, context.retryLastMutation, formId, state?.conflict, t])
+  }, [context, formId, ownerKey, state?.conflict, t])
 
   const handleKeepEditing = React.useCallback(() => {
     keepMineRetryVersionRef.current += 1

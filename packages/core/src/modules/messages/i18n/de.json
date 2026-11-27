@@ -164,6 +164,7 @@
   "messages.flash.conversationMarkedUnread": "Konversation als ungelesen markiert.",
   "messages.flash.conversationUnarchived": "Konversation wiederhergestellt.",
   "messages.flash.deleted": "Nachricht gelöscht.",
+  "messages.flash.deliveryUnconfirmed": "Nachricht gespeichert. Die Zustellung konnte nicht bestätigt werden.",
   "messages.flash.draftSaved": "Entwurf gespeichert.",
   "messages.flash.forwardSuccess": "Nachricht weitergeleitet.",
   "messages.flash.replySuccess": "Antwort gesendet.",

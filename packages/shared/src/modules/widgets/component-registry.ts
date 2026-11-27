@@ -145,3 +145,5 @@ export const ComponentReplacementHandles = {
   crudForm: (entityId: string) => `crud-form:${entityId}`,
   section: (scope: string, sectionId: string) => `section:${scope}.${sectionId}`,
 } as const
+
+export { crudFormSectionScope } from '../form-section-scope'

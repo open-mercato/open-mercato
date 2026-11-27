@@ -12,6 +12,7 @@ const mockGetActiveJobs = jest.fn()
 const mockGetRecentlyCompletedJobs = jest.fn()
 const mockMarkStaleJobsFailed = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
+const mockResolveFeatureCheckContext = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
@@ -19,6 +20,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(() => mockCreateRequestContainer()),
+}))
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: (...args: unknown[]) => mockResolveFeatureCheckContext(...args),
 }))
 
 type RouteModule = typeof import('../route')
@@ -89,6 +94,10 @@ describe('progress jobs route', () => {
     mockGetRecentlyCompletedJobs.mockResolvedValue([])
     mockMarkStaleJobsFailed.mockResolvedValue(0)
     mockUserHasAllFeatures.mockResolvedValue(false)
+    mockResolveFeatureCheckContext.mockResolvedValue({
+      organizationId: 'org-1',
+      scope: { tenantId: 'tenant-1' },
+    })
   })
 
   it('requires progress.view for progress read routes', () => {
@@ -610,6 +619,99 @@ describe('progress jobs route', () => {
     expect(mockGetJob).toHaveBeenCalledTimes(2)
     expect(mockGetJob).toHaveBeenNthCalledWith(1, uppercaseId, expect.objectContaining({ tenantId: 'tenant-1' }))
     expect(mockGetJob).toHaveBeenNthCalledWith(2, uppercaseId, expect.objectContaining({ tenantId: 'tenant-1' }))
+  })
+
+  describe('active job cancellation capabilities', () => {
+    const ownJob = {
+      id: 'owned',
+      jobType: 'export',
+      name: 'Own export',
+      status: 'running',
+      cancellable: true,
+      startedByUserId: 'user-1',
+      organizationId: 'org-1',
+    }
+
+    it.each([
+      { cancel: false, manage: false, own: false, other: false },
+      { cancel: false, manage: true, own: false, other: false },
+      { cancel: true, manage: false, own: true, other: false },
+      { cancel: true, manage: true, own: true, other: true },
+    ])('uses cancel=$cancel and manage=$manage grants with job ownership', async ({ cancel, manage, own, other }) => {
+      mockGetActiveJobs.mockResolvedValue([
+        ownJob,
+        { ...ownJob, id: 'other', startedByUserId: 'user-2' },
+        { ...ownJob, id: 'system', startedByUserId: null },
+        { ...ownJob, id: 'non-cancellable', cancellable: false },
+      ])
+      mockUserHasAllFeatures.mockImplementation(async (_userId, features: string[]) =>
+        features.includes('progress.cancel') ? cancel : manage,
+      )
+
+      const request = new Request('http://localhost/api/progress/active', {
+        headers: { cookie: 'om_selected_org=org-1' },
+      })
+      const response = await activeHandler(request)
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+      expect(body.active).toEqual([
+        expect.objectContaining({ id: 'owned', cancellable: true, canCancel: own }),
+        expect.objectContaining({ id: 'other', cancellable: true, canCancel: other }),
+        expect.objectContaining({ id: 'system', cancellable: true, canCancel: other }),
+        expect.objectContaining({ id: 'non-cancellable', cancellable: false, canCancel: false }),
+      ])
+      for (const job of body.active) expect(job).not.toHaveProperty('startedByUserId')
+      expect(mockResolveFeatureCheckContext).toHaveBeenCalledWith(expect.objectContaining({
+        requiredFeatures: detailMetadata.DELETE.requireFeatures,
+        request: expect.any(Request),
+      }))
+      const cancelRequest: Request = mockResolveFeatureCheckContext.mock.calls[0][0].request
+      expect(cancelRequest).not.toBe(request)
+      expect(cancelRequest.headers.get('cookie')).toBe(request.headers.get('cookie'))
+      expect(mockUserHasAllFeatures).toHaveBeenCalledTimes(cancel ? 2 : 1)
+    })
+
+    it('uses the cancellation scope even when the read scope includes more organizations', async () => {
+      mockResolveForRequest.mockResolvedValueOnce({
+        tenantId: 'tenant-1',
+        selectedId: null,
+        filterIds: ['org-1', 'org-2'],
+        allowedIds: ['org-1', 'org-2'],
+      })
+      mockGetActiveJobs.mockResolvedValue([
+        ownJob,
+        { ...ownJob, id: 'outside-cancel-scope', organizationId: 'org-2' },
+      ])
+      mockUserHasAllFeatures.mockResolvedValue(true)
+
+      const response = await activeHandler(new Request('http://localhost/api/progress/active'))
+      expect((await response.json()).active).toEqual([
+        expect.objectContaining({ id: 'owned', canCancel: true }),
+        expect.objectContaining({ id: 'outside-cancel-scope', canCancel: false }),
+      ])
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith('user-1', ['progress.cancel'], {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+    })
+
+    it('offers no cancellation when an explicit organization selection was rejected', async () => {
+      mockResolveForRequest.mockResolvedValue({
+        tenantId: 'tenant-1',
+        selectedId: 'org-1',
+        filterIds: ['org-1'],
+        allowedIds: ['org-1'],
+        selectionRejected: true,
+      })
+      mockGetActiveJobs.mockResolvedValue([ownJob])
+      mockUserHasAllFeatures.mockResolvedValue(true)
+
+      const response = await activeHandler(new Request('http://localhost/api/progress/active'))
+      expect((await response.json()).active).toEqual([expect.objectContaining({ id: 'owned', canCancel: false })])
+      expect(mockUserHasAllFeatures).not.toHaveBeenCalled()
+    })
   })
 
   it('returns an empty active payload without sweeping for explicit empty scope', async () => {

@@ -42,7 +42,7 @@ export default function CurrencyFetchingConfig() {
   const [initializing, setInitializing] = useState(false)
 
   // Available providers that should be configured
-  const availableProviders = useMemo(() => ['NBP', 'Raiffeisen Bank Polska'], [])
+  const availableProviders = useMemo(() => ['NBP', 'nbp_average', 'Raiffeisen Bank Polska'], [])
 
   const mutationContextId = 'currencies-fetch-configs:mutation'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -282,6 +282,7 @@ export default function CurrencyFetchingConfig() {
 
   function getProviderName(provider: string): string {
     if (provider === 'NBP') return t('currencies.fetch.provider_nbp')
+    if (provider === 'nbp_average') return t('currencies.fetch.provider_nbp_average')
     if (provider === 'Raiffeisen Bank Polska') return t('currencies.fetch.provider_raiffeisen')
     return provider
   }
@@ -289,6 +290,9 @@ export default function CurrencyFetchingConfig() {
   function getProviderDescription(provider: string): string {
     if (provider === 'NBP') {
       return t('currencies.fetch.provider_nbp_description')
+    }
+    if (provider === 'nbp_average') {
+      return t('currencies.fetch.provider_nbp_average_description')
     }
     if (provider === 'Raiffeisen Bank Polska') {
       return t('currencies.fetch.provider_raiffeisen_description')

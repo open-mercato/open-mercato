@@ -403,6 +403,19 @@ describe('local-reference projection of the canonical example module', () => {
     }
   })
 
+  it('emits exact section targets from template sources with no app registry input', () => {
+    const reference = discoverLocalReferenceModuleSource({ appRoot: templateRoot, moduleId: 'example' })
+    expect(reference).not.toBeNull()
+    const { entry } = extractLocalReferenceModuleFacts({ packageSources: [], reference: reference! })
+    expect(entry).toMatchObject({ runtimeSelected: false, sourceKind: 'local-reference' })
+    const forms = entry.facts.overrideTargets?.filter(({ domain }) => domain === 'forms') ?? []
+    expect(forms).toHaveLength(14)
+    expect(forms.map(({ key }) => key)).toEqual(expect.arrayContaining([
+      'example.todo/showcase/create/title', 'example.todo/showcase/update/observer',
+    ]))
+    expect(forms.every(({ source }) => source.sourcePath === 'src/modules/example/form-sections.ts')).toBe(true)
+  })
+
   it('fingerprints the authoring and template example trees identically', () => {
     const authoring = discoverLocalReferenceModuleSource({ appRoot: authoringRoot, moduleId: 'example' })
     const template = discoverLocalReferenceModuleSource({ appRoot: templateRoot, moduleId: 'example' })

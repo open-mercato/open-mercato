@@ -9,6 +9,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   loadDictionary: jest.fn(async (locale: string) => locale === 'pl' ? polish : {}),
 }))
 import path from 'node:path'
+import { asValue, createContainer } from 'awilix'
+import { runWithRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { getEntityIds, registerEntityIds, type EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 
 const executeRuleByRuleId = jest.fn<(...args: unknown[]) => Promise<unknown>>()
@@ -25,6 +27,7 @@ jest.mock('../find-definition', () => ({
 }))
 
 import { validateWorkflowStart } from '../start-validator'
+import { startWorkflow } from '../workflow-executor'
 import { seedExampleWorkflows } from '../seeds'
 import { WorkflowDefinition } from '../../data/entities'
 
@@ -38,7 +41,7 @@ function definitionWithPreConditions(preConditions: Array<{ ruleId: string; requ
         { stepId: 'start', stepType: 'START', preConditions },
         { stepId: 'end', stepType: 'END' },
       ],
-      transitions: [],
+      transitions: [{ fromStepId: 'start', toStepId: 'end' }],
     },
   }
 }
@@ -112,15 +115,50 @@ describe('workflows without the business_rules module (#9217)', () => {
       findWorkflowDefinition.mockResolvedValue(definitionWithPreConditions([{ ruleId: 'required_rule', required: true }]))
       executeRuleByRuleId.mockResolvedValue({ conditionResult: true, executionTime: 1 })
 
-      const result = await validateWorkflowStart({} as never, {
+      const container = createContainer().register({ ruleEngine: asValue({ executeRuleByRuleId }) })
+      const em = {} as never
+      const result = await runWithRequestScopeContainer(container, () => validateWorkflowStart(em, {
         workflowId: 'wf',
         context: {},
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-      })
+        ...scope,
+      }))
 
-      expect(executeRuleByRuleId).toHaveBeenCalledTimes(1)
+      expect(executeRuleByRuleId).toHaveBeenCalledWith(em, expect.objectContaining({
+        ...scope,
+        ruleId: 'required_rule',
+        eventType: 'validate_start',
+        dryRun: true,
+      }))
       expect(result.canStart).toBe(true)
+    })
+    test('never falls back from an explicitly unavailable provider in the supplied scope', async () => {
+      const ambient = createContainer().register({ ruleEngine: asValue({ executeRuleByRuleId }) })
+      const explicit = createContainer()
+      findWorkflowDefinition.mockResolvedValue(definitionWithPreConditions([{ ruleId: 'required_rule', required: true }]))
+
+      const result = await runWithRequestScopeContainer(ambient, () =>
+        validateWorkflowStart({} as never, { workflowId: 'wf', context: {}, ...scope }, { container: explicit }),
+      )
+
+      expect(result.errors).toEqual([expect.objectContaining({ code: 'RULE_ENGINE_UNAVAILABLE' })])
+      expect(executeRuleByRuleId).not.toHaveBeenCalled()
+    })
+
+    test('actual dry-run start suppresses START rule actions and rejects a required failure', async () => {
+      const container = createContainer().register({ ruleEngine: asValue({ executeRuleByRuleId }) })
+      findWorkflowDefinition.mockResolvedValue(definitionWithPreConditions([{ ruleId: 'required_rule', required: true }]))
+      executeRuleByRuleId.mockResolvedValue({ conditionResult: false, executionTime: 1 })
+      const em = {} as never
+
+      await expect(startWorkflow(em, { workflowId: 'wf', isDryRun: true, ...scope }, container)).rejects.toMatchObject({
+        code: 'START_PRE_CONDITIONS_FAILED',
+      })
+      expect(executeRuleByRuleId).toHaveBeenCalledWith(em, expect.objectContaining({
+        ...scope,
+        ruleId: 'required_rule',
+        dryRun: true,
+        skipActions: true,
+      }))
     })
   })
 

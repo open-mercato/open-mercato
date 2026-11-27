@@ -642,6 +642,11 @@ Per `BACKWARD_COMPATIBILITY.md`, the command seam touches a STABLE shared helper
 - **Scope note — command-layer enrichment is floor-parity today (intentional, per S5/H5).** The enterprise `commandOptimisticLockGuardService` is registered and the async seam (`enforceCommandOptimisticLockWithGuards`) is wired at every migrated command site, but `recordLockService.resolveExpectedVersion` currently returns the client-supplied `updated_at` token — i.e. the command layer runs the **OSS `updated_at` floor** (the authoritative write-time gate, H5) and is fully covered by it, but does **not** yet add pessimistic-lock / action-log conflict *enrichment* at the command layer the way the CRUD layer does via `validateMutation`. This is **not** a regression (every command site is at least as protected as OSS; H6 holds) and is consistent with H5 (the pessimistic lock is advisory; the optimistic write-time check is authoritative). Richer command-layer (action-log–based) detection is a deliberate **future extension** — the DI seam exists precisely so it can be added without touching call sites. Flagged by the cross-model jury (Codex) and confirmed acceptable by the Claude fresh-reviewer.
 
 ## Changelog
+### 2026-11-27 (deal stage conflict retry, #10242)
+
+- The merge dialog retries the guarded action that reported the conflict through the active record-lock session. A conflict from a form still resubmits that form. After a successful stage retry, the deal header reloads the saved stage.
+- The browser regression checks the stage-only payload and `accept_mine` resolution with the deal form expanded and collapsed. The server-side acceptance of a verified retry carrying a stale `updated_at` is tracked in [PR #10489](https://github.com/open-mercato/open-mercato/pull/10489).
+
 ### 2026-11-25 (command snapshot conflict details, #3651)
 - The fallback diff compares nested action-log snapshots at the field level and matches a flat form value to an unambiguous incoming snapshot path when a recorded diff is unavailable.
 - The merge dialog shows the original, incoming, and submitted values with readable field labels. Existing explicit action-log change maps still take precedence.

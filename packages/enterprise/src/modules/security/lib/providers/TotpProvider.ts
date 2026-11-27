@@ -49,7 +49,7 @@ export class TotpProvider implements MfaProviderInterface {
 
   constructor(
     private readonly securityConfig: SecurityModuleConfig = readSecurityModuleConfig(),
-    private readonly setupTokenSecret: string = readSecuritySetupTokenSecret(),
+    private readonly setupTokenSecret?: string,
   ) {}
 
   resolveSetupPayload(user: MfaProviderUser, payload: unknown): unknown {
@@ -265,7 +265,7 @@ export class TotpProvider implements MfaProviderInterface {
   }
 
   private getSetupTokenSecret(): string {
-    return this.setupTokenSecret
+    return this.setupTokenSecret ?? readSecuritySetupTokenSecret()
   }
 }
 

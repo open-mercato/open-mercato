@@ -7,11 +7,14 @@ import type {
   IndexableRecord,
 } from '../types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
-import type { VectorDriver, VectorDriverDocument } from '../vector/types'
+import type { VectorDriver, VectorDriverDocument, VectorDriverListParams } from '../vector/types'
 import { searchDebugWarn } from '../lib/debug'
 import { plaintextSearchFields } from '../lib/plaintext-fields'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { decryptVectorResultFields } from '../vector/lib/result-decryption'
+
+/** @internal Marks an explicit vector opt-out returned by a configured source. */
+export const VECTOR_SOURCE_EXCLUDED = Symbol('vectorSourceExcluded')
 
 /**
  * Embedding service interface - minimal subset needed by VectorSearchStrategy.
@@ -164,6 +167,11 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   async index(record: IndexableRecord): Promise<void> {
+    if (VECTOR_SOURCE_EXCLUDED in record) {
+      await this.delete(record.entityId as EntityId, record.recordId, record.tenantId)
+      return
+    }
+
     await this.ensureReady()
     // Use text from buildSource if available, otherwise fall back to generic extraction
     const textContent = record.text !== undefined
@@ -248,13 +256,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   /**
    * List entries in the vector index (for admin/debugging).
    */
-  async listEntries(options: {
-    tenantId: string
-    organizationId?: string | null
-    entityId?: string
-    limit?: number
-    offset?: number
-  }): Promise<Array<{
+  async listEntries(options: VectorDriverListParams): Promise<Array<{
     entityId: string
     recordId: string
     tenantId: string
@@ -263,16 +265,7 @@ export class VectorSearchStrategy implements SearchStrategy {
     url?: string
   }>> {
     await this.ensureReady()
-    // Delegate to vector driver's list method if available
-    const listMethod = (this.vectorDriver as unknown as {
-      list?: (options: {
-        tenantId: string
-        organizationId?: string | null
-        entityId?: string
-        limit?: number
-        offset?: number
-      }) => Promise<unknown[]>
-    }).list
+    const listMethod = this.vectorDriver.list
 
     if (typeof listMethod === 'function') {
       const entries = await listMethod.call(this.vectorDriver, options)

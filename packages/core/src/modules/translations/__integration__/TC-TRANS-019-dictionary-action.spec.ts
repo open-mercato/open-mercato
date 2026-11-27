@@ -66,6 +66,9 @@ test('TC-TRANS-019: injected dictionary action saves entry translations', async 
     await expect(dialog.getByRole('tab')).toHaveCount(0)
     await expect(dialog.getByRole('button', { name: 'Save translations', exact: true })).toHaveCount(0)
     await page.keyboard.press('Control+Enter')
+    if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+      await testInfo.attach('all-organizations-refusal', { body: await page.screenshot(), contentType: 'image/png' })
+    }
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
     expect(translationRequests).toEqual([])
@@ -97,11 +100,31 @@ test('TC-TRANS-019: injected dictionary action saves entry translations', async 
       }
     }
     await translationInput.fill('Übersetzter Wörterbucheintrag')
+
+    const scopeCookie = (await page.context().cookies(baseURL!)).find(({ name }) => name === 'om_selected_org')
+    expect(scopeCookie?.value).toBe(organizationId)
+    await page.context().addCookies([{ name: 'om_selected_org', value: '__all__', url: baseURL! }])
+    await translationInput.press('Control+Enter')
+    await expect(page.getByText(
+      'The organization selection changed. Close and reopen the translation editor to continue.',
+      { exact: true },
+    )).toBeVisible()
+    expect(translationRequests).not.toContain('PUT')
+    await expect(translationInput).toHaveValue('Übersetzter Wörterbucheintrag')
+    await page.context().addCookies([scopeCookie!])
+
     const saved = page.waitForResponse((response) => response.request().method() === 'PUT'
       && decodeURIComponent(new URL(response.url()).pathname) === translationPath)
     await translationInput.press('Control+Enter')
     expect((await saved).ok()).toBe(true)
     expect(translationRequests).toContain('PUT')
+
+    const aggregateScope = { Cookie: 'om_selected_org=__all__' }
+    expect((await apiRequest(request, 'GET', translationPath, { token, headers: aggregateScope })).status()).toBe(404)
+    expect((await apiRequest(request, 'PUT', translationPath, {
+      token, headers: aggregateScope, data: { de: { label: 'A refused edit' } },
+    })).status()).toBe(404)
+    expect((await apiRequest(request, 'DELETE', translationPath, { token, headers: aggregateScope })).status()).toBe(404)
 
     const email = `qa-trans-dictionary-${unique}@example.com`
     const password = `Translation1!${unique}`
@@ -129,6 +152,11 @@ test('TC-TRANS-019: injected dictionary action saves entry translations', async 
     expect(translated.ok()).toBe(true)
     const body = await readJsonSafe<{ translations?: Record<string, Record<string, string>> }>(translated)
     expect(body?.translations?.de?.label).toBe('Übersetzter Wörterbucheintrag')
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await translate.click()
+    await dialog.getByRole('tab', { name: 'DE', exact: true }).click()
+    await expect(translationInput).toHaveValue('Übersetzter Wörterbucheintrag')
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
   } finally {
