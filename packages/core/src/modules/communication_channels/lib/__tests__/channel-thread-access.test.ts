@@ -1,15 +1,14 @@
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: jest.fn(),
   findWithDecryption: jest.fn(),
 }))
 
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   resolveChannelThreadAccess,
   resolveChannelThreadAccessSafely,
 } from '../channel-thread-access'
 
-const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockFind = jest.mocked(findWithDecryption)
 
 const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 const OPERATOR = { userId: 'operator-1', features: ['messages.compose'] }
@@ -25,13 +24,17 @@ const MAPPING = {
   channelId: 'ch-1',
 }
 
+const SHARED_CHANNEL = { id: 'ch-1', channelType: 'email', userId: null }
+const PERSONAL_CHANNEL = { id: 'ch-2', channelType: 'email', userId: OPERATOR.userId }
+const PERSONAL_MAPPING = { ...MAPPING, externalConversationId: 'conv-2', channelId: PERSONAL_CHANNEL.id }
+
 describe('resolveChannelThreadAccess (#5535)', () => {
-  beforeEach(() => mockFindOne.mockReset())
+  beforeEach(() => mockFind.mockReset())
 
   it('grants access to a shared channel thread for any feature-gated caller', async () => {
-    mockFindOne
-      .mockResolvedValueOnce(MAPPING as never)
-      .mockResolvedValueOnce({ id: 'ch-1', channelType: 'discord', userId: null } as never)
+    mockFind
+      .mockResolvedValueOnce([MAPPING])
+      .mockResolvedValueOnce([{ ...SHARED_CHANNEL, channelType: 'discord' }])
 
     const result = await resolveChannelThreadAccess(
       makeContainer(),
@@ -50,9 +53,9 @@ describe('resolveChannelThreadAccess (#5535)', () => {
   })
 
   it('keeps a personal mailbox owner-only', async () => {
-    mockFindOne
-      .mockResolvedValueOnce(MAPPING as never)
-      .mockResolvedValueOnce({ id: 'ch-1', channelType: 'email', userId: 'someone-else' } as never)
+    mockFind
+      .mockResolvedValueOnce([MAPPING])
+      .mockResolvedValueOnce([{ ...SHARED_CHANNEL, userId: 'someone-else' }])
 
     const result = await resolveChannelThreadAccess(
       makeContainer(),
@@ -65,9 +68,9 @@ describe('resolveChannelThreadAccess (#5535)', () => {
   })
 
   it('grants the owner access to their own personal mailbox thread', async () => {
-    mockFindOne
-      .mockResolvedValueOnce(MAPPING as never)
-      .mockResolvedValueOnce({ id: 'ch-1', channelType: 'email', userId: 'operator-1' } as never)
+    mockFind
+      .mockResolvedValueOnce([PERSONAL_MAPPING])
+      .mockResolvedValueOnce([PERSONAL_CHANNEL])
 
     const result = await resolveChannelThreadAccess(
       makeContainer(),
@@ -79,10 +82,38 @@ describe('resolveChannelThreadAccess (#5535)', () => {
     expect(result?.canAccess).toBe(true)
   })
 
+  it.each([
+    { order: 'shared first', mappings: [MAPPING, PERSONAL_MAPPING] },
+    { order: 'personal first', mappings: [PERSONAL_MAPPING, MAPPING] },
+  ])('requires access to every channel with $order', async ({ mappings }) => {
+    mockFind
+      .mockResolvedValueOnce(mappings)
+      .mockResolvedValueOnce([PERSONAL_CHANNEL, SHARED_CHANNEL])
+      .mockResolvedValueOnce(mappings)
+      .mockResolvedValueOnce([SHARED_CHANNEL, PERSONAL_CHANNEL])
+
+    const reference = { messageThreadId: MAPPING.messageThreadId }
+    const teammate = { ...OPERATOR, userId: 'teammate', features: ['*'] }
+    const denied = await resolveChannelThreadAccess(makeContainer(), SCOPE, reference, teammate)
+    const granted = await resolveChannelThreadAccess(makeContainer(), SCOPE, reference, OPERATOR)
+
+    expect(denied?.canAccess).toBe(false)
+    expect(granted).toMatchObject({ channelId: mappings[0].channelId, canAccess: true })
+    expect(mockFind.mock.calls[0][3]).toEqual({ orderBy: { createdAt: 'ASC', id: 'ASC' } })
+  })
+
+  it('denies thread access when one mapped channel cannot be resolved in scope', async () => {
+    mockFind.mockResolvedValueOnce([PERSONAL_MAPPING, MAPPING]).mockResolvedValueOnce([SHARED_CHANNEL])
+
+    const result = await resolveChannelThreadAccess(
+      makeContainer(), SCOPE, { messageThreadId: MAPPING.messageThreadId }, OPERATOR,
+    )
+
+    expect(result).toMatchObject({ channelId: SHARED_CHANNEL.id, canAccess: false })
+  })
+
   it('resolves the thread of an external conversation', async () => {
-    mockFindOne
-      .mockResolvedValueOnce(MAPPING as never)
-      .mockResolvedValueOnce({ id: 'ch-1', channelType: 'discord', userId: null } as never)
+    mockFind.mockResolvedValueOnce([MAPPING]).mockResolvedValueOnce([SHARED_CHANNEL])
 
     const result = await resolveChannelThreadAccess(
       makeContainer(),
@@ -92,11 +123,11 @@ describe('resolveChannelThreadAccess (#5535)', () => {
     )
 
     expect(result?.messageThreadId).toBe('thread-1')
-    expect(mockFindOne.mock.calls[0][2]).toMatchObject({ externalConversationId: 'conv-1' })
+    expect(mockFind.mock.calls[0][2]).toMatchObject({ externalConversationId: 'conv-1' })
   })
 
   it('reports an internal thread as not channel-linked', async () => {
-    mockFindOne.mockResolvedValue(null as never)
+    mockFind.mockResolvedValue([])
 
     expect(
       await resolveChannelThreadAccess(makeContainer(), SCOPE, { messageThreadId: 'thread-1' }, OPERATOR),
@@ -105,20 +136,22 @@ describe('resolveChannelThreadAccess (#5535)', () => {
   })
 
   it('scopes every lookup to the caller tenant and organization', async () => {
-    mockFindOne
-      .mockResolvedValueOnce(MAPPING as never)
-      .mockResolvedValueOnce({ id: 'ch-1', channelType: 'discord', userId: null } as never)
+    mockFind.mockResolvedValueOnce([MAPPING, PERSONAL_MAPPING]).mockResolvedValueOnce([SHARED_CHANNEL, PERSONAL_CHANNEL])
 
     await resolveChannelThreadAccess(makeContainer(), SCOPE, { messageThreadId: 'thread-1' }, OPERATOR)
 
-    for (const call of mockFindOne.mock.calls) {
-      expect(call[2]).toMatchObject({ tenantId: 'tenant-1' })
-      expect(call[4]).toMatchObject({ tenantId: 'tenant-1', organizationId: 'org-1' })
-    }
+    expect(mockFind.mock.calls[0][2]).toEqual({ messageThreadId: MAPPING.messageThreadId, ...SCOPE })
+    expect(mockFind.mock.calls[1][2]).toEqual({
+      id: { $in: [SHARED_CHANNEL.id, PERSONAL_CHANNEL.id] },
+      tenantId: SCOPE.tenantId,
+      $or: [{ organizationId: SCOPE.organizationId }, { organizationId: null }],
+      deletedAt: null,
+    })
+    expect(mockFind.mock.calls.map((call) => call[4])).toEqual([SCOPE, SCOPE])
   })
 
   it('degrades to "internal thread" instead of throwing when a lookup fails', async () => {
-    mockFindOne.mockRejectedValue(new Error('connection terminated') as never)
+    mockFind.mockRejectedValue(new Error('connection terminated'))
 
     await expect(
       resolveChannelThreadAccessSafely(

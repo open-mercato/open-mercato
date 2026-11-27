@@ -1,4 +1,40 @@
-FROM node:24-alpine AS builder
+# Shared actual runtime stage: corporate trust, supported native clients and private recovery storage.
+FROM node:24-alpine AS recovery-tools
+WORKDIR /app
+COPY docker/README.md docker/cert[s] /tmp/om-certs/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
+        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
+    done; \
+    rm -rf /tmp/om-certs
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+ARG ALPINE_MIRROR=""
+RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
+ARG POSTGRES_CLIENT_MAJOR=17
+COPY docker/scripts/install-postgres-clients.sh /usr/local/libexec/om-install-postgres-clients
+RUN sh /usr/local/libexec/om-install-postgres-clients "$POSTGRES_CLIENT_MAJOR" \
+ && mkdir -p /var/lib/open-mercato/recovery \
+ && printf '%s\n' 'Open Mercato private recovery volume' > /var/lib/open-mercato/recovery/.volume-origin \
+ && chmod 0700 /var/lib/open-mercato/recovery \
+ && chmod 0600 /var/lib/open-mercato/recovery/.volume-origin \
+ && chown -R 1001:1001 /var/lib/open-mercato/recovery
+ENV OM_BACKUP_BINARIES_DIR=/usr/libexec/postgresql${POSTGRES_CLIENT_MAJOR} \
+    OM_RECOVERY_ROOT=/var/lib/open-mercato/recovery
+COPY docker/scripts/recovery-entrypoint.sh /usr/local/bin/om-recovery
+RUN chmod 0755 /usr/local/bin/om-recovery
+
+FROM recovery-tools AS module-build
+
+# Module registration is generated at build time; keep OSS defaults disabled.
+ARG OM_ENABLE_ENTERPRISE_MODULES=false
+ARG OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=false
+ENV OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES} \
+    OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS}
 
 ENV NEXT_TELEMETRY_DISABLED=1 \
     PATH=/app/node_modules/.bin:$PATH
@@ -26,9 +62,20 @@ RUN yarn install
 
 COPY . .
 RUN yarn generate
+
+FROM module-build AS builder
+# Match the main app web-build heap; package-only maintenance does not use this stage.
+ARG OM_BUILD_NODE_OPTIONS="--max-old-space-size=8192"
+ENV OM_BUILD_NODE_OPTIONS=${OM_BUILD_NODE_OPTIONS}
 RUN NODE_ENV=production yarn build
 
-FROM node:24-alpine AS dev
+FROM recovery-tools AS dev
+
+# Module registration is generated at build time; keep OSS defaults disabled.
+ARG OM_ENABLE_ENTERPRISE_MODULES=false
+ARG OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=false
+ENV OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES} \
+    OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS}
 
 ENV NODE_ENV=development \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -66,7 +113,18 @@ RUN chmod +x /app/docker/scripts/mcp-entrypoint.sh
 EXPOSE 3000 4101
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
 
-FROM node:24-alpine AS runner
+# Published framework dependencies and generated registry, without compiling the Next UI.
+FROM recovery-tools AS maintenance
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1
+COPY --from=module-build --chown=1001:1001 /app /app
+USER 1001:1001
+WORKDIR /app
+RUN --network=none node /app/scripts/mercato-cli.mjs entities --help
+ENTRYPOINT ["/usr/local/bin/om-recovery"]
+CMD ["node", "/app/node_modules/@open-mercato/enterprise/bin/mercato-backup.mjs", "--help"]
+
+FROM recovery-tools AS runner
 
 ARG CONTAINER_PORT=3000
 ARG DOCUMENTS_COLLAB_PORT=4101

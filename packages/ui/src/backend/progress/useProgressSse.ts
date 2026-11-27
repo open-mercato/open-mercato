@@ -149,9 +149,14 @@ export function useProgressSse(): UseProgressPollResult {
         return
       }
 
-      setActiveJobs((prev) =>
-        upsertJob(prev, job),
-      )
+      setActiveJobs((prev) => {
+        const previousJob = prev.find((item) => item.id === jobId)
+        return upsertJob(prev, {
+          ...job,
+          cancellable: payload.cancellable ?? previousJob?.cancellable ?? false,
+          canCancel: previousJob?.canCancel,
+        })
+      })
     },
     [fetchJobs],
   )

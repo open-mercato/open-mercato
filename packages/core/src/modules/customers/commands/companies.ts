@@ -41,6 +41,11 @@ import {
   type LabelAssignmentRestoreSnapshot,
 } from './entityLabelAssignments'
 import {
+  removeCustomerDeleteDependencies,
+  restoreCustomerDeleteDependencies,
+  type CustomerDeleteDependenciesSnapshot,
+} from './entityDeleteDependencies'
+import {
   companyCreateSchema,
   companyUpdateSchema,
   type CompanyCreateInput,
@@ -269,6 +274,7 @@ type CompanyUndoPayload = {
   before?: CompanySnapshot | null
   after?: CompanySnapshot | null
   labelAssignments?: LabelAssignmentRestoreSnapshot[]
+  dependencies?: CustomerDeleteDependenciesSnapshot
 }
 
 async function loadCompanySnapshot(
@@ -476,10 +482,11 @@ async function setCompanyCustomFields(
   profileId: string,
   organizationId: string,
   tenantId: string,
-  values: Record<string, unknown>
+  values: Record<string, unknown>,
+  transactionalEm?: EntityManager,
 ) {
   if (!values || !Object.keys(values).length) return
-  const em = (ctx.container.resolve('em') as EntityManager)
+  const em = transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
   const routing = await resolveCompanyCustomFieldRouting(em, tenantId, organizationId)
   const entityScoped: Record<string, unknown> = {}
   const profileScoped: Record<string, unknown> = {}
@@ -498,6 +505,7 @@ async function setCompanyCustomFields(
       organizationId,
       tenantId,
       values: entityScoped,
+      transactionalEm,
       notify: false,
     })
   }
@@ -509,6 +517,7 @@ async function setCompanyCustomFields(
       organizationId,
       tenantId,
       values: profileScoped,
+      transactionalEm,
       notify: false,
     })
   }
@@ -594,8 +603,8 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
         em.persist(profile)
       },
       () => syncEntityTags(em, entity, parsed.tags),
+      () => setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom, em),
     ], { transaction: true })
-    await setCompanyCustomFields(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -878,9 +887,8 @@ const updateCompanyCommand = {
         }
       },
       () => syncEntityTags(em, record, parsed.tags, { ignoreMissing: ignoreMissingTags }),
+      () => setCompanyCustomFields(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom, em),
     ], { transaction: true })
-
-    await setCompanyCustomFields(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -1099,7 +1107,7 @@ const updateCompanyCommand = {
 
 const deleteCompanyCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
-  { entityId: string; labelAssignments?: LabelAssignmentRestoreSnapshot[] }
+  { entityId: string; labelAssignments?: LabelAssignmentRestoreSnapshot[]; dependencies?: CustomerDeleteDependenciesSnapshot }
 > =
   {
     id: 'customers.companies.delete',
@@ -1114,7 +1122,7 @@ const deleteCompanyCommand: CommandHandler<
       const baseEm = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadCompanySnapshot(baseEm, id, ctx)
 
-      const { record, profile, labelAssignments } = await baseEm.transactional(async (em) => {
+      const { record, profile, labelAssignments, dependencies } = await baseEm.transactional(async (em) => {
         // Lock the entity row first, before any dependent check or child
         // cleanup, so a concurrent insert of a child row (label assignment,
         // person link, deal link, direct person, etc.) serializes behind
@@ -1179,6 +1187,7 @@ const deleteCompanyCommand: CommandHandler<
         }
         await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
         const labelAssignments = await removeEntityLabelAssignments(em, record)
+        const dependencies = await removeCustomerDeleteDependencies(em, record)
         const txEntity = await findOneWithDecryption(
           em,
           CustomerEntity,
@@ -1187,7 +1196,7 @@ const deleteCompanyCommand: CommandHandler<
           { tenantId: record.tenantId, organizationId: record.organizationId },
         )
         if (txEntity) em.remove(txEntity)
-        return { record, profile, labelAssignments }
+        return { record, profile, labelAssignments, dependencies }
       })
 
       const indexDeletes: QueryIndexEventEntry[] = []
@@ -1275,7 +1284,7 @@ const deleteCompanyCommand: CommandHandler<
       await emitQueryIndexDeleteEvents(ctx, labelAssignmentIndexEntries(record, labelAssignments))
       await emitQueryIndexUpsertEvents(ctx, memberUpserts)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
-      return { entityId: record.id, labelAssignments }
+      return { entityId: record.id, labelAssignments, ...(dependencies && { dependencies }) }
     },
     buildLog: async ({ result, snapshots }) => {
       const before = snapshots.before as CompanySnapshot | undefined
@@ -1292,6 +1301,7 @@ const deleteCompanyCommand: CommandHandler<
           undo: {
             before,
             labelAssignments: result?.labelAssignments,
+            dependencies: result?.dependencies,
           } satisfies CompanyUndoPayload,
         },
       }
@@ -1563,6 +1573,7 @@ const deleteCompanyCommand: CommandHandler<
         },
         async () => {
           restoredLabelAssignments = await restoreEntityLabelAssignments(em, entity, payload?.labelAssignments)
+          await restoreCustomerDeleteDependencies(em, entity, payload?.dependencies)
         },
       ], { transaction: true })
 

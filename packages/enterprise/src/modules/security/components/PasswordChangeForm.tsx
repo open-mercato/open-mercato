@@ -21,41 +21,39 @@ type ChangePasswordResponse = {
   ok: boolean
 }
 
+const formId = 'security-password-change-form'
+const requirementsId = `${formId}-requirements`
+
+type PasswordInputFieldProps = CrudCustomFieldRenderProps & {
+  label: string
+  autoComplete: 'current-password' | 'new-password'
+  describedBy?: string
+  onValueChange?: (value: string) => void
+}
+
 function PasswordInputField({
+  id,
   value,
   setValue,
   disabled,
   autoFocus,
-}: CrudCustomFieldRenderProps) {
-  return (
-    <PasswordInput
-      className="max-w-xl"
-      value={typeof value === 'string' ? value : ''}
-      onChange={(event) => setValue(event.target.value)}
-      disabled={disabled}
-      autoFocus={autoFocus}
-    />
-  )
-}
-
-type TrackedPasswordInputProps = CrudCustomFieldRenderProps & {
-  onValueChange: (value: string) => void
-}
-
-function TrackedPasswordInput({
-  value,
-  setValue,
-  disabled,
-  autoFocus,
+  label,
+  autoComplete,
+  describedBy,
   onValueChange,
-}: TrackedPasswordInputProps) {
+}: PasswordInputFieldProps) {
   return (
     <PasswordInput
+      id={`${formId}-input-${id}`}
       className="max-w-xl"
+      aria-label={label}
+      aria-required="true"
+      aria-describedby={describedBy}
+      autoComplete={autoComplete}
       value={typeof value === 'string' ? value : ''}
       onChange={(event) => {
         const nextValue = event.target.value
-        onValueChange(nextValue)
+        onValueChange?.(nextValue)
         setValue(nextValue)
       }}
       disabled={disabled}
@@ -68,7 +66,6 @@ export default function PasswordChangeForm() {
   const t = useT()
   const [formKey, setFormKey] = React.useState(0)
   const [newPasswordValue, setNewPasswordValue] = React.useState('')
-  const formId = 'security-password-change-form'
 
   const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
   const passwordRequirements = React.useMemo(() => getPasswordRequirements(passwordPolicy), [passwordPolicy])
@@ -102,46 +99,63 @@ export default function PasswordChangeForm() {
   )
 
   const hasNewPasswordInput = newPasswordValue.trim().length > 0
-  const fields = React.useMemo<CrudField[]>(
-    () => [
+  const fields = React.useMemo<CrudField[]>(() => {
+    const currentPasswordLabel = t('security.profile.password.form.currentPassword', 'Current password')
+    const newPasswordLabel = t('security.profile.password.form.newPassword', 'New password')
+    const confirmPasswordLabel = t('security.profile.password.form.confirmPassword', 'Confirm new password')
+
+    return [
       {
         id: 'currentPassword',
-        label: t('security.profile.password.form.currentPassword', 'Current password'),
+        label: currentPasswordLabel,
         type: 'custom',
         required: true,
-        component: PasswordInputField,
+        component: (props) => (
+          <PasswordInputField {...props} label={currentPasswordLabel} autoComplete="current-password" />
+        ),
       },
       {
         id: 'newPassword',
-        label: t('security.profile.password.form.newPassword', 'New password'),
+        label: newPasswordLabel,
         type: 'custom',
         required: true,
-        component: (props) => <TrackedPasswordInput {...props} onValueChange={setNewPasswordValue} />,
+        component: (props) => (
+          <PasswordInputField
+            {...props}
+            label={newPasswordLabel}
+            autoComplete="new-password"
+            describedBy={requirementsId}
+            onValueChange={setNewPasswordValue}
+          />
+        ),
       },
       {
         id: 'confirmPassword',
-        label: t('security.profile.password.form.confirmPassword', 'Confirm new password'),
+        label: confirmPasswordLabel,
         type: 'custom',
         required: true,
-        component: PasswordInputField,
+        component: (props) => (
+          <PasswordInputField {...props} label={confirmPasswordLabel} autoComplete="new-password" />
+        ),
       },
       {
         id: 'passwordRequirements',
         label: '',
         type: 'custom',
         component: () => (
-          <PasswordStrengthStatus
-            hasInput={hasNewPasswordInput}
-            passwordPolicy={passwordPolicy}
-            passwordRequirements={passwordRequirements}
-            passwordValidation={passwordValidation}
-            framed={false}
-          />
+          <div id={requirementsId}>
+            <PasswordStrengthStatus
+              hasInput={hasNewPasswordInput}
+              passwordPolicy={passwordPolicy}
+              passwordRequirements={passwordRequirements}
+              passwordValidation={passwordValidation}
+              framed={false}
+            />
+          </div>
         ),
       },
-    ],
-    [hasNewPasswordInput, passwordPolicy, passwordRequirements, passwordValidation, t],
-  )
+    ]
+  }, [hasNewPasswordInput, passwordPolicy, passwordRequirements, passwordValidation, t])
 
   const handleSubmit = React.useCallback(
     async (values: PasswordChangeValues) => {

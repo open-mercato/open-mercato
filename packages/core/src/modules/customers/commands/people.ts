@@ -39,6 +39,11 @@ import {
   restoreEntityLabelAssignments,
   type LabelAssignmentRestoreSnapshot,
 } from './entityLabelAssignments'
+import {
+  removeCustomerDeleteDependencies,
+  restoreCustomerDeleteDependencies,
+  type CustomerDeleteDependenciesSnapshot,
+} from './entityDeleteDependencies'
 import { resolvePersonCustomFieldRouting, CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID } from '../lib/customFieldRouting'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
@@ -227,6 +232,7 @@ type PersonUndoPayload = {
   before?: PersonSnapshot | null
   after?: PersonSnapshot | null
   labelAssignments?: LabelAssignmentRestoreSnapshot[]
+  dependencies?: CustomerDeleteDependenciesSnapshot
 }
 
 const personCrudIndexer: CrudIndexerConfig<CustomerEntity> = {
@@ -417,6 +423,16 @@ function serializePersonSnapshot(
   }
 }
 
+async function lockPersonRow(em: EntityManager, entity: CustomerEntity): Promise<void> {
+  await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    { id: entity.id, tenantId: entity.tenantId, organizationId: entity.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+  )
+}
+
 async function loadPersonSnapshot(
   em: EntityManager,
   entityId: string,
@@ -562,10 +578,11 @@ async function setCustomFieldsForPerson(
   profileId: string,
   organizationId: string,
   tenantId: string,
-  values: Record<string, unknown>
+  values: Record<string, unknown>,
+  transactionalEm?: EntityManager,
 ): Promise<void> {
   if (!values || !Object.keys(values).length) return
-  const em = (ctx.container.resolve('em') as EntityManager)
+  const em = transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
   const routing = await resolvePersonCustomFieldRouting(em, tenantId, organizationId)
   const entityScoped: Record<string, unknown> = {}
   const profileScoped: Record<string, unknown> = {}
@@ -584,6 +601,7 @@ async function setCustomFieldsForPerson(
       organizationId,
       tenantId,
       values: entityScoped,
+      transactionalEm,
       notify: true,
     })
   }
@@ -595,6 +613,7 @@ async function setCustomFieldsForPerson(
       organizationId,
       tenantId,
       values: profileScoped,
+      transactionalEm,
       notify: true,
     })
   }
@@ -781,12 +800,12 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       },
       () => syncLegacyPrimaryCompanyLink(em, entity, profile, parsed.companyEntityId ?? null),
       () => syncEntityTags(em, entity, parsed.tags),
+      () => setCustomFieldsForPerson(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom, em),
     ], { transaction: true })
 
     const tenantId = entity.tenantId
     const organizationId = entity.organizationId
     await invalidateDictionaryKindCaches(ctx, { tenantId, organizationId }, createdDictionaryKinds)
-    await setCustomFieldsForPerson(ctx, entity.id, profile.id, organizationId, tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -938,6 +957,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       profile = existingProfile
       const survivingEntity = entity
       await withAtomicFlush(em, [
+        () => lockPersonRow(em, survivingEntity),
         () => {
           survivingEntity.deletedAt = null
           survivingEntity.displayName = after.entity.displayName
@@ -1140,10 +1160,10 @@ const updatePersonCommand = {
         }
       },
       () => syncEntityTags(em, record, parsed.tags, { ignoreMissing: ignoreMissingTags }),
+      () => setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom, em),
     ], { transaction: true })
 
     await invalidateDictionaryKindCaches(ctx, record, createdDictionaryKinds)
-    await setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -1251,6 +1271,7 @@ const updatePersonCommand = {
       ], { transaction: true })
     } else {
       await withAtomicFlush(em, [
+        () => lockPersonRow(em, entity),
         () => {
           entity.displayName = before.entity.displayName
           entity.description = before.entity.description
@@ -1328,7 +1349,7 @@ const updatePersonCommand = {
 
 const deletePersonCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
-  { entityId: string; labelAssignments?: LabelAssignmentRestoreSnapshot[] }
+  { entityId: string; labelAssignments?: LabelAssignmentRestoreSnapshot[]; dependencies?: CustomerDeleteDependenciesSnapshot }
 > =
   {
     id: 'customers.people.delete',
@@ -1364,6 +1385,7 @@ const deletePersonCommand: CommandHandler<
       let record!: CustomerEntity
       const profileHolder: { value: CustomerPersonProfile | null } = { value: null }
       const labelAssignmentsHolder: { value: LabelAssignmentRestoreSnapshot[] } = { value: [] }
+      let dependencies: CustomerDeleteDependenciesSnapshot | undefined
 
       await withAtomicFlush(em, [
         async () => {
@@ -1394,6 +1416,7 @@ const deletePersonCommand: CommandHandler<
           })
           profileHolder.value = profile
           labelAssignmentsHolder.value = await removeEntityLabelAssignments(em, record)
+          dependencies = await removeCustomerDeleteDependencies(em, record)
           await em.nativeDelete(CustomerEmailConversationShare, { personEntity: record, organizationId: record.organizationId, tenantId: record.tenantId })
           if (profile) em.remove(profile)
           await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
@@ -1489,7 +1512,7 @@ const deletePersonCommand: CommandHandler<
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
       await emitQueryIndexDeleteEvents(ctx, labelAssignmentIndexEntries(record, labelAssignments))
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
-      return { entityId: record.id, labelAssignments }
+      return { entityId: record.id, labelAssignments, ...(dependencies && { dependencies }) }
     },
     buildLog: async ({ result, snapshots }) => {
       const before = snapshots.before as PersonSnapshot | undefined
@@ -1508,6 +1531,7 @@ const deletePersonCommand: CommandHandler<
           undo: {
             before,
             labelAssignments: result?.labelAssignments,
+            dependencies: result?.dependencies,
           } satisfies PersonUndoPayload,
         },
       }
@@ -1555,7 +1579,7 @@ const deletePersonCommand: CommandHandler<
             tenantId: before.entity.tenantId,
             organizationId: before.entity.organizationId,
           },
-          {},
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
           decryptionScope,
         )
       if (!entity) {
@@ -1666,6 +1690,7 @@ const deletePersonCommand: CommandHandler<
         () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
       ])
       const restoredLabelAssignments = await restoreEntityLabelAssignments(em, entity, payload?.labelAssignments)
+      await restoreCustomerDeleteDependencies(em, entity, payload?.dependencies)
       await em.flush()
 
       const beforeActivities = (before as { activities?: PersonActivitySnapshot[] }).activities ?? []

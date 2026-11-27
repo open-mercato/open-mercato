@@ -93,7 +93,7 @@ export function createCustomerNotesAdapter(
       )
       return response.result ?? {}
     },
-    update: async ({ id, patch, updatedAt }) => {
+    update: async ({ id, patch, updatedAt, onSavedVersion }) => {
       const payload: Record<string, unknown> = { id }
       if (patch.body !== undefined) payload.body = patch.body
       if (patch.appearanceIcon !== undefined) payload.appearanceIcon = patch.appearanceIcon
@@ -105,15 +105,20 @@ export function createCustomerNotesAdapter(
       await runWrite(
         () => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(updatedAt ?? null),
-          () => apiCallOrThrow(
-            '/api/customers/comments',
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            },
-            { errorMessage: translator('customers.people.detail.notes.updateError') },
-          ),
+          async () => {
+            const response = await apiCallOrThrow<{ updatedAt?: string }>(
+              '/api/customers/comments',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: translator('customers.people.detail.notes.updateError') },
+            )
+            const savedVersion = response.result?.updatedAt
+            if (typeof savedVersion === 'string') onSavedVersion?.(savedVersion)
+            return response
+          },
         ),
         { operation: 'updateNote', id },
       )

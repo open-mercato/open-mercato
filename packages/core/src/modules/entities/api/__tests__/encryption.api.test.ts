@@ -272,6 +272,56 @@ describe('entities/encryption API', () => {
     expect(mockEncSvc.invalidateMap).not.toHaveBeenCalled()
   })
 
+  describe('explicitly empty organization scope', () => {
+    const emptyScopes: Array<[string, Record<string, unknown>]> = [
+      ['allowedIds: []', { tenantId: 't-1', selectedId: null, filterIds: null, allowedIds: [] }],
+      ['filterIds: []', { tenantId: 't-1', selectedId: null, filterIds: [], allowedIds: null }],
+    ]
+
+    it.each(emptyScopes)('rejects the read with 403 before the map repository is reached (%s)', async (_label, scope) => {
+      mockResolveOrganizationScopeForRequest.mockResolvedValueOnce(scope as never)
+
+      const res = await GET(new Request('http://x/api/entities/encryption?entityId=auth:user'))
+
+      expect(res.status).toBe(403)
+      expect(mockMapRepo.find).not.toHaveBeenCalled()
+    })
+
+    it.each(emptyScopes)('rejects the write with 403 before anything is persisted (%s)', async (_label, scope) => {
+      mockResolveOrganizationScopeForRequest.mockResolvedValueOnce(scope as never)
+      const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: null }] }
+
+      const res = await POST(new Request('http://x/api/entities/encryption', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.status).toBe(403)
+      expect(mockMapRepo.find).not.toHaveBeenCalled()
+      expect(mockUpsertCanonicalEncryptionMap).not.toHaveBeenCalled()
+      expect(mockEncSvc.invalidateMap).not.toHaveBeenCalled()
+    })
+
+    it('keeps the unrestricted all-organizations read on the tenant-global map', async () => {
+      mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+        tenantId: 't-1',
+        selectedId: null,
+        filterIds: null,
+        allowedIds: null,
+      } as never)
+      mockMapRepo.find.mockResolvedValue([])
+
+      const res = await GET(new Request('http://x/api/entities/encryption?entityId=auth:user'))
+
+      expect(res.status).toBe(200)
+      expect(mockMapRepo.find).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 't-1', organizationId: null }),
+        expect.anything(),
+      )
+    })
+  })
+
   it('documents the unavailable selected-organization response in OpenAPI', () => {
     const response = openApi.methods.POST?.responses?.find((entry) => entry.status === 422)
 

@@ -120,6 +120,131 @@ describe('entities/definitions.batch POST (issue #1399)', () => {
     expect(mockEm.flush).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps an unchanged tenant definition inherited when saving another field', async () => {
+    const inherited = {
+      entityId: 'test:entity',
+      key: 'alpha',
+      kind: 'select',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      configJson: { label: 'Alpha', priority: 20, options: ['open'] },
+    }
+    const local = {
+      entityId: 'test:entity',
+      key: 'beta',
+      kind: 'text',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      configJson: { label: 'Beta', priority: 40 },
+    }
+    mockEm.find
+      .mockResolvedValueOnce([local])
+      .mockResolvedValueOnce([inherited, local])
+
+    const response = await POST(makeRequest({
+      entityId: 'test:entity',
+      preserveOrder: true,
+      definitions: [
+        {
+          key: 'alpha',
+          kind: 'select',
+          configJson: { label: 'Alpha', formEditable: true, priority: 20, options: [{ value: 'open', label: 'open' }] },
+        },
+        { key: 'beta', kind: 'text', configJson: { label: 'Edited beta', priority: 40 } },
+      ],
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(mockEm.persist).toHaveBeenCalledTimes(1)
+    expect(mockEm.persist).toHaveBeenCalledWith(local)
+    expect(local.configJson).toMatchObject({ label: 'Edited beta', priority: 40 })
+    expect(inherited.configJson).toEqual({ label: 'Alpha', priority: 20, options: ['open'] })
+    expect(mockEm.find.mock.calls[1][1]).toMatchObject({
+      entityId: 'test:entity',
+      $and: [
+        { $or: [{ organizationId: 'org-1' }, { organizationId: null }] },
+        { $or: [{ tenantId: 'tenant-1' }, { tenantId: null }] },
+      ],
+    })
+  })
+
+  it('keeps active unchanged fields untouched when saving fieldset configuration', async () => {
+    const local = {
+      entityId: 'test:entity',
+      key: 'beta',
+      kind: 'text',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      isActive: true,
+      configJson: { label: 'Beta', priority: 5 },
+    }
+    mockEm.find.mockResolvedValueOnce([local]).mockResolvedValueOnce([local])
+
+    const response = await POST(makeRequest({
+      entityId: 'test:entity',
+      preserveOrder: true,
+      definitions: [{ key: 'beta', kind: 'text', configJson: local.configJson }],
+      fieldsets: [{ code: 'main', label: 'Main' }],
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.persist).not.toHaveBeenCalledWith(local)
+    expect(mockEm.persist).toHaveBeenCalledTimes(1)
+    expect(mockEm.create).toHaveBeenCalledWith('CustomFieldEntityConfig', expect.any(Object))
+  })
+
+  it('creates a scoped override for a real edit and appends new fields after the visible order', async () => {
+    const inherited = {
+      entityId: 'test:entity',
+      key: 'alpha',
+      kind: 'text',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      configJson: { label: 'Alpha', priority: 12 },
+    }
+    const omitted = { ...inherited, key: 'omega', configJson: { label: 'Omega', priority: 50 } }
+    mockEm.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([inherited, omitted])
+
+    const response = await POST(makeRequest({
+      entityId: 'test:entity',
+      preserveOrder: true,
+      definitions: [
+        { key: 'alpha', kind: 'text', configJson: { label: 'Edited alpha' } },
+        { key: 'beta', kind: 'text' },
+        { key: 'gamma', kind: 'text' },
+      ],
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.persist.mock.calls.map(([row]) => [row.key, row.organizationId, row.configJson.priority])).toEqual([
+      ['alpha', 'org-1', 12],
+      ['beta', 'org-1', 51],
+      ['gamma', 'org-1', 52],
+    ])
+    expect(inherited.configJson).toEqual({ label: 'Alpha', priority: 12 })
+  })
+
+  it('still uses the submitted order for an explicit reorder', async () => {
+    const response = await POST(makeRequest({
+      entityId: 'test:entity',
+      preserveOrder: false,
+      definitions: [
+        { key: 'beta', kind: 'text', configJson: { priority: 6 } },
+        { key: 'alpha', kind: 'text', configJson: { priority: 2 } },
+      ],
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.find).toHaveBeenCalledTimes(1)
+    expect(mockEm.persist.mock.calls.map(([row]) => [row.key, row.configJson.priority])).toEqual([
+      ['beta', 0],
+      ['alpha', 1],
+    ])
+  })
+
   it('creates a scoped tombstone when saving an inherited definition as inactive', async () => {
     const inherited = {
       entityId: 'test:entity',

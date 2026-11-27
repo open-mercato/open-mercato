@@ -2393,7 +2393,10 @@ function spawnMcpCommand(subcommandArgs, label, onLine) {
   const invocation = resolveMercatoInvocation({ cwd: mcpCliCwd })
   return spawnCommand(invocation.command, [...invocation.args, ...buildMcpCliArgs(subcommandArgs)], {
     cwd: mcpCliCwd,
-    env: isMonorepo ? { PATH: buildWorkspaceBinPath() } : undefined,
+    env: {
+      ...(isMonorepo ? { PATH: buildWorkspaceBinPath() } : {}),
+      MCP_SERVER_API_KEY_FILE: mcpKeyFilePath,
+    },
     label,
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
@@ -2488,9 +2491,11 @@ async function waitForMcpHealthy(child, port, isListening) {
 }
 
 async function fetchOpencodeMcpStatus() {
-  const baseUrl = (process.env.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
+  const baseUrl = (process.env.OPENCODE_URL?.trim() || appDotEnv.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
+  const password = process.env.OPENCODE_PASSWORD || appDotEnv.OPENCODE_PASSWORD
+  const headers = password ? { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}` } : undefined
   try {
-    const response = await fetch(`${baseUrl}/mcp`, { signal: AbortSignal.timeout(3000) })
+    const response = await fetch(`${baseUrl}/mcp`, { headers, redirect: 'error', signal: AbortSignal.timeout(3000) })
     if (!response.ok) return null
     const body = await response.json().catch(() => null)
     const status = body?.['open-mercato']?.status

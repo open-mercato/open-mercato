@@ -45,7 +45,7 @@ const SECTION_ENTITY = 'attachments:attachment_document_section'
 const SEARCH_TEST_TIMEOUT_MS = 480_000
 const SEARCH_POLL_TIMEOUT_MS = 120_000
 const SEARCH_POLL_INTERVALS_MS = [1_000, 2_000, 3_000]
-const VALID_PASSWORD = 'Valid1!Pass'
+const VALID_PASSWORD = 'QaValid1!Pass'
 
 type SearchResultItem = {
   entityId?: string

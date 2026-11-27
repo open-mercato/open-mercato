@@ -31,6 +31,7 @@ type PersonCompaniesSectionProps = {
   personId: string
   personName: string
   canManage?: boolean
+  personOrganizationId?: string | null
   initialLinkedCompanies?: LinkedCompanySummary[]
   onChanged?: () => Promise<void> | void
   runGuardedMutation?: GuardedMutationRunner
@@ -89,6 +90,7 @@ export function PersonCompaniesSection({
   personId,
   personName: _personName,
   canManage = true,
+  personOrganizationId = null,
   initialLinkedCompanies = [],
   onChanged,
   runGuardedMutation,
@@ -107,11 +109,11 @@ export function PersonCompaniesSection({
   )
   const [dialogOpen, setDialogOpen] = React.useState(false)
 
-  const { data: statusDict } = useCustomerDictionary('statuses')
-  const { data: lifecycleDict } = useCustomerDictionary('lifecycle-stages')
-  const { data: temperatureDict } = useCustomerDictionary('temperature')
-  const { data: renewalQuarterDict } = useCustomerDictionary('renewal-quarters')
-  const { data: roleDict } = useCustomerDictionary('person-company-roles')
+  const { data: statusDict } = useCustomerDictionary('statuses', 0, personOrganizationId)
+  const { data: lifecycleDict } = useCustomerDictionary('lifecycle-stages', 0, personOrganizationId)
+  const { data: temperatureDict } = useCustomerDictionary('temperature', 0, personOrganizationId)
+  const { data: renewalQuarterDict } = useCustomerDictionary('renewal-quarters', 0, personOrganizationId)
+  const { data: roleDict } = useCustomerDictionary('person-company-roles', 0, personOrganizationId)
 
   React.useEffect(() => {
     setLinkedCompanies(initialLinkedCompanies)

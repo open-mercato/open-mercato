@@ -694,6 +694,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                         personId={personId}
                         personName={personName}
                         canManage={canManagePerson}
+                        personOrganizationId={data.person.organizationId ?? null}
                         initialLinkedCompanies={data?.companies ?? []}
                         onChanged={loadData}
                         runGuardedMutation={runMutationWithContext}

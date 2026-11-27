@@ -188,6 +188,36 @@ throw new Error('[internal] Event bus not available in container')
 
 The detection scripts (`yarn i18n:check-hardcoded`, `yarn i18n:check-values`) live in `scripts/`. See `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md` for the full convention and the per-module allowlist format (`<module>/i18n/.hardcoded-allowlist.json`).
 
+### Zod `.refine()`/`superRefine` messages — opt in to translation via `params.i18nKey`
+
+A zod schema's built-in messages (`z.uuid()`'s "Invalid UUID", `min`/`max`, etc.) are not
+translated — that is a separate, larger effort and out of scope here. A `.refine()` or
+`superRefine` call's own `message`, however, is business-rule text this codebase writes, and
+it CAN opt in to translation: attach `params: { i18nKey, i18nFallback }` alongside `message`,
+and `makeCrudRoute`'s `handleError` (via `translateZodIssues` in
+`packages/shared/src/lib/crud/factory.ts`) translates that issue's `message` through
+`translate(i18nKey, i18nFallback)` before it reaches the client.
+
+```typescript
+const schema = z.object({ /* ... */ }).refine(
+  (value) => /* business rule */,
+  {
+    message: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+    params: {
+      i18nKey: 'ledger.errors.journalEntryLineNotOneSided',
+      i18nFallback: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+    },
+  },
+)
+```
+
+This is per-schema, per-message and additive: an issue whose `params` has no `i18nKey` string
+is left exactly as `.refine()` produced it — zero behavior change for every schema that hasn't
+opted in. See `packages/core/src/modules/ledger/data/validators.ts` for the first real usage.
+
+MUST NOT rely on this for a schema's own built-in type/format messages — only a `.refine()`/
+`superRefine` custom `message` carries a `params` bag zod will pass through onto the issue.
+
 ### Request Scoping — use for scoped API payloads
 
 ```typescript
@@ -283,6 +313,7 @@ Downstream apps replace or disable any contract a module presents through a sing
 | Notifications / interceptors / enrichers / guards | `applyNotificationTypeOverridesToEntries()`, `applyNotificationHandlerOverridesToEntries()`, `applyApiInterceptorOverridesToEntries()`, `applyCommandInterceptorOverridesToEntries()`, `applyResponseEnricherOverridesToEntries()`, `applyPageGuardOverridesToEntries()` |
 | DI | `applyDiOverridesToContainer()` |
 | Sidebar nav ordering | `applyNavGroupOrderOverrides()`, `getNavGroupOrderOverride()` |
+| CrudForm sections | `applyFormSectionOverrides()`, `composeFormSectionOverrides()` |
 
 MUST rules:
 - `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
@@ -294,6 +325,8 @@ MUST rules:
 - An `enabledModules` entry gated on a **server-only** env var (anything not `NEXT_PUBLIC_*`) MUST NOT carry `widgets` or `notifications` overrides. The browser re-evaluates `modules.ts` with those reads `undefined`, so the entry is absent there: the server dispatches the override and the client does not, and the widget returns on hydration with nothing logged. Declare such an override on an ungated entry, or gate it on a `NEXT_PUBLIC_` var. Outside production `ClientBootstrap` warns for every module id in `enabled-module-ids.generated` that the browser-evaluated list is missing.
 - Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
 - `nav.groupOrder` **prepends** group ids ahead of the built-in ordering; ids it does not name keep their current position. It is a default, resolved beneath role and per-user sidebar preferences, and an absent override MUST leave ordering byte-identical.
+- Address `forms.sections` entries as `<hostId>/<formVariant>/<formOperation>/<sectionId>`. Preserve `null` through composition so the resolver can restore a base section or omit an addition. Runtime descriptors and registry validation belong outside the shared override composer.
+- Declare facts and loader identities with `defineCrudFormSections` and `lazyCrudFormSectionRuntime` from `@open-mercato/shared/modules/form-sections`. Bind conventional hosts with `defineCrudRouteSectionHost` from `@open-mercato/shared/lib/crud/form-sections/derived-route-host`. Authorization, final-input validation, and target locking belong to the [section policy adapter](../../.ai/docs/module-development.md#crudform-section-policies).
 - Nav ordering state lives on `globalThis` because its reader is `@open-mercato/core` while its writer is app bootstrap; a module-local variable would be invisible across duplicated module instances in standalone builds. The injection-widget `key`⇄`widgetId` alias index is on `globalThis` for the same reason — `@open-mercato/ui` writes it while filtering entries, `@open-mercato/core` reads it while filtering tables.
 
 ### Query Engine Extensibility (UMES)
