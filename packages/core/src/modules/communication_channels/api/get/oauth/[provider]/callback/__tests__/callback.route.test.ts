@@ -197,6 +197,22 @@ describe('GET /api/communication_channels/oauth/[provider]/callback', () => {
     }))
   })
 
+  it('returns setup guidance instead of exchanging a code when client configuration becomes incomplete', async () => {
+    const memCache = createMemoryCache()
+    mockContainerResolve.mockImplementation((token: string) => token === 'cache' ? memCache : null)
+    mockResolveOAuthClientCredentials.mockResolvedValue(null)
+
+    const req = buildRequest('?code=auth-code-123&state=test-state-nonce', makeStateCookie())
+    const response = await GET(req, { params: { provider: PROVIDER } })
+
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toContain('code=oauth_client_not_configured')
+    expect(mockResolveOAuthClientCredentials).toHaveBeenCalledWith(
+      null, PROVIDER, expect.objectContaining({ tenantId: TENANT_ID }), { requireComplete: true },
+    )
+    expect(mockExchangeOAuthCode).not.toHaveBeenCalled()
+  })
+
   // ── Replay ──────────────────────────────────────────────────────────────────
 
   it('replay: second callback with same state → redirect with code=replay, no channel row created', async () => {
