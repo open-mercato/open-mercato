@@ -109,7 +109,7 @@ describe('entities CLI system-scope guards', () => {
       return []
     })
 
-    await loadCommand('rotate-encryption-key').run(['--old-key', 'old-secret', '--allow-unsafe-old-key', '--tenant', 'tenant-1'])
+    await loadCommand('rotate-encryption-key').run(['--old-key', 'old-secret', '--allow-unsafe-old-key', '--tenant', '6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f'])
 
     expect(execute).not.toHaveBeenCalled()
     expect(warnSpy.mock.calls.flat().join('\n')).toContain('Skipping onboarding:onboarding_request: system-scoped entity')

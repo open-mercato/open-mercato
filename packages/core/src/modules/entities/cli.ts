@@ -553,6 +553,13 @@ const rotateEncryptionKey: ModuleCli = {
     const args = parseArgs(rest)
     const tenantIdArg = (args.tenant as string) || (args.tenantId as string) || null
     const organizationIdArg = (args.org as string) || (args.organization as string) || (args.organizationId as string) || null
+    // Check the ids here so a typo gets a clear message, not a raw Postgres uuid error.
+    if (tenantIdArg && !z.guid().safeParse(tenantIdArg).success) {
+      failCli(`--tenant must be a UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx), got "${tenantIdArg}". No rows were changed.`)
+    }
+    if (organizationIdArg && !z.guid().safeParse(organizationIdArg).success) {
+      failCli(`--org must be a UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx), got "${organizationIdArg}". No rows were changed.`)
+    }
     const oldKeyArgument = (args['old-key'] as string) || (args.oldKey as string) || null
     const oldKeyEnvironment = process.env[OLD_ENCRYPTION_KEY_ENV]
       ? normalizeKeyInput(process.env[OLD_ENCRYPTION_KEY_ENV]!)
