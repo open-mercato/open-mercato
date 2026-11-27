@@ -669,9 +669,9 @@ CLI safety confirmations changed; stop writers and restart replicas. [Flags, mig
 
 ## Staff Logout Uses Post/Redirect/Get (2026-11-05)
 
-`POST /api/auth/logout` now returns `303 See Other` instead of `307`, including the cookieless branch ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). Browsers follow `Location: /login` with GET rather than repeating the logout POST. This intentionally corrects the status documented in the 2026-10-13 entry above; shared redirect helper defaults remain 307.
+`POST /api/auth/logout` returns 303 instead of 307, even without cookies ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). It supersedes the October entry. The shared helper defaults to 307.
 
-**Migration:** custom clients asserting 307 must accept 303 and follow the Location with GET. Session revocation, cookie expiry, route URL/method and auth events are unchanged. No schema migration is needed. See [spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) and UPGRADE_NOTES.md.
+**Migration:** Accept 303 and follow `Location: /login` with GET. Revocation, cookie expiry, route URL/method, auth events and schema are unchanged. [Spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) · UPGRADE_NOTES.md.
 
 ## #7809 2026-11-06
 
@@ -709,3 +709,22 @@ The STABLE generic relation options route requires an owning record policy for p
 ## 2026-11-25 — Empty organization scope (#10503)
 
 STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+<<<<<<< HEAD
+=======
+
+## MCP HTTP session token, no fallback (2026-11-14, #5173)
+
+STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+
+## Workflow events (2026-11-20, #9134)
+
+STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
+
+## 2026-11-25 — MCP Code Mode
+
+STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## Staff credential email (2026-11-27, #10594)
+
+STABLE superadmin reset and invite email uses the instance provider. Tenant fallback retains exposure. Named waiver pending. [Migration](.ai/specs/2026-06-03-pluggable-email-providers.md).
+>>>>>>> 3a7b29b245 (fix(auth): use instance email for superadmin recovery and invites (#10594) (#10851))

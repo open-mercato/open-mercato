@@ -3903,15 +3903,16 @@ the environment fallback instead. `SYSTEM_EMAIL_CHANNEL_ID` narrows the lookup t
 without lifting that boundary: the pinned row must be the sending organization's own or the
 tenant-wide (`organization_id IS NULL`) one, and a pin never falls back to the environment.
 
-**The table above describes a (tenant, organization) pair, not a tenant.** A send that carries no
-`organizationId` — a password reset for a user whose `organization_id` is null, which superadmins
-can be — probes only the tenant-wide (`organization_id IS NULL`) channel. The per-organization rows
-the env preset seeds are not visible to it, so such a send lands on the last row of the table and
-uses instance-wide environment credentials with the usual logged warning, even on a tenant that has
-finished configuring its own provider. This is deliberate: a send with no organization has no
-organization's credentials to reach for. If you want every send on a tenant to use that tenant's
-provider, give the tenant a tenant-wide channel row (`organization_id IS NULL`) as well as the
-per-organization ones, or pass `organizationId` from the caller.
+**Tenant-scoped delivery resolves credentials for a tenant and organization pair.** A send with a
+`tenantId` and no `organizationId` probes the tenant-wide (`organization_id IS NULL`) channel. To
+use a tenant provider for that mail, add a tenant-wide channel row alongside the per-organization
+rows. For mail tied to a specific organization, pass its `organizationId` from the caller.
+
+**Password resets and invitations for superadmins use the instance provider.** Configure the
+provider selected by `SYSTEM_EMAIL_PROVIDER` (default `resend`), its deployment credentials, and
+an instance sender address such as `EMAIL_FROM`. This delivery path bypasses tenant channel
+settings, including `SYSTEM_EMAIL_CHANNEL_ID`. Previously issued links retain their original
+expiry.
 
 **An explicit `from` is always honoured.** When the caller passes `from` to `sendEmail`, that
 address is used verbatim; only a send that left `from` to the instance default
