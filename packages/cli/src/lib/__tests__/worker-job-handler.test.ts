@@ -74,6 +74,36 @@ describe('createPerJobWorkerHandler', () => {
     expect(seenEms[0]).not.toBe(seenEms[1])
   })
 
+  it('passes the job container itself as ctx.container when it supports register()', async () => {
+    const register = jest.fn()
+    const realContainer: WorkerJobContainer = {
+      resolve: <T = unknown>(): T => undefined as unknown as T,
+      register,
+    }
+    const seen: unknown[] = []
+    const worker = makeWorker('w', (_job, ctx) => {
+      seen.push((ctx as { container?: unknown }).container)
+    })
+    const handler = createPerJobWorkerHandler([worker], async () => realContainer)
+
+    await handler({ id: 'a' }, { ...baseCtx, jobId: 'a' })
+
+    expect(seen).toEqual([realContainer])
+  })
+
+  it('leaves ctx.container undefined when the job container only resolves', async () => {
+    const { factory } = makeContainerFactory()
+    const seen: unknown[] = []
+    const worker = makeWorker('w', (_job, ctx) => {
+      seen.push((ctx as { container?: unknown }).container)
+    })
+    const handler = createPerJobWorkerHandler([worker], factory)
+
+    await handler({ id: 'a' }, { ...baseCtx, jobId: 'a' })
+
+    expect(seen).toEqual([undefined])
+  })
+
   it('isolates concurrent jobs in distinct containers (no shared EntityManager)', async () => {
     const { factory, containers } = makeContainerFactory()
     let release: (() => void) | null = null
