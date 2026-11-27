@@ -1,0 +1,38 @@
+[
+  {
+    "base": "starters/docker/compose.fullapp.yml",
+    "maintenanceNamespace": "service:postgres",
+    "user": "1001:1001",
+    "persistentMount": true,
+    "noAppDependency": true,
+    "autoPull": false,
+    "readOnlyImage": true
+  },
+  {
+    "base": "starters/docker/compose.fullapp.dev.yml",
+    "maintenanceNamespace": "service:postgres",
+    "user": "1001:1001",
+    "persistentMount": true,
+    "noAppDependency": true,
+    "autoPull": false,
+    "readOnlyImage": true
+  },
+  {
+    "base": "packages/create-app/template/docker-compose.fullapp.yml",
+    "maintenanceNamespace": "service:postgres",
+    "user": "1001:1001",
+    "persistentMount": true,
+    "noAppDependency": true,
+    "autoPull": false,
+    "readOnlyImage": true
+  },
+  {
+    "base": "packages/create-app/template/docker-compose.fullapp.dev.yml",
+    "maintenanceNamespace": "service:postgres",
+    "user": "1001:1001",
+    "persistentMount": true,
+    "noAppDependency": true,
+    "autoPull": false,
+    "readOnlyImage": true
+  }
+]

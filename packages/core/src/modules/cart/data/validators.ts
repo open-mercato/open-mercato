@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isDecimalInput } from '@open-mercato/shared/lib/decimal'
 
 // Mirrors promotions/data/validators.ts's helper set — kept minimal to what this step's
 // entities actually need validated at the data layer. A full command-input surface
@@ -35,10 +36,18 @@ const clearableStringSchema = (max: number) =>
 
 const clearableUuidSchema = z.preprocess(emptyStringToNull, uuid().nullable().optional())
 
-// Decimal amounts travel as strings end-to-end (§Data Models: quantity/price columns are
-// numeric(16,4)/numeric(7,4)) so a caller never loses precision to IEEE-754 float
-// rounding — same convention as promotions/data/validators.ts's decimalStringSchema.
-const decimalStringSchema = z.string().regex(/^-?\d+(\.\d+)?$/, 'Must be a decimal string')
+// Decimal amounts travel as strings end-to-end (§Data Models: price columns are
+// unconstrained numeric, quantity numeric(16,4)) so a caller never loses precision to
+// IEEE-754 float rounding — same convention as promotions/data/validators.ts's decimalStringSchema.
+export const MAX_CART_LINE_QUANTITY = 999_999_999_999.9999
+
+const cartQuantitySchema = z.string()
+  .regex(/^-?\d+(\.\d+)?$/, 'Must be a decimal string')
+  .refine(isDecimalInput, 'Must be a decimal string')
+  .refine((value) => {
+    const [, fraction = ''] = value.split('.')
+    return Math.abs(Number(value)) <= MAX_CART_LINE_QUANTITY && /^0*$/.test(fraction.slice(4))
+  })
 
 const currencyCodeSchema = z
   .string()
@@ -120,7 +129,7 @@ export const cartLineAddInputSchema = z.object({
   cartId: uuid(),
   productId: uuid(),
   variantId: clearableUuidSchema,
-  quantity: decimalStringSchema,
+  quantity: cartQuantitySchema,
   configuration: jsonRecordSchema.nullable().optional(),
   metadata: jsonRecordSchema.nullable().optional(),
 })
@@ -150,7 +159,7 @@ export const cartLineAddRequestSchema = z
   .object({
     productId: uuid(),
     variantId: clearableUuidSchema,
-    quantity: decimalStringSchema,
+    quantity: cartQuantitySchema,
     configuration: jsonRecordSchema.nullable().optional(),
     metadata: jsonRecordSchema.nullable().optional(),
   })
@@ -160,7 +169,7 @@ export type CartLineAddRequest = z.infer<typeof cartLineAddRequestSchema>
 /** `PATCH /current/lines/[lineId]` — §10's "Change quantity or configuration" is narrowed to quantity only: `cart.lines.update` (Step 4.6) has no configuration-change parameter at all yet. */
 export const cartLineUpdateRequestSchema = z
   .object({
-    quantity: decimalStringSchema,
+    quantity: cartQuantitySchema,
   })
   .strict()
 export type CartLineUpdateRequest = z.infer<typeof cartLineUpdateRequestSchema>
@@ -169,7 +178,7 @@ const cartLineBulkAddEntryRequestSchema = z
   .object({
     productId: uuid(),
     variantId: clearableUuidSchema,
-    quantity: decimalStringSchema,
+    quantity: cartQuantitySchema,
     configuration: jsonRecordSchema.nullable().optional(),
     metadata: jsonRecordSchema.nullable().optional(),
   })

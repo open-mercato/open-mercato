@@ -21,7 +21,7 @@ import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { env } from 'process'
 import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import crypto from 'node:crypto'
-import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { formatPasswordRequirements, getPasswordPolicy, isWithinPasswordByteLimit, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getCliModules, type Module } from '@open-mercato/shared/modules/registry'
 import { lockUserRoleWriterAuthorizationState } from './lib/authorizationStateLocks'
@@ -106,6 +106,8 @@ function parseArgs(rest: string[]) {
 function normalizeKeyInput(value: string): string {
   return value.trim().replace(/(?:^['"]|['"]$)/g, '')
 }
+
+const OLD_ENCRYPTION_KEY_ENV = 'TENANT_DATA_ENCRYPTION_OLD_KEY'
 
 function hashSecret(value: string | null | undefined): string | null {
   if (!value) return null
@@ -214,13 +216,34 @@ const rotateEncryptionKey: ModuleCli = {
     const args = parseArgs(rest)
     const tenantId = (args.tenantId as string) ?? (args.tenant as string) ?? (args.tenant_id as string) ?? null
     const organizationId = (args.organizationId as string) ?? (args.orgId as string) ?? (args.org as string) ?? null
-    const oldKey = (args['old-key'] as string) ?? (args.oldKey as string) ?? null
+    const rawOldKeyArgument = args['old-key'] ?? args.oldKey
+    const oldKeyArgument = typeof rawOldKeyArgument === 'string' ? normalizeKeyInput(rawOldKeyArgument) || null : null
+    if (rawOldKeyArgument !== undefined && !oldKeyArgument) {
+      throw new Error(`[internal] --old-key requires a value. Use ${OLD_ENCRYPTION_KEY_ENV} instead.`)
+    }
+    const rawOldKeyEnvironment = process.env[OLD_ENCRYPTION_KEY_ENV]
+    const oldKeyEnvironment = rawOldKeyEnvironment !== undefined ? normalizeKeyInput(rawOldKeyEnvironment) || null : null
+    if (rawOldKeyEnvironment !== undefined && !oldKeyEnvironment) {
+      throw new Error(`[internal] ${OLD_ENCRYPTION_KEY_ENV} is set but empty. Unset it or set it to the previous key.`)
+    }
+    if (oldKeyArgument && oldKeyEnvironment && oldKeyArgument !== oldKeyEnvironment) {
+      throw new Error(`[internal] --old-key and ${OLD_ENCRYPTION_KEY_ENV} contain different values. Remove --old-key and retry.`)
+    }
+    if (oldKeyArgument && parseBooleanToken(String(args['allow-unsafe-old-key'])) !== true) {
+      throw new Error(`[internal] --old-key is deprecated because process listings expose it. Use ${OLD_ENCRYPTION_KEY_ENV}; the compatibility bridge requires --allow-unsafe-old-key.`)
+    }
+    if (oldKeyArgument) {
+      console.warn(
+        `Passing key material through --old-key can expose it in shell history and process listings. Set ${OLD_ENCRYPTION_KEY_ENV} through your secret manager instead.`,
+      )
+    }
+    const oldKey = oldKeyEnvironment || oldKeyArgument
     const dryRun = Boolean(args['dry-run'] || args.dry)
     const debug = Boolean(args.debug)
     const rotate = Boolean(oldKey)
     if (rotate && !tenantId) {
       console.warn(
-        '⚠️  Rotating with --old-key across all tenants. A single old key should normally target one tenant; consider --tenant.',
+        '⚠️  Rotating with one previous key across all tenants. A single previous key should normally target one tenant; consider --tenant.',
       )
     }
     if (!isTenantDataEncryptionEnabled()) {
@@ -263,6 +286,21 @@ const rotateEncryptionKey: ModuleCli = {
     }
     const printedDek = new Set<string>()
     const oldDekCache = new Map<string, TenantDek | null>()
+    const unrecoverableRows: Array<{ rowId: string; tenantId: string; organizationId: string }> = []
+    const reportUnrecoverableRows = (): void => {
+      if (!unrecoverableRows.length) return
+      const maxListed = 20
+      console.warn(
+        `[internal] ${unrecoverableRows.length} auth user email(s) could not be rotated: their ciphertext opens under neither the previous nor the current tenant key. Those rows were left untouched. Retain the previous keys and re-run with the key that sealed them.`,
+      )
+      for (const row of unrecoverableRows.slice(0, maxListed)) {
+        console.warn(`[internal] auth:user.email row=${row.rowId} tenant=${row.tenantId} org=${row.organizationId}`)
+      }
+      if (unrecoverableRows.length > maxListed) {
+        console.warn(`[internal] ... and ${unrecoverableRows.length - maxListed} more`)
+      }
+      throw new Error(`[internal] ${unrecoverableRows.length} auth user email(s) could not be rotated. The command did not complete successfully; earlier successful updates remain applied.`)
+    }
     const processScope = async (scopeTenantId: string, scopeOrganizationId: string): Promise<number> => {
       if (debug && !printedDek.has(scopeTenantId)) {
         printedDek.add(scopeTenantId)
@@ -280,33 +318,18 @@ const rotateEncryptionKey: ModuleCli = {
         `select id, email, email_hash from ${qualifiedTable} where tenant_id = ? and organization_id = ?`,
         [scopeTenantId, scopeOrganizationId],
       )
-      const rows = Array.isArray(rawRows) ? rawRows : []
+      const rows: Array<{ id: string; email: string | null; email_hash: string | null }> = Array.isArray(rawRows) ? rawRows : []
       const pending = rotate
         ? rows
-        : rows.filter((row: any) => !isEncryptedPayload(row?.email))
+        : rows.filter((row) => !isEncryptedPayload(row.email))
       if (!pending.length) return 0
       console.log(
         `Found ${pending.length} auth user records to process for org=${scopeOrganizationId}${dryRun ? ' (dry-run)' : ''}.`
       )
       if (dryRun) return 0
-      const ids = pending.map((row: any) => String(row.id))
-      const users = rotate
-        ? await em.find(
-          User,
-          { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
-        )
-        : await findWithDecryption(
-          em,
-          User,
-          { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
-          {},
-          { tenantId: scopeTenantId, organizationId: scopeOrganizationId, encryptionService },
-        )
-      const usersById = new Map(users.map((user) => [String(user.id), user]))
+      let currentDek: TenantDek | null | undefined
       let updated = 0
       for (const row of pending) {
-        const user = usersById.get(String(row.id))
-        if (!user) continue
         const rawEmail = typeof row.email === 'string' ? row.email : String(row.email ?? '')
         if (!rawEmail) continue
         if (rotate && (!isEncryptedPayload(rawEmail) || !oldKms)) {
@@ -327,7 +350,12 @@ const rotateEncryptionKey: ModuleCli = {
             oldDekCache.set(scopeTenantId, oldDek)
           }
           const maybeEmail = decryptWithOldKey(rawEmail, oldDek)
-          if (typeof maybeEmail !== 'string' || isEncryptedPayload(maybeEmail)) continue
+          if (typeof maybeEmail !== 'string' || isEncryptedPayload(maybeEmail)) {
+            if (currentDek === undefined) currentDek = await encryptionService.getDek(scopeTenantId)
+            if (currentDek && decryptWithAesGcm(rawEmail, currentDek.key) !== null) continue
+            unrecoverableRows.push({ rowId: row.id, tenantId: scopeTenantId, organizationId: scopeOrganizationId })
+            continue
+          }
           plainEmail = maybeEmail
         }
         if (!plainEmail) continue
@@ -338,21 +366,24 @@ const rotateEncryptionKey: ModuleCli = {
           scopeOrganizationId,
         )
         const nextEmail = encrypted.email as string | undefined
-        if (nextEmail && nextEmail !== user.email) {
-          user.email = nextEmail as any
-          user.emailHash = (encrypted as any).emailHash ?? computeEmailHash(plainEmail)
-          em.persist(user)
+        if (nextEmail && nextEmail !== rawEmail) {
+          const nextEmailHash = encrypted.emailHash ?? computeEmailHash(plainEmail)
+          const result = await conn.execute(
+            `UPDATE ${qualifiedTable} SET email = ?, email_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ? AND organization_id = ? AND email IS NOT DISTINCT FROM ? AND email_hash IS NOT DISTINCT FROM ? RETURNING id`,
+            [nextEmail, nextEmailHash, row.id, scopeTenantId, scopeOrganizationId, row.email, row.email_hash],
+          )
+          if (!Array.isArray(result) || result.length !== 1) {
+            throw new Error('[internal] A row changed concurrently during auth encryption maintenance. The conflicting row was not overwritten; retry after stopping writers.')
+          }
           updated += 1
         }
-      }
-      if (updated > 0) {
-        await em.flush()
       }
       return updated
     }
 
     if (tenantId && organizationId) {
       const updated = await processScope(String(tenantId), String(organizationId))
+      reportUnrecoverableRows()
       if (!updated) {
         console.log('All auth user emails already encrypted for the selected scope.')
       } else {
@@ -373,6 +404,7 @@ const rotateEncryptionKey: ModuleCli = {
       if (!scopeTenantId || !scopeOrganizationId) continue
       total += await processScope(scopeTenantId, scopeOrganizationId)
     }
+    reportUnrecoverableRows()
     if (total > 0) {
       console.log(`Encrypted ${total} auth user email(s) across all organizations.`)
     } else {
@@ -467,7 +499,7 @@ const setupApp: ModuleCli = {
       process.exitCode = 2
       return
     }
-    if (!skipPasswordPolicy && !ensurePasswordPolicy(password)) {
+    if ((!skipPasswordPolicy || !isWithinPasswordByteLimit(password)) && !ensurePasswordPolicy(password)) {
       process.exitCode = 2
       return
     }
@@ -511,6 +543,7 @@ const setupApp: ModuleCli = {
     try {
       const modules = getCliModules()
       const result = await setupInitialTenant(em, {
+        container,
         orgName,
         orgSlug,
         roleNames,

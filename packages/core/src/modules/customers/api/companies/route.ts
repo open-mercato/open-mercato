@@ -42,6 +42,7 @@ import {
 } from '../../lib/personCompanyLinkTable'
 import { normalizeCompanyProfilePayload } from './payload'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('customers')
 
@@ -87,6 +88,8 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
+const COMPANY_MONEY_FIELDS = ['annualRevenue'] as const
+
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
@@ -126,6 +129,8 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       name: 'display_name',
+      displayName: 'display_name',
+      display_name: 'display_name',
       email: 'primary_email',
       primaryEmail: 'primary_email',
       status: 'status',
@@ -392,7 +397,7 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
         const { base, custom } = splitCustomFieldPayload(scoped)
-        const parsed = companyCreateSchema.parse(base)
+        const parsed = withExactAmounts(companyCreateSchema.parse(base), base, COMPANY_MONEY_FIELDS)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       response: ({ result }) => ({
@@ -406,10 +411,10 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate, { maskOrganizationDenial: true })
         const normalized = normalizeCompanyProfilePayload(scoped, translate)
         const { base, custom } = splitCustomFieldPayload(normalized)
-        const parsed = companyUpdateSchema.parse(base)
+        const parsed = withExactAmounts(companyUpdateSchema.parse(base), base, COMPANY_MONEY_FIELDS)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
       // Return the freshly-bumped updatedAt so inline-edit detail pages can refresh

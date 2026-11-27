@@ -1,8 +1,8 @@
 import { z } from 'zod'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { splitCustomFieldPayload, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
@@ -21,11 +21,11 @@ import {
   defaultDeleteRequestSchema,
 } from '../openapi'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { withExactDocumentInput } from '../../lib/exactAmountFields'
 import { documentUpdateSchema } from '../../commands/documents'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { isUuidListParam, parseIdsParam, splitIdListParam } from '@open-mercato/shared/lib/crud/ids'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { readDocumentEmail } from '../../lib/documentEmail'
 
@@ -401,24 +401,6 @@ export const attachChannelNames = async (
   })
 }
 
-async function ensureNumberEditPermission(
-  ctx: CrudCtx,
-  translate: (key: string, fallback?: string) => string
-) {
-  const rbac = ctx.container?.resolve?.('rbacService') as RbacService | null
-  const auth = ctx.auth
-  if (!rbac || !auth?.sub) return
-  const ok = await rbac.userHasAllFeatures(auth.sub, ['sales.documents.number.edit'], {
-    tenantId: auth.tenantId ?? null,
-    organizationId: ctx.selectedOrganizationId ?? auth.orgId ?? null,
-  })
-  if (!ok) {
-    throw new CrudHttpError(403, {
-      error: translate('sales.documents.errors.number_edit_forbidden', 'You cannot edit document numbers.'),
-    })
-  }
-}
-
 export function buildDocumentCrudOptions(binding: DocumentBinding) {
   const numberColumn = binding.numberField === 'orderNumber' ? 'order_number' : 'quote_number'
   const createSchema = binding.kind === 'order' ? orderCreateSchema : quoteCreateSchema
@@ -546,6 +528,10 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           }
           return null
         }
+        const toExact = (value: unknown): string | null => {
+          const parsed = parseDecimal(value)
+          return parsed ? decimalToString(parsed) : null
+        }
         const base = {
           id: item.id,
           [binding.numberField]: item[numberColumn] ?? null,
@@ -572,17 +558,29 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           validUntil: item.valid_until ?? null,
           lineItemCount: toNumber(item.line_item_count),
           subtotalNetAmount: toNumber(item.subtotal_net_amount),
+          subtotalNetAmountExact: toExact(item.subtotal_net_amount),
           subtotalGrossAmount: toNumber(item.subtotal_gross_amount),
+          subtotalGrossAmountExact: toExact(item.subtotal_gross_amount),
           discountTotalAmount: toNumber(item.discount_total_amount),
+          discountTotalAmountExact: toExact(item.discount_total_amount),
           taxTotalAmount: toNumber(item.tax_total_amount),
+          taxTotalAmountExact: toExact(item.tax_total_amount),
           shippingNetAmount: toNumber(item.shipping_net_amount),
+          shippingNetAmountExact: toExact(item.shipping_net_amount),
           shippingGrossAmount: toNumber(item.shipping_gross_amount),
+          shippingGrossAmountExact: toExact(item.shipping_gross_amount),
           surchargeTotalAmount: toNumber(item.surcharge_total_amount),
+          surchargeTotalAmountExact: toExact(item.surcharge_total_amount),
           grandTotalNetAmount: toNumber(item.grand_total_net_amount),
+          grandTotalNetAmountExact: toExact(item.grand_total_net_amount),
           grandTotalGrossAmount: toNumber(item.grand_total_gross_amount),
+          grandTotalGrossAmountExact: toExact(item.grand_total_gross_amount),
           paidTotalAmount: toNumber(item.paid_total_amount),
+          paidTotalAmountExact: toExact(item.paid_total_amount),
           refundedTotalAmount: toNumber(item.refunded_total_amount),
+          refundedTotalAmountExact: toExact(item.refunded_total_amount),
           outstandingAmount: toNumber(item.outstanding_amount),
+          outstandingAmountExact: toExact(item.outstanding_amount),
           ...(binding.kind === 'order' ? { totalsMode: item.totals_mode ?? 'computed' } : {}),
           customerSnapshot: normalizeJsonRecord(item.customer_snapshot),
           billingAddressSnapshot: normalizeJsonRecord(item.billing_address_snapshot),
@@ -608,13 +606,8 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
           const { base, custom } = splitCustomFieldPayload(raw ?? {})
-          const parsed = parseScopedCommandInput(
-            createSchema,
-            Object.keys(custom).length ? { ...base, customFields: custom } : base,
-            ctx,
-            translate,
-          )
-          return parsed
+          const payload = Object.keys(custom).length ? { ...base, customFields: custom } : base
+          return withExactDocumentInput(parseScopedCommandInput(createSchema, payload, ctx, translate), payload)
         },
         response: ({ result }: { result?: DocumentCreateResult | null }) => ({
           id: result?.orderId ?? result?.quoteId ?? result?.id ?? null,
@@ -630,20 +623,8 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
           const { base, custom } = splitCustomFieldPayload(raw ?? {})
-          const numberValue =
-            binding.kind === 'order'
-              ? (base as Record<string, unknown>).orderNumber
-              : (base as Record<string, unknown>).quoteNumber
-          if (typeof numberValue === 'string') {
-            await ensureNumberEditPermission(ctx, translate)
-          }
-          const parsed = parseScopedCommandInput(
-            documentUpdateSchema,
-            Object.keys(custom).length ? { ...base, customFields: custom } : base,
-            ctx,
-            translate,
-          )
-          return parsed
+          const payload = Object.keys(custom).length ? { ...base, customFields: custom } : base
+          return withExactDocumentInput(parseScopedCommandInput(documentUpdateSchema, payload, ctx, translate), payload)
         },
         response: ({ result }: { result: any }) =>
           mapUpdateResponse((result as any)?.order ?? (result as any)?.quote ?? result),
@@ -705,17 +686,29 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     validUntil: z.string().nullable().optional(),
     lineItemCount: z.number().nullable().optional(),
     subtotalNetAmount: z.number().nullable().optional(),
+    subtotalNetAmountExact: z.string().nullable().optional(),
     subtotalGrossAmount: z.number().nullable().optional(),
+    subtotalGrossAmountExact: z.string().nullable().optional(),
     discountTotalAmount: z.number().nullable().optional(),
+    discountTotalAmountExact: z.string().nullable().optional(),
     taxTotalAmount: z.number().nullable().optional(),
+    taxTotalAmountExact: z.string().nullable().optional(),
     shippingNetAmount: z.number().nullable().optional(),
+    shippingNetAmountExact: z.string().nullable().optional(),
     shippingGrossAmount: z.number().nullable().optional(),
+    shippingGrossAmountExact: z.string().nullable().optional(),
     surchargeTotalAmount: z.number().nullable().optional(),
+    surchargeTotalAmountExact: z.string().nullable().optional(),
     grandTotalNetAmount: z.number().nullable().optional(),
+    grandTotalNetAmountExact: z.string().nullable().optional(),
     grandTotalGrossAmount: z.number().nullable().optional(),
+    grandTotalGrossAmountExact: z.string().nullable().optional(),
     paidTotalAmount: z.number().nullable().optional(),
+    paidTotalAmountExact: z.string().nullable().optional(),
     refundedTotalAmount: z.number().nullable().optional(),
+    refundedTotalAmountExact: z.string().nullable().optional(),
     outstandingAmount: z.number().nullable().optional(),
+    outstandingAmountExact: z.string().nullable().optional(),
     totalsMode: z.enum(['computed', 'external']).optional(),
     createdAt: z.string(),
     updatedAt: z.string(),

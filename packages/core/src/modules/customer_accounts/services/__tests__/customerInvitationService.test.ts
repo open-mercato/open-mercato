@@ -12,6 +12,7 @@ import {
   CustomerUser,
   CustomerUserInvitation,
   CustomerUserRole,
+  CustomerUserSession,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/tenantEligibility', () => ({
@@ -58,7 +59,7 @@ describe('CustomerInvitationService invitation terminal transitions', () => {
     } as unknown as CustomerUserInvitation
     const transactionEm = {
       nativeUpdate: jest.fn(async () => 1),
-      findOne: jest.fn(async () => null),
+      findOne: jest.fn(async (): Promise<Partial<CustomerUser> | null> => null),
       create: jest.fn((_entity: unknown, data: unknown) => data),
       persist: jest.fn(),
       flush: jest.fn(async () => undefined),
@@ -156,6 +157,43 @@ describe('CustomerInvitationService invitation terminal transitions', () => {
     expect(invitation.acceptedAt).toBeNull()
   })
 
+  it('retires an unverified registration and creates a separate invitation identity in the same transaction', async () => {
+    const { service, transactionEm } = buildFixture()
+    transactionEm.findOne.mockResolvedValueOnce({ id: 'pending-user', ...scope, isActive: true })
+
+    const result = await service.acceptInvitation('raw-token', 'InvitedPass123!', 'Invitee')
+
+    expect(transactionEm.nativeUpdate).toHaveBeenCalledWith(CustomerUser, {
+      id: 'pending-user',
+      ...scope,
+      emailVerifiedAt: null,
+      lastLoginAt: null,
+      isActive: true,
+      deletedAt: null,
+    }, expect.objectContaining({ passwordHash: null, isActive: false, deletedAt: expect.any(Date) }))
+    expect(transactionEm.nativeUpdate).toHaveBeenCalledWith(
+      CustomerUserSession,
+      { user: 'pending-user', deletedAt: null },
+      { deletedAt: expect.any(Date) },
+    )
+    expect(result?.user).toMatchObject({
+      passwordHash: 'hashed-InvitedPass123!',
+      displayName: 'Invitee',
+      emailVerifiedAt: expect.any(Date),
+    })
+  })
+
+  it('preserves the invitation when verification wins the race against retirement', async () => {
+    const { service, invitation, transactionEm } = buildFixture()
+    transactionEm.findOne.mockResolvedValueOnce({ id: 'pending-user', ...scope, isActive: true })
+    transactionEm.nativeUpdate.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+
+    await expect(service.acceptInvitation('raw-token', 'InvitedPass123!', 'Invitee'))
+      .rejects.toThrow(CustomerInvitationEmailConflictError)
+    expect(invitation.acceptedAt).toBeNull()
+    expect(transactionEm.create).not.toHaveBeenCalled()
+  })
+
   it.each(['cancelledAt', 'acceptedAt'] as const)('rejects an invitation already marked %s', async (field) => {
     const { service, invitation, rootEm } = buildFixture()
     invitation[field] = new Date()
@@ -189,6 +227,29 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
       transactional: jest.fn(async (operation: (transactionEm: EntityManager) => Promise<unknown>) => operation(mockEm as unknown as EntityManager)),
     } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush' | 'nativeUpdate' | 'transactional'>>
     service = new CustomerInvitationService(mockEm as unknown as EntityManager)
+  })
+
+  it('rejects an outstanding privileged invitation after the inviter loses the grant', async () => {
+    const invitedByUserId = 'inviter-1'
+    const invitation = {
+      id: 'inv-privileged',
+      email: 'new@example.com',
+      tenantId,
+      organizationId,
+      roleIdsJson: [roleIds[0]],
+      invitedByUserId,
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    }
+    mockEm.findOne.mockImplementation(async (entity) => entity === CustomerUserInvitation ? invitation : null)
+    mockEm.find.mockResolvedValue([{ id: roleIds[0], customerAssignable: false }])
+    const authorize = jest.fn(async () => false)
+
+    await expect(service.acceptInvitation('sample-invite', 'SamplePassword12!', 'New User', authorize)).resolves.toBeNull()
+    expect(authorize).toHaveBeenCalledWith(invitedByUserId, { tenantId, organizationId }, mockEm)
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
   })
 
   it('uses a single CustomerRole $in query for all invitation roleIds (not per-role findOne)', async () => {
@@ -452,7 +513,7 @@ describe('CustomerInvitationService.acceptInvitation — soft-deleted email reus
 
   it('throws CustomerInvitationEmailConflictError instead of creating a duplicate when an active CustomerUser already owns the email', async () => {
     const invitation = buildInvitation()
-    const activeUser = { id: 'existing-user', tenantId, emailHash: 'email-hash', deletedAt: null }
+    const activeUser = { id: 'existing-user', tenantId, organizationId, emailVerifiedAt: new Date(), isActive: true }
     ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
       if (entity === CustomerUserInvitation) return invitation
       if (entity === CustomerUser) return activeUser

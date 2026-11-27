@@ -84,7 +84,7 @@ export default function PortalInvitePage({ params }: Props) {
         } else if (result.status === 400) {
           setError(t('portal.invite.error.invalidToken', 'Invalid or expired invitation.'))
         } else {
-          setError(result.result?.error || t('portal.invite.error.generic', 'Invitation acceptance failed. Please try again.'))
+          setError(t('portal.invite.error.generic', 'Invitation acceptance failed. Please try again.'))
         }
       } catch {
         setError(t('portal.invite.error.generic', 'Invitation acceptance failed. Please try again.'))

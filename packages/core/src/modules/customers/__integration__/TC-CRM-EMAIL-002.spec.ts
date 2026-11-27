@@ -79,7 +79,7 @@ test.describe('TC-CRM-EMAIL-002: inbound auto-link by From address', () => {
 
         // The channel owner — authorUserId on the resulting interaction.
         const userEmail = `qa-crm-email-002-${stamp}@acme.com`;
-        const userPassword = 'Valid1!Pass';
+        const userPassword = 'QaValid1!Pass';
         userId = await createUserFixture(request, adminToken, {
           email: userEmail,
           password: userPassword,

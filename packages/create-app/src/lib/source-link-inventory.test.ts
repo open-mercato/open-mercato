@@ -118,6 +118,38 @@ function recordFor(inventory: Inventory, topicId: string): Record_ {
   return found
 }
 
+test('MarkdownField customization resolves exact installed contracts from the component branch', () => {
+  const inventory = checkedInventory()
+  for (const relativePath of ['src/backend/inputs/MarkdownField.tsx', 'src/backend/markdown/codeBlockLanguages.ts']) {
+    const record = recordFor(inventory, `om-system-extension/extension-branches:node_modules/@open-mercato/ui/${relativePath}`)
+    assert.equal(record.originAsset, '.ai/skills/om-system-extension/references/extension-branches.md')
+    assert.equal(record.requirement, 'source-required')
+    assert.equal(record.targetKind, 'installed-package')
+    assert.equal(record.readStatus, 'readable')
+    assert.equal(record.packageName, '@open-mercato/ui')
+    assert.equal(record.packageRelativePath, relativePath)
+    assert.ok(record.affectedCaseIds.includes('OMH-243'))
+  }
+})
+
+test('module tooling retains exact installed contracts and unknown-origin protection', () => {
+  const inventory = checkedInventory()
+  for (const relativePath of ['src/lib/module-install.ts', 'src/lib/module-identity.ts', 'src/lib/eject.ts']) {
+    const record = recordFor(inventory, `guides/module-tool:node_modules/@open-mercato/cli/${relativePath}`)
+    assert.equal(record.originAsset, '.ai/guides/module-tool.md')
+    assert.equal(record.requirement, 'source-required')
+    assert.equal(record.targetKind, 'installed-package')
+    assert.equal(record.readStatus, 'readable')
+    assert.equal(record.packageName, '@open-mercato/cli')
+    assert.equal(record.packageRelativePath, relativePath)
+    assert.ok(record.affectedCaseIds.includes('OMH-239'))
+  }
+  const protection = recordFor(inventory, 'rule:guides/module-tool#file-artifact-unknown-origin')
+  assert.equal(protection.requirement, 'retained-normative-snippet')
+  assert.equal(protection.originAsset, '.ai/guides/module-tool.md')
+  assert.equal(protection.evidence, 'A local file artifact establishes neither an npm nor a GitHub origin: omit an unknown `locator`; an active binding replacement must fail before Yarn when its origin cannot be preserved.')
+})
+
 test('the checked inventory is byte-identical to a fresh derivation', () => {
   const { errors, inventory } = generator.buildInventory(freshInputs())
   assert.deepEqual(errors, [])
@@ -236,15 +268,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  assert.equal(inventory.derived.sourceRequiredCount, 133)
-  assert.equal(inventory.records.length, 159)
-  assert.equal(inventory.derived.renderedLinkCount, 135)
+  assert.equal(inventory.derived.sourceRequiredCount, 143)
+  assert.equal(inventory.records.length, 169)
+  assert.equal(inventory.derived.renderedLinkCount, 145)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 133)
+  assert.equal(sourceRequired.length, 143)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -376,7 +408,7 @@ test('records carry the derived joins the spec names, with exact values', () => 
   assert.equal(form.targetKind, 'canonical-example')
   assert.equal(form.moduleId, 'example')
   assert.equal(form.heading, 'Canonical example source')
-  assert.deepEqual(form.capabilityIds, ['ui.form-create', 'ui.form-edit'])
+  assert.deepEqual(form.capabilityIds, ['example.crud-form-extensions.c12', 'ui.form-create', 'ui.form-edit'])
 
   // The join, not the surface inventory's contents: every spec the record's own capabilities
   // name, deduplicated and sorted. Pinned as a literal it churned on each new `TC-EXAMPLE-*`
@@ -428,7 +460,7 @@ test('capability joins come from the example surface inventory, not from the top
       assert.ok(capability.sourcePaths.includes(record.resolvedPath))
     }
   }
-  assert.equal(joined, 100)
+  assert.equal(joined, 103)
 
   const unjoined = inventory.records.filter(
     (record) => record.requirement === 'source-required' && record.capabilityIds.length === 0,
@@ -437,7 +469,9 @@ test('capability joins come from the example surface inventory, not from the top
     [...new Set(unjoined.map((record) => record.resolvedPath))].sort(),
     [
       '.ai/guides/customers-calendar.md',
-        '.ai/skills/om-data-model-design/references/sensitive-data.md',
+      '.ai/guides/infrastructure-providers.md',
+      '.ai/skills/om-data-model-design/references/sensitive-data.md',
+      '.ai/skills/om-system-extension/references/extension-branches.md',
       'node_modules/@open-mercato/cli/src/lib/eject.ts',
       'node_modules/@open-mercato/cli/src/lib/module-identity.ts',
       'node_modules/@open-mercato/cli/src/lib/module-install.ts',
@@ -458,11 +492,16 @@ test('capability joins come from the example surface inventory, not from the top
       'node_modules/@open-mercato/shared/src/modules/events/factory.ts',
       'node_modules/@open-mercato/ui/figma/button.figma.tsx',
       'node_modules/@open-mercato/ui/src/backend/DataTable.tsx',
+      'node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx',
+      'node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts',
       'node_modules/@open-mercato/ui/src/primitives/button.tsx',
       'src/app/globals.css',
       'src/modules/example/README.md',
       'src/modules/example/references/surface-inventory.json',
       'src/modules/example/references/surface-map.md',
+      'src/providers/cache.ts',
+      'src/providers/kms.example.ts',
+      'src/providers/queue.example.ts',
     ],
   )
 })

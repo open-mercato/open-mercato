@@ -6,7 +6,15 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
-  findOneWithDecryption: jest.fn(async () => null),
+  findOneWithDecryption: jest.fn(async (...args: unknown[]) => {
+    const [em, entity, where, options] = args as [
+      { findOne: (entity: unknown, where: unknown, options?: unknown) => Promise<unknown> },
+      unknown,
+      unknown,
+      unknown,
+    ]
+    return em.findOne(entity, where, options)
+  }),
 }))
 
 import '@open-mercato/core/modules/customers/commands'

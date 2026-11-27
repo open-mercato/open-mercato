@@ -8,6 +8,7 @@ import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/ru
 import { installNextSubpathResolveHook } from '@open-mercato/shared/lib/bootstrap/next-subpath-resolve-hook'
 import { resolveCliBootstrapMode, type CliBootstrapMode } from './lib/cli-bootstrap-mode.js'
 import { flushBeforeExit } from './lib/flush-before-exit.js'
+import { runWithRotationKmsWarningPresentation } from './lib/rotation-kms-warning-presentation.js'
 // `run` is imported dynamically inside `main()` so telemetry can initialize
 // before the mercato entry (and its Postgres driver) loads — see main().
 
@@ -125,7 +126,7 @@ async function main(): Promise<void> {
   process.exit(code ?? 0)
 }
 
-main().catch((error: unknown) => {
+runWithRotationKmsWarningPresentation(process.argv, main).catch((error: unknown) => {
   if (error instanceof Error) {
     console.error(error.message)
   } else {

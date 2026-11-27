@@ -3,6 +3,7 @@ import { PDFDocument, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib'
 import { apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import { uploadAttachmentFixture } from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 
 export const STRUCTURE_TEST_TIMEOUT_MS = 180_000
 export const PAST_PERFORMANCE_PHRASE = 'Past performance figures must carry a prominent risk warning'
@@ -206,6 +207,8 @@ export async function waitForStructure(
   attachmentId: string,
   options: { notExtractionId?: string } = {},
 ): Promise<StructureBody> {
+  await drainIntegrationQueue('events')
+  await drainIntegrationQueue('attachments-document-structure')
   const deadline = Date.now() + STRUCTURE_POLL_TIMEOUT_MS
   let last: StructureBody | null = null
   while (Date.now() < deadline) {

@@ -56,7 +56,7 @@ jest.mock('@open-mercato/ui/backend/utils/useCurrentUserId', () => ({ useCurrent
 jest.mock('../../DealForm', () => {
   const textField = z.preprocess((value) => (typeof value === 'string' ? value : ''), z.string())
   return {
-    dealFormSchema: z.object({
+    dealExactFormSchema: z.object({
       title: z.string().trim().min(1, 'customers.people.detail.deals.titleRequired'),
       status: textField,
       pipelineId: textField,
@@ -100,7 +100,7 @@ jest.mock('../DealDetailsFields', () => {
           onChange: (event: React.ChangeEvent<HTMLInputElement>) => patch({ title: event.target.value }),
         }),
         ReactForMock.createElement('output', { 'aria-label': 'Stage' }, values.pipelineStageId),
-        ...['pipe-a', 'pipe-b', 'pipe-off'].map((pipelineId) =>
+        ...['pipe-a', 'pipe-b', 'pipe-off', 'pipe-empty'].map((pipelineId) =>
           ReactForMock.createElement('button', {
             key: pipelineId,
             type: 'button',
@@ -148,6 +148,7 @@ const STAGES: Record<string, StageItem[]> = {
   'pipe-off': [
     { id: 'off-open', label: 'Off open', order: 0, defaultProbability: 90 },
   ],
+  'pipe-empty': [],
 }
 
 function probabilityInput(): HTMLInputElement {
@@ -182,6 +183,7 @@ describe('CreateDealForm stage default probability', () => {
               { id: 'pipe-a', name: 'A', isDefault: true, stageProbabilitiesEnabled: true },
               { id: 'pipe-b', name: 'B', isDefault: false, stageProbabilitiesEnabled: true },
               { id: 'pipe-off', name: 'Off', isDefault: false, stageProbabilitiesEnabled: false },
+              { id: 'pipe-empty', name: 'Empty', isDefault: false, stageProbabilitiesEnabled: true },
             ],
           },
         })
@@ -242,6 +244,27 @@ describe('CreateDealForm stage default probability', () => {
     const payload = await submitPayload()
     expect(payload).toEqual(expect.objectContaining({ pipelineId: 'pipe-off', pipelineStageId: 'off-open' }))
     expect(payload.probability).toBeUndefined()
+  })
+
+  it.each([
+    { source: 'prefilled', manualValues: [], expected: '' },
+    { source: 'manual', manualValues: ['42'], expected: '42' },
+    { source: 'manually restored', manualValues: ['42', '60'], expected: '60' },
+  ])('handles a $source probability when switching to a pipeline with no stages', async ({ manualValues, expected }) => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" />)
+    await waitForStage('a-qualify')
+    fireEvent.click(screen.getByRole('button', { name: 'Stage A negotiate' }))
+    await waitFor(() => expect(probabilityInput()).toHaveValue('60'))
+    for (const value of manualValues) fireEvent.change(probabilityInput(), { target: { value } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pipeline pipe-empty' }))
+    await waitFor(() => expect(probabilityInput()).toHaveValue(expected))
+    expect(screen.getByLabelText('Stage')).toBeEmptyDOMElement()
+
+    const payload = await submitPayload()
+    expect(payload.pipelineId).toBe('pipe-empty')
+    expect(payload.pipelineStageId).toBeUndefined()
+    expect(payload.probability).toBe(expected === '' ? undefined : Number(expected))
   })
 
   it('keeps a seeded probability', async () => {

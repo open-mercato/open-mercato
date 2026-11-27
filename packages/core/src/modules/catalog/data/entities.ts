@@ -1,5 +1,6 @@
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Enum, Index, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type {
   CatalogExciseCategory,
   CatalogGtinType,
@@ -435,6 +436,108 @@ export class CatalogProductCategoryAssignment {
   updatedAt: Date = new Date()
 }
 
+export type CatalogCategorySuggestionOutcome = 'suggested' | 'no_match'
+export type CatalogCategorySuggestionStatus = 'pending' | 'accepted' | 'rejected' | 'auto_applied' | 'superseded'
+export type CatalogCategorySuggestionTrigger = 'manual' | 'bulk' | 'on_create'
+
+export type CatalogCategorySuggestionLevelAlternative = {
+  categoryId: string
+  probability: number
+}
+
+export type CatalogCategorySuggestionLevel = {
+  categoryId: string
+  probability: number
+  alternatives: CatalogCategorySuggestionLevelAlternative[]
+}
+
+// No `deleted_at`: suggestions are history, never soft-deleted. The partial
+// unique index enforcing "at most one pending suggestion per product" is
+// declared below via the `expression` form (same pattern as
+// `catalog_price_history_idempotency_uq` on `CatalogPriceHistoryEntry`).
+@Entity({ tableName: 'catalog_product_category_suggestions' })
+@Index({
+  name: 'catalog_product_category_suggestions_scope_idx',
+  properties: ['organizationId', 'tenantId'],
+})
+@Index({
+  name: 'catalog_product_category_suggestions_product_created_idx',
+  properties: ['product', 'createdAt'],
+})
+@Index({
+  name: 'catalog_product_category_suggestions_pending_unique',
+  expression:
+    'create unique index "catalog_product_category_suggestions_pending_unique" on "catalog_product_category_suggestions" ("product_id") where "status" = \'pending\'',
+})
+export class CatalogProductCategorySuggestion {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', deleteRule: 'cascade' })
+  product!: CatalogProduct
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  outcome!: CatalogCategorySuggestionOutcome
+
+  // Plain FK id, no ORM relation: categories are soft-deleted independently,
+  // so liveness/activity is checked at read and accept time, not via cascade.
+  @Property({ name: 'category_id', type: 'uuid', nullable: true })
+  categoryId?: string | null
+
+  @Property({ name: 'category_path_ids', type: 'jsonb', default: [], nullable: false })
+  categoryPathIds: string[] = []
+
+  @Property({ type: 'numeric', precision: 5, scale: 4, nullable: true })
+  confidence?: string | null
+
+  @Property({ name: 'levels', type: 'jsonb', default: [], nullable: false })
+  levels: CatalogCategorySuggestionLevel[] = []
+
+  @Property({ type: 'text' })
+  status!: CatalogCategorySuggestionStatus
+
+  @Property({ type: 'text' })
+  trigger!: CatalogCategorySuggestionTrigger
+
+  @Property({ type: 'text', nullable: true })
+  provider?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  model?: string | null
+
+  @Property({ name: 'prompt_version', type: 'text', nullable: true })
+  promptVersion?: string | null
+
+  @Property({ name: 'cost_usd', type: 'numeric', precision: 10, scale: 6, nullable: true })
+  costUsd?: string | null
+
+  @Property({ name: 'duration_ms', type: 'int', nullable: true })
+  durationMs?: number | null
+
+  @Property({ name: 'requested_by_user_id', type: 'uuid', nullable: true })
+  requestedByUserId?: string | null
+
+  @Property({ name: 'reviewed_by_user_id', type: 'uuid', nullable: true })
+  reviewedByUserId?: string | null
+
+  @Property({ name: 'reviewed_at', type: Date, nullable: true })
+  reviewedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
 @Entity({ tableName: 'catalog_product_tags' })
 @Index({ name: 'catalog_product_tags_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Unique({ name: 'catalog_product_tags_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })
@@ -836,16 +939,16 @@ export class CatalogProductPrice {
   @Property({ name: 'max_quantity', type: 'integer', nullable: true })
   maxQuantity?: number | null
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_net', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   unitPriceNet?: string | null
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_gross', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   unitPriceGross?: string | null
 
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null
 
-  @Property({ name: 'tax_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'tax_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   taxAmount?: string | null
 
   @Property({ name: 'channel_id', type: 'uuid', nullable: true })
@@ -943,16 +1046,16 @@ export class CatalogPriceHistoryEntry {
   @Property({ name: 'currency_code', type: 'varchar', length: 3 })
   currencyCode!: string
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_net', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   unitPriceNet?: string | null
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_gross', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   unitPriceGross?: string | null
 
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null
 
-  @Property({ name: 'tax_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  @Property({ name: 'tax_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   taxAmount?: string | null
 
   @Property({ name: 'min_quantity', type: 'integer', nullable: true })

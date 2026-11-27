@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
+import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
 import type { RecordLockService } from '../lib/recordLockService'
 
 type RecordLocksAuth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>> & {
@@ -13,6 +15,7 @@ export type RecordLocksApiContext = {
   container: Awaited<ReturnType<typeof createRequestContainer>>
   auth: RecordLocksAuth
   organizationId: string | null
+  organizationScope?: OrganizationScope
   recordLockService: RecordLockService
 }
 
@@ -23,11 +26,14 @@ export async function resolveRecordLocksApiContext(req: Request): Promise<Record
   }
 
   const container = await createRequestContainer()
-  const { organizationId } = await resolveFeatureCheckContext({
+  const { organizationId, scope } = await resolveFeatureCheckContext({
     container,
     auth,
     request: req,
   })
+  if (isExplicitlyEmptyOrganizationScope(scope)) {
+    return jsonError('Forbidden', 403)
+  }
 
   const recordLockService = container.resolve<RecordLockService>('recordLockService')
 
@@ -35,6 +41,7 @@ export async function resolveRecordLocksApiContext(req: Request): Promise<Record
     container,
     auth: auth as RecordLocksAuth,
     organizationId,
+    organizationScope: scope,
     recordLockService,
   }
 }

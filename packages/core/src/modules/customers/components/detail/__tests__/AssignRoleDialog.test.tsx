@@ -137,7 +137,7 @@ describe('AssignRoleDialog', () => {
     expect(candidateRow).not.toHaveClass('whitespace-nowrap')
   })
 
-  it('changes an existing assignee through the same dialog with the role fixed (#7490)', async () => {
+  it('keeps the replacement selected when the current assignee’s roster name arrives', async () => {
     readApiResultOrThrowMock.mockResolvedValue({
       items: [
         { userId: 'user-1', displayName: 'Ada Lovelace', user: { email: 'ada@example.com' } },
@@ -150,7 +150,7 @@ describe('AssignRoleDialog', () => {
     const onAssign = jest.fn(async () => undefined)
     const onReassign = jest.fn(async () => undefined)
     const onClose = jest.fn()
-    renderWithProviders(
+    const dialog = (userName: string) => (
       <AssignRoleDialog
         open
         onClose={onClose}
@@ -166,18 +166,21 @@ describe('AssignRoleDialog', () => {
           id: 'role-1',
           roleType: 'account_manager',
           userId: 'user-1',
-          userName: 'Ada Lovelace',
+          userName,
           userEmail: 'ada@example.com',
         }}
-      />,
+      />
     )
+    const { rerender } = renderWithProviders(dialog('Employee'))
 
     expect(screen.getByText('Change assignee')).toBeInTheDocument()
-    expect(screen.getByText('Currently: Ada Lovelace')).toBeInTheDocument()
+    expect(screen.getByText('Currently: Employee')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Change' })).not.toBeInTheDocument()
     expect(await screen.findByText('Current')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Grace Hopper/i }))
+    rerender(dialog('Ada Lovelace'))
+    expect(screen.getByText('Currently: Ada Lovelace')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save change' }))
 

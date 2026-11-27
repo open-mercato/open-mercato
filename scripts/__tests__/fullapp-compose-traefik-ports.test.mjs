@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parse } from 'yaml'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const COMPOSE_BIN = process.env.DOCKER_COMPOSE_BIN || 'docker'
@@ -18,12 +19,12 @@ const skipReason = composeUnavailable && !process.env.DOCKER_COMPOSE_BIN
   ? 'Docker Compose is unavailable; set DOCKER_COMPOSE_BIN to a standalone Compose 2.24.4+ binary'
   : false
 
-function composeConfig(files, env = {}, collaborationEnabled = true) {
+function composeConfig(files, env = {}, profiles = ['documents-collab']) {
   const result = spawnSync(COMPOSE_BIN, [
     ...COMPOSE_ARGS,
     '--project-directory', ROOT,
     '--env-file', process.platform === 'win32' ? 'NUL' : '/dev/null',
-    ...(collaborationEnabled ? ['--profile', 'documents-collab'] : []),
+    ...profiles.flatMap(profile => ['--profile', profile]),
     ...files.flatMap(file => ['-f', file]),
     'config', '--format', 'json',
   ], {
@@ -34,6 +35,7 @@ function composeConfig(files, env = {}, collaborationEnabled = true) {
       HOME: os.tmpdir(),
       USERPROFILE: os.tmpdir(),
       JWT_SECRET: 'compose-regression-jwt-secret-not-for-deployment',
+      OPENCODE_PASSWORD: 'compose-regression-opencode-password-not-for-deployment',
       DOMAIN_CHECK_SECRET: 'compose-regression-domain-secret-not-for-deployment',
       ...env,
     },
@@ -69,7 +71,9 @@ for (const directory of ['starters/docker', '.']) {
         assert.equal(app.environment.PORT, containerPort)
         assert.equal(app.labels['traefik.http.services.app-upstream.loadbalancer.server.port'], containerPort)
         assert.equal(app.labels['traefik.http.middlewares.domain-check.forwardauth.address'], `http://app:${containerPort}/api/customer_accounts/domain-check`)
-        assert.equal(app.labels['traefik.http.routers.customer.middlewares'], 'inject-domain-check-secret,domain-check')
+        assert.equal(app.labels['traefik.http.routers.platform.middlewares'], 'secure-transport')
+        assert.equal(app.labels['traefik.http.routers.customer.middlewares'], 'secure-transport,inject-domain-check-secret,domain-check')
+        assert.equal(app.labels['traefik.http.middlewares.secure-transport.headers.stsseconds'], '31536000')
         assert.equal(app.labels['traefik.http.routers.customer.entrypoints'], 'websecure')
         assert.equal(app.labels['traefik.http.routers.customer.tls'], 'true')
         assert.deepEqual(traefik.ports.map(port => [port.published, port.target]), [
@@ -92,9 +96,47 @@ test('collaboration stays disabled without its profile', { skip: skipReason }, (
   const config = composeConfig([
     'starters/docker/compose.fullapp.yml',
     'starters/docker/compose.fullapp.traefik.yml',
-  ], {}, false)
+  ], {}, [])
   assert.equal(config.services['documents-collab'], undefined)
   assert.deepEqual(config.services.app.ports ?? [], [])
+})
+
+for (const file of [
+  'starters/docker/compose.fullapp.yml',
+  'docker-compose.fullapp.yml',
+  'packages/create-app/template/docker-compose.fullapp.yml',
+]) {
+  test(`${file} resolves LocalStack on loopback when the storage profile is enabled`, { skip: skipReason }, () => {
+    assert.equal(composeConfig([file], {}, []).services.localstack, undefined)
+    const { app, localstack } = composeConfig(
+      [file], { LOCALSTACK_PORT: '14566' }, ['storage-s3'],
+    ).services
+
+    assert.deepEqual(localstack.ports.map(({ host_ip, published, target }) => [host_ip, published, target]), [
+      ['127.0.0.1', '14566', 4566],
+    ])
+    assert.ok(Object.keys(app.networks).some(network => network in localstack.networks))
+
+    const overriddenLocalstack = composeConfig(
+      [file], { LOCALSTACK_PORT: '14566', INFRA_BIND_HOST: '192.0.2.5' }, ['storage-s3'],
+    ).services.localstack
+    assert.deepEqual(overriddenLocalstack.ports.map(({ host_ip, published, target }) => [host_ip, published, target]), [
+      ['192.0.2.5', '14566', 4566],
+    ])
+  })
+}
+
+test('the Traefik file-provider example applies host-scoped HSTS on both HTTPS routers', () => {
+  const { http } = parse(fs.readFileSync(path.join(ROOT, 'docker/traefik/dynamic.example.yml'), 'utf8'))
+  assert.deepEqual(http.middlewares['secure-transport'].headers, { stsSeconds: 31536000 })
+  assert.deepEqual(http.routers.platform.middlewares, ['secure-transport'])
+  assert.deepEqual(http.routers['customer-domains'].middlewares, [
+    'secure-transport', 'inject-domain-check-secret', 'domain-check',
+  ])
+  for (const router of Object.values(http.routers)) {
+    assert.deepEqual(router.entryPoints, ['websecure'])
+    assert.equal(router.tls.certResolver, 'letsencrypt')
+  }
 })
 
 test('a final operator override can publish only loopback ports with bundled Traefik', { skip: skipReason }, () => {
