@@ -3538,7 +3538,8 @@
       ],
       "affectedCaseIds": [
         "OMH-188",
-        "OMH-219"
+        "OMH-219",
+        "OMH-256"
       ],
       "replacesBaselineBlockIds": [
         "main:packages/create-app/agentic/shared/ai/skills/om-backend-ui-design/SKILL.md#fence:13"
@@ -3584,7 +3585,8 @@
       "affectedCaseIds": [
         "OMH-188",
         "OMH-219",
-        "OMH-250"
+        "OMH-250",
+        "OMH-256"
       ],
       "replacesBaselineBlockIds": [
         "main:packages/create-app/agentic/shared/ai/skills/om-data-model-design/SKILL.md#fence:1",
@@ -3648,7 +3650,8 @@
       ],
       "affectedCaseIds": [
         "OMH-188",
-        "OMH-219"
+        "OMH-219",
+        "OMH-256"
       ],
       "replacesBaselineBlockIds": [
         "main:packages/create-app/agentic/shared/ai/skills/om-eject-and-customize/SKILL.md#fence:6"
@@ -3889,7 +3892,8 @@
         "OMH-193",
         "OMH-219",
         "OMH-249",
-        "OMH-250"
+        "OMH-250",
+        "OMH-256"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -8060,7 +8064,8 @@
         "OMH-252",
         "OMH-253",
         "OMH-254",
-        "OMH-255"
+        "OMH-255",
+        "OMH-256"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -8347,7 +8352,8 @@
         "OMH-252",
         "OMH-253",
         "OMH-254",
-        "OMH-255"
+        "OMH-255",
+        "OMH-256"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [],
@@ -9286,7 +9292,8 @@
         "OMH-252",
         "OMH-253",
         "OMH-254",
-        "OMH-255"
+        "OMH-255",
+        "OMH-256"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
@@ -9563,7 +9570,8 @@
         "OMH-252",
         "OMH-253",
         "OMH-254",
-        "OMH-255"
+        "OMH-255",
+        "OMH-256"
       ],
       "replacesBaselineBlockIds": [],
       "citedByBaselineBlockIds": [
