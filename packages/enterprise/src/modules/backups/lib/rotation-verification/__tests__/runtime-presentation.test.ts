@@ -1,5 +1,5 @@
 import { createConfiguredRotationProtection } from '../runtime'
-import type { RotationCoordinatorOptions, RecoveryArtifact } from '../coordinator'
+import { RotationResumeDatabaseMismatchError, type RotationCoordinatorOptions, type RecoveryArtifact } from '../coordinator'
 import type { VerificationResult } from '../verifier'
 import type { RotationProtectionContext } from '@open-mercato/shared/lib/encryption/rotationProtection'
 
@@ -12,7 +12,7 @@ jest.mock('../../../../../lib/recovery-configuration', () => ({
   resolveRecoveryConfiguration: jest.fn(async () => ({ paths: { base: '/defaults', custody: '/defaults/custody', recipientsFile: '/secure/recipients', identityFile: '/secure/identities', serviceFile: '/secure/service', passwordFile: '/secure/password', backupOutput: '/defaults/backups', backupWorkspace: '/defaults/workspace', rotationArtifacts: '/artifacts', rotationTrust: '/trusted' }, binaries: { directory: '/binaries' } })),
   requireRecoveryDirectories: jest.fn(), requireRecoveryCustodyFile: jest.fn(),
 }))
-jest.mock('../coordinator', () => ({ createEnterpriseRotationProtection: (options: RotationCoordinatorOptions) => ({ protect: async () => mockRun(options) }) }))
+jest.mock('../coordinator', () => ({ ...jest.requireActual('../coordinator'), createEnterpriseRotationProtection: (options: RotationCoordinatorOptions) => ({ protect: async () => mockRun(options) }) }))
 
 const environment: NodeJS.ProcessEnv = {
   OM_ENABLE_ENTERPRISE_MODULES: 'true', OM_ENABLE_ENTERPRISE_MODULES_BACKUPS: 'true', OM_ENTERPRISE_COMMERCIAL_RIGHTS_ATTESTED: 'true',
@@ -73,4 +73,24 @@ test('JSON failure paths contain only existing-schema NDJSON, including run and 
   expect(events.every(event => event.schemaVersion === 1 && event.type === 'phase.changed')).toBe(true)
   expect(events.some(event => event.phase === 'rotation.failed')).toBe(true)
   expect(writes.join('')).not.toContain('\u001b')
+})
+
+test('a changed database identity directs operators to recovery without offering the rejected resume', async () => {
+  const writes: string[] = []
+  jest.spyOn(process.stderr, 'write').mockImplementation(chunk => {
+    writes.push(String(chunk))
+    return true
+  })
+  mockRun = async options => {
+    await options.reportRun?.('coordinator-run')
+    throw new RotationResumeDatabaseMismatchError()
+  }
+
+  await expect(createConfiguredRotationProtection(environment).protect(context, jest.fn()))
+    .rejects.toThrow('ROTATION_RESUME_INVALID')
+  const output = writes.join('')
+  expect(output).toContain('PostgreSQL instance no longer matches its recorded identity')
+  expect(output).toContain('original backup')
+  expect(output).toContain('coordinator-run')
+  expect(output).not.toContain('OM_ROTATION_RESUME_ID=')
 })

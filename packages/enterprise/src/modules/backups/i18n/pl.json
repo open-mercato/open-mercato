@@ -82,8 +82,10 @@
   "backups.rotation.presentation.title": "Chroniona rotacja kluczy",
   "backups.rotation.presentation.verify": "Zweryfikuj zapisane dane",
   "backups.rotation.reportWritten": "Raport weryfikacji:",
+  "backups.rotation.resumeDatabaseMismatch": "Nie można wznowić tego przebiegu, ponieważ instancja PostgreSQL nie odpowiada już zapisanej tożsamości. Pozostaw zapis wstrzymany i zachowaj pierwotną kopię zapasową, zaufane pliki przebiegu oraz oba klucze. Przed rozpoczęciem nowego przebiegu sprawdź lub odtwórz pierwotne dane zgodnie z instrukcją chronionej rotacji.",
   "backups.rotation.rotating": "Rotacja zaszyfrowanych danych z chronioną kopią odzyskiwania.",
   "backups.rotation.runPrepared": "Identyfikator chronionej rotacji; zachowaj go do jawnego wznowienia:",
+  "backups.rotation.unmappedEntity": "Mapa szyfrowania {mapId} nie ma dostępnych metadanych encji. Przywróć moduł, który zarejestrował encję, i sprawdź zakres weryfikacji przed ponowieniem próby. Usunięcie mapy może wyłączyć zaszyfrowane dane z weryfikacji.",
   "backups.rotation.verificationPassed": "Weryfikacja zapisanych danych w zadanym zakresie zakończona powodzeniem. Zachowaj poprzednie klucze i kopię odzyskiwania.",
   "backups.rotation.verifying": "Weryfikacja zapisanych danych po rotacji kluczy."
 }
