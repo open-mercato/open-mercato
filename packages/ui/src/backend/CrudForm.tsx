@@ -1097,6 +1097,7 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
     setHasUnsavedChangesState(next)
   }, [])
   const popStateRollbackRef = React.useRef(false)
+  const historyLeaveConfirmedRef = React.useRef(false)
   const shouldBypassUnsavedChangesGuardRef = React.useRef(shouldBypassUnsavedChangesGuard)
   React.useEffect(() => {
     shouldBypassUnsavedChangesGuardRef.current = shouldBypassUnsavedChangesGuard
@@ -1264,31 +1265,42 @@ function CrudFormImpl<TValues extends Record<string, unknown>>({
         return undefined
       }) as History['pushState']
 
-    const popStateHandler = () => {
+    historyLeaveConfirmedRef.current = false
+
+    // Registered in the capture phase so it runs before the App Router's own
+    // `popstate` listener; stopping propagation keeps the router from starting
+    // the traversal (and unmounting this form) before the user has answered.
+    const popStateHandler = (event: PopStateEvent) => {
       if (popStateRollbackRef.current) {
         popStateRollbackRef.current = false
+        event.stopImmediatePropagation()
+        return
+      }
+      if (historyLeaveConfirmedRef.current) {
+        historyLeaveConfirmedRef.current = false
         return
       }
       if (!isDirtyRef.current || navigationPromptBypassRef.current || submitNavigationBypassRef.current) return
+      event.stopImmediatePropagation()
       popStateRollbackRef.current = true
       window.history.go(1)
       if (navigationConfirmPendingRef.current) return
       void confirmUnsavedChanges().then((confirmed) => {
         if (!confirmed) return
         clearDirtyState()
-        allowNextNavigation()
+        historyLeaveConfirmedRef.current = true
         window.history.back()
       })
     }
 
     window.history.pushState = createHistoryInterceptor(originalPushState)
     window.history.replaceState = createHistoryInterceptor(originalReplaceState)
-    window.addEventListener('popstate', popStateHandler)
+    window.addEventListener('popstate', popStateHandler, true)
 
     return () => {
       window.removeEventListener('beforeunload', beforeUnloadHandler)
       document.removeEventListener('click', clickHandler, true)
-      window.removeEventListener('popstate', popStateHandler)
+      window.removeEventListener('popstate', popStateHandler, true)
       window.history.pushState = originalPushState
       window.history.replaceState = originalReplaceState
     }

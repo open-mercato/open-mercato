@@ -313,4 +313,88 @@ describe('CrudForm unsaved navigation guard', () => {
     expect(confirmDialogMock).not.toHaveBeenCalled()
     expect(window.location.pathname).toBe('/backend/customers/people')
   })
+
+  describe('browser Back button', () => {
+    const routerPopState = jest.fn()
+    let goSpy: jest.SpyInstance
+    let backSpy: jest.SpyInstance
+
+    beforeEach(() => {
+      routerPopState.mockReset()
+      window.addEventListener('popstate', routerPopState)
+      goSpy = jest.spyOn(window.history, 'go').mockImplementation(() => {})
+      backSpy = jest.spyOn(window.history, 'back').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      window.removeEventListener('popstate', routerPopState)
+      goSpy.mockRestore()
+      backSpy.mockRestore()
+    })
+
+    const renderDirtyForm = async () => {
+      const { container } = renderWithProviders(
+        <CrudForm title="Form" fields={fields} initialValues={{ name: 'Alice' }} onSubmit={() => {}} />,
+        { dict: { 'ui.forms.actions.save': 'Save' } },
+      )
+      const input = container.querySelector('[data-crud-field-id="name"] input[type="text"]') as HTMLInputElement
+      await act(async () => {
+        fireEvent.change(input, { target: { value: 'Alice edited' } })
+      })
+    }
+
+    const firePopState = async () => {
+      await act(async () => {
+        window.dispatchEvent(new PopStateEvent('popstate', { state: { __NA: true } }))
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+    }
+
+    it('keeps the router from handling Back and asks first when the form is dirty', async () => {
+      confirmDialogMock.mockResolvedValueOnce(false)
+      await renderDirtyForm()
+
+      await firePopState()
+
+      expect(routerPopState).not.toHaveBeenCalled()
+      expect(goSpy).toHaveBeenCalledWith(1)
+      expect(confirmDialogMock).toHaveBeenCalledTimes(1)
+      expect(backSpy).not.toHaveBeenCalled()
+
+      await firePopState()
+
+      expect(routerPopState).not.toHaveBeenCalled()
+      expect(confirmDialogMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('replays Back to the router once the user confirms leaving', async () => {
+      confirmDialogMock.mockResolvedValueOnce(true)
+      await renderDirtyForm()
+
+      await firePopState()
+
+      expect(routerPopState).not.toHaveBeenCalled()
+      expect(backSpy).toHaveBeenCalledTimes(1)
+
+      await firePopState()
+      await firePopState()
+
+      expect(routerPopState).toHaveBeenCalledTimes(2)
+      expect(confirmDialogMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not intercept Back when the form is clean', async () => {
+      renderWithProviders(
+        <CrudForm title="Form" fields={fields} initialValues={{ name: 'Alice' }} onSubmit={() => {}} />,
+        { dict: { 'ui.forms.actions.save': 'Save' } },
+      )
+
+      await firePopState()
+
+      expect(routerPopState).toHaveBeenCalledTimes(1)
+      expect(goSpy).not.toHaveBeenCalled()
+      expect(confirmDialogMock).not.toHaveBeenCalled()
+    })
+  })
 })
