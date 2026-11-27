@@ -39,7 +39,7 @@ export const PRICE_KINDS_PATH = '/api/catalog/price-kinds';
 export const PRODUCTS_PATH = '/api/catalog/products';
 const SALES_CHANNELS_PATH = '/api/sales/channels';
 
-export const OMNIBUS_ACTOR_PASSWORD = 'Valid1!Pass';
+export const OMNIBUS_ACTOR_PASSWORD = 'QaValid1!Pass';
 
 export type PriceHistoryItem = {
   id: string;
@@ -365,6 +365,49 @@ export async function createRestrictedUser(
   });
   const token = await getAuthToken(request, email, OMNIBUS_ACTOR_PASSWORD);
   return { roleId, userId, token };
+}
+
+/**
+ * Adds a second organization — with its own role (and `features`) and user — to an
+ * existing actor's tenant, for org-level isolation checks that must stay independent
+ * of tenant-level isolation (same tenant, different organization).
+ */
+export async function createSecondOrganizationActor(
+  request: APIRequestContext,
+  superadminToken: string,
+  actor: OmnibusTenantActor,
+  stamp: string,
+  features: string[],
+): Promise<{ organizationId: string; roleId: string; userId: string; token: string }> {
+  const organizationId = await createOrganizationFixture(request, superadminToken, {
+    name: `QA OMNI Org ${stamp}-second`,
+    tenantId: actor.tenantId,
+  });
+  const roleId = await createRoleFixture(request, superadminToken, {
+    name: `QA OMNI Second Org Role ${stamp}`,
+    tenantId: actor.tenantId,
+  });
+  await setRoleAclFeatures(request, superadminToken, { roleId, features, organizations: [organizationId] });
+  const email = `qa-omni-second-org-${stamp}@test.invalid`;
+  const userId = await createUserFixture(request, superadminToken, {
+    email,
+    password: OMNIBUS_ACTOR_PASSWORD,
+    organizationId,
+    roles: [roleId],
+  });
+  const token = await getAuthToken(request, email, OMNIBUS_ACTOR_PASSWORD);
+  return { organizationId, roleId, userId, token };
+}
+
+export async function cleanupSecondOrganizationActor(
+  request: APIRequestContext,
+  superadminToken: string | null,
+  actor: { organizationId: string; roleId: string; userId: string } | null,
+): Promise<void> {
+  if (!actor || !superadminToken) return;
+  await deleteUserIfExists(request, superadminToken, actor.userId);
+  await deleteRoleIfExists(request, superadminToken, actor.roleId);
+  await deleteOrganizationIfExists(request, superadminToken, actor.organizationId);
 }
 
 export async function cleanupOmnibusTenantActor(

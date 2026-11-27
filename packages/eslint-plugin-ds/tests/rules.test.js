@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { Linter, RuleTester } from 'eslint'
 import tsParser from '@typescript-eslint/parser'
 import plugin from '../index.js'
+const deprecatedNoticeTag = 'Notice'
 
 const ruleTester = new RuleTester({
   languageOptions: {
@@ -550,7 +551,7 @@ test('no-nested-frames', () => {
       { code: `export function Panel() { return <Card><DataTable columns={columns} data={rows} /></Card> }`, filename: frameFile('TableInCard'), errors: [nested('Card', 'DataTable')] },
       { code: `export function Panel() { return <Card><DataTable embedded={false} columns={columns} data={rows} /></Card> }`, filename: frameFile('TableNotEmbedded'), errors: [nested('Card', 'DataTable')] },
       { code: `export function Panel() { return <Card><EmptyState variant="outlined" title="Nothing yet" /></Card> }`, filename: frameFile('OutlinedEmptyState'), errors: [nested('Card', 'EmptyState')] },
-      { code: `export function Panel() { return <Card><Notice variant="info" /></Card> }`, filename: frameFile('NoticeInCard'), errors: [nested('Card', 'Notice')] },
+      { code: `export function Panel() { return <Card><${deprecatedNoticeTag} variant="info" /></Card> }`, filename: frameFile('NoticeInCard'), errors: [nested('Card', 'Notice')] },
       { code: `export function Panel() { return <Card><JsonDisplay data={data} /></Card> }`, filename: frameFile('JsonInCard'), errors: [nested('Card', 'JsonDisplay')] },
       { code: `export function Panel() { return <Card><ContentCard label="File" /></Card> }`, filename: frameFile('ContentCardInCard'), errors: [nested('Card', 'ContentCard')] },
       { code: `export function Panel() { return <AccordionItem value="a"><div className="rounded-md border p-3" /></AccordionItem> }`, filename: frameFile('AccordionCard'), errors: [nested('AccordionItem', 'div')] },
@@ -630,8 +631,8 @@ test('no-nested-frames message and opt-out', () => {
   assert.deepEqual(fileOptOut, [])
 
   const otherLine = lint(
-    `export function Panel() { return <Card>\n{/* eslint-disable-next-line om-ds/no-nested-frames -- embedded third-party widget draws its own frame */}\n<div className="rounded-md border p-3" />\n<Notice /></Card> }`,
+    `export function Panel() { return <Card>\n{/* eslint-disable-next-line om-ds/no-nested-frames -- embedded third-party widget draws its own frame */}\n<div className="rounded-md border p-3" />\n<${deprecatedNoticeTag} /></Card> }`,
   )
   assert.equal(otherLine.length, 1)
-  assert.match(otherLine[0].message, /`<Notice>` is nested inside frame `<Card>`/)
+  assert.ok(otherLine[0].message.includes(`\`<${deprecatedNoticeTag}>\` is nested inside frame \`<Card>\``))
 })

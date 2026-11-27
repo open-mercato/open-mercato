@@ -281,6 +281,12 @@
             "value": "nav",
             "status": "framework-only",
             "note": "nav.groupOrder is an app-level framework setting; no module target is ever emitted for it"
+          },
+          {
+            "value": "forms",
+            "status": "emitted-example",
+            "requiresGeneratedRegistry": true,
+            "note": "exact forms.sections targets projected from generated section contributions"
           }
         ]
       },
@@ -1182,6 +1188,220 @@
     ]
   },
   "capabilities": [
+    {
+      "capabilityId": "example.crud-form-extensions.c1",
+      "title": "Hide the Todo title on edit",
+      "description": "Preserve the required title from the locked record while saving the accepted editable fields.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/todo-showcase-update.client.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-001-002.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c2",
+      "title": "Default the hidden Todo title on create",
+      "description": "Declare a server default for the required leaf on create. Edit still reads the stored title.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/todo-showcase-create.client.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-001-002.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c3",
+      "title": "Cover a server-required leaf before hiding it",
+      "description": "A configured host blocks mutation while a required leaf lacks accepted coverage. The executable negative example is QA-only.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/references/crud-form-extensions/required-coverage.md"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-003-uncovered.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c4",
+      "title": "Replace the Todo completion section",
+      "description": "Replace the browser renderer with a literal loader whose accepted projection still emits the required completion value.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/todo-showcase-status.client.ts",
+        "src/modules/example/references/crud-form-extensions/status-primitives.reference.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-004-status.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c5",
+      "title": "Modify the Todo details fields",
+      "description": "Relabel priority, omit notes without clearing the stored leaf, and return scoped priority rule errors for the exact field.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/todo-showcase-sections.client.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-005-priority.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c6",
+      "title": "Store season with Custom Fields",
+      "description": "Tie an added season selector to the exact scoped native definition set and preserve explicit clears.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/todo-showcase-sections.client.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-006-season.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c7",
+      "title": "Store brand in the extension table",
+      "description": "Persist and read back a scoped brand, use its independent optimistic version, and roll back together with the host.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/data/entities.ts",
+        "src/modules/example/components/TodoShowcaseForm.tsx"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-007-brand.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c8",
+      "title": "Run the observer after commit",
+      "description": "Keep the committed record and surface the safe extension warning when the optional observer fails.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/components/TodoShowcaseForm.tsx"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-008-observer.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c9",
+      "title": "Deliver Todo fields to ERP",
+      "description": "Declare transactional outbox intent, read-only pre-validation, fenced retries, and a scoped status and Retry UI with a local provider.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/lib/exampleExternalErp.ts",
+        "src/modules/example/components/TodoShowcaseSync.tsx"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-009-erp.spec.ts"
+      ],
+      "dependencyModules": [
+        "integrations",
+        "notifications"
+      ],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c10",
+      "title": "Mask one section with an exact override",
+      "description": "Use a literal section selector in modules.ts to disable only the observer on the edit variant.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/references/module-overrides.reference.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-010-mask.spec.ts",
+        "src/modules/example/__tests__/module-overrides-reference.test.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c11",
+      "title": "Bind Todo writes to the resolved policy",
+      "description": "Refuse unknown extension fields, stale fingerprints, and inconsistent protected resource binding before changing the record.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/api/todos/route.ts",
+        "src/modules/example/lib/todoShowcaseClient.ts"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-011-policy-mismatch.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "title": "Keep the default Todo form compatible",
+      "description": "The default variant keeps its existing CRUD routes and headers with no section-policy resolution.",
+      "coverageKind": "example",
+      "referenceStatus": "canonical",
+      "readStatus": "readable",
+      "sourcePaths": [
+        "src/modules/example/form-sections.ts",
+        "src/modules/example/components/TodoForm.tsx",
+        "src/modules/example/backend/todos/create/page.tsx",
+        "src/modules/example/backend/todos/[id]/edit/page.tsx"
+      ],
+      "integrationTestPaths": [
+        "src/modules/example/__integration__/TC-EXAMPLE-FORM-001-002.spec.ts"
+      ],
+      "dependencyModules": [],
+      "ruleOwner": "om-system-extension"
+    },
     {
       "capabilityId": "module.metadata",
       "title": "Module metadata and auto-discovery entrypoint",
@@ -2561,11 +2781,11 @@
       "screens",
       "library"
     ],
-    "referenceCount": 18,
+    "referenceCount": 28,
     "rowsWithoutVisualCoverage": [
       "ui.frontend-page"
     ],
-    "coverageGapCount": 4,
+    "coverageGapCount": 5,
     "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
     "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
     "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
@@ -2583,6 +2803,148 @@
     "codeConnectExportStatus": "not-exported"
   },
   "designSystemReferences": [
+    {
+      "capabilityId": "example.crud-form-extensions.c7",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/icon-button",
+        "inputs/marketing-controls",
+        "inputs/input",
+        "inputs/textarea",
+        "inputs/select",
+        "inputs/checkbox",
+        "inputs/password-input",
+        "inputs/rich-editor",
+        "overlays/dialog",
+        "banners/flash-messages"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c7",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "detail/loading-message",
+        "detail/error-message"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c8",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/icon-button",
+        "inputs/marketing-controls",
+        "inputs/input",
+        "inputs/textarea",
+        "inputs/select",
+        "inputs/checkbox",
+        "inputs/password-input",
+        "inputs/rich-editor",
+        "overlays/dialog",
+        "banners/flash-messages"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c8",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "detail/loading-message",
+        "detail/error-message"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c9",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "display/badge"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/badge.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c9",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "buttons/button"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "galleryCoverage": "composite-not-direct",
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/icon-button",
+        "inputs/marketing-controls",
+        "inputs/input",
+        "inputs/textarea",
+        "inputs/select",
+        "inputs/checkbox",
+        "inputs/password-input",
+        "inputs/rich-editor",
+        "overlays/dialog",
+        "banners/flash-messages"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/CrudForm.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "detail/error-message"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/detail/index.ts",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "scaffolding/page"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "galleryCoverage": "direct",
+      "galleryItemIds": [
+        "scaffolding/page"
+      ],
+      "implementationSource": "node_modules/@open-mercato/ui/src/backend/Page.tsx",
+      "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+      "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+      "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be"
+    },
     {
       "capabilityId": "ui.page-shell",
       "galleryCoverage": "direct",
@@ -2805,6 +3167,11 @@
     }
   ],
   "designSystemCoverageGaps": [
+    {
+      "capabilityId": "example.crud-form-extensions.c12",
+      "publicImportPath": "@open-mercato/ui/backend/messages",
+      "reason": "no gallery entry declares this public module, and its implementation imports no gallery-covered constituent"
+    },
     {
       "capabilityId": "ui.datatable",
       "publicImportPath": "@open-mercato/ui/backend/ValueIcons",

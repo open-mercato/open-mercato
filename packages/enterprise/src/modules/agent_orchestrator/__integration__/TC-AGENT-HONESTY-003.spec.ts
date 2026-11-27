@@ -108,7 +108,7 @@ test.describe('TC-AGENT-HONESTY-003: server-side per-agent aggregates', () => {
     expect(context.tenantId).toBeTruthy()
 
     const email = `qa-tc-honesty-003-${STAMP}@example.com`
-    const password = 'Secret123!'
+    const password = 'QaSecret123!'
     let roleId: string | null = null
     let userId: string | null = null
     try {

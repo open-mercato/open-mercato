@@ -53,6 +53,12 @@ function resolveScope(
   }
 }
 
+function ensureAssignmentScope(ctx: CommandRuntimeContext, scope: ReturnType<typeof resolveScope>): void {
+  if (!ctx.auth) return
+  if (scope.tenantId) ensureTenantScope(ctx, scope.tenantId)
+  if (scope.organizationId) ensureOrganizationScope(ctx, scope.organizationId)
+}
+
 function resolveEm(ctx: CommandRuntimeContext): EntityManager {
   return (ctx.container.resolve('em') as EntityManager).fork()
 }
@@ -241,6 +247,7 @@ const unassignWarehouseHandler: CommandHandler<
 
   prepare: async (input, ctx) => {
     const scope = resolveScope(ctx, input)
+    ensureAssignmentScope(ctx, scope)
     const em = resolveEm(ctx)
     const existing = await loadAssignment(em, input.salesOrderId, scope)
     return { before: snapshotAssignment(existing) }
@@ -251,6 +258,7 @@ const unassignWarehouseHandler: CommandHandler<
     if (!scope.tenantId || !scope.organizationId) {
       throw new CrudHttpError(401, { error: 'Unauthorized' })
     }
+    ensureAssignmentScope(ctx, scope)
     const em = resolveEm(ctx)
     const existing = await loadAssignment(em, input.salesOrderId, scope)
 
@@ -284,6 +292,7 @@ const unassignWarehouseHandler: CommandHandler<
     if (!before?.salesOrderId || !before.warehouseId) return
 
     const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    ensureAssignmentScope(ctx, scope)
     const em = resolveEm(ctx)
 
     const existingDeleted = await findOneWithDecryption(
@@ -343,6 +352,7 @@ const reRunReservationHandler: CommandHandler<ReRunReservationInput, { ok: boole
   isUndoable: false,
   async execute(rawInput, ctx) {
     const input = reRunReservationInputSchema.parse(rawInput)
+    ensureAssignmentScope(ctx, input)
     const eventCtx = {
       resolve: <T>(name: string) => ctx.container.resolve<T>(name),
     }

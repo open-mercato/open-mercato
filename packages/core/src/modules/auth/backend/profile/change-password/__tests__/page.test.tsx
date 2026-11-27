@@ -1,10 +1,10 @@
 /** @jest-environment jsdom */
 jest.setTimeout(15000)
 
-const routerRefreshMock = jest.fn()
+const routerReplaceMock = jest.fn()
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: () => undefined, replace: () => undefined, refresh: routerRefreshMock }),
+  useRouter: () => ({ push: () => undefined, replace: routerReplaceMock, refresh: () => undefined }),
   usePathname: () => '/backend/profile/change-password',
   useSearchParams: () => new URLSearchParams(),
 }))
@@ -42,6 +42,7 @@ const flashMock = flash as jest.MockedFunction<typeof flash>
 
 const SAVED_EMAIL = 'ada@example.com'
 const EDITED_EMAIL = 'ada.lovelace@example.com'
+const CURRENT_PASSWORD = 'Current-pass-123!'
 
 function saveBar() {
   return document.querySelector<HTMLElement>('[data-slot="form-save-bar"]')
@@ -61,6 +62,13 @@ async function editEmail(input: HTMLInputElement, value: string) {
     fireEvent.change(input, { target: { value } })
   })
   await waitFor(() => expect(saveBar()).not.toBeNull())
+}
+
+async function editEmailWithCurrentPassword(input: HTMLInputElement, value: string) {
+  await editEmail(input, value)
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: CURRENT_PASSWORD } })
+  })
 }
 
 describe('ProfileChangePasswordPage save bar', () => {
@@ -94,9 +102,9 @@ describe('ProfileChangePasswordPage save bar', () => {
     expect(saveButton()).toHaveAttribute('form', emailInput.closest('form')?.id)
   })
 
-  it('submits the form from the bar and hides it after a successful save', async () => {
+  it('submits the form from the bar, hides it and sends the user to sign in again', async () => {
     const emailInput = await renderLoadedPage()
-    await editEmail(emailInput, EDITED_EMAIL)
+    await editEmailWithCurrentPassword(emailInput, EDITED_EMAIL)
     await act(async () => {
       fireEvent.click(saveButton())
     })
@@ -104,12 +112,11 @@ describe('ProfileChangePasswordPage save bar', () => {
     const [url, init] = readApiResultOrThrowMock.mock.calls[0]
     expect(url).toBe('/api/auth/profile')
     expect(init?.method).toBe('PUT')
-    expect(JSON.parse(String(init?.body))).toEqual({ email: EDITED_EMAIL })
+    expect(JSON.parse(String(init?.body))).toEqual({ currentPassword: CURRENT_PASSWORD, email: EDITED_EMAIL })
     await waitFor(() => expect(saveBar()).toBeNull())
     expect(flashMock).toHaveBeenCalledWith('Profile updated.', 'success')
     expect(flashMock).toHaveBeenCalledTimes(1)
-    expect(routerRefreshMock).toHaveBeenCalledTimes(1)
-    expect(await screen.findByDisplayValue(EDITED_EMAIL)).toBeInTheDocument()
+    expect(routerReplaceMock).toHaveBeenCalledWith('/login')
   })
 
   it('reports saving while the request is pending', async () => {
@@ -121,7 +128,7 @@ describe('ProfileChangePasswordPage save bar', () => {
         }),
     )
     const emailInput = await renderLoadedPage()
-    await editEmail(emailInput, EDITED_EMAIL)
+    await editEmailWithCurrentPassword(emailInput, EDITED_EMAIL)
     await act(async () => {
       fireEvent.click(saveButton())
     })
@@ -148,7 +155,7 @@ describe('ProfileChangePasswordPage save bar', () => {
   it('shows the failed state with a retry when the save is rejected', async () => {
     readApiResultOrThrowMock.mockRejectedValue(new Error('Failed to update profile.'))
     const emailInput = await renderLoadedPage()
-    await editEmail(emailInput, EDITED_EMAIL)
+    await editEmailWithCurrentPassword(emailInput, EDITED_EMAIL)
     await act(async () => {
       fireEvent.click(saveButton())
     })

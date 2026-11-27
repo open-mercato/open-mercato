@@ -24,10 +24,12 @@ import {
   MessageDetailMetaSection,
   MessageDetailObjectsSection,
 } from './message-detail/detail-panels'
+import type { MessageDetailDeletion } from './message-detail/types'
 import { useMessageDetails } from './message-detail/hooks/useMessageDetails'
 
 function MessageConversationDetailItem({
   messageId,
+  deletion,
   isCollapsible,
   isExpanded,
   onToggle,
@@ -36,6 +38,7 @@ function MessageConversationDetailItem({
   userFeatures,
 }: {
   messageId: string
+  deletion: MessageDetailDeletion
   isCollapsible: boolean
   isExpanded: boolean
   onToggle: () => void
@@ -43,7 +46,7 @@ function MessageConversationDetailItem({
   onForward: (messageId: string) => void
   userFeatures: string[]
 }) {
-  const state = useMessageDetails(messageId)
+  const state = useMessageDetails(messageId, deletion)
   const messageUiRegistry = React.useMemo(() => getMessageUiComponentRegistry(), [])
 
   if (state.isLoadingDetail) {
@@ -139,7 +142,7 @@ function MessageConversationDetailItem({
         attachments={state.attachments}
         editOpen={state.editOpen}
         setEditOpen={state.setEditOpen}
-        onRefresh={() => state.detailQuery.refetch()}
+        onRefresh={state.refetchDetail}
       />
 
       <MessageDetailDialogs
@@ -289,6 +292,7 @@ export function MessageDetailPageClient({ id }: { id: string }) {
               <MessageConversationDetailItem
                 key={item.id}
                 messageId={item.id}
+                deletion={state.deletion}
                 userFeatures={userFeatures}
                 isCollapsible={!isForcedExpanded}
                 isExpanded
@@ -332,7 +336,7 @@ export function MessageDetailPageClient({ id }: { id: string }) {
             }}
             onSuccess={() => {
               setActiveInlineComposer(null)
-              void state.detailQuery.refetch()
+              void state.refetchDetail()
             }}
           />
         </div>

@@ -20,11 +20,6 @@ type ProfileResponse = {
   name?: string | null
 }
 
-type ProfileUpdateResponse = {
-  ok?: boolean
-  email?: string | null
-}
-
 type ProfileFormValues = {
   email: string
   currentPassword?: string
@@ -107,12 +102,13 @@ export default function AuthProfilePage() {
       password: optionalPasswordSchema,
       confirmPassword: z.string().optional(),
     }).superRefine((values, ctx) => {
-      const currentPassword = values.currentPassword?.trim() ?? ''
-      const password = values.password?.trim() ?? ''
-      const confirmPassword = values.confirmPassword?.trim() ?? ''
-      const hasPasswordIntent = Boolean(currentPassword || password || confirmPassword)
+      const currentPassword = values.currentPassword ?? ''
+      const password = values.password ?? ''
+      const confirmPassword = values.confirmPassword ?? ''
+      const hasPasswordIntent = Boolean(password || confirmPassword)
+      const emailChanged = values.email.trim() !== email
 
-      if (hasPasswordIntent && !currentPassword) {
+      if ((hasPasswordIntent || emailChanged) && !currentPassword) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: t('auth.profile.form.errors.currentPasswordRequired', 'Current password is required.'),
@@ -141,22 +137,23 @@ export default function AuthProfilePage() {
         })
       }
     })
-  }, [passwordPolicy, t])
+  }, [email, passwordPolicy, t])
 
   const saveProfile = React.useCallback(async (values: ProfileFormValues) => {
     const nextEmail = values.email?.trim() ?? ''
-    const currentPassword = values.currentPassword?.trim() ?? ''
-    const password = values.password?.trim() ?? ''
+    const currentPassword = values.currentPassword ?? ''
+    const password = values.password ?? ''
 
-    if (!password && nextEmail === email) {
+    const emailChanged = nextEmail !== email
+    if (!password && !emailChanged) {
       throw createCrudFormError(t('auth.profile.form.errors.noChanges', 'No changes to save.'))
     }
 
-    const payload: { email: string; currentPassword?: string; password?: string } = { email: nextEmail }
+    const payload: { email?: string; currentPassword: string; password?: string } = { currentPassword }
+    if (emailChanged) payload.email = nextEmail
     if (password) payload.password = password
-    if (password) payload.currentPassword = currentPassword
 
-    const result = await readApiResultOrThrow<ProfileUpdateResponse>(
+    await readApiResultOrThrow(
       '/api/auth/profile',
       {
         method: 'PUT',
@@ -166,11 +163,8 @@ export default function AuthProfilePage() {
       { errorMessage: t('auth.profile.form.errors.save', 'Failed to update profile.') },
     )
 
-    const resolvedEmail = typeof result?.email === 'string' ? result.email : nextEmail
-    setEmail(resolvedEmail)
-    setFormKey((prev) => prev + 1)
     flash(t('auth.profile.form.success', 'Profile updated.'), 'success')
-    router.refresh()
+    router.replace('/login')
   }, [email, router, t])
 
   const handleSubmit = React.useCallback(async (values: ProfileFormValues) => {

@@ -45,7 +45,7 @@ Three tiers scale the level of service with company size. Every tier includes th
 | Capability | Basic | Medium | Enterprise |
 |---|---|---|---|
 | Company revenue band | below $25M | $25M–$250M | above $250M |
-| Enterprise software modules (MFA, SSO & Directory Sync, Record Locking) | Included | Included | Included |
+| Enterprise software modules (MFA, SSO & Directory Sync, Record Locking, encrypted backup and recovery) | Included | Included | Included |
 | Unlimited users & servers (per project / monorepo) | Included | Included | Included |
 | Project sandboxes — *time-limited offer* (dev/staging + prod env, CI/CD, AI SDLC pipeline, 7-day restore) | 1 active project | 3 active projects | 10 active projects |
 | Priority support (AI-assisted helpdesk, issue triage) | up to 5 accounts | up to 10 accounts, Discord | unlimited accounts, Discord |
@@ -94,6 +94,7 @@ Every Enterprise subscription includes the proprietary modules in `@open-mercato
 
 ### Enterprise Maintenance and Deployment Toolkit
 
+- **Encrypted Backup and Recovery** — standalone PostgreSQL backup, authenticated encrypted artifacts, resumable execution and isolated restore/exercise with retained application keys. Commercial `backups` module; enable `OM_ENABLE_ENTERPRISE_MODULES` + `OM_ENABLE_ENTERPRISE_MODULES_BACKUPS` and attest commercial rights. See the [operator guide](../../apps/docs/docs/deployment/enterprise-backup-recovery.mdx). Backup artifacts and custody keys stay in operator-controlled storage.
 - **Edition and version visibility** — See the Enterprise edition and running application version in System Status when verifying a deployment or troubleshooting an environment.
 
 ### Enterprise AI Toolkit

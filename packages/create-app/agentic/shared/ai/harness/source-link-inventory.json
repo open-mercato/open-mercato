@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 33,
-    "recordCount": 161,
-    "sourceRequiredCount": 135,
-    "readableCount": 161,
+    "ownerCount": 34,
+    "recordCount": 169,
+    "sourceRequiredCount": 143,
+    "readableCount": 169,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -24,6 +24,7 @@
       "resolvedPath": "src/modules/example/components/TodoForm.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-create",
         "ui.form-edit"
       ],
@@ -664,6 +665,75 @@
       ]
     },
     {
+      "referenceId": "guides/infrastructure-providers:src/providers/cache.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/infrastructure-providers.md",
+      "heading": "App Infrastructure Providers",
+      "href": "../../src/providers/cache.ts",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/providers/cache.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/infrastructure-providers:src/providers/kms.example.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/infrastructure-providers.md",
+      "heading": "App Infrastructure Providers",
+      "href": "../../src/providers/kms.example.ts",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/providers/kms.example.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/infrastructure-providers:src/providers/queue.example.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/infrastructure-providers.md",
+      "heading": "App Infrastructure Providers",
+      "href": "../../src/providers/queue.example.ts",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/providers/queue.example.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
       "referenceId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/eject.ts",
       "requirement": "source-required",
       "originAsset": ".ai/guides/module-tool.md",
@@ -770,6 +840,7 @@
       "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-edit"
       ],
       "presets": [
@@ -793,6 +864,7 @@
       "resolvedPath": "src/modules/example/backend/todos/create/page.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-create"
       ],
       "presets": [
@@ -816,6 +888,7 @@
       "resolvedPath": "src/modules/example/components/TodoForm.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-create",
         "ui.form-edit"
       ],
@@ -2015,6 +2088,7 @@
       "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-edit"
       ],
       "presets": [
@@ -2181,7 +2255,8 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.encryption-map",
-        "data.entities"
+        "data.entities",
+        "example.crud-form-extensions.c7"
       ],
       "presets": [
         "classic",
@@ -2228,6 +2303,7 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.crud-query-engine-custom-fields",
+        "example.crud-form-extensions.c11",
         "search.encrypted-column-list-filter"
       ],
       "presets": [
@@ -2365,7 +2441,8 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.encryption-map",
-        "data.entities"
+        "data.entities",
+        "example.crud-form-extensions.c7"
       ],
       "presets": [
         "classic",
@@ -2754,6 +2831,7 @@
       "moduleId": "example",
       "capabilityIds": [
         "api.crud-query-engine-custom-fields",
+        "example.crud-form-extensions.c11",
         "search.encrypted-column-list-filter"
       ],
       "presets": [
@@ -2827,7 +2905,8 @@
       "moduleId": "example",
       "capabilityIds": [
         "data.encryption-map",
-        "data.entities"
+        "data.entities",
+        "example.crud-form-extensions.c7"
       ],
       "presets": [
         "classic",
@@ -3391,6 +3470,40 @@
       ]
     },
     {
+      "referenceId": "om-system-extension/extension-branches:form-sections.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "CrudForm section policy",
+      "href": "../../../../src/modules/example/form-sections.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/form-sections.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "example.crud-form-extensions.c1",
+        "example.crud-form-extensions.c10",
+        "example.crud-form-extensions.c11",
+        "example.crud-form-extensions.c12",
+        "example.crud-form-extensions.c2",
+        "example.crud-form-extensions.c3",
+        "example.crud-form-extensions.c4",
+        "example.crud-form-extensions.c5",
+        "example.crud-form-extensions.c6",
+        "example.crud-form-extensions.c7",
+        "example.crud-form-extensions.c8",
+        "example.crud-form-extensions.c9"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
       "referenceId": "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx",
       "requirement": "source-required",
       "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
@@ -3471,6 +3584,53 @@
       "moduleId": "example",
       "capabilityIds": [
         "notifications.reactive-handler"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:references/crud-form-extensions/required-coverage.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "CrudForm section policy",
+      "href": "../../../../src/modules/example/references/crud-form-extensions/required-coverage.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/crud-form-extensions/required-coverage.md",
+      "moduleId": "example",
+      "capabilityIds": [
+        "example.crud-form-extensions.c3"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:references/module-overrides.reference.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "CrudForm section policy",
+      "href": "../../../../src/modules/example/references/module-overrides.reference.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/module-overrides.reference.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "example.crud-form-extensions.c10",
+        "overrides.compileable-reference"
       ],
       "presets": [
         "classic",
@@ -3883,6 +4043,7 @@
       "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx",
       "moduleId": "example",
       "capabilityIds": [
+        "example.crud-form-extensions.c12",
         "ui.form-edit"
       ],
       "presets": [
@@ -4080,6 +4241,52 @@
       ],
       "tiers": [
         "core"
+      ]
+    },
+    {
+      "referenceId": "root:.ai/guides/infrastructure-providers.md",
+      "requirement": "source-required",
+      "originAsset": "AGENTS.md",
+      "heading": "Always",
+      "href": ".ai/guides/infrastructure-providers.md",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/infrastructure-providers.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "root:.ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "originAsset": "AGENTS.md",
+      "heading": "Axis 2 — Work Units",
+      "href": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
       ]
     },
     {

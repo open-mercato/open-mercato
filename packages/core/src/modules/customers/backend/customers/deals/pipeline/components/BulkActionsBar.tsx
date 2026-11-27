@@ -9,10 +9,10 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 type BulkActionsBarProps = {
   count: number
   totalLabel: string | null
-  onChangeStage: () => void
-  onChangeOwner: () => void
+  onChangeStage?: () => void
+  onChangeOwner?: () => void
   onExportCsv: () => void
-  onDelete: () => void
+  onDelete?: () => void
   onClear: () => void
 }
 
@@ -33,39 +33,44 @@ export function BulkActionsBar({
 }: BulkActionsBarProps): React.ReactElement | null {
   const t = useT()
 
-  const actions = React.useMemo<BlockAction[]>(
-    () => [
-      {
+  const actions = React.useMemo<BlockAction[]>(() => {
+    const available: BlockAction[] = []
+    if (onChangeStage) {
+      available.push({
         key: CHANGE_STAGE_KEY,
         label: translateWithFallback(t, 'customers.deals.kanban.bulk.changeStage', 'Change stage'),
         icon: 'workflow',
-      },
-      {
+      })
+    }
+    if (onChangeOwner) {
+      available.push({
         key: CHANGE_OWNER_KEY,
         label: translateWithFallback(t, 'customers.deals.kanban.bulk.changeOwner', 'Change owner'),
         icon: 'user-circle-2',
-      },
-      {
-        key: EXPORT_CSV_KEY,
-        label: translateWithFallback(t, 'customers.deals.kanban.bulk.exportCsv', 'Export CSV'),
-        icon: 'download',
-      },
-      {
+      })
+    }
+    available.push({
+      key: EXPORT_CSV_KEY,
+      label: translateWithFallback(t, 'customers.deals.kanban.bulk.exportCsv', 'Export CSV'),
+      icon: 'download',
+    })
+    if (onDelete) {
+      available.push({
         key: DELETE_KEY,
         label: translateWithFallback(t, 'customers.deals.kanban.bulk.delete', 'Delete'),
         icon: 'trash-2',
         tone: 'destructive',
-      },
-    ],
-    [t],
-  )
+      })
+    }
+    return available
+  }, [onChangeOwner, onChangeStage, onDelete, t])
 
   const handleAction = React.useCallback(
     (actionKey: string): void => {
-      if (actionKey === CHANGE_STAGE_KEY) onChangeStage()
-      else if (actionKey === CHANGE_OWNER_KEY) onChangeOwner()
+      if (actionKey === CHANGE_STAGE_KEY) onChangeStage?.()
+      else if (actionKey === CHANGE_OWNER_KEY) onChangeOwner?.()
       else if (actionKey === EXPORT_CSV_KEY) onExportCsv()
-      else if (actionKey === DELETE_KEY) onDelete()
+      else if (actionKey === DELETE_KEY) onDelete?.()
     },
     [onChangeStage, onChangeOwner, onExportCsv, onDelete],
   )

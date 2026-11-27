@@ -51,7 +51,7 @@ test.describe('TC-CRM-072: org-scope fail-open authorization hardening (#2239 + 
     test.slow();
 
     const stamp = Date.now();
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
 
     let adminToken: string | null = null;
     let orgAId: string | null = null;
@@ -148,15 +148,18 @@ test.describe('TC-CRM-072: org-scope fail-open authorization hardening (#2239 + 
       expect(decodeOrgId(readToken), 'floating read user must have null home org in JWT').toBeNull();
 
       // READ deny: detail GET on the orgB person (was fail-open: empty set skipped
-      // guard). The org-scope guard still denies the read; #5504 collapses that
-      // denial into the route's not-found response (404 instead of 403) so it no
-      // longer reveals that the id exists in an organization the caller cannot
-      // see. The fail-open hole (#2245) stays closed — the body carries no orgB
-      // data, only the generic not-found error.
+      // guard). A principal whose organization scope resolves to no organization is
+      // deny-all, so the feature guard answers 403 before the route looks anything
+      // up. The response is the same for every id — existing, foreign or unknown —
+      // so it reveals nothing about the record (#5504), and the fail-open hole
+      // (#2245) stays closed: the body carries no orgB data.
       const denyRead = await apiRequest(request, 'GET', `/api/customers/people/${personOrgBId}`, { token: readToken });
-      expect(denyRead.status(), 'cross-org detail GET (orgB) must be denied as not-found (#2245 + #5504)').toBe(404);
+      expect(denyRead.status(), 'cross-org detail GET (orgB) must be forbidden for an empty organization scope (#2245)').toBe(403);
       const denyReadBody = await denyRead.json().catch(() => null);
-      expect(denyReadBody, 'cross-org detail GET must not leak orgB data').toEqual({ error: 'Person not found' });
+      expect(denyReadBody, 'cross-org detail GET must not leak orgB data').not.toHaveProperty('person');
+      const missingRead = await apiRequest(request, 'GET', '/api/customers/people/9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d', { token: readToken });
+      expect(missingRead.status(), 'a foreign-org id and a non-existent id must be indistinguishable on the detail route (#5504)').toBe(denyRead.status());
+      expect(await missingRead.json().catch(() => null)).toEqual(denyReadBody);
 
       // #5504 is applied module-wide, not just to the detail route: a sibling
       // sub-resource route that loads the SAME person by id under the SAME grant
@@ -164,7 +167,7 @@ test.describe('TC-CRM-072: org-scope fail-open authorization hardening (#2239 + 
       const nonExistentPersonId = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
       const denySubResource = await apiRequest(request, 'GET', `/api/customers/people/${personOrgBId}/companies`, { token: readToken });
       const missingSubResource = await apiRequest(request, 'GET', `/api/customers/people/${nonExistentPersonId}/companies`, { token: readToken });
-      expect(denySubResource.status(), 'cross-org sub-resource GET (orgB) must be denied as not-found (#5504)').toBe(404);
+      expect(denySubResource.status(), 'cross-org sub-resource GET (orgB) must be forbidden for an empty organization scope').toBe(403);
       expect(
         missingSubResource.status(),
         'a foreign-org id and a non-existent id must be indistinguishable on the sub-resource route (#5504)',

@@ -86,9 +86,8 @@ describe('module override targets — adapter registry coverage', () => {
     for (const adapter of MODULE_OVERRIDE_TARGET_ADAPTERS) {
       expect(ALL_OVERRIDE_DOMAINS).toContain(adapter.domain)
     }
-    // exactly the 16 runtime domains, one adapter each
-    expect(ALL_OVERRIDE_DOMAINS).toHaveLength(16)
-    expect(MODULE_OVERRIDE_TARGET_ADAPTERS).toHaveLength(16)
+    expect(ALL_OVERRIDE_DOMAINS).toHaveLength(17)
+    expect(MODULE_OVERRIDE_TARGET_ADAPTERS).toHaveLength(ALL_OVERRIDE_DOMAINS.length)
   })
 
   it('classifies nav as framework-only (never a module target)', () => {

@@ -48,7 +48,7 @@ const DOCUMENTS_MANAGE_FEATURES = [
   'documents.manage',
 ]
 const DENIED_STATUSES = [403, 404]
-const VALID_PASSWORD = 'Valid1!Pass'
+const VALID_PASSWORD = 'QaValid1!Pass'
 
 function expectUpdatedAt(value: unknown, message: string): string {
   expect(typeof value === 'string' && value.length > 0, message).toBe(true)
