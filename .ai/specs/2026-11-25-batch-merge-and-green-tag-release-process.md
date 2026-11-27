@@ -266,7 +266,7 @@ A PR to `main` is ready to merge when:
 |---|---|
 | 1. Every required check green on the head commit: today `scope`, `guard`, `prepare`, `lint`, `ds-lint`, `test`, `audit-scope`, `documents-multi-instance`; plus `ci-scope` ([Phase 2](#phase-2-ci-scope-engine-default-unchanged)) and `ci-triage` ([Phase 4](#phase-4-fast-gate-as-the-default)) | GitHub (`main` ruleset) |
 | 2. One approving review | GitHub (ruleset requires 1) |
-| 3. No blocking label: `qa-failed`, `changes-requested`, `blocked`, `do-not-merge`. A missing `qa-approved`, `needs-qa`, `needs-human-qa`, `in-progress` and `review` instead of `merge-queue` never block | Today: skills and reviewers. From Phase 4: `ci-triage` fails, so GitHub refuses the merge. `ci-triage` imports `blockingLabels()` / `decide()` from `scripts/ci/merge-queue-guard.mts` (PR #10757) instead of keeping its own copy |
+| 3. No blocking label: `qa-failed`, `changes-requested`, `blocked`, `do-not-merge`. A missing `qa-approved`, `needs-qa`, `needs-human-qa` and `review` instead of `merge-queue` never block; `in-progress` is not a block, but merge automation waits until it is released | Today: skills and reviewers. From Phase 4: `ci-triage` fails, so GitHub refuses the merge. `ci-triage` imports `blockingLabels()` / `decide()` from `scripts/ci/merge-queue-guard.mts` (PR #10757) instead of keeping its own copy |
 | 4. External author only: human acceptance and a human approval on the current head ([Acceptance](#acceptance-for-external-prs)) | From Phase 5: `ci-triage` |
 
 `ci-triage` and `ci-scope` are check runs from named workflows (GitHub Actions jobs, required in the ruleset with the GitHub Actions app pinned), not commit statuses: see [Phase 3](#phase-3-ci-triage-skill-in-shadow-mode) step 3.

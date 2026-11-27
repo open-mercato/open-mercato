@@ -17,9 +17,11 @@ A PR squash-merges into `main` when all of these hold on its **current head**:
 5. The Enterprise Contribution Guard (`guard`) passed.
 6. No hard block: `blocked`, `do-not-merge` or `qa-failed`.
 
-These never block a merge: `in-progress` (an agent may still push, so merge with
-`--match-head-commit <sha>`), a missing `qa-approved` (QA runs on the batch after merge, see
-Batch QA below), and `review` still on instead of `merge-queue` after approval.
+These never block a merge: a missing `qa-approved` (QA runs on the batch after merge, see
+Batch QA below) and `review` still on instead of `merge-queue` after approval. `in-progress` is
+not part of the rule either, but merge automation (`om-merge-buddy`, `om-auto-merge-buddy`)
+waits until the agent releases it. A maintainer may merge a PR that still carries it, with
+`--match-head-commit <sha>` so a late push from the agent stops the merge.
 
 **Triage and acceptance.** An external (community) PR is triaged with `om-triage-pr` (category,
 priority, risk and QA lane). A maintainer adds `needs-triage` by hand while an external PR waits
@@ -274,8 +276,8 @@ the worst outcome is a missing CI-result comment on an otherwise fully processed
 is free to take over.
 
 `ci-monitoring` gates nothing. It does not affect the merge rule, the priority/risk
-requirements, or any hard merge block. Neither does `in-progress`: it holds back other agents,
-not the merge.
+requirements, or any hard merge block. `in-progress` holds back other agents, including merge
+automation, until it is released (see the ready-to-merge rule above).
 
 ## Design-system governance files
 
