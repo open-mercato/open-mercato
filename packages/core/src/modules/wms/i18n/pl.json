@@ -1104,6 +1104,7 @@
   "wms.backend.sku.distribution.actions.adjustSelected": "Korekta zaznaczonych",
   "wms.backend.sku.distribution.actions.cycleCountZone": "Inwentaryzacja strefy",
   "wms.backend.sku.distribution.actions.exportCsv": "Eksport CSV",
+  "wms.backend.sku.distribution.actions.retry": "Spróbuj ponownie",
   "wms.backend.sku.distribution.columns.location": "Lokalizacja",
   "wms.backend.sku.distribution.columns.lot": "Partia",
   "wms.backend.sku.distribution.columns.onHand": "Na stanie",

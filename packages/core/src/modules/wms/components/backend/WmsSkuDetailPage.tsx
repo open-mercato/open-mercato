@@ -905,7 +905,6 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
     variantQuery.isError ||
     profileQuery.isError ||
     stockedBalancesQuery.isError ||
-    balancesQuery.isError ||
     lotsQuery.isError ||
     movementsQuery.isError
 
@@ -1083,7 +1082,12 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
                   </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" onClick={handleExportDistributionCsv}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={balancesQuery.isPlaceholderData}
+                    onClick={handleExportDistributionCsv}
+                  >
                     <Download className="size-4" />
                     {t('wms.backend.sku.distribution.actions.exportCsv', 'Export CSV')}
                   </Button>
@@ -1107,47 +1111,65 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
                   ) : null}
                 </div>
               </div>
-              <DataTable<InventoryBalanceRow>
-                embedded
-                columns={distributionColumns}
-                data={pagedBalances}
-                disableRowClick
-                entityId={E.wms.inventory_balance}
-                perspective={{ tableId: extensionPoints.hosts.skuDistributionTable.tableId }}
-                pagination={{
-                  page: distributionPage,
-                  pageSize: distributionPageSize,
-                  total: distributionTotal,
-                  totalPages: distributionTotalPages,
-                  onPageChange: setDistributionPage,
-                }}
-                emptyState={(
-                  <EmptyState
-                    title={t('wms.backend.sku.distribution.empty.title', 'No locations in this view')}
-                    description={t(
-                      'wms.backend.sku.distribution.empty.description',
-                      'Try another filter or post inventory through receipts or adjustments.',
+              {balancesQuery.isError ? (
+                <ErrorMessage
+                  label={t('wms.backend.sku.errors.balances', 'Failed to load stock distribution.')}
+                  action={(
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => balancesQuery.refetch()}
+                    >
+                      {t('wms.backend.sku.distribution.actions.retry', 'Retry')}
+                    </Button>
+                  )}
+                />
+              ) : (
+                <>
+                  <DataTable<InventoryBalanceRow>
+                    embedded
+                    columns={distributionColumns}
+                    data={pagedBalances}
+                    disableRowClick
+                    entityId={E.wms.inventory_balance}
+                    perspective={{ tableId: extensionPoints.hosts.skuDistributionTable.tableId }}
+                    pagination={{
+                      page: distributionPage,
+                      pageSize: distributionPageSize,
+                      total: distributionTotal,
+                      totalPages: distributionTotalPages,
+                      onPageChange: setDistributionPage,
+                    }}
+                    emptyState={(
+                      <EmptyState
+                        title={t('wms.backend.sku.distribution.empty.title', 'No locations in this view')}
+                        description={t(
+                          'wms.backend.sku.distribution.empty.description',
+                          'Try another filter or post inventory through receipts or adjustments.',
+                        )}
+                      />
                     )}
                   />
-                )}
-              />
-              {distributionTotal > 0 ? (
-                <div className="flex flex-col gap-2 border-t px-5 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                  <span>
-                    {t('wms.backend.sku.distribution.footer.showing', 'Showing {shown} of {total} locations', {
-                      shown: pagedBalances.length,
-                      total: distributionTotal,
-                    })}
-                  </span>
-                  {balancesQuery.data && balancesQuery.data.total > distributionTotal ? (
-                    <LinkButton asChild variant="gray" size="sm" className="h-auto px-0">
-                      <Link href={inventoryHref}>
-                        {t('wms.backend.sku.distribution.footer.viewAll', 'View all locations →')}
-                      </Link>
-                    </LinkButton>
+                  {distributionTotal > 0 ? (
+                    <div className="flex flex-col gap-2 border-t px-5 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                      <span>
+                        {t('wms.backend.sku.distribution.footer.showing', 'Showing {shown} of {total} locations', {
+                          shown: pagedBalances.length,
+                          total: distributionTotal,
+                        })}
+                      </span>
+                      {balancesQuery.data && balancesQuery.data.total > distributionTotal ? (
+                        <LinkButton asChild variant="gray" size="sm" className="h-auto px-0">
+                          <Link href={inventoryHref}>
+                            {t('wms.backend.sku.distribution.footer.viewAll', 'View all locations →')}
+                          </Link>
+                        </LinkButton>
+                      ) : null}
+                    </div>
                   ) : null}
-                </div>
-              ) : null}
+                </>
+              )}
             </section>
 
             <DataTable<InventoryMovementRow>

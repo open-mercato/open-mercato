@@ -189,7 +189,7 @@ describe('WmsSkuDetailPage empty balances', () => {
     await waitFor(() => expect(tableRowIds()).toEqual(['overflow-row']))
   })
 
-  it('keeps the same warehouse rows on screen while the empty toggle reloads', async () => {
+  it('keeps the same warehouse rows on screen while the empty toggle reloads, and disables export until it settles', async () => {
     let releaseWithEmpties: (value: unknown) => void = () => undefined
     const withEmptiesResponse = new Promise((resolve) => {
       releaseWithEmpties = resolve
@@ -201,16 +201,49 @@ describe('WmsSkuDetailPage empty balances', () => {
     renderWithProviders(<WmsSkuDetailPage variantId={variantId} />, { queryClient: createQueryClient() })
 
     await waitFor(() => expect(tableRowIds()).toEqual(['stocked-a']))
+    expect(screen.getByRole('button', { name: 'Export CSV' })).not.toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Show empty' }))
 
     await screen.findByRole('button', { name: 'Hide empty' })
     expect(tableRowIds()).toEqual(['stocked-a'])
+    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeDisabled()
 
     await act(async () => {
       releaseWithEmpties(page([balance('empty-1', 0, 0), balance('stocked-a', 4, 0)]))
       await withEmptiesResponse
     })
+
+    await waitFor(() => expect(tableRowIds()).toEqual(['empty-1', 'stocked-a']))
+    expect(screen.getByRole('button', { name: 'Export CSV' })).not.toBeDisabled()
+  })
+
+  it('keeps the KPIs, distribution toggle and activity visible when the unfiltered balances request fails', async () => {
+    mockApi((params) =>
+      params.get('hideEmpty') === 'true'
+        ? page([balance('stocked-a', 4, 0)])
+        : { ok: false, response: { status: 500 } },
+    )
+
+    renderWithProviders(<WmsSkuDetailPage variantId={variantId} />, { queryClient: createQueryClient() })
+
+    await waitFor(() => expect(tableRowIds()).toEqual(['stocked-a']))
+    expect(kpiValue('On hand')).toBe('4')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show empty' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to load stock distribution.')
+    expect(screen.getByRole('button', { name: 'Hide empty' })).toBeInTheDocument()
+    expect(kpiValue('On hand')).toBe('4')
+    expect(screen.getByTestId('other-table')).toBeInTheDocument()
+
+    mockApi((params) =>
+      params.get('hideEmpty') === 'true'
+        ? page([balance('stocked-a', 4, 0)])
+        : page([balance('empty-1', 0, 0), balance('stocked-a', 4, 0)]),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
 
     await waitFor(() => expect(tableRowIds()).toEqual(['empty-1', 'stocked-a']))
   })

@@ -1104,6 +1104,7 @@
   "wms.backend.sku.distribution.actions.adjustSelected": "선택됨 조정({count})",
   "wms.backend.sku.distribution.actions.cycleCountZone": "사이클 카운트 구역",
   "wms.backend.sku.distribution.actions.exportCsv": "CSV 내보내기",
+  "wms.backend.sku.distribution.actions.retry": "다시 시도",
   "wms.backend.sku.distribution.columns.location": "위치",
   "wms.backend.sku.distribution.columns.lot": "많은",
   "wms.backend.sku.distribution.columns.onHand": "보유",

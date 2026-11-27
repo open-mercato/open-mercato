@@ -1104,6 +1104,7 @@
   "wms.backend.sku.distribution.actions.adjustSelected": "Adjust selected",
   "wms.backend.sku.distribution.actions.cycleCountZone": "Zykluszählzone",
   "wms.backend.sku.distribution.actions.exportCsv": "CSV exportieren",
+  "wms.backend.sku.distribution.actions.retry": "Erneut versuchen",
   "wms.backend.sku.distribution.columns.location": "Lagerort",
   "wms.backend.sku.distribution.columns.lot": "Viel",
   "wms.backend.sku.distribution.columns.onHand": "Zur Hand",
