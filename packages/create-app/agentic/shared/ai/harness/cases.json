@@ -590,7 +590,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 7,
-    "maxInitialContextBytes": 45056,
+    "maxInitialContextBytes": 49152,
     "maxTotalContextBytes": 98304,
     "relatedCases": [
       "OMH-007"
