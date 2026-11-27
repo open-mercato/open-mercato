@@ -142,7 +142,11 @@ describe('activity writes reach canonical interaction persistence', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
     expect(execute).toHaveBeenCalledWith('customers.interactions.update', expect.anything())
-    expect(findOneWithDecryption).toHaveBeenCalledWith(em, CustomerInteraction, { id: INTERACTION_ID, deletedAt: null })
+    expect(findOneWithDecryption).toHaveBeenCalledWith(em, CustomerInteraction, {
+      id: INTERACTION_ID,
+      deletedAt: null,
+      tenantId: TENANT_ID,
+    })
     expect(em.flush).toHaveBeenCalledTimes(1)
     const supplied = fields as Record<string, unknown>
     const expected = (camel: string, snake: string, previous: string) =>
