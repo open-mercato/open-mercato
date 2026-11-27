@@ -21,7 +21,13 @@ export const metadata = {
 
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> | { slug: string } }) {
   try {
+    const resolvedParams = await params
     const container = await createRequestContainer()
+    let linkLookup: Promise<CheckoutLink | null> | undefined
+    const loadLink = () => linkLookup ??= findOneWithDecryption(container.resolve('em'), CheckoutLink, {
+      slug: resolvedParams.slug,
+      deletedAt: null,
+    })
     // Fail-closed: an unenforced limit allows password brute force.
     const rateLimitResponse = await enforceCheckoutRateLimit({
       req,
@@ -30,15 +36,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       namespace: 'checkout-password',
       errorMessage: 'Too many password attempts. Please try again later.',
       posture: 'fail-closed',
+      resolveResource: async () => {
+        const link = await loadLink()
+        return link && isCheckoutLinkPublic(link.status) && link.passwordHash ? link : null
+      },
     })
     if (rateLimitResponse) return rateLimitResponse
-    const resolvedParams = await params
     const body = publicPasswordVerifySchema.parse(await req.json().catch(() => ({})))
-    const em = container.resolve('em')
-    const link = await findOneWithDecryption(em, CheckoutLink, {
-      slug: resolvedParams.slug,
-      deletedAt: null,
-    })
+    const link = await loadLink()
     if (!link || !isCheckoutLinkPublic(link.status) || !link.passwordHash) {
       return NextResponse.json({ error: 'checkout.payPage.errors.password' }, { status: 401 })
     }

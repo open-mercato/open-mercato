@@ -27,6 +27,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     const previewRequested = url.searchParams.get('preview') === 'true'
     const previewContext = previewRequested ? await requirePreviewContext(req) : null
     const container = previewContext?.container ?? await createRequestContainer()
+    const previewScope = previewContext ? {
+      tenantId: previewContext.auth.tenantId,
+      organizationId: previewContext.auth.orgId,
+    } : undefined
+    let linkLookup: Promise<CheckoutLink | null> | undefined
+    const loadLink = () => linkLookup ??= findOneWithDecryption(container.resolve('em'), CheckoutLink, {
+      slug: resolvedParams.slug,
+      deletedAt: null,
+      ...previewScope,
+    }, undefined, previewScope)
     if (!previewRequested) {
       // Fail-open: this endpoint is read-only.
       const rateLimitResponse = await enforceCheckoutRateLimit({
@@ -36,19 +46,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
         namespace: 'checkout-public-view',
         errorMessage: 'Too many checkout page requests. Please try again later.',
         posture: 'fail-open',
+        resolveResource: async () => {
+          const link = await loadLink()
+          return link && isCheckoutLinkPublic(link.status) ? link : null
+        },
       })
       if (rateLimitResponse) return rateLimitResponse
     }
     const em = container.resolve('em')
-    const previewScope = previewContext ? {
-      tenantId: previewContext.auth.tenantId,
-      organizationId: previewContext.auth.orgId,
-    } : undefined
-    const link = await findOneWithDecryption(em, CheckoutLink, {
-      slug: resolvedParams.slug,
-      deletedAt: null,
-      ...previewScope,
-    }, undefined, previewScope)
+    const link = await loadLink()
     if (!link || (!previewRequested && !isCheckoutLinkPublic(link.status))) {
       return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
     }

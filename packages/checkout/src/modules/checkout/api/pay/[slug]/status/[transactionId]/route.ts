@@ -16,6 +16,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   try {
     const resolvedParams = await params
     const container = await createRequestContainer()
+    let linkLookup: Promise<CheckoutLink | null> | undefined
+    const loadLink = () => linkLookup ??= findOneWithDecryption(container.resolve('em'), CheckoutLink, {
+      slug: resolvedParams.slug,
+      deletedAt: null,
+    })
     // Fail-open: this endpoint is read-only.
     const rateLimitResponse = await enforceCheckoutRateLimit({
       req,
@@ -24,14 +29,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       namespace: 'checkout-status',
       errorMessage: 'Too many checkout status requests. Please try again later.',
       posture: 'fail-open',
+      resolveResource: loadLink,
     })
     if (rateLimitResponse) return rateLimitResponse
     const em = container.resolve('em')
     const paymentGatewayService = container.resolve('paymentGatewayService') as PaymentGatewayService
-    const link = await findOneWithDecryption(em, CheckoutLink, {
-      slug: resolvedParams.slug,
-      deletedAt: null,
-    })
+    const link = await loadLink()
     if (!link) {
       return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
     }
