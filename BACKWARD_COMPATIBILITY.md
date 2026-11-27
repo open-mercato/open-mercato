@@ -656,7 +656,7 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 ## Encrypted search contexts (#7872)
 
-STABLE: omit encrypted custom fields. Missing/failing resolver excludes all. A bridge leaks fields. Named waiver pending. [Migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
+STABLE: encrypted custom fields are omitted; missing/failing resolver excludes all. A bridge preserves disclosure; human exception approval is pending. [Contract/migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
 
 ## Compose encryption (2026-11-01, #7231)
 
@@ -679,7 +679,16 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 
 ## 2026-11-07 — Private next-interaction subjects (#8888)
 
-STABLE shared projections return NULL for private email subjects and unresolved historical linked names. Keys, types, scheduling, manual names and authorized readers stay. A bridge leaks subjects. Clients use unnamed fallbacks and authorized reads. Apply the idempotent repair and rebuild declared query indexes and configured search providers before reopening reads. See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES. [@pkarw waived steps 1–3](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966) on 2026-11-13.
+Surface: stable customer projection response behavior. Private email subjects and
+unresolved historical linked names now become NULL in shared projections; response
+keys/types, scheduling, manual names and authorized interaction readers remain
+unchanged. Continuing to serve the private subject as a bridge retains the privacy
+bypass. Clients use unnamed-interaction fallbacks and authorized interaction reads.
+Operators apply the idempotent data repair, complete the declared query-index
+rebuilds and rebuild configured search providers before reopening affected reads.
+See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES.
+Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on
+2026-11-13: [human approval](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966).
 
 ## Comment authors (2026-11-12, #8759)
 
@@ -700,26 +709,7 @@ The STABLE generic relation options route requires an owning record policy for p
 ## 2026-11-25 — Empty organization scope (#10503)
 
 STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
-<<<<<<< HEAD
-=======
-
-## MCP HTTP session token, no fallback (2026-11-14, #5173)
-
-STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
-
-## Workflow events (2026-11-20, #9134)
-
-STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
-
-## 2026-11-25 — MCP Code Mode
-
-STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
 
 ## 2026-11-26 — Vector-index entity authorization (#10693)
 
 STABLE `GET /api/search/index` enforces entity view and org scope. A bridge leaks rows. [Migration](UPGRADE_NOTES.md#vector-index-entity-authorization-10693) · [Spec](.ai/specs/2026-11-26-vector-index-entity-authorization.md). Named waiver pending.
-
-## Staff credential email (2026-11-27, #10594)
-
-STABLE superadmin reset and invite email uses the instance provider. Tenant fallback retains exposure. Named waiver pending. [Migration](.ai/specs/2026-06-03-pluggable-email-providers.md).
->>>>>>> dd43d26eb5 (fix(search): authorize vector-index entries by entity (#10693) (#10796))

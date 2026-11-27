@@ -107,22 +107,6 @@ export async function GET(req: Request) {
       )
     }
 
-<<<<<<< HEAD
-    // List vector entries via the strategy
-    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-    if (Array.isArray(scope.filterIds) && scope.filterIds.length === 0) {
-      return NextResponse.json({ entries: [], limit, offset })
-    }
-    const organizationId =
-      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : undefined
-    const entries = await vectorStrategy.listEntries({
-      tenantId: auth.tenantId,
-      organizationId,
-      entityId: entityIdParam ?? undefined,
-      limit,
-      offset,
-    })
-=======
     const listedEntries = await vectorStrategy.listEntries({
       tenantId,
       organizationId: selectedOrganizationId ?? undefined,
@@ -138,7 +122,6 @@ export async function GET(req: Request) {
         && (entityIds === null || entityIds.includes(entry.entityId)),
       ),
     )
->>>>>>> dd43d26eb5 (fix(search): authorize vector-index entries by entity (#10693) (#10796))
 
     return NextResponse.json({ entries, limit, offset })
   } catch (error: unknown) {

@@ -229,17 +229,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   /**
    * List entries in the vector index (for admin/debugging).
    */
-<<<<<<< HEAD
-  async listEntries(options: {
-    tenantId: string
-    organizationId?: string | null
-    entityId?: string
-    limit?: number
-    offset?: number
-  }): Promise<Array<{
-=======
   async listEntries(options: VectorDriverListParams): Promise<Array<{
->>>>>>> dd43d26eb5 (fix(search): authorize vector-index entries by entity (#10693) (#10796))
     entityId: string
     recordId: string
     tenantId: string
@@ -248,20 +238,7 @@ export class VectorSearchStrategy implements SearchStrategy {
     url?: string
   }>> {
     await this.ensureReady()
-<<<<<<< HEAD
-    // Delegate to vector driver's list method if available
-    const listMethod = (this.vectorDriver as unknown as {
-      list?: (options: {
-        tenantId: string
-        organizationId?: string | null
-        entityId?: string
-        limit?: number
-        offset?: number
-      }) => Promise<unknown[]>
-    }).list
-=======
     const listMethod = this.vectorDriver.list
->>>>>>> dd43d26eb5 (fix(search): authorize vector-index entries by entity (#10693) (#10796))
 
     if (typeof listMethod === 'function') {
       const entries = await listMethod.call(this.vectorDriver, options)
