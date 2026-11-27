@@ -8,7 +8,7 @@ import { buildSafeRedirectResponse, resolveTrustedRedirectBase } from '@open-mer
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { resolveAutoLoginCredentials } from '@open-mercato/core/modules/auth/lib/autologin'
 import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
-import { isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { capturePasswordSessionProof, isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 
 export const metadata = { requireAuth: false }
@@ -48,9 +48,10 @@ export async function GET(req: Request) {
     user = users.length === 1 ? users[0] : null
   }
 
+  const proof = user ? capturePasswordSessionProof(user) : null
   const ok = await auth.verifyPassword(user, credentials.password)
   const tenantActive = user ? await isStaffTenantActive(container.resolve('em'), user.tenantId) : false
-  if (!user || !ok || !tenantActive) {
+  if (!user || !proof || !ok || !tenantActive) {
     // Misconfigured demo credentials — never loop; drop to the manual form.
     logger.warn('OM_AUTOLOGIN credentials did not resolve to a single valid user; falling back to login')
     return buildSafeRedirectResponse(req, '/login')
@@ -60,7 +61,7 @@ export async function GET(req: Request) {
   const roles = await auth.getUserRoles(user, resolvedTenantId)
   await auth.updateLastLoginAt(user)
   const expiresAt = new Date(Date.now() + accessTokenMaxAgeSeconds * 1000)
-  const createdSession = await auth.createSession(user, expiresAt).catch((error: unknown) => {
+  const createdSession = await auth.createSession(user, expiresAt, proof).catch((error: unknown) => {
     if (!isAuthSessionRejectedError(error)) throw error
     return null
   })

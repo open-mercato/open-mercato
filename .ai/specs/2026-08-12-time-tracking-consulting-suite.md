@@ -516,7 +516,7 @@ Each phase is one PR, independently shippable, with its integration tests in the
 1. `DurationInput.tsx` — parser-backed, keeps invalid text, lists accepted formats inline.
 2. `TimeEntryDialog.tsx` — task picker (project and customer derived from it), description, date, 2-of-3 start/end/duration with a `computed` badge, billable switch, rate override with live read-only cost showing the rounding applied, tags, immutable creator notice, ⌘↵ save / Esc cancel, **Save and add another** (start chains from the previous end).
 3. Overlap check on blur → non-blocking warning with **Show that entry** and **Snap start to …**. An end before its start renders the midnight-crossing hint rather than an error (D-8).
-4. Entries DataTable: inline duration cell edit (Enter/blur saves, Esc reverts), duplicate, delete with an Undo toast, rate-override badge, locked rows read-only with a link to the closing report, footer totals, empty Cost cell for non-billable rows.
+4. Entries DataTable: inline duration cell edit (Enter/blur saves, Esc reverts), duplicate, delete with an Undo toast, rate-override badge, locked rows read-only with a link to the closing report only for users with `staff.timesheets.reports.view`, footer totals, empty Cost cell for non-billable rows.
 5. `copy-day` and `duplicate` endpoints; extend the existing entry routes and the bulk endpoint's lock rejection.
 
 **Exit:** TC-TT-008/009/010 pass; a locked entry cannot be modified through the form, the inline cell, the bulk grid, or the duplicate endpoint.
@@ -561,6 +561,12 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 **Exit:** TC-TT-016 passes; `yarn lint`, `yarn test`, `yarn build:app` clean.
 
 ---
+
+### Locked-entry report navigation (#7019)
+
+The entries list and entry dialog offer **Show the report** only when backend chrome grants `staff.timesheets.reports.view`, using the shared wildcard-aware feature matcher. Missing grants fail closed. The locked badge, explanation, and write restrictions remain visible to every entry reader. No API permission, response, schema, or component contract changes.
+
+Coverage: the entries-page and TimeEntryDialog unit suites cover absent/denied grants, explicit report access, and `staff.timesheets.*`, `staff.*`, and `*` grants. `TC-TT-035-locked-report-navigation` creates its own roles, users, project, entry and closed report; it checks the list affordance against the real guarded report API and cleans up all fixtures.
 
 ## Testing Coverage
 
@@ -631,6 +637,8 @@ Regression coverage: `api/timesheets/reports/[id]/export/__tests__/route.test.ts
 
 ---
 
+Report-sheet history uses the same resolved `rates.view` decision as sheet totals and rows. Without it, event metadata exposes only known nonfinancial counts, rounding settings and export details; close totals, unlock frozen totals, currency codes and unknown metadata are absent. Authorized metadata remains unchanged. `TC-TT-028-report-history-money-permissions.spec.ts` creates rated fixtures and sole-role callers, verifies effective grants, close/unlock/export history, repeated reads, denied viewers and wrong-organization reads.
+
 ## Migration & Backward Compatibility
 
 **Whole-filter entry totals (#6990).** `GET /api/staff/timesheets/time-entries?includeTotals=true` adds optional `totals: { entryCount, durationMinutes, roundedMinutes, money? }` across the entire filtered result, independent of pagination. `money` is absent without `staff.timesheets.rates.view`; authorized amounts use entry-level rounding and separate currency groups. Authorization-derived project predicates are structurally AND-composed with advanced filters for both items and totals. Aggregate failure omits `totals` while preserving the list. Requests without the opt-in retain the existing response.
@@ -642,6 +650,8 @@ Integration coverage: TC-STAFF-047 covers live whole-result/page parity, entry-c
 `GET /api/staff/timesheets/time-projects?ids=<id>` (also `?id=`) adds optional `x-om-project-scope-tenant-id` and `x-om-project-scope-organization-id` response headers on resolved reads and denials. Values come from the existing directory request-scope resolver used for access decisions, never query parameters or an assumed session default. Unresolved scope omits both. Existing status codes and response bodies are unchanged; older clients can ignore the headers. Without both headers, clients conservatively reset on cookie hydration. No database or operator migration is required.
 
 `POST /api/staff/timesheets/access-requests` resolves the validated request-selected tenant and concrete organization for its feature check, guards, lookups, deduplication and notification event. An explicitly rejected or missing selection returns the existing400 missing-scope error; selected-scope feature denial returns403. Successful request/response shapes, confidentiality and the24h deduplication contract remain unchanged. No client or operator migration is needed.
+
+The #8595 history repair restores the documented money-absent permission contract: unauthorized monetary metadata was an accidental disclosure, not a supported response. No authorized output, URL, method, schema, event identifier or ACL feature changes. Clients without `rates.view` must treat missing monetary history fields as unavailable; no database or operator migration is needed.
 
 Reviewed against [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md)'s 13 contract surfaces:
 
@@ -723,7 +733,9 @@ Every question the requirements left open — each one traced to the mockup note
 | Date | Change |
 |---|---|
 | 2026-11-19 | Security fix (#8885): the `[id]/employees` GET route only checked the global `staff.timesheets.projects.view` feature and skipped the per-project access check D-13 already applies to the project list itself, letting a caller read another project's membership. Now resolves `resolveFeatureAccess`/`resolveProjectAccess`/`assertProjectAccess` before the CRUD factory runs (so the list cache cannot bypass it) and denies with the same non-enumerable `404 reason=no_project_access` the list route uses. `buildFilters` also stopped letting `?timeProjectId=` or an advanced-filter condition on `time_project_id` override the URL's project id (self-review follow-up: the advanced-filter query params are consumed via `consumeAdvancedFilterState` and AND-combined with `mergeAdvancedFilterTree`, the same pattern `devices`/`customers.people` use, closing the path the CRUD factory's own unscoped `mergeAdvancedFilters` spread would otherwise have let through). |
+| 2026-11-13 | #7019: gate locked-entry report navigation on `staff.timesheets.reports.view`; preserve the read-only lock notice. Unit permission matrix and TC-TT-035 cover denied/allowed navigation. |
 | 2026-11-03 | #6990 / #8379: document additive whole-filter entry totals, rates redaction, structural project-access filter composition, footer/shared chip props, and self-contained live API boundary regressions in TC-STAFF-048. |
+| 2026-11-03 | #8595: gate report-history metadata with rates.view; retain nonfinancial close/unlock/export history and authorized metadata. Add route and live API permission/scope regressions (TC-TT-028). |
 | 2026-11-02 | #8448: bind access-request writes, authorization, deduplication and manager notification to validated request-selected scope; reject rejected/missing scope. Bootstrap integration waits for switcher completion, requiring a project reload only for fresh-cookie hydration, while preserving scope/confidentiality/acknowledgement assertions. |
 | 2026-10-29 | #6821: bind fresh-session access acknowledgement to optional server-resolved request-scope headers; preserve matching hydration and reject first differing tenant/organization cookies, deferred writes and late completions. |
 | 2026-10-26 | #7834: redact monetary group/line values before the export serializer registry and omit money from built-in PDF/CSV/XLSX for callers without `staff.timesheets.rates.view`. Preserve amounts for authorized callers using `showRates: false`; add handler/serializer and scope regressions plus self-contained live CSV/PDF API coverage in TC-TT-026. |
@@ -735,3 +747,7 @@ Every question the requirements left open — each one traced to the mockup note
 | 2026-08-13 | Pre-implementation code review against the live module closed two gaps the spec had assumed away: `staff_time_projects.customer_id` is dormant (no FK, never populated by any UI) and now targets `customers.customer_entities` with a `customer_snapshot` alongside (D-9); the required-and-unique `code` column, absent from screen 4, is now auto-derived from the name with a 20-character cap so task references stay short (D-10). Corrected `indexer.entityType` to the generated `staff:staff_time_task` convention and `currency_code` to `text` per the `sales` precedent. |
 | 2026-08-13 | All 8 open questions resolved (D-1…D-8) and propagated. Structural change: subtasks now carry time, so `staff_time_subtasks` is dropped in favour of a self-referencing `staff_time_tasks.parent_task_id` (one level), with an inclusive-rollup rule (`rollup.ts`) feeding every hours display. Money is rounded at the entry then summed upward, so `frozen_amount` narrows to `numeric(14,2)`. Reports gain `include_already_reported` (default `false`) so a previously billed hour cannot reach a second invoice silently. Added the currency-change and access-request endpoints, the `project_access.requested` event and notification, midnight-crossing handling in `interval`/`overlap`, and test cases TC-TT-020/021/022. |
 | 2026-08-12 | Initial specification. Derived from [`2026-08-12-time-tracking-module-requirements.md`](./2026-08-12-time-tracking-module-requirements.md) (§1–§11) and the 17-screen prototype in `.ai/mockups/time-tracking/`. Decisions taken up front: pages move to a "Time tracking" nav group at `/backend/staff/time-tracking/*` while tables, ACL ids and API routes stay in the `staff.timesheets.*` namespace; §9 proposals (budgets, daily targets, retroactive rounding) are first-class scope; the existing editable project × day hours grid is kept as the third timesheet view. |
+
+### 2026-11-13 — #6978 report-list follow-up
+- Report period cells opt out of DataTable truncation and wrap the full From–To range, keeping distinct end dates readable.
+- Coverage: rendered report-list regression and self-contained TC-TT-REPORT-PERIOD-001 browser scenario at desktop/mobile widths. No API or data changes.

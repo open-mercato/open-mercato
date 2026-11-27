@@ -52,6 +52,7 @@ import {
 } from './oauth'
 import {
   convertOutboundForGmail,
+  prepareOutboundForGmail,
   type GmailEmailNativeMetadata,
 } from './convert-outbound'
 import { GMAIL_THREAD_REF_PREFIX, normalizeInboundGmailMessage } from './normalize-inbound'
@@ -158,6 +159,40 @@ async function readSentMessageId(
   }
 }
 
+const CONNECT_PROFILE_LOOKUP_OPTIONS = { maxRetries: 1, timeoutMs: 10_000 } as const
+
+/**
+ * Resolves the address of the mailbox a Gmail OAuth connect just authorized.
+ * The channel's `externalIdentifier` (the Pub/Sub push lookup key) and the
+ * outbound `From` both depend on it, so a connect that cannot resolve it fails
+ * instead of creating a channel without an address. Userinfo is asked first for
+ * the display name; `users.getProfile` is the fallback when userinfo fails or
+ * returns no email (custom scopes without `userinfo.email`).
+ */
+async function resolveConnectedMailbox(accessToken: string): Promise<{ email: string; name?: string }> {
+  let name: string | undefined
+  try {
+    const userInfo = await getGoogleOAuthClient().fetchUserInfo(accessToken)
+    name = userInfo.name
+    if (userInfo.email) return { email: userInfo.email, name }
+  } catch (error) {
+    logger.warn('Gmail userinfo lookup failed during connect, falling back to the Gmail profile', { err: error })
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'channel_gmail',
+        code: 'channel_gmail.userinfo_fetch_failed',
+      })
+    } catch (telemetryError) {
+      logger.warn('could not report a userinfo lookup failure to telemetry', { err: telemetryError })
+    }
+  }
+  const profile = await getGmailApiClient().getProfile({ accessToken }, CONNECT_PROFILE_LOOKUP_OPTIONS)
+  if (!profile.emailAddress) {
+    throw new Error('[internal] Gmail connect could not resolve the mailbox address')
+  }
+  return { email: profile.emailAddress, name }
+}
+
 class GmailChannelAdapter implements ChannelAdapter {
   readonly providerKey = 'gmail'
   readonly channelType = 'email'
@@ -165,34 +200,35 @@ class GmailChannelAdapter implements ChannelAdapter {
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const userCredentials = parseUserCredentialsOrThrow(input.credentials)
-    let native: ChannelNativeContent
+    const api = getGmailApiClient()
+    const auth = { accessToken: userCredentials.accessToken }
+    let fromAddress = userCredentials.email
     try {
-      native = await convertOutboundForGmail({
+      if (!fromAddress) {
+        const profile = await api.getProfile(auth)
+        const mailboxAddress = gmailUserCredentialsSchema.shape.email.safeParse(profile.emailAddress)
+        if (!mailboxAddress.success || !mailboxAddress.data) {
+          throw new Error('[internal] Gmail profile did not return a valid mailbox address')
+        }
+        fromAddress = mailboxAddress.data
+      }
+
+      const native = await convertOutboundForGmail({
         body: input.content.html ?? input.content.text ?? '',
         bodyFormat: input.content.bodyFormat ?? (input.content.html ? 'html' : 'text'),
         attachments: input.content.attachments,
         channelMetadata: input.metadata,
-        fromAddress: userCredentials.email ?? 'me',
+        fromAddress,
       })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Outbound conversion failed'
-      return { externalMessageId: '', status: 'failed', error: message }
-    }
-
-    const nativeMeta = native.metadata as unknown as GmailEmailNativeMetadata
-    const rawBase64Url = encodeBase64Url(nativeMeta.rawMessage)
-
-    try {
-      const api = getGmailApiClient()
-      const auth = { accessToken: userCredentials.accessToken }
+      const metadata = native.metadata as unknown as GmailEmailNativeMetadata
       const response = await api.sendRawMessage(auth, {
-        rawBase64Url,
-        rawMessage: nativeMeta.rawMessage,
-        threadId: nativeMeta.threadId,
+        rawBase64Url: encodeBase64Url(metadata.rawMessage),
+        rawMessage: metadata.rawMessage,
+        threadId: metadata.threadId,
       })
       const sentMessageId = await readSentMessageId(api, auth, response.id)
       return {
-        externalMessageId: nativeMeta.messageId ?? response.id,
+        externalMessageId: metadata.messageId ?? response.id,
         conversationId: response.threadId ? `${GMAIL_THREAD_REF_PREFIX}${response.threadId}` : undefined,
         status: 'sent',
         metadata: {
@@ -208,6 +244,12 @@ class GmailChannelAdapter implements ChannelAdapter {
         // communication_channels error-classification.isReauthError), not a
         // user/log message — do NOT prefix or translate it.
         return { externalMessageId: '', status: 'failed', error: 'requires_reauth' }
+      }
+      if (!fromAddress && error instanceof GmailApiError) {
+        if (error.status >= 500 && error.status < 600) {
+          throw Object.assign(error, { transient: true })
+        }
+        throw error
       }
       const message = error instanceof Error ? error.message : 'Gmail send failed'
       return { externalMessageId: '', status: 'failed', error: message }
@@ -229,7 +271,7 @@ class GmailChannelAdapter implements ChannelAdapter {
   }
 
   async convertOutbound(input: ConvertOutboundInput): Promise<ChannelNativeContent> {
-    return convertOutboundForGmail({ ...input, fromAddress: 'me' })
+    return prepareOutboundForGmail(input)
   }
 
   async normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage> {
@@ -276,15 +318,7 @@ class GmailChannelAdapter implements ChannelAdapter {
       redirectUri: input.redirectUri,
       code: input.code,
     })
-    let email: string | undefined
-    let displayName: string | undefined
-    try {
-      const userInfo = await getGoogleOAuthClient().fetchUserInfo(token.access_token)
-      email = userInfo.email
-      displayName = userInfo.name ?? userInfo.email
-    } catch {
-      // Userinfo failure is non-fatal; fall back to the optional `id_token` parser later.
-    }
+    const { email, name } = await resolveConnectedMailbox(token.access_token)
     const expiresAt = tokenResponseToExpiresAt(token)
     const credentials: GmailUserCredentials = {
       accessToken: token.access_token,
@@ -296,7 +330,7 @@ class GmailChannelAdapter implements ChannelAdapter {
     return {
       credentials: credentials as unknown as Record<string, unknown>,
       externalIdentifier: email,
-      displayName: displayName ?? email,
+      displayName: name ?? email,
       expiresAt,
     }
   }

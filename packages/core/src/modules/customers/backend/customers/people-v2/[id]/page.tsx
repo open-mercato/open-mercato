@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { User, Hash, Users, Building2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
@@ -19,6 +20,7 @@ import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, RecordNotFoundState, type SectionAction } from '@open-mercato/ui/backend/detail'
@@ -58,6 +60,7 @@ import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+const HIDDEN_INTERACTION_TABS = ['activities']
 
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -66,6 +69,10 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const searchParams = useSearchParams()
   const pathname = usePathname()
   const { organizationId } = useOrganizationScopeDetail()
+  const { payload: chrome } = useBackendChrome()
+  const grantedFeatures = chrome?.grantedFeatures ?? []
+  const canViewInteractions = hasFeature(grantedFeatures, 'customers.interactions.view')
+  const canViewRoles = hasFeature(grantedFeatures, 'customers.roles.view')
   const isMobile = useIsMobile()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
@@ -129,16 +136,17 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   )
 
   const groups = React.useMemo(
-    () => createPersonPersonalDataGroups(t, { entityName: personDisplayNameForGroups }),
-    [t, personDisplayNameForGroups],
+    () => createPersonPersonalDataGroups(t, { entityName: personDisplayNameForGroups })
+      .filter((group) => group.id !== 'roles' || canViewRoles),
+    [t, personDisplayNameForGroups, canViewRoles],
   )
 
   const zoneSections = React.useMemo<ZoneSectionDescriptor[]>(() => [
     { id: 'personalData', icon: User, label: t('customers.people.form.groups.personalData', 'Personal data') },
     { id: 'companyRole', icon: Building2, label: t('customers.people.form.groups.companyRole', 'Company & role') },
     { id: 'customFields', icon: Hash, label: t('customers.people.form.groups.customAttributes', 'Custom attributes') },
-    { id: 'roles', icon: Users, label: t('customers.people.form.groups.roles', 'My roles') },
-  ], [t])
+    ...(canViewRoles ? [{ id: 'roles', icon: Users, label: t('customers.people.form.groups.roles', 'My roles') }] : []),
+  ], [t, canViewRoles])
 
   // Data loading
   const initialLoadDoneRef = React.useRef(false)
@@ -228,7 +236,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     handleMarkDone,
     handleCancelActivity,
   } = usePlannedActivities({
-    scope: { entityId: currentPersonId ?? id ?? '' },
+    scope: { entityId: canViewInteractions ? (currentPersonId ?? id ?? '') : '' },
     runMutationWithContext,
     logContext: 'customers.people-v2',
     onAfterChange: reloadAfterActivityChange,
@@ -313,7 +321,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     setActiveTab(initialTab)
   }, [initialTab])
 
-  const isActivityTabActive = activeTab === 'activities'
+  const isActivityTabActive = canViewInteractions && activeTab === 'activities'
   React.useEffect(() => {
     if (!isActivityTabActive) return
     void loadPlannedActivities({ cache: true })
@@ -566,6 +574,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
                 isLoadingInjectedTabs={injectedTabsLoading}
+                hiddenTabIds={chrome && !canViewInteractions ? HIDDEN_INTERACTION_TABS : undefined}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}
@@ -578,7 +587,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 {(() => {
                   // Injected tab content
 
-                  if (activeTab === 'activities') {
+                  if (isActivityTabActive) {
                     return (
                       <ActivityLogTab
                         entityType="person"
@@ -637,6 +646,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       <PersonCompaniesSection
                         personId={personId}
                         personName={personName}
+                        personOrganizationId={data.person.organizationId ?? null}
                         initialLinkedCompanies={data?.companies ?? []}
                         onChanged={loadData}
                         runGuardedMutation={runMutationWithContext}

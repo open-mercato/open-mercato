@@ -6,10 +6,15 @@ const organizationId = '22222222-2222-4222-8222-222222222222'
 const userId = '33333333-3333-4333-8333-333333333333'
 
 const fetchWidgetData = jest.fn()
+const mockBeforeInterceptors = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/crud/interceptor-runner', () => ({
+  runApiInterceptorsBefore: (input: unknown) => mockBeforeInterceptors(input),
+}))
 
 const em = { fork: jest.fn(() => em) }
 const analyticsRegistry = { getRequiredFeatures: jest.fn(() => null) }
-const rbacService = { userHasAllFeatures: jest.fn(async () => true) }
+const rbacService = { userHasAllFeatures: jest.fn(async () => true), getGrantedFeatures: jest.fn(async () => []) }
 const cache = {}
 
 const container = {
@@ -72,6 +77,7 @@ async function readResults(response: Response): Promise<BatchResult[]> {
 describe('widget data batch route error mapping', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockBeforeInterceptors.mockImplementation(async ({ request }) => ({ ok: true, request }))
     analyticsRegistry.getRequiredFeatures.mockReturnValue(null)
     rbacService.userHasAllFeatures.mockResolvedValue(true)
   })
@@ -89,6 +95,34 @@ describe('widget data batch route error mapping', () => {
     expect(response.status).toBe(200)
     expect(results).toHaveLength(1)
     expect(results[0]).toEqual(expect.objectContaining({ id: 'region', ok: true }))
+  })
+
+  test('applies the single-widget before-interceptors to every batch item', async () => {
+    const scopedFilters = [{ field: 'ownerId', operator: 'eq', value: userId }]
+    mockBeforeInterceptors.mockImplementationOnce(async ({ request }) => ({
+      ok: true, request: { ...request, body: { ...request.body, filters: scopedFilters } },
+    }))
+    mockBeforeInterceptors.mockResolvedValueOnce({ ok: false, statusCode: 403, body: { error: 'Forbidden' } })
+    fetchWidgetData.mockResolvedValue({ value: 0, data: [] })
+
+    const results = await readResults(await POST(buildRequest()))
+    expect(mockBeforeInterceptors).toHaveBeenCalledWith(expect.objectContaining({
+      routePath: 'dashboards/widgets/data',
+      context: expect.objectContaining({ userId, tenantId }),
+    }))
+    expect(fetchWidgetData).toHaveBeenCalledTimes(1)
+    expect(fetchWidgetData).toHaveBeenCalledWith(expect.objectContaining({ filters: scopedFilters }))
+    expect(results[1]).toEqual({ id: 'status', ok: false, error: 'Forbidden' })
+  })
+
+  test('refuses an interceptor result that changes the authorized analytics entity', async () => {
+    mockBeforeInterceptors.mockImplementationOnce(async ({ request }) => ({
+      ok: true, request: { ...request, body: { ...request.body, entityType: 'staff:staff_time_entries' } },
+    }))
+    const results = await readResults(await POST(buildRequest(['region'])))
+
+    expect(results).toEqual([{ id: 'region', ok: false, error: 'Invalid widget data request' }])
+    expect(fetchWidgetData).not.toHaveBeenCalled()
   })
 
   test('surfaces the encrypted-scan limit reason instead of a masked message', async () => {
