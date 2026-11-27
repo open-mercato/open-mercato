@@ -1,12 +1,13 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { fireEvent, render } from '@testing-library/react'
+import { fireEvent, render, waitFor, within } from '@testing-library/react'
 
 import type { ProgressJobDto, UseProgressPollResult } from '../useProgressPoll'
 
 const mockUseProgress = jest.fn<UseProgressPollResult, []>()
 const mockUseBackendChrome = jest.fn<{ payload: { grantedFeatures: string[] } | null }, []>()
+const mockApiCall = jest.fn()
 
 jest.mock('../useProgress', () => ({
   useProgress: () => mockUseProgress(),
@@ -14,6 +15,10 @@ jest.mock('../useProgress', () => ({
 
 jest.mock('../../BackendChromeProvider', () => ({
   useBackendChrome: () => mockUseBackendChrome(),
+}))
+
+jest.mock('../../utils/apiCall', () => ({
+  apiCall: (...args: unknown[]) => mockApiCall(...args),
 }))
 
 // Real auto-hide hook keeps completed jobs visible for this test.
@@ -25,12 +30,14 @@ import { ProgressTopBar } from '../ProgressTopBar'
 
 const activeJob: ProgressJobDto = {
   id: 'job-1',
+  jobType: 'test.bulk_update',
   name: 'Bulk update',
   status: 'running',
   processedCount: 3,
   totalCount: 10,
   progressPercent: 30,
-} as unknown as ProgressJobDto
+  cancellable: true,
+}
 
 const translate = ((key: string, fallback?: string) => fallback ?? key) as never
 
@@ -112,5 +119,33 @@ describe('ProgressTopBar progress.view gating', () => {
     }))
     const { getByRole } = render(<ProgressTopBar t={translate} />)
     expect(getByRole('button', { name: '{count} operations cancelled' })).toBeVisible()
+  })
+})
+
+describe('ProgressTopBar cancellation', () => {
+  it('offers Cancel only for an active job with an explicit cancellation grant', async () => {
+    const refresh = jest.fn()
+    mockApiCall.mockResolvedValue({ ok: true })
+    mockUseBackendChrome.mockReturnValue({ payload: { grantedFeatures: ['progress.view', 'progress.cancel'] } })
+    mockUseProgress.mockReturnValue(progressResult({
+      activeJobs: [
+        { ...activeJob, name: 'Allowed operation', canCancel: true },
+        { ...activeJob, id: 'job-2', name: 'Denied operation', canCancel: false },
+        { ...activeJob, id: 'job-3', name: 'Legacy operation' },
+      ],
+      refresh,
+    }))
+
+    const { getByRole, getByText, getAllByRole } = render(<ProgressTopBar t={translate} />)
+    fireEvent.click(getByRole('button', { name: /operations/ }))
+    expect(getByText('Denied operation')).toBeVisible()
+    expect(getByText('Legacy operation')).toBeVisible()
+    const [cancel] = getAllByRole('button', { name: 'Cancel', exact: true })
+    expect(getAllByRole('button', { name: 'Cancel', exact: true })).toHaveLength(1)
+    expect(within(cancel.parentElement as HTMLElement).getByText('Allowed operation')).toBeVisible()
+
+    fireEvent.click(cancel)
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+    expect(mockApiCall).toHaveBeenCalledWith('/api/progress/jobs/job-1', { method: 'DELETE' })
   })
 })
