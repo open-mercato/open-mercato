@@ -629,15 +629,17 @@ const updateRiskAssessmentCommand: CommandHandler<ScopedRiskAssessmentUpdateInpu
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     return entityManager.transactional(async (entityManager) => {
       let record = await lockForUndo(entityManager, EudrRiskAssessment, before)
+      if (record && !isUnchangedSince(await buildRiskAssessmentSnapshot(entityManager, record), after)) {
+        await throwUndoConflict()
+      }
+      await assertCompletedMitigationIfRequired(entityManager, before.id, before, before.criteria, before.conclusion)
       if (!record) {
         record = entityManager.create(EudrRiskAssessment, riskAssessmentSeedFromSnapshot(before))
         entityManager.persist(record)
-        await entityManager.flush()
       } else {
-        if (!isUnchangedSince(await buildRiskAssessmentSnapshot(entityManager, record), after)) await throwUndoConflict()
         restoreRiskAssessment(record, before)
-        await entityManager.flush()
       }
+      await entityManager.flush()
 
       const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
       const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after.custom ?? undefined)

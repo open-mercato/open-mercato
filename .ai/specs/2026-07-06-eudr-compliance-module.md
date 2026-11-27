@@ -343,6 +343,9 @@ Implemented on `feat/eudr-compliance-module` across five delivery batches (see C
 
 ## Changelog
 
+### 2026-11-26 — Fix: revalidate EUDR update undos (#9132)
+Update undo enforces the amendment window for guarded fields on available statements, requires completed mitigation for negligible risk conclusions with concerns, and checks that the restored product mapping key is unique. These checks run inside the existing undo transaction before writing the saved values. Command regression tests cover refusals and valid restorations.
+
 ### 2026-11-15 — Fix: capture update audit snapshots under the row lock (#9562)
 All six update handlers retain detached before/after snapshots from their existing write transaction and pass them to audit logging through result-keyed weak maps. They no longer log an early prepare snapshot or reload the after state following commit. Two real PostgreSQL regressions cover writes in those exact gaps; both fail on the prior head and pass with the repair. Public command result fields remain unchanged.
 
