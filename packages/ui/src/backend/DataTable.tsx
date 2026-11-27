@@ -587,7 +587,8 @@ function useHorizontalOverflowEdges(
     }
     const measure = () => {
       const maxScroll = scrollEl.scrollWidth - scrollEl.clientWidth
-      const scrollLeft = scrollEl.scrollLeft
+      const isRightToLeft = getComputedStyle(scrollEl).direction === 'rtl'
+      const scrollLeft = isRightToLeft ? maxScroll + scrollEl.scrollLeft : scrollEl.scrollLeft
       const hiddenStart = scrollLeft > OVERFLOW_EDGE_TOLERANCE_PX
       const hiddenEnd = maxScroll - scrollLeft > OVERFLOW_EDGE_TOLERANCE_PX
       setEdges((previous) =>

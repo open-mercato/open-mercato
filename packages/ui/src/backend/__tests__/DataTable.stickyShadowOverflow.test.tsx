@@ -37,7 +37,7 @@ function setScrollMetrics(el: HTMLElement, metrics: { scrollWidth: number; clien
 // Pinned-column shadows signal content hidden under the pinned column, so they
 // must only be visible while something is actually scrolled underneath them.
 describe('DataTable pinned-column shadows follow horizontal overflow', () => {
-  function renderStickyTable() {
+  function renderStickyTable(direction: 'ltr' | 'rtl' = 'ltr') {
     const columns: ColumnDef<Row>[] = [
       { accessorKey: 'title', header: 'Title' },
       { accessorKey: 'status', header: 'Status' },
@@ -60,6 +60,7 @@ describe('DataTable pinned-column shadows follow horizontal overflow', () => {
     )
     const container = result.container
     const scrollEl = container.querySelector('table')?.parentElement as HTMLElement
+    scrollEl.style.direction = direction
     const headerCells = Array.from(container.querySelectorAll('thead th'))
     const leftCells = () => [
       container.querySelectorAll('thead th')[0],
@@ -124,6 +125,36 @@ describe('DataTable pinned-column shadows follow horizontal overflow', () => {
     try {
       setScrollMetrics(view.scrollEl, { scrollWidth: 600, clientWidth: 600, scrollLeft: 0 })
       expectShadows(view, { left: false, right: false })
+    } finally {
+      view.queryClient.clear()
+    }
+  })
+
+  it('shows only the left shadow at the right-to-left scroll start', () => {
+    const view = renderStickyTable('rtl')
+    try {
+      setScrollMetrics(view.scrollEl, { scrollWidth: 1200, clientWidth: 600, scrollLeft: 0 })
+      expectShadows(view, { left: true, right: false })
+    } finally {
+      view.queryClient.clear()
+    }
+  })
+
+  it('shows both shadows mid-scroll in right-to-left', () => {
+    const view = renderStickyTable('rtl')
+    try {
+      setScrollMetrics(view.scrollEl, { scrollWidth: 1200, clientWidth: 600, scrollLeft: -300 })
+      expectShadows(view, { left: true, right: true })
+    } finally {
+      view.queryClient.clear()
+    }
+  })
+
+  it('shows only the right shadow at the right-to-left scroll end', () => {
+    const view = renderStickyTable('rtl')
+    try {
+      setScrollMetrics(view.scrollEl, { scrollWidth: 1200, clientWidth: 600, scrollLeft: -600 })
+      expectShadows(view, { left: false, right: true })
     } finally {
       view.queryClient.clear()
     }
