@@ -147,6 +147,8 @@ import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "
 import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
+import { ensureDocumentNumberEditPermission } from "../lib/documentNumberPermissions";
+import type { SalesDocumentNumberKind } from "../lib/documentNumberTokens";
 import { loadSalesSettings } from "./settings";
 import { notificationTypes } from "../notifications";
 import {
@@ -3734,6 +3736,23 @@ function ensureOrderScope(
   ensureOrganizationScope(ctx, organizationId);
 }
 
+async function resolveDocumentCreateNumber(
+  ctx: CommandRuntimeContext,
+  { organizationId, tenantId }: { organizationId: string; tenantId: string },
+  kind: SalesDocumentNumberKind,
+  suppliedNumber: string | undefined,
+): Promise<string> {
+  const scope = { organizationId, tenantId };
+  ensureTenantScope(ctx, tenantId);
+  ensureOrganizationScope(ctx, organizationId);
+  if (suppliedNumber !== undefined) {
+    await ensureDocumentNumberEditPermission(ctx, scope);
+    return suppliedNumber;
+  }
+  const generator = ctx.container.resolve<SalesDocumentNumberGenerator>("salesDocumentNumberGenerator");
+  return (await generator.generate({ ...scope, kind })).number;
+}
+
 function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
   if (!Array.isArray(tags)) return [];
   const set = new Set<string>();
@@ -5009,28 +5028,25 @@ const createQuoteCommand: CommandHandler<
   { quoteId: string }
 > = {
   id: "sales.quotes.create",
+<<<<<<< HEAD
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
+=======
+  async execute(
+    rawInput: QuoteCreateInput,
+    ctx: CommandRuntimeContext,
+    ignoreMissingTags = false,
+  ): Promise<{ quoteId: string }> {
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
     const initial = quoteCreateSchema.parse(rawInput ?? {});
-    const quoteNumber =
-      typeof initial.quoteNumber === "string" &&
-      initial.quoteNumber.trim().length
-        ? initial.quoteNumber.trim()
-        : (
-            await generator.generate({
-              kind: "quote",
-              organizationId: initial.organizationId,
-              tenantId: initial.tenantId,
-            })
-          ).number;
+    const quoteNumber = await resolveDocumentCreateNumber(ctx, initial, "quote", initial.quoteNumber);
     const parsed = quoteCreateSchema.parse({ ...initial, quoteNumber });
     const ensuredQuoteNumber = parsed.quoteNumber ?? quoteNumber;
     if (!ensuredQuoteNumber) {
       throw new CrudHttpError(400, { error: "Quote number is required." });
     }
-    ensureQuoteScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const {
       customerSnapshot: resolvedCustomerSnapshot,
@@ -5569,6 +5585,14 @@ const updateQuoteCommand: CommandHandler<
       em,
       [
         async () => {
+<<<<<<< HEAD
+=======
+          quote = await lockQuoteForTotalsWrite(em, ctx, parsed.id, "Sales quote not found");
+          if (parsed.quoteNumber !== undefined && parsed.quoteNumber !== quote.quoteNumber) {
+            await ensureDocumentNumberEditPermission(ctx, quote);
+          }
+          const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
           await applyDocumentUpdate({
             kind: "quote",
             entity: quote,
@@ -5859,6 +5883,40 @@ const updateOrderCommand: CommandHandler<
       em,
       [
         async () => {
+<<<<<<< HEAD
+=======
+          order = await lockOrderForTotalsWrite(em, ctx, parsed.id, "Sales order not found");
+          if (parsed.orderNumber !== undefined && parsed.orderNumber !== order.orderNumber) {
+            await ensureDocumentNumberEditPermission(ctx, order);
+          }
+          const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
+          nextTotalsMode = parsed.totalsMode ?? currentTotalsMode;
+          totalsModeChanged = nextTotalsMode !== currentTotalsMode;
+          externalHeaderSupplied =
+            isExternalAmountsMode(nextTotalsMode) && hasAnySuppliedHeaderTotal(parsed);
+          if (!totalsModeChanged && !externalHeaderSupplied) {
+            documentEditSchema.parse(rawInput ?? {});
+          }
+          if (isExternalAmountsMode(nextTotalsMode) && (totalsModeChanged || externalHeaderSupplied)) {
+            await requireOrderTotalsForExternalWrite(parsed);
+          }
+          suppliedTotals = isExternalAmountsMode(nextTotalsMode)
+            ? externalHeaderSupplied
+              ? buildExternalHeaderTotals(parsed)
+              : readPersistedHeaderTotals(order)
+            : null;
+          previousStatus = normalizeStatusValue(order.status);
+          if (parsed.statusEntryId && !isCancelledOrderStatus(previousStatus)) {
+            const requestedStatus = normalizeStatusValue(
+              await resolveDictionaryEntryValue(em, parsed.statusEntryId, {
+                tenantId: order.tenantId,
+              }),
+            );
+            if (isCancelledOrderStatus(requestedStatus)) {
+              await assertOrderCanBeCancelled(em, order);
+            }
+          }
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
           await applyDocumentUpdate({
             kind: "order",
             entity: order,
@@ -6075,10 +6133,18 @@ const createOrderCommand: CommandHandler<
 > = {
   id: "sales.orders.create",
   outputSchema: orderIdOutputSchema,
+<<<<<<< HEAD
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
+=======
+  async execute(
+    rawInput: OrderCreateInput,
+    ctx: CommandRuntimeContext,
+    ignoreMissingTags = false,
+  ): Promise<CreateOrderResult> {
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
     const deprecatedPaymentLedgerFields = resolveSuppliedOrderPaymentLedgerFields(rawInput)
     const initial = orderCreateSchema.parse(rawInput ?? {});
     if (deprecatedPaymentLedgerFields.length && !warnedDeprecatedOrderPaymentLedgerInput) {
@@ -6088,6 +6154,7 @@ const createOrderCommand: CommandHandler<
         fields: deprecatedPaymentLedgerFields,
       })
     }
+<<<<<<< HEAD
     const orderNumber =
       typeof initial.orderNumber === "string" &&
       initial.orderNumber.trim().length
@@ -6100,11 +6167,18 @@ const createOrderCommand: CommandHandler<
             })
           ).number;
     const parsed = orderCreateSchema.parse({ ...initial, orderNumber });
+=======
+    const orderNumber = await resolveDocumentCreateNumber(ctx, initial, "order", initial.orderNumber);
+    const parsed = withExactAmounts(
+      orderCreateSchema.parse({ ...initial, orderNumber }),
+      rawInput,
+      EXTERNAL_HEADER_FIELDS,
+    );
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
     const ensuredOrderNumber = parsed.orderNumber ?? orderNumber;
     if (!ensuredOrderNumber) {
       throw new CrudHttpError(400, { error: "Order number is required." });
     }
-    ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     // Soft-resolve the cache so the per-order status/fulfillment/payment dictionary lookups are
     // memoized across a bulk import; degrades to a straight EM read when no cache is registered.
@@ -6744,6 +6818,9 @@ const convertQuoteToOrderCommand: CommandHandler<
             "Document not found or inaccessible.",
           ));
       ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
+      if (payload.orderNumber) {
+        await ensureDocumentNumberEditPermission(ctx, quote);
+      }
       await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
       const snapshot = await loadQuoteSnapshot(em, payload.quoteId);
       if (!snapshot)
@@ -6775,11 +6852,7 @@ const convertQuoteToOrderCommand: CommandHandler<
           tenantId: snapshot.quote.tenantId,
         })
       ).number;
-      const orderNumber =
-        typeof payload.orderNumber === "string" &&
-        payload.orderNumber.trim().length
-          ? payload.orderNumber.trim()
-          : generatedNumber;
+      const orderNumber = payload.orderNumber || generatedNumber;
 
       const [quoteCustomFields, quoteLineCustomFields] = await Promise.all([
         loadCustomFieldValues({
@@ -9344,10 +9417,8 @@ const createInvoiceCommand: CommandHandler<
 > = {
   id: "sales.invoices.create",
   async execute(rawInput, ctx) {
-    const generator = ctx.container.resolve(
-      "salesDocumentNumberGenerator",
-    ) as SalesDocumentNumberGenerator;
     const initial = invoiceCreateSchema.parse(rawInput ?? {});
+<<<<<<< HEAD
     const invoiceNumber =
       typeof initial.invoiceNumber === "string" &&
       initial.invoiceNumber.trim().length
@@ -9360,12 +9431,18 @@ const createInvoiceCommand: CommandHandler<
             })
           ).number;
     const parsed = invoiceCreateSchema.parse({ ...initial, invoiceNumber });
+=======
+    const invoiceNumber = await resolveDocumentCreateNumber(ctx, initial, "invoice", initial.invoiceNumber);
+    const parsed = withExactAmounts(
+      invoiceCreateSchema.parse({ ...initial, invoiceNumber }),
+      rawInput,
+      DOCUMENT_TOTAL_EXACT_AMOUNT_FIELDS,
+    );
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
     const ensuredInvoiceNumber = parsed.invoiceNumber ?? invoiceNumber;
     if (!ensuredInvoiceNumber) {
       throw new CrudHttpError(400, { error: "Invoice number is required." });
     }
-    ensureOrganizationScope(ctx, parsed.organizationId);
-    ensureTenantScope(ctx, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const status = await resolveDictionaryEntryValue(
       em,
@@ -9655,6 +9732,9 @@ const updateInvoiceCommand: CommandHandler<
       tenantId: parsed.tenantId,
       deletedAt: null,
     });
+    if (parsed.invoiceNumber !== undefined && parsed.invoiceNumber !== invoice.invoiceNumber) {
+      await ensureDocumentNumberEditPermission(ctx, invoice);
+    }
 
     let resolvedStatus: string | null | undefined;
     if (parsed.statusEntryId !== undefined) {
@@ -9916,10 +9996,8 @@ const createCreditMemoCommand: CommandHandler<
 > = {
   id: "sales.credit_memos.create",
   async execute(rawInput, ctx) {
-    const generator = ctx.container.resolve(
-      "salesDocumentNumberGenerator",
-    ) as SalesDocumentNumberGenerator;
     const initial = creditMemoCreateSchema.parse(rawInput ?? {});
+<<<<<<< HEAD
     const creditMemoNumber =
       typeof initial.creditMemoNumber === "string" &&
       initial.creditMemoNumber.trim().length
@@ -9932,12 +10010,18 @@ const createCreditMemoCommand: CommandHandler<
             })
           ).number;
     const parsed = creditMemoCreateSchema.parse({ ...initial, creditMemoNumber });
+=======
+    const creditMemoNumber = await resolveDocumentCreateNumber(ctx, initial, "credit_memo", initial.creditMemoNumber);
+    const parsed = withExactAmounts(
+      creditMemoCreateSchema.parse({ ...initial, creditMemoNumber }),
+      rawInput,
+      DOCUMENT_TOTAL_EXACT_AMOUNT_FIELDS,
+    );
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
     const ensuredCreditMemoNumber = parsed.creditMemoNumber ?? creditMemoNumber;
     if (!ensuredCreditMemoNumber) {
       throw new CrudHttpError(400, { error: "Credit memo number is required." });
     }
-    ensureOrganizationScope(ctx, parsed.organizationId);
-    ensureTenantScope(ctx, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const status = await resolveDictionaryEntryValue(
       em,
@@ -10199,6 +10283,9 @@ const updateCreditMemoCommand: CommandHandler<
       tenantId: parsed.tenantId,
       deletedAt: null,
     });
+    if (parsed.creditMemoNumber !== undefined && parsed.creditMemoNumber !== creditMemo.creditMemoNumber) {
+      await ensureDocumentNumberEditPermission(ctx, creditMemo);
+    }
 
     let resolvedStatus: string | null | undefined;
     if (parsed.statusEntryId !== undefined) {

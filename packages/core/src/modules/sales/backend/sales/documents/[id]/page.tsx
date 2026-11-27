@@ -950,7 +950,9 @@ export function handleDocumentMutationError(
   refresh: () => void,
 ): boolean {
   if (surfaceRecordConflict(err, t, { onRefresh: refresh })) {
-    refresh()
+    if (err instanceof Error) {
+      err.message = t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
+    }
     return true
   }
   return false
@@ -3104,7 +3106,7 @@ export default function SalesDocumentDetailPage({
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
         return savedCode
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message = err instanceof Error && err.message ? err.message : t('sales.documents.detail.updateError', 'Failed to update document.')
         flash(message, 'error')
         throw err
@@ -3133,7 +3135,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, placedAt: savedPlacedAt } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3167,7 +3169,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, expectedDeliveryAt: savedExpectedDelivery } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3194,7 +3196,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, comment: savedComment } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3221,7 +3223,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, externalReference: savedExternalReference } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3248,7 +3250,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, customerReference: savedCustomerReference } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3311,7 +3313,7 @@ export default function SalesDocumentDetailPage({
         })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3336,7 +3338,7 @@ export default function SalesDocumentDetailPage({
         }
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3386,7 +3388,7 @@ export default function SalesDocumentDetailPage({
         emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3444,7 +3446,7 @@ export default function SalesDocumentDetailPage({
         emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3481,7 +3483,7 @@ export default function SalesDocumentDetailPage({
         }
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3560,7 +3562,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3610,7 +3612,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3660,7 +3662,7 @@ export default function SalesDocumentDetailPage({
       setNumberEditing(false)
       flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
     } catch (err) {
-      if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+      if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -3704,7 +3706,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message

@@ -71,11 +71,23 @@ const TEST_ORG_ID = 'bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb'
 
 function buildHarness() {
   let inTransaction = false
+<<<<<<< HEAD
   let em: Record<string, unknown>
   em = {
     fork: () => em,
     create: (_entity: unknown, data: Record<string, unknown>) => ({ ...data }),
     persist: () => undefined,
+=======
+  const persist = jest.fn()
+  const create = jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data }))
+  const generate = jest.fn(async () => ({ number: 'DOC-1' }))
+  const userHasAllFeatures = jest.fn(async () => false)
+  let em: Record<string, unknown>
+  em = {
+    fork: () => em,
+    create,
+    persist,
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
     find: async () => [],
     findOne: async () => null,
     nativeDelete: async () => 0,
@@ -100,7 +112,8 @@ function buildHarness() {
     dataEngine: asValue({}),
     eventBus: asValue({ emit: async () => undefined, emitEvent: async () => undefined }),
     salesCalculationService: asValue(new DefaultSalesCalculationService(null)),
-    salesDocumentNumberGenerator: asValue({ generate: async () => ({ number: 'DOC-1' }) }),
+    salesDocumentNumberGenerator: asValue({ generate }),
+    rbacService: asValue({ userHasAllFeatures }),
   })
 
   const ctx: CommandRuntimeContext = {
@@ -111,7 +124,11 @@ function buildHarness() {
     organizationIds: [TEST_ORG_ID],
   }
 
+<<<<<<< HEAD
   return { ctx }
+=======
+  return { ctx, create, generate, userHasAllFeatures, persist }
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
 }
 
 const line = {
@@ -246,5 +263,45 @@ describe('sales document create commands — customFields (GSM-296)', () => {
     )
 
     expect(customFieldWritesFor('sales.sales_order')).toHaveLength(0)
+  })
+})
+
+describe('sales document create commands — document number permissions', () => {
+  const scope = { tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID }
+  const actor = { sub: 'staff-user', tenantId: TEST_TENANT_ID, orgId: TEST_ORG_ID }
+
+  beforeAll(async () => {
+    await import('../documents')
+  })
+
+  const documents = [
+    ['sales.orders.create', 'orderNumber', 'order'],
+    ['sales.quotes.create', 'quoteNumber', 'quote'],
+    ['sales.invoices.create', 'invoiceNumber', 'invoice'],
+    ['sales.credit_memos.create', 'creditMemoNumber', 'credit_memo'],
+  ] as const
+
+  it.each(documents)('%s protects manual numbers and still generates numbers', async (commandId, numberField, kind) => {
+    const handler = commandRegistry.get<unknown, unknown>(commandId)!
+    const { ctx, create, generate, userHasAllFeatures } = buildHarness()
+    ctx.auth = actor
+    const input = buildInput()
+
+    await expect(handler.execute({ ...input, [numberField]: 'MANUAL-1' }, ctx)).rejects.toMatchObject({ status: 403 })
+    expect(userHasAllFeatures).toHaveBeenCalledWith(actor.sub, ['sales.documents.number.edit'], scope)
+    expect(generate).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+
+    userHasAllFeatures.mockClear()
+    await handler.execute(input, ctx)
+    expect(userHasAllFeatures).not.toHaveBeenCalled()
+    expect(generate).toHaveBeenCalledWith({ ...scope, kind })
+    expect(create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ [numberField]: 'DOC-1' }))
+
+    userHasAllFeatures.mockResolvedValue(true)
+    generate.mockClear()
+    await handler.execute({ ...input, [numberField]: 'MANUAL-1' }, ctx)
+    expect(generate).not.toHaveBeenCalled()
+    expect(create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ [numberField]: 'MANUAL-1' }))
   })
 })

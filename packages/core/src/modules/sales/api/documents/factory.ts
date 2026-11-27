@@ -2,7 +2,6 @@ import { z } from 'zod'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { splitCustomFieldPayload, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
@@ -24,8 +23,12 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+<<<<<<< HEAD
 import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+=======
+import { isUuidListParam, parseIdsParam, splitIdListParam } from '@open-mercato/shared/lib/crud/ids'
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 type DocumentKind = 'order' | 'quote'
@@ -355,24 +358,6 @@ export const attachChannelNames = async (
   })
 }
 
-async function ensureNumberEditPermission(
-  ctx: CrudCtx,
-  translate: (key: string, fallback?: string) => string
-) {
-  const rbac = ctx.container?.resolve?.('rbacService') as RbacService | null
-  const auth = ctx.auth
-  if (!rbac || !auth?.sub) return
-  const ok = await rbac.userHasAllFeatures(auth.sub, ['sales.documents.number.edit'], {
-    tenantId: auth.tenantId ?? null,
-    organizationId: ctx.selectedOrganizationId ?? auth.orgId ?? null,
-  })
-  if (!ok) {
-    throw new CrudHttpError(403, {
-      error: translate('sales.documents.errors.number_edit_forbidden', 'You cannot edit document numbers.'),
-    })
-  }
-}
-
 export function buildDocumentCrudOptions(binding: DocumentBinding) {
   const numberColumn = binding.numberField === 'orderNumber' ? 'order_number' : 'quote_number'
   const createSchema = binding.kind === 'order' ? orderCreateSchema : quoteCreateSchema
@@ -582,6 +567,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
           const { base, custom } = splitCustomFieldPayload(raw ?? {})
+<<<<<<< HEAD
           const numberValue =
             binding.kind === 'order'
               ? (base as Record<string, unknown>).orderNumber
@@ -596,6 +582,10 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
             translate,
           )
           return parsed
+=======
+          const payload = Object.keys(custom).length ? { ...base, customFields: custom } : base
+          return withExactDocumentInput(parseScopedCommandInput(documentUpdateSchema, payload, ctx, translate), payload)
+>>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
         },
         response: ({ result }: { result: any }) =>
           mapUpdateResponse((result as any)?.order ?? (result as any)?.quote ?? result),
