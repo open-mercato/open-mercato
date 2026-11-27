@@ -1,11 +1,11 @@
 'use client'
 
 import * as React from 'react'
-import { Check, ExternalLink, X } from 'lucide-react'
+import { Check, ChevronDown, ExternalLink, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Anchor, type AnchorItem } from '@open-mercato/ui/primitives/anchor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
-import { entryTabSearch, parseEntryTab, resolveEntryTab, tabsForGroup, type EntryTab } from '@/lib/entry-tabs'
+import { entryTabSearch, parseEntryTab, resolveEntryTab, tabForHash, tabsForGroup, type EntryTab } from '@/lib/entry-tabs'
 import { GROUP_LABEL_FALLBACKS } from '@/lib/groups'
 import { githubFileUrl, issuesUrl, publicSourceUrl } from '@/lib/links'
 import { splitRuleText } from '@/lib/rule-text'
@@ -38,22 +38,29 @@ function CopyCommandLine({ blockId }: { blockId: string }) {
   )
 }
 
+const VISIBLE_RULES = 3
+
 function RuleList({ tone, title, rules }: { tone: 'do' | 'avoid'; title: string; rules: string[] }) {
+  const t = useT()
+  const [expanded, setExpanded] = React.useState(false)
+  const listId = React.useId()
   const Icon = tone === 'do' ? Check : X
   const iconTone = tone === 'do' ? 'bg-status-success-bg text-status-success-icon' : 'bg-status-error-bg text-status-error-icon'
   const markTone = tone === 'do' ? 'text-status-success-icon' : 'text-status-error-icon'
+  const hasMore = rules.length > VISIBLE_RULES
+  const shown = expanded || !hasMore ? rules : rules.slice(0, VISIBLE_RULES)
   return (
     <div className="flex flex-col overflow-hidden rounded-card border border-border bg-card" data-usage-tone={tone}>
-      <h3 className="flex items-center gap-3 border-b border-border px-panel py-3 text-base font-normal text-foreground">
-        <span aria-hidden className={`flex size-6 items-center justify-center rounded-full ${iconTone}`}>
-          <Icon className="size-4" />
+      <h3 className="flex items-center gap-2 px-panel pt-3 text-sm font-normal text-foreground">
+        <span aria-hidden className={`flex size-5 items-center justify-center rounded-full ${iconTone}`}>
+          <Icon className="size-3" />
         </span>
         {title}
       </h3>
-      <ul className="divide-y divide-border px-panel">
-        {rules.map((rule) => (
-          <li key={rule} className="flex gap-3 py-3 text-sm leading-6 text-foreground">
-            <Icon aria-hidden className={`mt-1 size-4 shrink-0 ${markTone}`} />
+      <ul id={listId} className="px-panel py-2">
+        {shown.map((rule) => (
+          <li key={rule} className="flex gap-2 py-1 text-sm leading-5 text-foreground">
+            <span aria-hidden className="flex h-5 shrink-0 items-center"><Icon className={`size-4 ${markTone}`} /></span>
             <span className="min-w-0">
               {splitRuleText(rule).map((part, index) =>
                 part.kind === 'code'
@@ -64,6 +71,20 @@ function RuleList({ tone, title, rules }: { tone: 'do' | 'avoid'; title: string;
           </li>
         ))}
       </ul>
+      {hasMore ? (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={listId}
+          onClick={() => setExpanded((value) => !value)}
+          className="flex h-8 items-center gap-1 border-t border-border px-panel text-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:shadow-focus"
+        >
+          {expanded
+            ? t('design.entry.showFewerRules', 'Show fewer')
+            : t('design.entry.showAllRules', 'Show all {count}', { count: rules.length })}
+          <ChevronDown aria-hidden className={`size-4 ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -87,17 +108,22 @@ function WhenToUse({ entryId, usage }: { entryId: string; usage: EntryViewData['
   )
 }
 
+function ExamplesPanel({ data }: { data: EntryViewData }) {
+  const t = useT()
+  return (
+    <section className="scroll-mt-20 space-y-8" id="examples" aria-label={t('design.entry.examples')}>
+      {data.variants.map((variant) => (
+        <VariantExample key={variant.id} entryId={data.id} variant={variant} />
+      ))}
+    </section>
+  )
+}
+
 function UsagePanel({ data }: { data: EntryViewData }) {
   const t = useT()
   return (
     <div className="space-y-12">
       <WhenToUse entryId={data.id} usage={data.usage} />
-      <section className="scroll-mt-20 space-y-8" id="examples" aria-labelledby="entry-examples">
-        <h2 id="entry-examples" className="text-xl font-normal text-foreground">{t('design.entry.examples')}</h2>
-        {data.variants.map((variant) => (
-          <VariantExample key={variant.id} entryId={data.id} variant={variant} />
-        ))}
-      </section>
       {data.accessibility.length > 0 ? (
         <section className="scroll-mt-20 space-y-4" id="accessibility" aria-labelledby="entry-accessibility">
           <h2 id="entry-accessibility" className="text-xl font-normal text-foreground">{t('design.entry.accessibility')}</h2>
@@ -242,17 +268,35 @@ function EntryMeta({ data }: { data: EntryViewData }) {
   )
 }
 
-function tableOfContents(data: EntryViewData, t: ReturnType<typeof useT>): AnchorItem[] {
+function hasUsageContent(data: EntryViewData): boolean {
+  return data.usage.do.length > 0 || data.usage.dont.length > 0 || hasUsageVisuals(data.id) || data.accessibility.length > 0 || data.faq.length > 0
+}
+
+function examplesContents(data: EntryViewData): AnchorItem[] {
+  return data.variants.map((variant) => ({ href: `#variant-${variant.id}`, title: variant.title }))
+}
+
+function usageContents(data: EntryViewData, t: ReturnType<typeof useT>): AnchorItem[] {
   const items: AnchorItem[] = []
   if (data.usage.do.length > 0 || data.usage.dont.length > 0 || hasUsageVisuals(data.id)) items.push({ href: '#when-to-use', title: t('design.entry.whenToUse') })
-  items.push({
-    href: '#examples',
-    title: t('design.entry.examples'),
-    children: data.variants.map((variant) => ({ href: `#variant-${variant.id}`, title: variant.title })),
-  })
   if (data.accessibility.length > 0) items.push({ href: '#accessibility', title: t('design.entry.accessibility') })
   if (data.faq.length > 0) items.push({ href: '#faq', title: t('design.entry.faq') })
   return items
+}
+
+function PanelWithContents({ items, label, children }: { items: AnchorItem[]; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-10">
+      <div className="min-w-0 flex-1">{children}</div>
+      <aside className="hidden w-56 shrink-0 xl:block">
+        {items.length > 1 ? (
+          <div className="sticky top-20 max-h-screen overflow-y-auto pb-24">
+            <Anchor items={items} offset={80} label={label} />
+          </div>
+        ) : null}
+      </aside>
+    </div>
+  )
 }
 
 function replaceLocation(search: string, hash: string): void {
@@ -261,22 +305,25 @@ function replaceLocation(search: string, hash: string): void {
 
 export function EntryView({ data }: { data: EntryViewData }) {
   const t = useT()
-  const [tab, setTab] = React.useState<EntryTab>('usage')
+  const [tab, setTab] = React.useState<EntryTab>('examples')
   const [pendingAnchor, setPendingAnchor] = React.useState<string | null>(null)
   const showStates = tabsForGroup(data.group).includes('states')
   const showApi = tabsForGroup(data.group).includes('api')
+  const showUsage = hasUsageContent(data)
 
   React.useEffect(() => {
     const read = () => setTab(parseEntryTab(window.location.search, data.group))
-    read()
+    const fromHash = window.location.search.includes('tab=') ? null : tabForHash(window.location.hash)
+    if (fromHash) setTab(fromHash)
+    else read()
     window.addEventListener('popstate', read)
     return () => window.removeEventListener('popstate', read)
   }, [data.group])
 
   React.useEffect(() => {
-    if (tab !== 'usage' || !pendingAnchor) return
+    if (tab !== 'examples' || !pendingAnchor) return
     document.getElementById(pendingAnchor)?.scrollIntoView({ block: 'start' })
-    replaceLocation(entryTabSearch(window.location.search, 'usage'), `#${pendingAnchor}`)
+    replaceLocation(entryTabSearch(window.location.search, 'examples'), `#${pendingAnchor}`)
     setPendingAnchor(null)
   }, [tab, pendingAnchor])
 
@@ -288,34 +335,31 @@ export function EntryView({ data }: { data: EntryViewData }) {
 
   const openVariant = (variantId: string) => {
     setPendingAnchor(`variant-${variantId}`)
-    setTab('usage')
+    setTab('examples')
   }
 
   return (
     <div className="mx-auto flex max-w-7xl gap-10">
       <article className="min-w-0 max-w-6xl flex-1 space-y-8">
-        <PageHeader overline={t(`design.nav.${data.group}`, GROUP_LABEL_FALLBACKS[data.group])} title={data.title} lead={data.description}>
-          <EntryMeta data={data} />
-        </PageHeader>
-        <Tabs value={tab} onValueChange={selectTab} variant="underline" className="min-w-0 space-y-8">
+        <PageHeader overline={t(`design.nav.${data.group}`, GROUP_LABEL_FALLBACKS[data.group])} title={data.title} lead={data.description} />
+        <Tabs value={tab === 'usage' && !showUsage ? 'examples' : tab} onValueChange={selectTab} variant="underline" className="min-w-0 space-y-8">
           <TabsList aria-label={t('design.entry.tabsLabel')} className="flex w-full">
-            <TabsTrigger value="usage">{t('design.entry.tabUsage')}</TabsTrigger>
+            <TabsTrigger value="examples">{t('design.entry.tabExamples', 'Examples')}</TabsTrigger>
+            {showUsage ? <TabsTrigger value="usage">{t('design.entry.tabUsage')}</TabsTrigger> : null}
             {showApi ? <TabsTrigger value="api">{t('design.entry.tabApi')}</TabsTrigger> : null}
             <TabsTrigger value="source">{t('design.entry.tabSource')}</TabsTrigger>
             {showStates ? <TabsTrigger value="states">{t('design.entry.tabStates')}</TabsTrigger> : null}
           </TabsList>
-          <TabsContent value="usage">
-            <div className="flex gap-10">
-              <div className="min-w-0 flex-1"><UsagePanel data={data} /></div>
-              <aside className="hidden w-56 shrink-0 xl:block">
-                <div className="sticky top-20 max-h-screen overflow-y-auto pb-24">
-                  <Anchor items={tableOfContents(data, t)} offset={80} label={t('design.entry.onThisPage')} />
-                </div>
-              </aside>
-            </div>
+          <TabsContent value="examples">
+            <PanelWithContents items={examplesContents(data)} label={t('design.entry.onThisPage')}><ExamplesPanel data={data} /></PanelWithContents>
           </TabsContent>
-          {showApi ? <TabsContent value="api"><ApiPanel data={data} /></TabsContent> : null}
-          <TabsContent value="source"><SourcePanel data={data} /></TabsContent>
+          {showUsage ? (
+            <TabsContent value="usage">
+              <PanelWithContents items={usageContents(data, t)} label={t('design.entry.onThisPage')}><UsagePanel data={data} /></PanelWithContents>
+            </TabsContent>
+          ) : null}
+          {showApi ? <TabsContent value="api"><div className="space-y-10"><EntryMeta data={data} /><ApiPanel data={data} /></div></TabsContent> : null}
+          <TabsContent value="source"><div className="space-y-10">{showApi ? null : <EntryMeta data={data} />}<SourcePanel data={data} /></div></TabsContent>
           {showStates ? (
             <TabsContent value="states">
               <StatesMatrix entryId={data.id} group={data.group} title={data.title} variants={data.variants} onOpenVariant={openVariant} />

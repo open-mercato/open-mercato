@@ -1,9 +1,9 @@
 import type { EntryGroup } from './groups'
 
-export const ENTRY_TABS = ['usage', 'api', 'source', 'states'] as const
+export const ENTRY_TABS = ['examples', 'usage', 'api', 'source', 'states'] as const
 export type EntryTab = (typeof ENTRY_TABS)[number]
 
-export const DEFAULT_ENTRY_TAB: EntryTab = 'usage'
+export const DEFAULT_ENTRY_TAB: EntryTab = 'examples'
 export const ENTRY_TAB_PARAM = 'tab'
 
 export function tabsForGroup(group: EntryGroup): EntryTab[] {
@@ -26,4 +26,14 @@ export function entryTabSearch(search: string, tab: EntryTab): string {
   else query.set(ENTRY_TAB_PARAM, tab)
   const serialized = query.toString()
   return serialized ? `?${serialized}` : ''
+}
+
+export const USAGE_ANCHORS: readonly string[] = ['when-to-use', 'accessibility', 'faq']
+
+export function tabForHash(hash: string): EntryTab | null {
+  const anchor = hash.replace(/^#/, '')
+  if (!anchor) return null
+  if (USAGE_ANCHORS.includes(anchor) || anchor.startsWith('faq-')) return 'usage'
+  if (anchor === 'examples' || anchor.startsWith('variant-')) return 'examples'
+  return null
 }

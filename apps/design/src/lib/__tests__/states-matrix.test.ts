@@ -14,27 +14,27 @@ import {
 
 describe('entry tabs', () => {
   it('offers the States tab for blocks and screens, and no API tab for screens', () => {
-    expect(tabsForGroup('blocks')).toEqual(['usage', 'api', 'source', 'states'])
-    expect(tabsForGroup('screens')).toEqual(['usage', 'source', 'states'])
-    expect(parseEntryTab('?tab=api', 'screens')).toBe('usage')
-    expect(tabsForGroup('components')).toEqual(['usage', 'api', 'source'])
-    expect(tabsForGroup('foundations')).toEqual(['usage', 'api', 'source'])
+    expect(tabsForGroup('blocks')).toEqual(['examples', 'usage', 'api', 'source', 'states'])
+    expect(tabsForGroup('screens')).toEqual(['examples', 'usage', 'source', 'states'])
+    expect(parseEntryTab('?tab=api', 'screens')).toBe('examples')
+    expect(tabsForGroup('components')).toEqual(['examples', 'usage', 'api', 'source'])
+    expect(tabsForGroup('foundations')).toEqual(['examples', 'usage', 'api', 'source'])
   })
 
   it('reads the tab from the query and falls back to Usage', () => {
     expect(parseEntryTab('?tab=states', 'blocks')).toBe('states')
-    expect(parseEntryTab('?tab=states', 'components')).toBe('usage')
+    expect(parseEntryTab('?tab=states', 'components')).toBe('examples')
     expect(parseEntryTab('?tab=api', 'components')).toBe('api')
-    expect(parseEntryTab('?tab=unknown', 'blocks')).toBe('usage')
-    expect(parseEntryTab('', 'blocks')).toBe('usage')
-    expect(resolveEntryTab(null, 'blocks')).toBe('usage')
+    expect(parseEntryTab('?tab=unknown', 'blocks')).toBe('examples')
+    expect(parseEntryTab('', 'blocks')).toBe('examples')
+    expect(resolveEntryTab(null, 'blocks')).toBe('examples')
   })
 
   it('writes the tab into the query and keeps other parameters', () => {
     expect(entryTabSearch('', 'states')).toBe('?tab=states')
-    expect(entryTabSearch('?tab=states', 'usage')).toBe('')
+    expect(entryTabSearch('?tab=states', 'examples')).toBe('')
     expect(entryTabSearch('?theme=x&tab=api', 'source')).toBe('?theme=x&tab=source')
-    expect(entryTabSearch('?theme=x&tab=api', 'usage')).toBe('?theme=x')
+    expect(entryTabSearch('?theme=x&tab=api', 'examples')).toBe('?theme=x')
   })
 })
 

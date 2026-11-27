@@ -254,15 +254,21 @@ export function LivePanel() {
             <SegmentedControlItem value="light">{t('design.home.panel.modeLight')}</SegmentedControlItem>
             <SegmentedControlItem value="dark">{t('design.home.panel.modeDark')}</SegmentedControlItem>
           </SegmentedControl>
-          <SegmentedControl size="sm" value={density} aria-label={t('design.home.panel.density')} onValueChange={(next) => { if (next === 'default' || next === 'compact') setDensity(next) }}>
-            <SegmentedControlItem value="default">{t('design.home.panel.densityDefault')}</SegmentedControlItem>
-            <SegmentedControlItem value="compact">{t('design.home.panel.densityCompact')}</SegmentedControlItem>
-          </SegmentedControl>
-          <SegmentedControl size="sm" value={shape} aria-label={t('design.home.panel.shape')} onValueChange={(next) => { if (next === 'default' || next === 'round' || next === 'sharp') setShape(next) }}>
-            <SegmentedControlItem value="default">{t('design.home.panel.shapeDefault')}</SegmentedControlItem>
-            <SegmentedControlItem value="round">{t('design.home.panel.shapeRound')}</SegmentedControlItem>
-            <SegmentedControlItem value="sharp">{t('design.home.panel.shapeSharp')}</SegmentedControlItem>
-          </SegmentedControl>
+          <span className="flex items-center gap-2">
+            <span aria-hidden className="text-sm text-muted-foreground">{t('design.home.panel.density')}</span>
+            <SegmentedControl size="sm" value={density} aria-label={t('design.home.panel.density')} onValueChange={(next) => { if (next === 'default' || next === 'compact') setDensity(next) }}>
+              <SegmentedControlItem value="default">{t('design.home.panel.densityDefault')}</SegmentedControlItem>
+              <SegmentedControlItem value="compact">{t('design.home.panel.densityCompact')}</SegmentedControlItem>
+            </SegmentedControl>
+          </span>
+          <span className="flex items-center gap-2">
+            <span aria-hidden className="text-sm text-muted-foreground">{t('design.home.panel.shape')}</span>
+            <SegmentedControl size="sm" value={shape} aria-label={t('design.home.panel.shape')} onValueChange={(next) => { if (next === 'default' || next === 'round' || next === 'sharp') setShape(next) }}>
+              <SegmentedControlItem value="default">{t('design.home.panel.shapeDefault')}</SegmentedControlItem>
+              <SegmentedControlItem value="round">{t('design.home.panel.shapeRound')}</SegmentedControlItem>
+              <SegmentedControlItem value="sharp">{t('design.home.panel.shapeSharp')}</SegmentedControlItem>
+            </SegmentedControl>
+          </span>
         </div>
       </div>
       <DesignScope

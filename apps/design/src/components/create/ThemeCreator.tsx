@@ -242,7 +242,7 @@ export function ThemeCreator() {
           </PopoverContent>
         </Popover>
         <Select value={preset.shape} onValueChange={(value) => { if (value === 'default' || value === 'round' || value === 'sharp') update({ shape: value }) }}>
-          <SelectTrigger size="sm" className="w-28" aria-label={t('design.home.panel.shape')}><SelectValue /></SelectTrigger>
+          <SelectTrigger size="sm" className="w-auto gap-2" aria-label={t('design.home.panel.shape')}><span className="text-muted-foreground">{t('design.home.panel.shape')}</span><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="default">{t('design.home.panel.shapeDefault')}</SelectItem>
             <SelectItem value="round">{t('design.home.panel.shapeRound')}</SelectItem>
@@ -250,7 +250,7 @@ export function ThemeCreator() {
           </SelectContent>
         </Select>
         <Select value={preset.density} onValueChange={(value) => { if (value === 'default' || value === 'compact') update({ density: value }) }}>
-          <SelectTrigger size="sm" className="w-32" aria-label={t('design.home.panel.density')}><SelectValue /></SelectTrigger>
+          <SelectTrigger size="sm" className="w-auto gap-2" aria-label={t('design.home.panel.density')}><span className="text-muted-foreground">{t('design.home.panel.density')}</span><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="default">{t('design.home.panel.densityDefault')}</SelectItem>
             <SelectItem value="compact">{t('design.home.panel.densityCompact')}</SelectItem>

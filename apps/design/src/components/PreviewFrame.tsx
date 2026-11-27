@@ -3,12 +3,11 @@
 import * as React from 'react'
 import { GripVertical } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { cn } from '@open-mercato/shared/lib/utils'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { previewHref } from '@/lib/links'
 import { clampWidth, isPreviewHeightMessage } from '@/lib/preview-protocol'
 import { STATE_WIDTHS } from '@/lib/states-matrix'
 import { useDesignSettings } from './DesignSettings'
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 
 export const QUICK_WIDTHS = STATE_WIDTHS
 const MIN_WIDTH = 320
@@ -37,7 +36,7 @@ const resizableVariants: Readonly<Partial<Record<string, readonly string[]>>> = 
   'schedule-view': ['week', 'month'],
 }
 
-export function PreviewFrame({ entryId, variantId, title }: PreviewFrameProps) {
+export function PreviewFrame({ entryId, variantId, title, attached = false }: PreviewFrameProps & { attached?: boolean }) {
   const t = useT()
   const { mode } = useDesignSettings()
   const iframeRef = React.useRef<HTMLIFrameElement>(null)
@@ -55,7 +54,7 @@ export function PreviewFrame({ entryId, variantId, title }: PreviewFrameProps) {
   }, [])
 
   const frame = (
-    <div className="overflow-hidden rounded-xl border border-border bg-background">
+    <div className={attached ? 'overflow-hidden bg-background' : 'overflow-hidden rounded-xl border border-border bg-background'}>
       <iframe
         ref={iframeRef}
         title={t('design.frame.title', { title })}
@@ -70,6 +69,8 @@ export function PreviewFrame({ entryId, variantId, title }: PreviewFrameProps) {
     ? <ResizablePreview>{frame}</ResizablePreview>
     : frame
 }
+
+const FIT_VALUE = 'fit'
 
 function ResizablePreview({ children }: { children: React.ReactNode }) {
   const t = useT()
@@ -116,22 +117,20 @@ function ResizablePreview({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-w-0 space-y-2">
-      <div className="hidden flex-wrap items-center gap-1 sm:flex" role="group" aria-label={t('design.frame.widthLabel')}>
-        <span className="flex flex-wrap items-center gap-1">
-          <WidthButton active={requested === null} onClick={() => setRequested(null)}>{t('design.frame.full')}</WidthButton>
-          {QUICK_WIDTHS.map((quickWidth) => (
-            <WidthButton
-              key={quickWidth}
-              active={requested === quickWidth}
-              disabled={available > 0 && quickWidth > available}
-              onClick={() => setRequested(quickWidth)}
-            >
-              {quickWidth}
-            </WidthButton>
+    <div className="min-w-0">
+      <div className="hidden items-center justify-between gap-3 border-b border-border bg-card px-3 py-2 sm:flex">
+        <SegmentedControl
+          size="sm"
+          aria-label={t('design.frame.widthLabel')}
+          value={requested === null ? FIT_VALUE : String(requested)}
+          onValueChange={(value) => setRequested(value === FIT_VALUE ? null : Number(value))}
+        >
+          <SegmentedControlItem value={FIT_VALUE}>{t('design.frame.full')}</SegmentedControlItem>
+          {QUICK_WIDTHS.filter((quickWidth) => available === 0 || quickWidth <= available).map((quickWidth) => (
+            <SegmentedControlItem key={quickWidth} value={String(quickWidth)}>{quickWidth}</SegmentedControlItem>
           ))}
-        </span>
-        {width ? <span className="ml-auto text-xs text-muted-foreground">{t('design.frame.widthValue', { width })}</span> : null}
+        </SegmentedControl>
+        {width ? <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{t('design.frame.widthValue', { width })}</span> : null}
       </div>
       <div ref={containerRef} className="min-w-0">
         <div className="relative max-w-full" style={width ? { width } : undefined}>
@@ -149,7 +148,7 @@ function ResizablePreview({ children }: { children: React.ReactNode }) {
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
             onKeyDown={onKeyDown}
-            className="group absolute inset-y-0 -right-2 hidden w-4 cursor-col-resize touch-none items-center justify-center focus-visible:outline-none sm:flex"
+            className="group absolute inset-y-0 right-0 hidden w-4 cursor-col-resize touch-none items-center justify-center focus-visible:outline-none sm:flex"
           >
             <span className="flex h-10 w-4 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-xs transition-colors group-hover:text-foreground group-focus-visible:shadow-focus">
               <GripVertical className="size-3.5" aria-hidden />
@@ -158,21 +157,5 @@ function ResizablePreview({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     </div>
-  )
-}
-
-function WidthButton({ active, disabled, onClick, children }: { active: boolean; disabled?: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="2xs"
-      aria-pressed={active}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn('font-normal', active ? 'bg-accent text-foreground' : 'text-muted-foreground')}
-    >
-      {children}
-    </Button>
   )
 }
