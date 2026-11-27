@@ -13,8 +13,7 @@ import { switchTeamMemberSchedule } from '@open-mercato/core/modules/staff/lib/s
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
-import { buildMemberScheduleItems } from '@open-mercato/core/modules/staff/lib/memberSchedule'
+import { MemberAvailabilityRulesEditor } from '@open-mercato/core/modules/staff/components/MemberAvailabilityRulesEditor'
 import { TeamMemberForm, buildTeamMemberPayload, type TeamMemberFormValues } from '@open-mercato/core/modules/staff/components/TeamMemberForm'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { NotesSection } from '@open-mercato/ui/backend/detail'
@@ -49,6 +48,8 @@ type TeamMemberRecord = {
   description?: string | null
   userId?: string | null
   user_id?: string | null
+  organizationId?: string | null
+  organization_id?: string | null
   roleIds?: string[]
   role_ids?: string[]
   roleNames?: string[]
@@ -617,17 +618,14 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
               </div>
             </>
           ) : activePanel === 'availability' ? (
-            <AvailabilityRulesEditor
-              subjectType="member"
+            <MemberAvailabilityRulesEditor
               subjectId={memberId ?? ''}
-              labelPrefix="staff.teamMembers"
+              memberUserId={memberRecord?.id === memberId ? memberRecord?.userId ?? memberRecord?.user_id : null}
+              memberOrganizationId={memberRecord?.id === memberId ? memberRecord?.organizationId ?? memberRecord?.organization_id : null}
               mode="availability"
               rulesetId={availabilityRuleSetId}
               onRulesetChange={handleRulesetChange}
               allowRuleSetDelete
-              buildScheduleItems={({ availabilityRules, translate: translateLabel }) => (
-                buildMemberScheduleItems({ availabilityRules, translate: translateLabel })
-              )}
             />
           ) : (
             <div className="rounded-lg border bg-card p-4">
