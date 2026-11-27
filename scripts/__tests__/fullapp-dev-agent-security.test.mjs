@@ -14,7 +14,7 @@ const composeFiles = [
 ]
 const composeAvailable = spawnSync('docker', ['compose', 'version'], { timeout: 10000 }).status === 0
 
-function resolveCompose(file, password) {
+function resolveCompose(file, password, extraEnv = {}) {
   return spawnSync('docker', [
     'compose', '--env-file', devNull, '--project-directory', repoRoot,
     '--profile', '*', '-f', file, 'config', '--format', 'json',
@@ -24,6 +24,7 @@ function resolveCompose(file, password) {
       PATH: process.env.PATH,
       JWT_SECRET: 'test-only-compose-jwt-secret',
       ...(password ? { OPENCODE_PASSWORD: password } : {}),
+      ...extraEnv,
     },
     encoding: 'utf8',
     timeout: 20000,
@@ -55,6 +56,44 @@ for (const file of composeFiles) {
       for (const port of service.ports ?? []) assert.equal(port.host_ip, '127.0.0.1')
     }
     assert.match(config.services.opencode.healthcheck.test.join(' '), /opencode:\${1,2}OPENCODE_SERVER_PASSWORD/)
+  })
+}
+
+for (const file of [
+  'starters/docker/compose.infra.yml',
+  'docker-compose.yml',
+  'packages/create-app/template/docker-compose.yml',
+  'starters/docker/compose.fullapp.yml',
+  'docker-compose.fullapp.yml',
+  'packages/create-app/template/docker-compose.fullapp.yml',
+]) {
+  test(`${file} configures OpenCode server authentication when the service is enabled`, { skip: !composeAvailable }, () => {
+    const password = 'test-only-opencode-password'
+    const result = resolveCompose(file, password)
+    assert.equal(result.status, 0, result.stderr)
+    const { opencode, app } = JSON.parse(result.stdout).services
+    assert.equal(opencode.environment.OPENCODE_SERVER_PASSWORD, password)
+    if (app) {
+      assert.equal(app.environment.OPENCODE_PASSWORD, password)
+      assert.match(opencode.healthcheck.test.join(' '), /opencode:\${1,2}OPENCODE_SERVER_PASSWORD/)
+    }
+  })
+}
+
+for (const file of [
+  ...composeFiles,
+  'starters/docker/compose.fullapp.yml',
+  'docker-compose.fullapp.yml',
+  'packages/create-app/template/docker-compose.fullapp.yml',
+]) {
+  test(`${file} gives the MCP server and OpenCode the same explicit transport key`, { skip: !composeAvailable }, () => {
+    const key = 'test-only-mcp-transport-key'
+    const result = resolveCompose(file, 'test-only-opencode-password', { MCP_SERVER_API_KEY: key })
+    assert.equal(result.status, 0, result.stderr)
+    const { opencode, mcp } = JSON.parse(result.stdout).services
+    assert.equal(opencode.environment.MCP_SERVER_API_KEY, key)
+    assert.equal(mcp.environment.MCP_SERVER_API_KEY, key)
+    assert.equal(mcp.environment.MCP_SERVER_API_KEY_FILE, opencode.environment.MCP_SERVER_API_KEY_FILE)
   })
 }
 

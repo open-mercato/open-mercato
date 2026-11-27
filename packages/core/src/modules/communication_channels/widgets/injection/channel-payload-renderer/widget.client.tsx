@@ -57,7 +57,11 @@ function EmailPayload({ html }: { html: string }) {
           {t('communication_channels.channelPayload.email.remoteImagesBlocked')}
         </Alert>
       ) : null}
-      <div ref={bodyRef} dangerouslySetInnerHTML={{ __html: html }} />
+      <div
+        ref={bodyRef}
+        className="contain-paint overflow-x-auto"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
     </section>
   )
 }

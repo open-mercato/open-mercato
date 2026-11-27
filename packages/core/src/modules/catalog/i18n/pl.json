@@ -35,6 +35,8 @@
   "catalog.bulkDelete.selected.confirmText": "Usunąć {count} wybranych produktów? Tej operacji nie można cofnąć.",
   "catalog.bulkDelete.selected.confirmTitle": "Usunąć wybrane produkty?",
   "catalog.bulkDelete.selected.label": "Usuń wybrane",
+  "catalog.categories.errors.parentCycle": "Kategorii nie można przenieść pod nią samą ani pod jedną z jej podkategorii.",
+  "catalog.categories.errors.replayCycle": "Hierarchia kategorii zmieniła się od czasu tej akcji, więc nie można jej cofnąć bez uczynienia kategorii własnym przodkiem.",
   "catalog.categories.flash.created": "Kategoria utworzona",
   "catalog.categories.flash.deleted": "Kategoria zarchiwizowana",
   "catalog.categories.flash.updated": "Kategoria zaktualizowana",

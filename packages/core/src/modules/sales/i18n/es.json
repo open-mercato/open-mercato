@@ -1454,6 +1454,7 @@
   "sales.returns.returnedAt": "Devuelto el",
   "sales.returns.total": "Total",
   "sales.returns.updated": "Devolución actualizada.",
+  "sales.schedule.linkType.offer": "Oferta",
   "sales.search.badge.address": "Dirección",
   "sales.search.badge.channel": "Canal",
   "sales.search.badge.creditMemo": "Nota de crédito",

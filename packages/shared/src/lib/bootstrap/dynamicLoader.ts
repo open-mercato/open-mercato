@@ -6,6 +6,13 @@ import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
 import { createLogger } from '../logger'
 import {
+  CacheProviderError,
+  readCacheProviderManifest,
+  readSelectedCacheProviderId,
+  setCacheProviderRegistrations,
+  type CacheProviderRegistration,
+} from '../cache/providers'
+import {
   applyModuleOverridesFromEnabledModules,
   type ModuleEntryWithOverrides,
 } from '../../modules/overrides'
@@ -415,6 +422,7 @@ type CompileAndImportOptions = {
   appRoot?: string
   outFile?: string
   allowRecovery?: boolean
+  silent?: boolean
 }
 
 /**
@@ -429,6 +437,7 @@ export type CompileAppSourceOptions = {
   appRoot: string
   outFile: string
   format?: 'esm' | 'cjs'
+  silent?: boolean
 }
 
 /**
@@ -497,6 +506,7 @@ async function compileAppSourceFileWithActiveEsbuild(
     bundle: true,
     metafile: true,
     format,
+    ...(options.silent ? { logLevel: 'silent' } : {}),
     platform: 'node',
     target: 'node18',
     tsconfig: appTsconfig,
@@ -535,7 +545,7 @@ async function compileAndImport(
   const jsPath = options.outFile ?? tsPath.replace(/\.ts$/, '.mjs')
   const appRoot = options.appRoot ?? path.dirname(path.dirname(path.dirname(tsPath)))
 
-  await compileAppSourceFile(tsPath, { appRoot, outFile: jsPath })
+  await compileAppSourceFile(tsPath, { appRoot, outFile: jsPath, silent: options.silent })
 
   // Import the compiled JavaScript
   try {
@@ -757,6 +767,49 @@ async function loadAppModuleOverrides(appDir: string): Promise<void> {
   applyModuleOverridesFromEnabledModules(enabledModules as ModuleEntryWithOverrides[])
 }
 
+const CACHE_PROVIDERS_GENERATED_FILE = 'cache-providers.generated.ts'
+
+/**
+ * Load the app's generated infrastructure registration in plain Node processes.
+ * Both dynamic app bootstrap and bootstrap-free maintenance commands use this path.
+ */
+export async function loadCacheProviderManifestFromAppRoot(
+  appDir: string,
+  { generatedDir = path.join(appDir, '.mercato', 'generated'), format = 'esm' }: {
+    generatedDir?: string
+    format?: 'esm' | 'cjs'
+  } = {},
+): Promise<CacheProviderRegistration[]> {
+  const manifestPath = path.join(generatedDir, CACHE_PROVIDERS_GENERATED_FILE)
+  if (!fs.existsSync(manifestPath)) {
+    setCacheProviderRegistrations([])
+    return []
+  }
+
+  const outFile = path.join(generatedDir, `cache-providers.compiled.${format === 'cjs' ? 'cjs' : 'mjs'}`)
+  let loaded: Record<string, unknown>
+  try {
+    if (format === 'cjs') {
+      await compileAppSourceFile(manifestPath, { appRoot: appDir, outFile, format, silent: true })
+      const requireManifest = createRequire(outFile)
+      delete requireManifest.cache[outFile]
+      loaded = requireManifest(outFile)
+    } else {
+      loaded = await compileAndImport(manifestPath, { appRoot: appDir, outFile, allowRecovery: false, silent: true })
+    }
+  } catch (error) {
+    throw new CacheProviderError(
+      'load_failed',
+      'The cache provider manifest could not be loaded. Check src/providers/cache.ts.',
+      { cause: error },
+    )
+  }
+
+  const registrations = readCacheProviderManifest(loaded)
+  setCacheProviderRegistrations(registrations)
+  return registrations
+}
+
 /**
  * Dynamically load bootstrap data from a resolved app directory.
  *
@@ -877,6 +930,9 @@ export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapD
     // and `registerCliModules` in the mercato bin right after this function returns;
     // both read the override side-registry this populates.
     await loadAppModuleOverrides(resolved.appDir)
+    if (readSelectedCacheProviderId(process.env)) {
+      await loadCacheProviderManifestFromAppRoot(resolved.appDir, { generatedDir: resolved.generatedDir })
+    }
     const data = await loadBootstrapData(resolved.appDir)
     const [appDiRegistrar, bootstrapRegistrationsModule] = await Promise.all([
       loadAppDiRegistrar(resolved.appDir),

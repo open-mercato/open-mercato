@@ -148,7 +148,7 @@ test.describe('TC-CAL-001: Calendar API range read', () => {
         features: ['customers.people.view'],
       });
       const restrictedEmail = `qa-cal-range-${stamp}@acme.com`;
-      const restrictedPassword = 'Valid1!Pass';
+      const restrictedPassword = 'QaValid1!Pass';
       restrictedUserId = await createUserFixture(request, adminToken, {
         email: restrictedEmail,
         password: restrictedPassword,

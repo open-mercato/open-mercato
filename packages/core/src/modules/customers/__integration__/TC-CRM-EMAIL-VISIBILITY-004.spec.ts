@@ -260,7 +260,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-004: whole-channel team mailbox sharing',
 
         // User A — owns BOTH mailboxes.
         const userAEmail = `qa-crm-email-vis4-a-${stamp}@acme.com`;
-        const userAPassword = 'Valid1!Pass';
+        const userAPassword = 'QaValid1!Pass';
         userAId = await createUserFixture(request, adminToken, {
           email: userAEmail,
           password: userAPassword,
@@ -272,7 +272,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-004: whole-channel team mailbox sharing',
 
         // User B — teammate.
         const userBEmail = `qa-crm-email-vis4-b-${stamp}@acme.com`;
-        const userBPassword = 'Valid1!Pass';
+        const userBPassword = 'QaValid1!Pass';
         userBId = await createUserFixture(request, adminToken, {
           email: userBEmail,
           password: userBPassword,
@@ -284,7 +284,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-004: whole-channel team mailbox sharing',
 
         // Admin user — holds both reserved features.
         const adminUserEmail = `qa-crm-email-vis4-adm-${stamp}@acme.com`;
-        const adminUserPassword = 'Valid1!Pass';
+        const adminUserPassword = 'QaValid1!Pass';
         adminUserId = await createUserFixture(request, adminToken, {
           email: adminUserEmail,
           password: adminUserPassword,

@@ -2,10 +2,10 @@
   "version": 1,
   "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
   "derived": {
-    "ownerCount": 33,
-    "recordCount": 165,
-    "sourceRequiredCount": 139,
-    "readableCount": 165,
+    "ownerCount": 34,
+    "recordCount": 169,
+    "sourceRequiredCount": 143,
+    "readableCount": 169,
     "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
   },
   "notCovered": [
@@ -604,6 +604,75 @@
       "capabilityIds": [],
       "packageName": "@open-mercato/shared",
       "packageRelativePath": "src/modules/events/factory.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/infrastructure-providers:src/providers/cache.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/infrastructure-providers.md",
+      "heading": "App Infrastructure Providers",
+      "href": "../../src/providers/cache.ts",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/providers/cache.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/infrastructure-providers:src/providers/kms.example.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/infrastructure-providers.md",
+      "heading": "App Infrastructure Providers",
+      "href": "../../src/providers/kms.example.ts",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/providers/kms.example.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/infrastructure-providers:src/providers/queue.example.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/infrastructure-providers.md",
+      "heading": "App Infrastructure Providers",
+      "href": "../../src/providers/queue.example.ts",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/providers/queue.example.ts",
+      "moduleId": null,
+      "capabilityIds": [],
       "presets": [
         "classic",
         "crm",
@@ -4124,6 +4193,29 @@
       ],
       "tiers": [
         "core"
+      ]
+    },
+    {
+      "referenceId": "root:.ai/guides/infrastructure-providers.md",
+      "requirement": "source-required",
+      "originAsset": "AGENTS.md",
+      "heading": "Always",
+      "href": ".ai/guides/infrastructure-providers.md",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/infrastructure-providers.md",
+      "moduleId": null,
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
       ]
     },
     {

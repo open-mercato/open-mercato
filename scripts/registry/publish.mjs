@@ -6,6 +6,8 @@
 // Usage: yarn registry:publish   (or: node scripts/registry/publish.mjs)
 
 import { spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
+import { hash } from 'bcryptjs'
 import {
   existsSync,
   mkdtempSync,
@@ -45,16 +47,28 @@ export function listPublishablePackages(rootDir) {
   return packages
 }
 
-function runDocker(args, { cwd, quiet = false, allowFailure = false }) {
+function runDocker(args, { cwd, quiet = false, allowFailure = false, input, env }) {
   const result = spawnSync('docker', args, {
     cwd,
-    stdio: quiet ? ['ignore', 'ignore', 'ignore'] : ['ignore', 'ignore', 'inherit'],
+    env,
+    input,
+    stdio: [input === undefined ? 'ignore' : 'pipe', 'ignore', quiet ? 'ignore' : 'inherit'],
   })
   const ok = !result.error && result.status === 0
   if (!ok && !allowFailure) {
     throw new Error(`registry:publish: 'docker ${args.join(' ')}' failed${result.error ? ` (${result.error.message})` : ''}`)
   }
   return ok
+}
+
+export async function createLocalPublisherCredential() {
+  const username = 'mercato-publisher'
+  const password = randomBytes(32).toString('hex')
+  const passwordHash = await hash(password, 10)
+  return {
+    htpasswd: `${username}:${passwordHash}\n`,
+    basicAuth: Buffer.from(`${username}:${password}`).toString('base64'),
+  }
 }
 
 async function waitForVerdaccio(registryUrl, maxAttempts = 30) {
@@ -78,27 +92,41 @@ export async function publishToVerdaccio({ rootDir, env = process.env, log = con
   const yarn = resolveYarnInvocation({ env })
   if (!yarn) throw new Error("registry:publish: could not resolve yarn; run this through 'yarn registry:publish'.")
 
-  // A throwaway userconfig carrying fake auth, so npm publish/unpublish never
-  // touch the user's real ~/.npmrc (Verdaccio accepts any credentials).
+  const token = env.VERDACCIO_TOKEN?.trim()
+  const externalRegistry = env.OM_SKIP_VERDACCIO_BOOTSTRAP === '1' || Boolean(token)
+  if (externalRegistry && (!token || /\s/.test(token))) {
+    throw new Error('registry:publish: set VERDACCIO_TOKEN for the existing registry publisher.')
+  }
+
   const npmrcDir = mkdtempSync(join(tmpdir(), 'open-mercato-verdaccio-'))
   const npmrcPath = join(npmrcDir, '.npmrc')
-  writeFileSync(npmrcPath, `//${registryAuthKey(registryUrl)}:_auth=fake-local-verdaccio-auth\n`)
   const childEnv = { ...env, NPM_CONFIG_USERCONFIG: npmrcPath }
+  const dockerOptions = { cwd: rootDir, env }
 
   try {
-    log(`Bootstrapping Verdaccio at ${registryUrl}...`)
-    if (env.OM_SKIP_VERDACCIO_BOOTSTRAP !== '1') {
-      runDocker(['compose', 'rm', '-sf', 'verdaccio'], { cwd: rootDir, quiet: true, allowFailure: true })
+    let authEntry
+    if (externalRegistry) {
+      authEntry = `_authToken=${token}`
+    } else {
+      const publisher = await createLocalPublisherCredential()
+      log(`Bootstrapping Verdaccio at ${registryUrl}...`)
+      runDocker(['compose', 'rm', '-sf', 'verdaccio'], { ...dockerOptions, quiet: true, allowFailure: true })
       // Volume names follow the same ${MERCATO_STACK} prefix as docker-compose.yml,
       // so a named stack resets its own storage instead of the default stack's.
       const stack = env.MERCATO_STACK || 'mercato'
       runDocker(['volume', 'rm', '-f', `${stack}-verdaccio-storage`, `${stack}-verdaccio-plugins`], {
-        cwd: rootDir,
+        ...dockerOptions,
         quiet: true,
         allowFailure: true,
       })
-      runDocker(['compose', 'up', '-d', 'verdaccio'], { cwd: rootDir })
+      runDocker(['compose', 'up', '-d', 'verdaccio'], dockerOptions)
+      runDocker([
+        'compose', 'exec', '-T', 'verdaccio', 'sh', '-ec',
+        'umask 077; cat > /verdaccio/storage/.htpasswd.new; mv /verdaccio/storage/.htpasswd.new /verdaccio/storage/htpasswd',
+      ], { ...dockerOptions, input: publisher.htpasswd })
+      authEntry = `_auth=${publisher.basicAuth}`
     }
+    writeFileSync(npmrcPath, `//${registryAuthKey(registryUrl)}:${authEntry}\n`, { mode: 0o600 })
     await waitForVerdaccio(registryUrl)
 
     const packages = listPublishablePackages(rootDir)

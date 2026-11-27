@@ -126,4 +126,20 @@ describe('PortalInvitePage', () => {
 
     await findByText(/invalid or expired invitation/i)
   })
+
+  it('renders the localized generic message instead of the raw English server text on other failures', async () => {
+    apiCallMock.mockResolvedValueOnce({ ok: false, status: 500, result: { ok: false, error: 'Internal Server Error' } })
+
+    const { getByLabelText, getByRole, findByText, queryByText } = renderWithProviders(
+      <PortalInvitePage params={{ orgSlug: 'acme' }} />,
+      { locale: 'pl', dict: { 'portal.invite.error.generic': 'Nie udało się przyjąć zaproszenia. Spróbuj ponownie.' } },
+    )
+    fillForm(getByLabelText)
+    await act(async () => {
+      fireEvent.click(getByRole('button', { name: 'Accept Invitation' }))
+    })
+
+    await findByText('Nie udało się przyjąć zaproszenia. Spróbuj ponownie.')
+    expect(queryByText(/internal server error/i)).toBeNull()
+  })
 })
