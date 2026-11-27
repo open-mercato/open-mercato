@@ -67,6 +67,13 @@ There are two axes: **incremental** (on every record write) and **bulk / reindex
 
 Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + a running `yarn mercato search worker fulltext-indexing` (in `local` mode jobs process from `.mercato/queue/`).
 
+Fulltext batch/reindex documents and their `SearchBuildContext` preserve the source
+row's `organization_id`, including during tenant-wide reindexing and queued batch
+reloads. Explicit null ownership stays global; only a missing ownership column
+uses the existing request-scope fallback. Tenant scope remains the trusted request
+tenant. This keeps organization-scoped filtering and later purge aligned with the
+record's owner (#8397).
+
 ### A.3 Division of labor (who consumes which store)
 
 - **Global search / Cmd+K palette** — `GET /api/search/global` uses the tenant's saved strategy set (default `['fulltext','vector','tokens']`; ignores URL `strategies`). `GET /api/search` accepts a `strategies` override. Fulltext (Meili) is the intended fuzzy/typo-tolerant backend; tokens participate as an always-available fallback.
@@ -135,8 +142,13 @@ fake embedding provider and captured vector driver writes. These tests
 cover direct, by-ID, and bulk entry points. Bulk indexing shares source preparation
 with single-record indexing. Configured source errors, null, and empty text skip
 vector embedding rather than activating raw-field fallback; other strategies still
-run. Provider-boundary tests exercise these cases through single, by-ID, queued
-batch, and bulk paths, plus scoped live encryption additions and lookup failures.
+run. An explicit null also removes any prior document for that record when the
+vector strategy processes the write (#5930), matching the legacy vector service.
+Use `shouldIndex` to exclude a record from all strategies. Synchronous reindexing
+reports a failed retirement in its existing result. General reindexing continues
+with later pages, and direct vector reindexing continues with later records.
+Provider-boundary tests exercise these cases through single, by-ID, queued batch,
+and bulk paths, plus scoped live encryption additions and lookup failures.
 Real-service regressions cover the encryption toggle both on and off, with an
 unhealthy fake KMS, active scoped declarations, and captured provider/write boundaries.
 Read-time presenter fallback also applies `fieldPolicy` after formatter failures.
@@ -294,6 +306,12 @@ Memoization is per engine instance; engines are constructed per request (`create
 
 ## Backward Compatibility
 
+### Vector result decryption (#5870)
+
+`VectorSearchStrategy` and the opt-in `VectorIndexService` share the existing tenant-scoped result decryption and JSON parse-back helper. Search DI supplies its existing tenant encryption service to the strategy. Result mapping decrypts titles, links and metadata before consuming them; decryption failures reject the search instead of returning ciphertext. Driver queries retain tenant, organization, entity and index-document filters.
+
+Migration & Backward Compatibility: `VectorStrategyConfig` adds only an optional `encryptionService` field. Existing constructor calls, plaintext drivers, APIs, schema, startup and operator configuration remain valid. No reindex or data migration is required. Regression coverage exercises encrypted strategy results, KMS failure, tenant/organization decryption scope, preserved query filters and DI wiring; existing vector-service security tests cover the shared consumer.
+
 - **Encrypted list-search correction**: the shared token-lookup export, direct route unions, search-source entries, and non-canonical event bridges are additive. Existing routes, event IDs, entity IDs, and raw `ILIKE` predicates remain available; token matches are unioned into the existing result set.
 - **Phase 0**: docs + one CLI help string (non-behavioral) + a stale code comment. No contract surface changes. `BACKWARD_COMPATIBILITY.md` unaffected.
 - **Phase 1**: strictly additive — new CLI flags/commands, a new orchestration service, a new admin action. The three existing reindex entry points and their feature IDs (`search.reindex`, `query_index.reindex`, `search.manage`) are preserved and delegated to. Any change to the bare `reindex` default must follow the deprecation protocol (help-text `@deprecated`, bridge ≥1 minor, `UPGRADE_NOTES.md`).
@@ -343,6 +361,12 @@ writer inputs without external services.
 - **Phase 4 (when implemented)**: `yarn workspace @open-mercato/shared test` + `yarn workspace @open-mercato/core test`; the four probe-count tests from #4723 pass without modification; new `BasicQueryEngine` parity and memoization tests as listed in B.4; no integration tests required (no API/DB/UI surface changes — same exemption #4723 claims).
 
 ## Changelog
+
+- 2026-11-25 — Retired stale vector documents on explicit null from `buildSource`, preserving fulltext fields and token indexing (#5930).
+
+- 2026-11-21 — Preserved source-row organization ownership through direct and queued batch reindexing (#8397), including callback context, global rows and omitted-column compatibility. Historical null-owner documents require a tenant-wide fulltext rebuild; no public shape or configuration changes.
+
+- **2026-11-19** — #5870: share vector-result decryption with the search strategy, preserving query filters and plaintext behavior while parsing encrypted links/payload and failing closed on decryption errors.
 
 - 2026-11-05 — Extended effective entity strategy enforcement to queued and synchronous reindex writes, module defaults, and disabled entities (#8773).
 

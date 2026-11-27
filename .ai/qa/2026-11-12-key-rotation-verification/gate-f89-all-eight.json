@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "f89de9e887f98863b9f943ed0b016088e1ffc678",
+  "recordedUtc": "2026-11-13T09:05:44.189121+00:00",
+  "runner": "local Node24.22.2; no compose app container; exact configured command order",
+  "commands": [
+    {
+      "step": 1,
+      "command": "yarn build:packages",
+      "status": "passed",
+      "log": "/tmp/om-9334-final-gate-1.log"
+    },
+    {
+      "step": 2,
+      "command": "yarn generate",
+      "status": "passed",
+      "log": "/tmp/om-9334-final-gate-2.log"
+    },
+    {
+      "step": 3,
+      "command": "yarn build:packages",
+      "status": "passed",
+      "log": "/tmp/om-9334-final-gate-3.log"
+    },
+    {
+      "step": 4,
+      "command": "yarn i18n:check-sync",
+      "status": "passed",
+      "log": "/tmp/om-9334-final-gate-4.log"
+    },
+    {
+      "step": 5,
+      "command": "yarn i18n:check-usage",
+      "status": "passed",
+      "log": "/tmp/om-9334-final-gate-5.log"
+    },
+    {
+      "step": 6,
+      "command": "yarn typecheck",
+      "status": "passed",
+      "log": "/tmp/om-9334-final-gate-6.log"
+    },
+    {
+      "step": 7,
+      "command": "yarn test",
+      "status": "passed",
+      "log": "/tmp/om-9334-final-gate-7.log"
+    },
+    {
+      "step": 8,
+      "command": "yarn build:app",
+      "status": "passed",
+      "log": "/tmp/om-9334-final-gate-8.log"
+    }
+  ],
+  "allEightPassed": true,
+  "fullTest": {
+    "tasksPassed": 51,
+    "tasksTotal": 51,
+    "elapsed": "5m39.885s",
+    "corePassed": 28031,
+    "coreExistingSkipped": 282,
+    "assertionsOrFixturesWeakened": false
+  },
+  "appBuildElapsed": "25.996s",
+  "targetedIntegration": {
+    "nativeDatasetAndLocalCancellation": "71/71PASS59.168s",
+    "canonicalAndVerifier": "47/47PASS2.895s",
+    "sharedParser": "8/8PASS0.196s",
+    "strictTypeScriptInclusive": "passed",
+    "actualCoreCli": "3/3PASS9.811s"
+  },
+  "priorFailureDisclosure": "The earlier cc62 full-suite module-decoupling isolation failure and unchanged isolated/retry evidence remain preserved in gate-attempt-cc62-module-decoupling.json. No related code/assertions changed.",
+  "releaseAcceptance": false,
+  "remaining": "Fresh exact-source1/20GiB warm/cold plus near-limit row measurements, final review/report. Current external host test load prevents a quiet timing window."
+}

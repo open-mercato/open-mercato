@@ -1,9 +1,13 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { executeCallApi } from '../activity-executor'
+import type { ApiKeyOneTimeIssuer } from '@open-mercato/shared/lib/auth/principal-service'
+import { executeActivity, executeCallApi } from '../activity-executor'
 import type { WorkflowInstance } from '../../data/entities'
 import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
+import { createApiKeyOneTimeIssuer } from '../../../api_keys/services/oneTimeIssuerService'
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { invalidateDictionaryCache } from '@open-mercato/shared/lib/i18n/server'
 import workflowsPl from '../../i18n/pl.json'
@@ -90,10 +94,13 @@ describe('executeCallApi', () => {
     entityManagerDouble.fork = jest.fn(() => createIsolatedFork())
     mockEm = entityManagerDouble as any
 
-    // Mock Container
+    // Mock Container with the API Keys-owned one-time issuer registered
+    const apiKeyOneTimeIssuer = createApiKeyOneTimeIssuer(mockEm)
     mockContainer = {
+      hasRegistration: jest.fn((key: string) => key === 'em' || key === 'apiKeyOneTimeIssuer'),
       resolve: jest.fn((key: string) => {
         if (key === 'em') return mockEm
+        if (key === 'apiKeyOneTimeIssuer') return apiKeyOneTimeIssuer
         return null
       }),
     } as any
@@ -348,6 +355,60 @@ describe('executeCallApi', () => {
     expect(mockEm.flush).toHaveBeenCalled()
   })
 
+  it('cleans up the one-time API key when the request is aborted via AbortSignal and keeps the secret out of results', async () => {
+    const abortController = new AbortController()
+    const abortError = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+    mockFetch.mockImplementation((_url: unknown, init?: RequestInit) => new Promise((_resolve, reject) => {
+      if (init?.signal?.aborted) {
+        reject(abortError)
+        return
+      }
+      init?.signal?.addEventListener('abort', () => reject(abortError), { once: true })
+      queueMicrotask(() => abortController.abort())
+    }) as any)
+
+    const pending = executeCallApi(
+      mockEm,
+      { endpoint: '/api/sales/orders', method: 'GET' },
+      mockContext,
+      mockContainer,
+      abortController.signal,
+    )
+
+    await expect(pending).rejects.toThrow('The operation was aborted')
+    expect(createdApiKeys).toHaveLength(1)
+    expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+    expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('returns the canonical CALL_API result envelope without leaking the one-time API key secret', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 201,
+      statusText: 'Created',
+      headers: new Map([['content-type', 'application/json']]),
+      json: async () => ({ id: 'order-999' }),
+    } as any)
+
+    const result = await executeCallApi(
+      mockEm,
+      { endpoint: '/api/sales/orders', method: 'POST', body: { note: 'pin' } },
+      mockContext,
+      mockContainer,
+    )
+
+    expect(result).toEqual({
+      status: 201,
+      statusText: 'Created',
+      headers: { 'content-type': 'application/json' },
+      body: { id: 'order-999' },
+      authenticated: true,
+      tenantId: 'tenant-456',
+      organizationId: 'org-789',
+    })
+    expect(JSON.stringify(result)).not.toContain('omk_')
+  })
+
   it('should parse non-JSON response as text', async () => {
     // Arrange
     mockFetch.mockResolvedValue({
@@ -404,6 +465,127 @@ describe('executeCallApi', () => {
     // Standard headers should still be present
     expect(headers['Authorization']).toMatch(/^apikey omk_/)
     expect(headers['X-Tenant-Id']).toBe('tenant-456')
+  })
+
+  describe('apiKeyOneTimeIssuer DI boundary (#10476 / #9217)', () => {
+    it('does not directly import api_keys in activity-executor.ts', () => {
+      const executorSource = fs.readFileSync(path.resolve(__dirname, '../activity-executor.ts'), 'utf8')
+      expect(executorSource).not.toContain('api_keys/services/apiKeyService')
+      expect(executorSource).not.toContain('withOnetimeApiKey')
+    })
+
+    it('refuses with the translated unavailable error (non-retriable) when apiKeyOneTimeIssuer is not registered', async () => {
+      const containerWithoutIssuer = {
+        hasRegistration: jest.fn((key: string) => key === 'em'),
+        resolve: jest.fn((key: string) => {
+          if (key === 'em') return mockEm
+          throw Object.assign(new Error(`Could not resolve '${key}'`), { name: 'AwilixResolutionError' })
+        }),
+      } as unknown as AwilixContainer
+
+      const result = await executeActivity(mockEm, containerWithoutIssuer, {
+        activityId: 'call-api-no-issuer',
+        activityType: 'CALL_API',
+        config: { endpoint: '/api/sales/orders', method: 'POST', body: {} },
+        retryPolicy: { maxAttempts: 3, initialIntervalMs: 1, backoffCoefficient: 1, maxIntervalMs: 1 },
+      }, mockContext)
+
+      expect(result.success).toBe(false)
+      expect(result.retryCount).toBe(1)
+      expect(result.error).toContain('CALL_API needs the api_keys module to authenticate internal calls')
+      expect(createdApiKeys).toHaveLength(0)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('also refuses cleanly when apiKeyOneTimeIssuer resolves to undefined (DI unregister override)', async () => {
+      const containerUnregistered = {
+        hasRegistration: jest.fn(() => true),
+        resolve: jest.fn((key: string) => (key === 'em' ? mockEm : undefined)),
+      } as unknown as AwilixContainer
+
+      await expect(
+        executeCallApi(mockEm, { endpoint: '/api/sales/orders' }, mockContext, containerUnregistered),
+      ).rejects.toThrow('CALL_API needs the api_keys module to authenticate internal calls')
+      expect(createdApiKeys).toHaveLength(0)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('routes through a DI override of apiKeyOneTimeIssuer and propagates present-issuer failures with normal retry classification', async () => {
+      const customIssuer: ApiKeyOneTimeIssuer = {
+        withOneTimeApiKey: jest.fn(async (_input, callback) => callback('omk_override.secretvalue')),
+      }
+      const overriddenContainer = {
+        hasRegistration: jest.fn(() => true),
+        resolve: jest.fn((key: string) => {
+          if (key === 'em') return mockEm
+          if (key === 'apiKeyOneTimeIssuer') return customIssuer
+          return null
+        }),
+      } as unknown as AwilixContainer
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Map([['content-type', 'application/json']]),
+        json: async () => ({ ok: true }),
+      } as any)
+
+      const okResult = await executeCallApi(
+        mockEm,
+        { endpoint: '/api/sales/orders' },
+        mockContext,
+        overriddenContainer,
+      )
+      expect(okResult.status).toBe(200)
+      expect(customIssuer.withOneTimeApiKey).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tenantId: 'tenant-456',
+          organizationId: 'org-789',
+          roles: ['role-author-uuid'],
+        }),
+        expect.any(Function),
+      )
+      const [, fetchInit] = mockFetch.mock.calls[0] as any
+      expect(fetchInit.headers.Authorization).toBe('apikey omk_override.secretvalue')
+
+      // Present issuer failing transiently retries under the normal retry policy
+      let attempts = 0
+      const flakyIssuer: ApiKeyOneTimeIssuer = {
+        withOneTimeApiKey: jest.fn(async (_input, callback) => {
+          attempts += 1
+          if (attempts === 1) throw new Error('temporary database timeout')
+          return callback('omk_retry.secretvalue')
+        }),
+      }
+      const flakyContainer = {
+        hasRegistration: jest.fn(() => true),
+        resolve: jest.fn((key: string) => {
+          if (key === 'em') return mockEm
+          if (key === 'apiKeyOneTimeIssuer') return flakyIssuer
+          return null
+        }),
+      } as unknown as AwilixContainer
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Map([['content-type', 'application/json']]),
+        json: async () => ({ recovered: true }),
+      } as any)
+
+      const retryResult = await executeActivity(mockEm, flakyContainer, {
+        activityId: 'call-api-flaky-issuer',
+        activityType: 'CALL_API',
+        config: { endpoint: '/api/sales/orders' },
+        retryPolicy: { maxAttempts: 2, initialIntervalMs: 1, backoffCoefficient: 1, maxIntervalMs: 1 },
+      }, mockContext)
+
+      expect(retryResult.success).toBe(true)
+      expect(retryResult.retryCount).toBe(1)
+      expect(flakyIssuer.withOneTimeApiKey).toHaveBeenCalledTimes(2)
+    })
   })
 
   it('should throw error if endpoint is missing', async () => {
@@ -611,6 +793,83 @@ describe('executeCallApi', () => {
     afterEach(() => {
       if (originalAppUrl === undefined) delete process.env.APP_URL
       else process.env.APP_URL = originalAppUrl
+    })
+
+    const executeWithRetries = (endpoint: string) => executeActivity(mockEm, mockContainer, {
+      activityId: 'call-api-refusal-retry',
+      activityType: 'CALL_API',
+      config: { endpoint },
+      retryPolicy: {
+        maxAttempts: 3,
+        initialIntervalMs: 1,
+        backoffCoefficient: 1,
+        maxIntervalMs: 1,
+      },
+    }, mockContext)
+
+    it.each([
+      'https://untrusted.example/api/sales/orders',
+      'https://user:password@shop.example.com/api/sales/orders',
+      '/backend/login',
+      'invalid endpoint',
+    ])('does not retry the refused endpoint %s or mint a key', async (endpoint) => {
+      const result = await executeWithRetries(endpoint)
+
+      expect(result.success).toBe(false)
+      expect(result.retryCount).toBe(1)
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(createdApiKeys).toHaveLength(0)
+    })
+
+    it.each([
+      'https://untrusted.example/api/sales/orders',
+      '/backend/login',
+      null,
+    ])('does not retry the refused redirect %s and cleans up its only key', async (location) => {
+      mockFetch.mockResolvedValue(redirectTo(302, location))
+
+      const result = await executeWithRetries('/api/sales/orders')
+
+      expect(result.success).toBe(false)
+      expect(result.retryCount).toBe(1)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      expect(createdApiKeys).toHaveLength(1)
+      expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+    })
+
+    it('does not restart a refused redirect chain after reaching its limit', async () => {
+      mockFetch.mockResolvedValue(redirectTo(308, '/api/sales/orders'))
+
+      const result = await executeWithRetries('/api/sales/orders')
+
+      expect(result.success).toBe(false)
+      expect(result.retryCount).toBe(1)
+      expect(mockFetch).toHaveBeenCalledTimes(4)
+      expect(createdApiKeys).toHaveLength(1)
+      expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+    })
+
+    it.each(['network', 'server'])('still retries a transient %s failure and cleans up both keys', async (failure) => {
+      if (failure === 'network') {
+        mockFetch.mockRejectedValueOnce(new Error('[internal] connection reset'))
+      } else {
+        mockFetch.mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: new Map([['content-type', 'application/json']]),
+          json: async () => ({ error: 'temporarily unavailable' }),
+        } as Response)
+      }
+      mockFetch.mockResolvedValueOnce(okJson())
+
+      const result = await executeWithRetries('/api/sales/orders')
+
+      expect(result.success).toBe(true)
+      expect(result.retryCount).toBe(1)
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      expect(createdApiKeys).toHaveLength(2)
+      expect(createdApiKeys.every((record) => record.deletedAt instanceof Date)).toBe(true)
     })
 
     it('rejects a same-host http:// endpoint when APP_URL is https, before minting a key or sending', async () => {

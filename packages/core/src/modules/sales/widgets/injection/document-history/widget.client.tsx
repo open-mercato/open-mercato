@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Spinner } from "@open-mercato/ui/primitives/spinner"
-import { useT, type TranslateFn } from "@open-mercato/shared/lib/i18n/context"
+import { useLocale, useT, type TranslateFn } from "@open-mercato/shared/lib/i18n/context"
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall"
 import { formatRelativeTime, formatDateTime } from "@open-mercato/shared/lib/time"
 import { cn } from "@open-mercato/shared/lib/utils"
@@ -67,6 +67,7 @@ const KIND_BG_COLORS = {
 }
 
 export const CHANGED_FIELD_LABELS: Record<string, { key: string; fallback: string }> = {
+  lines: { key: 'sales.documents.items.title', fallback: 'Items' },
   productId: { key: 'sales.documents.history.fields.product', fallback: 'Product' },
   productVariantId: { key: 'sales.documents.history.fields.variant', fallback: 'Variant' },
   serviceId: { key: 'sales.documents.history.fields.service', fallback: 'Service' },
@@ -142,6 +143,7 @@ function humanizeChangedField(field: string): string {
 export function translateChangedField(t: TranslateFn, field: string): string {
   const normalized = normalizeChangedField(field)
   const translation = CHANGED_FIELD_LABELS[normalized]
+    ?? (normalized.endsWith('Exact') ? CHANGED_FIELD_LABELS[normalized.slice(0, -'Exact'.length)] : undefined)
   return translation ? t(translation.key, translation.fallback) : humanizeChangedField(field)
 }
 
@@ -205,8 +207,9 @@ function TimelineItem({
   isLast: boolean
 }) {
   const t = useT()
+  const locale = useLocale()
   const KindIcon = KIND_ICONS[entry.kind]
-  const relativeTime = formatRelativeTime(entry.occurredAt)
+  const relativeTime = formatRelativeTime(entry.occurredAt, { locale, translate: t })
   const absoluteTime = formatDateTime(entry.occurredAt)
 
   const isStatusChange = entry.kind === 'status' && entry.metadata?.statusTo

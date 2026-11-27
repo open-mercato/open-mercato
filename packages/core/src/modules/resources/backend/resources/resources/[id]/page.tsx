@@ -22,9 +22,11 @@ import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/resources/lib/resourceSchedule'
 import { RESOURCES_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/resources/lib/resourceCustomFields'
+import { normalizeCapacityInput } from '@open-mercato/core/modules/resources/lib/capacityUnits'
 import type { AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { ResourcesResourceForm, useResourcesResourceFormConfig } from '@open-mercato/core/modules/resources/components/ResourceCrudForm'
+import { usePlannerModuleEnabled } from '@open-mercato/core/modules/resources/lib/plannerModule'
 import { renderDictionaryColor, renderDictionaryIcon, ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { createResourceNotesAdapter } from '@open-mercato/core/modules/resources/components/detail/notesAdapter'
 import { createResourceActivitiesAdapter } from '@open-mercato/core/modules/resources/components/detail/activitiesAdapter'
@@ -121,6 +123,8 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const [activityDictionaryId, setActivityDictionaryId] = React.useState<string | null>(null)
   const [activityTypeEntries, setActivityTypeEntries] = React.useState<DictionaryEntryOption[]>([])
   const flashShownRef = React.useRef(false)
+  const plannerEnabled = usePlannerModuleEnabled()
+  const visibleTab = plannerEnabled ? activeTab : 'details'
 
   const availabilityMode = 'availability'
   const mutationContextId = React.useMemo(
@@ -269,13 +273,18 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   React.useEffect(() => {
     if (!searchParams) return
     const tabParam = searchParams.get('tab')
-    if (tabParam === 'availability') {
+    if (tabParam === 'availability' && plannerEnabled) {
       setActiveTab('availability')
     }
     const created = searchParams.get('created') === '1'
     if (created && !flashShownRef.current) {
       flashShownRef.current = true
-      flash(t('resources.resources.flash.createdAvailability', 'Saved. You can now set availability.'), 'success')
+      flash(
+        plannerEnabled
+          ? t('resources.resources.flash.createdAvailability', 'Saved. You can now set availability.')
+          : t('resources.resources.flash.created', 'Resource created.'),
+        'success',
+      )
       const nextParams = new URLSearchParams(searchParams.toString())
       nextParams.delete('created')
       const nextQuery = nextParams.toString()
@@ -284,7 +293,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
         : `/backend/resources/resources${nextQuery ? `?${nextQuery}` : ''}`
       router.replace(nextPath)
     }
-  }, [resourceId, router, searchParams, t])
+  }, [plannerEnabled, resourceId, router, searchParams, t])
 
   const buildScheduleItems = React.useCallback<AvailabilityScheduleItemBuilder>(
     ({ availabilityRules, translate }) => buildResourceScheduleItems({
@@ -326,7 +335,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
       ...rest,
       id: resourceId,
       resourceTypeId: values.resourceTypeId || null,
-      capacity: values.capacity ? Number(values.capacity) : null,
+      capacity: normalizeCapacityInput(values.capacity),
       capacityUnitValue: values.capacityUnitValue ? String(values.capacityUnitValue) : null,
       appearanceIcon: appearance.icon ?? null,
       appearanceColor: appearance.color ?? null,
@@ -345,8 +354,10 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
 
   const tabs = React.useMemo(() => ([
     { id: 'details', label: t('resources.resources.tabs.details', 'Details') },
-    { id: 'availability', label: t('resources.resources.tabs.availability', 'Availability') },
-  ]), [t])
+    ...(plannerEnabled
+      ? [{ id: 'availability', label: t('resources.resources.tabs.availability', 'Availability') }]
+      : []),
+  ]), [plannerEnabled, t])
   const detailTabs = React.useMemo(() => ([
     { id: 'notes' as const, label: t('resources.resources.detail.tabs.notes', 'Notes') },
     { id: 'activities' as const, label: t('resources.resources.detail.tabs.activities', 'Activities') },
@@ -671,7 +682,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
           />
 
           <Tabs
-            value={activeTab}
+            value={visibleTab}
             onValueChange={(value) => setActiveTab(value as 'details' | 'availability')}
             variant="underline"
           >
@@ -687,7 +698,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
             </TabsList>
           </Tabs>
 
-          {activeTab === 'details' ? (
+          {visibleTab === 'details' ? (
             <>
               <div className="rounded-lg border bg-card p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">

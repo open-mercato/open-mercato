@@ -289,7 +289,7 @@ function FlashMessagesInner() {
           status={flashKindToAlertStatus[kind]}
           size="sm"
           dismissible
-          dismissAriaLabel={translate ? translate('common.close', 'Close') : 'Close'}
+          dismissAriaLabel={translate ? translate('ui.flash.dismiss', 'Dismiss notification') : 'Dismiss notification'}
           onDismiss={handleDismiss}
           className="shadow-md"
         >

@@ -218,6 +218,35 @@ describe('checkExternalEmailBudget', () => {
     expect(context.windowRows.map((row) => row.count)).toEqual([2, 2])
   })
 
+  it.each([
+    ['the previous lookup pepper', { LOOKUP_HASH_PEPPER: 'pepper-before-rotation' }],
+    ['the legacy unkeyed digest', {}],
+  ])('keeps matching a recipient reserved under %s after the pepper changes', async (_label, before: Record<string, string>) => {
+    const keys = ['LOOKUP_HASH_PEPPER', 'LOOKUP_HASH_OLD_PEPPER', 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY', 'TENANT_DATA_ENCRYPTION_KEY']
+    const original = new Map(keys.map((key) => [key, process.env[key]]))
+    const applyEnv = (values: Record<string, string>) => {
+      for (const key of keys) {
+        if (values[key] === undefined) delete process.env[key]
+        else process.env[key] = values[key]
+      }
+    }
+    try {
+      const context = createContext({ configuredLimit: 1 })
+      applyEnv(before)
+      await expect(check(context)).resolves.toBeNull()
+
+      applyEnv({ LOOKUP_HASH_PEPPER: 'pepper-after-rotation', LOOKUP_HASH_OLD_PEPPER: 'pepper-before-rotation' })
+      await expect(check(context)).resolves.toBeNull()
+
+      expect(context.rows).toHaveLength(1)
+    } finally {
+      for (const [key, value] of original) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  })
+
   it('rejects a new recipient beyond the configured daily cap', async () => {
     const context = createContext({ configuredLimit: 1 })
 

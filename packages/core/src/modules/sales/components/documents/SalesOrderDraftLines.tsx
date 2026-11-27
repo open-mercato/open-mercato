@@ -162,7 +162,7 @@ export function SalesOrderDraftLines({
   ), [lines, onChange, t])
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       <div className="flex items-center justify-between gap-4">
         <div>
           <h3 className="text-sm font-medium">{t('sales.orders.form.lines', 'Line Items')}</h3>
@@ -176,21 +176,23 @@ export function SalesOrderDraftLines({
         </Button>
       </div>
       {error ? <p className="text-sm text-status-error-text" role="alert">{error}</p> : null}
-      <DataTable
-        columns={columns}
-        data={lines}
-        embedded
-        disableRowClick
-        rowActions={rowActions}
-        emptyState={(
-          <EmptyState
-            size="sm"
-            title={t('sales.documents.items.empty', 'No items yet.')}
-            description={t('sales.orders.linesRequired', 'Add at least one line item before creating the order.')}
-            actions={<Button type="button" variant="outline" size="sm" onClick={openCreate}>{t('sales.documents.items.add', 'Add item')}</Button>}
-          />
-        )}
-      />
+      <div className="min-w-0 overflow-x-auto">
+        <DataTable
+          columns={columns}
+          data={lines}
+          embedded
+          disableRowClick
+          rowActions={rowActions}
+          emptyState={(
+            <EmptyState
+              size="sm"
+              title={t('sales.documents.items.empty', 'No items yet.')}
+              description={t('sales.orders.linesRequired', 'Add at least one line item before creating the order.')}
+              actions={<Button type="button" variant="outline" size="sm" onClick={openCreate}>{t('sales.documents.items.add', 'Add item')}</Button>}
+            />
+          )}
+        />
+      </div>
       <LineItemDialog
         open={dialogOpen}
         onOpenChange={(open) => {

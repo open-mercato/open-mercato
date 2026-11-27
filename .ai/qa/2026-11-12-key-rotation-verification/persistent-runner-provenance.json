@@ -1,0 +1,309 @@
+{
+  "schemaVersion": 1,
+  "series": "new persistent-artifact measurement series; explicit replacement image identity",
+  "oldContainer": "om-rotation-benchmark-9334",
+  "oldImageId": "sha256:65e59238110a1a2594062906d729c7f720f29bbcae1a32f1b5f4ef8c2b0b340c",
+  "oldContainerPreservedStopped": true,
+  "newContainer": "om-rotation-benchmark-9334-persistent",
+  "replacementImageId": "sha256:dba18772f464b864872691703a79fc856f4b45931f36472b8515c5a00e508d5c",
+  "runtimeFilesCompared": 42,
+  "runtimeFilesAllEqual": true,
+  "node": "v24.22.2",
+  "postgresql": "16.15 (Debian 16.15-1.pgdg13+2)",
+  "autovacuum": "off",
+  "resources": {
+    "NanoCpus": 4000000000,
+    "Memory": 8589934592,
+    "MemorySwap": 17179869184,
+    "ShmSize": 67108864
+  },
+  "mounts": [
+    {
+      "Type": "volume",
+      "Name": "om-rotation-benchmark-9334-bench",
+      "Destination": "/bench",
+      "RW": true
+    },
+    {
+      "Type": "volume",
+      "Name": "om-rotation-benchmark-9334",
+      "Destination": "/var/lib/postgresql/data",
+      "RW": true
+    }
+  ],
+  "labels": {
+    "com.open-mercato.owner": "codex",
+    "com.open-mercato.purpose": "persistent-benchmark",
+    "com.open-mercato.task": "rotation-verification-9334"
+  },
+  "privateEnvMode": "0o600",
+  "benchArtifactsCopied": false,
+  "measurementsStarted": false,
+  "runtimeBinaryProof": {
+    "oldContainer": "om-rotation-benchmark-9334",
+    "oldImageId": "sha256:65e59238110a1a2594062906d729c7f720f29bbcae1a32f1b5f4ef8c2b0b340c",
+    "candidateImageId": "sha256:dba18772f464b864872691703a79fc856f4b45931f36472b8515c5a00e508d5c",
+    "comparedFiles": [
+      {
+        "path": "/bin/sh",
+        "oldSha256": "367967c823a0c391e5049b15a67c6a0a629c88b9b6dcdca75ef13ac9d65334b1",
+        "candidateSha256": "367967c823a0c391e5049b15a67c6a0a629c88b9b6dcdca75ef13ac9d65334b1",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libaudit.so.1",
+        "oldSha256": "56ed9de372c2734b56af41dfcf31c8a38494bb38317f4e4759b8014a4307a25b",
+        "candidateSha256": "56ed9de372c2734b56af41dfcf31c8a38494bb38317f4e4759b8014a4307a25b",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libc.so.6",
+        "oldSha256": "70fa4c4cf57eabeb96097cce47582d02379c4cd1de3db3e98ade4dd7089a1b13",
+        "candidateSha256": "70fa4c4cf57eabeb96097cce47582d02379c4cd1de3db3e98ade4dd7089a1b13",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libcap-ng.so.0",
+        "oldSha256": "dae52ebda1d10beeb0e49c18b6a986833808fcedce81d37639f3882297574422",
+        "candidateSha256": "dae52ebda1d10beeb0e49c18b6a986833808fcedce81d37639f3882297574422",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libcap.so.2",
+        "oldSha256": "2d74e5a4d536311c2e84d1603edb4c8dd7cdfaa92f1305ec4e317edcd062ddec",
+        "candidateSha256": "2d74e5a4d536311c2e84d1603edb4c8dd7cdfaa92f1305ec4e317edcd062ddec",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libcom_err.so.2",
+        "oldSha256": "6a3258ad8e42f54f4333b8a5b6c671922a4482d261a89f75114b0de3ef565013",
+        "candidateSha256": "6a3258ad8e42f54f4333b8a5b6c671922a4482d261a89f75114b0de3ef565013",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libcrypto.so.3",
+        "oldSha256": "809909371a1db7d2b9cac4c2fa2eff63eb6169d5979416d94155955a7ad32516",
+        "candidateSha256": "809909371a1db7d2b9cac4c2fa2eff63eb6169d5979416d94155955a7ad32516",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libdl.so.2",
+        "oldSha256": "8023ba7cb6ecabb57d1910ecd24ce347cba5653d1b547d9c7950301ed59716ca",
+        "candidateSha256": "8023ba7cb6ecabb57d1910ecd24ce347cba5653d1b547d9c7950301ed59716ca",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libgcc_s.so.1",
+        "oldSha256": "9a146967dc38c3820c5dc21c3209812655f66b6551264072b187bd0e787947e0",
+        "candidateSha256": "9a146967dc38c3820c5dc21c3209812655f66b6551264072b187bd0e787947e0",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libgssapi_krb5.so.2",
+        "oldSha256": "967b9c108b49481f6cc1358d675a6c1b16754254c84c421c43a5814010e2a215",
+        "candidateSha256": "967b9c108b49481f6cc1358d675a6c1b16754254c84c421c43a5814010e2a215",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libicudata.so.76",
+        "oldSha256": "b1c6ed9d0c4efef8034d101e17a8521128a616aeed3f128644cb4d1696476165",
+        "candidateSha256": "b1c6ed9d0c4efef8034d101e17a8521128a616aeed3f128644cb4d1696476165",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libicui18n.so.76",
+        "oldSha256": "49b3a041c31dd191d1e68473e12aa3b3cd69843ab64e8bcd5f688d035f59d722",
+        "candidateSha256": "49b3a041c31dd191d1e68473e12aa3b3cd69843ab64e8bcd5f688d035f59d722",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libicuuc.so.76",
+        "oldSha256": "4eb85e84e80c9b2f0ec719fb4a2acaadffad677c0c75408599187a2363f738d3",
+        "candidateSha256": "4eb85e84e80c9b2f0ec719fb4a2acaadffad677c0c75408599187a2363f738d3",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libk5crypto.so.3",
+        "oldSha256": "950c7c9c2da1d5ebaae583a6c4da6b9b41bbbee6a4a8f848a868c0e106fe9335",
+        "candidateSha256": "950c7c9c2da1d5ebaae583a6c4da6b9b41bbbee6a4a8f848a868c0e106fe9335",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libkeyutils.so.1",
+        "oldSha256": "729c2c3578b96763a2e7148ad5a26f0136958025dff0f309e4267f09b9f61a4a",
+        "candidateSha256": "729c2c3578b96763a2e7148ad5a26f0136958025dff0f309e4267f09b9f61a4a",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libkrb5.so.3",
+        "oldSha256": "deb1db5877ee7535d8434003404b4a4e181ab660a9e5370ba66c4b8e759e1111",
+        "candidateSha256": "deb1db5877ee7535d8434003404b4a4e181ab660a9e5370ba66c4b8e759e1111",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libkrb5support.so.0",
+        "oldSha256": "265157c5541d3cc73f5bb5cf43e8a58e996a25211d716a9ab2ba65b1a787633a",
+        "candidateSha256": "265157c5541d3cc73f5bb5cf43e8a58e996a25211d716a9ab2ba65b1a787633a",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/liblber.so.2",
+        "oldSha256": "87376cef9c124257cec7fc0b5eac1b4c8535f597c6ebae70ad9334385cfb14d3",
+        "candidateSha256": "87376cef9c124257cec7fc0b5eac1b4c8535f597c6ebae70ad9334385cfb14d3",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libldap.so.2",
+        "oldSha256": "52130bdf6f1abdd8b476193cfd532d8c9f3a6d57eeabe06e4edb65b1711be83c",
+        "candidateSha256": "52130bdf6f1abdd8b476193cfd532d8c9f3a6d57eeabe06e4edb65b1711be83c",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/liblz4.so.1",
+        "oldSha256": "44e40986e6b9c5b65886be0f8e7f4b3fcc5f38e40a0d573f90bc917195d3a3ed",
+        "candidateSha256": "44e40986e6b9c5b65886be0f8e7f4b3fcc5f38e40a0d573f90bc917195d3a3ed",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/liblzma.so.5",
+        "oldSha256": "abc92a2b9322d612f7a7f418b25965361098d0a534c5527fc692f2f0c33d0f9f",
+        "candidateSha256": "abc92a2b9322d612f7a7f418b25965361098d0a534c5527fc692f2f0c33d0f9f",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libm.so.6",
+        "oldSha256": "a8afb2d1f4a0c5e14c0fc82f794ec839eafe29738907aa92895410f57630bbe2",
+        "candidateSha256": "a8afb2d1f4a0c5e14c0fc82f794ec839eafe29738907aa92895410f57630bbe2",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libpam.so.0",
+        "oldSha256": "158c36c6c27ba44b04610bae1846602b9bf71f62010d54ad7fd447b23e3004a4",
+        "candidateSha256": "158c36c6c27ba44b04610bae1846602b9bf71f62010d54ad7fd447b23e3004a4",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libpq.so.5",
+        "oldSha256": "094cbe08c8c6134b91b1946e42012318728003cf2dd2fcc0ab1ee9821ba38f58",
+        "candidateSha256": "094cbe08c8c6134b91b1946e42012318728003cf2dd2fcc0ab1ee9821ba38f58",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libpthread.so.0",
+        "oldSha256": "b4f0bcbb029e42861545757592356a490d87ef42cfa8a7f2d4295846e42698b5",
+        "candidateSha256": "b4f0bcbb029e42861545757592356a490d87ef42cfa8a7f2d4295846e42698b5",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libreadline.so.8",
+        "oldSha256": "41eaf42757798c29d7dd13f519f76a91cd06847a068ed29a7912b343b60c48b3",
+        "candidateSha256": "41eaf42757798c29d7dd13f519f76a91cd06847a068ed29a7912b343b60c48b3",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libresolv.so.2",
+        "oldSha256": "cb9756963306434c0fbe3351ded4041a5cc6e6ce37efc175de1093e13b3747fc",
+        "candidateSha256": "cb9756963306434c0fbe3351ded4041a5cc6e6ce37efc175de1093e13b3747fc",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libsasl2.so.2",
+        "oldSha256": "8bfeedd24d410b345ac39c26dfa9970609fe0ca6738a20fd6ac154a232aec152",
+        "candidateSha256": "8bfeedd24d410b345ac39c26dfa9970609fe0ca6738a20fd6ac154a232aec152",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libssl.so.3",
+        "oldSha256": "b3b9a479537bded757b818bb787413d8f8f636135e6546c84e90688eca1dc842",
+        "candidateSha256": "b3b9a479537bded757b818bb787413d8f8f636135e6546c84e90688eca1dc842",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libstdc++.so.6",
+        "oldSha256": "fff1f0050a33ddf29c44634c7639ac16e2573a61e3daab4fcc4c007b432ccf19",
+        "candidateSha256": "fff1f0050a33ddf29c44634c7639ac16e2573a61e3daab4fcc4c007b432ccf19",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libsystemd.so.0",
+        "oldSha256": "e3ecd5cf99aa5a9aa88422ab21bde152e998be07b38ebed7ac20cc7d2dd6fe8f",
+        "candidateSha256": "e3ecd5cf99aa5a9aa88422ab21bde152e998be07b38ebed7ac20cc7d2dd6fe8f",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libtinfo.so.6",
+        "oldSha256": "57cda9469aa613f8ab25b21af56867d5a01d19c0a91fda6965aa6501ea98cfcf",
+        "candidateSha256": "57cda9469aa613f8ab25b21af56867d5a01d19c0a91fda6965aa6501ea98cfcf",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libxml2.so.2",
+        "oldSha256": "1729c2e360adc7a56b1358758234bca7395c2b990bb8cf5acb4218d06839602d",
+        "candidateSha256": "1729c2e360adc7a56b1358758234bca7395c2b990bb8cf5acb4218d06839602d",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libxxhash.so.0",
+        "oldSha256": "574e6a1156f27d9bf8fa3f7e926330b61fba4b328c66c54b341459cb229ff4fb",
+        "candidateSha256": "574e6a1156f27d9bf8fa3f7e926330b61fba4b328c66c54b341459cb229ff4fb",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libz.so.1",
+        "oldSha256": "6fe00acadf8119ff245855e5dcc7f26c6c0ffaf4bfa2baa88feab58f23727d65",
+        "candidateSha256": "6fe00acadf8119ff245855e5dcc7f26c6c0ffaf4bfa2baa88feab58f23727d65",
+        "equal": true
+      },
+      {
+        "path": "/lib/aarch64-linux-gnu/libzstd.so.1",
+        "oldSha256": "1279c4edfbfb08878b5b7fb40d392c1bdc9b30100d9b7a019d4aefaf10d2046c",
+        "candidateSha256": "1279c4edfbfb08878b5b7fb40d392c1bdc9b30100d9b7a019d4aefaf10d2046c",
+        "equal": true
+      },
+      {
+        "path": "/lib/ld-linux-aarch64.so.1",
+        "oldSha256": "1b882eddacd494b060413a8aa4f0a4754ee3f84775e68cecbf8a86092b59cca6",
+        "candidateSha256": "1b882eddacd494b060413a8aa4f0a4754ee3f84775e68cecbf8a86092b59cca6",
+        "equal": true
+      },
+      {
+        "path": "/usr/lib/postgresql/16/bin/pg_dump",
+        "oldSha256": "cf40fbfecf9dcbaf8fddd47289b9729146b33c7f6b46ee5e409649da271cddc0",
+        "candidateSha256": "cf40fbfecf9dcbaf8fddd47289b9729146b33c7f6b46ee5e409649da271cddc0",
+        "equal": true
+      },
+      {
+        "path": "/usr/lib/postgresql/16/bin/pg_restore",
+        "oldSha256": "7831a506282d19fa0a89e020c8a522aa493692e6738fe022e114809b3c0abce2",
+        "candidateSha256": "7831a506282d19fa0a89e020c8a522aa493692e6738fe022e114809b3c0abce2",
+        "equal": true
+      },
+      {
+        "path": "/usr/lib/postgresql/16/bin/postgres",
+        "oldSha256": "a3b0418538ae54f287fe31f3a5ca78a0b506e897617cd55731cd4e036dce4915",
+        "candidateSha256": "a3b0418538ae54f287fe31f3a5ca78a0b506e897617cd55731cd4e036dce4915",
+        "equal": true
+      },
+      {
+        "path": "/usr/lib/postgresql/16/bin/psql",
+        "oldSha256": "2cbb857ac3889d22cfe0dce6581cf2321ce69bcb253cc8b55b981914cd3ee22a",
+        "candidateSha256": "2cbb857ac3889d22cfe0dce6581cf2321ce69bcb253cc8b55b981914cd3ee22a",
+        "equal": true
+      },
+      {
+        "path": "/usr/local/bin/node",
+        "oldSha256": "b4855de8c4781130b722ceaec9718fed77cca3eed2e5cfc5455e267c0b9ee3b0",
+        "candidateSha256": "b4855de8c4781130b722ceaec9718fed77cca3eed2e5cfc5455e267c0b9ee3b0",
+        "equal": true
+      }
+    ],
+    "allComparedEqual": true,
+    "evict": {
+      "old": null,
+      "candidate": "a2340849a9f2438a2a06c843e3e026d2288f922faace9520241b3f743e7d5fbf"
+    },
+    "noBenchArtifactsOrKeysCopied": true
+  },
+  "releaseAcceptance": false,
+  "purpose": "Explicit runner provenance only. No performance result is inferred from setup or byte-identical runtime binaries."
+}

@@ -11,7 +11,6 @@
  */
 
 import { act, renderHook } from '@testing-library/react'
-import type { UseQueryResult } from '@tanstack/react-query'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { dismissRecordConflict, getRecordConflictForTest } from '@open-mercato/ui/backend/conflicts'
 import { useMessageDetailsActions } from '../useMessageDetailsActions'
@@ -54,16 +53,16 @@ function conflictResponse() {
 
 function renderActions() {
   const onDeleted = jest.fn()
-  const detailQuery = { refetch: jest.fn().mockResolvedValue(null) } as unknown as UseQueryResult<MessageDetail | null, Error>
   const view = renderHook(
     ({ detail }: { detail: MessageDetail }) =>
       useMessageDetailsActions({
         id: 'message-1',
         t: translate,
         detail,
-        detailQuery,
+        refetchDetail: jest.fn().mockResolvedValue(undefined),
         attachments: [],
         isArchived: false,
+        runDelete: (operation) => operation(),
         onDeleted,
         onMarkedUnread: jest.fn(),
         refreshDetailWithoutAutoMarkRead: jest.fn().mockResolvedValue(null),

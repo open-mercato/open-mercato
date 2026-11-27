@@ -8,6 +8,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { exchangeRateCreateSchema, exchangeRateUpdateSchema } from '../../data/validators'
 import {
   createCurrenciesCrudOpenApi,
@@ -88,7 +90,7 @@ const listQuerySchema = z
     toCurrencyCode: z.string().optional(),
     isActive: z.enum(['true', 'false']).optional(),
     source: z.string().optional(),
-    type: z.enum(['buy', 'sell']).optional(),
+    type: z.enum(['buy', 'sell', 'average']).optional(),
   })
   .loose()
 
@@ -100,6 +102,7 @@ type ExchangeRateRow = {
   date: string
   source: string
   type: string | null
+  externalReference: string | null
   metadata: Record<string, unknown> | null
   isActive: boolean
   createdAt: string | null
@@ -116,6 +119,7 @@ const toRow = (rate: ExchangeRate): ExchangeRateRow => ({
   date: rate.date.toISOString(),
   source: String(rate.source),
   type: rate.type ?? null,
+  externalReference: rate.externalReference ?? null,
   metadata: rate.metadata ?? null,
   isActive: !!rate.isActive,
   createdAt: rate.createdAt ? rate.createdAt.toISOString() : null,
@@ -151,12 +155,19 @@ export async function GET(req: Request) {
   const em = container.resolve('em') as EntityManager
 
   const { id, page, pageSize, sortField, sortDir, fromCurrencyCode, toCurrencyCode, isActive, source, type } = parsed.data
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const { organizationIds } = resolveOrganizationScopeFilter(scope, auth)
+  if (organizationIds && organizationIds.length === 0) {
+    return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
+  }
   const where: FilterQuery<ExchangeRate> = {
     tenantId: auth.tenantId,
     deletedAt: null,
   }
-  if (auth.orgId) {
-    where.organizationId = auth.orgId
+  if (organizationIds && organizationIds.length === 1) {
+    where.organizationId = organizationIds[0]
+  } else if (organizationIds && organizationIds.length > 1) {
+    where.organizationId = { $in: organizationIds }
   }
 
   if (id) where.id = id
@@ -202,6 +213,7 @@ const exchangeRateListItemSchema = z.object({
   date: z.string(),
   source: z.string(),
   type: z.string().nullable(),
+  externalReference: z.string().nullable(),
   metadata: z.record(z.string(), z.unknown()).nullable(),
   isActive: z.boolean(),
   createdAt: z.string().nullable(),

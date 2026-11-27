@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ShieldOff } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { flashMutationError } from '../../lib/flashMutationError'
+import { ReservationNotActiveError } from '../../lib/reservationMutationError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -35,6 +36,13 @@ import {
 } from '../../lib/inventoryDisplayUi'
 import { parseInventoryQuantity } from '../../lib/inventoryMutationUi'
 import type { WmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+
+class BalanceIntegrityViolationError extends Error {
+  constructor() {
+    super('[internal] Balance integrity violation')
+    this.name = 'BalanceIntegrityViolationError'
+  }
+}
 
 const RELEASE_REASON_CODES = ['order_cancelled', 'manual_release', 'correction', 'other'] as const
 
@@ -214,14 +222,10 @@ export function ReleaseReservationDialog({
             })
             if (!call.ok) {
               if (call.response.status === 409 && (call.result as { error?: string } | null)?.error === 'balance_integrity_violation') {
-                flash(
-                  t(
-                    'wms.backend.inventory.release.errors.balanceIntegrityViolation',
-                    'Balance integrity error — run "mercato wms verify-balances --repair" to diagnose and fix drift before retrying.',
-                  ),
-                  'error',
-                )
-                return {}
+                throw new BalanceIntegrityViolationError()
+              }
+              if (call.response.status === 409 && (call.result as { error?: string } | null)?.error === 'invalid_reservation_state') {
+                throw new ReservationNotActiveError()
               }
               await raiseCrudError(
                 call.response,
@@ -242,6 +246,27 @@ export function ReleaseReservationDialog({
         closeDialog()
         onSuccess?.()
       } catch (error) {
+        if (error instanceof BalanceIntegrityViolationError) {
+          flash(
+            t(
+              'wms.backend.inventory.release.errors.balanceIntegrityViolation',
+              'Balance integrity error — run "mercato wms verify-balances --repair" to diagnose and fix drift before retrying.',
+            ),
+            'error',
+          )
+          return
+        }
+        if (error instanceof ReservationNotActiveError) {
+          flash(
+            t(
+              'wms.backend.inventory.release.errors.invalidReservationState',
+              'This reservation is no longer active — it was already released or fulfilled. Refresh the list to see its current state.',
+            ),
+            'error',
+          )
+          await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
+          return
+        }
         flashMutationError(error, t('wms.backend.inventory.release.errors.submit', 'Failed to release reservation.'), t)
       } finally {
         setSubmitting(false)

@@ -113,6 +113,7 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 200, description: 'Payment refunded' },
+        { status: 404, description: 'Transaction not found in the current scope' },
         { status: 400, description: 'Amount has more decimal places than the transaction currency supports' },
         { status: 409, description: 'Invalid payment status transition' },
         { status: 422, description: 'Invalid payload' },

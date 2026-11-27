@@ -88,6 +88,30 @@ describe('TagInput primitive', () => {
     expect(screen.queryByText('c')).not.toBeInTheDocument()
   })
 
+  it('moves focus to the last remove button at the limit and back to the input after removal', () => {
+    render(<Harness maxTags={1} aria-label="tags" />)
+    const input = getInput()
+    input.focus()
+    fireEvent.change(input, { target: { value: 'last' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    const removeButton = screen.getByRole('button', { name: 'Remove last' })
+    expect(input).toBeDisabled()
+    expect(removeButton).toHaveFocus()
+
+    fireEvent.click(removeButton)
+    expect(input).toBeEnabled()
+    expect(input).toHaveFocus()
+  })
+
+  it('returns focus to the input when a focused chip is removed below the limit', () => {
+    render(<Harness initial={['one', 'two']} aria-label="tags" />)
+    const removeButton = screen.getByRole('button', { name: 'Remove one' })
+    removeButton.focus()
+    fireEvent.click(removeButton)
+    expect(getInput()).toHaveFocus()
+  })
+
   it('rejects silently when validate returns false', () => {
     const validate = (tag: string) => tag !== 'bad'
     render(<Harness validate={validate} aria-label="tags" />)
@@ -96,6 +120,7 @@ describe('TagInput primitive', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(screen.queryByText('bad')).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(input).toHaveValue('bad')
   })
 
   it('shows error message when validate returns a string', () => {
@@ -107,6 +132,7 @@ describe('TagInput primitive', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(screen.queryByText('ab')).not.toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('Tag must be at least 3 characters')
+    expect(input).toHaveValue('ab')
   })
 
   it('clears error after typing again', () => {
@@ -129,6 +155,7 @@ describe('TagInput primitive', () => {
     const matches = screen.getAllByText('dup')
     expect(matches.length).toBe(1)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(input).toHaveValue('')
   })
 
   it('allows duplicates when allowDuplicates is true', () => {

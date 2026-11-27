@@ -265,6 +265,7 @@ type ClaimEventPayload = {
 type ReferenceLookupResult = 'missing' | 'unknown'
 
 type ReferenceValidationInput = {
+  customerId?: string | null
   orderId?: string | null
   salesReturnId?: string | null
   replacementOrderId?: string | null
@@ -1030,6 +1031,30 @@ async function queryLiveCatalogServiceIds(
   }
 }
 
+async function querySalesOrderCustomers(
+  ctx: CommandRuntimeContext,
+  scope: WarrantyClaimScope,
+  ids: string[],
+): Promise<Record<string, unknown>[] | undefined> {
+  if (ids.length === 0) return []
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const db = em.getKysely<SalesReferenceDb>()
+  try {
+    const rows = await db
+      .selectFrom('sales_orders')
+      .select(['id', 'customer_entity_id'])
+      .where('id', 'in', ids)
+      .where('tenant_id', '=', scope.tenantId)
+      .where('organization_id', '=', scope.organizationId)
+      .where('deleted_at', 'is', null)
+      .execute()
+    return rows as Record<string, unknown>[]
+  } catch (err) {
+    if (isMissingReferenceTableError(err)) return undefined
+    throw err
+  }
+}
+
 const CLAIMED_QUANTITY_SCALE = 10_000n
 
 function claimedQuantityUnits(value: string | number | null | undefined): bigint | null {
@@ -1450,6 +1475,25 @@ export async function validateClaimReferences(
       throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidReference' })
     }
   }
+  if (!input.customerId) return
+  const missingParentOrderAllowed = new Map<string, boolean>()
+  for (const lineRef of lineRefs) {
+    const row = lineRowsById.get(lineRef.orderLineId)
+    const orderId = row ? readString(row, 'order_id') : null
+    if (orderId) missingParentOrderAllowed.set(orderId, (missingParentOrderAllowed.get(orderId) ?? true) && lineRef.allowMissing === true)
+  }
+  const orders = await querySalesOrderCustomers(ctx, scope, Array.from(missingParentOrderAllowed.keys()))
+  if (orders === undefined) return
+  const ordersById = new Map(orders.map((order) => [readString(order, 'id'), order]))
+  for (const [orderId, allowMissing] of missingParentOrderAllowed) {
+    const order = ordersById.get(orderId)
+    if (!order && allowMissing) continue
+    if (!order) throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidReference' })
+    const orderCustomerId = readString(order, 'customer_entity_id')
+    if (orderCustomerId && orderCustomerId !== input.customerId) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.customerOrderMismatch' })
+    }
+  }
 }
 
 async function validateAssigneeUser(
@@ -1594,6 +1638,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await validateClaimReferences(ctx, scope, {
+      customerId: input.customerId ?? null,
       orderId: input.orderId ?? null,
       salesReturnId: input.salesReturnId ?? null,
       replacementOrderId: input.replacementOrderId ?? null,
@@ -1760,14 +1805,14 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
       : claim.orderNumber ?? null
     await withAtomicFlush(em, [
       async () => {
-        if (!hasOwn(input, 'orderId')) return
+        if (!hasOwn(input, 'orderId') && !customerChanged) return
         await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
         await enforceWarrantyClaimOptimisticLock(ctx, claim)
         assertClaimUpdateFields(claim, input)
         await assertOrderBelongsToCustomer(
           em, scope, input.orderId ?? null, hasOwn(input, 'customerId') ? (input.customerId ?? null) : (claim.customerId ?? null),
         )
-        if ((input.orderId ?? null) === (claim.orderId ?? null)) return
+        if (!customerChanged && (input.orderId ?? null) === (claim.orderId ?? null)) return
         const retainedLines = await findWithDecryption(
           em,
           WarrantyClaimLine,
@@ -1776,12 +1821,12 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
           scope,
         )
         const lineOrderRefs = retainedLines.flatMap((line) => line.orderLineId
-          ? [{ orderLineId: line.orderLineId, orderId: input.orderId ?? null }]
+          ? [{ orderLineId: line.orderLineId, orderId: effectiveOrderId }]
           : [])
-        if (lineOrderRefs.length > 0 && !input.orderId) {
+        if (lineOrderRefs.length > 0 && orderChanged && !effectiveOrderId) {
           throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidReference' })
         }
-        await validateClaimReferences(ctx, scope, { lineOrderRefs })
+        await validateClaimReferences(ctx, scope, { lineOrderRefs, customerId: effectiveCustomerId })
       },
       () => applyClaimUpdate(claim, input, customerName, orderNumber),
     ], { transaction: true, label: 'warranty_claims.claim.update' })
@@ -2018,6 +2063,7 @@ const transitionClaimCommand: CommandHandler<TransitionClaimInput, { claimId: st
           if (hasOwn(input, 'resolutionSummary')) claim.resolutionSummary = input.resolutionSummary ?? null
         }
         if (input.toStatus === 'closed') claim.closedAt = now
+        else if (fromStatus === 'closed') claim.closedAt = null
         applySlaResume(em, claim, fromStatus, input.toStatus, now, effectiveSettings)
         applySlaPause(em, claim, fromStatus, input.toStatus, now, effectiveSettings)
         claim.awaitingStaffReply = false

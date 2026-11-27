@@ -12,6 +12,8 @@ export type AttachmentPartitionSeed = {
   isPublic?: boolean
 }
 
+export const FORM_LOGO_PARTITION_CODE = 'formLogos'
+
 export const DEFAULT_ATTACHMENT_PARTITIONS: AttachmentPartitionSeed[] = [
   {
     code: 'productsMedia',
@@ -41,7 +43,7 @@ export function resolveDefaultPartitionCode(entityId: string | null | undefined)
 
 export async function ensureDefaultPartitions(em: EntityManager): Promise<void> {
   const repo = em.getRepository(AttachmentPartition)
-  const existing = await repo.findAll({ fields: ['code'] })
+  const existing = await repo.find({ tenantId: null, organizationId: null }, { fields: ['code'] })
   const existingCodes = new Set(existing.map((entry) => entry.code))
   const pending = DEFAULT_ATTACHMENT_PARTITIONS.filter((seed) => !existingCodes.has(seed.code))
   for (const seed of pending) {
