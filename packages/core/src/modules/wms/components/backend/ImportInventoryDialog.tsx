@@ -671,7 +671,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
                       <SelectItem value="csv-comma">
                         {t(
                           'wms.backend.inventory.import.upload.formatValue',
-                          'CSV · comma-separated',
+                          'CSV · comma or semicolon (auto-detected)',
                         )}
                       </SelectItem>
                     </SelectContent>

@@ -16,6 +16,38 @@ describe('inventoryImportCsv', () => {
     expect(parsed.rows).toEqual([['WH-1', 'A-01', 'SKU, special', '10']])
   })
 
+  it('parses semicolon-separated CSV saved by Excel under a comma-decimal locale', () => {
+    const text =
+      'warehouse_code;location_code;sku;quantity;lot_number;serial_number\r\nG_001;R1;"LO;SENS, 10M";1;;\r\n'
+    const parsed = parseCsvText(text)
+    expect(parsed.headers).toEqual([
+      'warehouse_code',
+      'location_code',
+      'sku',
+      'quantity',
+      'lot_number',
+      'serial_number',
+    ])
+    expect(parsed.rows).toEqual([['G_001', 'R1', 'LO;SENS, 10M', '1', '', '']])
+    expect(parseInventoryImportCsv(text)).toEqual([
+      { warehouseCode: 'G_001', locationCode: 'R1', sku: 'LO;SENS, 10M', quantity: '1' },
+    ])
+  })
+
+  it('keeps splitting on commas when the header has more commas than semicolons', () => {
+    const text = '# notes; with; semicolons\nwarehouse_code,location_code,"sku;code",quantity\nWH-1,A-01,SKU;1,5\n'
+    const parsed = parseCsvText(text)
+    expect(parsed.headers).toEqual(['warehouse_code', 'location_code', 'sku;code', 'quantity'])
+    expect(parsed.rows).toEqual([['WH-1', 'A-01', 'SKU;1', '5']])
+  })
+
+  it('detects the separator from the header after blank, empty-cell, and comment lines', () => {
+    const text = '\r\n;;;\r\n""\r\n# c, d\r\nwarehouse_code;sku\r\nW;S,1\r\n'
+    const parsed = parseCsvText(text)
+    expect(parsed.headers).toEqual(['warehouse_code', 'sku'])
+    expect(parsed.rows).toEqual([['W', 'S,1']])
+  })
+
   it('maps headers to import row fields with aliases', () => {
     const rows = mapCsvRowsToImportRawRows(
       ['warehouse', 'location', 'variant_sku', 'on_hand', 'lot'],

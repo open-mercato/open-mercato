@@ -585,7 +585,7 @@
   "wms.backend.inventory.import.upload.encodingValue": "UTF-8 (auto-detected)",
   "wms.backend.inventory.import.upload.fileMeta": "{rows} rows · {size} · detected",
   "wms.backend.inventory.import.upload.format": "Format",
-  "wms.backend.inventory.import.upload.formatValue": "CSV · comma-separated",
+  "wms.backend.inventory.import.upload.formatValue": "CSV · comma or semicolon (auto-detected)",
   "wms.backend.inventory.import.upload.hasHeader": "First row is column header",
   "wms.backend.inventory.import.upload.hasHeaderOn": "On — skip first row when importing",
   "wms.backend.inventory.import.upload.quantityHint": "The quantity column is added to whatever stock already exists at that warehouse/location — it is not a target balance.",

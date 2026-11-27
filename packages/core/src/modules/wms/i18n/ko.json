@@ -585,7 +585,7 @@
   "wms.backend.inventory.import.upload.encodingValue": "UTF-8(자동 감지)",
   "wms.backend.inventory.import.upload.fileMeta": "{rows} 행 · {size} · 감지됨",
   "wms.backend.inventory.import.upload.format": "체재",
-  "wms.backend.inventory.import.upload.formatValue": "CSV · 쉼표로 구분",
+  "wms.backend.inventory.import.upload.formatValue": "CSV · 쉼표 또는 세미콜론 (자동 감지)",
   "wms.backend.inventory.import.upload.hasHeader": "첫 번째 행은 열 머리글입니다.",
   "wms.backend.inventory.import.upload.hasHeaderOn": "켜짐 - 가져올 때 첫 번째 행 건너뛰기",
   "wms.backend.inventory.import.upload.quantityHint": "수량 열은 해당 창고/위치에 이미 존재하는 재고에 추가되며 이는 목표 잔액이 아닙니다.",

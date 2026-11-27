@@ -54,7 +54,51 @@ function trimCell(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
+function detectHeaderDelimiter(text: string): ',' | ';' {
+  let commaCount = 0
+  let semicolonCount = 0
+  let inQuotes = false
+  let lineStart = true
+  let lineHasContent = false
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+
+    if (lineStart && char === '#') {
+      while (index < text.length && text[index] !== '\n') {
+        index += 1
+      }
+      continue
+    }
+    lineStart = false
+
+    if (char === '"') {
+      inQuotes = !inQuotes
+      continue
+    }
+    if (inQuotes) {
+      if (char.trim().length > 0) lineHasContent = true
+      continue
+    }
+
+    if (char === '\n') {
+      if (lineHasContent) break
+      commaCount = 0
+      semicolonCount = 0
+      lineStart = true
+      continue
+    }
+
+    if (char === ',') commaCount += 1
+    else if (char === ';') semicolonCount += 1
+    else if (char.trim().length > 0) lineHasContent = true
+  }
+
+  return semicolonCount > commaCount ? ';' : ','
+}
+
 export function parseCsvText(text: string): { headers: string[]; rows: string[][] } {
+  const delimiter = detectHeaderDelimiter(text)
   const rows: string[][] = []
   let currentRow: string[] = []
   let currentCell = ''
@@ -91,7 +135,7 @@ export function parseCsvText(text: string): { headers: string[]; rows: string[][
       continue
     }
 
-    if (char === ',') {
+    if (char === delimiter) {
       currentRow.push(currentCell)
       currentCell = ''
       continue

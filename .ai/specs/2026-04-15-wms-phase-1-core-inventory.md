@@ -676,6 +676,9 @@ None.
 
 ## Changelog
 
+### 2026-11-27
+- The inventory CSV import split cells on commas only, so a file saved by Excel under a comma-decimal locale (semicolon separator) became one unmapped column and every row failed with "X is required". The parser now takes the separator from the header line, using `;` when it has more unquoted semicolons than commas and `,` otherwise. This covers the import dialog and the import API's `csv` body and file upload. The dialog's Format field now reads "comma or semicolon (auto-detected)". Comma files parse as before. Coverage: `inventoryImportCsv.test.ts`, `TC-WMS-IMPORT-SEP-001`.
+
 ### 2026-11-22
 - A lot update that sent only one or two dates compared them with each other but not with the lot's stored dates, so `PUT /api/wms/lots` with just `expiresAt` could save an expiry earlier than the stored manufactured or best-before date. `wms.lots.update` now checks the stored dates merged with the patched ones before writing and answers with the same 400 validation error as create. Updates that don't touch a date are not re-checked, and existing lots are not repaired. Coverage: `configuration.lotDateOrdering.test.ts`, `TC-WMS-036`.
 

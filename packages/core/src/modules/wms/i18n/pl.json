@@ -585,7 +585,7 @@
   "wms.backend.inventory.import.upload.encodingValue": "UTF-8 (wykryte automatycznie)",
   "wms.backend.inventory.import.upload.fileMeta": "{rows} wierszy · {size} · wykryto",
   "wms.backend.inventory.import.upload.format": "Format",
-  "wms.backend.inventory.import.upload.formatValue": "CSV · rozdzielany przecinkami",
+  "wms.backend.inventory.import.upload.formatValue": "CSV · przecinek lub średnik (wykrywany automatycznie)",
   "wms.backend.inventory.import.upload.hasHeader": "Pierwszy wiersz to nagłówki kolumn",
   "wms.backend.inventory.import.upload.hasHeaderOn": "Wł. — pomiń pierwszy wiersz podczas importu",
   "wms.backend.inventory.import.upload.quantityHint": "Kolumna quantity jest dodawana do stanu, który już istnieje w tym magazynie/lokalizacji — nie jest to stan docelowy.",

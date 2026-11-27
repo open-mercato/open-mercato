@@ -585,7 +585,7 @@
   "wms.backend.inventory.import.upload.encodingValue": "UTF-8 (detectado automáticamente)",
   "wms.backend.inventory.import.upload.fileMeta": "{rows} filas · {size} · detectado",
   "wms.backend.inventory.import.upload.format": "Formato",
-  "wms.backend.inventory.import.upload.formatValue": "CSV · separado por comas",
+  "wms.backend.inventory.import.upload.formatValue": "CSV · coma o punto y coma (detección automática)",
   "wms.backend.inventory.import.upload.hasHeader": "La primera fila es encabezado de columna",
   "wms.backend.inventory.import.upload.hasHeaderOn": "Activado — omitir primera fila al importar",
   "wms.backend.inventory.import.upload.quantityHint": "La columna de cantidad se suma al stock que ya existe en ese almacén/ubicación — no es un saldo objetivo.",

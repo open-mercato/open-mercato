@@ -585,7 +585,7 @@
   "wms.backend.inventory.import.upload.encodingValue": "UTF-8 (automatisch erkannt)",
   "wms.backend.inventory.import.upload.fileMeta": "{rows} Zeilen · {size} · erkannt",
   "wms.backend.inventory.import.upload.format": "Format",
-  "wms.backend.inventory.import.upload.formatValue": "CSV · durch Kommas getrennt",
+  "wms.backend.inventory.import.upload.formatValue": "CSV · Komma oder Semikolon (automatisch erkannt)",
   "wms.backend.inventory.import.upload.hasHeader": "Die erste Zeile ist die Spaltenüberschrift",
   "wms.backend.inventory.import.upload.hasHeaderOn": "Ein – erste Zeile beim Importieren überspringen",
   "wms.backend.inventory.import.upload.quantityHint": "Die Mengenspalte wird zu dem Bestand hinzugefügt, der bereits in diesem Lager/Lagerort vorhanden ist – es handelt sich nicht um einen Zielbestand.",
