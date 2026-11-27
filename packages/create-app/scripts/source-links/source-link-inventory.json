@@ -371,6 +371,54 @@
         "core",
         "migration"
       ],
+      "galleryItemIds": [
+        "display/data-table"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "display/data-table",
+          "familyId": "display",
+          "entryId": "data-table",
+          "importPath": "@open-mercato/ui/backend/DataTable",
+          "route": "/backend/design-system?family=display&entry=data-table",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.11.0",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ],
       "packageName": "@open-mercato/ui",
       "packageRelativePath": "src/backend/DataTable.tsx"
     },
