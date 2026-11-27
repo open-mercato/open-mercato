@@ -27,7 +27,13 @@ import {
   readTimeTrackingSettings,
   type TimeTrackingSettings,
 } from '../lib/time-tracking/settings'
-import { isProjectAccessibleOnDate, resolveProjectAccess, type ProjectAccess } from '../lib/time-tracking/access'
+import {
+  isProjectAccessibleOnDate,
+  MANAGE_PROJECTS_FEATURE,
+  resolveProjectAccess,
+  type ProjectAccess,
+} from '../lib/time-tracking/access'
+import { resolveFeatureAccess } from '../lib/time-tracking/featureAccess'
 // Imported for the command ids AND for the registration side effect: the tag
 // commands must be in the registry before this file asks the bus to run one.
 import { staffTimeTagCommandIds, TAG_TARGET_LOCKED_CODE } from './timesheets-tags'
@@ -104,10 +110,10 @@ type RbacServiceLike = {
  * rbacService. Returns false when no auth context (e.g. system/CLI ctx) so
  * write paths that lack a caller identity are NOT silently elevated.
  */
-async function callerHasManageAll(
-  ctx: EntryAccessCaller,
-  scope = { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
-): Promise<boolean> {
+async function callerHasManageAll(ctx: {
+  auth?: { sub?: string | null; tenantId?: string | null; orgId?: string | null } | null
+  container: { resolve: (token: string) => unknown }
+}): Promise<boolean> {
   const userId = ctx.auth?.sub
   if (!userId) return false
   try {
@@ -116,7 +122,7 @@ async function callerHasManageAll(
     return await rbac.userHasAllFeatures(
       userId,
       ['staff.timesheets.manage_all'],
-      scope,
+      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
     )
   } catch {
     return false
@@ -406,9 +412,20 @@ async function resolveTimerStartAccess(
   scope: { tenantId: string; organizationId: string },
   settings: TimeTrackingSettings,
 ): Promise<TimeEntryWriteAccess> {
+  const userId = ctx.auth?.sub ?? null
+  const [entryManagement, projectManagement] = await Promise.all([
+    resolveFeatureAccess(ctx.container, userId, ['staff.timesheets.manage_all'], scope),
+    resolveFeatureAccess(ctx.container, userId, [MANAGE_PROJECTS_FEATURE], scope),
+  ])
   return {
-    access: await resolveEntryProjectAccess(em, ctx, scope.tenantId, scope.organizationId, settings),
-    hasManageAll: await callerHasManageAll(ctx, scope),
+    access: await resolveProjectAccess({
+      em: em.fork(),
+      userId,
+      ...scope,
+      canManageAll: projectManagement.allowed,
+      assignmentGraceDays: settings.access.assignmentGraceDays,
+    }),
+    hasManageAll: entryManagement.allowed,
   }
 }
 

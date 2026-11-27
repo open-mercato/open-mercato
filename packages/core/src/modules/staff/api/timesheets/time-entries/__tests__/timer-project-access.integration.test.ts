@@ -21,10 +21,8 @@ const scope = { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
 
 const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
-const mockHasAllFeatures = jest.fn(
-  async (_userId: string, _features: string[], roleScope: typeof scope) =>
-    roleScope.organizationId === OTHER_ORGANIZATION_ID,
-)
+const mockHasAllFeatures = jest.fn()
+const mockGetGrantedFeatures = jest.fn()
 const mockEm = {
   findOne: jest.fn(),
   fork: jest.fn(),
@@ -39,7 +37,12 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve(token: string) {
       if (token === 'em') return mockEm
-      if (token === 'rbacService') return { userHasAllFeatures: mockHasAllFeatures }
+      if (token === 'rbacService') {
+        return {
+          userHasAllFeatures: mockHasAllFeatures,
+          getGrantedFeatures: mockGetGrantedFeatures,
+        }
+      }
       if (token === 'commandBus') {
         return {
           async execute(id: string, { input, ctx }: { input: unknown; ctx: CommandRuntimeContext }) {
@@ -163,6 +166,11 @@ describe.each([
   beforeEach(() => {
     jest.clearAllMocks()
     jest.useFakeTimers({ now: new Date('2026-02-01T12:00:00.000Z') })
+    mockHasAllFeatures.mockImplementation(
+      async (_userId: string, _features: string[], roleScope: typeof scope) =>
+        roleScope.organizationId === OTHER_ORGANIZATION_ID,
+    )
+    mockGetGrantedFeatures.mockResolvedValue(['staff.timesheets.projects.manage'])
     mockEm.fork.mockReturnValue(mockEm)
     mockEm.transactional.mockImplementation(async (callback: (em: typeof mockEm) => Promise<unknown>) => callback(mockEm))
   })
@@ -176,6 +184,19 @@ describe.each([
     expect((await post(request(date))).status).toBe(success)
     expect(mockEm.create).toHaveBeenCalledWith(StaffTimeEntrySegment, expect.objectContaining(scope))
     expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('honors the scoped project manager decision with an empty grant list', async () => {
+    const date = '2026-01-20'
+    timerFixture(date, [])
+    mockHasAllFeatures.mockImplementation(
+      async (_userId: string, features: string[], roleScope: typeof scope) =>
+        roleScope.organizationId === ORGANIZATION_ID && features.includes('staff.timesheets.projects.manage'),
+    )
+    mockGetGrantedFeatures.mockResolvedValue([])
+
+    expect((await post(request(date))).status).toBe(success)
+    expect(mockEm.create).toHaveBeenCalledWith(StaffTimeEntrySegment, expect.objectContaining(scope))
   })
 
   it.each([
@@ -195,6 +216,7 @@ describe.each([
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({ error: message })
     expect(mockHasAllFeatures).toHaveBeenCalledWith('synthetic-user', ['staff.timesheets.manage_all'], scope)
+    expect(mockHasAllFeatures).toHaveBeenCalledWith('synthetic-user', ['staff.timesheets.projects.manage'], scope)
     expect(entry.startedAt).toBeNull()
     expect(mockEm.create).not.toHaveBeenCalled()
     expect(mockEm.flush).not.toHaveBeenCalled()
