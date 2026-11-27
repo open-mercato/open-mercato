@@ -292,6 +292,7 @@
   "customer_accounts.domainMapping.tls.diagnostics.title": "SSL 인증서 문제",
   "customer_accounts.domainMapping.tls.retryButton": "SSL 재시도",
   "customer_accounts.domainMapping.verifyNow": "지금 확인",
+  "customer_accounts.errors.busy": "현재 로그인할 수 없습니다. 로그인 페이지로 이동한 뒤 잠시 후 새로 로그인을 시작하세요.",
   "customer_accounts.errors.cancelInvitationAuth": "인증이 필요합니다",
   "customer_accounts.errors.cancelInvitationIdentifier": "유효하지 않은 초대 식별자입니다",
   "customer_accounts.errors.cancelInvitationPermission": "권한이 부족합니다",

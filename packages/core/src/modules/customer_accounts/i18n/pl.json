@@ -292,6 +292,7 @@
   "customer_accounts.domainMapping.tls.diagnostics.title": "Problem z certyfikatem SSL",
   "customer_accounts.domainMapping.tls.retryButton": "Ponów SSL",
   "customer_accounts.domainMapping.verifyNow": "Sprawdź teraz",
+  "customer_accounts.errors.busy": "Logowanie jest chwilowo niedostępne. Przejdź do strony logowania i za chwilę rozpocznij logowanie od nowa.",
   "customer_accounts.errors.cancelInvitationAuth": "Wymagane uwierzytelnienie",
   "customer_accounts.errors.cancelInvitationIdentifier": "Nieprawidłowy identyfikator zaproszenia",
   "customer_accounts.errors.cancelInvitationPermission": "Niewystarczające uprawnienia",

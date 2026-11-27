@@ -292,6 +292,7 @@
   "customer_accounts.domainMapping.tls.diagnostics.title": "SSL certificate issue",
   "customer_accounts.domainMapping.tls.retryButton": "Retry SSL",
   "customer_accounts.domainMapping.verifyNow": "Check Now",
+  "customer_accounts.errors.busy": "El inicio de sesión no está disponible temporalmente. Ve a la página de inicio de sesión y vuelve a empezar en unos instantes.",
   "customer_accounts.errors.cancelInvitationAuth": "Se requiere autenticación",
   "customer_accounts.errors.cancelInvitationIdentifier": "Identificador de invitación no válido",
   "customer_accounts.errors.cancelInvitationPermission": "Permisos insuficientes",

@@ -13,6 +13,7 @@ import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_a
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
+import { sessionIssuanceUnavailableResponse } from '@open-mercato/core/modules/customer_accounts/lib/sessionIssuanceUnavailableResponse'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -67,7 +68,8 @@ export async function POST(req: Request) {
 
   const ip = getClientIp(req, 0)
   const userAgent = req.headers.get('user-agent') || null
-  const { rawToken, jwt } = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
+  const issuance = await customerSessionService.createSession(user, resolvedFeatures, ip, userAgent)
+    .catch((error: unknown) => sessionIssuanceUnavailableResponse(error, 'fresh-sign-in'))
 
   void emitCustomerAccountsEvent('customer_accounts.user.created', {
     id: user.id,
@@ -82,6 +84,9 @@ export async function POST(req: Request) {
     userId: user.id,
     tenantId: user.tenantId,
   }).catch(() => undefined)
+
+  if (issuance instanceof NextResponse) return issuance
+  const { rawToken, jwt } = issuance
 
   const res = NextResponse.json({
     ok: true,
@@ -140,6 +145,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Invalid or expired invitation', schema: errorSchema },
     { status: 403, description: 'Request was submitted cross-site', schema: errorSchema },
     { status: 409, description: 'An account with this email address already exists', schema: errorSchema },
+    { status: 503, description: 'Session issuance temporarily unavailable. Continue from the sign-in page.', schema: errorSchema },
   ],
 }
 
