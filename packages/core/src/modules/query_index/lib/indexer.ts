@@ -10,6 +10,12 @@ import {
 } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+<<<<<<< HEAD
+=======
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { getTelemetryRuntime, reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
+import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
+>>>>>>> 49d557d53a (cezar autosave (run finalize) (#10870))
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
@@ -23,6 +29,30 @@ type BuildDocParams = {
   recordId: string
   organizationId?: string | null
   tenantId?: string | null
+}
+
+async function recordTokenMaintenanceFailure(em: EntityManager, scope: BuildDocParams, error: unknown): Promise<void> {
+  const { entityType, recordId, tenantId, organizationId } = scope
+  try {
+    reportTelemetryError(error, {
+      module: 'query_index',
+      code: 'query_index.search_token_maintenance_failed',
+      attributes: { entityType, recordId },
+    })
+  } catch (telemetryError) {
+    logger.warn('Failed to report search token maintenance error', { err: telemetryError })
+  }
+  await recordIndexerError({ em }, {
+    source: 'query_index',
+    handler: 'query_index.upsert.search_tokens',
+    entityType,
+    recordId,
+    tenantId: tenantId ?? null,
+    organizationId: organizationId ?? null,
+    error,
+  }).catch((loggingError: unknown) => {
+    logger.warn('Failed to record search token maintenance error', { err: loggingError })
+  })
 }
 
 export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): Promise<Record<string, any> | null> {
@@ -284,6 +314,7 @@ export async function upsertIndexRow(
         })
       } catch (error) {
         if (args.trx) throw error
+        await recordTokenMaintenanceFailure(em, args, error)
       }
     }
     if (existed) {
@@ -357,6 +388,7 @@ export async function upsertIndexRow(
       })
     } catch (error) {
       if (args.trx) throw error
+      await recordTokenMaintenanceFailure(em, args, error)
     }
   }
   return { doc, existed, wasDeleted, created, revived }
@@ -436,16 +468,12 @@ export async function markDeleted(
   const wasActive = !!existing && existing.deleted_at == null
 
   if (existing) {
-    try {
-      await deleteSearchTokensForRecord(db, {
-        entityType: args.entityType,
-        recordId: args.recordId,
-        organizationId: args.organizationId ?? null,
-        tenantId: args.tenantId ?? null,
-      }, { trx: args.trx })
-    } catch (error) {
-      if (args.trx) throw error
-    }
+    await deleteSearchTokensForRecord(db, {
+      entityType: args.entityType,
+      recordId: args.recordId,
+      organizationId: args.organizationId ?? null,
+      tenantId: args.tenantId ?? null,
+    }, { trx: args.trx })
     await scopeEntityIndexes(
       executor.deleteFrom('entity_indexes' as any) as any,
       args,
