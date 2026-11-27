@@ -1,6 +1,6 @@
 # Promotion code pool limit and batched generation
 
-Issue: [#10699](https://github.com/open-mercato/open-mercato/issues/10699)  
+Issue: [#10699](https://github.com/open-mercato/open-mercato/issues/10699)<br>
 Review follow-up: [PR #10790](https://github.com/open-mercato/open-mercato/pull/10790)
 
 ## Behavior
