@@ -1,6 +1,17 @@
 import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+<<<<<<< HEAD
 import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig } from '../lib/security-config'
+=======
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig, requestMfaEmergencyBypassNotification } from '../lib/security-config'
+import { resolveMfaEnrollmentRedirect } from '../lib/enforcement-redirect'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
+
+const logger = createLogger('security').child({ component: 'auth-login-mfa-interceptor' })
+>>>>>>> 9b70edf065 (fix(security): enforce MFA enrollment before business APIs (#9152) (#9753))
 
 type JwtClaims = {
   sub: string
@@ -99,6 +110,38 @@ export const interceptors: ApiInterceptor[] = [
       } catch {
         return {}
       }
+    },
+  },
+  {
+    id: 'security.mfa.enrollment.api',
+    targetRoute: '*',
+    scope: 'request',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    priority: 100,
+    async before(_request, context) {
+      const auth = context.auth
+      if (!auth || auth.isApiKey || auth.mfa_pending) return { ok: true }
+      const routePattern = context.routePattern?.replace(/^\/+|\/+$/g, '').replace(/^api\//, '') ?? ''
+      if (
+        routePattern === 'auth/login'
+        || routePattern === 'auth/logout'
+        || routePattern === 'auth/profile'
+        || routePattern === 'auth/session/refresh'
+        || routePattern === 'security/profile'
+        || routePattern === 'security/profile/password'
+        || routePattern === 'security/mfa'
+        || routePattern.startsWith('security/mfa/')
+      ) return { ok: true }
+
+      const enrollmentRedirect = await resolveMfaEnrollmentRedirect({
+        auth,
+        pathname: `/api/${routePattern}`,
+        container: context.container,
+        failClosed: true,
+      })
+      if (!enrollmentRedirect) return { ok: true }
+      const { t } = await resolveTranslations()
+      return { ok: false, statusCode: 403, message: t('security.profile.mfa.enforcement.notice.text') }
     },
   },
 ]
