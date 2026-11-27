@@ -132,7 +132,11 @@ function createHarness(options: HarnessOptions = {}) {
     }
     return null
   })
-  const em = { findOne, getKysely: () => db }
+  const em = {
+    findOne,
+    getKysely: () => db,
+    getMetadata: () => ({ find: (entity: unknown) => ({ class: entity }) }),
+  }
 
   const fixtureFor = (customerIds: string[] | undefined): GroupFixture => {
     const ids = customerIds ?? []
