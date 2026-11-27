@@ -466,6 +466,59 @@ node packages/eslint-plugin-ds/scripts/prefer-business-block-baseline.mjs --writ
 
 An entry leaves the baseline when its file adopts the block (the import exempts the file, so the entry becomes stale) or the hand-built component is deleted; run `--prune` in the same change. Do not use `--write` to silence a new finding: adopt the block, or opt out on the line with a reason.
 
+### L.7c `om-ds/no-nested-frames`
+
+**Goal**: Enforce "Frames: one level only" from `.ai/ds-rules.md`: a bordered rounded surface does not sit inside another bordered rounded surface. Advisory (`warn`); it never fails CI in its current form.
+
+Shipped implementation (`packages/eslint-plugin-ds/rules/no-nested-frames.js`):
+
+**What counts as a frame**
+
+- An element whose always-applied classes hold a full border and a radius. Border: `border`, `border-2`, `border-4`, `border-8` or `border-[1px]`, alone or with a colour token. Radius: `rounded` or any all-corner `rounded-*` (`rounded-md`, `rounded-lg`, `rounded-xl`, `rounded-card`, `rounded-content-card`, `rounded-alert`, ...).
+- Not a border: side utilities (`border-t`, `border-b`, `border-x`, `border-l-4`), a colour token without `border`, `border-0`, `border-none`, `border-hidden`, a border whose only colour is `border-transparent`. Not a radius: `rounded-none`, `rounded-full`, `rounded-badge`, corner-only utilities (`rounded-t-lg`).
+- Dashed and dotted borders are not frames. Every dashed hit in the audit was a drop zone, an add-new slot or an empty placeholder, which is a different affordance from a container.
+- Known framed components, without inspecting classes: `Card`, `ContentCard`, `FileUploadCard`, `Notice`, `JsonDisplay`, `JsonBuilder`, `CollapsibleGroup`, `DataTable` (unless `embedded`), `AccordionItem` (default `card` variant), `EmptyState variant="outlined"`. `className="border-0"` (or a transparent border) on any of them turns the frame off.
+- A component declared in the same file whose returned root element is a frame counts as a frame under its own name (for example a local `StatTile`). A local component whose root is an overlay counts as a boundary.
+
+**What is never a frame**
+
+- Controls and small chrome: `button`, `input`, `select`, `textarea`, `label`, `a`, `span`, `kbd`, `code`, `summary`, media elements, and components whose name ends in `Button`, `Input`, `Select`, `Textarea`, `Trigger`, `Badge`, `Tag`, `Chip`, `Pill`, `Avatar`, `Checkbox`, `Switch`, `Radio`, `Kbd`, `Link`, `Icon`, `Picker`, `Slider`, `Toggle`, `Skeleton`, `Label`, `TabsList`, `SegmentedControl`, `Image`, `Thumbnail`.
+- Anything interactive as a whole: an `onClick` handler or `role="button|option|radio|checkbox|tab|switch|menuitem|link"`.
+- Anything sized like a control: `size-*` or matching `h-*`/`w-*` up to 12 (48 px), a fixed height up to `h-12` without a width, inline display (`inline-flex`, `inline-block`), or the input border token `border-input`.
+- Components left out on purpose: `Alert` and `ErrorNotice` (tinted background with an inset ring, no border), `Banner` (square, edge to edge), `LoadingMessage`, `ErrorMessage` and `AccessDeniedMessage` (transient state rows whose look belongs to the primitive), `Table` (no border of its own), `Tabs variant="card"` (control chrome), rich text and markdown editors (form controls).
+
+**How classes are read**
+
+- `className` string literals, template literals (static chunks; a chunk glued to an expression such as `border-${tone}` is dropped), `cn` / `clsx` / `cx` / `classNames` / `twMerge` / `twJoin` calls including nested arrays, `cva(...)` base classes, and `const` identifiers that resolve to any of those in the same file.
+- Only classes that always apply count: `selected && 'border'` is ignored, and a ternary contributes the classes both branches share.
+- Variants are ignored except responsive ones (`sm:` to `2xl:`): `hover:border` is not a border, `md:border` is.
+
+**What gets reported**
+
+- A frame whose nearest enclosing frame or boundary, walking up the JSX of the same file, is a frame. `.map` callbacks, conditionals, render props and elements passed as props are all inside the tree.
+- Boundaries reset the walk, because the overlay is the frame for what it shows: `Dialog`, `DialogContent`, `Drawer`, `DrawerContent`, `Sheet`, `SheetContent`, `Popover`, `PopoverContent`, `DropdownMenuContent`, `Tooltip`, `TooltipContent`, `SimpleTooltip`, `HoverCardContent`, `AlertDialogContent`, namespaced overlay parts (`PopoverPrimitive.Content`), and a bordered element positioned `absolute` or `fixed` (a hand-built floating menu). One frame directly inside an overlay is therefore not reported; a second level inside it is.
+- Message: ``Frame `<div>` is nested inside frame `<Card>` — separate it with spacing, a heading, a divider or a muted background instead of a second border (see "Frames: one level only" in .ai/ds-rules.md).``
+
+**Not covered** (static analysis of one file): nesting across files (a page that wraps an imported section component in a `Card`, or a frame passed in through `children`), frames built from a class string that arrives through props or a helper call, JSX stored in a variable and rendered elsewhere, and surfaces outlined with `ring-1 ring-border` on a plain element.
+
+- **Scope** (`noNestedFramesScope` in `packages/eslint-plugin-ds/index.js`, registered in `eslint.ds.config.mjs`): `.tsx` under `packages/ui/src/{backend,blocks,primitives}/**`, `packages/core/src/modules/**`, `packages/enterprise/src/modules/**` and `apps/mercato/src/modules/**`; tests, stories, generated files and the `design_system` gallery (its examples show framed components inside preview frames) are excluded.
+- **Opt-out**: `{/* eslint-disable-next-line om-ds/no-nested-frames -- <reason> */}` above the reported element, or `/* eslint-disable om-ds/no-nested-frames -- <reason> */` at the top of the file. The reason is mandatory, as for every `om-ds` rule.
+
+**Baseline (ratchet)**: nesting that existed when the rule landed is listed in `packages/eslint-plugin-ds/baselines/no-nested-frames.json` as `{ "file": "<repo-relative path>", "outer": "<element>", "inner": "<element>", "count": <n> }`. The key is the file plus the two element names; `count` covers occurrences 1 to n of that pair in source order, so line shifts and unrelated edits do not invalidate an entry. The rule reports occurrence n + 1 onward, which means a new nested frame of an already listed pair is reported once, on the last occurrence in the file rather than on the line that was added.
+
+```bash
+# backlog: every finding without the baseline, per module, plus new and stale counts
+node packages/eslint-plugin-ds/scripts/no-nested-frames-baseline.mjs --list
+# lower counts and drop entries that no longer produce a finding (never adds one)
+node packages/eslint-plugin-ds/scripts/no-nested-frames-baseline.mjs --prune
+# rewrite the baseline from the current findings (only when the rule's detection changes)
+node packages/eslint-plugin-ds/scripts/no-nested-frames-baseline.mjs --write
+# dump the findings with line numbers for an audit
+node packages/eslint-plugin-ds/scripts/no-nested-frames-baseline.mjs --json <path>
+```
+
+When a nested frame is flattened, run `--prune` in the same change. Do not use `--write` to silence a new finding: remove the inner border, or opt out on the line with a reason.
+
 ### L.8 Rules Summary
 
 | Rule | Severity (new code) | Severity (legacy) | Auto-fix |
@@ -479,6 +532,7 @@ An entry leaves the baseline when its file adopts the block (the import exempts 
 | `om-ds/no-legacy-alert-variant` | error | warn | No (suggestions) |
 | `om-ds/no-off-grid-spacing` | error (primitives, blocks) | n/a | No |
 | `om-ds/prefer-business-block` | warn (advisory) | baselined | No |
+| `om-ds/no-nested-frames` | warn (advisory) | baselined | No |
 
 **Success metric**: 0 warnings on new modules, legacy warnings down 30% per sprint.
 

@@ -8,6 +8,7 @@ import { noHardcodedStatusColors } from './rules/no-hardcoded-status-colors.js'
 import { noLegacyAlertVariant } from './rules/no-legacy-alert-variant.js'
 import { noOffGridSpacing } from './rules/no-off-grid-spacing.js'
 import { preferBusinessBlock } from './rules/prefer-business-block.js'
+import { noNestedFrames } from './rules/no-nested-frames.js'
 
 const plugin = {
   meta: {
@@ -24,6 +25,7 @@ const plugin = {
     'no-legacy-alert-variant': noLegacyAlertVariant,
     'no-off-grid-spacing': noOffGridSpacing,
     'prefer-business-block': preferBusinessBlock,
+    'no-nested-frames': noNestedFrames,
   },
 }
 
@@ -74,6 +76,32 @@ export const preferBusinessBlockScope = {
     '**/modules/design_system/**',
     '**/modules/*/frontend/**',
     '**/modules/*/ui/public/**',
+  ],
+}
+
+const noNestedFramesRoots = [
+  'packages/ui/src/backend',
+  'packages/ui/src/blocks',
+  'packages/ui/src/primitives',
+  'packages/core/src/modules',
+  'packages/enterprise/src/modules',
+  'apps/mercato/src/modules',
+]
+
+const noNestedFramesBaseline = createRequire(import.meta.url)('./baselines/no-nested-frames.json')
+
+export const noNestedFramesScope = {
+  roots: noNestedFramesRoots,
+  baseline: noNestedFramesBaseline.findings,
+  files: noNestedFramesRoots.map((root) => `${root}/**/*.tsx`),
+  ignores: [
+    '**/__tests__/**',
+    '**/__integration__/**',
+    '**/*.test.tsx',
+    '**/*.spec.tsx',
+    '**/*.stories.tsx',
+    '**/*.generated.*',
+    '**/modules/design_system/**',
   ],
 }
 

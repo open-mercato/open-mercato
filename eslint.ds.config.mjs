@@ -11,7 +11,7 @@ import tsParser from '@typescript-eslint/parser'
 import reactHooks from 'eslint-plugin-react-hooks'
 import react from 'eslint-plugin-react'
 import next from '@next/eslint-plugin-next'
-import omDs, { preferBusinessBlockScope } from '@open-mercato/eslint-plugin-ds'
+import omDs, { noNestedFramesScope, preferBusinessBlockScope } from '@open-mercato/eslint-plugin-ds'
 
 // Inline eslint-disable comments in app code reference rules from the main
 // Next.js config that are not part of this ruleset. With inline config
@@ -111,6 +111,20 @@ export default [
     languageOptions,
     plugins,
     rules: { 'om-ds/prefer-business-block': ['warn', { baseline: preferBusinessBlockScope.baseline }] },
+  },
+  // Frames, one level only (docs/design-system/lint-rules.md L.7c, rule text in
+  // .ai/ds-rules.md): advisory. A bordered rounded surface nested in another
+  // one gets a warning. Nesting that exists today sits in the baseline
+  // packages/eslint-plugin-ds/baselines/no-nested-frames.json and stays quiet
+  // until it is flattened; only additions speak up. The design_system gallery
+  // is out of scope because its examples show framed components in frames.
+  {
+    files: noNestedFramesScope.files,
+    ignores: noNestedFramesScope.ignores,
+    linterOptions,
+    languageOptions,
+    plugins,
+    rules: { 'om-ds/no-nested-frames': ['warn', { baseline: noNestedFramesScope.baseline }] },
   },
   // --- escalation overrides — see .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md ---
   // A module enters this list when its counter for the rule reads zero in two
