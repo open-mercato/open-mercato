@@ -419,7 +419,7 @@ async function resolveTimerStartAccess(
   ])
   return {
     access: await resolveProjectAccess({
-      em: em.fork(),
+      em,
       userId,
       ...scope,
       canManageAll: projectManagement.allowed,
