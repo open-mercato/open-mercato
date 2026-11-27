@@ -48,6 +48,7 @@ Shared rules for all four: no data source inside, data in through props and even
 
 - **Input:** `saveState: 'idle' | 'dirty' | 'saving' | 'saved' | 'failed'`, `message?`, `savedAt?`, `formId?`, `saveLabel?`, `resetLabel?`, `saveDisabledReason?`, `actions?`, `placement?: 'floating' | 'container' | 'inline'`, `alwaysVisible?`.
 - **Events:** `onSave?()`, `onReset?()`, `onAction?(actionKey)`. `formId` or `onSave` is required.
+- **Focus:** when the bar hides while keyboard focus is inside it, focus moves to the element returned by the optional `getReturnFocusTarget?()`, otherwise to the form named by `formId` (the form itself when it carries `tabindex`, else its first enabled field), otherwise it is left alone. Focus outside the bar is never moved.
 - **Slots:** `leading`, `trailing`.
 - **State ownership:** the host owns the form, dirty tracking, saving, navigation guards, keyboard shortcuts and conflict handling. The block owns pending during an `onSave` promise and the overflow menu. Hidden in `idle` unless `alwaysVisible`.
 
