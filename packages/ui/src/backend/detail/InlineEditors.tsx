@@ -106,6 +106,8 @@ export type InlineTextEditorProps = {
     error: string | null
     saving: boolean
   }) => React.ReactNode
+  followUntouchedDraft?: boolean
+  draftEquals?: (draft: string, seed: string) => boolean
 }
 
 export function InlineTextEditor({
@@ -128,12 +130,15 @@ export function InlineTextEditor({
   saveLabel,
   onDraftChange,
   renderBelowInput,
+  followUntouchedDraft = false,
+  draftEquals,
 }: InlineTextEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(value ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const seedRef = React.useRef(value ?? '')
   const computedSaveLabel = saveLabel ?? t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')
   const fallbackError = React.useMemo(
     () => t('ui.detail.inline.error', 'Failed to save value.'),
@@ -151,8 +156,19 @@ export function InlineTextEditor({
   }, [inputType, type])
 
   React.useEffect(() => {
-    if (!editing) setDraft(value ?? '')
-  }, [editing, value])
+    if (!editing) {
+      seedRef.current = value ?? ''
+      setDraft(value ?? '')
+      return
+    }
+    if (!followUntouchedDraft) return
+    const nextValue = value ?? ''
+    const equals = draftEquals ?? ((a: string, b: string) => a === b)
+    if (equals(draft, seedRef.current)) {
+      seedRef.current = nextValue
+      setDraft(nextValue)
+    }
+  }, [draft, draftEquals, editing, followUntouchedDraft, value])
 
   React.useEffect(() => {
     if (onDraftChange) onDraftChange(draft)
@@ -468,6 +484,8 @@ export type InlineMultilineEditorProps = {
   containerClassName?: string
   triggerClassName?: string
   renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string }) => React.ReactNode
+  followUntouchedDraft?: boolean
+  draftEquals?: (draft: string, seed: string) => boolean
 }
 
 const isTestEnv =
@@ -498,12 +516,15 @@ export function InlineMultilineEditor({
   containerClassName,
   triggerClassName,
   renderDisplay,
+  followUntouchedDraft = false,
+  draftEquals,
 }: InlineMultilineEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(value ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const seedRef = React.useRef(value ?? '')
   const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(true)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
@@ -549,10 +570,19 @@ export function InlineMultilineEditor({
 
   React.useEffect(() => {
     if (!editing) {
+      seedRef.current = value ?? ''
       setDraft(value ?? '')
       setError(null)
+      return
     }
-  }, [editing, value])
+    if (!followUntouchedDraft) return
+    const nextValue = value ?? ''
+    const equals = draftEquals ?? ((a: string, b: string) => a === b)
+    if (equals(draft, seedRef.current)) {
+      seedRef.current = nextValue
+      setDraft(nextValue)
+    }
+  }, [draft, draftEquals, editing, followUntouchedDraft, value])
 
   const handleActivate = React.useCallback(() => {
     if (!editing) setEditing(true)
@@ -772,6 +802,8 @@ export type InlineSelectEditorProps = {
   hideLabel?: boolean
   renderEditor?: (params: { value: string; onChange: (next: string) => void }) => React.ReactNode
   renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string }) => React.ReactNode
+  followUntouchedDraft?: boolean
+  draftEquals?: (draft: string, seed: string) => boolean
 }
 
 export function InlineSelectEditor({
@@ -787,15 +819,29 @@ export function InlineSelectEditor({
   hideLabel = false,
   renderEditor,
   renderDisplay,
+  followUntouchedDraft = false,
+  draftEquals,
 }: InlineSelectEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState<string>(value ?? '')
   const [saving, setSaving] = React.useState(false)
+  const seedRef = React.useRef(value ?? '')
 
   React.useEffect(() => {
-    if (!editing) setDraft(value ?? '')
-  }, [editing, value])
+    if (!editing) {
+      seedRef.current = value ?? ''
+      setDraft(value ?? '')
+      return
+    }
+    if (!followUntouchedDraft) return
+    const nextValue = value ?? ''
+    const equals = draftEquals ?? ((a: string, b: string) => a === b)
+    if (equals(draft, seedRef.current)) {
+      seedRef.current = nextValue
+      setDraft(nextValue)
+    }
+  }, [draft, draftEquals, editing, followUntouchedDraft, value])
 
   const containerClasses = cn(
     'group',

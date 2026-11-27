@@ -6,6 +6,20 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
  * Declares all events that can be emitted by the workflows module.
  */
 const events = [
+  { id: 'approval.completed', label: 'Approval Completed', category: 'lifecycle', workflowEmittable: true },
+  { id: 'approval.requested', label: 'Approval Requested', category: 'lifecycle', workflowEmittable: true },
+  { id: 'checkout.started', label: 'Checkout Started', category: 'lifecycle', workflowEmittable: true },
+  { id: 'fulfillment.ready', label: 'Fulfillment Ready', category: 'lifecycle', workflowEmittable: true },
+  { id: 'order.approved', label: 'Order Approved', category: 'lifecycle', workflowEmittable: true },
+  { id: 'order.created', label: 'Order Created', category: 'lifecycle', workflowEmittable: true },
+  { id: 'oze.install.failed', label: 'Oze Install Failed', category: 'lifecycle', workflowEmittable: true },
+  { id: 'oze.quote.sent', label: 'Oze Quote Sent', category: 'lifecycle', workflowEmittable: true },
+  { id: 'sales.order.approval.approved', label: 'Sales Order Approval Approved', category: 'lifecycle', workflowEmittable: true },
+  { id: 'sales.order.approval.rejected', label: 'Sales Order Approval Rejected', category: 'lifecycle', workflowEmittable: true },
+  { id: 'sales.order.approval.requested', label: 'Sales Order Approval Requested', category: 'lifecycle', workflowEmittable: true },
+  { id: 'sales.pipeline.completed', label: 'Sales Pipeline Completed', category: 'lifecycle', workflowEmittable: true },
+  { id: 'workflows.task.escalated', label: 'Workflows Task Escalated', category: 'lifecycle', workflowEmittable: true },
+
   // Workflow Definitions
   { id: 'workflows.definition.created', label: 'Workflow Definition Created', entity: 'definition', category: 'crud' },
   { id: 'workflows.definition.updated', label: 'Workflow Definition Updated', entity: 'definition', category: 'crud' },
