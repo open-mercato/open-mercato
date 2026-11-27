@@ -1,4 +1,6 @@
 import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
+import { relationOptionAccessKey, type RelationOptionAccess } from '@open-mercato/shared/lib/query/relationOptionAccess'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
@@ -101,6 +103,28 @@ export type ProjectCodeResolver = {
   generate(name: string, taken: Set<string>, ctx?: ProjectCodeContext | null): string
 }
 
+const timeEntryRelationAccess: RelationOptionAccess = async ({ auth, container, tenantId, organizationId }) => {
+  const { scopeTimeEntryList } = await import('./api/interceptors')
+  const scoped = await scopeTimeEntryList(undefined, {
+    userId: auth.sub,
+    tenantId,
+    organizationId,
+    container,
+    em: container.resolve<EntityManager>('em'),
+  })
+  if (!scoped.ok) return null
+  const { buildScopedTimeEntryListFilters } = await import('./api/timesheets/time-entries/route')
+  return {
+    filters: await buildScopedTimeEntryListFilters({ page: 1, pageSize: 50, staffMemberId: scoped.query?.staffMemberId }, {
+      auth: { ...auth, tenantId, orgId: organizationId },
+      container,
+      organizationScope: null,
+      selectedOrganizationId: organizationId,
+      organizationIds: [organizationId],
+    }),
+  }
+}
+
 export function register(container: AppContainer) {
   const resolver: AvailabilityAccessResolver = { resolveAvailabilityWriteAccess }
   const timeTrackingResolver: TimeTrackingAccessResolver = { resolveProjectAccess }
@@ -119,6 +143,7 @@ export function register(container: AppContainer) {
     generate: (name, taken, ctx) => deriveProjectCode(name, taken, ctx ?? undefined),
   }
   container.register({
+    [relationOptionAccessKey('staff:staff_time_entry')]: asValue(timeEntryRelationAccess),
     availabilityAccessResolver: asValue(resolver),
     timeTrackingAccessResolver: asValue(timeTrackingResolver),
     timeRoundingResolver: asValue(timeRoundingResolver),
