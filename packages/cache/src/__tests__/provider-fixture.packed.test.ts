@@ -140,12 +140,12 @@ describe('packed fixture provider installation', () => {
     })).rejects.toBeInstanceOf(CacheProviderError)
   })
 
-  it('stores one file per physical key under a namespace subdirectory', async () => {
+  it('stores a logical entry in one namespaced file', async () => {
     const service = createCacheService({ provider: await resolveFixture('layout-ns') })
     try {
       await service.set('layout-key', { ok: true })
       const files = (await fs.readdir(path.join(dataDir, 'ns-layout-ns'))).filter((name) => name.endsWith('.json'))
-      expect(files).toHaveLength(2)
+      expect(files).toHaveLength(1)
     } finally {
       await service.clear()
       await service.close?.()

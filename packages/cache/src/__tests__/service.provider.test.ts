@@ -145,7 +145,7 @@ describe('cache service provider selection', () => {
       const cache = createCacheService({ provider })
       await cache.set('k', 'v')
       expect(await cache.get('k')).toBe('v')
-      expect(strategy.setKeys.length).toBe(2)
+      expect(strategy.setKeys).toHaveLength(1)
     })
 
     it('throws not_resolved instead of substituting memory when the ambient provider is not prepared', () => {
@@ -247,6 +247,22 @@ describe('cache service provider selection', () => {
       expect(partialClose).toHaveBeenCalledTimes(1)
       await cache.set('k', 'v')
       expect(await cache.get('k')).toBe('v')
+      expect(create).toHaveBeenCalledTimes(2)
+    })
+
+    it('rejects an invalid strategy and retries while its cleanup is still pending', async () => {
+      const partialClose = jest.fn(() => new Promise<void>(() => {}))
+      const create = jest.fn<CacheStrategy, []>()
+        .mockReturnValueOnce({ ...createMemoryStrategy(), close: partialClose })
+        .mockReturnValueOnce(recordingStrategy())
+      process.env.CACHE_PROVIDER_RETRY_COOLDOWN_MS = '0'
+      const cache = createCacheService({ provider: resolvedProvider(create) })
+
+      const first = expectCode(cache.get('k'), 'invalid_registration')
+      await expect(Promise.race([first, flush().then(() => 'pending')])).resolves.toBeInstanceOf(CacheProviderError)
+      expect(partialClose).toHaveBeenCalledTimes(1)
+      await cache.set('k', 'recovered')
+      await expect(cache.get('k')).resolves.toBe('recovered')
       expect(create).toHaveBeenCalledTimes(2)
     })
 
@@ -409,7 +425,7 @@ describe('cache service provider selection', () => {
       const strategy = recordingStrategy()
       const cache = createCacheService({ provider: resolvedProvider(() => strategy) })
       await runWithCacheTenant('tenant-a', () => cache.set('item', 'v', { tags: ['t1'] }))
-      expect(strategy.setKeys).toHaveLength(2)
+      expect(strategy.setKeys).toHaveLength(1)
       for (const key of strategy.setKeys) {
         expect(key.startsWith('tenant:tenant-a:key:')).toBe(true)
         expect(key.match(/tenant:/g)).toHaveLength(1)
@@ -426,6 +442,50 @@ describe('cache service provider selection', () => {
   })
 
   describe('maintenance purge', () => {
+    it('keeps a newer concurrent write discoverable when an earlier write fails', async () => {
+      const store = recordingStrategy()
+      const write = store.set
+      let rejectFirst: (error: Error) => void = () => {}
+      const firstWrite = new Promise<void>((_resolve, reject) => {
+        rejectFirst = reject
+      })
+      store.set = jest.fn(write).mockReturnValueOnce(firstWrite)
+      const provider = resolvedProvider(() => store)
+      const firstCache = createCacheService({ provider })
+      const secondCache = createCacheService({ provider })
+      const inTenant = (operation: () => Promise<unknown>) => runWithCacheTenant('t1', operation)
+      const failure = expectCode(inTenant(() => firstCache.set('nav:sidebar', 'older', { tags: ['old'] })), 'unavailable')
+
+      await flush()
+      await expect(inTenant(() => secondCache.get('nav:sidebar'))).resolves.toBeNull()
+      await expect(inTenant(() => secondCache.keys('nav:*'))).resolves.toEqual([])
+      await inTenant(() => secondCache.set('nav:sidebar', 'newer', { tags: ['new'] }))
+      rejectFirst(new Error('write failed'))
+      await failure
+
+      await expect(inTenant(() => firstCache.get('nav:sidebar'))).resolves.toBe('newer')
+      await expect(inTenant(() => firstCache.deleteByTags(['old']))).resolves.toBe(0)
+      await expect(inTenant(() => firstCache.keys('nav:*'))).resolves.toEqual(['nav:sidebar'])
+      await expect(purgeConfiguredCachePatternsAcrossTenantScopes(['nav:*'], { provider })).resolves.toBe(1)
+      await expect(inTenant(() => firstCache.get('nav:sidebar'))).resolves.toBeNull()
+    })
+
+    it('keeps a committed value discoverable if the provider loses the write acknowledgement', async () => {
+      const store = recordingStrategy()
+      const write = store.set
+      store.set = async (key, value, options) => {
+        await write(key, value, options)
+        throw new Error('write acknowledgement lost')
+      }
+      const provider = resolvedProvider(() => store)
+      const cache = createCacheService({ provider })
+
+      await expectCode(cache.set('nav:sidebar', 'cached', { tags: ['nav'] }), 'unavailable')
+      await expect(cache.keys('nav:*')).resolves.toEqual(['nav:sidebar'])
+      await expect(purgeConfiguredCachePatternsAcrossTenantScopes(['nav:*'], { provider })).resolves.toBe(1)
+      await expect(cache.get('nav:sidebar')).resolves.toBeNull()
+    })
+
     it('purges matching keys across tenant scopes through the provider and closes it', async () => {
       const store = recordingStrategy()
       const cache = createCacheService({ provider: resolvedProvider(() => store) })

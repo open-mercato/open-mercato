@@ -6,6 +6,7 @@ import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
 import { createLogger } from '../logger'
 import {
+  CacheProviderError,
   readCacheProviderManifest,
   readSelectedCacheProviderId,
   setCacheProviderRegistrations,
@@ -421,6 +422,7 @@ type CompileAndImportOptions = {
   appRoot?: string
   outFile?: string
   allowRecovery?: boolean
+  silent?: boolean
 }
 
 /**
@@ -435,6 +437,7 @@ export type CompileAppSourceOptions = {
   appRoot: string
   outFile: string
   format?: 'esm' | 'cjs'
+  silent?: boolean
 }
 
 /**
@@ -503,6 +506,7 @@ async function compileAppSourceFileWithActiveEsbuild(
     bundle: true,
     metafile: true,
     format,
+    ...(options.silent ? { logLevel: 'silent' } : {}),
     platform: 'node',
     target: 'node18',
     tsconfig: appTsconfig,
@@ -541,7 +545,7 @@ async function compileAndImport(
   const jsPath = options.outFile ?? tsPath.replace(/\.ts$/, '.mjs')
   const appRoot = options.appRoot ?? path.dirname(path.dirname(path.dirname(tsPath)))
 
-  await compileAppSourceFile(tsPath, { appRoot, outFile: jsPath })
+  await compileAppSourceFile(tsPath, { appRoot, outFile: jsPath, silent: options.silent })
 
   // Import the compiled JavaScript
   try {
@@ -784,13 +788,21 @@ export async function loadCacheProviderManifestFromAppRoot(
 
   const outFile = path.join(generatedDir, `cache-providers.compiled.${format === 'cjs' ? 'cjs' : 'mjs'}`)
   let loaded: Record<string, unknown>
-  if (format === 'cjs') {
-    await compileAppSourceFile(manifestPath, { appRoot: appDir, outFile, format })
-    const requireManifest = createRequire(outFile)
-    delete requireManifest.cache[outFile]
-    loaded = requireManifest(outFile)
-  } else {
-    loaded = await compileAndImport(manifestPath, { appRoot: appDir, outFile, allowRecovery: false })
+  try {
+    if (format === 'cjs') {
+      await compileAppSourceFile(manifestPath, { appRoot: appDir, outFile, format, silent: true })
+      const requireManifest = createRequire(outFile)
+      delete requireManifest.cache[outFile]
+      loaded = requireManifest(outFile)
+    } else {
+      loaded = await compileAndImport(manifestPath, { appRoot: appDir, outFile, allowRecovery: false, silent: true })
+    }
+  } catch (error) {
+    throw new CacheProviderError(
+      'load_failed',
+      'The cache provider manifest could not be loaded. Check src/providers/cache.ts.',
+      { cause: error },
+    )
   }
 
   const registrations = readCacheProviderManifest(loaded)

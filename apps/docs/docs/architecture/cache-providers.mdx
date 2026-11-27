@@ -162,7 +162,7 @@ Every provider failure surfaces as a `CacheProviderError` with a stable `code`. 
 
 ## Provider-author guide
 
-A provider is a server-only npm package that exports a definition built with `defineCacheProvider` from `@open-mercato/cache/provider`. The host owns tenant scoping, key hashing, metadata records, the lazy connection handle, timeouts and lifecycle. The provider owns its settings schema and a **base** `CacheStrategy` that stores already-scoped physical keys.
+A provider is a server-only npm package that exports a definition built with `defineCacheProvider` from `@open-mercato/cache/provider`. The host owns tenant scoping, key hashing, entry metadata, the lazy connection handle, timeouts and lifecycle. The provider owns its settings schema and a **base** `CacheStrategy` that stores already-scoped physical keys.
 
 ### Package shape
 
@@ -232,7 +232,7 @@ The context deliberately carries no request container, tenant credentials, envir
 ### Keys, tags and counting rules
 
 - The host's tenant-aware wrapper is applied exactly once, on top of your strategy. You receive **already-scoped physical keys and tags**. Store them as given and do not add tenant logic of your own.
-- For each logical entry the wrapper writes **two physical records**, a value record and a metadata record, both carrying the same tags. `deleteByTags`, `cleanup` and `clear` must therefore **count every physical record they remove**. The host halves the total to report logical entries. Count a record removed by several matching tags only once.
+- The host stores each provider-backed value and its enumeration metadata in **one physical record**. A successful write makes both visible together. If the backend commits a write but loses the acknowledgement, the entry remains eligible for enumeration and invalidation. Count each physical record once in `deleteByTags`, `cleanup` and `clear`, even if several requested tags match it.
 - Tag semantics are "current tags win": re-setting a key replaces its tag set, so an old tag must no longer match it. If you maintain candidate indexes, re-read current tags before deleting so that a concurrently retagged or rewritten entry is not removed. An index must not lose membership for a live payload through eviction, expiry or partial writes.
 - Enumerate the namespace in bounded pages or deterministic shards. Never use a global flush, blocking full-keyspace commands or unbounded key dumps. `clear()` removes only your namespace's records. Report success only when every required batch succeeded, and document partial-progress and retry semantics.
 

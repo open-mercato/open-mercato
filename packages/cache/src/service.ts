@@ -49,8 +49,13 @@ function isCacheMetadata(value: CacheValue | null): value is CacheMetadata {
   return hasValidKey && hasValidExpiresAt
 }
 
+type CacheProviderEntry = CacheMetadata & { value: CacheValue }
+type CacheRecordLayout =
+  | { kind: 'stock'; reportsBoundedCounters: boolean }
+  | { kind: 'provider'; defaultTtl?: number }
+
 type CacheStrategyName = NonNullable<CacheServiceOptions['strategy']>
-const TENANT_META_KEY_PATTERN = 'tenant:*:key:meta:*'
+const PROVIDER_ENTRY_PREFIX = 'entry:v1:'
 const TENANT_META_KEY_MARKER = ':key:meta:'
 
 type TenantAwareCacheStrategy = CacheStrategy & {
@@ -87,6 +92,14 @@ function storageKey(originalKey: string, prefixes: TenantPrefixes): string {
   return `${prefixes.keyPrefix}k:${hashIdentifier(originalKey)}`
 }
 
+function providerEntryKey(originalKey: string, keyPrefix: string): string {
+  return `${keyPrefix}${PROVIDER_ENTRY_PREFIX}${hashIdentifier(originalKey)}`
+}
+
+function isCacheProviderEntry(value: CacheValue | null): value is CacheProviderEntry {
+  return isCacheMetadata(value) && Object.hasOwn(value, 'value')
+}
+
 function metaKey(originalKey: string, prefixes: TenantPrefixes): string {
   return `${prefixes.keyPrefix}meta:${hashIdentifier(originalKey)}`
 }
@@ -97,12 +110,7 @@ function metaKey(originalKey: string, prefixes: TenantPrefixes): string {
  * conformance tooling can target a specific record without copying the layout.
  */
 export function resolvePhysicalCacheValueKey(originalKey: string, tenantId: string | null): string {
-  const tenant = normalizeTenantKey(tenantId)
-  return storageKey(originalKey, {
-    keyPrefix: `tenant:${tenant}:key:`,
-    tagPrefix: `tenant:${tenant}:tag:`,
-    scopeTag: `tenant:${tenant}:tag:__scope__`,
-  })
+  return providerEntryKey(originalKey, `tenant:${normalizeTenantKey(tenantId)}:key:`)
 }
 
 function hashedTag(tag: string, prefixes: TenantPrefixes): string {
@@ -120,42 +128,59 @@ function buildTagSet(tags: string[] | undefined, prefixes: TenantPrefixes, inclu
   return Array.from(scoped)
 }
 
-function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: boolean): TenantAwareCacheStrategy {
+function createTenantAwareWrapper(base: CacheStrategy, layout: CacheRecordLayout): TenantAwareCacheStrategy {
+  const recordPrefix = layout.kind === 'provider' ? PROVIDER_ENTRY_PREFIX : 'meta:'
+
+  function valueKey(key: string, prefixes: TenantPrefixes) {
+    return layout.kind === 'provider' ? providerEntryKey(key, prefixes.keyPrefix) : storageKey(key, prefixes)
+  }
+
   function normalizeDeletionCount(raw: number): number {
-    if (!raw) return raw
-    if (!Number.isFinite(raw)) return raw
+    if (layout.kind === 'provider' || !raw || !Number.isFinite(raw)) return raw
     return Math.ceil(raw / 2)
   }
 
+  async function* scanRecords(keyPrefix: string) {
+    for (const physicalKey of await base.keys(`${keyPrefix}${recordPrefix}*`)) {
+      const record = await base.get(physicalKey, { returnExpired: true })
+      if (layout.kind === 'stock' && typeof record === 'string') {
+        yield { physicalKey, key: record, expiresAt: null }
+        continue
+      }
+      if (!isCacheMetadata(record) || (layout.kind === 'provider' && !isCacheProviderEntry(record))) continue
+      yield { physicalKey, key: record.key, expiresAt: record.expiresAt ?? null }
+    }
+  }
+
   const get = async (key: string, options?: CacheGetOptions) => {
-    const prefixes = resolveTenantPrefixes()
-    return base.get(storageKey(key, prefixes), options)
+    const record = await base.get(valueKey(key, resolveTenantPrefixes()), options)
+    if (layout.kind === 'stock') return record
+    return isCacheProviderEntry(record) ? record.value : null
   }
 
   const set = async (key: string, value: CacheValue, options?: CacheSetOptions) => {
     const prefixes = resolveTenantPrefixes()
-    const hashedTags = buildTagSet(options?.tags, prefixes, true)
+    const tags = buildTagSet(options?.tags, prefixes, true)
+    const nextOptions: CacheSetOptions = { ...options, tags }
+    if (layout.kind === 'provider') {
+      const ttl = options?.ttl ?? layout.defaultTtl
+      const entry: CacheProviderEntry = { key, value, expiresAt: ttl && ttl > 0 ? Date.now() + ttl : null }
+      await base.set(valueKey(key, prefixes), entry, nextOptions)
+      return
+    }
+
+    await base.set(valueKey(key, prefixes), value, nextOptions)
     const ttl = options?.ttl ?? undefined
-    const nextOptions: CacheSetOptions | undefined = options
-      ? { ...options, tags: hashedTags }
-      : { tags: hashedTags }
-    await base.set(storageKey(key, prefixes), value, nextOptions)
-    const metaPayload: CacheMetadata = { key, expiresAt: ttl ? Date.now() + ttl : null }
-    await base.set(metaKey(key, prefixes), metaPayload, {
-      ttl,
-      tags: hashedTags,
-    })
+    const metadata: CacheMetadata = { key, expiresAt: ttl ? Date.now() + ttl : null }
+    await base.set(metaKey(key, prefixes), metadata, { ttl, tags })
   }
 
-  const has = async (key: string) => {
-    const prefixes = resolveTenantPrefixes()
-    return base.has(storageKey(key, prefixes))
-  }
+  const has = async (key: string) => base.has(valueKey(key, resolveTenantPrefixes()))
 
   const del = async (key: string) => {
     const prefixes = resolveTenantPrefixes()
-    const primary = await base.delete(storageKey(key, prefixes))
-    await base.delete(metaKey(key, prefixes))
+    const primary = await base.delete(valueKey(key, prefixes))
+    if (layout.kind === 'stock') await base.delete(metaKey(key, prefixes))
     return primary
   }
 
@@ -174,18 +199,11 @@ function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: b
   }
 
   const keys = async (pattern?: string) => {
-    const prefixes = resolveTenantPrefixes()
-    const metaPattern = `${prefixes.keyPrefix}meta:*`
-    const metaKeys = await base.keys(metaPattern)
     const originals: string[] = []
-    for (const metaKey of metaKeys) {
-      const metaValue = await base.get(metaKey, { returnExpired: true })
-      if (!metaValue) continue
-      const metadata = typeof metaValue === 'string' ? null : (isCacheMetadata(metaValue) ? metaValue : null)
-      const original = typeof metaValue === 'string' ? metaValue : metadata?.key
-      if (!original) continue
-      if (pattern && !matchCacheKeyPattern(original, pattern)) continue
-      originals.push(original)
+    for await (const { key } of scanRecords(resolveTenantPrefixes().keyPrefix)) {
+      if (layout.kind === 'stock' && !key) continue
+      if (pattern && !matchCacheKeyPattern(key, pattern)) continue
+      originals.push(key)
     }
     return originals
   }
@@ -194,51 +212,34 @@ function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: b
     const normalizedPatterns = Array.from(new Set(patterns.map((pattern) => pattern.trim()).filter(Boolean)))
     if (normalizedPatterns.length === 0) return 0
 
-    const metaKeys = await base.keys(TENANT_META_KEY_PATTERN)
     let deleted = 0
-    for (const metadataKey of metaKeys) {
-      const metadataValue = await base.get(metadataKey, { returnExpired: true })
-      if (!metadataValue) continue
-      const metadata = typeof metadataValue === 'string'
-        ? null
-        : (isCacheMetadata(metadataValue) ? metadataValue : null)
-      const originalKey = typeof metadataValue === 'string' ? metadataValue : metadata?.key
-      if (!originalKey || !normalizedPatterns.some((pattern) => matchCacheKeyPattern(originalKey, pattern))) {
+    for await (const { physicalKey, key } of scanRecords('tenant:*:key:')) {
+      if (layout.kind === 'stock' && !key) continue
+      if (!normalizedPatterns.some((pattern) => matchCacheKeyPattern(key, pattern))) continue
+      if (layout.kind === 'provider') {
+        if (await base.delete(physicalKey)) deleted += 1
         continue
       }
 
-      const markerIndex = metadataKey.lastIndexOf(TENANT_META_KEY_MARKER)
+      const markerIndex = physicalKey.lastIndexOf(TENANT_META_KEY_MARKER)
       if (markerIndex < 0) continue
-      const primaryKey = `${metadataKey.slice(0, markerIndex)}:key:k:${metadataKey.slice(markerIndex + TENANT_META_KEY_MARKER.length)}`
+      const primaryKey = `${physicalKey.slice(0, markerIndex)}:key:k:${physicalKey.slice(markerIndex + TENANT_META_KEY_MARKER.length)}`
       if (await base.delete(primaryKey)) deleted += 1
-      await base.delete(metadataKey)
+      await base.delete(physicalKey)
     }
     return deleted
   }
 
   const stats = async () => {
-    const prefixes = resolveTenantPrefixes()
-    const metaKeys = await base.keys(`${prefixes.keyPrefix}meta:*`)
     let size = 0
     let expired = 0
     const now = Date.now()
-    for (const metaKey of metaKeys) {
-      const metaValue = await base.get(metaKey, { returnExpired: true })
-      if (!metaValue) continue
-      const metadata = typeof metaValue === 'string' ? null : (isCacheMetadata(metaValue) ? metaValue : null)
-      const original = typeof metaValue === 'string' ? metaValue : metadata?.key
-      if (!original) continue
+    for await (const { key, expiresAt } of scanRecords(resolveTenantPrefixes().keyPrefix)) {
+      if (layout.kind === 'stock' && !key) continue
       size++
-      const expiresAt = metadata?.expiresAt ?? null
       if (expiresAt !== null && expiresAt <= now) expired++
     }
-    // size/expired stay tenant-scoped (derived from this tenant's meta keys).
-    // Only memory-backed strategies track the process-global bound counters, so
-    // skip the extra base.stats() round-trip for redis/sqlite/jsonfile and omit
-    // the optional fields (the stats() contract marks them optional). Keyed off
-    // the configured strategy: a backend degraded to the memory fallback
-    // intentionally does not surface these diagnostics.
-    if (!reportsBoundedCounters) {
+    if (layout.kind !== 'stock' || !layout.reportsBoundedCounters) {
       return { size, expired }
     }
     const { evictions, sweeps, lastSweepReclaimed } = await base.stats()
@@ -354,10 +355,9 @@ function isProviderStrategy(value: unknown): value is ProviderStrategy {
 
 async function closeQuietly(value: unknown): Promise<void> {
   if (typeof value !== 'object' || value === null) return
-  const close = (value as { close?: unknown }).close
-  if (typeof close !== 'function') return
   try {
-    await close.call(value)
+    const close = (value as { close?: unknown }).close
+    if (typeof close === 'function') await close.call(value)
   } catch {
     return
   }
@@ -384,23 +384,29 @@ function connectProviderStrategy(
     Promise.resolve()
       .then(() => provider.definition.create(provider.config, context))
       .then(
-        async (strategy) => {
+        (strategy) => {
           if (settled) {
-            await closeQuietly(strategy)
+            void closeQuietly(strategy)
             return
           }
           clearTimeout(timer)
           settled = true
-          if (!isProviderStrategy(strategy)) {
-            await closeQuietly(strategy)
-            reject(new CacheProviderError(
-              'invalid_registration',
-              `Cache provider "${provider.id}" create() must return a cache strategy implementing ${REQUIRED_PROVIDER_STRATEGY_METHODS.join(', ')}`,
-              { providerId: provider.id },
-            ))
-            return
+          try {
+            if (!isProviderStrategy(strategy)) {
+              throw new CacheProviderError(
+                'invalid_registration',
+                `Cache provider "${provider.id}" create() must return a cache strategy implementing ${REQUIRED_PROVIDER_STRATEGY_METHODS.join(', ')}`,
+                { providerId: provider.id },
+              )
+            }
+            resolve(strategy)
+          } catch (error) {
+            void closeQuietly(strategy)
+            reject(toSanitizedCacheProviderError(error, {
+              message: `Cache provider "${provider.id}" failed to initialize`,
+              providerId: provider.id,
+            }))
           }
-          resolve(strategy)
         },
         (error: unknown) => {
           if (settled) return
@@ -543,7 +549,7 @@ function createProviderTenantAwareStrategy(provider: ResolvedCacheProvider, opti
     resolveProviderConnectTimeoutMs(),
     resolveProviderRetryCooldownMs(),
   )
-  return createTenantAwareWrapper(lazyStrategy, false)
+  return createTenantAwareWrapper(lazyStrategy, { kind: 'provider', defaultTtl: context.defaultTtl })
 }
 
 function createTenantAwareStrategyForSelection(
@@ -570,9 +576,7 @@ function createStockTenantAwareStrategy(strategyType: CacheStrategyName, options
   const createStrategy = isCacheStrategyName(strategyType) ? stockProviderFactories[strategyType] : stockProviderFactories.memory
   const baseStrategy = createStrategy({ options, defaultTtl, maxEntries, codecOptions })
   const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl, maxEntries)
-  const reportsBoundedCounters = strategyType === 'memory'
-
-  return createTenantAwareWrapper(resilientStrategy, reportsBoundedCounters)
+  return createTenantAwareWrapper(resilientStrategy, { kind: 'stock', reportsBoundedCounters: strategyType === 'memory' })
 }
 
 /**

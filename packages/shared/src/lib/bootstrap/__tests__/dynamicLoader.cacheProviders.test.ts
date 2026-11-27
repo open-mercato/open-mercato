@@ -169,6 +169,10 @@ describe('bootstrapFromAppRoot — cache provider manifest reaches worker/CLI pr
     process.env.CACHE_PROVIDER = 'acme/fake'
     const appRoot = createAppRoot({ ts: MANIFEST_TS, compiled: "throw new Error('src/providers/cache.ts is broken')" })
 
-    await expect(bootstrapFromAppRoot(appRoot)).rejects.toThrow('src/providers/cache.ts is broken')
+    await expect(bootstrapFromAppRoot(appRoot)).rejects.toMatchObject({
+      name: 'CacheProviderError',
+      code: 'load_failed',
+      message: 'The cache provider manifest could not be loaded. Check src/providers/cache.ts.',
+    })
   })
 })
