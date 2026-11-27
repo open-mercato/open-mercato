@@ -22,15 +22,15 @@ The specs create ordinary customers, deals, tags, dictionary entries, custom-fie
 
 ## API Contracts and Coverage
 
-Each spec exercises the collection's POST and PUT and verifies saved values with detail GET requests after both writes. DELETE cleans up the record after the assertions. The coverage uses form-shaped requests and complements the existing browser coverage of the canonical create hosts.
+Each spec exercises the collection's POST and PUT and verifies saved values with detail GET requests after both writes. DELETE cleans up the record after the assertions. The coverage uses form-shaped requests and complements the existing browser coverage of the canonical create hosts. Embedded addresses save through the separate customer-address API and have their own integration scenarios.
 
 | Spec | Write API | Read-back assertions |
 |---|---|---|
 | `TC-CRM-CRUDFORM-001` | `/api/customers/people` | Name, description, email, phone, job title, department, seniority, time zone, preferred name, social URLs, company link, status, lifecycle stage, source, tags, and text and select custom fields |
 | `TC-CRM-CRUDFORM-002` | `/api/customers/companies` | Display, legal, and brand names, description, email, phone, domain, website, industry, size, annual revenue, tax ID, status, lifecycle stage, source, tags, and textarea and boolean custom fields |
-| `TC-CRM-CRUDFORM-003` | `/api/customers/deals` | Title, description, status, source, amount, currency, probability, close date, pipeline and stage, people, companies, and number and multi-select custom fields |
+| `TC-CRM-CRUDFORM-003` | `/api/customers/deals` | Title, description, status, source, owner, amount, currency, probability, close date, pipeline and stage, people, companies, and number and multi-select custom fields |
 
-Replace tags in both contact specs, toggle the company custom boolean from true to false, and change the deal's linked records and custom multi-select. Assert retained person names, retained company profile values, and retained deal values after partial updates. Compare relationship selections as sets.
+Change the company link and selected tags in the person test. Remove a tag and toggle the custom boolean from true to false in the company test. Change the deal's pipeline, stage, linked records, and custom multi-select and clear its owner. Assert that omitted fields such as the person's department, the company's legal name, and the deal's description retain their values after the partial updates. Compare relationship and multi-select values as sets.
 
 ## Risks & Impact Review
 
@@ -45,6 +45,7 @@ The work exercises existing authenticated routes under the test tenant. Its chan
 ## Changelog
 
 - 2026-11-27 — Document the three customer persistence tests and fixture requirements for #2556.
+- 2026-11-27 — Record the verified update assertions and deal ownership coverage. [Implementation PR #10931](https://github.com/open-mercato/open-mercato/pull/10931)
 
 ## Implementation Plan
 
