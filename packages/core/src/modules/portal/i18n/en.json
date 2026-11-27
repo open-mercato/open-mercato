@@ -128,6 +128,7 @@
   "portal.signup.error.email.invalid": "Please enter a valid email address.",
   "portal.signup.error.generic": "Registration failed. Please try again.",
   "portal.signup.error.password.minLength": "Password must be at least 8 characters.",
+  "portal.signup.error.rateLimited": "Too many sign-up attempts. Please wait a few minutes and try again.",
   "portal.signup.hasAccount": "Already have an account?",
   "portal.signup.loginLink": "Log in",
   "portal.signup.password": "Password",

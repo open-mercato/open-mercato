@@ -133,3 +133,36 @@ describe('GET /api/staff/timesheets/reports/[id]/sheet — report period', () =>
     await expect(fetchSheetPeriod()).resolves.toEqual({ periodFrom: '2026-09-01', periodTo: '2026-09-30' })
   })
 })
+
+const historyMetadata = [
+  { totalAmount: 1203.64, currencyCode: 'PLN', frozenEntryCount: 6, lockedEntryCount: 6, roundingUnitMinutes: 15, roundingDirection: 'up' },
+  { frozenTotalAmount: '1203.64', currencyCode: 'PLN', unlockedEntryCount: 6, transferredLockCount: 0, frozenEntryCount: 6, frozenBillableMinutes: 585, frozenNonbillableMinutes: 0 },
+  { format: 'csv', grouping: 'project_task', rowCount: 6 },
+  { nested: { hourlyRate: 123.45 }, amount: 1203.64, cost: 1203.64 },
+  null,
+]
+
+describe('report history money visibility', () => {
+  it.each([false, true])('gates all history metadata with the resolved money decision (%s)', async (canSeeMoney) => {
+    const context = await mockResolveReportRequestContext()
+    mockResolveReportRequestContext.mockResolvedValue({ ...context, canSeeMoney })
+    mockFindOne.mockResolvedValue(reportRow('2026-03-01', '2026-03-31'))
+    mockFind.mockResolvedValue(historyMetadata.map((metadata, index) => ({
+      id: `event-${index}`,
+      eventType: ['closed', 'unlocked', 'exported', 'contributed', 'exported'][index],
+      reason: index === 1 ? 'Correction' : null,
+      metadata,
+    })))
+    const response = await getHandler(new Request(`http://localhost/api/staff/timesheets/reports/${REPORT_ID}/sheet`))
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.events.map((event: { metadata: unknown }) => event.metadata)).toEqual(canSeeMoney ? historyMetadata : [
+      { frozenEntryCount: 6, lockedEntryCount: 6, roundingUnitMinutes: 15, roundingDirection: 'up' },
+      { unlockedEntryCount: 6, transferredLockCount: 0, frozenEntryCount: 6, frozenBillableMinutes: 585, frozenNonbillableMinutes: 0 },
+      { format: 'csv', grouping: 'project_task', rowCount: 6 },
+      {},
+      null,
+    ])
+    expect(body.events[1].reason).toBe('Correction')
+  })
+})

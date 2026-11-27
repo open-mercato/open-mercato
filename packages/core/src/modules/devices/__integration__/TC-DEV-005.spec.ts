@@ -129,7 +129,7 @@ test.describe('TC-DEV-005: organization scoping & per-org device identity', () =
   test('an org-restricted admin only lists and reads devices in its own organization', async ({ request }) => {
     test.slow()
     const stamp = Date.now()
-    const password = 'Secret123!'
+    const password = 'QaSecret123!'
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId, userId: ownerUserId } = getTokenScope(adminToken)
     const email = `tc-dev-005-restricted-${stamp}@example.com`

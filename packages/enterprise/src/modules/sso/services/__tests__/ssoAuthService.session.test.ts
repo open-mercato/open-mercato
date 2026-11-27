@@ -2,7 +2,7 @@ import { IsolationLevel } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Session } from '@open-mercato/core/modules/auth/data/entities'
 import { lockAuthorizationUserRows } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
-import { AuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { AuthSessionRejectedError, capturePasswordSessionProof } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
@@ -95,6 +95,18 @@ describe('atomic SSO-aware session issuance', () => {
     const { service, txEm } = fixture('config-1')
 
     await expect(service.createSession(user, expiresAt)).rejects.toBeInstanceOf(AuthSessionRejectedError)
+    expect(txEm.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects changed password credentials during SSO-aware password session issuance', async () => {
+    const { service, txEm, managedUser } = fixture()
+    const verifiedUser = { ...user, email: 'user@example.com', passwordHash: 'verified-hash' }
+    managedUser.email = verifiedUser.email
+    managedUser.passwordHash = 'updated-hash'
+
+    await expect(service.createSession(verifiedUser, expiresAt, capturePasswordSessionProof(verifiedUser)))
+      .rejects.toBeInstanceOf(AuthSessionRejectedError)
+    expect(lockAuthorizationUserRows).toHaveBeenCalledWith(txEm, [user.id])
     expect(txEm.create).not.toHaveBeenCalled()
   })
 

@@ -2,6 +2,7 @@
 import cli from '@open-mercato/core/modules/auth/cli'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 
 const persist = jest.fn()
 const flush = jest.fn()
@@ -23,7 +24,7 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: async () => ({
+  createRequestContainer: jest.fn(async () => ({
     resolve: () => ({
       getConnection: () => ({ execute }),
       getMetadata: () => ({ get: () => ({ tableName: 'users' }) }),
@@ -31,13 +32,14 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       persist,
       flush,
     }),
-  }),
+  })),
 }))
 
 describe('auth rotate-encryption-key CLI', () => {
   const rotate = cli.find((command) => command.command === 'rotate-encryption-key')!
   const encryptedValue = 'iv:cipher:tag:v1'
   let previousEncryptionToggle: string | undefined
+  let previousOldKey: string | undefined
 
   beforeEach(() => {
     jest.clearAllMocks()
@@ -51,6 +53,8 @@ describe('auth rotate-encryption-key CLI', () => {
     }))
     previousEncryptionToggle = process.env.TENANT_DATA_ENCRYPTION
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    previousOldKey = process.env.TENANT_DATA_ENCRYPTION_OLD_KEY
+    delete process.env.TENANT_DATA_ENCRYPTION_OLD_KEY
     find.mockImplementation(async (entity: unknown) => entity === Organization
       ? [{ id: 'org-1', tenant: { id: 'tenant-1' } }]
       : [])
@@ -60,13 +64,16 @@ describe('auth rotate-encryption-key CLI', () => {
   afterEach(() => {
     if (previousEncryptionToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
     else process.env.TENANT_DATA_ENCRYPTION = previousEncryptionToggle
+    if (previousOldKey === undefined) delete process.env.TENANT_DATA_ENCRYPTION_OLD_KEY
+    else process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = previousOldKey
   })
 
   it.each([null, 'old-hash'])('rotates ciphertext using the original email and hash %s', async (originalHash) => {
     execute.mockResolvedValueOnce([{ id: 'user-1', email: encryptedValue, email_hash: originalHash }])
     jest.mocked(decryptWithAesGcm).mockReturnValueOnce('user@example.com')
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
 
-    await rotate.run(['--old-key', 'old-secret'])
+    await rotate.run([])
 
     expect(decryptWithAesGcm).toHaveBeenCalled()
     expect(execute).toHaveBeenLastCalledWith(
@@ -75,6 +82,97 @@ describe('auth rotate-encryption-key CLI', () => {
     )
     expect(persist).not.toHaveBeenCalled()
     expect(flush).not.toHaveBeenCalled()
+  })
+
+  it('rotates with the previous key from argv only through the unsafe bridge and warns', async () => {
+    execute.mockResolvedValueOnce([{ id: 'user-1', email: encryptedValue, email_hash: null }])
+    jest.mocked(decryptWithAesGcm).mockReturnValueOnce('user@example.com')
+    const warn = jest.spyOn(console, 'warn').mockImplementation()
+    try {
+      await rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+
+      expect(decryptWithAesGcm).toHaveBeenCalledWith(encryptedValue, expect.any(String))
+      expect(execute).toHaveBeenLastCalledWith(
+        expect.stringContaining('WHERE id = ? AND tenant_id = ? AND organization_id = ?'),
+        ['enc:user@example.com', 'hash', 'user-1', 'tenant-1', 'org-1', encryptedValue, null],
+      )
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('TENANT_DATA_ENCRYPTION_OLD_KEY'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('rotates with the previous key from TENANT_DATA_ENCRYPTION_OLD_KEY without the argv warning', async () => {
+    execute.mockResolvedValueOnce([{ id: 'user-1', email: encryptedValue, email_hash: null }])
+    jest.mocked(decryptWithAesGcm).mockReturnValueOnce('user@example.com')
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+    const warn = jest.spyOn(console, 'warn').mockImplementation()
+    try {
+      await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1'])
+
+      expect(warn).not.toHaveBeenCalled()
+      expect(execute).toHaveBeenLastCalledWith(
+        expect.stringContaining('WHERE id = ? AND tenant_id = ? AND organization_id = ?'),
+        ['enc:user@example.com', 'hash', 'user-1', 'tenant-1', 'org-1', encryptedValue, null],
+      )
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('accepts an --old-key equal to TENANT_DATA_ENCRYPTION_OLD_KEY through the bridge', async () => {
+    execute.mockResolvedValueOnce([{ id: 'user-1', email: encryptedValue, email_hash: null }])
+    jest.mocked(decryptWithAesGcm).mockReturnValueOnce('user@example.com')
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+    const warn = jest.spyOn(console, 'warn').mockImplementation()
+    try {
+      await rotate.run(['--allow-unsafe-old-key', '--old-key', ' old-secret ', '--tenant', 'tenant-1', '--org', 'org-1'])
+
+      expect(execute).toHaveBeenLastCalledWith(
+        expect.stringContaining('WHERE id = ? AND tenant_id = ? AND organization_id = ?'),
+        ['enc:user@example.com', 'hash', 'user-1', 'tenant-1', 'org-1', encryptedValue, null],
+      )
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('TENANT_DATA_ENCRYPTION_OLD_KEY'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it.each<{ name: string; flags: string[]; message: string; environmentKey?: string }>([
+    { name: 'argv key material without the unsafe bridge', flags: ['--old-key', 'old-secret'], message: '--allow-unsafe-old-key' },
+    { name: 'the --old-key=<value> form without the unsafe bridge', flags: ['--old-key=old-secret'], message: '--allow-unsafe-old-key' },
+    { name: 'the --oldKey alias without the unsafe bridge', flags: ['--oldKey', 'old-secret'], message: '--allow-unsafe-old-key' },
+    {
+      name: 'an --old-key equal to TENANT_DATA_ENCRYPTION_OLD_KEY without the unsafe bridge',
+      flags: ['--old-key', 'old-secret'],
+      message: '--allow-unsafe-old-key',
+      environmentKey: 'old-secret',
+    },
+    { name: 'an unsafe bridge set to false', flags: ['--allow-unsafe-old-key=false', '--old-key', 'old-secret'], message: '--allow-unsafe-old-key' },
+    { name: 'a bare --old-key flag', flags: ['--allow-unsafe-old-key', '--old-key'], message: '--old-key requires a value' },
+    { name: 'an empty --old-key value', flags: ['--allow-unsafe-old-key', '--old-key='], message: '--old-key requires a value' },
+    { name: 'a whitespace-only --old-key value', flags: ['--allow-unsafe-old-key', '--old-key', '  '], message: '--old-key requires a value' },
+    {
+      name: 'an --old-key that differs from TENANT_DATA_ENCRYPTION_OLD_KEY',
+      flags: ['--allow-unsafe-old-key', '--old-key', 'argument-secret'],
+      message: 'contain different values',
+      environmentKey: 'environment-secret',
+    },
+    { name: 'an empty TENANT_DATA_ENCRYPTION_OLD_KEY', flags: [], message: 'TENANT_DATA_ENCRYPTION_OLD_KEY is set but empty', environmentKey: '' },
+    { name: 'a whitespace-only TENANT_DATA_ENCRYPTION_OLD_KEY', flags: [], message: 'TENANT_DATA_ENCRYPTION_OLD_KEY is set but empty', environmentKey: '   ' },
+  ])('rejects $name before opening the database', async ({ flags, message, environmentKey }) => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation()
+    try {
+      if (environmentKey !== undefined) process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = environmentKey
+
+      await expect(rotate.run([...flags, '--tenant', 'tenant-1', '--org', 'org-1'])).rejects.toThrow(message)
+
+      expect(createRequestContainer).not.toHaveBeenCalled()
+      expect(execute).not.toHaveBeenCalled()
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('encrypts plaintext through a scoped compare-and-swap without flushing managed entities', async () => {
@@ -109,7 +207,9 @@ describe('auth rotate-encryption-key CLI', () => {
   it('does not write or decrypt during a dry run', async () => {
     execute.mockResolvedValueOnce([{ id: 'user-1', email: encryptedValue, email_hash: null }])
 
-    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--old-key', 'old-secret', '--dry-run'])
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+
+    await rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--dry-run'])
 
     expect(execute).toHaveBeenCalledTimes(1)
     expect(decryptWithAesGcm).not.toHaveBeenCalled()
@@ -133,7 +233,8 @@ describe('auth rotate-encryption-key CLI', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation()
     try {
       const args = explicitScope ? ['--tenant', 'tenant-1', '--org', 'org-1'] : []
-      await expect(rotate.run([...args, '--old-key', 'old-secret']))
+      process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+      await expect(rotate.run(args))
         .rejects.toThrow('1 auth user email(s) could not be rotated')
 
       expect(getDek).toHaveBeenCalledWith('tenant-1')
@@ -160,7 +261,9 @@ describe('auth rotate-encryption-key CLI', () => {
     execute.mockResolvedValueOnce([{ id: 'current-user', email: currentEmail, email_hash: 'current-hash' }])
     jest.mocked(decryptWithAesGcm).mockImplementation(aes.decryptWithAesGcm)
 
-    await expect(rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--old-key', 'old-secret']))
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+
+    await expect(rotate.run(['--tenant', 'tenant-1', '--org', 'org-1']))
       .resolves.toBeUndefined()
 
     expect(decryptWithAesGcm).toHaveBeenCalledTimes(2)
@@ -191,7 +294,8 @@ describe('auth rotate-encryption-key CLI', () => {
     const log = jest.spyOn(console, 'log').mockImplementation()
     const warn = jest.spyOn(console, 'warn').mockImplementation()
     try {
-      await expect(rotate.run(['--old-key', 'old-secret']))
+      process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+      await expect(rotate.run([]))
         .rejects.toThrow('2 auth user email(s) could not be rotated')
 
       expect(encryptEntityPayload).toHaveBeenCalledTimes(1)
@@ -214,7 +318,9 @@ describe('auth rotate-encryption-key CLI', () => {
     execute.mockResolvedValueOnce([{ id: 'broken-user', email: encryptedValue, email_hash: null }])
     jest.mocked(decryptWithAesGcm).mockReturnValue(null)
 
-    await expect(rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--old-key', 'old-secret']))
+    process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+
+    await expect(rotate.run(['--tenant', 'tenant-1', '--org', 'org-1']))
       .rejects.toThrow('1 auth user email(s) could not be rotated')
 
     expect(encryptEntityPayload).not.toHaveBeenCalled()
@@ -228,7 +334,9 @@ describe('auth rotate-encryption-key CLI', () => {
     jest.mocked(decryptWithAesGcm).mockReturnValue(null)
     const warn = jest.spyOn(console, 'warn').mockImplementation()
     try {
-      await expect(rotate.run(['--tenant', 'tenant-1', '--org', 'org-1', '--old-key', 'old-secret']))
+      process.env.TENANT_DATA_ENCRYPTION_OLD_KEY = 'old-secret'
+
+    await expect(rotate.run(['--tenant', 'tenant-1', '--org', 'org-1']))
         .rejects.toThrow('22 auth user email(s) could not be rotated')
 
       const output = warn.mock.calls.flat().join('\n')

@@ -40,7 +40,7 @@ export const integrationMeta = {
  */
 
 const TEST_TIMEOUT_MS = 300_000
-const VALID_PASSWORD = 'Valid1!Pass'
+const VALID_PASSWORD = 'QaValid1!Pass'
 const READER_FEATURES = ['ai_assistant.view', 'attachments.view']
 const TOOL_NAME = 'attachments.get_document_sections'
 

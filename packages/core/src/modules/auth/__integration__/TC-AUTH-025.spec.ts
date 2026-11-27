@@ -21,7 +21,7 @@ test.describe('TC-AUTH-025: Filter Users by Display Name', () => {
       const { organizationId } = getTokenContext(token)
       userId = await createUserFixture(request, token, {
         email,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId,
         roles: ['employee'],
         name: displayName,

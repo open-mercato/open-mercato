@@ -1,13 +1,19 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
+import { Inbox } from 'lucide-react'
 import { extensionPoints } from '@open-mercato/core/modules/communication_channels/extension-points'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
 
 type ChannelRow = {
   id: string
@@ -29,6 +35,10 @@ type ChannelListResponse = {
 
 export default function ChannelsListPage() {
   const t = useT()
+  const { payload, isLoading: isLoadingAccess } = useBackendChrome()
+  const features = isLoadingAccess ? undefined : payload?.grantedFeatures
+  const canViewIntegrations = hasFeature(features, 'integrations.view')
+  const canConnectMailbox = hasFeature(features, 'communication_channels.connect_user_channel')
   const [rows, setRows] = React.useState<ChannelRow[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
@@ -122,22 +132,50 @@ export default function ChannelsListPage() {
     [t],
   )
 
+  const setupActions = canViewIntegrations || canConnectMailbox ? (
+    <div className="flex flex-wrap justify-center gap-2">
+      {canViewIntegrations ? (
+        <Button asChild variant="outline">
+          <Link href="/backend/integrations?category=communication">
+            {t('communication_channels.setup.configureProviders', 'Configure providers')}
+          </Link>
+        </Button>
+      ) : null}
+      {canConnectMailbox ? (
+        <Button asChild variant="outline">
+          <Link href="/backend/profile/communication-channels">
+            {t('communication_channels.setup.connectMailbox', 'Connect my mailbox')}
+          </Link>
+        </Button>
+      ) : null}
+    </div>
+  ) : undefined
+
   return (
     <Page>
       <PageBody>
         <DataTable<ChannelRow>
           title={t('communication_channels.nav.title', 'Communication Channels')}
           titleHeadingLevel={1}
+          actions={setupActions}
           extensionTableId={extensionPoints.hosts.channelsTable.tableId}
           injectionContext={injectionContext}
           columns={columns}
           data={rows}
           isLoading={isLoading}
           error={errorMessage}
-          emptyState={t(
-            'communication_channels.emptyState',
-            'No shared channels yet. This page lists shared, tenant-wide channels. Your personal email mailbox is private — connect and manage it under Profile → Communication Channels.',
-          )}
+          emptyState={
+            <EmptyState
+              variant="subtle"
+              icon={<Inbox className="size-6" aria-hidden />}
+              title={t('communication_channels.setup.emptyTitle', 'No shared channels yet')}
+              description={t(
+                'communication_channels.setup.emptyDescription',
+                'This page lists channels shared across the workspace.',
+              )}
+              actions={setupActions}
+            />
+          }
           pagination={{
             page,
             pageSize,

@@ -6,8 +6,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
-import { buildMemberScheduleItems } from '@open-mercato/core/modules/staff/lib/memberSchedule'
+import { MemberAvailabilityRulesEditor } from '@open-mercato/core/modules/staff/components/MemberAvailabilityRulesEditor'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 
@@ -15,6 +14,8 @@ type SelfMemberResponse = {
   member?: {
     id?: string
     displayName?: string
+    userId?: string | null
+    organizationId?: string | null
     availabilityRuleSetId?: string | null
   } | null
 }
@@ -141,15 +142,12 @@ export default function StaffMyAvailabilityPage() {
               </Button>
             </div>
           ) : null}
-          <AvailabilityRulesEditor
-            subjectType="member"
+          <MemberAvailabilityRulesEditor
             subjectId={member.id}
-            labelPrefix="staff.teamMembers"
+            memberUserId={member.userId}
+            memberOrganizationId={member.organizationId}
             mode="availability"
             rulesetId={member.availabilityRuleSetId ?? null}
-            buildScheduleItems={({ availabilityRules, translate }) => (
-              buildMemberScheduleItems({ availabilityRules, translate })
-            )}
             readOnly={!canManageAvailability}
             allowUnavailability={canManageUnavailability}
           />
