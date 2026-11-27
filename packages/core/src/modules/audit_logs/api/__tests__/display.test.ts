@@ -23,6 +23,14 @@ function makeEm(overrides: { users?: any[]; apiKeys?: any[]; tenants?: any[]; or
   } as any
 }
 
+const legacyEntry = (actorUserId: string) => ({
+  id: actorUserId,
+  actorUserId,
+  contextJson: null,
+  tenantId: null,
+  organizationId: null,
+})
+
 const fallbackTranslate: TranslateWithFallbackFn = (_key, fallback, params) => {
   if (!fallback) return _key
   if (!params) return fallback
@@ -50,9 +58,9 @@ describe('loadAuditLogDisplayMaps', () => {
   it('resolves a user actor id without querying api_keys', async () => {
     const em = makeEm({ users: [{ id: 'user-1', name: 'Alice', email: 'alice@example.com' }] })
 
-    const maps = await loadAuditLogDisplayMaps(em, { userIds: ['user-1'], tenantIds: [], organizationIds: [] })
+    const maps = await loadAuditLogDisplayMaps(em, [legacyEntry('user-1')])
 
-    expect(maps.users).toEqual({ 'user-1': 'Alice' })
+    expect(maps.actors).toEqual({ 'user-1': 'Alice' })
     expect(em.find).toHaveBeenCalledTimes(1)
   })
 
@@ -62,9 +70,9 @@ describe('loadAuditLogDisplayMaps', () => {
       apiKeys: [{ id: 'key-1', name: 'import', deletedAt: null }],
     })
 
-    const maps = await loadAuditLogDisplayMaps(em, { userIds: ['key-1'], tenantIds: [], organizationIds: [] })
+    const maps = await loadAuditLogDisplayMaps(em, [legacyEntry('key-1')])
 
-    expect(maps.users['key-1']).toBe('API key: import')
+    expect(maps.actors['key-1']).toBe('API key: import')
   })
 
   it('labels an actor id that matches a revoked (soft-deleted) api key', async () => {
@@ -73,17 +81,58 @@ describe('loadAuditLogDisplayMaps', () => {
       apiKeys: [{ id: 'key-2', name: 'legacy-import', deletedAt: new Date('2024-01-01T00:00:00.000Z') }],
     })
 
-    const maps = await loadAuditLogDisplayMaps(em, { userIds: ['key-2'], tenantIds: [], organizationIds: [] })
+    const maps = await loadAuditLogDisplayMaps(em, [legacyEntry('key-2')])
 
-    expect(maps.users['key-2']).toBe('API key: legacy-import (revoked)')
+    expect(maps.actors['key-2']).toBe('API key: legacy-import (revoked)')
   })
 
   it('never returns the raw id when neither a user nor an api key matches', async () => {
     const em = makeEm({ users: [], apiKeys: [] })
 
-    const maps = await loadAuditLogDisplayMaps(em, { userIds: ['ghost-id'], tenantIds: [], organizationIds: [] })
+    const maps = await loadAuditLogDisplayMaps(em, [legacyEntry('ghost-id')])
 
-    expect(maps.users['ghost-id']).toBeUndefined()
+    expect(maps.actors['ghost-id']).toBeUndefined()
+  })
+
+  it('does not query api_keys for a canonical user or a deleted legacy user', async () => {
+    const deletedId = '11111111-1111-4111-8111-111111111111'
+    const removedId = '22222222-2222-4222-8222-222222222222'
+    const em = makeEm({
+      users: [{ id: deletedId, name: 'Deleted account', deletedAt: new Date() }],
+      apiKeys: [{ id: removedId, name: 'Unrelated key' }],
+    })
+
+    const maps = await loadAuditLogDisplayMaps(em, [
+      legacyEntry(deletedId),
+      { ...legacyEntry(removedId), contextJson: { actorSubject: removedId } },
+    ])
+
+    expect(maps.actors).toEqual({})
+    expect(em.find).not.toHaveBeenCalledWith(ApiKey, expect.anything(), expect.anything())
+  })
+
+  it('keeps API-key labels distinct from user labels even when their IDs match', async () => {
+    const actorId = '33333333-3333-4333-8333-333333333333'
+    const tenantId = '44444444-4444-4444-8444-444444444444'
+    const organizationId = '55555555-5555-4555-8555-555555555555'
+    const em = makeEm({
+      users: [{ id: actorId, name: 'Alice' }],
+      apiKeys: [{ id: actorId, name: 'import', deletedAt: new Date(), tenantId, organizationId }],
+    })
+    const scoped = { ...legacyEntry(actorId), tenantId, organizationId }
+
+    const maps = await loadAuditLogDisplayMaps(em, [
+      { ...scoped, id: 'user-log', contextJson: { actorSubject: actorId } },
+      { ...scoped, id: 'key-log', contextJson: { actorSubject: `api_key:${actorId}` } },
+      { ...scoped, id: 'other-org-log', organizationId: null, contextJson: { actorSubject: `api_key:${actorId}` } },
+      { ...scoped, id: 'other-tenant-log', tenantId: null, contextJson: { actorSubject: `api_key:${actorId}` } },
+      { ...scoped, id: 'invalid-log', contextJson: { actorSubject: `api_key:${tenantId}` } },
+    ])
+
+    expect(maps.actors).toEqual({
+      'user-log': 'Alice',
+      'key-log': 'API key: import (revoked)',
+    })
   })
 
   it('localizes the api key labels when a translate function is supplied', async () => {
@@ -98,12 +147,12 @@ describe('loadAuditLogDisplayMaps', () => {
 
     const maps = await loadAuditLogDisplayMaps(
       em,
-      { userIds: ['key-1', 'key-2'], tenantIds: [], organizationIds: [] },
+      [legacyEntry('key-1'), legacyEntry('key-2')],
       { translate },
     )
 
-    expect(maps.users['key-1']).toBe('API key: import')
-    expect(maps.users['key-2']).toBe('API key: legacy-import (revoked)')
+    expect(maps.actors['key-1']).toBe('API key: import')
+    expect(maps.actors['key-2']).toBe('API key: legacy-import (revoked)')
     expect(translate).toHaveBeenCalledWith('audit_logs.actor.api_key', 'API key: {name}', { name: 'import' })
     expect(translate).toHaveBeenCalledWith(
       'audit_logs.actor.api_key_revoked',
@@ -116,10 +165,10 @@ describe('loadAuditLogDisplayMaps', () => {
     registerEntityIds({})
     const em = makeEm({ users: [], apiKeys: [{ id: 'key-1', name: 'import', deletedAt: null }] })
 
-    const maps = await loadAuditLogDisplayMaps(em, { userIds: ['key-1'], tenantIds: [], organizationIds: [] })
+    const maps = await loadAuditLogDisplayMaps(em, [legacyEntry('key-1')])
 
     expect(em.find).toHaveBeenCalledTimes(1)
-    expect(em.find).not.toHaveBeenCalledWith(ApiKey, expect.anything())
-    expect(maps.users['key-1']).toBeUndefined()
+    expect(em.find).not.toHaveBeenCalledWith(ApiKey, expect.anything(), expect.anything())
+    expect(maps.actors['key-1']).toBeUndefined()
   })
 })

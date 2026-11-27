@@ -144,6 +144,7 @@ export function normalizeActionLogToHistoryEntry(
   log: ActionLog,
   kind: 'order' | 'quote',
   displayUsers?: Record<string, string>,
+  displayActionActors?: Record<string, string>,
 ): HistoryEntry {
   const statusChange = detectStatusChange(log)
   const changedFields = deriveHistoryChangedFields(log)
@@ -163,7 +164,9 @@ export function normalizeActionLogToHistoryEntry(
     }
     // When both are null (e.g. Create return/shipment/payment with non-document snapshot), keep as action and use actionLabel
   }
-  const resolvedActorLabel = log.actorUserId ? displayUsers?.[log.actorUserId] : undefined
+  const resolvedActorLabel = log.actorUserId
+    ? (displayActionActors ? displayActionActors[log.id] : displayUsers?.[log.actorUserId])
+    : undefined
   const actorId = resolvedActorLabel ? log.actorUserId : null
   const actorLabel = resolvedActorLabel ?? 'system'
   return {
@@ -201,11 +204,12 @@ export type HistoryBuilderInput = {
   notes?: SalesNote[]
   kind: 'order' | 'quote'
   displayUsers?: Record<string, string>
+  displayActionActors?: Record<string, string>
 }
 
 export function buildHistoryEntries(input: HistoryBuilderInput): HistoryEntry[] {
   const logEntries = input.actionLogs.map((log) =>
-    normalizeActionLogToHistoryEntry(log, input.kind, input.displayUsers)
+    normalizeActionLogToHistoryEntry(log, input.kind, input.displayUsers, input.displayActionActors)
   )
   const noteEntries = (input.notes ?? []).map((note) =>
     normalizeNoteToHistoryEntry(note, input.kind, input.displayUsers)

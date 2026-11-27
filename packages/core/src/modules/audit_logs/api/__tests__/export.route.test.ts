@@ -147,7 +147,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       })
       mockRbac.userHasAllFeatures.mockResolvedValue(true)
       const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
-      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
       mockActionLogs.list.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 0 })
 
       const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
@@ -168,7 +168,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       orgId: null,
       isSuperAdmin: true,
     })
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockActionLogs.list.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 0 })
 
@@ -187,9 +187,9 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       orgId: 'org-1',
     })
     ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({
-      users: {
-        'active-key': 'API key: import',
-        'revoked-key': 'API key: legacy-import (revoked)',
+      actors: {
+        'log-1': 'API key: import',
+        'log-2': 'API key: legacy-import (revoked)',
       },
       tenants: {},
       organizations: {},
@@ -229,7 +229,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       tenantId: 'tenant-1',
       orgId: 'org-1',
     })
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockActionLogs.list.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 0 })
 
@@ -250,7 +250,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       tenantId: 'tenant-1',
       orgId: 'org-1',
     })
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockActionLogs.list.mockResolvedValue({
       items: [
@@ -316,7 +316,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
       const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
       ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
-      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
       mockRbac.userHasAllFeatures.mockResolvedValue(true)
       const find = mockLiveInteraction({
         id: 'interaction-revoked',
@@ -374,7 +374,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
       const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
       ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-2', tenantId: 'tenant-1', orgId: 'org-1' })
-      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
       mockRbac.userHasAllFeatures.mockResolvedValue(true)
       mockLiveInteraction({
         id: 'interaction-revoked',
@@ -425,7 +425,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
       const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
       ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: viewerUserId, tenantId: 'tenant-1', orgId: 'org-1' })
-      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
       mockRbac.userHasAllFeatures.mockResolvedValue(true)
       mockLiveInteraction(null)
       mockActionLogs.list.mockResolvedValue({
@@ -476,7 +476,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
       const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
       ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
-      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
       mockRbac.userHasAllFeatures.mockResolvedValue(true)
       const find = jest.fn(async (_entityName: unknown, where: Record<string, unknown>) => {
         const idFilter = where?.id as { $in?: string[] } | undefined
@@ -550,7 +550,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       tenantId: 'tenant-1',
       orgId: 'org-1',
     })
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockActionLogs.list.mockResolvedValue({
       items: [
@@ -608,7 +608,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       tenantId: 'tenant-1',
       orgId: 'org-1',
     })
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockActionLogs.list.mockResolvedValue({
       items: [
@@ -658,7 +658,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       tenantId: 'tenant-1',
       orgId: 'org-1',
     })
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockActionLogs.list.mockResolvedValue({
       items: [
@@ -714,7 +714,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       tenantId: 'tenant-1',
       orgId: 'org-1',
     })
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockActionLogs.list.mockResolvedValue({
       items: [
@@ -765,7 +765,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       tenantId: 'tenant-1',
       orgId: 'org-1',
     })
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockActionLogs.list.mockResolvedValue({
       items: [
@@ -809,7 +809,7 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       tenantId: 'tenant-1',
       orgId: 'org-1',
     })
-    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+    ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ actors: {}, tenants: {}, organizations: {} })
     mockRbac.userHasAllFeatures.mockResolvedValue(false)
     mockActionLogs.list.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 0 })
 

@@ -40,9 +40,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/audit_logs/api/audit-logs/display', () => ({
-  loadAuditLogDisplayMaps: jest.fn(async () => ({ users: new Map() })),
+  loadAuditLogActorNames: jest.fn(async () => ({})),
 }))
 
+import { loadAuditLogActorNames } from '@open-mercato/core/modules/audit_logs/api/audit-logs/display'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -102,6 +103,35 @@ describe('sales document-history route authorization', () => {
       resourceKind: 'sales.quote',
       resourceId: DOCUMENT_ID,
     }))
+  })
+
+  it('uses the individual audit row to resolve history actors with the same stored ID', async () => {
+    const actorUserId = '11111111-1111-4111-8111-111111111111'
+    const userLog = {
+      id: 'user-log',
+      commandId: 'sales.orders.update',
+      actorUserId,
+      contextJson: { actorSubject: actorUserId },
+      createdAt: new Date('2026-01-02T00:00:00Z'),
+    }
+    const keyLog = {
+      ...userLog,
+      id: 'key-log',
+      contextJson: { actorSubject: `api_key:${actorUserId}` },
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    }
+    mockActionLogService.list.mockResolvedValue({ items: [userLog, keyLog] })
+    jest.mocked(loadAuditLogActorNames).mockResolvedValueOnce({ 'key-log': 'API key: Importer' })
+
+    const response = await GET(requestFor('order'))
+
+    expect(response.status).toBe(200)
+    expect(loadAuditLogActorNames).toHaveBeenCalledWith(mockEm, [userLog, keyLog], expect.anything())
+    const { items } = await response.json()
+    expect(items.map((item: { actor: { label: string } }) => item.actor.label)).toEqual([
+      'system',
+      'API key: Importer',
+    ])
   })
 
   it('loads history under the "all organizations" scope by dropping the org filter', async () => {
