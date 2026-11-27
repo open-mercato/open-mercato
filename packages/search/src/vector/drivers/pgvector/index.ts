@@ -520,6 +520,18 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       nextParam += 1
     }
 
+    if (params.entityAccess) {
+      if (!params.entityAccess.length) return []
+      conditions.push(`EXISTS (
+            SELECT 1
+            FROM jsonb_to_recordset($${nextParam}::jsonb) AS access("organizationId" uuid, "entityIds" text[])
+            WHERE (access."organizationId" IS NULL OR access."organizationId" = organization_id)
+              AND (access."entityIds" IS NULL OR entity_id = ANY(access."entityIds"))
+          )`)
+      values.push(JSON.stringify(params.entityAccess))
+      nextParam += 1
+    }
+
     const limitParam = nextParam
     const offsetParam = nextParam + 1
     values.push(limit, offset)

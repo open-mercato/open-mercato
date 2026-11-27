@@ -579,12 +579,97 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 ## Scoped delegated authentication eligibility (2026-11-02, #8346)
 
+<<<<<<< HEAD
 `AuthService.isUserSessionEligible({ userId, tenantId, organizationId, apiKeyId? })` is additive and optional for custom DI replacements. Without an API-key ID the core default permits existing behavior; with an ID it verifies live key ownership, scope, deletion and expiry, and SSO adds its scoped live deactivation policy. The internal auth context adds optional `sessionBoundApiKey` to distinguish delegated credentials from machine keys on cache hits. Existing import paths, signatures, HTTP payloads, and database schema remain unchanged. [Migration and operator guidance](UPGRADE_NOTES.md#scim-deactivation-blocks-fresh-sso-and-password-sign-in-7824).
+=======
+STABLE: omit encrypted custom fields. Missing/failing resolver excludes all. A bridge leaks fields. Named waiver pending. [Migration](.ai/specs/2026-10-30-search-build-context-encrypted-custom-fields.md).
+
+## Compose encryption (2026-11-01, #7231)
+
+STABLE: unsafe keys/HTTP Vault rejected; bridges retain exposure. [Migration](UPGRADE_NOTES.md).
+Named human waiver of steps 1–3 required.
+
+## Encryption maintenance safety gates (2026-11-02, #6767)
+
+CLI safety confirmations changed; stop writers and restart replicas. [Flags, migration and stable formats](UPGRADE_NOTES.md#encryption-maintenance-safety-confirmations-6767).
+
+## Staff Logout Uses Post/Redirect/Get (2026-11-05)
+
+`POST /api/auth/logout` returns 303 instead of 307, even without cookies ([#7383](https://github.com/open-mercato/open-mercato/issues/7383)). It supersedes the October entry. The shared helper defaults to 307.
+
+**Migration:** Accept 303 and follow `Location: /login` with GET. Revocation, cookie expiry, route URL/method, auth events and schema are unchanged. [Spec](.ai/specs/2026-11-05-logout-post-redirect.md#migration--backward-compatibility) · UPGRADE_NOTES.md.
+>>>>>>> dd43d26eb5 (fix(search): authorize vector-index entries by entity (#10693) (#10796))
 
 ## #7809 2026-11-06
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
 
+<<<<<<< HEAD
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
 
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+=======
+## File-agent attachment read authorization (2026-11-10, #9117)
+
+STABLE: nonempty inputs require principal/owner read access; bridges retain disclosure. [Migration/spec](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). Steps 1–3 waived by @pkarw on 2026-11-13.
+
+## 2026-11-07 — Private next-interaction subjects (#8888)
+
+STABLE shared projections return NULL for private email subjects and unresolved historical linked names. Keys, types, scheduling, manual names and authorized readers stay. A bridge leaks subjects. Clients use unnamed fallbacks and authorized reads. Apply the idempotent repair and rebuild declared query indexes and configured search providers before reopening reads. See `.ai/specs/2026-11-07-private-next-interaction-projections.md` and UPGRADE_NOTES. [@pkarw waived steps 1–3](https://github.com/open-mercato/open-mercato/pull/8973#issuecomment-6852915966) on 2026-11-13.
+
+## Comment authors (2026-11-12, #8759)
+
+STABLE command/API: unrestricted attribution permits forgery; a bridge retains it. Piotr Karwatka (@pkarw) waived steps 1–3 for #8782. [Migration](UPGRADE_NOTES.md#customer-comment-update-attribution-8759).
+
+## 2026-11 — CRUD security (#3827, #9154, #9106)
+
+STABLE API limits sorts, deleted rows, labels and global reads. 2026-11-24: relation options need owner policies. Bridges leak data. Use Staff timesheet APIs. Named waiver pending. [Upgrade](UPGRADE_NOTES.md).
+
+## 2026-11-19 — Entity translation authorization (#9139)
+
+STABLE translation API and localization require target permissions and registered text fields. A bridge retains the leak. [Migration](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139). [Piotr Karwatka (@pkarw) waived steps 1–3 on 2026-11-20](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
+
+## SSO authority (2026-11-15, #9014)
+
+STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
+
+## 2026-11-22 — Attachment assignment label authorization (#10336)
+
+STABLE attachment API and helper shapes stay. Optional labels/links need scoped tenant/org reads. An unrestricted fallback retains disclosure. Pass verified auth or use assignment metadata. [Upgrade](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
+
+## #10331 #10332 (2026-11-23)
+
+STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
+
+## 2026-11-24 — Trace ingest
+
+STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-25 — Encrypted custom field writes
+
+STABLE API behavior changes for writes of tenant-scoped encrypted custom fields when the data key is unavailable. Preserving success during the outage would persist unencrypted values. Clients handle HTTP 503 and retry after key access recovers. Operators restore key access and review historical records. [Migration](UPGRADE_NOTES.md) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
+
+## 2026-11-25 — Empty organization scope (#10503)
+
+STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+
+## MCP HTTP session token, no fallback (2026-11-14, #5173)
+
+STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+
+## Workflow events (2026-11-20, #9134)
+
+STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
+
+## 2026-11-25 — MCP Code Mode
+
+STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## 2026-11-26 — Vector-index entity authorization (#10693)
+
+STABLE `GET /api/search/index` enforces entity view and org scope. A bridge leaks rows. [Migration](UPGRADE_NOTES.md#vector-index-entity-authorization-10693) · [Spec](.ai/specs/2026-11-26-vector-index-entity-authorization.md). Named waiver pending.
+
+## Staff credential email (2026-11-27, #10594)
+
+STABLE superadmin reset and invite email uses the instance provider. Tenant fallback retains exposure. Named waiver pending. [Migration](.ai/specs/2026-06-03-pluggable-email-providers.md).
+>>>>>>> dd43d26eb5 (fix(search): authorize vector-index entries by entity (#10693) (#10796))
