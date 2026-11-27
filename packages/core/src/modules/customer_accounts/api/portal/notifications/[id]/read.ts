@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { arePortalNotificationsAvailable } from '@open-mercato/core/modules/customer_accounts/lib/portalNotificationsAvailability'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Notification } from '@open-mercato/core/modules/notifications/data/entities'
 
@@ -16,11 +17,13 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   const container = await createRequestContainer()
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const notification = await em.findOne(Notification, {
-    id: params.id,
-    recipientUserId: auth.sub,
-    tenantId: auth.tenantId,
-  })
+  const notification = arePortalNotificationsAvailable(em)
+    ? await em.findOne(Notification, {
+        id: params.id,
+        recipientUserId: auth.sub,
+        tenantId: auth.tenantId,
+      })
+    : null
 
   if (!notification) {
     return NextResponse.json({ ok: false, error: 'Notification not found' }, { status: 404 })

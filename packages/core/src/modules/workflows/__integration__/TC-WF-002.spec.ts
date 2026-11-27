@@ -58,7 +58,7 @@ function buildDefinitionPayload(timestamp: number) {
                 // eventName, not eventType — the EMIT_EVENT executor reads
                 // eventName and this fixture would have failed at run time
                 // (same defect as #4322).
-                eventName: 'qa.workflow.review.requested',
+                eventName: 'approval.requested',
                 payload: { workflow: '{{workflow.instanceId}}' },
               },
               async: true,

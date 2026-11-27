@@ -1,3 +1,4 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { z } from 'zod'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -31,6 +32,7 @@ export async function setCustomFieldsIfAny(opts: {
   organizationId: string | null
   values: Record<string, unknown>
   notify?: boolean
+  transactionalEm?: EntityManager
 }) {
   const { values } = opts
   if (!values || !Object.keys(values).length) return
@@ -43,6 +45,7 @@ export async function setCustomFieldsIfAny(opts: {
     organizationId,
     values: normalized,
     notify,
+    ...(opts.transactionalEm && { transactionalEm: opts.transactionalEm }),
   })
 }
 

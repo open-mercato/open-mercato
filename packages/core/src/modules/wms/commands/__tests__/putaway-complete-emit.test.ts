@@ -69,7 +69,7 @@ function createEm() {
   return em
 }
 
-function createCtx(em: ReturnType<typeof createEm>, features: string[] = ['wms.manage_putaway']) {
+function createCtx(em: ReturnType<typeof createEm>, features: string[] = ['wms.manage_putaway', 'wms.adjust_inventory']) {
   return {
     container: {
       resolve: (name: string) => {

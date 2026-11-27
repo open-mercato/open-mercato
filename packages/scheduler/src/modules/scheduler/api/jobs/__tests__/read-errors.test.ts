@@ -27,7 +27,7 @@ jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/modules/registry', () => ({
-  getModules: () => [{ workers: [{ queue: 'scheduler-execution' }] }],
+  getModules: () => [{ id: 'scheduler', workers: [{ queue: 'scheduler-execution' }] }],
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -81,14 +81,14 @@ const routes = [
     succeed: () => mockGetJob.mockResolvedValue({
       id: 'job-1',
       name: 'scheduler-execution',
-      data: { tenantId: 'tenant-1', organizationId: 'org-1' },
+      data: { tenantId: 'tenant-1', organizationId: 'org-1', payload: { scheduleId } },
       getState: async () => 'completed',
       returnvalue: { complete: true },
     }),
     successBody: {
       id: 'job-1',
       state: 'completed',
-      data: { tenantId: 'tenant-1', organizationId: 'org-1' },
+      data: { tenantId: 'tenant-1', organizationId: 'org-1', payload: { scheduleId } },
       returnvalue: { complete: true },
       logs: ['completed successfully'],
     },
