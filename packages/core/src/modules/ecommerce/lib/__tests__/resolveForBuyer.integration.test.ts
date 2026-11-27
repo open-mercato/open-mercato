@@ -165,6 +165,16 @@ describeWithPostgres('storeContextService.resolveForBuyer buyer checks against r
     await expectBuyerOutOfScope(resolveForBuyer({ ...scope, customerUserId: userId, customerId: otherOrgPersonId }))
   })
 
+  it('refuses a portal-user refresh when a linked company lives in another organization', async () => {
+    const scope = newScope()
+    const personId = await seedEntity(scope, 'person')
+    const otherOrgCompanyId = await seedEntity(newScope(scope.tenantId), 'company')
+    const userId = await seedUser(scope, personId, otherOrgCompanyId)
+
+    await expectBuyerOutOfScope(resolveForBuyer({ ...scope, customerUserId: userId }))
+    expect(groupCalls).toEqual([])
+  })
+
   it('resolves a portal user with a matching customerId whose CRM person is live in scope', async () => {
     const scope = newScope()
     const personId = await seedEntity(scope, 'person')

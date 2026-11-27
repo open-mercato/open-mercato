@@ -238,6 +238,7 @@ describe('storeContextService.resolveForBuyer', () => {
   it('resolves a known buyer\'s groups/price kind/currency without a store', async () => {
     const harness = createHarness({
       users: [user('user-1', 'person-1', 'company-1')],
+      entities: [entity('person-1', 'person'), entity('company-1', 'company')],
       priceKinds: { 'kind-a': 'excluding-tax' },
       groupsByCustomer: { 'person-1': { groupIds: ['group-1'], priceKindId: 'kind-a' } },
     })
@@ -261,6 +262,7 @@ describe('storeContextService.resolveForBuyer', () => {
   it('resolves with a store and gets assortmentScope', async () => {
     const harness = createHarness({
       users: [user('user-1', 'person-1', 'company-1')],
+      entities: [entity('person-1', 'person'), entity('company-1', 'company')],
       groupsByCustomer: { 'person-1': { groupIds: ['group-1'], scope: null } },
     })
     mockedLoadStoreChannelForBuyer.mockResolvedValue(openStore())
@@ -489,7 +491,7 @@ describe('storeContextService.resolveForBuyer', () => {
     it('resolves a customerId of the given user when its CRM record is live in scope', async () => {
       const harness = createHarness({
         users: [user('user-1', 'person-1', 'company-1')],
-        entities: [entity('person-1', 'person')],
+        entities: [entity('person-1', 'person'), entity('company-1', 'company')],
       })
       const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
 
@@ -604,7 +606,10 @@ describe('storeContextService.resolveForBuyer', () => {
 
   it('a refresh with customerUserId alone returns the relinked person (D-R5-SF2)', async () => {
     const relinked = user('user-1', 'person-old', 'company-1')
-    const harness = createHarness({ users: [relinked] })
+    const harness = createHarness({
+      users: [relinked],
+      entities: [entity('person-old', 'person'), entity('person-new', 'person'), entity('company-1', 'company')],
+    })
     const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
 
     const before = await resolveForBuyer({ tenantId: TENANT_ID, organizationId: ORG_ID, customerUserId: 'user-1' })
@@ -619,6 +624,7 @@ describe('storeContextService.resolveForBuyer', () => {
   it('without a store, a buyer whose group sets no price kind gets priceKindId and taxMode null', async () => {
     const harness = createHarness({
       users: [user('user-1', 'person-1', null)],
+      entities: [entity('person-1', 'person')],
       groupsByCustomer: { 'person-1': { groupIds: ['group-1'] } },
     })
     const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
@@ -690,7 +696,11 @@ describe('storeContextService.resolveForBuyer', () => {
 
   it('buyerDigest is stable for the same identity and changes with groups and store', async () => {
     const groupsByCustomer: Record<string, GroupFixture> = { 'person-1': { groupIds: ['group-b', 'group-a'] } }
-    const harness = createHarness({ users: [user('user-1', 'person-1', null)], groupsByCustomer })
+    const harness = createHarness({
+      users: [user('user-1', 'person-1', null)],
+      entities: [entity('person-1', 'person')],
+      groupsByCustomer,
+    })
     mockedLoadStoreChannelForBuyer.mockResolvedValue(openStore())
     const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
     const input = { tenantId: TENANT_ID, organizationId: ORG_ID, customerUserId: 'user-1' }
@@ -708,7 +718,11 @@ describe('storeContextService.resolveForBuyer', () => {
 
   it('never reads or writes the buyer\'s own 60s cache, and sees a membership change at once', async () => {
     const groupsByCustomer: Record<string, GroupFixture> = { 'person-1': { groupIds: ['group-1'] } }
-    const harness = createHarness({ users: [user('user-1', 'person-1', 'company-1')], groupsByCustomer })
+    const harness = createHarness({
+      users: [user('user-1', 'person-1', 'company-1')],
+      entities: [entity('person-1', 'person'), entity('company-1', 'company')],
+      groupsByCustomer,
+    })
     mockedLoadStoreChannelForBuyer.mockResolvedValue(openStore())
     const resolveForBuyer = trustedResolver(createStoreContextService(harness.container))
 

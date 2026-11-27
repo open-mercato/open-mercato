@@ -549,10 +549,10 @@ export async function resolveTrustedBuyerIdentity(
     )
     if (!user) throw new StorefrontResolutionError(403, 'buyer_out_of_scope')
     const identity = buyerIdentityFromCustomerUser(user)
-    if (customerId) {
-      if (!identity.customerIds.includes(customerId)) throw new StorefrontResolutionError(403, 'buyer_out_of_scope')
-      await requireLiveCustomerEntity(em, customerId, scope)
+    if (customerId && !identity.customerIds.includes(customerId)) {
+      throw new StorefrontResolutionError(403, 'buyer_out_of_scope')
     }
+    await Promise.all(identity.customerIds.map((linkedId) => requireLiveCustomerEntity(em, linkedId, scope)))
     return identity
   }
   if (customerId) return resolveTrustedCustomerIdentity(em, customerId, scope)
