@@ -387,6 +387,7 @@
   "agent_orchestrator.errors.timeout": "Uruchomienie agenta przekroczyło limit czasu, zanim zwróciło wynik",
   "agent_orchestrator.errors.unauthorized": "Brak autoryzacji",
   "agent_orchestrator.errors.validation_failed": "Walidacja nie powiodła się",
+  "agent_orchestrator.errors.workflowsModuleDisabled": "Moduł przepływów pracy nie jest włączony",
   "agent_orchestrator.evalAssertions.actions.new": "Nowa reguła",
   "agent_orchestrator.evalAssertions.confirmDelete.text": "Usunąć tę asercję? Kolejne uruchomienia nie będą już wobec niej oceniane.",
   "agent_orchestrator.evalAssertions.enabled.off": "Nieaktywna",

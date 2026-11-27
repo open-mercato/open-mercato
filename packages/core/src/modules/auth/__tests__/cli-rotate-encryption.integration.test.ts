@@ -36,7 +36,7 @@ describePostgres('auth email maintenance compare-and-swap in PostgreSQL', () => 
   const run = async (rotate = true) => {
     const commands = (await import('../cli')).default
     await commands.find((command) => command.command === 'rotate-encryption-key')!.run([
-      '--tenant', 'tenant-1', '--org', 'org-1', ...(rotate ? ['--old-key', 'test-only-old-key'] : []),
+      '--tenant', 'tenant-1', '--org', 'org-1', ...(rotate ? ['--allow-unsafe-old-key', '--old-key', 'test-only-old-key'] : []),
     ])
   }
 

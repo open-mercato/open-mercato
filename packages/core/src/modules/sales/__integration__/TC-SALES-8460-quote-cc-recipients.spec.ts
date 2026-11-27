@@ -12,8 +12,9 @@
  * Verifies through the Send dialog:
  * - a confirmed tag and text still pending in the CC field are both sent, including
  *   when Ctrl+Enter is pressed from inside the field
- * - invalid pending text blocks the send and keeps the dialog open
- * - reopening the dialog pre-fills the list from `metadata.recipients.cc`
+ * - bad addresses stay editable after Enter, and invalid pending text blocks sending
+ * - semicolon-separated addresses become individual chips
+ * - reopening pre-fills stored recipients, and keyboard focus stays in the dialog at the limit
  *
  * Fixtures per test: one person with a primary e-mail and one quote, created through
  * the API and removed in `finally`.
@@ -142,6 +143,7 @@ test.describe('TC-SALES-8460: CC recipients on quote send', () => {
     const stamp = Date.now()
     const primaryEmail = `qa-8460-ui-primary-${stamp}@example.test`
     const ccConfirmed = `qa-8460-ui-confirmed-${stamp}@example.test`
+    const ccSecond = `qa-8460-ui-second-${stamp}@example.test`
     const ccPending = `qa-8460-ui-pending-${stamp}@example.test`
     let personId: string | null = null
     let quoteId: string | null = null
@@ -174,16 +176,27 @@ test.describe('TC-SALES-8460: CC recipients on quote send', () => {
       await expect(dialog.getByText(copyHint, { exact: true })).toBeVisible()
       await expect(dialog).toHaveAccessibleDescription(`Email will be sent to: ${primaryEmail} ${copyHint}`)
 
-      await ccField.fill(ccConfirmed)
-      await expect(ccField).toHaveValue(ccConfirmed)
+      await ccField.fill('not-an-email')
+      await expect(ccField).toHaveValue('not-an-email')
+      await ccField.press('Enter')
+      await expect(ccField).toHaveValue('not-an-email')
+      const invalidAddressAlert = dialog.getByRole('alert').filter({ hasText: 'Enter a valid e-mail address' })
+      await expect(invalidAddressAlert).toBeVisible()
+      await dialog.getByRole('button', { name: 'Send quote', exact: true }).click()
+      await expect(invalidAddressAlert).toHaveCount(1)
+      await expect(ccField).toHaveValue('not-an-email')
+
+      await ccField.fill(`${ccConfirmed}; ${ccSecond}`)
+      await expect(ccField).toHaveValue(` ${ccSecond}`)
       await ccField.press('Enter')
       await expect(dialog.getByRole('button', { name: `Remove ${ccConfirmed}`, exact: true })).toBeVisible()
+      await expect(dialog.getByRole('button', { name: `Remove ${ccSecond}`, exact: true })).toBeVisible()
       await expect(ccField).toHaveValue('')
 
       await ccField.fill('not-an-email')
       await expect(ccField).toHaveValue('not-an-email')
       await dialog.getByRole('button', { name: 'Send quote', exact: true }).click()
-      await expect(dialog.getByRole('alert').filter({ hasText: 'Enter a valid e-mail address' })).toBeVisible()
+      await expect(invalidAddressAlert).toBeVisible()
       await expect(dialog, 'invalid pending text keeps the dialog open').toBeVisible()
       expect((await readQuote(request, token, quoteId as string))?.status, 'nothing was sent').not.toBe('sent')
 
@@ -198,12 +211,25 @@ test.describe('TC-SALES-8460: CC recipients on quote send', () => {
 
       const sent = await readQuote(request, token, quoteId as string)
       expect(sent?.status).toBe('sent')
-      expect(sent?.metadata?.recipients?.cc, 'the pending address is sent with the confirmed one').toEqual([ccConfirmed, ccPending])
+      expect(sent?.metadata?.recipients?.cc, 'the pending address is sent with the confirmed ones').toEqual([ccConfirmed, ccSecond, ccPending])
 
       await page.reload({ waitUntil: 'domcontentloaded' })
       const reopened = await openSendDialog(page)
       await expect(reopened.getByRole('button', { name: `Remove ${ccConfirmed}`, exact: true }), 'pre-filled from the quote').toBeVisible()
       await expect(reopened.getByRole('button', { name: `Remove ${ccPending}`, exact: true }), 'pre-filled from the quote').toBeVisible()
+
+      const reopenedCcField = reopened.getByLabel('Send a copy to', { exact: true })
+      const extraRecipients = Array.from({ length: 7 }, (_, index) => `extra-${index}@example.test`)
+      await reopenedCcField.fill(extraRecipients.join('; '))
+      await expect(reopenedCcField).toHaveValue(` ${extraRecipients[extraRecipients.length - 1]}`)
+      await reopenedCcField.press('Enter')
+      const lastRemoveButton = reopened.getByRole('button', { name: 'Remove extra-6@example.test', exact: true })
+      await expect(reopenedCcField).toBeDisabled()
+      await expect(lastRemoveButton).toBeFocused()
+      await expect(reopened.getByText('You can send copies to up to 10 addresses', { exact: true })).toBeVisible()
+      await page.keyboard.press('Enter')
+      await expect(lastRemoveButton).toHaveCount(0)
+      await expect(reopenedCcField).toBeFocused()
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)

@@ -13,6 +13,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { localizeKanbanPermissionError } from '../requestError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -372,6 +373,8 @@ export function AddStageDialog({
           resourceKind: 'customers.pipeline_stage',
           retryLastMutation,
         },
+      }).catch((error: unknown) => {
+        throw localizeKanbanPermissionError(error, t)
       })
       flash(translateWithFallback(t, 'customers.deals.kanban.addStage.success', 'Stage added.'), 'success')
       onCreated()

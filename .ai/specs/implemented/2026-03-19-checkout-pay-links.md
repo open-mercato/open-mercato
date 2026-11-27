@@ -1464,7 +1464,7 @@ Out of scope for Phase A:
 3. **No status/amount override**: Public submit endpoint ignores `status`, `paymentStatus`, `completionCount`, `isLocked` in the request body.
 4. **Password protection**: bcrypt with cost ≥ 10. Slug-bound signed session token stored only in an HttpOnly, Secure, SameSite=Strict cookie with 1-hour expiry.
 5. **No direct webhook handling**: All webhook signature verification is handled by the gateway module. Checkout receives payment status updates exclusively through gateway events, eliminating the need for separate webhook security.
-6. **Rate limiting + replay protection**: Public submit endpoint rate-limited per IP (10 requests/minute) and protected by required `Idempotency-Key`. Password verify rate-limited per slug + IP (5 attempts/minute).
+6. **Rate limiting + replay protection**: Public submit endpoint rate-limited per IP (10 requests/minute) and protected by required `Idempotency-Key`. Password verification uses separate link and trusted source budgets (5 attempts/minute each). Without a trusted proxy address, attempts still count against the link budget. An enabled limiter that cannot decide returns 503.
 7. **GDPR compliance**: All customer data encrypted at rest. `checkout.viewPii` feature controls access. Transaction detail API strips PII for users without the feature.
 8. **Consent enforcement**: Required legal consents are server-validated on submit; frontend checkbox state is advisory only. Missing required consent returns `422`.
 9. **Consent evidence**: The transaction stores the accepted legal-document snapshot hash and timestamp so later edits to the link/template do not alter historical consent proof.

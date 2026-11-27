@@ -175,7 +175,10 @@ export function BackendHeaderChrome({
           missingConfigMessage={missingConfigMessage}
         />
       ) : null}
-      {isReady ? <LazyOrganizationSwitcher /> : null}
+      {isReady ? <LazyOrganizationSwitcher
+        initialOrganizationId={payload?.currentOrganization?.id}
+        initialTenantId={tenantId}
+      /> : null}
 
       {/* Secondary actions — inline on md+, grouped under a More button on <md */}
       {showIntegrationsButton ? (

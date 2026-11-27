@@ -11,6 +11,8 @@ import { DefaultCatalogBuyerPricingService } from './services/catalogBuyerPricin
 import { DefaultCatalogScopedProductService } from './services/catalogScopedProductService'
 import { CatalogProduct, CatalogProductPrice, CatalogProductVariant } from './data/entities'
 import { catalogProductScopeKeysEnricher } from './lib/productScopeKeys'
+import { createCatalogCategorizationService } from './lib/aiCategorization/categorizationService'
+import type { CatalogDecisionModelPort } from './lib/aiCategorization/decisionModelPort'
 
 type AppCradle = AppContainer['cradle'] & {
   eventBus?: EventBus | null
@@ -53,6 +55,16 @@ function registerWithActivation(container: AppContainer, activate: (callback: ()
       .scoped()
       .proxy(),
     catalogScopedProductService: asFunction(() => new DefaultCatalogScopedProductService())
+      .scoped()
+      .proxy(),
+    catalogCategorizationService: asFunction((cradle: AppCradle) => {
+      const configService = softCradle<ModuleConfigService>(cradle, 'moduleConfigService')
+      if (!configService) {
+        throw new Error('[internal] catalogCategorizationService requires moduleConfigService to be registered')
+      }
+      const decisionModelPort = softCradle<CatalogDecisionModelPort>(cradle, 'decisionModelService')
+      return createCatalogCategorizationService({ configService, decisionModelPort })
+    })
       .scoped()
       .proxy(),
     CatalogProduct: asValue(CatalogProduct),

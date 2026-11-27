@@ -215,10 +215,12 @@ export function shouldBumpOptimisticLockVersion(
 export async function syncEntityTags(
   em: EntityManager,
   entity: CustomerEntity,
-  tags: string[] | undefined | null
+  tags: string[] | undefined | null,
+  { ignoreMissing = false }: { ignoreMissing?: boolean } = {},
 ): Promise<void> {
   if (tags === undefined) return
-  const desired = Array.from(new Set((tags ?? []).filter((id) => typeof id === 'string')))
+  const requested = (tags ?? []).filter((id) => typeof id === 'string')
+  const desired = Array.from(new Set(ignoreMissing ? requested.map((id) => id.toLowerCase()) : requested))
   const existing = await loadEntityTagIds(em, entity)
   const toRemove = existing.filter((id) => !desired.includes(id))
   if (toRemove.length) {
@@ -231,10 +233,11 @@ export async function syncEntityTags(
     organizationId: entity.organizationId,
     tenantId: entity.tenantId,
   })
-  if (tagsInScope.length !== toAdd.length) {
+  if (!ignoreMissing && tagsInScope.length !== toAdd.length) {
     throw new CrudHttpError(400, { error: 'One or more tags not found for this scope' })
   }
-  for (const tag of toAdd) {
+  const tagsToAssign = ignoreMissing ? tagsInScope.map(({ id }) => id) : toAdd
+  for (const tag of tagsToAssign) {
     const assignment = em.create(CustomerTagAssignment, {
       tenantId: entity.tenantId,
       organizationId: entity.organizationId,

@@ -381,9 +381,13 @@ describe('partition section search fan-out', () => {
 
   function installPartitionStore(partitions: PartitionRow[], extractions: ExtractionRow[]): void {
     extractionQueries.length = 0
-    findOneWithDecryptionMock.mockImplementation((async (_em: unknown, entity: unknown, where: { code?: string }) => {
+    findOneWithDecryptionMock.mockImplementation((async (_em: unknown, entity: unknown, where: {
+      code?: string; tenantId?: string | null; organizationId?: string | null
+    }) => {
       if (entity !== AttachmentPartition) return null
-      return partitions.find((row) => row.code === where.code) ?? null
+      return partitions.find((row) =>
+        row.code === where.code && row.tenantId === where.tenantId && row.organizationId === where.organizationId,
+      ) ?? null
     }) as unknown as typeof findOneWithDecryption)
     findWithDecryptionMock.mockImplementation((async (
       _em: unknown,
@@ -391,6 +395,7 @@ describe('partition section search fan-out', () => {
       where: Record<string, unknown>,
       options?: FindOptions,
     ) => {
+      if (entity === AttachmentPartition) return partitions.filter((row) => row.code === where.code)
       if (entity !== AttachmentDocumentExtraction) return []
       extractionQueries.push(where)
       const statuses = (where.status as { $in: string[] }).$in
@@ -497,7 +502,7 @@ describe('partition section search fan-out', () => {
       deps,
     )
     expect(outcome).toEqual({ kind: 'fanned_out', enqueued: 1, skippedTenantless: 0, continuation: false })
-    expect(extractionQueries[0]).toEqual(expect.objectContaining({ tenantId: TENANT, organizationId: { $ne: null } }))
+    expect(extractionQueries[0]).toEqual(expect.objectContaining({ tenantId: TENANT, organizationId: ORG }))
     expect(nativeUpdate).toHaveBeenCalledWith(
       AttachmentDocumentExtraction,
       { id: extractionId(1), tenantId: TENANT, organizationId: ORG },

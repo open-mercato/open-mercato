@@ -1,17 +1,24 @@
 /** @jest-environment jsdom */
 import * as React from 'react'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { DealCardData } from '../components/DealCard'
+import type { Lane } from '../components/Lane'
 import type { SortOption } from '../components/SortByPopover'
+import { metadata } from '../page.meta'
 import DealsKanbanPage from '../page'
 
 const mockApiCall = jest.fn()
+const mockPush = jest.fn()
 let mockScopeVersion = 0
 let mockOrganizationId = 'organization-1'
 let mockStageColor: string | null
+const viewFeatures = ['customers.deals.view', 'customers.pipelines.view']
+let mockGrantedFeatures = viewFeatures
+let mockRenderActualLane = false
+const mockCurrencyDictionary = jest.fn((_enabled: boolean) => ({ data: null }))
+const mockFetchAssignableStaff = jest.fn(async () => [])
 
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }) }))
+jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }) }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const translate = (key: string, fallback?: unknown) => typeof fallback === 'string' ? fallback : key
   return { useT: () => translate }
@@ -20,6 +27,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => mockScopeVersion,
 }))
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures } }),
   useCurrentOrganization: () => ({ id: mockOrganizationId }),
 }))
 jest.mock('@open-mercato/ui/backend/utils/useCurrentUserId', () => ({ useCurrentUserId: () => 'user-1' }))
@@ -39,17 +47,18 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 jest.mock('@open-mercato/ui/backend/injection/useRegisteredComponent', () => ({
   useRegisteredComponent: (_id: string, fallback: unknown) => fallback,
 }))
-jest.mock('../../../../../components/detail/hooks/useCurrencyDictionary', () => ({ useCurrencyDictionary: () => ({ data: null }) }))
-jest.mock('../../../../../components/detail/assignableStaff', () => ({ fetchAssignableStaffMembers: async () => [] }))
+jest.mock('../../../../../components/detail/hooks/useCurrencyDictionary', () => ({
+  useCurrencyDictionary: (enabled: boolean) => mockCurrencyDictionary(enabled),
+}))
+jest.mock('../../../../../components/detail/assignableStaff', () => ({
+  fetchAssignableStaffMembers: () => mockFetchAssignableStaff(),
+}))
 jest.mock('../components/ViewTabsRow', () => ({ ViewTabsRow: () => null }))
 jest.mock('../components/QuickDealDialog', () => ({ QuickDealDialog: () => null }))
 jest.mock('../components/AddStageDialog', () => ({ AddStageDialog: () => null }))
-jest.mock('../components/CustomizeViewDialog', () => ({ CustomizeViewDialog: () => null }))
 jest.mock('../components/ActivityComposerDialog', () => ({ ActivityComposerDialog: () => null }))
 jest.mock('../components/ChangeStageDialog', () => ({ ChangeStageDialog: () => null }))
 jest.mock('../components/ChangeOwnerDialog', () => ({ ChangeOwnerDialog: () => null }))
-jest.mock('../components/BulkActionsBar', () => ({ BulkActionsBar: () => null }))
-jest.mock('../components/AddStageLane', () => ({ AddStageLane: () => null }))
 jest.mock('../components/EntityFilterPopover', () => ({ EntityFilterPopover: () => null }))
 jest.mock('../components/CloseDateFilterPopover', () => ({ CloseDateFilterPopover: () => null }))
 jest.mock('../components/StatusFilterPopover', () => ({ StatusFilterPopover: () => null }))
@@ -73,20 +82,21 @@ jest.mock('../components/CurrencyFilterPopover', () => ({
   ),
 }))
 jest.mock('../components/Lane', () => ({
-  Lane: ({ deals, isLoadingMore, onLoadMore, stage, aggregate }: {
-    deals: DealCardData[]
-    isLoadingMore: boolean
-    onLoadMore: (stageId: string) => void
-    stage: { id: string; tone: string | null; hexColor?: string }
-    aggregate: { count: number }
-  }) => (
-    <section aria-label="Deal lane" data-tone={stage.tone} data-hex-color={stage.hexColor}>
-      <output data-testid="deal-ids">{deals.map((deal) => deal.id).join(',')}</output>
-      {deals.length < aggregate.count ? (
-        <button type="button" disabled={isLoadingMore} onClick={() => onLoadMore(stage.id)}>Show more</button>
-      ) : null}
-    </section>
-  ),
+  Lane: (props: React.ComponentProps<typeof Lane>) => {
+    if (mockRenderActualLane) {
+      const { Lane: ActualLane } = jest.requireActual<typeof import('../components/Lane')>('../components/Lane')
+      return <ActualLane {...props} />
+    }
+    const { deals, isLoadingMore, onLoadMore, stage, aggregate } = props
+    return (
+      <section aria-label="Deal lane" data-tone={stage.tone} data-hex-color={stage.hexColor}>
+        <output data-testid="deal-ids">{deals.map((deal) => deal.id).join(',')}</output>
+        {aggregate && deals.length < aggregate.count ? (
+          <button type="button" disabled={isLoadingMore} onClick={() => onLoadMore?.(stage.id)}>Show more</button>
+        ) : null}
+      </section>
+    )
+  },
 }))
 
 type DealRecord = { id: string; title: string; value_amount: number; value_currency: string; pipeline_stage_id: string }
@@ -136,11 +146,16 @@ async function chooseSort(value: SortOption) {
   await waitFor(() => expect(visibleIds()[0]).toBe(value === 'value_asc' ? 'deal-1' : 'deal-60'))
 }
 
-describe('Deals Kanban pagination', () => {
+describe('Deals Kanban', () => {
   beforeEach(() => {
     mockScopeVersion = 0
     mockOrganizationId = 'organization-1'
     mockStageColor = null
+    mockGrantedFeatures = viewFeatures
+    mockRenderActualLane = false
+    mockCurrencyDictionary.mockClear()
+    mockFetchAssignableStaff.mockClear()
+    mockPush.mockClear()
     mockApiCall.mockReset()
     mockApiCall.mockImplementation(async (url: string) => {
       const pathname = new URL(url, 'http://localhost').pathname
@@ -171,6 +186,77 @@ describe('Deals Kanban pagination', () => {
     const lane = await screen.findByRole('region', { name: 'Deal lane' })
     expect(lane).toHaveAttribute('data-tone', tone)
     expect(lane.getAttribute('data-hex-color')).toBe(hexColor)
+  })
+
+  it('requires both deal and pipeline view access at the route', () => {
+    expect(metadata.requireFeatures).toEqual(viewFeatures)
+  })
+
+  it('keeps deals readable and exportable without offering write controls', async () => {
+    mockRenderActualLane = true
+    renderBoard()
+
+    const deal = await screen.findByLabelText('Deal: Deal 60')
+    expect(deal).not.toHaveAttribute('aria-roledescription')
+    expect(screen.queryByRole('link', { name: 'New deal' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New stage' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Quickly add a deal to Qualified' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Drag cards between lanes to update stage')).not.toBeInTheDocument()
+    expect(mockCurrencyDictionary).toHaveBeenLastCalledWith(false)
+    expect(mockFetchAssignableStaff).not.toHaveBeenCalled()
+    expect(mockApiCall.mock.calls.some(([url]) => String(url).startsWith('/api/customers/companies'))).toBe(false)
+    expect(within(deal).queryByRole('button', { name: 'Deal actions' })).not.toBeInTheDocument()
+    fireEvent.click(deal)
+    expect(mockPush).not.toHaveBeenCalled()
+
+    fireEvent.click(within(deal).getByRole('checkbox', { name: 'Select deal' }))
+    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Change stage' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Change owner' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+
+  })
+
+  it.each([
+    { features: viewFeatures, canManageStages: false },
+    { features: [...viewFeatures, 'customers.pipelines.manage'], canManageStages: true },
+  ])('keeps stage settings inside Customize view available only to stage managers', async ({ features, canManageStages }) => {
+    mockGrantedFeatures = features
+    renderBoard()
+    await screen.findByTestId('deal-ids')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Customize view' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Customize view' })
+    expect(Boolean(within(dialog).queryByRole('link', { name: /Manage pipeline stages/ }))).toBe(canManageStages)
+    expect(within(dialog).getByText('Reset to default')).toBeInTheDocument()
+  })
+
+  it.each([
+    { feature: 'customers.deals.manage', deals: true, stages: false },
+    { feature: 'customers.pipelines.manage', deals: false, stages: true },
+  ])('keeps deal and stage permissions independent with $feature', async ({ feature, deals, stages }) => {
+    mockGrantedFeatures = [...viewFeatures, feature]
+    mockRenderActualLane = true
+    renderBoard()
+
+    const deal = await screen.findByLabelText('Deal: Deal 60')
+    expect(Boolean(screen.queryByRole('link', { name: 'New deal' }))).toBe(deals)
+    expect(Boolean(screen.queryByRole('button', { name: 'Quickly add a deal to Qualified' }))).toBe(deals)
+    expect(screen.queryAllByRole('button', { name: 'New stage' })).toHaveLength(stages ? 2 : 0)
+    const openActions = within(deal).queryByRole('button', { name: 'Deal actions' })
+    expect(Boolean(openActions)).toBe(deals)
+    if (openActions) {
+      fireEvent.click(openActions)
+      expect(await screen.findByRole('menuitem', { name: 'Open deal' })).toBeInTheDocument()
+    }
+  })
+
+  it('shows a permission denial when the pipeline data request is forbidden', async () => {
+    mockApiCall.mockRejectedValueOnce(Object.assign(new Error('Forbidden'), { status: 403 }))
+    renderBoard()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('you do not have permission')
+    expect(screen.queryByText('No pipeline selected. Create a pipeline in settings.')).not.toBeInTheDocument()
   })
 
   it('restarts at page 2 after reversing sort and keeps all 60 unique deals reachable', async () => {
