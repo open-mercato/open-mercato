@@ -148,7 +148,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: { contentType: 'application/json', schema: cartMergeRequestSchema },
       responses: [{ status: 200, description: 'Merge applied; the envelope carries the surviving cart, a rotated token, and mergeSummary (§10.1/§7.2)' }],
       errors: [
-        { status: 400, description: 'Invalid request body, the source and target resolve to the same cart, or `cart_merge_scope_mismatch` (different store or currency)' },
+        { status: 400, description: 'Invalid request body, identical source and target, cart_merge_scope_mismatch (different store or currency), or cart_quantity_invalid for an unsupported computed quantity' },
         { status: 404, description: 'No `X-Cart-Token` header, the token does not resolve a cart, or sourceToken does not resolve a different basket — an `abandoned` cart on either side is reactivated rather than rejected (§9)' },
         { status: 409, description: 'Optimistic-lock conflict' },
         { status: 429, description: 'Rate limited' },

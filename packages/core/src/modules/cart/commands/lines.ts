@@ -51,7 +51,7 @@ import type { SalesCalculationService } from '@open-mercato/core/modules/sales/s
 import type { SalesAdjustmentDraft } from '@open-mercato/core/modules/sales/lib/types'
 
 import { MAX_CART_LINE_QUANTITY } from '../data/validators'
-import { assertCartQuantity } from '../lib/quantity'
+import { assertCartQuantity, toWritableCartQuantity } from '../lib/quantity'
 import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartLineActorType, CartLineOrigin } from '../data/entities'
 import {
@@ -643,15 +643,6 @@ export function toCartLineSnapshot(line: CartLine): CartLineSnapshot {
   }
 }
 
-function checkWritableQuantity(rules: QuantityRules, quantity: string) {
-  const check = checkQuantityRule(rules, Number(quantity))
-  if (check.status === 'rejected') return check
-  return {
-    ...check,
-    quantityExact: assertCartQuantity(check.status === 'accepted_clamped' ? check.quantity : quantity),
-  }
-}
-
 /**
  * Deep-equality on `configuration`, canonicalizing key order first. Avoids re-deriving
  * Postgres's `md5(jsonb::text)` stored-generated-column algorithm in JS (jsonb normalizes
@@ -937,7 +928,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     }
 
     const rules = await resolveQuantityRulesForProduct(em, ctx.container, scope, cart.storeId ?? null, product, variantId)
-    const check = checkWritableQuantity(rules, requestedQuantity)
+    const check = checkQuantityRule(rules, Number(requestedQuantity))
     if (check.status === 'rejected') return { status: 'rejected', reason: check.reason, nearestValid: check.nearestValid }
     const warnings: CartLineWarning[] = check.status === 'accepted_clamped' ? ['quantity_capped'] : []
     const acceptedQuantity = check.quantity
@@ -947,6 +938,9 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
       await emitVisibilityRejectedEvent(cart, 1, 'lines.add')
       return { status: 'rejected', reason: 'product_unavailable' }
     }
+
+    const acceptedQuantityExact = check.status === 'accepted_clamped' ? check.quantity : requestedQuantity
+    const storedQuantity = toWritableCartQuantity(acceptedQuantityExact)
 
     const actor = resolveLineActor(input, { addedByActorType: input.addedByActorType, addedByActorId: input.addedByActorId })
     const now = new Date()
@@ -978,21 +972,22 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
 
         if (existing) {
           const before = toCartLineSnapshot(existing)
-          const summedQuantity = decimalToString(addDecimals(existing.quantity, check.quantityExact))
-          const sumCheck = checkWritableQuantity(rules, summedQuantity)
+          const summedQuantity = decimalToString(addDecimals(existing.quantity, acceptedQuantityExact))
+          const sumCheck = checkQuantityRule(rules, Number(summedQuantity))
           if (sumCheck.status === 'rejected') {
             outcome = { status: 'rejected', reason: sumCheck.reason, nearestValid: sumCheck.nearestValid }
             return
           }
           if (sumCheck.status === 'accepted_clamped') warnings.push('quantity_capped')
 
+          const storedSum = toWritableCartQuantity(sumCheck.status === 'accepted_clamped' ? sumCheck.quantity : summedQuantity)
           const resolved = await resolveLinePricing(em, ctx.container, cart, rows, sumCheck.quantity, now, currencyDecimalPlaces)
           if (!resolved.priceRow) {
             outcome = { status: 'rejected', reason: 'product_not_priceable' }
             return
           }
 
-          existing.quantity = sumCheck.quantityExact
+          existing.quantity = storedSum
           if (assortmentScope !== undefined && existing.flagState === 'product_unavailable') existing.flagState = null
           applyPriceSnapshot(existing, resolved, now)
           existing.lineTotals = await computeLineTotals(ctx.container, cart, {
@@ -1034,7 +1029,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
           sku: fields.sku,
           name: fields.name,
           optionValues: fields.optionValues,
-          quantity: check.quantityExact,
+          quantity: storedQuantity,
           origin: 'customer' as const,
           promotionId: null,
           discountTotalNet: null,
@@ -1219,7 +1214,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     if (!product) return { status: 'rejected', reason: 'product_unavailable' }
 
     const rules = await resolveQuantityRulesForProduct(em, ctx.container, scope, cart.storeId ?? null, product, line.variantId ?? null)
-    const check = checkWritableQuantity(rules, requestedQuantity)
+    const check = checkQuantityRule(rules, Number(requestedQuantity))
     if (check.status === 'rejected') return { status: 'rejected', reason: check.reason, nearestValid: check.nearestValid }
     const warnings: CartLineWarning[] = check.status === 'accepted_clamped' ? ['quantity_capped'] : []
     const finalQuantity = check.quantity
@@ -1229,6 +1224,8 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
       await emitVisibilityRejectedEvent(cart, 1, 'lines.update')
       return { status: 'rejected', reason: 'product_unavailable' }
     }
+
+    const storedQuantity = toWritableCartQuantity(check.status === 'accepted_clamped' ? check.quantity : requestedQuantity)
 
     const now = new Date()
     const restoringVisibility = assortmentScope !== undefined && line.flagState === 'product_unavailable'
@@ -1285,7 +1282,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
 
     await withAtomicFlush(em, [
       async () => {
-        line.quantity = check.quantityExact
+        line.quantity = storedQuantity
         if (restoringVisibility) line.flagState = null
       },
       ...buildCartPromotionsAndTotalsPhases({
@@ -1556,7 +1553,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       }
 
       const rules = deriveQuantityRules(policies[index] ?? null, product)
-      const check = checkWritableQuantity(rules, requestedQuantity)
+      const check = checkQuantityRule(rules, Number(requestedQuantity))
       if (check.status === 'rejected') {
         outcomes[index] = { index, status: 'rejected', reason: check.reason, nearestValid: check.nearestValid }
         return
@@ -1571,6 +1568,8 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         return
       }
 
+      const acceptedQuantityExact = check.status === 'accepted_clamped' ? check.quantity : requestedQuantity
+      const storedQuantity = toWritableCartQuantity(acceptedQuantityExact)
       const now = new Date()
       const key = buildMergeKey(entry.productId, variantId, entry.configuration ?? null)
       const existingLine = lineByKey.get(key) ?? null
@@ -1578,20 +1577,21 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
 
       if (existingLine) {
         const before = toCartLineSnapshot(existingLine)
-        const summedQuantity = decimalToString(addDecimals(existingLine.quantity, check.quantityExact))
-        const sumCheck = checkWritableQuantity(rules, summedQuantity)
+        const summedQuantity = decimalToString(addDecimals(existingLine.quantity, acceptedQuantityExact))
+        const sumCheck = checkQuantityRule(rules, Number(summedQuantity))
         if (sumCheck.status === 'rejected') {
           outcomes[index] = { index, status: 'rejected', reason: sumCheck.reason, nearestValid: sumCheck.nearestValid }
           return
         }
         if (sumCheck.status === 'accepted_clamped') warnings.push('quantity_capped')
 
+        const storedSum = toWritableCartQuantity(sumCheck.status === 'accepted_clamped' ? sumCheck.quantity : summedQuantity)
         const resolved = await resolveLinePricing(em, ctx.container, cart, rows, sumCheck.quantity, now, currencyDecimalPlaces)
         if (!resolved.priceRow) {
           outcomes[index] = { index, status: 'rejected', reason: 'product_not_priceable' }
           return
         }
-        existingLine.quantity = sumCheck.quantityExact
+        existingLine.quantity = storedSum
         if (assortmentScope !== undefined && existingLine.flagState === 'product_unavailable') existingLine.flagState = null
         applyPriceSnapshot(existingLine, resolved, now)
         existingLine.lineTotals = await computeLineTotals(ctx.container, cart, {
@@ -1631,7 +1631,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         sku: fields.sku,
         name: fields.name,
         optionValues: fields.optionValues,
-        quantity: check.quantityExact,
+        quantity: storedQuantity,
         origin: 'customer' as const,
         promotionId: null,
         discountTotalNet: null,

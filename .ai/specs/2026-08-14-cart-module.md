@@ -218,7 +218,7 @@ Indexes: unique `token_hash`; `(tenant_id, customer_id, status)`; `(tenant_id, s
 | `sku` | text, nullable | Snapshot |
 | `name` | text | Snapshot — survives the product being renamed or deleted |
 | `option_values` | jsonb, nullable | `Record<string, string>` snapshot |
-| `quantity` | numeric(16,4) | Exact positive decimal up to `999999999999.9999`, with at most four fractional places after trimming trailing zeros. |
+| `quantity` | numeric(16,4) | Decimal from zero through `999999999999.9999`, with at most four fractional places after trimming trailing zeros. |
 | `quantity_unit` | text, nullable | |
 | `uom_snapshot` | jsonb, nullable | Maps to `SalesLineUomSnapshot` |
 | `unit_price_net` | numeric(16,4), nullable | Snapshot |
@@ -366,7 +366,7 @@ This is the single highest-value B2B affordance on the read side, and it costs o
 
 ### 5.5 Quantity rules
 
-Add, update and bulk-add commands require positive decimal quantities that fit `numeric(16,4)`. The request schemas check the same storage range and precision, and the commands check positivity before writing. Add-to-existing, bulk accumulation and cart merge use exact decimal addition. The existing storage ceiling and any lower order maximum still cap combined quantities. A final quantity that cannot fit the column, including an unrepresentable cap, returns HTTP 400 with `cart_quantity_invalid`. The attempted line writes roll back together.
+Add, update and bulk-add commands require positive decimal quantities that fit `numeric(16,4)`. The request schemas check the storage range and precision, and the commands check positivity before writing. Add-to-existing, bulk accumulation and cart merge use exact decimal addition. The existing storage ceiling and any lower order maximum, including zero, still cap combined quantities. Once validated, new quantities are stored in the existing numeric representation used by the Sales calculator so the persisted quantity and totals agree. A final quantity that cannot fit the column, including an unrepresentable cap, returns HTTP 400 with `cart_quantity_invalid`. The attempted line writes roll back together.
 
 `minOrderQuantity`, `maxOrderQuantity` and `quantityIncrement` come from the shared quantity-rule derivation in `availability` (rev 9 — D-R4-3/W16; extracted from `ecommerce/lib/storefrontDetail.ts` so cart and PDP cannot disagree) rather than the availability policy directly. A quantity violating an increment is **rejected with the nearest valid values offered** (`nearestValid`), not silently rounded — silent rounding on a pack-size field produces orders the buyer did not place. Below `minOrderQuantity` is rejected outright; above `maxOrderQuantity` is capped with a warning, never rejected.
 
@@ -1046,7 +1046,7 @@ Release 4 filtered all four sweepers on `kind = 'basket'`, so no proposal would 
 
 ## 14) Integration Coverage
 
-**Cart quantity storage (#10339):** `TC-CART-QUANTITY-01` exercises add, update and bulk rejection with a synthetic product, checks the cart after rejection and verifies exact storage after a boundary update and bulk addition. Validator and command tests cover the storage limit, excess fractional precision, padded decimals, ordinary fractions, exact sums, capping and an unrepresentable merge cap.
+**Cart quantity storage (#10339):** `TC-CART-QUANTITY-01` exercises add, update and bulk rejection with a synthetic product, checks the cart after rejection and verifies storage and the net total after a boundary update and a retried bulk addition. Validator and command tests cover the storage limit, excess fractional precision, padded decimals, ordinary fractions, exact sums, zero caps and an unrepresentable merge cap.
 
 **Gate re-cut (rev 9 — W13/D-R4-29), replacing rev 8's inconsistent Phase 1/2 split:**
 - **Phase 1 gate:** line CRUD, snapshotting, the R1 assortment-visibility suite (built into the first line command, §6a), idempotency, concurrency, and the four sweepers.
@@ -1281,6 +1281,7 @@ Prerequisite: `resolveForBuyer` (wave 1). Precedes assisted-selling Phase 1 (wav
 | `quantity_increment_violation` | 422 | Carries `nearestValid` (§5.5) |
 | `quantity_below_min` | 422 | |
 | `quantity_capped` | 200 (warning) | Above `maxOrderQuantity`, capped rather than rejected |
+| `cart_quantity_invalid` | 400 | A command input or final quantity cannot be stored at the supported precision or range (§5.5) |
 | `cart_busy` | 503 | `lines.add`/`.bulkAdd` did not acquire the cart line lock within 15 seconds; the requested line add/bulk-add phases did not run. Preflight activity/context/repricing may already have persisted. Retry the same request after `Retry-After: 1`, preserving `Idempotency-Key` |
 | `cart_locked` | 423 | Carries `checkoutSessionId` (§9) |
 | `cart_has_unavailable_lines` | 409 | `cart.lock` refused while a line is flagged (F7) |
@@ -1343,7 +1344,7 @@ At rev 9 `cart` was greenfield, so no deprecation protocol was triggered and no 
 
 **2026-11-24 cart boundaries:** bearer-token lookup requires trusted store context for a stored storefront cart. Internal lookups by ID retain tenant and organization scope. Merge and undo lock both baskets in stable order and recheck current state before writing. Under contention clients can retry a 503 `cart_busy` response using `Retry-After`. Line quantity strings must fit the existing `numeric(16,4)` column. Request URLs and database structure are unchanged.
 
-**2026-11-27 quantity writes (#10339):** request quantity schemas keep their existing range, precision and validation response. Direct command callers must supply a positive decimal within that range and precision. Callers receiving `cart_quantity_invalid` should correct the supplied quantity or, when the error comes from a computed cap, correct the applicable order maximum before retrying. Accepted quantities are stored exactly, including after addition. No data migration or app configuration change is required. See `UPGRADE_NOTES.md`.
+**2026-11-27 quantity writes (#10339):** request quantity schemas keep their existing range, precision and validation response. Direct command callers must supply a positive decimal within that range and precision. Callers receiving `cart_quantity_invalid` should correct the supplied quantity or, when the error comes from a computed cap, correct the applicable order maximum before retrying. The existing Sales numeric representation still applies at the largest magnitudes. No data migration or app configuration change is required. See `UPGRADE_NOTES.md`.
 
 - **Module id.** `cart` stays singular (C9/D-R4-17) — a recorded exception to the root `AGENTS.md` "modules plural" rule, alongside the existing `ecommerce` and `checkout` exceptions. Frozen on first release.
 - **Contract freeze.** Every `cart.*` event id, every `/api/cart/*` route, every table name, every ACL feature id and every DI key this spec names becomes **STABLE** per `BACKWARD_COMPATIBILITY.md` the moment Phase 1 ships. The additive DI keys this release also mints on `catalog` (`catalogBuyerPricingService`, `catalogScopedProductService`) and `availability` (the quantity-rule derivation) are **ADDITIVE-ONLY** and were called out to the owner as a multi-module change (D-R4-3) before this revision landed — the owner's approval is recorded there, not re-requested here.

@@ -18,7 +18,7 @@ import type { QuantityRulePolicy } from '@open-mercato/core/modules/availability
 import type { PolicyResolutionService } from '@open-mercato/core/modules/availability/lib/policyResolution'
 
 import { MAX_CART_LINE_QUANTITY } from '../data/validators'
-import { assertCartQuantity } from '../lib/quantity'
+import { assertCartQuantity, toWritableCartQuantity } from '../lib/quantity'
 import { Cart, CartLine, CartMergeLog } from '../data/entities'
 import type { CartMergeActorType, CartMergeLineDisposition, CartMergeOutcomeEntry, CartMergeStrategy } from '../data/entities'
 import { generateCartToken, hashCartToken } from '../lib/token'
@@ -360,7 +360,7 @@ function buildMergeOutcome(
         sku: sourceLine.sku ?? null,
         name: sourceLine.name,
         optionValues: sourceLine.optionValues ?? null,
-        quantity: assertCartQuantity(sourceLine.quantity),
+        quantity: assertCartQuantity(sourceLine.quantity, { allowZero: true }),
         quantityUnit: sourceLine.quantityUnit ?? null,
         uomSnapshot: sourceLine.uomSnapshot ?? null,
         unitPriceNet: sourceLine.unitPriceNet ?? null,
@@ -395,7 +395,7 @@ function buildMergeOutcome(
     const summedQuantity = addDecimals(matched.quantity, sourceLine.quantity)
     const maxQuantity = Math.min(maxQuantityBySourceLineId.get(sourceLine.id) ?? MAX_CART_LINE_QUANTITY, MAX_CART_LINE_QUANTITY)
     const capped = compareDecimals(summedQuantity, maxQuantity) > 0
-    matched.quantity = assertCartQuantity(capped ? maxQuantity : summedQuantity.toFixed())
+    matched.quantity = toWritableCartQuantity(capped ? maxQuantity : summedQuantity.toFixed())
     updatedLineIds.push(matched.id)
     outcome.push({
       sourceLineId: sourceLine.id,

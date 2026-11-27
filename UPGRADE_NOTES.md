@@ -4,7 +4,7 @@
 
 Send a positive decimal no greater than `999999999999.9999`, with at most four fractional places after removing trailing zeros. The cart request schemas continue to reject values outside storage precision. Direct command calls and computed writes now check the same limit before saving. An invalid command quantity or an unrepresentable final cap can return HTTP 400 with `cart_quantity_invalid`.
 
-Correct the quantity or the product's applicable maximum order quantity before retrying. Combined quantities still cap at the existing storage ceiling or a lower valid order maximum. Existing carts need no data migration, and deployment requires no configuration changes.
+Correct the quantity or the product's applicable maximum order quantity before retrying. Combined quantities still cap at the existing storage ceiling or a lower valid order maximum, including zero. The stored quantity and totals continue to use the Sales calculator's numeric representation, which can round the finest decimal increments at the largest magnitudes. Existing carts need no data migration, and deployment requires no configuration changes.
 
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 

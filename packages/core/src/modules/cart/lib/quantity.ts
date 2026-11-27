@@ -15,10 +15,15 @@ export function fitsCartQuantityStorage(value: unknown): boolean {
   return parseStoredQuantity(value) !== null
 }
 
-export function assertCartQuantity(value: string | number): string {
+export function assertCartQuantity(value: string | number, { allowZero = false } = {}): string {
   const quantity = parseStoredQuantity(value)
-  if (!quantity || !quantity.gt(0)) {
+  if (!quantity || quantity.lt(0) || (!allowZero && quantity.eq(0))) {
     throw new CrudHttpError(400, { error: CART_QUANTITY_ERROR_KEY, code: 'cart_quantity_invalid' })
   }
   return quantity.toFixed()
+}
+
+export function toWritableCartQuantity(value: string | number): string {
+  const exact = assertCartQuantity(value, { allowZero: true })
+  return assertCartQuantity(Number(exact), { allowZero: true })
 }

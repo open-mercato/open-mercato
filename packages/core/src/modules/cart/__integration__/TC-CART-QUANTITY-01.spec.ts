@@ -33,6 +33,8 @@ test('TC-CART-QUANTITY-01: add, update and bulk add reject excess decimal precis
       stamp: uniqueStamp(),
       label: 'quantity',
       salesChannelId: store.salesChannelId,
+      unitPriceNet: 100,
+      unitPriceGross: 100,
     });
     const cart = await createStorefrontCart(store.hostname);
     cartId = cart.cartId;
@@ -75,13 +77,23 @@ test('TC-CART-QUANTITY-01: add, update and bulk add reject excess decimal precis
     });
     expect(updated.status, updated.text).toBe(200);
 
-    const bulk = await cartStorefrontRequest(store.hostname, CART_LINES_BULK_PATH, {
-      method: 'POST', cartToken: cart.token, body: { lines: [{ productId: product.productId, quantity: '0.0001' }] },
-    });
+    const bulkRequest = {
+      method: 'POST' as const,
+      cartToken: cart.token,
+      headers: { 'Idempotency-Key': uniqueStamp() },
+      body: { lines: [{ productId: product.productId, quantity: '0.0001' }] },
+    };
+    const bulk = await cartStorefrontRequest(store.hostname, CART_LINES_BULK_PATH, bulkRequest);
     expect(bulk.status, bulk.text).toBe(200);
+    const replay = await cartStorefrontRequest(store.hostname, CART_LINES_BULK_PATH, bulkRequest);
+    expect(replay.status, replay.text).toBe(200);
+    expect(replay.body).toEqual(bulk.body);
     const afterBulk = await cartStorefrontRequest(store.hostname, CART_CURRENT_PATH, { method: 'GET', cartToken: cart.token });
     expect(afterBulk.status, afterBulk.text).toBe(200);
-    expect(afterBulk.body).toMatchObject({ cart: { lines: [{ id: originalLine.id, quantity: '999999999999.9997' }] } });
+    expect(afterBulk.body).toMatchObject({ cart: {
+      lines: [{ id: originalLine.id, quantity: '999999999999.9998' }],
+      totals: { grandTotalNetAmountExact: '99999999999999.98' },
+    } });
   } finally {
     if (cartId) await deleteCartRowIfExists(cartId);
     await cleanupCartProductFixture(request, adminToken, product);
