@@ -2,6 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
 import { expect, test, type Page } from '@playwright/test'
+import { compile } from 'tailwindcss'
 import { sanitizeChannelHtml } from '../lib/sanitize-channel-html'
 
 const inlineImage = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
@@ -48,6 +49,36 @@ async function renderEmail(page: Page, id: string, rawHtml: string) {
     fixture.renderEmail(messageId, html)
   }, { messageId: id, html: sanitizeChannelHtml(rawHtml) })
 }
+
+test('wide email tables scroll within a paint-contained message body', async ({ page }) => {
+  const utilities = await compile('@tailwind utilities;')
+  await page.setViewportSize({ width: 320, height: 480 })
+  await page.setContent('<div id="root"></div>')
+  await page.addStyleTag({ content: utilities.build(['contain-paint', 'overflow-x-auto']) })
+  await page.addScriptTag({ content: widgetBundle })
+  await renderEmail(
+    page,
+    'report',
+    '<table width="640"><tbody><tr><td width="320">Monthly report</td><td>Monthly total</td></tr></tbody></table>',
+  )
+
+  const table = page.getByRole('region', { name: 'Email payload' }).getByRole('table')
+  await expect(table.getByRole('cell', { name: 'Monthly report' })).toBeVisible()
+
+  const body = table.locator('..')
+  await expect(body).toHaveCSS('contain', 'paint')
+  await expect(body).toHaveCSS('overflow-x', 'auto')
+  const layout = await body.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth
+    return {
+      scrollLeft: element.scrollLeft,
+      documentWidth: document.documentElement.scrollWidth,
+    }
+  })
+  expect(layout.scrollLeft).toBeGreaterThan(0)
+  expect(layout.documentWidth).toBe(320)
+  await expect(table.getByRole('cell', { name: 'Monthly total' })).toBeInViewport()
+})
 
 test('TC-CHANNEL-EMAIL-032: loads remote images only with per-message consent', async ({ page }) => {
   const requestedImages: string[] = []

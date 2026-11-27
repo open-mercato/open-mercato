@@ -83,6 +83,12 @@ const crud = makeCrudRoute({
     sortFieldMap: {
       name: F.name,
       code: F.code,
+      city: F.city,
+      country: F.country,
+      is_primary: F.is_primary,
+      isPrimary: F.is_primary,
+      is_active: F.is_active,
+      isActive: F.is_active,
       createdAt: F.created_at,
       updatedAt: F.updated_at,
     },

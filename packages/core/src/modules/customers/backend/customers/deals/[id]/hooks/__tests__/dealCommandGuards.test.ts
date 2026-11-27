@@ -48,7 +48,11 @@ const mockedWithScoped = withScopedApiRequestHeaders as jest.MockedFunction<type
 
 const DEAL_UPDATED_AT = '2026-06-01T00:00:00.000Z'
 
-const passthroughRunner: GuardedMutationRunner = async (operation) => operation()
+const passthroughRunner: GuardedMutationRunner = async (operation, _payload, onSuccess) => {
+  const result = await operation()
+  await onSuccess?.()
+  return result
+}
 
 function makeDeal(): DealDetailPayload {
   return {

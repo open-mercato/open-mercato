@@ -157,7 +157,7 @@ test.describe('TC-AI-CONVERSATIONS-001: Conversation CRUD lifecycle + org scopin
     const adminToken = await getAuthToken(request, 'admin');
     const { tenantId } = getTokenScope(adminToken);
     const stamp = randomUUID().slice(0, 8);
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     const agentId = `it_conv.xorg_${stamp}`;
     const conversationId = `it-conv-xorg-${randomUUID()}`;
 

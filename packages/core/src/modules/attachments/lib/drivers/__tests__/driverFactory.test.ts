@@ -88,6 +88,18 @@ describe('StorageDriverFactory', () => {
     })
   })
 
+  it('refuses an organization-owned partition outside the storage caller scope', async () => {
+    const external = jest.fn((config: Record<string, unknown>) => new FakeExternalDriver(config))
+    factory.registerDriver('fake', external)
+    mockFindOne.mockResolvedValue({
+      storageDriver: 'fake', configJson: {}, tenantId: 'tenant', organizationId: 'org-a',
+    })
+
+    await expect(factory.resolveForPartition('documents', { tenantId: 'tenant', organizationId: 'org-b' }))
+      .rejects.toMatchObject({ status: 503, reason: 'partition_missing' })
+    expect(external).not.toHaveBeenCalled()
+  })
+
   describe('resolveForPartition()', () => {
     it('returns LocalStorageDriver when partition is not found', async () => {
       mockFindOne.mockResolvedValueOnce(null)
