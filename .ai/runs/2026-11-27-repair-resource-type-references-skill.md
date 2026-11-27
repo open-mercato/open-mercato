@@ -23,7 +23,7 @@ Apply changes historical data. The skill requires a preview and operator approva
 
 The full local gate passed, including all 51 workspace test tasks and the production app build. The 135 targeted resources tests included disposable PostgreSQL. The standalone preview also ran against a disposable database.
 
-Independent code review identified the event queue acknowledgement gap fixed in 62a8ab56f5. GitHub cannot record formal approval from the PR author, so the replacement remains a draft pending a GitHub reviewer. PR #10647 was closed unmerged after the replacement was published.
+Independent code review identified the event queue acknowledgement gap fixed in 62a8ab56f5. GitHub cannot record formal approval from the PR author, so formal approval remains with an eligible GitHub reviewer. The replacement is ready for review. PR #10647 was closed unmerged after the replacement was published.
 
 ## Progress
 PR: #10887
@@ -33,4 +33,4 @@ PR: #10887
 ### Phase 1: Rewrite the repair
 
 - [x] 1.1 Move the repair into the skill, wire app bootstrap, and adapt the regression tests. — 4473fc7229
-- [ ] 1.2 Validate the replacement and prepare the pull request.
+- [x] 1.2 Validate the replacement and prepare the pull request. — e97e21866f
