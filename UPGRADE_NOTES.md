@@ -6,6 +6,26 @@ Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibilit
 
 All published ports in these dev stacks now bind to `127.0.0.1` by default. Operators who deliberately need remote access must set `INFRA_BIND_HOST` explicitly and control access to every published development service. This change does not alter production or hybrid startup.
 
+## MCP HTTP tool calls require a per-user session token, no fallback (#5173)
+
+The production MCP HTTP server (`mcp:serve-http` — the transport web chat and Code Mode go through) now requires a valid `_sessionToken` on every tool call. A call that omits it receives `UNAUTHORIZED`; one that supplies an invalid or expired token receives `SESSION_EXPIRED`. There is no fallback to the transport `x-api-key`'s ACL and no opt-in to restore one: `McpServerConfig.allowApiKeyFallback` and `mcp:serve-http --allow-api-key-fallback` do not exist (neither shipped in a prior release — both were introduced and removed again within this same change, after review).
+
+**What stops working:** a deployment that calls `mcp:serve-http` with only an `x-api-key` header and no `_sessionToken` — previously authorized against the transport key's (typically superadmin) ACL — now gets `UNAUTHORIZED` on every tool call, unconditionally.
+
+**Client migration (chat-facing callers):** none for the normal path — the web chat and Code Mode flows already mint and pass a per-user `_sessionToken` on every tool call; this change only removes a fallback those flows never relied on. One edge case needs attention: a session token is minted only when a chat turn starts a brand-new session; if that minting fails (a transient DB error), the turn continues without one and no later turn on that same session retries it. A chat session stuck in that state now gets `UNAUTHORIZED` on every tool call instead of silently running under the old transport-key fallback. **Recovery:** there is no in-place repair for an already-established session — start a new chat session, which mints a fresh token on its first turn. No stored credential or data needs cleanup.
+
+**Operator migration (header-only / automation callers):** switch to the stdio transport, which already supports header-only / unattended access deliberately and is never reachable from a chat turn. Authenticate it the same way any other automation caller would — with an API key scoped to that caller's own account, or an explicit user context — not with a superadmin bypass:
+
+```bash
+OPEN_MERCATO_API_KEY=omk_xxxx.yyyy... mercato ai_assistant mcp:serve
+# or, with a manually supplied tenant/user context instead of an API key:
+mercato ai_assistant mcp:serve --tenant <id> --user <id>
+```
+
+`mcp:serve --allow-unauthenticated-superadmin` also exists, but it is **DEV/TEST ONLY** — it runs with no per-user ACL and must never be used in production.
+
+No database, event-id, route, or ACL-feature change. No stored credential or data becomes unusable — this only changes which auth path an HTTP tool call is allowed to take. See [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md#mcp-http-session-token-no-fallback-2026-11-14-5173) and spec [`2026-11-14-mcp-http-session-required-no-fallback.md`](.ai/specs/2026-11-14-mcp-http-session-required-no-fallback.md).
+
 ## Backend API documentation permission (#3810)
 
 `/backend/docs` now requires `api_docs.view`. Staff without that feature lose the
