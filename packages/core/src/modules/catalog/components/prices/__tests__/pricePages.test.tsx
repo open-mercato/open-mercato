@@ -59,7 +59,7 @@ it('edit preserves the loaded version, canonicalizes repeated saves and refuses 
 })
 
 describe.each(['unitPriceNet', 'unitPriceGross'] as const)('%s text validation', (field) => {
-  it.each(['999999999999.12345', '999999999999,12345', '-1e-999'])('refuses %s before create or update', async (raw) => {
+  it.each(['-1e-999', '9'.repeat(301), `0.${'0'.repeat(1000)}1`])('refuses %s before create or update', async (raw) => {
     const create = render(<CreateCatalogPricePage />)
     await expect(mockProps.onSubmit({ ...values, [field]: raw })).rejects.toThrow()
     expect(mockCreateCrud).not.toHaveBeenCalled()
@@ -69,5 +69,21 @@ describe.each(['unitPriceNet', 'unitPriceGross'] as const)('%s text validation',
     await waitFor(() => expect(mockProps.optimisticLockUpdatedAt).toBe(version))
     await expect(mockProps.onSubmit({ ...values, [field]: raw })).rejects.toThrow()
     expect(mockUpdateCrud).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['999999999999.12345', '999999999999.12345'],
+    ['999999999999,12345', '999999999999.12345'],
+    ['0.123456789012345678', '0.123456789012345678'],
+  ])('submits %s exactly on create and update', async (raw, exact) => {
+    const create = render(<CreateCatalogPricePage />)
+    await mockProps.onSubmit({ ...values, [field]: raw })
+    expect(mockCreateCrud).toHaveBeenCalledWith('catalog/prices', expect.objectContaining({ [field]: exact }))
+    create.unmount()
+
+    render(<EditCatalogPricePage params={{ id: 'price' }} />)
+    await waitFor(() => expect(mockProps.optimisticLockUpdatedAt).toBe(version))
+    await mockProps.onSubmit({ ...values, [field]: raw })
+    expect(mockUpdateCrud).toHaveBeenCalledWith('catalog/prices', expect.objectContaining({ id: 'price', [field]: exact }))
   })
 })
