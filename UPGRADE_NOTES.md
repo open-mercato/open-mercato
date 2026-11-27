@@ -338,6 +338,10 @@ that are still valid. Remove or replace suspect content through authorized
 translation operations. Rows for unregistered or missing targets require
 operator cleanup. No schema migration is required.
 
+### Staff report-history money permissions (#8595)
+
+Report-sheet event metadata now honors `staff.timesheets.rates.view`. Callers without it receive nonfinancial counts, rounding and export details, with close/unlock totals and currency omitted. This repairs an unauthorized disclosure; authorized output is unchanged. Consumers must treat omitted monetary metadata as unavailable. No database or operator migration is required.
+
 ## SSO configuration and SCIM authority (#9014)
 
 **Operators:** deploy the additive `sso_configs.authorization_user_id` migration
