@@ -21,7 +21,7 @@ import {
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
 import { purgeOrphans, retireScopedCatalogueRows } from './stale'
 import type { VectorIndexService } from '@open-mercato/search/vector'
-import { isSearchDebugEnabled } from './search-tokens'
+import { isSearchDebugEnabled, resolveCiphertextGuard } from './search-tokens'
 import { isTenantGlobalEntityType } from './tenant-global'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -653,10 +653,12 @@ export async function reindexEntity(
         doc: Record<string, unknown>,
         scope: { organizationId: string | null; tenantId: string | null },
       ) => {
+        const tenantId = scope.tenantId ?? null
+        if (dekKeyCache.get(tenantId) === null) dekKeyCache.delete(tenantId)
         const result = await decryptIndexDocForSearch(
           targetEntity,
           doc,
-          { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+          { tenantId, organizationId: scope.organizationId ?? null },
           encryption,
           dekKeyCache,
         )
@@ -671,6 +673,7 @@ export async function reindexEntity(
         encryptDoc,
         decryptDoc,
         searchTokenGateQueryEngine,
+        ciphertextGuard: () => resolveCiphertextGuard(encryption),
       })
       mergeUpsertIndexBatchResults(writeTotals, batchResult)
 

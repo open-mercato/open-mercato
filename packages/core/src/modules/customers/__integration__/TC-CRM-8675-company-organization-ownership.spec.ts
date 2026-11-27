@@ -110,9 +110,9 @@ test('TC-CRM-8675: company creates require live organizations owned by the autho
         const read = await apiRequest(request, 'GET', `/api/customers/companies/${body?.id}`, { token: restricted, headers: { Cookie: '' } })
         expect(read.status(), 'detail must retain scope isolation without an existence oracle').toBe(404)
         const updated = await apiRequest(request, 'PUT', '/api/customers/companies', foreignMutation)
-        expect(updated.status(), 'update must retain organization isolation').toBe(403)
+        expect(updated.status(), 'update must retain organization isolation without an existence oracle').toBe(404)
         const removed = await apiRequest(request, 'DELETE', '/api/customers/companies', { ...foreignMutation, data: { id: body?.id } })
-        expect(removed.status(), 'delete must retain organization isolation').toBe(403)
+        expect(removed.status(), 'delete must retain organization isolation without an existence oracle').toBe(404)
       }
     }
   } finally {

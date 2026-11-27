@@ -50,6 +50,7 @@ import { isAttachmentStorageConfigurationError } from '@open-mercato/core/module
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 import type { IngestTraceCommandInput } from '../../commands/trace'
+import { withTraceIngestAuthority } from '../trace/ingestAuthority'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
 import type { TraceLlmRequestIngest, TraceSpanIngest } from '../../data/validators'
 import {
@@ -515,6 +516,7 @@ export class OpenCodeAgentRunner {
             )
           : null
         await this.ingestSessionTrace(commandCtx, {
+          runId,
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
           agentId,
@@ -768,6 +770,7 @@ export class OpenCodeAgentRunner {
   private async ingestSessionTrace(
     commandCtx: ReturnType<typeof buildCommandContext>,
     args: {
+      runId: string
       tenantId: string
       organizationId: string
       agentId: string
@@ -853,7 +856,9 @@ export class OpenCodeAgentRunner {
                 ...(args.latencyMs != null ? { latencyMs: args.latencyMs } : {}),
               },
             },
-            ctx: commandCtx,
+            ctx: withTraceIngestAuthority(commandCtx, {
+              source: 'opencode', runId: args.runId, tenantId: args.tenantId, organizationId: args.organizationId,
+            }),
           },
         ),
       )

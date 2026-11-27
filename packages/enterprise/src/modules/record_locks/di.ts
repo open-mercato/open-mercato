@@ -3,7 +3,7 @@ import { asFunction } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
+import type { ActionLogHistoryService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { createOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
@@ -17,16 +17,20 @@ export function register(container: AppContainer) {
     recordLockService: asFunction((cradle: {
       em: EntityManager
       moduleConfigService?: ModuleConfigService | null
-      actionLogService?: ActionLogService | null
+      resolveAuditHistory: () => ActionLogHistoryService | undefined
       rbacService?: RbacService | null
     }) =>
       createRecordLockService({
         em: cradle.em,
         moduleConfigService: cradle.moduleConfigService ?? null,
-        actionLogService: cradle.actionLogService ?? null,
+        resolveAuditHistory: cradle.resolveAuditHistory,
         rbacService: cradle.rbacService ?? null,
       }),
-    ).scoped().proxy(),
+    ).scoped().proxy()
+      .inject((scope) => ({
+        moduleConfigService: scope.resolve('moduleConfigService', { allowUnregistered: true }) ?? null,
+        resolveAuditHistory: () => scope.resolve<ActionLogHistoryService>('actionLogHistoryService', { allowUnregistered: true }),
+      })),
     // CRUD guard decorator: chains the OSS `updated_at` floor first (built here
     // because this DI key overrides the platform default), then adds the
     // record_locks enrichment. record_locks can only ADD a 409, never skip the

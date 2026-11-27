@@ -1,3 +1,4 @@
+import { attachmentPartitionVisibility, indexAttachmentPartitions } from '../partitionScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Attachment, AttachmentDocumentExtraction, AttachmentPartition } from '../../data/entities'
@@ -35,21 +36,6 @@ export type DocumentStructureBackfillResult = {
   enqueued: number
 }
 
-function partitionAppliesToScope(partition: AttachmentPartition, tenantId: string, organizationId: string | null): boolean {
-  const partitionTenantId = partition.tenantId ?? null
-  const partitionOrganizationId = partition.organizationId ?? null
-  if (partitionTenantId === null && partitionOrganizationId === null) return true
-  if (partitionTenantId !== tenantId) return false
-  return organizationId === null || partitionOrganizationId === organizationId
-}
-
-function partitionAppliesToAttachment(partition: AttachmentPartition, attachment: Attachment): boolean {
-  const partitionTenantId = partition.tenantId ?? null
-  const partitionOrganizationId = partition.organizationId ?? null
-  if (partitionTenantId === null && partitionOrganizationId === null) return true
-  return partitionTenantId === (attachment.tenantId ?? null) && partitionOrganizationId === (attachment.organizationId ?? null)
-}
-
 function needsExtraction(
   liveExtractions: AttachmentDocumentExtraction[],
   belowEngineVersion: number | null,
@@ -73,18 +59,17 @@ export async function runDocumentStructureBackfill(
   const limit = options.limit ?? null
   const pageSize = Math.max(1, Math.min(options.pageSize ?? DOCUMENT_STRUCTURE_BACKFILL_PAGE_SIZE, 1000))
 
-  const partitionWhere: Record<string, unknown> = { extractDocumentStructure: true }
+  const partitionWhere: Record<string, unknown> = attachmentPartitionVisibility({ tenantId, organizationId }, !organizationId)
   if (options.partitionCode) partitionWhere.code = options.partitionCode
-  const partitions = (await findWithDecryption(em, AttachmentPartition, partitionWhere))
-    .filter((partition) => partitionAppliesToScope(partition, tenantId, organizationId))
-  const partitionsByCode = new Map(partitions.map((partition) => [partition.code, partition]))
+  const partitions = await findWithDecryption(em, AttachmentPartition, partitionWhere)
+  const partitionFor = indexAttachmentPartitions(partitions)
   const result: DocumentStructureBackfillResult = {
-    partitions: Array.from(partitionsByCode.keys()),
+    partitions: [...new Set(partitions.filter((partition) => partition.extractDocumentStructure).map((partition) => partition.code))],
     scanned: 0,
     targets: [],
     enqueued: 0,
   }
-  if (partitionsByCode.size === 0) return result
+  if (result.partitions.length === 0) return result
 
   let cursor: string | null = null
   while (limit === null || result.targets.length < limit) {
@@ -105,10 +90,7 @@ export async function runDocumentStructureBackfill(
     cursor = page[page.length - 1].id
     result.scanned += page.length
 
-    const eligible = page.filter((attachment) => {
-      const partition = partitionsByCode.get(attachment.partitionCode)
-      return partition ? partitionAppliesToAttachment(partition, attachment) : false
-    })
+    const eligible = page.filter((attachment) => partitionFor(attachment.partitionCode, attachment)?.extractDocumentStructure)
     const extractions = eligible.length
       ? await findWithDecryption(
           em,

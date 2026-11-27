@@ -3,6 +3,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { AttachmentDocumentExtraction, AttachmentDocumentSection, AttachmentPartition } from '../../data/entities'
+import { attachmentPartitionVisibility } from '../partitionScope'
 import type { ExtractionStatus } from './types'
 import {
   documentSectionSearchJobSchema,
@@ -52,6 +53,7 @@ export type PartitionSectionSearchFanOutInput = {
   pageSize?: number
   maxPages?: number | null
   dryRun?: boolean
+  allowUnambiguousPartition?: boolean
 }
 
 export type PartitionSectionSearchFanOutResult =
@@ -76,17 +78,31 @@ function resolvePartitionExtractionScope(
 ): ExtractionScopeFilter | null {
   const partitionTenantId = partition.tenantId ?? null
   if (partitionTenantId !== null && tenantId !== null && partitionTenantId !== tenantId) return null
+  const partitionOrganizationId = partition.organizationId ?? null
+  if (partitionOrganizationId !== null && organizationId !== null && partitionOrganizationId !== organizationId) return null
   const effectiveTenantId = tenantId ?? partitionTenantId
+  const effectiveOrganizationId = organizationId ?? partitionOrganizationId
   if (effectiveTenantId === null) return { tenantId: { $ne: null }, organizationId: { $ne: null } }
-  return organizationId !== null
-    ? { tenantId: effectiveTenantId, organizationId }
+  return effectiveOrganizationId !== null
+    ? { tenantId: effectiveTenantId, organizationId: effectiveOrganizationId }
     : { tenantId: effectiveTenantId, organizationId: { $ne: null } }
 }
 
 export async function fanOutPartitionSectionSearch(
   input: PartitionSectionSearchFanOutInput,
 ): Promise<PartitionSectionSearchFanOutResult> {
-  const partition = await findOneWithDecryption(input.em, AttachmentPartition, { code: input.partitionCode })
+  let partition = await findOneWithDecryption(input.em, AttachmentPartition, {
+    code: input.partitionCode, tenantId: input.tenantId, organizationId: input.organizationId,
+  })
+  if (!partition && input.allowUnambiguousPartition) {
+    const candidates = await findWithDecryption(input.em, AttachmentPartition, {
+      code: input.partitionCode,
+      ...(input.tenantId
+        ? attachmentPartitionVisibility(input, !input.organizationId)
+        : input.organizationId ? { organizationId: input.organizationId } : {}),
+    }, { limit: 2 })
+    if (candidates.length === 1) partition = candidates[0]
+  }
   if (!partition) return { kind: 'partition_not_found' }
   const indexDocumentSections = partition.indexDocumentSections === true
   const mode = input.mode ?? (indexDocumentSections ? 'index' : 'delete')
@@ -159,6 +175,7 @@ async function syncPartition(
     afterExtractionId: job.afterExtractionId ?? null,
     pageSize: deps.partitionPageSize,
     maxPages: 1,
+    allowUnambiguousPartition: job.organizationId === null,
   })
   if (fanOut.kind !== 'fanned_out') {
     logger.info('Partition section search sync skipped', { partitionCode: job.partitionCode, reason: fanOut.kind })

@@ -64,6 +64,7 @@ function createCtx(em: ReturnType<typeof createEm>) {
       resolve: (name: string) => {
         if (name === 'em') return em
         if (name === 'dataEngine') return {}
+        if (name === 'rbacService') return { userHasAllFeatures: async () => true }
         throw new Error(`Unexpected resolve: ${name}`)
       },
     },

@@ -47,6 +47,38 @@ function ControlledHarness({ initial = {} as any }: { initial?: any }) {
 }
 
 describe('JsonBuilder', () => {
+  it('keeps string-record values editable and reports invalid raw input without coercing it', () => {
+    const initial = { 'X-Environment': 'staging' }
+    const onChange = jest.fn()
+    renderWithProviders(
+      <JsonBuilder value={initial} onChange={onChange} stringRecordError="Expected an object with string values." />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Builder' }))
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByDisplayValue('staging'), { target: { value: 'production' } })
+    expect(onChange).toHaveBeenLastCalledWith({ 'X-Environment': 'production' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Raw JSON' }))
+    const textarea = screen.getByPlaceholderText('{"key": "value"}')
+    const builder = screen.getByRole('button', { name: 'Builder' })
+    for (const invalid of ['{"X-Environment":"staging","X-Environment":true}', '[]', '{"X-Environment":']) {
+      fireEvent.change(textarea, { target: { value: invalid } })
+      fireEvent.blur(textarea)
+      expect(textarea).toHaveValue(invalid)
+      expect(onChange).toHaveBeenLastCalledWith(invalid)
+      expect(screen.getByText('Expected an object with string values.')).toBeVisible()
+      expect(builder).toBeDisabled()
+    }
+
+    fireEvent.change(textarea, { target: { value: '{"X-Environment":"production"}' } })
+    fireEvent.blur(textarea)
+    expect(textarea).toHaveValue(JSON.stringify({ 'X-Environment': 'production' }, null, 2))
+    expect(onChange).toHaveBeenLastCalledWith({ 'X-Environment': 'production' })
+    expect(builder).toBeEnabled()
+    expect(screen.queryByText('Expected an object with string values.')).not.toBeInTheDocument()
+  })
+
   it('lets the user type JSON in Raw mode without clobbering the text', () => {
     renderWithProviders(<ControlledHarness />)
 

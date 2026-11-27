@@ -65,6 +65,68 @@ describe('listPendingUpgradeActions module gating', () => {
   })
 })
 
+describe('optional customers / attachments upgrade actions', () => {
+  afterEach(() => {
+    getEnabledModuleIdsMock.mockReset()
+  })
+
+  it.each([
+    ['customers.seed-interaction-statuses', ['configs', 'attachments']],
+    ['attachments.reconcile-organization', ['configs', 'customers']],
+  ])('omits %s when its owning module is disabled', async (actionId, enabledModules) => {
+    getEnabledModuleIdsMock.mockReturnValue(enabledModules)
+    const actions = await listPendingUpgradeActions(createEm(), {
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      version: '0.6.6',
+    })
+
+    expect(actions.some((action) => action.id === actionId)).toBe(false)
+  })
+
+  it('offers the attachments action first when customers is disabled', async () => {
+    getEnabledModuleIdsMock.mockReturnValue(['configs', 'attachments'])
+    const actions = await listPendingUpgradeActions(createEm(), {
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      version: '0.6.6',
+    })
+
+    expect(actions[0]?.id).toBe('attachments.reconcile-organization')
+  })
+
+  it('offers both actions when customers and attachments are enabled', async () => {
+    getEnabledModuleIdsMock.mockReturnValue(['configs', 'customers', 'attachments'])
+    const actions = await listPendingUpgradeActions(createEm(), {
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      version: '0.6.6',
+    })
+    const ids = actions.map((action) => action.id)
+
+    expect(ids).toContain('customers.seed-interaction-statuses')
+    expect(ids).toContain('attachments.reconcile-organization')
+  })
+
+  it.each([
+    ['customers.seed-interaction-statuses', ['configs', 'attachments']],
+    ['attachments.reconcile-organization', ['configs', 'customers']],
+  ])('rejects executing %s before any owning-module code runs', async (actionId, enabledModules) => {
+    getEnabledModuleIdsMock.mockReturnValue(enabledModules)
+    const container = { resolve: jest.fn() }
+
+    await expect(
+      executeUpgradeAction(container as never, {
+        actionId,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        version: '0.6.6',
+      }),
+    ).rejects.toThrow('UPGRADE_ACTION_NOT_AVAILABLE')
+    expect(container.resolve).not.toHaveBeenCalled()
+  })
+})
+
 describe('executeUpgradeAction module gating', () => {
   afterEach(() => {
     getEnabledModuleIdsMock.mockReset()

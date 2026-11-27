@@ -30,6 +30,7 @@ services:
       # Legacy provider selection (anthropic, openai, google) — BC only.
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_PASSWORD:-}
       # Provider API keys (set the one matching OM_AI_PROVIDER)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

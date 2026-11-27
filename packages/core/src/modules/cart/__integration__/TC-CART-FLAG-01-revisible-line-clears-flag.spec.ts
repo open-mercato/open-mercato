@@ -11,6 +11,7 @@ import {
   createCartStorefrontFixture,
   createStorefrontCart,
   deleteCartRowIfExists,
+  setCatalogPriceAmounts,
   updateChannelBindingAssortmentScope,
   uniqueStamp,
   type CartProductFixture,
@@ -20,6 +21,8 @@ import {
 type CartEnvelope = {
   cart: { lines: Array<{ id: string; quantity: string }>; itemCount: number; totals: { grandTotalGrossAmount?: number | string } | null };
   warnings?: Array<{ code: string; lineId?: string }>;
+  priceChanges?: Array<{ lineId: string; oldUnitPriceGross: string; newUnitPriceGross: string; reason: string }>;
+  versionBumpReason?: string;
 };
 
 function unavailableLineIds(body: unknown): string[] {
@@ -40,7 +43,7 @@ async function addLine(hostname: string, cartToken: string, productId: string, q
 test.describe('TC-CART-FLAG-01: a re-visible flagged line is cleared by lines.update and merge-add', () => {
   test.describe.configure({ timeout: 180_000 });
 
-  test('update and merge-add clear the stale flag and put the line back into totals', async ({ request }) => {
+  test('update and merge-add restore the line at the current price, and update discloses the change', async ({ request }) => {
     const token = await getAuthToken(request, 'admin');
     const stamp = uniqueStamp();
     let store: CartStorefrontFixture | null = null;
@@ -49,7 +52,7 @@ test.describe('TC-CART-FLAG-01: a re-visible flagged line is cleared by lines.up
     const cartIds: string[] = [];
     try {
       store = await createCartStorefrontFixture(request, token, {});
-      product = await createCartProductFixture(request, token, { stamp, label: 'flag', salesChannelId: store.salesChannelId });
+      product = await createCartProductFixture(request, token, { stamp, label: 'flag', salesChannelId: store.salesChannelId, taxRate: 20 });
       otherProduct = await createCartProductFixture(request, token, { stamp, label: 'flag-other', salesChannelId: store.salesChannelId });
       await updateChannelBindingAssortmentScope(request, token, store.channelBindingId, { categoryIds: [product.categoryId] });
 
@@ -71,6 +74,7 @@ test.describe('TC-CART-FLAG-01: a re-visible flagged line is cleared by lines.up
         expect(unavailableLineIds(flagged.body)).toEqual([lineId]);
       }
 
+      await setCatalogPriceAmounts(product.priceId, '15', '18');
       const recategorize = await apiRequest(request, 'PUT', '/api/catalog/products', {
         token,
         data: { id: product.productId, categoryIds: [product.categoryId, otherProduct.categoryId] },
@@ -84,8 +88,13 @@ test.describe('TC-CART-FLAG-01: a re-visible flagged line is cleared by lines.up
       });
       expect(updated.status, updated.text).toBe(200);
       expect(unavailableLineIds(updated.body)).toEqual([]);
-      expect((updated.body as CartEnvelope).cart.itemCount).toBe(2);
-      expect(Number((updated.body as CartEnvelope).cart.totals?.grandTotalGrossAmount ?? 0)).toBeGreaterThan(0);
+      const updatedBody = updated.body as CartEnvelope;
+      expect(updatedBody.cart.itemCount).toBe(2);
+      expect(Number(updatedBody.cart.totals?.grandTotalGrossAmount)).toBe(36);
+      expect(updatedBody.versionBumpReason).toBe('repricing');
+      expect(updatedBody.priceChanges).toEqual([expect.objectContaining({ lineId: updateLineId, reason: 'stale_snapshot' })]);
+      expect(Number(updatedBody.priceChanges?.[0]?.oldUnitPriceGross)).toBe(12);
+      expect(Number(updatedBody.priceChanges?.[0]?.newUnitPriceGross)).toBe(18);
 
       const merged = await addLine(store.hostname, mergeCart.token, product.productId, '1');
       expect(merged.status, merged.text).toBe(200);
@@ -93,7 +102,7 @@ test.describe('TC-CART-FLAG-01: a re-visible flagged line is cleared by lines.up
       expect(mergedBody.cart.lines.map((line) => line.id)).toEqual([mergeLineId]);
       expect(unavailableLineIds(mergedBody)).toEqual([]);
       expect(mergedBody.cart.itemCount).toBe(2);
-      expect(Number(mergedBody.cart.totals?.grandTotalGrossAmount ?? 0)).toBeGreaterThan(0);
+      expect(Number(mergedBody.cart.totals?.grandTotalGrossAmount)).toBe(36);
     } finally {
       for (const cartId of cartIds) await deleteCartRowIfExists(cartId);
       await cleanupCartProductFixture(request, token, product);

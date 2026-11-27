@@ -1,7 +1,11 @@
 import crypto from 'node:crypto'
-import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitOAuthStateMemoryCacheStartupWarningIfNeeded } from './oauth-state-cache-warning'
 
-const oauthStateLogger = createLogger('communication_channels').child({ component: 'oauth-state' })
+export {
+  emitOAuthStateMemoryCacheStartupWarningIfNeeded,
+  resetOAuthStateMemoryCacheStartupWarningForTests,
+  runDeferredOAuthStateCacheWarningCheck,
+} from './oauth-state-cache-warning'
 
 /**
  * OAuth state-cookie helper for the communication_channels hub.
@@ -296,31 +300,6 @@ export function createOAuthState(params: {
   }
   const cookie = encryptOAuthState(payload)
   return { payload, cookie, stateParam: state }
-}
-
-let memoryCacheStartupWarningEmitted = false
-
-/**
- * Emit a one-time startup warning unless the cache strategy is redis. Every other
- * strategy (memory, sqlite, jsonfile) keeps replay markers per process or per node,
- * so the single-use guarantee only holds across replicas on redis.
- */
-export function emitOAuthStateMemoryCacheStartupWarningIfNeeded(
-  env: NodeJS.ProcessEnv = process.env,
-): void {
-  if (memoryCacheStartupWarningEmitted) return
-  const strategy = (env.CACHE_STRATEGY ?? 'memory').trim().toLowerCase()
-  if (strategy === 'redis') return
-  memoryCacheStartupWarningEmitted = true
-  oauthStateLogger.warn(
-    `OAuth state single-use protection needs a store shared across replicas. CACHE_STRATEGY=${strategy} is per-process or per-node; multi-replica deployments MUST set CACHE_STRATEGY=redis.`,
-    { context: 'startup', startup: true, cacheStrategy: strategy },
-  )
-}
-
-/** Test helper — reset the one-time startup warning latch. */
-export function resetOAuthStateMemoryCacheStartupWarningForTests(): void {
-  memoryCacheStartupWarningEmitted = false
 }
 
 emitOAuthStateMemoryCacheStartupWarningIfNeeded()

@@ -83,11 +83,46 @@ describe('withScopedPayload', () => {
     const ctx = {
       auth: { tenantId: 'tenant-1', orgId: null },
       selectedOrganizationId: null,
-      organizationScope: { allowedIds: null },
+      organizationScope: { tenantId: 'tenant-1', allowedIds: null },
     }
     const result = withScopedPayload({ organizationId: 'org-1' }, ctx as any, translate)
     expect(result.organizationId).toBe('org-1')
     expect(result.tenantId).toBe('tenant-1')
+  })
+
+  it('rejects an authenticated explicit organization when no organization scope can be established', () => {
+    const ctx = {
+      auth: { tenantId: 'tenant-1', orgId: null },
+      selectedOrganizationId: null,
+      organizationScope: null,
+    }
+    expect(() => withScopedPayload({ organizationId: 'org-2' }, ctx as any, translate)).toThrow(CrudHttpError)
+  })
+
+  it('rejects an explicitly requested organization outside a finite scope', () => {
+    const ctx = {
+      auth: { tenantId: 'tenant-1', orgId: 'org-1' },
+      selectedOrganizationId: 'org-1',
+      organizationScope: { tenantId: 'tenant-1', allowedIds: ['org-1'] },
+    }
+    expect(() => withScopedPayload({ organizationId: 'org-2' }, ctx as any, translate)).toThrow(CrudHttpError)
+  })
+
+  it('keeps cross-organization record updates indistinguishable from missing records', () => {
+    const ctx = {
+      auth: { tenantId: 'tenant-1', orgId: 'org-1' },
+      selectedOrganizationId: 'org-1',
+      organizationScope: { tenantId: 'tenant-1', allowedIds: ['org-1'] },
+    }
+
+    for (const id of ['existing-record', 'missing-record']) {
+      expect(() => withScopedPayload({ id, organizationId: 'org-2' }, ctx, translate, { maskOrganizationDenial: true }))
+        .toThrow(expect.objectContaining({ status: 404 }))
+    }
+    expect(() => withScopedPayload({ id: 'client-supplied', organizationId: 'org-2' }, ctx, translate))
+      .toThrow(expect.objectContaining({ status: 403 }))
+    expect(withScopedPayload({ id: 'existing-record', organizationId: 'org-1' }, ctx, translate))
+      .toMatchObject({ id: 'existing-record', organizationId: 'org-1', tenantId: 'tenant-1' })
   })
 
   it('succeeds when user has global org access and selectedOrganizationId is set', () => {

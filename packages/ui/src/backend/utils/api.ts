@@ -209,7 +209,9 @@ export function notifyForbiddenAccess(options?: { requiredRoles?: string[] | nul
  */
 export const redirectToForbiddenLogin = notifyForbiddenAccess
 
-export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export async function apiFetch(
+  input: RequestInfo | URL, init?: RequestInit, options?: { inheritScopedHeaders?: boolean },
+): Promise<Response> {
   type FetchType = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   const originalFetch =
     typeof window !== 'undefined'
@@ -223,7 +225,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       { status: 503, headers: { 'content-type': 'application/json' } },
     )
   }
-  const scoped = scopedHeaders.resolveScopedHeaders()
+  const scoped = options?.inheritScopedHeaders === false ? {} : scopedHeaders.resolveScopedHeaders()
   const baseInit: RequestInit = Object.keys(scoped).length
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
     : init ?? {}
@@ -305,9 +307,10 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
       } else {
         msg = await res.clone().text().catch(() => 'Forbidden')
       }
-      // Attach ACL hints so callers (e.g. flashMutationError) can name the
-      // missing permission instead of surfacing a bare "Forbidden" toast.
-      throw new ForbiddenError(msg, { requiredFeatures: features, requiredRoles: roles })
+      const errorMessage = hasAclHints
+        ? formatForbiddenAccessMessage({ requiredRoles: roles, requiredFeatures: features })
+        : msg
+      throw new ForbiddenError(errorMessage, { requiredFeatures: features, requiredRoles: roles })
     }
     // If already on login, just return the response for the caller to handle
   }

@@ -81,6 +81,7 @@ function harness(options: { ownerUserId?: string; attachmentScope?: typeof scope
   const read = jest.fn(async () => ({ buffer: Buffer.from('secret-file-bytes') }))
   const resolveForPartition = jest.fn(async () => ({ read }))
   const rbacService = {
+    userHasAllFeatures: jest.fn(async () => true),
     loadAcl: jest.fn(async () => ({ isSuperAdmin: false, organizations: [scope.organizationId] })),
     getEffectiveFeatures: jest.fn(async () => ['agent_orchestrator.agents.run', 'attachments.*', 'documents.view']),
   }
@@ -150,7 +151,7 @@ describe('attachment staging owner policy through the real service and Documents
       modelMessages: test.client.sendMessage.mock.calls.length,
     }).toEqual({ storageResolutions: 0, storageReads: 0, workspaceWrites: 0, modelMessages: 0 })
     expect(error).toMatchObject({ message: expect.stringContaining('attachment staging failed: attachment input unavailable') })
-    if (actorId && !('attachmentScope' in options)) expect(readScoped).toHaveBeenCalledTimes(1)
+    expect(readScoped).not.toHaveBeenCalled()
     if (_name.startsWith('unshared')) {
       expect(test.rbacService.getEffectiveFeatures).toHaveBeenCalledWith(userId, scope)
       expect(test.em.findOne.mock.calls).toContainEqual([Document, expect.objectContaining({ id: documentId, ...scope, deletedAt: null }), undefined, scope])
@@ -219,7 +220,7 @@ describe('attachment staging owner policy through the real service and Documents
   })
 
   it.each([false, true])('persists redacted staging failure and cleans up when the telemetry reporter throws: %s', async (reporterThrows) => {
-    const test = harness()
+    const test = harness({ ownerUserId: userId })
     const stagingError = new Error('secret-policy-credentials')
     let persistedBeforeReporting = false
     const reportError = jest.fn(() => {

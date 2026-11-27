@@ -1,10 +1,13 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { AttachmentService } from '@open-mercato/core/modules/attachments'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { OcrService } from '@open-mercato/core/modules/attachments/lib/ocrService'
+import { createAttachmentAccessContext } from '@open-mercato/core/modules/attachments/lib/access-runner'
+import { assertAttachmentOwnerAccess } from '@open-mercato/core/modules/attachments/lib/access-query'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AgentFileInput } from './fileInput'
 
@@ -23,6 +26,11 @@ const logger = createLogger('agent_orchestrator').child({ component: 'attachment
  */
 
 type MinimalContainer = { resolve<T = unknown>(name: string): T }
+type AttachmentRbacService = {
+  userHasAllFeatures(userId: string, required: string[], scope: {
+    tenantId: string; organizationId: string
+  }): Promise<boolean>
+}
 
 export type StagedInput = { fileName: string; hasSidecar: boolean }
 
@@ -42,10 +50,17 @@ export async function stageAttachments(args: {
   userId?: string | null
 }): Promise<StagedInput[]> {
   if (args.files.attachments.length === 0) return []
-  if (!args.userId?.trim()) throw new Error('[internal] attachment staging requires an authenticated actor')
-  const attachmentService = args.container.resolve<AttachmentService>('attachmentService')
+  const scope = { tenantId: args.tenantId, organizationId: args.organizationId }
+  if (!args.userId?.trim()) {
+    throw new Error('[internal] attachment staging requires an execution principal')
+  }
+  const rbac = args.container.resolve<AttachmentRbacService>('rbacService')
+  if (await rbac.userHasAllFeatures(args.userId, ['attachments.view'], scope) !== true) {
+    throw new Error('[internal] attachment staging requires attachments.view')
+  }
   const auth = { sub: args.userId, tenantId: args.tenantId, orgId: args.organizationId }
-  const staged: StagedInput[] = []
+  const context = createAttachmentAccessContext(args.container as AwilixContainer)
+  const authorized: { entry: AgentFileInput['attachments'][number]; attachment: Attachment }[] = []
 
   for (const entry of args.files.attachments) {
     const attachment = await findOneWithDecryption(
@@ -59,6 +74,15 @@ export async function stageAttachments(args: {
       throw new Error('[internal] attachment not found in this tenant/org; cannot stage')
     }
 
+    await assertAttachmentOwnerAccess({
+      em: args.em, context, auth, attachment, action: 'read', reportMissingStoragePartition: true,
+    })
+    authorized.push({ entry, attachment })
+  }
+
+  const attachmentService = args.container.resolve<AttachmentService>('attachmentService')
+  const staged: StagedInput[] = []
+  for (const { entry, attachment } of authorized) {
     const { buffer, fileName: originalFileName, mimeType } = await attachmentService.readScoped({
       attachmentId: entry.attachmentId,
       auth,

@@ -69,6 +69,8 @@ export interface EventDefinition {
   entity?: string
   /** Whether excluded from workflow triggers */
   excludeFromTriggers?: boolean
+  /** Allows tenant-authored workflows to emit this event with an authored payload. Defaults to false. */
+  workflowEmittable?: boolean
   /** When true, this event is bridged to the browser via SSE (DOM Event Bridge). Default: false */
   clientBroadcast?: boolean
   /** When true, this event is bridged between server processes without enabling browser delivery. Default: false */
@@ -121,6 +123,8 @@ export interface EventPayload {
 export interface EmitOptions {
   /** If true, the event will be persisted to a queue for async processing */
   persistent?: boolean
+  /** Optional persistent-queue identity and publication deadline; does not change inline delivery. */
+  enqueue?: { jobId?: string; timeoutMs?: number }
   /** Trusted tenant scope forwarded to subscribers separately from the payload */
   tenantId?: string | null
   /** Trusted organization scope forwarded to subscribers separately from the payload */

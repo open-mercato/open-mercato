@@ -97,10 +97,15 @@ for (const presetId of PRESET_IDS) {
       assert.match(rootInstructions, /-> proceed \(`direct`\)/)
       assert.match(rootInstructions, /\(`reuse-spec`\)/)
       assert.match(rootInstructions, /ask once \(`ask`\)/)
-      assert.match(rootInstructions, /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/)
+      assert.match(rootInstructions, /New modules start at `src\/modules\/example\/README\.md`/)
       assert.ok(
         existsSync(join(exampleDir, 'README.md')),
         `preset ${presetId} routes the spec gate at src/modules/example/README.md, which must exist`,
+      )
+      assert.match(rootInstructions, /CrudForm section policy: `umes` → `extension-branches` → `form-sections\.ts`/)
+      assert.ok(
+        existsSync(join(exampleDir, 'form-sections.ts')),
+        `preset ${presetId} must emit the separate Example form policy entrypoint`,
       )
       const exampleReadme = readFileSync(join(exampleDir, 'README.md'), 'utf8')
       assert.match(

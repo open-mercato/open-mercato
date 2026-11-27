@@ -17,6 +17,7 @@
 import type { AwilixContainer } from 'awilix'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ProgressService, ProgressServiceContext } from '../../../progress/lib/progressService'
+import { tryResolve } from '../tryResolve'
 import {
   emptyRecalculationSummary,
   resolveTimeTrackingRecalculations,
@@ -52,16 +53,17 @@ function accumulate(
 
 export async function runTimeTrackingRecalculations(params: {
   container: AwilixContainer
-  progressJobId: string
+  progressJobId: string | null
   scope: TimeTrackingRecalculationScope
   hookIds?: readonly string[] | null
 }): Promise<TimeTrackingRecalculationRunSummary> {
   const { container, progressJobId, scope } = params
   const hooks = resolveTimeTrackingRecalculations(params.hookIds)
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = progressJobId ? tryResolve<ProgressService>(container, 'progressService') : undefined
+  const progress = progressService && progressJobId ? { service: progressService, jobId: progressJobId } : null
   const progressContext = progressContextFor(scope)
 
-  await progressService.startJob(progressJobId, progressContext)
+  if (progress) await progress.service.startJob(progress.jobId, progressContext)
 
   const summary: TimeTrackingRecalculationRunSummary = { ...emptyRecalculationSummary(), hooks: [] }
   let knownTotal = 0
@@ -75,26 +77,30 @@ export async function runTimeTrackingRecalculations(params: {
         report: {
           setTotal: async (total) => {
             knownTotal += total
-            await progressService.updateProgress(
-              progressJobId,
+            if (!progress) return
+            await progress.service.updateProgress(
+              progress.jobId,
               { totalCount: knownTotal, processedCount: Math.min(processed, knownTotal) },
               progressContext,
             )
           },
           advance: async (count) => {
             processed += count
-            await progressService.updateProgress(
-              progressJobId,
+            if (!progress) return
+            await progress.service.updateProgress(
+              progress.jobId,
               { totalCount: knownTotal, processedCount: Math.min(processed, knownTotal) },
               progressContext,
             )
           },
-          isCancellationRequested: () =>
-            progressService.isCancellationRequested(
-              progressJobId,
-              scope.tenantId,
-              progressContext.organizationId,
-            ),
+          isCancellationRequested: async () =>
+            progress
+              ? progress.service.isCancellationRequested(
+                  progress.jobId,
+                  scope.tenantId,
+                  progressContext.organizationId,
+                )
+              : false,
         },
       })
       summary.hooks.push({ id: hook.id, ...hookSummary })
@@ -108,11 +114,11 @@ export async function runTimeTrackingRecalculations(params: {
 
   if (summary.cancelled) {
     logger.info('staff.timesheets recalculation cancelled', { progressJobId, ...summary })
-    await progressService.markCancelled(progressJobId, progressContext)
+    if (progress) await progress.service.markCancelled(progress.jobId, progressContext)
     return summary
   }
 
-  await progressService.completeJob(progressJobId, { resultSummary: { ...summary } }, progressContext)
+  if (progress) await progress.service.completeJob(progress.jobId, { resultSummary: { ...summary } }, progressContext)
   logger.info('staff.timesheets recalculation finished', { progressJobId, ...summary })
   return summary
 }
