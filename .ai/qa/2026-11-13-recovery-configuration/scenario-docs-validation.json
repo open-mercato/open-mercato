@@ -1,0 +1,33 @@
+{
+  "rotationDocsCommit": "4931bb7a30887f56a754163b5aa1bbf1685ab5f1",
+  "backupDocsCommit": "608be58eaeb56ac204e0f496a55b81707c834bc3",
+  "mdxCompiler": "installed @docusaurus/mdx-loader createProcessorUncached with official preprocessContent (MDX1 headingIds compatibility enabled)",
+  "compiled": [
+    {
+      "worktree": "rotation",
+      "file": "apps/docs/docs/deployment/enterprise-backup-recovery.mdx",
+      "generatedJsBytes": 53780,
+      "linksChecked": 17
+    },
+    {
+      "worktree": "rotation",
+      "file": "apps/docs/docs/user-guide/key-rotation-protection.mdx",
+      "generatedJsBytes": 74731,
+      "linksChecked": 26
+    },
+    {
+      "worktree": "backup",
+      "file": "apps/docs/docs/deployment/enterprise-backup-recovery.mdx",
+      "generatedJsBytes": 53925,
+      "linksChecked": 17
+    }
+  ],
+  "diffChecks": "PASS both worktrees",
+  "commitHooks": "locale sync and template parity PASS both commits",
+  "runtimeCrossChecks": [
+    "Backup main.ts accepts operation=create|restore|exercise, resume, trusted-partial-sha256 and confirm-target; emitted restore/exercise resumes require fresh-confirmation-challenge.",
+    "Rotation coordinator creates and verifies recovery artifact before preparing baseline and running rotation.",
+    "Scoped cutover/key-domain and retained custody requirements preserve existing runtime verification limits."
+  ],
+  "scope": "documentation-only; no operations, full-site build or publication performed"
+}

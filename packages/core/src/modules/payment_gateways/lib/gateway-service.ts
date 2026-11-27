@@ -183,7 +183,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     throw new Error('Transaction is missing provider session id')
   }
 
-  async function emitStatusEvent(status: UnifiedPaymentStatus, payload: Record<string, unknown>) {
+  async function emitStatusEvent(status: UnifiedPaymentStatus, payload: Record<string, unknown> & { tenantId: string; organizationId: string }) {
     type PaymentGatewayEventId = Parameters<typeof emitPaymentGatewayEvent>[0]
     const eventMap: Partial<Record<UnifiedPaymentStatus, PaymentGatewayEventId>> = {
       authorized: 'payment_gateways.payment.authorized',
@@ -194,7 +194,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     }
     const eventId = eventMap[status]
     if (!eventId) return
-    await emitPaymentGatewayEvent(eventId, payload)
+    await emitPaymentGatewayEvent(eventId, payload, { tenantId: payload.tenantId, organizationId: payload.organizationId })
   }
 
   async function writeTransactionLog(

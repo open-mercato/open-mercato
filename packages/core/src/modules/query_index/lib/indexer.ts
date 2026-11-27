@@ -14,8 +14,9 @@ import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
-import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
+import { replaceSearchTokensForRecord, deleteSearchTokensForRecord, resolveCiphertextGuard } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
 import {
@@ -200,54 +201,56 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     doc[key] = multiKeys.has(fieldKey) || arr.length > 1 ? arr : arr[0]
   }
 
-  // Attach translations under flat keys 'l10n:{locale}:{field}'
-  const translationsSavepoint = db.isTransaction ? `om_translations_${randomUUID()}` : null
-  if (translationsSavepoint) await sql`SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
-  try {
-    const translationRow = await db
-      .selectFrom('entity_translations' as any)
-      .select(['translations' as any])
-      .where('entity_type' as any, '=', params.entityType)
-      .where('entity_id' as any, '=', String(params.recordId))
-      .where(sql`tenant_id is not distinct from ${params.tenantId ?? null}`)
-      .where(sql`organization_id is not distinct from ${params.organizationId ?? null}`)
-      .executeTakeFirst() as { translations: Record<string, Record<string, unknown>> | null } | undefined
+  if (tryGetModules()?.some((module) => module.id === 'translations') !== false) {
+    // Attach translations under flat keys 'l10n:{locale}:{field}'
+    const translationsSavepoint = db.isTransaction ? `om_translations_${randomUUID()}` : null
+    if (translationsSavepoint) await sql`SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+    try {
+      const translationRow = await db
+        .selectFrom('entity_translations' as any)
+        .select(['translations' as any])
+        .where('entity_type' as any, '=', params.entityType)
+        .where('entity_id' as any, '=', String(params.recordId))
+        .where(sql`tenant_id is not distinct from ${params.tenantId ?? null}`)
+        .where(sql`organization_id is not distinct from ${params.organizationId ?? null}`)
+        .executeTakeFirst() as { translations: Record<string, Record<string, unknown>> | null } | undefined
 
-    if (translationRow?.translations && typeof translationRow.translations === 'object') {
-      for (const [locale, fields] of Object.entries(translationRow.translations)) {
-        if (!fields || typeof fields !== 'object') continue
-        for (const [field, value] of Object.entries(fields as Record<string, unknown>)) {
-          if (typeof value === 'string' && value.length > 0) {
-            doc[`l10n:${locale}:${field}`] = value
+      if (translationRow?.translations && typeof translationRow.translations === 'object') {
+        for (const [locale, fields] of Object.entries(translationRow.translations)) {
+          if (!fields || typeof fields !== 'object') continue
+          for (const [field, value] of Object.entries(fields as Record<string, unknown>)) {
+            if (typeof value === 'string' && value.length > 0) {
+              doc[`l10n:${locale}:${field}`] = value
+            }
           }
         }
       }
-    }
-  } catch (translationsError) {
-    if (translationsSavepoint) {
-      await sql`ROLLBACK TO SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
-    }
-    reportTranslationsFailure(translationsError, 'query_index.translations_read_failed')
-    await recordIndexerError(
-      { db },
-      {
-        source: 'query_index',
-        handler: 'query_index:build-index-doc:translations',
-        error: translationsError,
-        entityType: params.entityType,
-        recordId: params.recordId,
-        tenantId: params.tenantId ?? null,
-        organizationId: params.organizationId ?? null,
-      },
-    ).catch((loggingError: unknown) => reportTranslationsFailure(loggingError, 'query_index.translations_log_failed'))
-  } finally {
-    if (translationsSavepoint) {
-      try {
-        await sql`RELEASE SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
-      } catch (loggingError) {
+    } catch (translationsError) {
+      if (translationsSavepoint) {
         await sql`ROLLBACK TO SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
-        await sql`RELEASE SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
-        reportTranslationsFailure(loggingError, 'query_index.translations_log_failed')
+      }
+      reportTranslationsFailure(translationsError, 'query_index.translations_read_failed')
+      await recordIndexerError(
+        { db },
+        {
+          source: 'query_index',
+          handler: 'query_index:build-index-doc:translations',
+          error: translationsError,
+          entityType: params.entityType,
+          recordId: params.recordId,
+          tenantId: params.tenantId ?? null,
+          organizationId: params.organizationId ?? null,
+        },
+      ).catch((loggingError: unknown) => reportTranslationsFailure(loggingError, 'query_index.translations_log_failed'))
+    } finally {
+      if (translationsSavepoint) {
+        try {
+          await sql`RELEASE SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+        } catch (loggingError) {
+          await sql`ROLLBACK TO SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+          await sql`RELEASE SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)
+          reportTranslationsFailure(loggingError, 'query_index.translations_log_failed')
+        }
       }
     }
   }
@@ -451,22 +454,20 @@ export async function reindexSearchTokensForRecord(
     }, { trx: args.trx })
     return
   }
-  const tokenDoc = args.searchTokenDoc ?? (() => {
-    const encryption = resolveTenantEncryptionService(em as any)
-    const dekKeyCache = new Map<string | null, string | null>()
-    return decryptIndexDocForSearch(
-      args.entityType,
-      args.doc,
-      { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
-      encryption,
-      dekKeyCache,
-    )
-  })()
+  const encryption = resolveTenantEncryptionService(em as any)
+  const tokenDoc = args.searchTokenDoc ?? await decryptIndexDocForSearch(
+    args.entityType,
+    args.doc,
+    { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
+    encryption,
+    new Map<string | null, string | null>(),
+  )
+  const guardCiphertext = resolveCiphertextGuard(encryption)
   const gates = resolveSearchTokenIndexGates(args.entityType)
   if (gates.length) {
     const allowed = await passesSearchTokenIndexGates(args.entityType, gates, {
       recordId: String(args.recordId),
-      record: await tokenDoc,
+      record: tokenDoc,
       tenantId: args.tenantId ?? null,
       organizationId: args.organizationId ?? null,
       queryEngine: createSearchTokenGateQueryEngine(em),
@@ -488,7 +489,7 @@ export async function reindexSearchTokensForRecord(
   // rebuild and the token writer — that also makes the aggregate's blocklist filter and
   // the per-field one provably read the same snapshot, as the batch path already does.
   const searchConfig = resolveSearchConfig()
-  const searchDoc = rebuildAggregateSearchField(await tokenDoc, {
+  const searchDoc = rebuildAggregateSearchField(tokenDoc, {
     entityType: args.entityType,
     config: searchConfig,
   })
@@ -499,6 +500,7 @@ export async function reindexSearchTokensForRecord(
     tenantId: args.tenantId ?? null,
     doc: searchDoc,
     config: searchConfig,
+    guardCiphertext,
   }, { trx: args.trx })
 }
 
