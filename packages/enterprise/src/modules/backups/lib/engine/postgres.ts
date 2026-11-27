@@ -16,6 +16,7 @@ import type { BackupSource, ByteStream, DatabaseIdentity, Entity, NativeOptions,
 const identifier = (value: string) => `"${value.replaceAll('"', '""')}"`
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`
 const relation = (entity: Pick<Entity, 'schema' | 'table'>) => `${identifier(entity.schema)}.${identifier(entity.table)}`
+const loopbackHosts = new Set(['127.0.0.1', '::1', 'localhost'])
 const failure = (code: string): BackupError => {
   const invalid = new Set(['BACKUP_SEQUENCE_COLUMN_UNSUPPORTED','BACKUP_SEQUENCE_STATE_UNSUPPORTED','BACKUP_SERVICE_NAME', 'BACKUP_SERVICE_FORMAT', 'BACKUP_SERVICE_DUPLICATE', 'BACKUP_SERVICE_INCOMPLETE', 'BACKUP_SERVICE_OPTION_UNSUPPORTED', 'BACKUP_SERVICE_PORT', 'BACKUP_POSTGRES_VERSION_OR_IDENTITY', 'BACKUP_CLIENT_MAJOR_MISMATCH', 'BACKUP_ENTITY_LIMIT', 'BACKUP_RELATION_KIND_UNSUPPORTED', 'BACKUP_NESTED_REGCLASS_UNSUPPORTED', 'BACKUP_LATE_REGCLASS_UNSUPPORTED', 'BACKUP_NATIVE_METADATA_LIMIT', 'BACKUP_TABLE_COLUMNS_EMPTY'])
   const integrity = new Set(['BACKUP_RESTORE_CHUNK_MISMATCH', 'BACKUP_LARGE_OBJECT_HEADER', 'BACKUP_LARGE_OBJECT_OFFSET', 'BACKUP_LARGE_OBJECT_TRUNCATED', 'BACKUP_SOURCE_COVERAGE_MISMATCH'])
@@ -159,7 +160,7 @@ async function connectionConfig(options: NativeOptions, service: string): Promis
   if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) throw failure('BACKUP_SERVICE_PORT')
   const mode = config.sslmode ?? 'verify-full'
   if (!['disable', 'verify-full'].includes(mode)) throw failure('BACKUP_TLS_POLICY')
-  if (mode === 'disable' && !['127.0.0.1', '::1', 'localhost'].includes(config.host) && !config.host.startsWith('/')) throw failure('BACKUP_REMOTE_TLS_REQUIRED')
+  if (mode === 'disable' && !loopbackHosts.has(config.host) && !config.host.startsWith('/')) throw failure('BACKUP_REMOTE_TLS_REQUIRED')
   const password = parsePassword(await readFile(options.passwordFile, 'utf8'), { host: config.host, port, dbname: config.dbname, user: config.user })
   const ssl = mode === 'disable' ? false : {
     rejectUnauthorized: true,
@@ -175,10 +176,18 @@ async function connectionConfig(options: NativeOptions, service: string): Promis
 
 async function connect(options: NativeOptions, service: string) {
   options.signal?.throwIfAborted()
-  const client = new Client(await connectionConfig(options, service))
+  const config = await connectionConfig(options, service)
+  const client = new Client(config)
   client.on('error', () => undefined)
   try { await client.connect() }
-  catch { await client.end().catch(() => undefined); throw failure('BACKUP_CONNECTION_FAILED') }
+  catch (error) {
+    await client.end().catch(() => undefined)
+    const connectionFailure = failure('BACKUP_CONNECTION_FAILED')
+    if (config.host && loopbackHosts.has(config.host) && config.ssl && error instanceof Error && error.message === 'The server does not support SSL connections') {
+      connectionFailure.cause = 'BACKUP_LOOPBACK_TLS_UNAVAILABLE'
+    }
+    throw connectionFailure
+  }
   const abort = () => { void client.end() }
   options.signal?.addEventListener('abort', abort, { once: true })
   client.once('end', () => options.signal?.removeEventListener('abort', abort))

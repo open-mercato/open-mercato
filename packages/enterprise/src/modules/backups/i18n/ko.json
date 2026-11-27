@@ -61,6 +61,7 @@
   "backups.progress.running": "진행 중",
   "backups.rotation.entitlementRequired": "키 교체 보호에는 상업적 사용 권한과 사용 가능한 모듈이 필요합니다.",
   "backups.rotation.failed": "보호된 키 교체가 완료되지 않았습니다. 쓰기를 중지한 상태로 이전 키와 백업을 보관하고 재개 전에 신뢰할 수 있는 실행 기록을 확인하세요.",
+  "backups.rotation.loopbackTlsUnavailable": "로컬 PostgreSQL 서비스가 TLS를 지원하지 않습니다. 의도한 루프백 연결이라면 백업 서비스 항목에 sslmode=disable을 설정하세요.",
   "backups.rotation.preparingRecovery": "키 교체 전에 암호화된 복구 백업을 준비합니다.",
   "backups.rotation.presentation.backup": "보존된 복구 백업",
   "backups.rotation.presentation.baseline": "검증 기준 수집",

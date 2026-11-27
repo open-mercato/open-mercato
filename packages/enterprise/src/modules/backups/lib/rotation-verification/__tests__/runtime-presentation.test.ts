@@ -1,4 +1,5 @@
 import { createConfiguredRotationProtection } from '../runtime'
+import { BackupError } from '../../engine/errors'
 import type { RotationCoordinatorOptions, RecoveryArtifact } from '../coordinator'
 import type { VerificationResult } from '../verifier'
 import type { RotationProtectionContext } from '@open-mercato/shared/lib/encryption/rotationProtection'
@@ -6,6 +7,7 @@ import type { RotationProtectionContext } from '@open-mercato/shared/lib/encrypt
 let mockRun: (options: RotationCoordinatorOptions) => Promise<void>
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }) }))
 jest.mock('../../engine', () => ({ recipientsFromFile: async () => [], identitiesFromFile: async () => [], createBackup: jest.fn(), verifyBackup: jest.fn(), createPostgresSource: jest.fn() }))
+jest.mock('../age', () => ({ createRotationArtifactCipher: jest.fn() }))
 jest.mock('../report', () => ({ publishRotationReport: jest.fn(async () => undefined), publishRotationFailureReport: jest.fn(async () => undefined) }))
 jest.mock('../../../../../lib/recovery-configuration', () => ({
   ...jest.requireActual('../../../../../lib/recovery-configuration'),
@@ -73,4 +75,19 @@ test('JSON failure paths contain only existing-schema NDJSON, including run and 
   expect(events.every(event => event.schemaVersion === 1 && event.type === 'phase.changed')).toBe(true)
   expect(events.some(event => event.phase === 'rotation.failed')).toBe(true)
   expect(writes.join('')).not.toContain('\u001b')
+})
+
+test('preserves the current run ID in a lock refusal', async () => {
+  const lockRefusal = '[internal] ROTATION_RUN_LOCKED:1ca9d863-bee9-4f54-aac8-e8ab42163ccb'
+  mockRun = async () => { throw new Error(lockRefusal) }
+  await expect(createConfiguredRotationProtection(environment).protect(context, jest.fn())).rejects.toThrow(lockRefusal)
+})
+
+test('explains TLS opt-out only for a PostgreSQL loopback connection known to lack TLS', async () => {
+  jest.spyOn(process.stderr, 'write').mockReturnValue(true)
+  const connectionFailure = new BackupError('BACKUP_CONNECTION_FAILED', 5, true)
+  mockRun = async () => { throw connectionFailure }
+  await expect(createConfiguredRotationProtection(environment).protect(context, jest.fn())).rejects.toThrow(/^\[internal\] BACKUP_CONNECTION_FAILED$/)
+  connectionFailure.cause = 'BACKUP_LOOPBACK_TLS_UNAVAILABLE'
+  await expect(createConfiguredRotationProtection(environment).protect(context, jest.fn())).rejects.toThrow(/BACKUP_CONNECTION_FAILED: .*sslmode=disable/)
 })

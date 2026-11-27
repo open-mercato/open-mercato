@@ -72,6 +72,22 @@ test('wrong-database recovery artifact refuses before mutation', async () => {
   expect(state.mutated).toBe(false); expect(state.reports).toBe(0)
 })
 
+test('a second rotation reports the live run without starting another backup', async () => {
+  const { state, options, context } = fixture()
+  const protection = createEnterpriseRotationProtection(options)
+  let runId: string | undefined
+  options.reportRun = async id => { runId = id }
+
+  await protection.protect(context, async () => {
+    expect(runId).toBeDefined()
+    const duplicateOperation = jest.fn()
+    await expect(protection.protect(context, duplicateOperation)).rejects.toThrow(`ROTATION_RUN_LOCKED:${runId}`)
+    expect(duplicateOperation).not.toHaveBeenCalled()
+    expect(state.creates).toBe(1)
+    expect((await readdir(options.trustRoot)).filter(name => name.endsWith('-intents'))).toHaveLength(1)
+  })
+})
+
 test('absence of both a derived root and an actual previous KMS never permits mutation', async () => {
   const { state, options, context } = fixture()
   const original = options.providers

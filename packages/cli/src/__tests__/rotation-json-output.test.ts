@@ -32,6 +32,19 @@ describe('rotation dispatcher JSON progress', () => {
     expect(stdout.mock.calls.flat().join('\n')).toContain('Running entities:rotate-encryption-key')
   })
 
+  it('prints a readable lock refusal for operators', async () => {
+    delete process.env.OM_ROTATION_PROGRESS
+    const message = 'ROTATION_RUN_LOCKED:1ca9d863-bee9-4f54-aac8-e8ab42163ccb'
+    registerCliModules([{
+      id: 'entities',
+      cli: [{ command: 'rotate-encryption-key', run: async () => { throw new Error(`[internal] ${message}`) } }],
+    } as Module])
+    jest.spyOn(console, 'log').mockImplementation()
+    const humanError = jest.spyOn(console, 'error').mockImplementation()
+    expect(await run(['node', 'mercato', 'entities', 'rotate-encryption-key'])).toBe(1)
+    expect(humanError).toHaveBeenCalledWith(`💥 Failed: ${message}`)
+  })
+
   it.each([
     ['entities', 'rotate-encryption-key', undefined],
     ['entities', 'rotate-encryption-key', 'plain'],

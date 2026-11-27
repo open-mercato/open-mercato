@@ -61,6 +61,7 @@
   "backups.progress.running": "aktiv",
   "backups.rotation.entitlementRequired": "Kommerzielle Rechte und verfügbare Module sind für den Rotationsschutz erforderlich.",
   "backups.rotation.failed": "Die geschützte Schlüsselrotation wurde nicht abgeschlossen. Schreibzugriffe gestoppt lassen, vorherige Schlüssel und Sicherungen behalten und vor dem Fortsetzen den vertrauenswürdigen Laufdatensatz prüfen.",
+  "backups.rotation.loopbackTlsUnavailable": "Der lokale PostgreSQL-Dienst unterstützt kein TLS. Wenn diese Loopback-Verbindung beabsichtigt ist, setzen Sie sslmode=disable im Diensteintrag für die Sicherung.",
   "backups.rotation.preparingRecovery": "Verschlüsselte Wiederherstellungssicherung vor der Schlüsselrotation wird vorbereitet.",
   "backups.rotation.presentation.backup": "Beibehaltene Wiederherstellungssicherung",
   "backups.rotation.presentation.baseline": "Vergleichsbasis erfassen",

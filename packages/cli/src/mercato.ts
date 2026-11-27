@@ -216,6 +216,9 @@ function detectDatabaseConnectionIssue(
 
 function formatCliFailureMessage(modName: string, cmdName: string, error: unknown): string {
   const fallbackMessage = getFallbackErrorMessage(error)
+  if (modName === 'entities' && cmdName === 'rotate-encryption-key' && process.env.OM_ROTATION_PROGRESS !== 'json') {
+    return fallbackMessage.replace(/^\[internal\] /, '')
+  }
   const databaseIssue = detectDatabaseConnectionIssue(error)
 
   const isDatabaseCommand = modName === 'db' && ['migrate', 'generate', 'greenfield'].includes(cmdName)
