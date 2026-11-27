@@ -47,7 +47,7 @@ import {
   readSynthesizedResultMetadata,
   type ModelCallObserverHooks,
 } from './agent-call-observer'
-import { resolveAllowlistedBaseurl } from './baseurl-allowlist'
+import { isBaseurlAllowlisted, readBaseurlAllowlist, StoredAiBaseUrlNotAllowlistedError } from './baseurl-allowlist'
 import { reportAiAssistantError } from './report-ai-assistant-error'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
 import { llmProviderRegistry } from './llm-registry'
@@ -1233,6 +1233,18 @@ function resolveAgentModel(
   tenantAllowlist?: TenantAllowlistSnapshot | null,
   endUserIdentifier?: string,
 ): ResolvedAgentModel {
+  const allowRuntimeOverride = resolveAllowRuntimeOverride(agent)
+  const savedBaseUrl = tenantOverride?.baseURL?.trim()
+  if (
+    allowRuntimeOverride &&
+    savedBaseUrl &&
+    !requestOverride?.baseURL?.trim() &&
+    !baseUrlOverride?.trim() &&
+    !isBaseurlAllowlisted(savedBaseUrl, readBaseurlAllowlist())
+  ) {
+    throw new StoredAiBaseUrlNotAllowlistedError()
+  }
+
   const effectiveContainer = container ?? createContainer()
   const resolution = createModelFactory(effectiveContainer).resolveModel({
     moduleId: agent.moduleId,
@@ -1242,7 +1254,7 @@ function resolveAgentModel(
     callerOverride: modelOverride,
     providerOverride,
     baseUrlOverride,
-    allowRuntimeOverride: resolveAllowRuntimeOverride(agent),
+    allowRuntimeOverride,
     tenantOverride: tenantOverride ?? undefined,
     requestOverride: requestOverride ?? undefined,
     tenantAllowlist: tenantAllowlist ?? null,
@@ -1621,8 +1633,8 @@ async function resolveMutationPolicyOverride(
  * Mirrors the fail-open contract of {@link resolveMutationPolicyOverride}: any
  * error — missing container, missing `em`, repository throw, missing migration
  * — is logged at `warn` level and returns null so the model factory falls
- * through to lower-priority sources. A chat turn MUST never fail on override
- * lookup.
+ * through to lower-priority sources. Allowlist validation happens during
+ * model resolution, where higher-priority endpoint overrides are known.
  */
 async function resolveRuntimeModelOverride(
   agentId: string,
@@ -1646,18 +1658,10 @@ async function resolveRuntimeModelOverride(
       agentId,
     })
     if (!row) return null
-    const baseURL = resolveAllowlistedBaseurl(row.baseUrl)
-    if (!baseURL && row.baseUrl?.trim()) {
-      logger.warn('Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it', {
-        agentId,
-        tenantId,
-        organizationId,
-      })
-    }
     return {
       providerId: row.providerId ?? null,
       modelId: row.modelId ?? null,
-      baseURL,
+      baseURL: row.baseUrl ?? null,
     }
   } catch (error) {
     logger.warn('Runtime model override lookup failed; falling back to lower-priority sources', { agentId, err: error })

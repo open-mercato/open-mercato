@@ -6,6 +6,7 @@ import {
   seedAgentRegistryForTests,
 } from '../../../../lib/agent-registry'
 import { toolRegistry, registerMcpTool } from '../../../../lib/tool-registry'
+import { StoredAiBaseUrlNotAllowlistedError } from '../../../../lib/baseurl-allowlist'
 
 const authMock = jest.fn()
 const loadAclMock = jest.fn()
@@ -20,6 +21,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    t: (key: string) => jest.requireActual<Record<string, string>>('../../../../i18n/en.json')[key],
+  }),
 }))
 
 jest.mock('../../../../lib/agent-runtime', () => {
@@ -51,6 +58,7 @@ const readBaseurlAllowlistMock = jest.fn()
 const isBaseurlAllowlistedMock = jest.fn()
 
 jest.mock('../../../../lib/baseurl-allowlist', () => ({
+  ...jest.requireActual<typeof import('../../../../lib/baseurl-allowlist')>('../../../../lib/baseurl-allowlist'),
   readBaseurlAllowlist: (...args: unknown[]) => readBaseurlAllowlistMock(...args),
   isBaseurlAllowlisted: (...args: unknown[]) => isBaseurlAllowlistedMock(...args),
 }))
@@ -473,6 +481,24 @@ describe('POST /api/ai/chat', () => {
     expect(response.status).toBe(409)
     const json = await response.json()
     expect(json.code).toBe('tool_not_whitelisted')
+  })
+
+  it('returns the localized error for a disallowed saved endpoint', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'customers.assistant', moduleId: 'customers' }),
+    ])
+    runAiAgentTextMock.mockRejectedValueOnce(new StoredAiBaseUrlNotAllowlistedError())
+
+    const response = await POST(buildRequest({
+      agent: 'customers.assistant',
+      body: { messages: [{ role: 'user', content: 'Test message' }] },
+    }) as Parameters<typeof POST>[0])
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      code: 'baseurl_not_allowlisted',
+      error: 'The saved AI endpoint is no longer allowed. Contact your administrator to update the AI settings.',
+    })
   })
 
   describe('Phase 4a — query-param override validation', () => {

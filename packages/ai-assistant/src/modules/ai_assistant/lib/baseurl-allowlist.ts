@@ -28,6 +28,15 @@
 const SCHEME_PREFIX = /^[a-z][a-z0-9+.-]*:\/\//
 const DEFAULT_PORTS: Record<string, string> = { 'http:': '80', 'https:': '443' }
 
+export class StoredAiBaseUrlNotAllowlistedError extends Error {
+  readonly code = 'baseurl_not_allowlisted'
+
+  constructor() {
+    super('[internal] The saved AI endpoint is no longer allowed')
+    this.name = 'StoredAiBaseUrlNotAllowlistedError'
+  }
+}
+
 type AllowlistEntry = {
   protocol: string
   host: string
