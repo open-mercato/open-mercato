@@ -71,6 +71,8 @@ test('wheel-scrolls the schedule dialog time list and restores the saved time on
     expect(new Date(savedTime).toISOString()).toBe(activityDate.toISOString())
     await expect(dialog).toBeHidden()
 
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.getByRole('tab', { name: /Activity log/i }).click()
     await activity.click()
     await dialog.getByRole('button', { name: /^0?3:00\s+PM$/i }).click()
     await expect(laterSlot).toHaveAttribute('aria-pressed', 'true')
