@@ -942,6 +942,7 @@ export const shipmentCreateSchema = scoped.extend({
           intMessage: 'Quantity must be a whole number.',
         }),
         metadata,
+        customFields: z.record(z.string(), z.unknown()).optional(),
       })
     )
     .optional(),
@@ -1122,6 +1123,7 @@ export const paymentCreateSchema = scoped.extend({
         amount: decimal({ min: 0 }),
         currencyCode,
         metadata,
+        customFields: z.record(z.string(), z.unknown()).optional(),
       })
     )
     .optional(),

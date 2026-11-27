@@ -131,6 +131,7 @@ function buildEm(world: World) {
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     transactional: jest.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(em)),
     nativeUpdate: jest.fn().mockResolvedValue(1),
+    nativeDelete: jest.fn().mockResolvedValue(0),
   }
   return em
 }
