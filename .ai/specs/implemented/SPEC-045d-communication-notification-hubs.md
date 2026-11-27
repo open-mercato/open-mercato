@@ -2339,6 +2339,7 @@ None.
 
 ## Changelog
 
+- 2026-11-27: Require access to every mapped channel for Messages thread-wide access (#10612). The caller must own each personal mailbox mapped to the thread. Direct sender and recipient access follows the Messages participant rules. The reply command checks the delivery budget against the source conversation when available. `TC-CHANNEL-REPLY-003` covers the Messages detail route.
 - 2026-11-17: Resolve native outbound replies by scoped conversation provenance; refuse ambiguous/conflicting routes and retain explicit mailbox selection (#9739).
 
 - 2026-10-29: Block channel-email remote image loads until per-message consent (#7819); preserve safe embedded raster images and add sanitizer, enricher, widget, and browser network-request regression coverage.
