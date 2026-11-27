@@ -20,6 +20,9 @@ import { createServer } from 'node:http'
 import { once } from 'node:events'
 import type { AwilixContainer } from 'awilix'
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
+import '../../events'
+import '../../../payment_gateways/events'
+import '../../../query_index/events'
 import { WorkflowInstance } from '../../data/entities'
 import * as activityExecutor from '../activity-executor'
 import type { ActivityDefinition, ActivityContext } from '../activity-executor'
@@ -36,6 +39,7 @@ global.fetch = jest.fn()
 createModuleEvents({
   moduleId: 'workflow_emit_security_test',
   events: [
+    { id: 'test.event', label: 'Test event', workflowEmittable: true },
     {
       id: 'workflow_emit_security_test.private_coordination',
       label: 'Private coordination',
@@ -326,6 +330,9 @@ describe('Activity Executor (Unit Tests)', () => {
           payload: {
             orderId: 'order-123',
             status: 'pending',
+            tenantId: 'untrusted-tenant',
+            organizationId: 'untrusted-org',
+            organizationIds: ['untrusted-org'],
           },
         },
       }
@@ -340,11 +347,14 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.emitted).toBe(true)
       expect(result.output.eventName).toBe('order.created')
+      expect(result.output.payload).not.toHaveProperty('organizationIds')
       expect(mockEventBus.emitEvent).toHaveBeenCalledWith(
         'order.created',
         expect.objectContaining({
           orderId: 'order-123',
           status: 'pending',
+          tenantId: testTenantId,
+          organizationId: testOrgId,
           _workflow: expect.objectContaining({
             workflowInstanceId: testInstanceId,
             tenantId: testTenantId,
@@ -442,6 +452,17 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.error).toContain('cannot emit private cross-process event')
       expect(mockEventBus.emitEvent).not.toHaveBeenCalled()
     })
+
+    test.each(['unknown.event', 'query_index.purge', 'payment_gateways.payment.captured'])(
+      'refuses event %s without emission permission',
+      async (eventName) => {
+        const emitEvent = jest.fn()
+        mockContainer.resolve.mockReturnValue({ emitEvent })
+        await expect(activityExecutor.executeEmitEvent({ eventName }, mockContext, mockContainer))
+          .rejects.toThrow('cannot emit event')
+        expect(emitEvent).not.toHaveBeenCalled()
+      },
+    )
 
     test('should fail EMIT_EVENT when a payload value stays unresolved', async () => {
       // The original bug was invisible because nothing objected. On the emit path
@@ -2420,7 +2441,7 @@ describe('Activity Executor (Unit Tests)', () => {
           activityId: 'activity-timeout-emit',
           activityName: 'Slow emit',
           activityType: 'EMIT_EVENT',
-          config: { eventName: 'customers.person.created', payload: {} },
+          config: { eventName: 'test.event', payload: {} },
           timeoutMs: 20,
         },
         mockContext

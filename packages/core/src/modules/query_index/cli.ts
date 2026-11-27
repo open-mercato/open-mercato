@@ -1115,7 +1115,7 @@ const purge: ModuleCli = {
         await bus.emitEvent(
           'query_index.purge',
           { entityType: entity, organizationId: orgId, tenantId },
-          { persistent: true },
+          { persistent: true, tenantId: tenantId ?? null, organizationId: orgId ?? null },
         )
         await recordIndexerLog(
           { em: em ?? undefined },
@@ -1138,7 +1138,7 @@ const purge: ModuleCli = {
         await bus.emitEvent(
           'query_index.purge',
           { entityType: id, organizationId: orgId, tenantId },
-          { persistent: true },
+          { persistent: true, tenantId: tenantId ?? null, organizationId: orgId ?? null },
         )
         await recordIndexerLog(
           { em: em ?? undefined },

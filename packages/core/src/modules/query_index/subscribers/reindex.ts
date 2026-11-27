@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { SubscriberContext } from '@open-mercato/events'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { reindexEntity } from '../lib/reindexer'
@@ -14,7 +15,17 @@ function forkReindexEntityManager(em: EntityManager): EntityManager {
   return fork.call(em, { clear: true, freshEventManager: true, useContext: false })
 }
 
-export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
+export default async function handle(payload: Record<string, unknown>, ctx: SubscriberContext) {
+  const entityType = String(payload?.entityType || '')
+  if (!entityType) return
+  if (!ctx.eventScope) throw new Error('[internal] Query index reindex requires trusted event scope')
+  const allowAllTenants = ctx.eventScope.tenantId === null && ctx.eventScope.allowAllTenants === true
+  const { tenantId, organizationId } = resolveQueryIndexReindexScope({
+    tenantId: allowAllTenants ? undefined : ctx.eventScope.tenantId,
+    organizationId: ctx.eventScope.organizationId,
+    allowAllTenants,
+  })
+
   const em = forkReindexEntityManager(ctx.resolve<EntityManager>('em'))
   const eventBus = ctx.resolve<any>('eventBus')
   let vectorService: VectorIndexService | null = null
@@ -23,14 +34,10 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   } catch {
     vectorService = null
   }
-  const entityType = String(payload?.entityType || '')
-  if (!entityType) return
-  let tenantId: string | null | undefined = payload?.tenantId
-  let organizationId: string | null | undefined = payload?.organizationId
   const forceFull: boolean = Boolean(payload?.force)
   const batchSize = Number.isFinite(payload?.batchSize) ? Number(payload.batchSize) : undefined
-  const partitionCount = Number.isFinite(payload?.partitionCount) ? Math.max(1, Math.trunc(payload.partitionCount)) : undefined
-  const partitionIndex = Number.isFinite(payload?.partitionIndex) ? Math.max(0, Math.trunc(payload.partitionIndex)) : undefined
+  const partitionCount = Number.isFinite(payload?.partitionCount) ? Math.max(1, Math.trunc(Number(payload.partitionCount))) : undefined
+  const partitionIndex = Number.isFinite(payload?.partitionIndex) ? Math.max(0, Math.trunc(Number(payload.partitionIndex))) : undefined
   const resetCoverage = typeof payload?.resetCoverage === 'boolean' ? payload.resetCoverage : undefined
   const requestedByUserId = typeof payload?.requestedByUserId === 'string' ? payload.requestedByUserId : null
 
@@ -121,14 +128,6 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   }
 
   try {
-    const resolvedScope = resolveQueryIndexReindexScope({
-      tenantId: payload?.tenantId,
-      organizationId: payload?.organizationId,
-      allowAllTenants: payload?.allowAllTenants === true,
-    })
-    tenantId = resolvedScope.tenantId
-    organizationId = resolvedScope.organizationId
-
     await recordIndexerLog(
       { em },
       {
