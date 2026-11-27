@@ -145,13 +145,19 @@ export function CompletePutawayTaskDialog({
           if (!nextErrors[key]) nextErrors[key] = t(issue.message, issue.message)
         }
       }
+      if (confirmedQuantity > task.quantity + 0.000001) {
+        nextErrors.confirmedQuantity = t(
+          'wms.backend.putaway.complete.errors.quantityExceedsTask',
+          'Confirmed quantity cannot exceed the task quantity.',
+        )
+      }
       if (expectedSerial && serialConfirmation.trim() !== expectedSerial) {
         nextErrors.serialConfirmation = t(
           'wms.backend.putaway.complete.errors.serialMismatch',
           'The scanned serial does not match this task.',
         )
       }
-      if (!parsed.success || nextErrors.serialConfirmation) {
+      if (!parsed.success || Object.keys(nextErrors).length > 0) {
         setFieldErrors(nextErrors)
         return
       }
@@ -314,6 +320,7 @@ export function CompletePutawayTaskDialog({
                 type="number"
                 min={0.0001}
                 step="any"
+                readOnly={Boolean(expectedSerial) && task?.quantity === 1}
                 value={confirmedQuantity}
                 onChange={(event) => setConfirmedQuantity(Number(event.target.value))}
                 disabled={submitting}

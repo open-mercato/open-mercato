@@ -159,7 +159,7 @@ export function resolvePriceHistoryAnnounced(
   price: Pick<PriceHistoryPriceInput, 'startsAt' | 'offerId'>,
   announce?: boolean,
 ): boolean {
-  return Boolean(price.startsAt) || Boolean(price.offerId) || announce === true
+  return Boolean(price.startsAt) || (announce ?? Boolean(price.offerId))
 }
 
 function toDateOrNull(value: Date | string | null | undefined): Date | null {
