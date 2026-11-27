@@ -29,10 +29,7 @@ import {
   type McpExposureCaller,
   type McpExposureConfig,
 } from './mcp-exposure'
-<<<<<<< HEAD
-import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
-=======
->>>>>>> cf478b9214 (security(api_keys): enforce live session ownership before secret recovery (#3814) (#10779))
+import { deriveApiKeySessionId } from './log-redaction'
 import { runWithMcpToolExecutionObserver } from './mcp-tool-execution-observer'
 import {
   CORRELATION_ID_HEADER,
