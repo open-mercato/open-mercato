@@ -1,4 +1,4 @@
-import type { ApiInterceptor, ApiInterceptorMethod, ApiInterceptorRegistryEntry } from './api-interceptor'
+import type { ApiInterceptor, ApiInterceptorMethod, ApiInterceptorRegistryEntry, ApiInterceptorScope } from './api-interceptor'
 import { applyApiInterceptorOverridesToEntries } from '../../modules/overrides'
 import { createLogger } from '../logger'
 
@@ -59,10 +59,11 @@ function routeMatches(targetRoute: string, routePath: string): boolean {
 
 const collisionWarnings = new Set<string>()
 
-export function getApiInterceptorsForRoute(routePath: string, method: ApiInterceptorMethod): ApiInterceptorRegistryEntry[] {
+export function getApiInterceptorsForRoute(routePath: string, method: ApiInterceptorMethod, scope: ApiInterceptorScope = 'route'): ApiInterceptorRegistryEntry[] {
   const matching = getAllApiInterceptors().filter((entry) => {
     const methods = entry.interceptor.methods ?? []
-    return methods.includes(method) && routeMatches(entry.interceptor.targetRoute, routePath)
+    return (entry.interceptor.scope ?? 'route') === scope
+      && methods.includes(method) && routeMatches(entry.interceptor.targetRoute, routePath)
   })
 
   const sorted = matching.sort((a, b) => {
