@@ -227,6 +227,14 @@ The attachment library automatically fills in assignment labels and links only w
 
 Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
 
+## New module: `assisted_selling` with per-store settings (assisted selling spec, step AS1)
+
+**Additive (`@open-mercato/core`).** The `assisted_selling` module is registered and enabled in the app (it requires `cart`; it stays commented out in the `create-mercato-app` template with the rest of the commerce suite). It adds one table, `assisted_selling_store_settings`, and `GET/PUT /api/assisted_selling/settings/:storeId`. A store's `mode` defaults to `off` and the Release 5 API accepts `rep` or `off` only. There is no settings page yet. The six new ACL features (`assisted_selling.threads.view`, `.threads.participate`, `.messages.post`, `.proposals.author`, `.attributions.view`, `.settings.manage`) gate only the settings API until the conversation routes land. `admin` gets `assisted_selling.*`; `employee` gets `threads.view`, `threads.participate`, `messages.post` and `cart.proposals.view`.
+
+`ecommerce`'s `StoreContextService` gains an optional `findStoreForOrganizations` member. A custom `StoreContextService` without it keeps working; the settings API then answers `404` for every store.
+
+**Action for existing tenants:** run `yarn db:migrate`, then `yarn mercato auth sync-role-acls` (idempotent, additive) so `admin` and `employee` receive the new grants.
+
 ## Deployment service access
 
 Full-app Compose publishes LocalStack on loopback. Recreate the container to apply the binding, and use the internal service endpoint for Compose consumers. Set one strong random `OPENCODE_PASSWORD` for the OpenCode service and its callers, then rebuild and recreate both sides. The hybrid starter provisions this local credential automatically.
@@ -3239,6 +3247,15 @@ byte budget):
 - The advisory lock is keyed by tenant and organization; writes in different organizations do not wait
   for each other. No contract change.
 - Database schema, event IDs, ACL features, DI names and generated files are unchanged.
+
+### Deactivating the base currency is deprecated (#9674)
+
+`PUT /api/currencies/currencies` with `isActive: false` on an active base currency, or with
+`isBase: true` and `isActive: false` on a currency that is currently active, still works but logs a
+`[deprecated]` warning; a future minor release will reject it with `400`. Set another currency as
+the base first, then deactivate the old one. On the edit-currency form, Active is locked on an
+active base, and ticking Base Currency while Active is off is refused, including on a currency that
+is already inactive. Existing inactive base currencies are not changed.
 
 ### The communication-channels OAuth callback reports its result in `?oauth=`, not `?flash=` (#6402)
 
@@ -6946,6 +6963,12 @@ With `NODE_ENV=production`, `mercato init` now rejects missing, blank, or built-
 Operators using starter or generated-app full-app Compose deployments must set a unique `OM_INIT_SUPERADMIN_PASSWORD` securely before first initialization or reinstall; the Compose `password` fallback is only usable outside production. Existing initialized databases still support `--skip-if-initialized` without bootstrap credentials. Bootstrap scripts must supply the secret via environment or `--password` and handle initialization failures. Do not store secrets in source control or logs.
 
 This does not rotate existing credentials. If a deployment previously initialized with a predictable password, rotate the superadmin credential and review account access separately. No schema migration is needed. See [the specification](.ai/specs/2026-11-06-production-bootstrap-credentials.md#migration--backward-compatibility). Maintainer @pkarw approved the production-only emergency security exception on 2026-11-06; see the specification for the approval record. QA and validation remain required.
+
+### Explicit acknowledgment for unprotected key rotation
+
+`mercato entities rotate-encryption-key` now stops before mutation when Enterprise resumable encrypted recovery and correctness verification are unavailable. Operators must retain a tested independent backup and all prior keys, then rerun with `--acknowledge-unprotected-key-rotation` if accepting unprotected rotation. Automation must provide that exact flag on every mutating invocation; `--yes`, `--force`, environment toggles and saved preferences do not substitute. `--dry-run` remains read-only and needs no acknowledgment. The warning remains visible after acknowledgment. Licensed deployments can instead configure the protection service, which blocks success if recovery or verification fails and never silently falls back. No keys are automatically retired; existing scopes, old-key handling and CAS protections remain required.
+
+**Authorization (2026-11-12):** The owner approved this immediate CLI safety amendment for specs #8910/#9328 and confirmed Enterprise/commercial implementation rights. It applies specifically to the rotation acknowledgment and protection gate; it grants no blanket Emergency Security Exception waiver. See [specification #9328](https://github.com/open-mercato/open-mercato/pull/9328).
 
 ## Private next-interaction subjects (#8888)
 

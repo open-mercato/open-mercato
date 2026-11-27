@@ -1,11 +1,16 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DefaultDataEngine } from '../engine'
+import { isReadProjectionAlwaysConsistent } from '../consistency'
 import {
   CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY,
   type CrudEventsConfig,
   type CrudIndexerConfig,
 } from '../../crud/types'
+
+jest.mock('../consistency', () => ({
+  isReadProjectionAlwaysConsistent: jest.fn(() => false),
+}))
 
 // The bulk-import deferral (`suppress`) must gate the two per-record side effects `emitOrmEntityEvent`
 // fans out — the `<module>.<entity>.<action>` domain event and the inline `query_index.upsert_one`
@@ -24,9 +29,10 @@ function buildEngine() {
       throw new Error(`unexpected resolve(${token})`)
     },
   } as unknown as AwilixContainer
-  const engine = new DefaultDataEngine({} as EntityManager, container)
+  const em = {} as EntityManager
+  const engine = new DefaultDataEngine(em, container)
   const emittedNames = () => emitEvent.mock.calls.map((c) => c[0] as string)
-  return { engine, emitEvent, emittedNames }
+  return { engine, em, container, emitEvent, emittedNames }
 }
 
 function expectManagedDomainPayload(emitEvent: jest.Mock, eventName: string): void {
@@ -44,6 +50,7 @@ describe('DefaultDataEngine bulk-import suppression', () => {
   let warnSpy: jest.SpyInstance
   beforeAll(() => { warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined) })
   afterAll(() => { warnSpy.mockRestore() })
+  afterEach(() => { jest.mocked(isReadProjectionAlwaysConsistent).mockReturnValue(false) })
 
   it('emits both the domain event and the reindex when unsuppressed', async () => {
     const { engine, emitEvent, emittedNames } = buildEngine()
@@ -86,5 +93,48 @@ describe('DefaultDataEngine bulk-import suppression', () => {
     engine.markOrmEntityChange({ action: 'created', entity: {}, events: EVENTS, indexer: INDEXER, identifiers: { ...IDENTIFIERS, id: 'rec-2' } })
     await engine.flushOrmEntityChanges()
     expect(emittedNames()).toEqual(expect.arrayContaining(['sales.order.created', 'query_index.upsert_one']))
+  })
+
+  it('attempts every effect in deferred and pending batches after ambient commit', async () => {
+    jest.mocked(isReadProjectionAlwaysConsistent).mockReturnValue(true)
+    const { engine, em, container, emitEvent } = buildEngine()
+    const deferredFailure = new Error('[internal] Deferred index write failed')
+    const pendingFailure = new Error('[internal] Pending index write failed')
+    const indexed: string[] = []
+    emitEvent.mockImplementation(async (name: string, payload: { recordId: string }) => {
+      if (name !== 'query_index.upsert_one') return
+      indexed.push(payload.recordId)
+      if (payload.recordId === 'deferred-rejected') throw deferredFailure
+      if (payload.recordId === 'pending-rejected') throw pendingFailure
+    })
+    const scope = engine.createCommandTransactionScope(em, container)
+    const mark = (id: string) => scope.dataEngine.markOrmEntityChange({
+      action: 'created', entity: {}, events: EVENTS, indexer: INDEXER,
+      identifiers: { ...IDENTIFIERS, id },
+    })
+    mark('deferred-rejected')
+    mark('deferred-remaining')
+    await scope.dataEngine.flushOrmEntityChanges()
+    mark('pending-rejected')
+    mark('pending-remaining')
+    expect(emitEvent).not.toHaveBeenCalled()
+
+    await expect(scope.complete('committed')).rejects.toMatchObject({ errors: [deferredFailure, pendingFailure] })
+    expect(indexed).toEqual(['deferred-rejected', 'deferred-remaining', 'pending-rejected', 'pending-remaining'])
+    await expect(scope.complete('committed')).resolves.toBeUndefined()
+    expect(indexed).toHaveLength(4)
+  })
+
+  it('continues to fail fast on legacy always-consistent flushes', async () => {
+    jest.mocked(isReadProjectionAlwaysConsistent).mockReturnValue(true)
+    const { engine, emitEvent } = buildEngine()
+    const failure = new Error('[internal] Legacy index write failed')
+    emitEvent.mockRejectedValue(failure)
+    for (const id of ['legacy-rejected', 'legacy-remaining']) {
+      engine.markOrmEntityChange({ action: 'created', entity: {}, indexer: INDEXER, identifiers: { ...IDENTIFIERS, id } })
+    }
+
+    await expect(engine.flushOrmEntityChanges()).rejects.toBe(failure)
+    expect(emitEvent).toHaveBeenCalledTimes(1)
   })
 })

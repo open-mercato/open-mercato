@@ -27,8 +27,8 @@ import { CrudForm, type CrudCustomFieldRenderProps, type CrudField } from '../Cr
 // <label> at it. The wrapper label carries an id instead, and the field has to
 // be told that id to name its control.
 describe('CrudForm custom field label id', () => {
-  function renderForm(fields: CrudField[]) {
-    return renderWithProviders(<CrudForm title="Form" fields={fields} onSubmit={() => {}} />, { dict: {} })
+  function renderForm(fields: CrudField[], dict: Record<string, string> = {}) {
+    return renderWithProviders(<CrudForm title="Form" fields={fields} onSubmit={() => {}} />, { dict })
   }
 
   it('hands a custom field the id of its visible label', () => {
@@ -46,6 +46,22 @@ describe('CrudForm custom field label id', () => {
     const label = container.querySelector('[data-crud-field-id="jobTitle"] label') as HTMLLabelElement
     expect(label.id).not.toBe('')
     expect(screen.getByRole('combobox', { name: 'Job title' })).toHaveAttribute('aria-labelledby', label.id)
+  })
+
+  it('names a custom control when only its translated label is present', () => {
+    renderForm([
+      {
+        id: 'jobTitle',
+        label: '',
+        labelKey: 'test.fields.jobTitle',
+        type: 'custom',
+        component: ({ labelId }) => (
+          <button type="button" role="combobox" aria-expanded={false} aria-controls="options" aria-labelledby={labelId} />
+        ),
+      },
+    ], { 'test.fields.jobTitle': 'Job title' })
+
+    expect(screen.getByRole('combobox', { name: 'Job title' })).toBeInTheDocument()
   })
 
   it('passes no label id when the field has no visible label', () => {

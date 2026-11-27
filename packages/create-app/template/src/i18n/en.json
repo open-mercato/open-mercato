@@ -966,6 +966,7 @@
   "ui.forms.conflict.dismiss": "Dismiss",
   "ui.forms.conflict.refresh": "Refresh",
   "ui.forms.conflict.title": "Record changed",
+  "ui.forms.errors.externalDeliveryUnavailable": "External delivery is unavailable. Try again later.",
   "ui.forms.errors.highlighted": "Please fix the highlighted errors.",
   "ui.forms.errors.invalidType": "Invalid value type.",
   "ui.forms.errors.required": "This field is required",

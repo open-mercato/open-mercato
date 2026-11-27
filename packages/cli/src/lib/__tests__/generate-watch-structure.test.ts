@@ -412,6 +412,25 @@ describe('structured generator inputs', () => {
     return { next, changes: diffGenerateWatchStructureSnapshots(previous, next) }
   }
 
+  it('runs full generation when a CrudForm section definition is added, edited, or removed', () => {
+    const definition = path.join(app, 'form-sections.ts')
+    const baseline = capture()
+    write(definition, 'export const crudFormSections = {}')
+    const added = changesSince(baseline)
+    expect(added.changes).toContainEqual(expect.objectContaining({
+      kind: 'add', category: 'configuration', path: definition,
+    }))
+    expect(planGenerateWatchChanges(added.changes).mode).toBe('full')
+
+    write(definition, 'export const crudFormSections = { descriptors: [] }')
+    const edited = changesSince(added.next)
+    expect(planGenerateWatchChanges(edited.changes).mode).toBe('full')
+
+    fs.rmSync(definition)
+    const removed = changesSince(edited.next)
+    expect(planGenerateWatchChanges(removed.changes).mode).toBe('full')
+  })
+
   it('reuses cached content until stat identity changes or the file is deleted', () => {
     const route = path.join(pkg, 'api/items/route.ts')
     const helper = path.join(pkg, 'api/items/helper.ts')
