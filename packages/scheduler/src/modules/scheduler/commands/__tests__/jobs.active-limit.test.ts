@@ -35,6 +35,12 @@ function makeEm(schedule: Record<string, unknown> | null) {
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ id: 'new-job', ...data })),
     persist: jest.fn(),
     flush: jest.fn().mockResolvedValue(undefined),
+    isInTransaction: jest.fn().mockReturnValue(false),
+    begin: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
+    getTransactionContext: jest.fn().mockReturnValue(undefined),
+    getConnection: jest.fn().mockReturnValue({ execute: jest.fn().mockResolvedValue([]) }),
   }
 }
 
@@ -114,6 +120,7 @@ describe('scheduler.jobs active schedule tenant limit', () => {
       organizationId: null,
       scopeType: 'tenant',
       isEnabled: false,
+      sourceType: 'user',
       scheduleType: 'interval',
       scheduleValue: '15m',
       timezone: 'UTC',
@@ -134,6 +141,29 @@ describe('scheduler.jobs active schedule tenant limit', () => {
     })
     expect(schedule.isEnabled).toBe(false)
     expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('enables a disabled module-source schedule without counting the user-schedule cap', async () => {
+    const { update } = loadCommands()
+    const schedule = {
+      id: 'job-1',
+      tenantId: 'tenant-a',
+      organizationId: null,
+      scopeType: 'tenant',
+      isEnabled: false,
+      sourceType: 'module',
+      scheduleType: 'interval',
+      scheduleValue: '15m',
+      timezone: 'UTC',
+    }
+    const em = makeEm(schedule)
+    em.count.mockResolvedValue(2)
+
+    await expect(update.execute({ id: 'job-1', isEnabled: true }, makeCtx(em))).resolves.toEqual({ ok: true })
+
+    expect(em.count).not.toHaveBeenCalled()
+    expect(schedule.isEnabled).toBe(true)
+    expect(em.flush).toHaveBeenCalled()
   })
 
   it('does not count an already-enabled schedule when updating other fields', async () => {

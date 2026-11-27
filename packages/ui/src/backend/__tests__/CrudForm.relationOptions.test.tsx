@@ -29,9 +29,9 @@ const dict = {
   'ui.forms.select.noOptions': 'No options available.',
 }
 
-const fieldsFor = (loadOptions: () => Promise<CrudFieldOption[]>): CrudField[] => [
+const fieldsFor = (loadOptions: () => Promise<CrudFieldOption[]>, disabled = false): CrudField[] => [
   { id: 'name', label: 'Name', type: 'text' },
-  { id: 'target', label: 'Related record', type: 'select', loadOptions },
+  { id: 'target', label: 'Related record', type: 'select', loadOptions, disabled },
 ]
 
 describe('relation option feedback', () => {
@@ -83,6 +83,17 @@ describe('relation option feedback', () => {
     expect(await screen.findByText('No options available.')).toBeVisible()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Related record' })).toBeEnabled()
+  })
+
+  it('updates the disabled state when the field keeps the same option loader', async () => {
+    const loader = async () => [{ value: 'target', label: 'Available target' }]
+    const onSubmit = jest.fn()
+    const { rerender } = renderWithProviders(<CrudForm fields={fieldsFor(loader)} onSubmit={onSubmit} />, { dict })
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Related record' })).toBeEnabled())
+
+    rerender(<CrudForm fields={fieldsFor(loader, true)} onSubmit={onSubmit} />)
+
+    expect(screen.getByRole('combobox', { name: 'Related record' })).toBeDisabled()
   })
 
   it('ignores a superseded loader rejection after the new target loads', async () => {

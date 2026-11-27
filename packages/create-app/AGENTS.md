@@ -61,6 +61,7 @@ When changes affect app shell behavior, verify all relevant template files are r
 9. `apps/mercato/src/app/page.tsx` ↔ `packages/create-app/template/src/app/page.tsx`
 10. `apps/mercato/.env.example` ↔ `packages/create-app/template/.env.example` (env var names + their doc comments)
 11. `apps/mercato/src/i18n/*.json` ↔ `packages/create-app/template/src/i18n/*.json` — kept **byte-identical** by `yarn template:sync:fix` and enforced by `packages/create-app/src/lib/template-i18n-parity.test.ts`. The `scripts/i18n-check-*` gates all ignore `create-app/template/**`, so that test is the only thing that catches locale drift; a scaffold with a missing key silently renders the English default in every locale (#4738)
+12. `apps/mercato/src/providers/` ↔ `packages/create-app/template/src/providers/` — mirror app infrastructure provider registries and examples with `yarn template:sync:fix`.
 
 Telemetry / observability wiring (keep at parity when the `@open-mercato/telemetry` integration changes):
 

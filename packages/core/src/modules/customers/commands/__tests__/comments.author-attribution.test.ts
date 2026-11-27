@@ -28,7 +28,7 @@ const entityId = '77777777-7777-4777-8777-777777777777'
 
 function harness(auth: Record<string, unknown> = {}, author: string | null = authorId) {
   const entity = { id: entityId, kind: 'person', tenantId, organizationId }
-  const comment = { id: commentId, tenantId, organizationId, entity, deal: null, body: 'Original', authorUserId: author } as CustomerComment
+  const comment = Object.assign(new CustomerComment(), { id: commentId, tenantId, organizationId, entity, deal: null, body: 'Original', authorUserId: author })
   const users = [{ id: targetId, tenantId, organizationId, deletedAt: null as Date | null }]
   const em = {
     findOne: jest.fn(async (type: unknown, filters: Record<string, unknown>) => {

@@ -52,7 +52,7 @@ test('Markdown customization measures its complete context within tightly bounde
     const initialBytes = sumBytes(fixture, initialPaths)
     context.diagnostic(`${paths.length} files / ${bytes} total bytes; ${initialPaths.length} initial files / ${initialBytes} initial bytes`)
     assert.equal(record.maxInitialContextBytes, 73728)
-    assert.equal(record.maxTotalContextBytes, 356624)
+    assert.equal(record.maxTotalContextBytes, 385_024)
     assert.ok(bytes <= record.maxTotalContextBytes)
     assert.ok(record.maxTotalContextBytes - bytes <= 4096)
     assert.ok(initialPaths.length <= record.maxContextFiles)
@@ -98,7 +98,7 @@ function stageMarkdownSources(fixture: string): void {
   }
 }
 
-test('Markdown customization budgets cover exact example and installed contracts including the inventory', async () => {
+test('Markdown customization budgets cover exact example and installed contracts including the inventory', async (context) => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'om-markdown-context-'))
   try {
     generateShared({ targetDir: fixture, projectName: 'markdown-context-budget' })
@@ -111,9 +111,10 @@ test('Markdown customization budgets cover exact example and installed contracts
     const declaration = record.context.exampleRoots?.[0]
     assert.ok(declaration)
     assert.equal(declaration.maxFiles, 9)
-    assert.equal(declaration.maxBytes, 204800)
+    assert.equal(declaration.maxBytes, 222_367)
     assert.equal(paths.length, declaration.maxFiles)
     const bytes = sumBytes(fixture, paths)
+    context.diagnostic(`${paths.length} example and installed files / ${bytes} bytes`)
     assert.ok(bytes <= declaration.maxBytes)
     assert.ok(declaration.maxBytes - bytes <= 4096)
   } finally {

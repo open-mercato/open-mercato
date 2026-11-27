@@ -172,10 +172,10 @@ describe('GET /api/directory/organization-switcher caching', () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual(expectedPayload())
     expect(cache.get).toHaveBeenCalledWith(
-      `org-switcher:v1:${firstUserId}:${tenantId}:org:${organizationId}`,
+      `org-switcher:v2:${firstUserId}:${tenantId}:org:${organizationId}`,
     )
     expect(cache.set).toHaveBeenCalledWith(
-      `org-switcher:v1:${firstUserId}:${tenantId}:org:${organizationId}`,
+      `org-switcher:v2:${firstUserId}:${tenantId}:org:${organizationId}`,
       expectedPayload(),
       {
         ttl: 60_000,
@@ -187,6 +187,20 @@ describe('GET /api/directory/organization-switcher caching', () => {
     )
     expect(runWithCacheTenantMock).toHaveBeenCalledWith(tenantId, expect.any(Function))
     expect(logCrudAccessMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('reassembles the menu instead of serving a legacy authorization projection', async () => {
+    cache.get.mockImplementation(async (key: string) => (
+      key.startsWith('org-switcher:v1:') ? { ...expectedPayload(), canManage: true } : null
+    ))
+    userHasAllFeaturesMock.mockResolvedValue(false)
+    const { GET } = await loadRoute()
+
+    const response = await GET(createRequest())
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ canManage: false })
+    expect(resolveOrganizationScopeMock).toHaveBeenCalled()
   })
 
   it('serves the second identical request from cache without repeating organization or RBAC work and still audits both reads', async () => {
@@ -281,9 +295,9 @@ describe('GET /api/directory/organization-switcher caching', () => {
 
     const keys = cache.get.mock.calls.map(([key]) => key)
     expect(keys).toEqual([
-      `org-switcher:v1:${firstUserId}:${tenantId}:org:${organizationId}`,
-      `org-switcher:v1:${secondUserId}:${tenantId}:mode:all`,
-      `org-switcher:v1:${firstUserId}:${secondTenantId}:org:${organizationId}`,
+      `org-switcher:v2:${firstUserId}:${tenantId}:org:${organizationId}`,
+      `org-switcher:v2:${secondUserId}:${tenantId}:mode:all`,
+      `org-switcher:v2:${firstUserId}:${secondTenantId}:org:${organizationId}`,
     ])
   })
 

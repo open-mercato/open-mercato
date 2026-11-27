@@ -11,7 +11,9 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
 }))
 
-type MockQueryFn = () => Promise<unknown>
+type MockQueryFn = (context: { signal: AbortSignal }) => Promise<unknown>
+
+const queryContext = { signal: new AbortController().signal }
 
 let lastDetailQueryFn: MockQueryFn | null = null
 let lastAttachmentsQueryFn: MockQueryFn | null = null
@@ -42,6 +44,8 @@ function setupHook(queryClient: { setQueryData: jest.Mock; getQueryData: jest.Mo
       t: translate,
       scopeVersion: 'scope-1',
       queryClient: queryClient as never,
+      enabled: () => true,
+      getRefreshSignal: () => queryContext.signal,
     }),
   )
 }
@@ -64,7 +68,7 @@ describe('useMessageDetailsQueries 404 handling', () => {
     setupHook(queryClient)
     expect(lastDetailQueryFn).toBeTruthy()
 
-    const result = await lastDetailQueryFn!()
+    const result = await lastDetailQueryFn!(queryContext)
     expect(result).toBeNull()
   })
 
@@ -79,7 +83,7 @@ describe('useMessageDetailsQueries 404 handling', () => {
     setupHook(queryClient)
     expect(lastDetailQueryFn).toBeTruthy()
 
-    await expect(lastDetailQueryFn!()).rejects.toThrow('Boom')
+    await expect(lastDetailQueryFn!(queryContext)).rejects.toThrow('Boom')
   })
 
   it('attachments query returns an empty list when the parent message is gone', async () => {
@@ -93,7 +97,7 @@ describe('useMessageDetailsQueries 404 handling', () => {
     setupHook(queryClient)
     expect(lastAttachmentsQueryFn).toBeTruthy()
 
-    const result = await lastAttachmentsQueryFn!()
+    const result = await lastAttachmentsQueryFn!(queryContext)
     expect(result).toEqual([])
   })
 })
@@ -153,8 +157,8 @@ describe('useMessageDetailsQueries.suppressAutoMarkRead (#3576)', () => {
     setupHook(queryClient)
     expect(lastDetailQueryFn).toBeTruthy()
 
-    await lastDetailQueryFn!()
-    expect(apiCallMock).toHaveBeenCalledWith('/api/messages/msg-1')
+    await lastDetailQueryFn!(queryContext)
+    expect(apiCallMock).toHaveBeenCalledWith('/api/messages/msg-1', queryContext)
   })
 
   it('skips auto-mark-read on subsequent refetches once suppressed', async () => {
@@ -165,9 +169,9 @@ describe('useMessageDetailsQueries.suppressAutoMarkRead (#3576)', () => {
     expect(lastDetailQueryFn).toBeTruthy()
 
     result.current.suppressAutoMarkRead()
-    await lastDetailQueryFn!()
+    await lastDetailQueryFn!(queryContext)
 
-    expect(apiCallMock).toHaveBeenCalledWith('/api/messages/msg-1?skipMarkRead=1')
+    expect(apiCallMock).toHaveBeenCalledWith('/api/messages/msg-1?skipMarkRead=1', queryContext)
   })
 })
 
