@@ -552,6 +552,30 @@ function buildImportRowReferenceId(importBatchId: string, rowNumber: number): st
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
 
+function resolveRelationId(value: { id?: string } | string | null | undefined): string | null {
+  if (typeof value === 'string') return value
+  return typeof value?.id === 'string' ? value.id : null
+}
+
+/**
+ * A replayed row must have posted the same target bucket and amount as the current row;
+ * a CSV edited between a failed apply and its retry (same importBatchId/rowNumber) must
+ * not be reported as applied against a stale movement.
+ */
+function legacyMovementMatchesRow(
+  movement: InventoryMovement,
+  row: { warehouseId: string; locationId: string; catalogVariantId: string; lotId?: string | null; serialNumber?: string | null; delta: number },
+): boolean {
+  return (
+    resolveRelationId(movement.warehouse) === row.warehouseId &&
+    resolveRelationId(movement.locationTo) === row.locationId &&
+    movement.catalogVariantId === row.catalogVariantId &&
+    resolveRelationId(movement.lot) === (row.lotId ?? null) &&
+    (movement.serialNumber ?? null) === (row.serialNumber ?? null) &&
+    Math.abs(toNumber(movement.quantity) - row.delta) < 0.000001
+  )
+}
+
 /**
  * Recognizes a pre-fix row by its import batch/row metadata, independent of referenceId,
  * since it was posted before buildImportRowReferenceId existed and a retry's deterministic
@@ -614,14 +638,17 @@ export async function applyInventoryImport(
       continue
     }
 
-    const legacyMovement = await findExistingImportRowMovement(em, scope, input.importBatchId, row.rowNumber)
-    if (legacyMovement) {
-      applied += 1
-      resultRows.push({ rowNumber: row.rowNumber, status: 'applied', movementId: legacyMovement.id })
-      continue
-    }
-
     try {
+      const legacyMovement = await findExistingImportRowMovement(em, scope, input.importBatchId, row.rowNumber)
+      if (legacyMovement) {
+        if (!legacyMovementMatchesRow(legacyMovement, row)) {
+          throw new CrudHttpError(409, { error: 'import_row_replay_mismatch', rowNumber: row.rowNumber })
+        }
+        applied += 1
+        resultRows.push({ rowNumber: row.rowNumber, status: 'applied', movementId: legacyMovement.id })
+        continue
+      }
+
       const execution = await commandBus.execute('wms.inventory.adjust', {
         input: {
           organizationId: input.organizationId,
