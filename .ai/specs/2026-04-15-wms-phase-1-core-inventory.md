@@ -160,6 +160,7 @@ Events consumed by WMS (subscribers):
 |-------|-------------|------------|
 | `sales.order.confirmed` | Sales | Create inventory reservation for order line items (`source_type = order`) |
 | `sales.order.cancelled` | Sales | Release all active reservations linked to the cancelled order |
+| `sales.document.totals.calculated` | Sales | For a confirmed order, release reservations above what its lines need and re-reserve the remainder (variants with an allocated reservation are skipped) |
 
 Undo expectations:
 - CRUD-style configuration commands are undoable by reverting fields or soft-deleting the created row.
@@ -675,6 +676,9 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-11-27
+- Lowering or deleting a line on a confirmed sales order left the reservation made at confirmation in place, so the excess stayed locked until the order was cancelled. WMS now subscribes to `sales.document.totals.calculated` (emitted after committed line, adjustment and totals-changing order writes): for a confirmed order it releases the reservations of each variant reserved above line demand and re-reserves the remainder through the confirm-time top-up. Variants with an allocated reservation are left as they are. Coverage: `salesOrderInventoryAutomation.test.ts`, `TC-WMS-017`.
 
 ### 2026-11-22
 - A lot update that sent only one or two dates compared them with each other but not with the lot's stored dates, so `PUT /api/wms/lots` with just `expiresAt` could save an expiry earlier than the stored manufactured or best-before date. `wms.lots.update` now checks the stored dates merged with the patched ones before writing and answers with the same 400 validation error as create. Updates that don't touch a date are not re-checked, and existing lots are not repaired. Coverage: `configuration.lotDateOrdering.test.ts`, `TC-WMS-036`.

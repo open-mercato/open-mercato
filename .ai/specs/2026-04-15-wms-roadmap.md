@@ -225,7 +225,7 @@ Some source modules or event streams may not exist yet on a given deployment (e.
 
 | Toggle identifier | Events gated | Default | Notes |
 |-------------------|--------------|---------|--------|
-| `wms_integration_sales_order_inventory` | `sales.order.confirmed`, `sales.order.cancelled` | `true` | Disable only if reservations must be API-only (e.g. migration window). |
+| `wms_integration_sales_order_inventory` | `sales.order.confirmed`, `sales.order.cancelled`, `sales.document.totals.calculated` | `true` | Disable only if reservations must be API-only (e.g. migration window). |
 | `wms_integration_procurement_goods_receipt` | `procurement.goods_receipt.created` | `false` | Enable when Procurement emits this event. |
 | `wms_integration_shipping_shipment_lifecycle` | `shipping.shipment.created`, `shipping.shipment.dispatched` | `true` | Disable if outbound handoff is manual or phased rollout. |
 | `wms_integration_freight_shipment_eta` | `freight.shipment.eta_updated` | `false` | Enable when Freight module exists and emits ETAs. |
