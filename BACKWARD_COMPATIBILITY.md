@@ -770,4 +770,3 @@ STABLE APIs §7 require organization grants and return `403` for explicitly empt
 STABLE HTTP private bytes require `attachments.view`; a bridge preserves the bypass.
 [Migration/spec](.ai/specs/2026-11-05-private-attachment-read-permission.md).
 Steps 1–3 [waived by @pkarw](https://github.com/open-mercato/open-mercato/pull/8774#issuecomment-6829115158).
-
