@@ -6,6 +6,9 @@ Verify main and a dedicated stabilization PR with all 15 integration shards, fix
 ## Scope
 Start from main at 086af58a119c1537f642ed63f34f6dbbb1110d6b. Its latest CI run 45902565906 passed every executed job, including all 15 shards. Existing `FORCE_FULL_SUITE` already supports same-repository stabilization heads and `ci-full`. Draft gating currently prevents this requested draft PR from executing that suite. Permit same-repository stabilization draft PRs to run CI, preserving ordinary draft and fork behavior.
 
+## Final review scope
+Main PR #10899 landed independently as 26585de7ef while the final review was being dispatched. Reconcile that already-landed baseline and retain its fixture/audit fixes and context budgets without duplicate PR deltas. The remaining seven-file diff is the same-repository stabilization draft exception, native price-input synchronization with regression coverage, saved-activity reload/locator repair, workflow regression tests, and this plan. The earlier broad repair notes below are investigation history, not additional changes in the final diff. Retain main's cancellation behavior for durability artifact upload.
+
 ## Non-goals
 No release dispatch, merging into main, dependency upgrades, production changes, database migrations, unrelated cleanup, or speculative application fixes.
 
@@ -40,7 +43,7 @@ The complete local gate initially passed 50 of 51 test workspaces; create-app ad
 
 CI's separate script suite on 5d56b0864b found another concrete workflow regression: the newly landed webhook durability setup, execution and artifact-upload steps used `!cancelled()`/`always()` without checking the failed audit gate. Add the same audit outcome condition used by neighboring steps (1407f520fe). The semantic regression confirms failed-audit denial and preserves ordinary-failure/cancellation evidence; all 79 focused workflow tests pass. Shard 9 now passes, confirming the ledger fixtures.
 
-The complete configured local gate now passes all eight commands, in order: build packages, generate, rebuild packages, translation sync/usage, typecheck, all 51 test workspaces, and production app build. The failed unit command was rerun under the short `/tmp` directory before the app build; no assertion or sandbox policy was weakened. The app build completed successfully in 150 seconds. A nonfatal cache compaction warning did not change its exit status. Final exact-head CI and independent review remain pending.
+Before the independent main merge, the complete configured local gate passed all eight commands at a3a7d8f73a, in order: build packages, generate, rebuild packages, translation sync/usage, typecheck, all 51 test workspaces, and production app build. The failed unit command was rerun under the short `/tmp` directory before the app build; no assertion or sandbox policy was weakened. The app build completed successfully in 150 seconds. A nonfatal cache compaction warning did not change its exit status. The reconciled baseline is receiving a fresh ordered gate and full CI; the already-dispatched independent reviewer will assess that exact resolved head. Final exact-head CI and independent review remain pending.
 
 ## Run identity
 Claim-Run: 48d644e3-9ed1-4059-a436-23d9b0aad094
