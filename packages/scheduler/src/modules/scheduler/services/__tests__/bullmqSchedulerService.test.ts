@@ -2,6 +2,7 @@ import { BullMQSchedulerService } from '../bullmqSchedulerService'
 import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from '../../data/entities.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -570,6 +571,33 @@ describe('BullMQSchedulerService', () => {
         expect.any(Object),
       )
       expect(mockQueue.removeJobScheduler).toHaveBeenCalledWith('legacy-repeat-hash')
+    })
+
+    it('does not register, and removes, schedules whose source module is disabled (#8381)', async () => {
+      registerModules([{ id: 'scheduler' }, { id: 'data_sync' }] as never)
+      try {
+        const dbSchedules = [
+          { id: 'orphaned', name: 'Push reclaim', isEnabled: true, scheduleType: 'cron', scheduleValue: '0 0 * * *', timezone: 'UTC', scopeType: 'system', sourceType: 'module', sourceModule: 'push_notifications' },
+          { id: 'live', name: 'Data sync', isEnabled: true, scheduleType: 'cron', scheduleValue: '0 0 * * *', timezone: 'UTC', scopeType: 'system', sourceType: 'module', sourceModule: 'data_sync' },
+        ] as ScheduledJob[]
+
+        mockForkedEm.find.mockResolvedValue(dbSchedules)
+        mockQueue.getJobSchedulers.mockResolvedValue([
+          { id: 'schedule-orphaned', name: 'schedule-orphaned', key: 'schedule-orphaned' },
+        ])
+
+        await service.syncAll()
+
+        expect(mockQueue.upsertJobScheduler).toHaveBeenCalledTimes(1)
+        expect(mockQueue.upsertJobScheduler).toHaveBeenCalledWith('schedule-live', expect.any(Object), expect.any(Object))
+        expect(mockQueue.removeJobScheduler).toHaveBeenCalledWith('schedule-orphaned')
+        expect(loggerInfo).toHaveBeenCalledWith('Not registering schedule of a disabled source module', {
+          scheduleId: 'orphaned',
+          sourceModule: 'push_notifications',
+        })
+      } finally {
+        ;(globalThis as Record<string, unknown>).__openMercatoModulesRegistry__ = null
+      }
     })
 
     it('should log sync completion', async () => {

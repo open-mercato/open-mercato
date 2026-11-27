@@ -199,6 +199,25 @@ Notes:
 - Rotation always re-encrypts with the current KMS/fallback key. Ensure the new key is already active (Vault configured or `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` set) before running these commands.
 - These commands are tenant-scoped. They skip entities whose map is system-scoped (see the next section) and say so, because a tenant key cannot open system-scoped ciphertext.
 
+### Rotating the lookup hash pepper
+
+The lookup pepper keys the hashes used for exact matches such as sign-in by email. Its current value comes from `LOOKUP_HASH_PEPPER`, then `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`, then `TENANT_DATA_ENCRYPTION_KEY`. `LOOKUP_HASH_OLD_PEPPER` adds a read candidate during rotation. New writes use the current pepper.
+
+1. Deploy the version that supports `LOOKUP_HASH_OLD_PEPPER` while keeping the current pepper in use. Generate a new independent pepper and configure both values through your secret manager.
+2. For a rolling cutover, first set `LOOKUP_HASH_OLD_PEPPER` to the new value while keeping the old value active for writes. Once all app and worker instances have picked up both candidates, pause writes that assign lookup hashes while switching `LOOKUP_HASH_PEPPER` to the new value and `LOOKUP_HASH_OLD_PEPPER` to the previous effective pepper. Resume those writes when all writers use the new pepper. This avoids concurrent creates inserting the same value under different hashes. If the previous hashes were unkeyed, leave `LOOKUP_HASH_OLD_PEPPER` unset after the cutover.
+3. Once every writer is using the new pepper, preview and run the rehash for each tenant. Run the tenantless sweep as well to cover records such as pending onboarding requests.
+
+   ```bash
+   yarn mercato entities rehash-lookups --tenant <tenantId> --dry-run
+   yarn mercato entities rehash-lookups --tenant <tenantId>
+   yarn mercato entities rehash-lookups --tenantless --dry-run
+   yarn mercato entities rehash-lookups --tenantless
+   ```
+
+4. Re-run the previews and check that they report zero rows to update. Verify email sign-in and remove `LOOKUP_HASH_OLD_PEPPER` from every instance.
+
+The command uses the existing data-encryption keys to read encrypted sources and updates their existing hash columns in batches. It verifies each stored digest against a mapped source and the configured peppers, including legacy unkeyed digests. A preview reads the same rows without writing hashes or provisioning keys. If a source cannot be decrypted or verified, or a concurrent edit changes a row, resolve the error and re-run the same scope. Keep the previous pepper configured until every scope is complete. Coordinate any changes to encryption maps separately from the rehash.
+
 ## Backfilling system-scoped records
 
 Some records exist before any tenant does — a self-service onboarding request is created while the person filling the form still has no workspace. Those entities are encrypted under a **system-scoped** map (`keyScope: 'system'`) declared in module code rather than under a per-tenant map in the database, so `rotate-encryption-key` never sees them: it walks the `encryption_maps` table and skips every row without a tenant.
@@ -260,8 +279,8 @@ Malformed ciphertext makes the command exit non-zero. When `--deactivate-maps` i
 
 - Turn on `TENANT_DATA_ENCRYPTION_DEBUG=yes` to see KMS cache hits/misses, Vault calls, and which fields were encrypted.
 - Debug logs also call out Vault health and the selected KMS path (Vault vs derived vs noop) so you can verify `VAULT_ADDR`, `VAULT_TOKEN`, and `VAULT_KV_PATH` without exposing the token value.
-- If Vault is unreachable, the runtime logs a warning and falls back to the derived-key KMS when a dedicated fallback secret is present; otherwise it becomes a noop KMS (data stays plaintext). Integration credentials fail closed instead of saving under a noop or auth-derived key.
-- When a custom field configured as encrypted is written but no tenant key can be read or created, the value is stored as plaintext and the runtime logs `Custom field configured as encrypted was stored as plaintext` at WARN level with the tenant, entity, and field key (never the value). It is emitted once per tenant/entity/field per outage — the throttle re-arms as soon as that tenant's key resolves again — so grep for it after any key-store outage and re-save the affected records once key access is restored.
+- If Vault is unreachable, the runtime logs a warning and falls back to the derived-key KMS when a dedicated fallback secret is present; otherwise it becomes a noop KMS. Integration credentials and encrypted tenant custom-field writes reject when no usable key is available.
+- With tenant data encryption enabled, a non-null value in an encrypted tenant custom field requires a usable tenant key. If the key cannot be read or created, the CRUD API returns HTTP 503 with code `ENCRYPTION_UNAVAILABLE`. Restore tenant key access before retrying. Clearing a field still works without a key. Rejections are logged once per tenant, entity, and field until the tenant key recovers. The warning contains the field key and omits the submitted value.
 - Use **Configuration → System status** to confirm the active values of the encryption env vars in the running instance.
 
 ## Running without Vault

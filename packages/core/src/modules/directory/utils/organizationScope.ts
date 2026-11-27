@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import { z } from 'zod'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { isSessionBoundApiKey } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
@@ -11,6 +12,8 @@ import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-
 import { getCurrentCacheTenant, runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { parseSelectedOrganizationCookie, parseSelectedTenantCookie } from './scopeCookies'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const organizationIdSchema = z.guid()
 
 const logger = createLogger('directory').child({ component: 'org-scope-cache' })
 
@@ -182,6 +185,10 @@ function normalizeOrganizationId(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function isMalformedOrganizationSelection(selection: string | null): boolean {
+  return selection !== null && !isAllOrganizationsSelection(selection) && !organizationIdSchema.safeParse(selection).success
+}
+
 export function getSelectedOrganizationFromRequest(req: Request | { cookies?: { get: (name: string) => { value: string } | undefined }; headers?: { get(name: string): string | null } }): string | null {
   const cookieContainer = (req as { cookies?: { get: (name: string) => { value: string } | undefined } }).cookies
   if (cookieContainer && typeof cookieContainer.get === 'function') {
@@ -294,9 +301,8 @@ export async function resolveOrganizationScope({
   const normalizedRequestedSelection = normalizeOrganizationId(selectedId)
   const explicitAllOrgsChoice =
     normalizedRequestedSelection !== null && isAllOrganizationsSelection(normalizedRequestedSelection)
-  const normalizedSelectedId = explicitAllOrgsChoice
-    ? null
-    : normalizedRequestedSelection
+  const normalizedSelectedId = explicitAllOrgsChoice ? null : normalizedRequestedSelection
+  const malformedSelection = isMalformedOrganizationSelection(normalizedSelectedId)
   const contextOrgId = actorTenantId && actorTenantId === tenantId ? normalizeOrganizationId(auth.orgId) : null
   const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId: contextOrgId })
   const aclIsSuperAdmin = acl?.isSuperAdmin === true
@@ -323,7 +329,7 @@ export async function resolveOrganizationScope({
   const candidateIds = [
     ...(accessibleList ?? []),
     ...(fallbackOrgId ? [fallbackOrgId] : []),
-    ...(normalizedSelectedId ? [normalizedSelectedId] : []),
+    ...(normalizedSelectedId && !malformedSelection ? [normalizedSelectedId] : []),
   ]
   const orgDescendants = await loadOrgDescendantMap(em, tenantId, candidateIds)
   const loadFallbackSet = (): Set<string> | null =>
@@ -401,7 +407,7 @@ export async function resolveOrganizationScope({
 
   return {
     selectedId: effectiveSelected,
-    filterIds: filterSet ? Array.from(filterSet) : null,
+    filterIds: filterSet ? Array.from(filterSet) : malformedSelection ? [] : null,
     allowedIds: allowedSet ? Array.from(allowedSet) : null,
     tenantId,
     ...(selectionRejected ? { selectionRejected: true } : {}),
@@ -438,7 +444,19 @@ export async function resolveOrganizationScopeForRequest({
     if (typeof value === 'string' && value.trim().length > 0) return value.trim()
     return null
   }
+  const rawSelected = selectedId !== undefined ? selectedId : (request ? getSelectedOrganizationFromRequest(request) : null)
+  const normalizedSelectedId = normalizeOrganizationId(rawSelected)
+  const malformedSelection = isMalformedOrganizationSelection(normalizedSelectedId)
   if (!em || !rbac) {
+    if (malformedSelection) {
+      return {
+        selectedId: null,
+        filterIds: [],
+        allowedIds: [],
+        tenantId: normalizeString(auth.tenantId),
+        selectionRejected: true,
+      }
+    }
     const fallbackSelected = normalizeOrganizationId(selectedId ?? auth.orgId ?? null)
     return {
       selectedId: fallbackSelected,
@@ -484,11 +502,6 @@ export async function resolveOrganizationScopeForRequest({
     orgId: actorTenant && actorTenant === effectiveTenantId ? actorOrgId ?? null : null,
   }
 
-  const rawSelected = selectedId !== undefined ? selectedId : (request ? getSelectedOrganizationFromRequest(request) : null)
-  const normalizedSelectedId = typeof rawSelected === 'string' && rawSelected.trim().length > 0
-    ? rawSelected.trim()
-    : null
-
   const userId = typeof auth.sub === 'string' && auth.sub.length > 0 ? auth.sub : null
   const ownerUserId = auth.isApiKey && typeof auth.userId === 'string' && auth.userId.length > 0 ? auth.userId : null
   const ttlMs = resolveOrgScopeTtlMs()
@@ -497,7 +510,7 @@ export async function resolveOrganizationScopeForRequest({
     ? buildOrgScopeCacheKey({
         userId,
         effectiveTenantId,
-        selectedOrgId: normalizedSelectedId,
+        selectedOrgId: malformedSelection ? '[malformed]' : normalizedSelectedId,
         requestedTenantId: requestedTenantId ?? null,
       })
     : null
@@ -584,7 +597,7 @@ export async function resolveFeatureCheckContext({
   let scope = boundFeatureScope
     ? boundFeatureScope.scope
     : await resolveOrganizationScopeForRequest({ container, auth, request, selectedId, tenantId })
-  const organizationId = boundFeatureScope
+  let organizationId = boundFeatureScope
     ? boundFeatureScope.organizationId
     : resolveFeatureCheckOrganizationId(scope, auth)
   if (
@@ -622,13 +635,15 @@ export async function resolveFeatureCheckContext({
       )
       const approvedOrganizationIds = Array.from(new Set(
         featureOrganizationIds.filter((featureOrganizationId) => candidateOrganizationIds.has(featureOrganizationId)),
-      ))
+      )).sort((left, right) => left.localeCompare(right))
       scope = {
+        ...scope,
         selectedId: null,
         filterIds: approvedOrganizationIds,
         allowedIds: approvedOrganizationIds,
         tenantId: scope.tenantId,
       }
+      if (!organizationId) organizationId = resolveFeatureCheckOrganizationId(scope, auth)
     }
     bindFeatureScopeToRequest(request, { userId: auth.sub, scope, organizationId })
   }

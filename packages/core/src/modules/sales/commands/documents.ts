@@ -1163,11 +1163,13 @@ async function applyDocumentUpdate({
   entity,
   input,
   em,
+  ignoreMissingTags,
 }: {
   kind: "order" | "quote";
   entity: SalesOrder | SalesQuote;
   input: DocumentUpdateInput;
   em: EntityManager;
+  ignoreMissingTags: boolean;
 }): Promise<void> {
   const organizationId = (entity as any).organizationId as string;
   const tenantId = (entity as any).tenantId as string;
@@ -1622,6 +1624,7 @@ async function applyDocumentUpdate({
       organizationId,
       tenantId,
       tagIds: input.tags,
+      ignoreMissing: ignoreMissingTags,
     });
   }
 
@@ -3618,12 +3621,29 @@ async function applyQuoteLineResults(params: {
   }
 }
 
+async function queueCreatedLineIndexes(
+  dataEngine: DataEngine,
+  lines: Array<SalesOrderLine | SalesQuoteLine>,
+  entityType: string,
+): Promise<void> {
+  for (const line of lines) {
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "created",
+      entity: line,
+      identifiers: { id: line.id, organizationId: line.organizationId, tenantId: line.tenantId },
+      indexer: { entityType },
+    });
+  }
+}
+
 async function replaceQuoteLines(
   em: EntityManager,
   quote: SalesQuote,
   calculation: SalesDocumentCalculationResult,
   lineInputs: QuoteLineCreateInput[],
-): Promise<void> {
+): Promise<SalesQuoteLine[]> {
+  const linesWithCustomFields: SalesQuoteLine[] = [];
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
@@ -3644,6 +3664,7 @@ async function replaceQuoteLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesQuoteLine, {
+      id: randomUUID(),
       quote,
       ...entityInput,
       status: statusValue,
@@ -3651,21 +3672,19 @@ async function replaceQuoteLines(
       updatedAt: new Date(),
     });
     em.persist(lineEntity);
-    const rawCustomFields = (sourceLine as any).customFields;
-    if (rawCustomFields !== undefined && rawCustomFields !== null) {
-      const customValues =
-        rawCustomFields && typeof rawCustomFields === "object"
-          ? (rawCustomFields as Record<string, unknown>)
-          : {};
+    const { customFields } = sourceLine;
+    if (customFields && Object.keys(customFields).length > 0) {
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_quote_line,
         recordId: lineEntity.id,
         organizationId: quote.organizationId,
         tenantId: quote.tenantId,
-        values: normalizeCustomFieldValues(customValues),
+        values: normalizeCustomFieldValues(customFields),
       });
+      linesWithCustomFields.push(lineEntity);
     }
   }
+  return linesWithCustomFields;
 }
 
 async function replaceQuoteAdjustments(
@@ -3751,7 +3770,8 @@ async function replaceOrderLines(
   order: SalesOrder,
   calculation: SalesDocumentCalculationResult,
   lineInputs: OrderLineCreateInput[],
-): Promise<void> {
+): Promise<SalesOrderLine[]> {
+  const linesWithCustomFields: SalesOrderLine[] = [];
   await em.nativeDelete(SalesOrderLine, { order: order.id });
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
@@ -3772,6 +3792,7 @@ async function replaceOrderLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesOrderLine, {
+      id: randomUUID(),
       order,
       ...entityInput,
       reservedQuantity: "0",
@@ -3783,21 +3804,19 @@ async function replaceOrderLines(
       updatedAt: new Date(),
     });
     em.persist(lineEntity);
-    const rawCustomFields = (sourceLine as any).customFields;
-    if (rawCustomFields !== undefined && rawCustomFields !== null) {
-      const customValues =
-        rawCustomFields && typeof rawCustomFields === "object"
-          ? (rawCustomFields as Record<string, unknown>)
-          : {};
+    const { customFields } = sourceLine;
+    if (customFields && Object.keys(customFields).length > 0) {
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_order_line,
         recordId: lineEntity.id,
         organizationId: order.organizationId,
         tenantId: order.tenantId,
-        values: normalizeCustomFieldValues(customValues),
+        values: normalizeCustomFieldValues(customFields),
       });
+      linesWithCustomFields.push(lineEntity);
     }
   }
+  return linesWithCustomFields;
 }
 
 async function replaceOrderAdjustments(
@@ -4126,18 +4145,17 @@ async function syncSalesDocumentTags(
     organizationId: string;
     tenantId: string;
     tagIds?: Array<string | null | undefined> | null;
+    ignoreMissing: boolean;
   },
 ) {
   if (params.tagIds === undefined) return;
-  const tagIds = normalizeTagIds(params.tagIds);
+  const tagIds = normalizeTagIds(
+    params.ignoreMissing ? params.tagIds?.map((id) => id?.toLowerCase()) : params.tagIds,
+  );
   const byId = new Map<string, SalesDocumentTag>();
   if (tagIds.length > 0) {
-    const tagsInScope = await em.find(SalesDocumentTag, {
-      id: { $in: tagIds },
-      organizationId: params.organizationId,
-      tenantId: params.tenantId,
-    });
-    if (tagsInScope.length !== tagIds.length) {
+    const tagsInScope = await findScopedDocumentTags(em, tagIds, params);
+    if (!params.ignoreMissing && tagsInScope.length !== tagIds.length) {
       throw new CrudHttpError(400, {
         error: "One or more tags not found for this scope",
       });
@@ -4153,7 +4171,7 @@ async function syncSalesDocumentTags(
     const tagId = readAssignmentTagId(assignment);
     if (tagId) existingByTagId.set(tagId, assignment);
   });
-  const wanted = new Set(tagIds);
+  const wanted = new Set(params.ignoreMissing ? byId.keys() : tagIds);
   const toRemove = existing.filter((assignment) => {
     const tagId = readAssignmentTagId(assignment);
     return tagId === null || !wanted.has(tagId);
@@ -4181,6 +4199,30 @@ async function syncSalesDocumentTags(
     });
     em.persist(assignment);
   }
+}
+
+function findScopedDocumentTags(
+  em: EntityManager,
+  tagIds: string[],
+  { organizationId, tenantId }: { organizationId: string; tenantId: string },
+) {
+  return em.find(SalesDocumentTag, {
+    id: { $in: tagIds },
+    organizationId,
+    tenantId,
+  });
+}
+
+async function survivingTagAssignments(
+  em: EntityManager,
+  assignments: TagAssignmentSnapshot[] | undefined,
+  scope: { organizationId: string; tenantId: string },
+): Promise<TagAssignmentSnapshot[]> {
+  if (!Array.isArray(assignments) || !assignments.length) return [];
+  const tagIds = normalizeTagIds(assignments.map(({ tagId }) => tagId));
+  const tags = await findScopedDocumentTags(em, tagIds, scope);
+  const availableIds = new Set(tags.map(({ id }) => id));
+  return assignments.filter(({ tagId }) => availableIds.has(tagId));
 }
 
 function applyQuoteSnapshot(
@@ -4328,8 +4370,9 @@ async function assertQuoteGraphUndoCurrent(
     sameIds(current.lines, expected.lines) &&
     sameIds(current.adjustments, expected.adjustments) &&
     sameRecords(current.notes, expected.notes) &&
-    sameRecords(current.tags, expected.tags) &&
-    sameRecords(current.addresses, expected.addresses);
+    sameRecords(current.addresses, expected.addresses) &&
+    (sameRecords(current.tags, expected.tags) ||
+      sameRecords(current.tags, await survivingTagAssignments(em, expected.tags, expected.quote)));
   if (!unchanged) return throwDocumentUndoStale("quote");
 }
 
@@ -4486,7 +4529,7 @@ async function restoreQuoteGraph(
     ? snapshot.addresses
     : [];
   const noteSnapshots = Array.isArray(snapshot.notes) ? snapshot.notes : [];
-  const tagSnapshots = Array.isArray(snapshot.tags) ? snapshot.tags : [];
+  const tagSnapshots = await survivingTagAssignments(em, snapshot.tags, quote);
   const verifiedIds = (entries: ReadonlyArray<{ id: string }> | undefined) =>
     verified ? { id: { $in: (entries ?? []).map((entry) => entry.id) } } : {};
   await em.nativeDelete(SalesDocumentAddress, {
@@ -4800,8 +4843,9 @@ async function assertOrderGraphUndoCurrent(
     sameRecords(current.shipments, expected.shipments) &&
     sameRecords(withoutAllocationIds(current.payments), withoutAllocationIds(expected.payments)) &&
     sameRecords(current.notes, expected.notes) &&
-    sameRecords(current.tags, expected.tags) &&
-    sameRecords(current.addresses, expected.addresses);
+    sameRecords(current.addresses, expected.addresses) &&
+    (sameRecords(current.tags, expected.tags) ||
+      sameRecords(current.tags, await survivingTagAssignments(em, expected.tags, expected.order)));
   if (!unchanged) return throwDocumentUndoStale("order");
 }
 
@@ -5021,7 +5065,7 @@ async function restoreOrderGraph(
     ? snapshot.addresses
     : [];
   const noteSnapshots = Array.isArray(snapshot.notes) ? snapshot.notes : [];
-  const tagSnapshots = Array.isArray(snapshot.tags) ? snapshot.tags : [];
+  const tagSnapshots = await survivingTagAssignments(em, snapshot.tags, order);
   const shipmentSnapshots = Array.isArray(snapshot.shipments)
     ? snapshot.shipments
     : [];
@@ -5247,12 +5291,13 @@ async function restoreOrderGraph(
   return order;
 }
 
-const createQuoteCommand: CommandHandler<
-  QuoteCreateInput,
-  { quoteId: string }
-> = {
+const createQuoteCommand = {
   id: "sales.quotes.create",
-  async execute(rawInput, ctx) {
+  async execute(
+    rawInput: QuoteCreateInput,
+    ctx: CommandRuntimeContext,
+    ignoreMissingTags = false,
+  ): Promise<{ quoteId: string }> {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
@@ -5493,6 +5538,7 @@ const createQuoteCommand: CommandHandler<
     } catch {
       eventBus = null;
     }
+    let linesWithCustomFields: SalesQuoteLine[] = [];
     // Persist the quote header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built quote committed (#2336).
@@ -5501,7 +5547,7 @@ const createQuoteCommand: CommandHandler<
       [
         async () => {
           em.persist(quote);
-          await replaceQuoteLines(em, quote, calculation, normalizedLineInputs);
+          linesWithCustomFields = await replaceQuoteLines(em, quote, calculation, normalizedLineInputs);
           await replaceQuoteAdjustments(
             em,
             quote,
@@ -5524,6 +5570,7 @@ const createQuoteCommand: CommandHandler<
             organizationId: quote.organizationId,
             tenantId: quote.tenantId,
             tagIds: parsed.tags,
+            ignoreMissing: ignoreMissingTags,
           });
           await setDocumentCustomFieldsIfSupplied(em, {
             entityId: E.sales.sales_quote,
@@ -5577,6 +5624,7 @@ const createQuoteCommand: CommandHandler<
 
     // Emit CRUD side effects to trigger workflow event listeners
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await queueCreatedLineIndexes(dataEngine, linesWithCustomFields, E.sales.sales_quote_line);
     await emitCrudSideEffects({
       dataEngine,
       action: "created",
@@ -5655,7 +5703,10 @@ const createQuoteCommand: CommandHandler<
       await tx.flush();
     });
   },
-};
+  redo({ input, ctx }): Promise<{ quoteId: string }> {
+    return createQuoteCommand.execute(input, ctx, true);
+  },
+} satisfies CommandHandler<QuoteCreateInput, { quoteId: string }>;
 
 const deleteQuoteCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
@@ -6039,10 +6090,7 @@ async function captureLockedQuoteGraphAfter(
   return loadQuoteSnapshot(em, quoteId);
 }
 
-const updateQuoteCommand: CommandHandler<
-  DocumentUpdateInput,
-  { quote: SalesQuote }
-> = {
+const updateQuoteCommand = {
   id: "sales.quotes.update",
   async prepare(input, ctx) {
     const parsed = documentUpdateSchema.parse(input ?? {});
@@ -6057,7 +6105,11 @@ const updateQuoteCommand: CommandHandler<
     }
     return snapshot ? { before: snapshot } : {};
   },
-  async execute(rawInput, ctx) {
+  async execute(
+    rawInput: DocumentUpdateInput,
+    ctx: CommandRuntimeContext,
+    ignoreMissingTags = false,
+  ): Promise<{ quote: SalesQuote }> {
     const parsed = withExactAmounts(
       documentUpdateSchema.parse(rawInput ?? {}),
       rawInput,
@@ -6090,6 +6142,7 @@ const updateQuoteCommand: CommandHandler<
             entity: quote,
             input: parsed,
             em,
+            ignoreMissingTags,
           });
           // After applyDocumentUpdate, not before it: the reset must not happen
           // for an update that turns out to be invalid, or a rejected payload
@@ -6272,7 +6325,10 @@ const updateQuoteCommand: CommandHandler<
     if (!before) return;
     await undoQuoteGraph(ctx, before, payload?.after);
   },
-};
+  redo({ input, ctx }): Promise<{ quote: SalesQuote }> {
+    return updateQuoteCommand.execute(input, ctx, true);
+  },
+} satisfies CommandHandler<DocumentUpdateInput, { quote: SalesQuote }>;
 
 /**
  * Output contracts for the order commands, consumed by the workflows context
@@ -6317,10 +6373,7 @@ const orderUpdateOutputSchema = z.object({ order: orderEntityOutputSchema });
 
 const orderIdOutputSchema = z.object({ orderId: z.string().uuid() });
 
-const updateOrderCommand: CommandHandler<
-  DocumentUpdateInput,
-  { order: SalesOrder }
-> = {
+const updateOrderCommand = {
   id: "sales.orders.update",
   outputSchema: orderUpdateOutputSchema,
   async prepare(input, ctx) {
@@ -6336,7 +6389,11 @@ const updateOrderCommand: CommandHandler<
     }
     return snapshot ? { before: snapshot } : {};
   },
-  async execute(rawInput, ctx) {
+  async execute(
+    rawInput: DocumentUpdateInput,
+    ctx: CommandRuntimeContext,
+    ignoreMissingTags = false,
+  ): Promise<{ order: SalesOrder }> {
     const parsed = withExactAmounts(
       documentUpdateSchema.parse(rawInput ?? {}),
       rawInput,
@@ -6400,6 +6457,7 @@ const updateOrderCommand: CommandHandler<
             entity: order,
             input: parsed,
             em,
+            ignoreMissingTags,
           });
         },
         // Scalar mutations above are persisted by withAtomicFlush's per-phase
@@ -6613,15 +6671,21 @@ const updateOrderCommand: CommandHandler<
     if (!before) return;
     await undoOrderGraph(ctx, before, payload?.after);
   },
-};
+  redo({ input, ctx }): Promise<{ order: SalesOrder }> {
+    return updateOrderCommand.execute(input, ctx, true);
+  },
+} satisfies CommandHandler<DocumentUpdateInput, { order: SalesOrder }>;
 
-const createOrderCommand: CommandHandler<
-  OrderCreateInput,
-  { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
-> = {
+type CreateOrderResult = { orderId: string; warnings?: OrderPaymentLedgerWarning[] };
+
+const createOrderCommand = {
   id: "sales.orders.create",
   outputSchema: orderIdOutputSchema,
-  async execute(rawInput, ctx) {
+  async execute(
+    rawInput: OrderCreateInput,
+    ctx: CommandRuntimeContext,
+    ignoreMissingTags = false,
+  ): Promise<CreateOrderResult> {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
@@ -6925,6 +6989,7 @@ const createOrderCommand: CommandHandler<
     } catch {
       eventBus = null;
     }
+    let linesWithCustomFields: SalesOrderLine[] = [];
     // Persist the order header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built order committed (#2336).
@@ -6933,7 +6998,7 @@ const createOrderCommand: CommandHandler<
       [
         async () => {
           em.persist(order);
-          await replaceOrderLines(em, order, calculation, modedLineInputs);
+          linesWithCustomFields = await replaceOrderLines(em, order, calculation, modedLineInputs);
           await replaceOrderAdjustments(
             em,
             order,
@@ -6956,6 +7021,7 @@ const createOrderCommand: CommandHandler<
             organizationId: order.organizationId,
             tenantId: order.tenantId,
             tagIds: parsed.tags,
+            ignoreMissing: ignoreMissingTags,
           });
           await setDocumentCustomFieldsIfSupplied(em, {
             entityId: E.sales.sales_order,
@@ -7009,6 +7075,7 @@ const createOrderCommand: CommandHandler<
 
     // Emit CRUD side effects to trigger workflow event listeners
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await queueCreatedLineIndexes(dataEngine, linesWithCustomFields, E.sales.sales_order_line);
     await emitCrudSideEffects({
       dataEngine,
       action: "created",
@@ -7112,7 +7179,10 @@ const createOrderCommand: CommandHandler<
       },
     );
   },
-};
+  redo({ input, ctx }): Promise<CreateOrderResult> {
+    return createOrderCommand.execute(input, ctx, true);
+  },
+} satisfies CommandHandler<OrderCreateInput, CreateOrderResult>;
 
 const deleteOrderCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },

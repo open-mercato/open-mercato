@@ -121,7 +121,7 @@ export async function reindexProductsForCategorySubtree(
         tenantId: target.tenantId,
         organizationId: target.organizationId,
       },
-      { persistent: true, deliverInline: false },
+      { persistent: true, deliverInline: false, tenantId: target.tenantId, organizationId: target.organizationId },
     )
     return { mode: 'reindex', productCount: productIds.length }
   }
