@@ -278,7 +278,7 @@ These variables bound LLM OCR cost amplification and in-process text extraction 
 | `OM_ATTACHMENT_OCR_MAX_OUTPUT_TOKENS` | `4096` | Max output tokens per OCR `generateText` call |
 | `OM_ATTACHMENT_OCR_MAX_CONCURRENCY` | `2` | Concurrency of the `attachments-ocr` queue worker (capped at 20) and of the in-process fallback |
 | `OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE` | `50` | Max waiters blocked on the in-process fallback concurrency slot |
-| `OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES` | `5242880` | Max bytes one XLSX archive entry may decompress to (zip-bomb bound). Parsing the shared-strings table peaks at roughly 40–50× its size in memory, so the default stays low. It also caps each worksheet's XML: a sheet is cut off there and the next one is read, so on large sheets this bound is reached before `OM_ATTACHMENT_SPREADSHEET_MAX_CELLS` |
+| `OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES` | `5242880` | Maximum combined expanded size of all workbook archive entries. Workbooks over this limit are stored without extracted text. The low default limits memory use when parsing shared strings |
 | `OM_ATTACHMENT_SPREADSHEET_MAX_SHEETS` | `10` | Max worksheets read for spreadsheet text extraction. The shared-strings table is parsed again for every sheet read, so this also bounds that repeated work |
 | `OM_ATTACHMENT_SPREADSHEET_MAX_CELLS` | `1000000` | Max grid cells scanned per workbook, empty cells included |
 | `OM_ATTACHMENT_SPREADSHEET_MAX_TEXT_CHARS` | `1000000` | Max characters of text extracted per workbook |

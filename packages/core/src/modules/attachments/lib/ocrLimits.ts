@@ -46,9 +46,8 @@ export function resolveOcrMaxWaitQueue(): number {
 }
 
 /**
- * Max bytes any single spreadsheet archive entry may decompress to (env: OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES).
- * Kept low on purpose: parsing the shared-strings table peaks at roughly 40-50x its size in memory.
- * It also caps each worksheet's XML, so a sheet streamed past it is cut off there and the next sheet is read.
+ * Max combined expanded size of all workbook archive entries (env: OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES).
+ * Workbooks over this limit are rejected before extracting text. The low default limits memory use when parsing shared strings.
  */
 export function resolveSpreadsheetMaxUncompressedBytes(): number {
   return parsePositiveInt(
