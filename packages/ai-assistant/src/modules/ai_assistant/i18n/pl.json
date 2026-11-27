@@ -309,6 +309,7 @@
   "ai_assistant.dock.left": "Dokuj po lewej",
   "ai_assistant.dock.minimize": "Minimalizuj",
   "ai_assistant.dock.right": "Dokuj po prawej",
+  "ai_assistant.errors.mcpSessionTokenRequired": "Uwierzytelnienie nie powiodło się: to wywołanie narzędzia wymaga tokenu sesji (_sessionToken).",
   "ai_assistant.errors.moderationBlocked": "Twoja wiadomość została zablokowana przez filtr bezpieczeństwa treści. Przeformułuj ją i spróbuj ponownie.",
   "ai_assistant.errors.moderationUnavailable": "Sprawdzanie bezpieczeństwa treści jest chwilowo niedostępne. Spróbuj ponownie za chwilę.",
   "ai_assistant.launcher.composerPlaceholder": "Zapytaj o cokolwiek…",
