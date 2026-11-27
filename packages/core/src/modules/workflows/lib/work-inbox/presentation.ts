@@ -110,6 +110,11 @@ export type TaskActionBlockDescriptor = WorkInboxToneClasses & {
    * acting, so taking the row is the supported path.
    */
   remedy: 'reassign' | null
+  /**
+   * Generic sentence rendered when `messageKey` is a host-supplied key the
+   * locale does not carry (completion guards only).
+   */
+  fallbackMessageKey?: string
 }
 
 /**
@@ -152,6 +157,12 @@ const TASK_ACTION_BLOCK_DESCRIPTORS: Record<TaskActionBlockReason, TaskActionBlo
     messageKey: 'workflows.tasks.detail.blocked.unavailable',
     remedy: null,
   },
+  'completion-guard': {
+    ...WARNING,
+    iconName: 'AlertTriangle',
+    messageKey: 'workflows.tasks.detail.blocked.completionGuard',
+    remedy: null,
+  },
 }
 
 /** An unknown reason from a newer server still renders, non-diagnostically. */
@@ -160,4 +171,21 @@ export function describeTaskActionBlock(reason: string): TaskActionBlockDescript
     TASK_ACTION_BLOCK_DESCRIPTORS[reason as TaskActionBlockReason] ??
     TASK_ACTION_BLOCK_DESCRIPTORS.unavailable
   )
+}
+
+/**
+ * A completion-guard refusal speaks the HOST's sentence when the guard named
+ * one, and the generic "a precondition is not met" sentence otherwise.
+ */
+export function describeTaskActionBlockWithGuard(
+  reason: string,
+  completionGuard: { messageKey: string | null } | null | undefined,
+): TaskActionBlockDescriptor {
+  const descriptor = describeTaskActionBlock(reason)
+  if (reason !== 'completion-guard' || !completionGuard?.messageKey) return descriptor
+  return {
+    ...descriptor,
+    messageKey: completionGuard.messageKey,
+    fallbackMessageKey: descriptor.messageKey,
+  }
 }

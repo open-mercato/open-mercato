@@ -14,11 +14,11 @@
  *   3. If inline generation also fails, log + swallow — the snapshot is also
  *      generated lazily on first download, so submit never breaks.
  *
- * Org/tenant scope is re-derived from the persisted submission row (never from
- * the event payload, which is id-only by catalog construction).
+ * The emitter supplies the persisted submission scope through the trusted event context.
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createQueue, resolveQueueStrategy } from '@open-mercato/queue'
 import { FormSubmission } from '../data/entities'
 import type { PdfSnapshotService } from '../services/pdf-snapshot-service'
@@ -35,6 +35,8 @@ type ResolveContainer = {
 }
 
 type SubscriberContext = {
+  tenantId?: string | null
+  organizationId?: string | null
   container: ResolveContainer
 }
 
@@ -50,11 +52,13 @@ export default async function handleSubmissionSubmitted(
   payload: SubmissionSubmittedPayload,
   ctx: SubscriberContext,
 ): Promise<void> {
+  const { tenantId, organizationId } = ctx
+  if (!tenantId || !organizationId) return
   const em = (ctx.container.resolve('em') as EntityManager).fork()
-  const submission = await em.findOne(FormSubmission, {
-    id: payload.submissionId,
-    deletedAt: null,
-  })
+  const submission = await findOneWithDecryption(
+    em, FormSubmission, { id: payload.submissionId, tenantId, organizationId, deletedAt: null },
+    undefined, { tenantId, organizationId },
+  )
   if (!submission || submission.status !== 'submitted') return
   if (submission.pdfSnapshotAttachmentId) return
 

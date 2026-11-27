@@ -155,6 +155,7 @@ export async function bootstrap(container: AwilixContainer) {
     container.register({
       eventBus: asScopedService((caller) => createScopedBus(
         <Value = unknown>(name: string, options?: { allowUnregistered?: boolean }) => caller.resolve<Value>(name, options),
+        caller,
       )),
     })
     return createScopedBus.definitions
@@ -178,6 +179,9 @@ export async function bootstrap(container: AwilixContainer) {
       } catch (telemetryError) {
         logger.warn('Failed to report event bus fallback error', { err: telemetryError })
       }
+      // In extreme cases, provide a no-op bus to avoid crashes. It deliberately
+      // omits `dispatchQueued` so the events worker fails its job loudly instead
+      // of quietly completing it with zero subscribers dispatched.
       definitions = {
         emit: async () => {},
         emitEvent: async () => {},
@@ -379,6 +383,7 @@ export async function bootstrapProcessRoot(root: AwilixContainer): Promise<() =>
     eventBus: asScopedService((caller): EventBus => {
       const bus = createScopedBus(
         <Value = unknown>(name: string, options?: { allowUnregistered?: boolean }) => caller.resolve<Value>(name, options),
+        caller,
       )
       const emit: EventBus['emit'] = (event, payload, options) =>
         runWithRequestScopeContainer(caller, () => bus.emit(event, payload, options))
@@ -386,9 +391,11 @@ export async function bootstrapProcessRoot(root: AwilixContainer): Promise<() =>
         ...bus,
         emit,
         emitEvent: emit,
-        dispatchQueued: (event, payload, options, resolve) => resolve
-          ? bus.dispatchQueued!(event, payload, options, resolve)
-          : runWithRequestScopeContainer(caller, () => bus.dispatchQueued!(event, payload, options)),
+        dispatchQueued: (event, payload, options, resolve, container) => {
+          const dispatch = () => bus.dispatchQueued!(event, payload, options, resolve, container)
+          if (container) return runWithRequestScopeContainer(container, dispatch)
+          return resolve ? dispatch() : runWithRequestScopeContainer(caller, dispatch)
+        },
       }
     }),
   })
