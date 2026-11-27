@@ -10,12 +10,8 @@ import {
 } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-<<<<<<< HEAD
-=======
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
-import { getTelemetryRuntime, reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
-import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
->>>>>>> 49d557d53a (cezar autosave (run finalize) (#10870))
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
@@ -34,7 +30,7 @@ type BuildDocParams = {
 async function recordTokenMaintenanceFailure(em: EntityManager, scope: BuildDocParams, error: unknown): Promise<void> {
   const { entityType, recordId, tenantId, organizationId } = scope
   try {
-    reportTelemetryError(error, {
+    getTelemetryRuntime()?.reportError(error, {
       module: 'query_index',
       code: 'query_index.search_token_maintenance_failed',
       attributes: { entityType, recordId },

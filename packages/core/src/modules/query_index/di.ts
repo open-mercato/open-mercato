@@ -4,7 +4,7 @@ import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY } from '@open-mercato/shared/lib/crud/types'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
-import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
@@ -87,7 +87,7 @@ async function recordBridgeError(input: {
 }): Promise<void> {
   const handler = `event:query_index.crud_bridge.${input.handler}`
   try {
-    reportTelemetryError(input.error, {
+    getTelemetryRuntime()?.reportError(input.error, {
       module: 'query_index',
       code: 'query_index.crud_bridge_failed',
       attributes: { handler, entityType: input.entityType, recordId: input.recordId },
@@ -126,115 +126,7 @@ async function recordBridgeError(input: {
   })
 }
 
-<<<<<<< HEAD
 export function register(container: AppContainer) {
-=======
-const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any) => {
-  let em: EntityManager | null = null
-  let id = ''
-  try {
-    // DataEngine emits the canonical query_index.upsert_one itself. The
-    // bridge only covers domain events from write paths that do not own an
-    // indexer, otherwise failures and error logs are duplicated.
-    if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
-    em = ctx.resolve('em') as EntityManager
-    id = String(payload?.id || payload?.recordId || '')
-    if (!id) return
-    const { organizationId: orgId, tenantId, sourceValidated } = await resolveBridgeRecordScope(
-      em,
-      entityType,
-      id,
-      payload,
-      'upsert',
-    )
-    // Optional: only index when custom field definitions exist for this entity (org/global)
-    let hasCustomFields: boolean | null = null
-    try {
-      const db = (em as any).getKysely()
-      let cfQuery = db
-        .selectFrom('custom_field_defs' as any)
-        .select(['id' as any])
-        .where('entity_id' as any, '=', entityType)
-        .where('is_active' as any, '=', true)
-      if (orgId != null) {
-        cfQuery = cfQuery.where((eb: any) => eb.or([
-          eb('organization_id' as any, '=', orgId),
-          eb('organization_id' as any, 'is', null),
-        ]))
-      } else {
-        cfQuery = cfQuery.where('organization_id' as any, 'is', null as any)
-      }
-      if (tenantId != null) {
-        cfQuery = cfQuery.where((eb: any) => eb.or([
-          eb('tenant_id' as any, '=', tenantId),
-          eb('tenant_id' as any, 'is', null),
-        ]))
-      } else {
-        cfQuery = cfQuery.where('tenant_id' as any, 'is', null as any)
-      }
-      hasCustomFields = !!await cfQuery.executeTakeFirst()
-    } catch (error) {
-      await recordBridgeError({
-        em,
-        handler: 'custom_field_gate',
-        error,
-        entityType,
-        recordId: id,
-        tenantId,
-        organizationId: orgId,
-      })
-    }
-    if (hasCustomFields === false) {
-      if (!sourceValidated) {
-        await resolveBridgeRecordScope(
-          em,
-          entityType,
-          id,
-          payload,
-          'upsert',
-          { validateCompletePayload: true },
-        )
-      }
-      if (isSearchDebugEnabled()) {
-        logger.debug('Skipping CRUD index update: no active custom fields in scope', {
-          entityType,
-          recordId: id,
-          tenantId,
-          organizationId: orgId,
-        })
-      }
-      return
-    }
-    const bus = ctx.resolve('eventBus') as any
-    await bus.emitEvent('query_index.upsert_one', { entityType, recordId: id, organizationId: orgId, tenantId })
-  } catch (error) {
-    await recordBridgeError({ em, handler: 'upsert', error, entityType, recordId: id, payload })
-  }
-}
-const makeDeleteHandler = (entityType: string) => async (payload: any, ctx: any) => {
-  let em: EntityManager | null = null
-  let id = ''
-  try {
-    if (payload?.[CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY] === true) return
-    em = ctx.resolve('em') as EntityManager
-    id = String(payload?.id || payload?.recordId || '')
-    if (!id) return
-    const { organizationId: orgId, tenantId } = await resolveBridgeRecordScope(
-      em,
-      entityType,
-      id,
-      payload,
-      'delete',
-    )
-    const bus = ctx.resolve('eventBus') as any
-    await bus.emitEvent('query_index.delete_one', { entityType, recordId: id, organizationId: orgId, tenantId })
-  } catch (error) {
-    await recordBridgeError({ em, handler: 'delete', error, entityType, recordId: id, payload })
-  }
-}
-
-function registerLegacy(container: AppContainer) {
->>>>>>> 49d557d53a (cezar autosave (run finalize) (#10870))
   // Override queryEngine with hybrid that prefers JSONB index when available
   try {
     const em = (container.resolve('em') as any)
@@ -328,7 +220,17 @@ function registerLegacy(container: AppContainer) {
             cfQuery = cfQuery.where('tenant_id' as any, 'is', null as any)
           }
           hasCustomFields = !!await cfQuery.executeTakeFirst()
-        } catch {}
+        } catch (error) {
+          await recordBridgeError({
+            em,
+            handler: 'custom_field_gate',
+            error,
+            entityType,
+            recordId: id,
+            tenantId,
+            organizationId: orgId,
+          })
+        }
         if (hasCustomFields === false) {
           if (!sourceValidated) {
             await resolveBridgeRecordScope(
@@ -339,6 +241,14 @@ function registerLegacy(container: AppContainer) {
               'upsert',
               { validateCompletePayload: true },
             )
+          }
+          if (isSearchDebugEnabled()) {
+            logger.debug('Skipping CRUD index update: no active custom fields in scope', {
+              entityType,
+              recordId: id,
+              tenantId,
+              organizationId: orgId,
+            })
           }
           return
         }

@@ -4,7 +4,7 @@ const mockDebug = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
-  reportTelemetryError: (...args: unknown[]) => mockReportError(...args),
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
 }))
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({

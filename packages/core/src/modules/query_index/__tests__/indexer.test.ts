@@ -1,14 +1,12 @@
 import { buildIndexDoc, upsertIndexRow, markDeleted, reindexSearchTokensForRecord } from '../../query_index/lib/indexer'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import type { AggregateSearchOptions } from '../lib/document'
-<<<<<<< HEAD
-=======
-import { registerSearchModuleConfigs } from '@open-mercato/shared/modules/search'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
-import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { getEntityIds, registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import handleDeleteOne from '../subscribers/delete_one'
+
+const mockReportError = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
   recordIndexerError: jest.fn(async () => undefined),
@@ -16,9 +14,8 @@ jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
 
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
-  reportTelemetryError: jest.fn(),
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
 }))
->>>>>>> 49d557d53a (cezar autosave (run finalize) (#10870))
 
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: jest.fn(),
@@ -161,7 +158,7 @@ describe('Indexer', () => {
     resolveEncryptionMock.mockReset()
     mockAggregateOverride = null
     jest.mocked(recordIndexerError).mockClear()
-    jest.mocked(reportTelemetryError).mockClear()
+    mockReportError.mockClear()
   })
 
   test('buildIndexDoc composes base row and custom fields (singleton and arrays)', async () => {
@@ -540,7 +537,10 @@ describe('Indexer', () => {
     }
     const em = {
       getKysely: () => fake.db,
-      getMetadata: () => ({ getAll: () => new Map([['Todo', metadata]]) }),
+      getMetadata: () => ({
+        find: (className: string) => className === metadata.className ? metadata : undefined,
+        getAll: () => new Map([['Todo', metadata]]),
+      }),
     }
     const emitEvent = jest.fn(async () => undefined)
     const ctx = {
@@ -596,7 +596,7 @@ describe('Indexer', () => {
       ...scope,
     }))
     expect(jest.mocked(recordIndexerError).mock.calls[0][1]).not.toHaveProperty('payload')
-    expect(reportTelemetryError).toHaveBeenCalledWith(failure, expect.objectContaining({
+    expect(mockReportError).toHaveBeenCalledWith(failure, expect.objectContaining({
       module: 'query_index', code: 'query_index.search_token_maintenance_failed',
     }))
   })
