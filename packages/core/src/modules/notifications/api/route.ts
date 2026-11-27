@@ -172,7 +172,10 @@ export async function GET(req: Request) {
     filters.sourceEntityId = input.sourceEntityId
   }
   if (input.since) {
-    filters.createdAt = { $gt: new Date(input.since) }
+    // Inclusive bound: a strict `$gt` can miss a notification that shares the last-seen
+    // `createdAt` (millisecond precision, not unique). Callers that re-poll with the newest
+    // `createdAt` they have seen as `since` must de-duplicate by `id` on their side.
+    filters.createdAt = { $gte: new Date(input.since) }
   }
 
   const [notifications, total] = await Promise.all([

@@ -999,6 +999,57 @@ describe('notification service', () => {
     })
   })
 
+  it('includes a notification that shares the since cursor timestamp (inclusive bound)', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const since = '2026-07-22T12:00:00.000Z'
+    const tiedNotification = {
+      id: 'tied-notification',
+      createdAt: new Date(since),
+      status: 'unread',
+    } as unknown as Notification
+    em.find.mockResolvedValue([tiedNotification])
+    em.count.mockResolvedValue(0)
+    const service = createNotificationService({ em, eventBus })
+
+    const result = await service.getPollData(baseCtx, since)
+
+    expect(em.find).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      createdAt: { $gte: new Date(since) },
+    }), {
+      orderBy: { createdAt: 'desc' },
+      limit: 50,
+    })
+    expect(result.recent.map((item) => item.id)).toEqual(['tied-notification'])
+    // No notification is strictly newer than `since`, so this is a re-delivery of the
+    // already-seen boundary row, not new data for the caller to surface.
+    expect(result.hasNew).toBe(false)
+  })
+
+  it('reports hasNew only when a notification is strictly newer than the since cursor', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const since = '2026-07-22T12:00:00.000Z'
+    const tiedNotification = {
+      id: 'tied-notification',
+      createdAt: new Date(since),
+      status: 'unread',
+    } as unknown as Notification
+    const newerNotification = {
+      id: 'newer-notification',
+      createdAt: new Date('2026-07-22T12:00:01.000Z'),
+      status: 'unread',
+    } as unknown as Notification
+    em.find.mockResolvedValue([newerNotification, tiedNotification])
+    em.count.mockResolvedValue(0)
+    const service = createNotificationService({ em, eventBus })
+
+    const result = await service.getPollData(baseCtx, since)
+
+    expect(result.hasNew).toBe(true)
+    expect(result.recent.map((item) => item.id)).toEqual(['newer-notification', 'tied-notification'])
+  })
+
   it('executes notification action via command bus', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
