@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { createModuleQueue, createQueue, resolveQueueStrategy, type Queue } from '@open-mercato/queue'
@@ -27,16 +28,23 @@ export const integrationMeta = { dependsOnModules: ['customers', 'auth', 'direct
  * has locked the interaction row before it blocks on comments. A relink to D must then wait for the
  * worker to publish B and release its row lock.
  *
- * Published CRUD events are observed through a webhook subscribed to `customers.interaction.updated`:
- * the webhooks module's persistent `*` subscriber records one delivery per published event, in
- * publish order, with the event payload. The last delivery for the interaction that carries a Deal
- * link from the replay must precede the edit delivery, and no later delivery may point back to B.
+ * Publication order is the order of jobs in the durable `events` queue. The worker enqueues B while
+ * it holds the interaction row lock and runs no persistent subscriber in that window, so B must be
+ * queued before the edit can enqueue its own event. The integration runtime delivers persistent
+ * subscribers inline in the emitting request (`OM_EVENTS_SINGLE_DELIVERY=false`), so the edit's
+ * webhook delivery is written by the API request while B's is written by the events worker; webhook
+ * delivery timestamps therefore do not reflect publication order. Before the comments lock is
+ * released the test takes a SHARE lock on `webhook_deliveries`. Every persistent webhook dispatch,
+ * inline or queued, then waits on that lock, so neither B's queued job nor a not-yet-dispatched edit
+ * event can leave or bypass the queue while it is inspected. With the lock held the merge-effects job
+ * must still complete (no persistent subscriber may be awaited under its row locks), B must be in
+ * the queue, and an edit event, if already queued, must follow it. A worker that publishes only after
+ * commit, or that awaits inline persistent subscribers under its row locks, cannot queue B there.
  *
- * The replay is asserted only once publishing has settled: the replayed job has completed (so every
- * event it emitted is already stored in the `events` queue), the `events` queue holds no waiting or
- * active job, its failed count did not grow, and the interaction's deliveries stayed identical over
- * EVENTS_SETTLE_STABLE_POLLS consecutive polls. A late B publish therefore has a delivery before the
- * assertion runs and cannot pass unnoticed.
+ * Webhook deliveries are asserted only once publishing has settled: the `events` queue holds no
+ * waiting or active job, its failed count did not grow, and the interaction's deliveries stayed
+ * identical over EVENTS_SETTLE_STABLE_POLLS consecutive polls. Both the replayed B delivery and the
+ * edit delivery must then be recorded.
  */
 
 const APP_ROOT = resolveAppRoot()
@@ -67,6 +75,8 @@ type DeliveryDetail = { id: string; createdAt: string; payload?: { data?: Record
 type PublishedUpdate = { deliveryId: string; createdAt: number; dealId: string | null; carriesDeal: boolean }
 type QueueCounts = Awaited<ReturnType<Queue<unknown>['getJobCounts']>>
 type SettledUpdates = { updates: PublishedUpdate[]; eventsFailed: number }
+type QueuedUpdate = { jobId: string; carriesDeal: boolean; dealId: string | null }
+type StoredEventJob = { id: string; payload?: { event?: string; payload?: Record<string, unknown> } }
 
 type Fixture = {
   token: string
@@ -291,6 +301,45 @@ async function readEventsQueueCounts(): Promise<QueueCounts> {
   }
 }
 
+async function readQueuedInteractionUpdates(interactionId: string): Promise<QueuedUpdate[]> {
+  const baseDir = process.env.QUEUE_BASE_DIR?.trim() || path.resolve(APP_ROOT, '.mercato/queue')
+  const raw = await readFile(path.join(baseDir, EVENTS_QUEUE, 'queue.json'), 'utf8')
+  const jobs = JSON.parse(raw) as StoredEventJob[]
+  return jobs.flatMap((job) => {
+    const data = job.payload?.payload
+    if (job.payload?.event !== INTERACTION_UPDATED || !data || data.id !== interactionId) return []
+    return [{
+      jobId: job.id,
+      carriesDeal: Object.prototype.hasOwnProperty.call(data, 'dealId'),
+      dealId: typeof data.dealId === 'string' ? data.dealId : null,
+    }]
+  })
+}
+
+async function countDeliveryInsertsWaiting(deliveryBlockerPid: number): Promise<number> {
+  return withClient(async (client) => {
+    const result = await client.query<{ waiting: string }>(
+      `select count(*) as waiting
+         from pg_stat_activity activity
+        where $1 = any(pg_blocking_pids(activity.pid))`,
+      [deliveryBlockerPid],
+    )
+    return Number(result.rows[0]?.waiting ?? 0)
+  })
+}
+
+async function readDurablePublicationOrder(
+  deliveryBlockerPid: number,
+  interactionId: string,
+): Promise<QueuedUpdate[]> {
+  return waitUntil('the replayed event is queued and the edit has queued or awaits webhook dispatch', async () => {
+    const queued = await readQueuedInteractionUpdates(interactionId)
+    const editQueued = queued.some((update) => !update.carriesDeal)
+    const editAwaitsDispatch = (await countDeliveryInsertsWaiting(deliveryBlockerPid)) >= 2
+    return editQueued || editAwaitsDispatch ? queued : null
+  })
+}
+
 async function readSettledPublishedUpdates(
   request: APIRequestContext,
   token: string,
@@ -345,6 +394,7 @@ test.describe('TC-CRM-DEAL-MERGE-EVENT-ORDER: deferred effects preserve per-reco
       testInfo.config.workers,
       'customer_comments is locked table-wide, so this spec requires a single Playwright worker',
     ).toBe(1)
+    test.skip(resolveQueueStrategy() === 'async', 'publication order is read from the local events queue file')
     test.slow()
     const fixture: Fixture = {
       token: await getAuthToken(request, 'admin'),
@@ -432,10 +482,31 @@ test.describe('TC-CRM-DEAL-MERGE-EVENT-ORDER: deferred effects preserve per-reco
           await waitForEditBlockedByWorker(workerPid)
           expect(editSettled, 'the edit must remain in flight while the worker owns the interaction row').toBe(false)
 
-          await releasePause(blocker, paused)
-          paused = false
-          await drain
-          await waitForMergeEffectsCompletion(expectedCounts)
+          await withClient(async (deliveryBlocker) => {
+            await deliveryBlocker.query('begin')
+            try {
+              await deliveryBlocker.query("set local lock_timeout = '10s'")
+              const deliveryBlockerPid = (await deliveryBlocker.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid
+              await deliveryBlocker.query('lock table webhook_deliveries in share mode')
+              await releasePause(blocker, paused)
+              paused = false
+              await drain
+              await waitForMergeEffectsCompletion(expectedCounts)
+              const queued = await readDurablePublicationOrder(deliveryBlockerPid, interactionId)
+              const queuedMergeIndex = queued.findIndex((update) => update.carriesDeal && update.dealId === dealB)
+              const queuedEditIndex = queued.findIndex((update) => !update.carriesDeal)
+              expect(queuedMergeIndex, 'the replayed B event must be durably queued before any webhook dispatch runs').toBeGreaterThanOrEqual(0)
+              if (queuedEditIndex >= 0) {
+                expect(queuedEditIndex, 'the edit event must be queued after the replayed B event').toBeGreaterThan(queuedMergeIndex)
+              }
+              expect(
+                queued.slice(queuedMergeIndex + 1).some((update) => update.carriesDeal && update.dealId === dealB),
+                'no superseded B event may be queued after the replayed one',
+              ).toBe(false)
+            } finally {
+              await deliveryBlocker.query('rollback')
+            }
+          })
           return await edit
         } finally {
           await releasePause(blocker, paused)
@@ -451,11 +522,11 @@ test.describe('TC-CRM-DEAL-MERGE-EVENT-ORDER: deferred effects preserve per-reco
       const replayedMergeIndex = replayUpdates.findIndex((update) => update.carriesDeal && update.dealId === dealB)
       const editIndex = replayUpdates.findIndex((update) => !update.carriesDeal)
       expect(replayedMergeIndex, 'the replayed B delivery must be recorded').toBeGreaterThanOrEqual(0)
-      expect(editIndex, 'the later edit delivery must be recorded').toBeGreaterThan(replayedMergeIndex)
+      expect(editIndex, 'the later edit delivery must be recorded').toBeGreaterThanOrEqual(0)
       expect(
-        replayUpdates.slice(editIndex + 1).some((update) => update.carriesDeal && update.dealId === dealB),
-        'no superseded B delivery may follow the edit delivery',
-      ).toBe(false)
+        replayUpdates.filter((update) => update.carriesDeal && update.dealId === dealB),
+        'the replay must publish B exactly once',
+      ).toHaveLength(1)
 
       await expect.poll(() => readProjectionDealId(interactionId), {
         message: 'the interaction projection must point at D',

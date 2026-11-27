@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createEventBus } from '@open-mercato/events/index'
+import { createEventBus, registerGlobalEventTap } from '@open-mercato/events/index'
 import type { SubscriberDescriptor } from '@open-mercato/events/types'
 
 /**
@@ -275,5 +275,35 @@ describe('Event bus enqueue-only persistent emit (deliverInline: false)', () => 
     await bus.emit('demo', { a: 1 }, { persistent: true })
 
     expect(calls).toEqual(['persistent-sub'])
+  })
+
+  test('skipInlineDispatch leaves all process-local delivery for a later inline emit', async () => {
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
+    const calls: string[] = []
+    const unregister = registerGlobalEventTap(() => { calls.push('tap') })
+    try {
+      const bus = createEventBus({ resolve: ((name: string) => name) as never })
+      bus.registerModuleSubscribers([
+        pushHandler('persistent-sub', 'demo', true, calls),
+        pushHandler('ephemeral-sub', 'demo', false, calls),
+      ])
+
+      await bus.emit('demo', { a: 1 }, {
+        persistent: true,
+        deliverInline: false,
+        skipInlineDispatch: true,
+      })
+      expect(calls).toEqual([])
+
+      await bus.emit('demo', { a: 1 }, {
+        persistent: false,
+        skipPersistentSubscribersInline: true,
+      })
+      expect(calls).toEqual(['tap', 'ephemeral-sub'])
+      const queuePath = path.join(path.resolve('.mercato/queue', 'events'), 'queue.json')
+      expect(JSON.parse(fs.readFileSync(queuePath, 'utf8'))).toHaveLength(1)
+    } finally {
+      unregister()
+    }
   })
 })

@@ -97,6 +97,13 @@ export type EmitOptions = {
    */
   deliverInline?: boolean
   /**
+   * Skips every process-local delivery path (global taps, broadcasts, and
+   * subscribers) while still enqueueing a persistent event. This is intended
+   * for callers that must durably enqueue before releasing database locks and
+   * will perform the matching inline-only emit after commit.
+   */
+  skipInlineDispatch?: boolean
+  /**
    * Skips subscribers registered as persistent during inline delivery while
    * preserving ephemeral subscribers, global taps, and broadcast delivery.
    * Persistent emits still enqueue those subscribers for worker dispatch.

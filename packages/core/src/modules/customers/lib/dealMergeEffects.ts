@@ -190,15 +190,19 @@ export async function processDeferredDealMergeEffects(
       }
       resolved = await resolveDeferredDealMergeEffects(em, chunk)
       markDealMergeEffects(dataEngine, resolved.current)
-      await dataEngine.flushOrmEntityChanges({ skipReindex: true, rethrowEventErrors: true })
+      await dataEngine.flushOrmEntityChanges({
+        skipReindex: true,
+        rethrowEventErrors: true,
+        eventDispatch: 'enqueue-only',
+      })
       await em.commit()
     } catch (error) {
       await em.rollback()
       throw error
     }
-    markDealMergeEffects(dataEngine, resolved.current, { publishEvents: false })
+    markDealMergeEffects(dataEngine, resolved.current)
     markDealMergeEffects(dataEngine, resolved.superseded, { publishEvents: false })
-    await dataEngine.flushOrmEntityChanges()
+    await dataEngine.flushOrmEntityChanges({ eventDispatch: 'inline-only' })
   }
 }
 

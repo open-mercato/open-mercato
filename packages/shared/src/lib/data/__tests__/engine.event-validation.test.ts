@@ -214,4 +214,24 @@ describe('DataEngine event contract validation (issue #1421)', () => {
 
     await expect(retryable.engine.flushOrmEntityChanges({ rethrowEventErrors: true })).rejects.toThrow(failure)
   })
+
+  it('maps split event dispatch onto enqueue-only and inline-only bus options', async () => {
+    const fixture = makeFixture()
+    const mark = () => fixture.engine.markOrmEntityChange({
+      action: 'updated',
+      entity: { id: identifiers.id },
+      identifiers,
+      events: { module: 'issue1421_test', entity: 'widget', persistent: true },
+    })
+
+    mark()
+    await fixture.engine.flushOrmEntityChanges({ eventDispatch: 'enqueue-only' })
+    mark()
+    await fixture.engine.flushOrmEntityChanges({ eventDispatch: 'inline-only' })
+
+    expect(fixture.emitted.map((event) => event.options)).toEqual([
+      expect.objectContaining({ persistent: true, deliverInline: false, skipInlineDispatch: true }),
+      expect.objectContaining({ persistent: false, skipPersistentSubscribersInline: true }),
+    ])
+  })
 })

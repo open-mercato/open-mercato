@@ -27,7 +27,10 @@ import { createLogger } from '../logger'
 import { createBoundedTtlMemo } from '../query/bounded-ttl-memo'
 import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryptionService'
 
-type OrmSideEffectOptions = BulkImportSuppression & { rethrowEventErrors?: boolean }
+type OrmSideEffectOptions = BulkImportSuppression & {
+  rethrowEventErrors?: boolean
+  eventDispatch?: 'enqueue-only' | 'inline-only'
+}
 
 const logger = createLogger('shared').child({ component: 'data-engine' })
 
@@ -813,8 +816,12 @@ export class DefaultDataEngine implements DataEngine {
           )
         : builtPayload
       try {
+        const enqueueOnly = suppress?.eventDispatch === 'enqueue-only'
+        const inlineOnly = suppress?.eventDispatch === 'inline-only'
         await bus.emitEvent(eventName, payload, {
-          persistent: !!events.persistent,
+          persistent: inlineOnly ? false : !!events.persistent,
+          ...(enqueueOnly ? { deliverInline: false, skipInlineDispatch: true } : {}),
+          ...(inlineOnly ? { skipPersistentSubscribersInline: true } : {}),
           tenantId: ctx.identifiers.tenantId ?? null,
           organizationId: ctx.identifiers.organizationId ?? null,
           emitterModuleId: events.module,

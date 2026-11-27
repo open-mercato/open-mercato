@@ -1,8 +1,12 @@
 /** @jest-environment node */
 
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob } from '@open-mercato/queue'
+import { createEventBus } from '@open-mercato/events'
 import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import handle from '../../workers/deal-merge-effects'
 import { markDealMergeEffects, type DealMergeEffectsJob } from '../dealMergeEffects'
@@ -65,9 +69,9 @@ function buildStore(rows: StoredRow[]) {
 }
 
 function buildEngine(order?: string[], eventError?: Error) {
-  const emitEvent = jest.fn(async (name: string) => {
+  const emitEvent = jest.fn(async (name: string, _payload: unknown, options?: { persistent?: boolean }) => {
     order?.push(name)
-    if (eventError && name.startsWith('customers.')) throw eventError
+    if (eventError && name.startsWith('customers.') && options?.persistent === true) throw eventError
   })
   const container = {
     resolve: (token: string) => {
@@ -76,7 +80,11 @@ function buildEngine(order?: string[], eventError?: Error) {
     },
   } as unknown as AwilixContainer
   const engine = new DefaultDataEngine({} as EntityManager, container)
-  const calls = () => emitEvent.mock.calls.map(([name, payload]) => ({ name: name as string, payload: payload as Record<string, unknown> }))
+  const calls = () => emitEvent.mock.calls.map(([name, payload, options]) => ({
+    name: name as string,
+    payload: payload as Record<string, unknown>,
+    options: options as { persistent?: boolean },
+  }))
   return { engine, calls }
 }
 
@@ -121,8 +129,10 @@ function commentRow(dealId: string, updatedAt: string): StoredRow {
   return { table: 'customer_comments', id: commentId, entity_id: companyId, deal_id: dealId, updated_at: updatedAt, deleted: false }
 }
 
-function interactionEvents(calls: Array<{ name: string; payload: Record<string, unknown> }>) {
-  return calls.filter((call) => call.name === 'customers.interaction.updated' && call.payload.id === interactionId)
+function interactionEvents(calls: Array<{ name: string; payload: Record<string, unknown>; options?: { persistent?: boolean } }>) {
+  return calls.filter((call) => call.name === 'customers.interaction.updated'
+    && call.payload.id === interactionId
+    && call.options?.persistent === true)
 }
 
 function upsertsFor(calls: Array<{ name: string; payload: Record<string, unknown> }>, entityType: string, recordId: string) {
@@ -169,7 +179,7 @@ describe('deferred deal merge effects carry the moved version', () => {
     expect(upsertsFor(calls(), 'customers:customer_interaction', interactionId)).toEqual([
       expect.objectContaining({ payload: expect.objectContaining({ tenantId, organizationId, crudAction: 'updated' }) }),
     ])
-    const commentEvents = calls().filter((call) => call.name === 'customers.comment.updated')
+    const commentEvents = calls().filter((call) => call.name === 'customers.comment.updated' && call.options.persistent === true)
     expect(commentEvents).toHaveLength(1)
     expect(commentEvents[0].payload).toMatchObject({ id: commentId, dealId: dealB, entityId: companyId, tenantId, organizationId })
   })
@@ -250,6 +260,50 @@ describe('deferred deal merge effects carry the moved version', () => {
     expect(em.commit).not.toHaveBeenCalled()
   })
 
+  it('durably enqueues before commit without awaiting inline subscribers under the row lock', async () => {
+    const originalCwd = process.cwd()
+    const originalSingleDelivery = process.env.OM_EVENTS_SINGLE_DELIVERY
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'deal-merge-event-lock-'))
+    process.chdir(tmp)
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+
+    let releaseSubscriber!: () => void
+    let reportSubscriberStarted!: () => void
+    const subscriberRelease = new Promise<void>((resolve) => { releaseSubscriber = resolve })
+    const subscriberStarted = new Promise<void>((resolve) => { reportSubscriberStarted = resolve })
+    const bus = createEventBus({ resolve: ((name: string) => name) as never, queueStrategy: 'local' })
+    bus.on('customers.interaction.updated', async () => {
+      reportSubscriberStarted()
+      await subscriberRelease
+    }, { id: 'test:inline', persistent: false })
+    const container = {
+      resolve: (token: string) => {
+        if (token === 'eventBus') return bus
+        throw new Error(`[internal] unexpected resolve(${token})`)
+      },
+    } as unknown as AwilixContainer
+    const engine = new DefaultDataEngine({} as EntityManager, container)
+    const { em } = buildStore([interactionRow(dealB, firstMergeVersion)])
+    let worker: Promise<void> | undefined
+
+    try {
+      worker = runWorker(engine, em, firstMergeJob(firstMergeVersion))
+      await subscriberStarted
+
+      expect(em.commit).toHaveBeenCalledTimes(1)
+      const queuePath = path.join(tmp, '.mercato/queue/events/queue.json')
+      const queued = JSON.parse(fs.readFileSync(queuePath, 'utf8')) as Array<{ payload?: { event?: string } }>
+      expect(queued.some((entry) => entry.payload?.event === 'customers.interaction.updated')).toBe(true)
+    } finally {
+      releaseSubscriber()
+      await worker
+      process.chdir(originalCwd)
+      if (originalSingleDelivery === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
+      else process.env.OM_EVENTS_SINGLE_DELIVERY = originalSingleDelivery
+      fs.rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
   it('bounds each locking transaction to one hundred records', async () => {
     const records = Array.from({ length: 250 }, (_, index) => ({
       id: `interaction-${index}`,
@@ -297,7 +351,7 @@ describe('deferred deal merge effects carry the moved version', () => {
 
     expect(interactionEvents(calls())).toEqual([])
     expect(upsertsFor(calls(), 'customers:customer_interaction', interactionId)).toEqual([])
-    const commentEvents = calls().filter((call) => call.name === 'customers.comment.updated')
+    const commentEvents = calls().filter((call) => call.name === 'customers.comment.updated' && call.options.persistent === true)
     expect(commentEvents.map((call) => call.payload.dealId)).toEqual([dealB, dealB])
   })
 })

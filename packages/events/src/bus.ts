@@ -644,6 +644,7 @@ function createEventBusWithState(
     payload: EventPayload,
     options?: EmitOptions
   ): Promise<void> {
+    const skipInlineDispatch = Boolean(options?.persistent) && options?.skipInlineDispatch === true
     const runGlobalTaps = async (): Promise<void> => {
       const taps = getGlobalEventTaps()
       for (const tap of taps) {
@@ -685,18 +686,20 @@ function createEventBusWithState(
     // with it every tap's delivery — without touching subscriber, webhook or
     // queue semantics below. A tap on a coalesced event sees the same suppressed,
     // trailing-flush-guaranteed stream the browser does, not one call per record.
-    const coalesceBrowserDelivery = isCoalescedBroadcastEvent(event)
+    const coalesceBrowserDelivery = !skipInlineDispatch && isCoalescedBroadcastEvent(event)
       && resolveBroadcastCoalesceIntervalMs() > 0
-    if (coalesceBrowserDelivery) {
-      await submitBroadcast(
-        buildBroadcastCoalesceKey(event, payload, options),
-        async () => {
-          await runGlobalTaps()
-          await publishToOtherProcesses()
-        },
-      )
-    } else {
-      await runGlobalTaps()
+    if (!skipInlineDispatch) {
+      if (coalesceBrowserDelivery) {
+        await submitBroadcast(
+          buildBroadcastCoalesceKey(event, payload, options),
+          async () => {
+            await runGlobalTaps()
+            await publishToOtherProcesses()
+          },
+        )
+      } else {
+        await runGlobalTaps()
+      }
     }
 
     // Deliver to in-memory handlers first. Under single-delivery, persistent
@@ -708,7 +711,8 @@ function createEventBusWithState(
     // worker, off the caller's request path (the queued enqueue below still
     // happens). Without this, a persistent emit dual-dispatches by default and
     // runs the subscriber inline in the caller's request too.
-    const enqueueOnly = Boolean(options?.persistent) && options?.deliverInline === false
+    const enqueueOnly = Boolean(options?.persistent)
+      && (options?.deliverInline === false || skipInlineDispatch)
     // Read the mode once so the inline skip and the stamp below cannot disagree.
     const singleDelivery = isSingleDeliveryEnabled()
     const skipPersistentInline = options?.skipPersistentSubscribersInline === true
@@ -721,7 +725,7 @@ function createEventBusWithState(
 
     // Already dispatched with the taps when this event coalesces its browser
     // delivery; otherwise it publishes here, exactly where it always has.
-    if (!coalesceBrowserDelivery) {
+    if (!skipInlineDispatch && !coalesceBrowserDelivery) {
       await publishToOtherProcesses()
     }
 

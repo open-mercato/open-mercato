@@ -11,6 +11,15 @@ const tenantId = 'tenant-1'
 const organizationId = 'org-1'
 const bridgedId = 'bridged-activity-id'
 const survivorId = 'survivor-deal'
+const crudEventNames = ['customers.activity.updated', 'customers.interaction.updated']
+
+type CallOptions = {
+  persistent?: boolean
+  deliverInline?: boolean
+  skipInlineDispatch?: boolean
+  skipPersistentSubscribersInline?: boolean
+}
+type EmittedCall = { name: string; payload: Record<string, unknown>; options: CallOptions }
 
 function buildJob(): DealMergeEffectsJob {
   return {
@@ -33,11 +42,15 @@ function buildEngine() {
     },
   } as unknown as AwilixContainer
   const engine = new DefaultDataEngine({} as EntityManager, container)
-  const calls = () => emitEvent.mock.calls.map(([name, payload]) => ({ name: name as string, payload: payload as Record<string, unknown> }))
+  const calls = (): EmittedCall[] => emitEvent.mock.calls.map(([name, payload, options]) => ({
+    name: name as string,
+    payload: payload as Record<string, unknown>,
+    options: (options ?? {}) as CallOptions,
+  }))
   return { engine, calls }
 }
 
-function expectBothRecordsUpdated(calls: Array<{ name: string; payload: Record<string, unknown> }>) {
+function expectBothRecordsUpdated(calls: EmittedCall[]) {
   const activityEvents = calls.filter((call) => call.name === 'customers.activity.updated')
   const interactionEvents = calls.filter((call) => call.name === 'customers.interaction.updated')
   expect(activityEvents).toHaveLength(1)
@@ -87,6 +100,16 @@ describe('deal merge effects for a bridged activity sharing its id with an inter
 
     await handle(job, { ...context, resolve })
 
-    expectBothRecordsUpdated(calls())
+    const durable = calls().filter((call) => call.options.skipInlineDispatch === true)
+    const processLocal = calls().filter((call) => call.options.skipInlineDispatch !== true)
+    expect(durable.map((call) => call.name).sort()).toEqual(crudEventNames)
+    for (const call of durable) {
+      expect(call.options).toMatchObject({ persistent: true, deliverInline: false })
+      expect(call.payload).toMatchObject({ id: bridgedId, dealId: survivorId, tenantId, organizationId })
+    }
+    expectBothRecordsUpdated(processLocal)
+    for (const call of processLocal.filter((entry) => crudEventNames.includes(entry.name))) {
+      expect(call.options).toMatchObject({ persistent: false, skipPersistentSubscribersInline: true })
+    }
   })
 })
