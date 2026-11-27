@@ -446,6 +446,7 @@
   "resources.resources.detail.untitled": "Unbenannte Ressource",
   "resources.resources.errors.resourceTypeDeleted": "Dadurch würde die Ressource einem gelöschten Ressourcentyp zugeordnet. Stellen Sie zuerst den Ressourcentyp wieder her.",
   "resources.resources.errors.resourceTypeUnavailable": "Der ausgewählte Ressourcentyp ist nicht mehr verfügbar.",
+  "resources.resources.flash.created": "Ressource erstellt.",
   "resources.resources.flash.createdAvailability": "Gespeichert. Du kannst jetzt die Verfügbarkeit festlegen.",
   "resources.resources.form.actions.create": "Erstellen",
   "resources.resources.form.appearance.colorClear": "Farbe entfernen",

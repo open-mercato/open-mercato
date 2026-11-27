@@ -12,7 +12,7 @@ import { getTokenContext } from '@open-mercato/core/modules/core/__integration__
  */
 test.describe('TC-AUTH-018: Password Change & Session Invalidation', () => {
   const stamp = Date.now()
-  const initialPassword = 'Valid1!Pass'
+  const initialPassword = 'QaValid1!Pass'
 
   let adminToken: string | null = null
   let organizationId: string | null = null

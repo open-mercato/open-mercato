@@ -13,7 +13,7 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
     const stamp = Date.now();
     const roleName = `qa-int-004-role-${stamp}`;
     const email = `qa-int-004-${stamp}@acme.com`;
-    const password = 'Valid1!Pass';
+    const password = 'QaValid1!Pass';
     let token: string | null = null;
     let roleId: string | null = null;
     let userId: string | null = null;

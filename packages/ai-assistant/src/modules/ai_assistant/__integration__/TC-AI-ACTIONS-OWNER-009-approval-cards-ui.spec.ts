@@ -34,7 +34,7 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 const PLAYGROUND = '/backend/config/ai-assistant/playground';
 const AGENT_ID = 'catalog.merchandising_assistant';
 const TOOL_NAME = 'catalog.update_product';
-const PASSWORD = 'Secret123!';
+const PASSWORD = 'QaSecret123!';
 
 type Cleanup = () => Promise<void>;
 

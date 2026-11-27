@@ -14,7 +14,7 @@ const logger = createLogger('app').child({ component: 'ClientBootstrap' })
 // a disabled widget reappears on hydration (#5152). Only the domains backing the
 // registries below are dispatched — the rest stay server-only, so a domain whose
 // applier never loads in the browser is not reported as unwired.
-export const CLIENT_OVERRIDE_DOMAINS: readonly ModuleOverrideDomain[] = ['widgets', 'notifications']
+export const CLIENT_OVERRIDE_DOMAINS: readonly ModuleOverrideDomain[] = ['widgets', 'notifications', 'forms']
 
 let moduleOverridesPromise: Promise<void> | null = null
 
@@ -84,9 +84,39 @@ export function ensureModuleOverridesApplied(): Promise<void> {
   return promise
 }
 
+let formSectionsPromise: Promise<void> | null = null
+
+export function ensureCrudFormSectionRegistry(): Promise<void> {
+  if (formSectionsPromise) return formSectionsPromise
+  const promise = (async () => {
+    const runtime = await import('@open-mercato/shared/lib/crud/form-sections/client-registry')
+    try {
+      await ensureModuleOverridesApplied()
+      if (!moduleOverridesPromise) throw new Error('[internal] CrudForm section overrides did not load')
+      const generated = await import('@/.mercato/generated/crud-form-section-runtime.generated')
+      runtime.registerCrudFormSectionClientRegistry({
+        hostFacts: generated.crudFormSectionClientHostFacts,
+        runtimeEntries: generated.crudFormSectionRuntimeEntries,
+        versionedSinks: generated.crudFormSectionClientVersionedSinks,
+        contributedOverrides: generated.crudFormSectionContributedOverrides,
+      })
+    } catch (error) {
+      runtime.failCrudFormSectionClientRegistry()
+      throw error
+    }
+  })().catch((error) => {
+    formSectionsPromise = null
+    getTelemetryRuntime()?.reportError(error, { module: 'client_bootstrap', code: 'client_bootstrap.form_sections_failed' })
+    logger.error('Failed to register client CrudForm section descriptors', { err: error })
+  })
+  formSectionsPromise = promise
+  return promise
+}
+
 /** @__internal Test-only hook — forget that the dispatch already ran. */
 export function resetModuleOverridesAppliedForTests(): void {
   moduleOverridesPromise = null
+  formSectionsPromise = null
 }
 
 export type ClientBootstrapProfile =
@@ -278,6 +308,10 @@ export function ClientBootstrapProvider({
 }) {
   const promise = bootstrapProfile(profile)
   const hasRegistryGroups = groupsForProfile(profile).length > 0
+
+  React.useEffect(() => {
+    if (profile.startsWith('backend')) void ensureCrudFormSectionRegistry()
+  }, [profile])
 
   React.useEffect(() => {
     if (!hasRegistryGroups) return

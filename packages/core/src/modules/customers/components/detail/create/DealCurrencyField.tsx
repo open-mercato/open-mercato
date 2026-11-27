@@ -5,6 +5,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '../hooks/useCurrencyDictionary'
+import { formatCurrencyOptionLabel } from '../../../lib/currencyOptionLabel'
 
 const CURRENCY_PRIORITY = ['EUR', 'USD', 'GBP', 'PLN'] as const
 
@@ -51,7 +52,7 @@ export function DealCurrencyField({ id, value, onChange, disabled = false }: Dea
     const remainder: { value: string; label: string; color: string | null; icon: string | null }[] = []
     payload.entries.forEach((entry) => {
       const code = entry.value.toUpperCase()
-      const label = entry.label && entry.label.length ? `${code} – ${entry.label}` : code
+      const label = formatCurrencyOptionLabel(code, entry.label)
       const option = { value: code, label, color: null, icon: null }
       if (priorityOrder.has(code)) prioritized.push(option)
       else remainder.push(option)

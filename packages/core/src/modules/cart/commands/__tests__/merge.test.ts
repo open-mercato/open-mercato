@@ -28,6 +28,7 @@ let seededProducts: FakeRow[] = []
 const mockFindOneWithDecryption = jest.fn(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
   if (entity === Cart) return seededCarts.find((row) => matchesWhere(row, where)) ?? null
   if (entity === CartLine) return seededCartLines.find((row) => matchesWhere(row, where)) ?? null
+  if (entity === CartMergeLog) return seededMergeLogs.find((row) => matchesWhere(row, where)) ?? null
   return null
 })
 
@@ -233,6 +234,8 @@ function makeEm() {
     }),
     remove: jest.fn(() => undefined),
     flush: jest.fn(async () => undefined),
+    isInTransaction: jest.fn(() => false),
+    execute: jest.fn(async () => [{ locked: true }]),
     begin: jest.fn(async () => undefined),
     commit: jest.fn(async () => undefined),
     rollback: jest.fn(async () => undefined),
@@ -365,6 +368,29 @@ beforeEach(() => {
 })
 
 describe('cart.merge — §7.1 policy rows', () => {
+  it('revalidates the storefront token under the paired cart lock', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target', tokenHash: 'previous-token-hash' }),
+      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-token') }),
+    ]
+    const em = makeEm()
+    em.execute.mockImplementationOnce(async () => {
+      seededCarts[0] = { ...seededCarts[0], tokenHash: 'current-token-hash' }
+      return [{ locked: true }]
+    })
+
+    await expect(getMergeHandler().execute({
+      targetCartId: 'cart-target',
+      expectedTargetTokenHash: 'previous-token-hash',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      sourceToken: 'guest-token',
+      routeContext: makeRouteContext(),
+    }, makeCtx({ em }))).rejects.toMatchObject({ status: 404 })
+    expect(seededMergeLogs).toHaveLength(0)
+    expect(em.commit).not.toHaveBeenCalled()
+  })
+
   it('row 1: adopts the guest cart when the session (target) cart is empty, rotates its token and reassigns ownership', async () => {
     seededCarts = [
       makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash', customerId: null, customerUserId: null }),
@@ -822,6 +848,31 @@ describe('cart.merge — §6a.5 merge-time re-visibility pass (Step 7.4)', () =>
 })
 
 describe('cart.mergeUndo', () => {
+  it('rechecks whether undo was claimed while waiting for the cart locks', async () => {
+    seededCarts = [
+      makeCartFixture({ id: 'cart-target' }),
+      makeCartFixture({ id: 'cart-guest', status: 'merged', mergedIntoCartId: 'cart-target' }),
+    ]
+    seededMergeLogs = [makeMergeLogFixture({ createdAt: new Date(Date.now() - 60_000) })]
+    const em = makeEm()
+    em.execute.mockImplementationOnce(async () => {
+      seededMergeLogs[0] = { ...seededMergeLogs[0], undoneAt: new Date() }
+      return [{ locked: true }]
+    })
+
+    await expect(getUndoHandler().execute({
+      cartId: 'cart-target',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      routeContext: makeRouteContext(),
+    }, makeCtx({ em }))).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'merge_already_undone' },
+    })
+    expect(seededCarts[1].status).toBe('merged')
+    expect(em.commit).not.toHaveBeenCalled()
+  })
+
   it('restores a summed line back to its exact pre-merge quantity', async () => {
     seededCarts = [
       makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),

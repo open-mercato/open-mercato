@@ -17,7 +17,7 @@ type SearchResultItem = { entityId?: string; presenter?: { title?: string } | nu
 type SearchResponse = { results?: SearchResultItem[] }
 
 const COMPANY_ENTITY = 'customers:customer_company_profile'
-const VALID_PASSWORD = 'Valid1!Pass'
+const VALID_PASSWORD = 'QaValid1!Pass'
 
 function titleOf(item: SearchResultItem): string {
   const presenter = item?.presenter

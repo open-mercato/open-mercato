@@ -12,6 +12,8 @@
  *   - The PRIMARY personal-link email is enqueued inline by the
  *     `forms.invitation.create` command via `enqueueInvitationEmail(...)` while
  *     the raw token is still in hand (link = `<APP_URL>/i/<rawToken>`).
+ *     That emit is marked `source: 'create'` and skipped here, so the
+ *     recipient gets exactly one e-mail at create time.
  *   - This subscriber handles the RESEND path: it sends a generic
  *     "you have a form to complete" reminder WITHOUT a token link (since the
  *     raw token is unrecoverable). Operators re-issue a personal link by
@@ -41,12 +43,15 @@ type ResolveContainer = {
 }
 
 type SubscriberContext = {
+  tenantId?: string | null
+  organizationId?: string | null
   container: ResolveContainer
 }
 
 type InvitationSentPayload = {
   invitationId: string
   distributionId: string
+  source?: 'create' | 'send'
 }
 
 type InvitationEmailCopy = {
@@ -122,7 +127,7 @@ export async function enqueueInvitationEmail(args: {
     const copy: InvitationEmailCopy = {
       subject: translate('forms.invitation.email.subject', 'You have a form to complete'),
       heading: translate('forms.invitation.email.heading', 'A form is waiting for you'),
-      greeting: translate('forms.invitation.email.greeting', `Hi ${name},`),
+      greeting: translate('forms.invitation.email.greeting', 'Hi {name},', { name }),
       body: link
         ? translate(
             'forms.invitation.email.body',
@@ -154,6 +159,10 @@ export default async function handleInvitationSent(
   payload: InvitationSentPayload,
   ctx: SubscriberContext,
 ): Promise<void> {
+  // The create command already delivered the personal-link e-mail inline.
+  const { tenantId, organizationId } = ctx
+  if (payload.source === 'create' || !tenantId || !organizationId) return
+
   let em: EntityManager
   try {
     em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -164,9 +173,9 @@ export default async function handleInvitationSent(
   const invitation = await findOneWithDecryption(
     em,
     FormInvitation,
-    { id: payload.invitationId, deletedAt: null },
+    { id: payload.invitationId, distributionId: payload.distributionId, tenantId, organizationId, deletedAt: null },
     undefined,
-    {},
+    { tenantId, organizationId },
   )
   if (!invitation) return
 

@@ -10,7 +10,10 @@
  *
  * It enqueues; it does not do the work. Restating a tenant's entries is exactly the
  * long-running job the progress module exists for, so the response is a `202` with
- * a `progressJobId` that the top bar picks up on its own.
+ * a `progressJobId` that the top bar picks up on its own. Without the progress
+ * module the job is still queued and `progressJobId` is null; the
+ * `rounding_reapplied` event is not emitted then, because its published payload
+ * requires a progress job id.
  *
  * Locked entries are never touched — the candidate query excludes them and the
  * command excludes them again, independently.
@@ -33,6 +36,7 @@ import { emitStaffEvent } from '../../../../events'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ProgressService } from '../../../../../progress/lib/progressService'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { tryResolve } from '../../../../lib/tryResolve'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../guards'
 import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 import {
@@ -141,8 +145,8 @@ export async function POST(req: Request) {
       return session.respond(200, responseSchema.parse({ ok: true, progressJobId: null, candidateCount: 0 }))
     }
 
-    const progressService = container.resolve('progressService') as ProgressService
-    const progressJob = await progressService.createJob(
+    const progressService = tryResolve<ProgressService>(container, 'progressService')
+    const progressJob = progressService ? await progressService.createJob(
       {
         jobType: STAFF_TIME_REAPPLY_ROUNDING_JOB_TYPE,
         name: translate('staff.time_tracking.settings.retro.jobName', 'Reapply rounding to existing entries'),
@@ -155,23 +159,26 @@ export async function POST(req: Request) {
         meta: { source: 'staff.timesheets.settings.reapply-rounding' },
       },
       { tenantId, organizationId, userId: actorId },
-    )
+    ) : null
+    const progressJobId = progressJob?.id ?? null
 
     const queue = getStaffQueue(STAFF_TIME_REAPPLY_ROUNDING_QUEUE)
-    await queue.enqueue({ progressJobId: progressJob.id, scope })
+    await queue.enqueue({ progressJobId, scope })
 
     await guardResult.runAfterSuccess()
 
-    void emitStaffEvent('staff.timesheets.time_tracking.rounding_reapplied', {
-      tenantId,
-      organizationId,
-      progressJobId: progressJob.id,
-      candidateCount,
-    }, { persistent: true }).catch((err) => {
-      logger.error('staff.timesheets emit time_tracking.rounding_reapplied failed', { err })
-    })
+    if (progressJobId) {
+      void emitStaffEvent('staff.timesheets.time_tracking.rounding_reapplied', {
+        tenantId,
+        organizationId,
+        progressJobId,
+        candidateCount,
+      }, { persistent: true }).catch((err) => {
+        logger.error('staff.timesheets emit time_tracking.rounding_reapplied failed', { err })
+      })
+    }
 
-    return session.respond(202, responseSchema.parse({ ok: true, progressJobId: progressJob.id, candidateCount }))
+    return session.respond(202, responseSchema.parse({ ok: true, progressJobId, candidateCount }))
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
@@ -192,7 +199,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Queue a retroactive rounding job',
       description:
-        'Enqueues a `ProgressJob` that recomputes `rounded_minutes` on existing time entries under the tenant’s current rounding rule. Entries locked into a closed report are excluded — a billed amount is never restated. Returns `202` with `progressJobId`, or `200` with a null job id when there is nothing to restate.',
+        'Enqueues a `ProgressJob` that recomputes `rounded_minutes` on existing time entries under the tenant’s current rounding rule. Entries locked into a closed report are excluded — a billed amount is never restated. Returns `202` with `progressJobId` (null when the progress module is disabled), or `200` with a null job id when there is nothing to restate.',
       responses: [
         { status: 200, description: 'Nothing to restate', schema: responseSchema },
         { status: 202, description: 'Job queued', schema: responseSchema },

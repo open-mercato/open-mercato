@@ -136,6 +136,8 @@ test('resolveMcpKeyFilePath defaults under .mercato/mcp-shared and honors the en
   )
   const absolute = path.join(path.sep, 'run', 'mcp', 'key')
   assert.equal(resolveMcpKeyFilePath({ MCP_SERVER_API_KEY_FILE: absolute }, cwd), absolute)
+  assert.equal(resolveMcpKeyFilePath({ MCP_API_KEY_FILE: absolute }, cwd), absolute)
+  assert.equal(resolveMcpKeyFilePath({ MCP_SERVER_API_KEY_FILE: 'custom/key', MCP_API_KEY_FILE: absolute }, cwd), path.join(cwd, 'custom/key'))
 })
 
 test('nextMcpRestartDelayMs backs off exponentially and caps at 60s', () => {
@@ -280,6 +282,18 @@ test('dev runner returns without retrying when ai_assistant is missing, in root 
     const retry = source.indexOf('nextMcpKeyRetryDelayMs(attempt)')
     assert.ok(guard > 0 && guard < retry, file)
     assert.match(source.slice(guard, retry), /return false/, file)
+  }
+})
+
+test('managed MCP child receives the provisioned key file in root and template dev runners', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  for (const file of [
+    path.resolve(here, '..', 'dev.mjs'),
+    path.resolve(here, '..', '..', 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),
+  ]) {
+    const source = readFileSync(file, 'utf8')
+    const spawnHelper = source.match(/function spawnMcpCommand\([^\n]+\) \{\n([\s\S]*?)\n\}/)?.[1] ?? ''
+    assert.match(spawnHelper, /\bMCP_SERVER_API_KEY_FILE: mcpKeyFilePath,/, file)
   }
 })
 

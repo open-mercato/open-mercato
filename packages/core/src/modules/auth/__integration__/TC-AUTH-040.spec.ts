@@ -23,7 +23,7 @@ test.describe('TC-AUTH-040: Remove user display name from the edit form', () => 
       userId = await createUserFixture(request, token, {
         email,
         name: 'Name To Remove',
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId,
         roles: ['employee'],
       })

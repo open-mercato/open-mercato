@@ -34,6 +34,7 @@ jest.mock(
 jest.mock(
   '@mikro-orm/core',
   () => ({
+    ...jest.requireActual<typeof import('@mikro-orm/core')>('@mikro-orm/core'),
     __esModule: true,
     RequestContext: { getEntityManager: () => null },
   }),
@@ -242,6 +243,24 @@ describe('bootstrap once-guard cache', () => {
 
     expect(appDiRegistrar).toHaveBeenCalledTimes(1)
     expect(container.resolve('appLevelService')).toBe('preserved')
+  })
+
+  it('rethrows a cache provider selection failure from the optional bootstrap instead of tolerating it', async () => {
+    const { CacheProviderError } = await import('@open-mercato/shared/lib/cache/providers')
+    const providerError = new CacheProviderError('not_registered', 'Cache provider "acme/fake" is selected but not registered by the application')
+    bootstrapMock.mockImplementationOnce(async () => { throw providerError })
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+
+    await expect(createRequestContainer()).rejects.toBe(providerError)
+  })
+
+  it('still tolerates non-provider bootstrap failures in the optional bootstrap', async () => {
+    bootstrapMock.mockImplementationOnce(async () => { throw new Error('unrelated bootstrap failure') })
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+
+    const container = await createRequestContainer()
+
+    expect(container.hasRegistration('cache')).toBe(false)
   })
 
   it('registerDiRegistrars clears the cache so HMR re-runs bootstrap on the next request', async () => {
