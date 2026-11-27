@@ -6,6 +6,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { buildSudoAuthScopeFromAuth } from '../../commands/sudoConfig.shared'
 import type { SudoChallengeConfig } from '../../data/entities'
@@ -120,7 +121,7 @@ export async function resolveSudoContext(req: Request): Promise<SudoRequestConte
 }
 
 export async function parseSudoConfigBody<T>(req: Request, schema: z.ZodType<T>) {
-  const body: unknown = await req.json().catch(() => ({}))
+  const body = await readJsonSafe<unknown>(req, {}).catch(() => ({}))
   return schema.safeParse(body)
 }
 

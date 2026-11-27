@@ -43,11 +43,25 @@ export type SingleInstanceGuardResult = {
   overridden: boolean
 }
 
+export type InfraCacheProviderSnapshot = {
+  id: string
+  placement: 'local' | 'shared'
+}
+
 export type InfraStrategySnapshot = {
   cacheStrategy: string
   queueStrategy: string
   rateLimitStrategy: string
+  /**
+   * Effective registered cache provider (`CACHE_PROVIDER`). When present it wins over
+   * `cacheStrategy`: the cache is multi-instance safe only when the provider's
+   * resolved placement is `shared`.
+   */
+  cacheProvider?: InfraCacheProviderSnapshot | null
 }
+
+const CACHE_PROVIDER_ENV_VAR = 'CACHE_PROVIDER'
+const CACHE_PROVIDER_SAFE_VALUES: readonly string[] = ['a provider with shared placement']
 
 const COMPONENT_ENV_VARS: Record<SingleInstanceGuardComponent, string> = {
   cache: 'CACHE_STRATEGY',
@@ -78,12 +92,37 @@ export class SingleInstanceStrategyError extends Error {
  * because the guard's safe-set policy — not the resolver default — decides what
  * counts as single-instance.
  */
-export function readInfraStrategySnapshot(env: NodeJS.ProcessEnv = process.env): InfraStrategySnapshot {
+export function readInfraStrategySnapshot(
+  env: NodeJS.ProcessEnv = process.env,
+  options?: { cacheProvider?: InfraCacheProviderSnapshot | null },
+): InfraStrategySnapshot {
   return {
     cacheStrategy: env.CACHE_STRATEGY?.trim() || 'memory',
     queueStrategy: resolveQueueStrategy(),
     rateLimitStrategy: env.RATE_LIMIT_STRATEGY?.trim() || 'memory',
+    ...(options?.cacheProvider ? { cacheProvider: options.cacheProvider } : {}),
   }
+}
+
+/**
+ * Resolve the effective registered cache provider for the guard. Stock deployments
+ * (no `CACHE_PROVIDER`) return null without loading the app's provider manifest. When a
+ * provider is selected the generated manifest is loaded and the selection is prepared
+ * exactly as the app bootstrap would, so a missing or invalid provider aborts the start
+ * instead of being judged by the legacy `CACHE_STRATEGY` value.
+ */
+export async function resolveEffectiveCacheProviderSnapshot(
+  appDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<InfraCacheProviderSnapshot | null> {
+  const { readSelectedCacheProviderId, prepareCacheProviderSelection } = await import(
+    '@open-mercato/shared/lib/cache/providers'
+  )
+  if (!readSelectedCacheProviderId(env)) return null
+  const { loadCacheProviderManifest } = await import('./cache-provider-manifest')
+  await loadCacheProviderManifest(appDir)
+  const provider = await prepareCacheProviderSelection({ env })
+  return provider ? { id: provider.id, placement: provider.placement } : null
 }
 
 function resolveMultiInstanceHint(env: NodeJS.ProcessEnv): boolean {
@@ -104,6 +143,17 @@ export function evaluateSingleInstanceGuard(
 
   const offenders: SingleInstanceGuardOffender[] = []
   for (const component of Object.keys(configured) as SingleInstanceGuardComponent[]) {
+    if (component === 'cache' && snapshot.cacheProvider) {
+      if (snapshot.cacheProvider.placement !== 'shared') {
+        offenders.push({
+          component,
+          envVar: CACHE_PROVIDER_ENV_VAR,
+          configured: snapshot.cacheProvider.id,
+          safeValues: CACHE_PROVIDER_SAFE_VALUES,
+        })
+      }
+      continue
+    }
     const safeValues: readonly string[] = MULTI_INSTANCE_SAFE_STRATEGIES[component]
     if (!safeValues.includes(configured[component])) {
       offenders.push({

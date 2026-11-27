@@ -1,3 +1,4 @@
+import { resolveAttachmentPartition } from '../lib/partitionScope'
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import path from 'node:path'
@@ -12,7 +13,7 @@ import {
   Attachment,
   AttachmentDocumentExtraction,
   AttachmentDocumentSection,
-  AttachmentPartition,
+  type AttachmentPartition,
 } from '../data/entities'
 import { assertAttachmentScopeInvariant } from '../lib/access'
 import type { StorageDriverFactory } from '../lib/drivers'
@@ -563,13 +564,7 @@ export async function runDocumentStructureExtraction(
     logger.info('Attachment not found for structure extraction', { attachmentId: payload.attachmentId })
     return { kind: 'not_found' }
   }
-  const partition = await findOneWithDecryption(
-    em,
-    AttachmentPartition,
-    { code: attachment.partitionCode },
-    undefined,
-    scope,
-  )
+  const partition = await resolveAttachmentPartition(em, attachment.partitionCode, attachment, { decrypt: true })
   if (!partition) return { kind: 'disabled' }
   if (!partition.extractDocumentStructure && payload.onDemand !== true) return { kind: 'disabled' }
 

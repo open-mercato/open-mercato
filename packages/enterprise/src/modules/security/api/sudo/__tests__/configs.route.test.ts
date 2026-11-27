@@ -84,6 +84,19 @@ test.each(cases)('$method checks sudo before dispatching the scoped command', as
   })
 })
 
+test.each([
+  { state: 'malformed', body: '{', consumed: false },
+  { state: 'unreadable', body: JSON.stringify({ targetIdentifier: 'security.sudo.manage' }), consumed: true },
+])('rejects a $state create body before dispatch', async ({ body, consumed }) => {
+  const request = new Request(endpoint, { method: 'POST', body })
+  if (consumed) await request.text()
+
+  const response = await POST(request)
+
+  expect(response.status).toBe(400)
+  expect(execute).not.toHaveBeenCalled()
+})
+
 test('a rejected sudo check never dispatches the update', async () => {
   const request = new Request(endpoint, { method: 'PUT', body: JSON.stringify({ label: 'New label' }) })
   jest.mocked(requireSudo).mockRejectedValueOnce(new CrudHttpError(403, { error: 'Forbidden' }))

@@ -73,6 +73,7 @@ import {
 import {
   subscribeSalesDocumentDataRefresh,
 } from '@open-mercato/core/modules/sales/lib/frontend/documentDataEvents'
+import { isEditableDocumentStatus } from '@open-mercato/core/modules/sales/lib/frontend/documentStatusOptions'
 import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/detail'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
@@ -962,7 +963,9 @@ export function handleDocumentMutationError(
   refresh: () => void,
 ): boolean {
   if (surfaceRecordConflict(err, t, { onRefresh: refresh })) {
-    refresh()
+    if (err instanceof Error) {
+      err.message = t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
+    }
     return true
   }
   return false
@@ -1761,6 +1764,7 @@ function MethodInlineEditor({
 }
 
 function StatusInlineEditor({
+  kind,
   label,
   value,
   emptyLabel,
@@ -1774,6 +1778,7 @@ function StatusInlineEditor({
   dictionaryMap,
   appearance = 'plain',
 }: {
+  kind: 'order' | 'quote'
   label: string
   value: string | null | undefined
   emptyLabel: string
@@ -1792,15 +1797,18 @@ function StatusInlineEditor({
   const [draft, setDraft] = React.useState<string | undefined>(value ?? undefined)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const isEditableStatus = React.useCallback((status: string) => isEditableDocumentStatus(kind, status), [kind])
   const fetchStatusOptions = React.useCallback(
     async () =>
-      (await onLoadOptions()).map((option) => ({
-        value: option.value,
-        label: option.label,
-        color: option.color,
-        icon: option.icon,
-      })),
-    [onLoadOptions]
+      (await onLoadOptions())
+        .filter((option) => isEditableStatus(option.value))
+        .map((option) => ({
+          value: option.value,
+          label: option.label,
+          color: option.color,
+          icon: option.icon,
+        })),
+    [isEditableStatus, onLoadOptions]
   )
 
   React.useEffect(() => {
@@ -1811,7 +1819,7 @@ function StatusInlineEditor({
   }, [editing, value])
 
   const handleSave = React.useCallback(async () => {
-    const selected = draft ? options.find((opt) => opt.value === draft) ?? null : null
+    const selected = draft && isEditableStatus(draft) ? options.find((opt) => opt.value === draft) : undefined
     if (draft && !selected) {
       setError(t('sales.documents.detail.statusInvalid', 'Selected status could not be found.'))
       return
@@ -1828,7 +1836,7 @@ function StatusInlineEditor({
     } finally {
       setSaving(false)
     }
-  }, [draft, onSave, options, t])
+  }, [draft, isEditableStatus, onSave, options, t])
 
   return (
     <div
@@ -1871,7 +1879,7 @@ function StatusInlineEditor({
               }}
             >
               <DictionaryEntrySelect
-                value={draft}
+                value={draft && isEditableStatus(draft) ? draft : undefined}
                 onChange={(next) => setDraft(next ?? undefined)}
                 fetchOptions={fetchStatusOptions}
                 allowInlineCreate={false}
@@ -1929,7 +1937,7 @@ function StatusInlineEditor({
           onClick={(event) => {
             event.stopPropagation()
             if (editing) {
-              setDraft(normalizedValue)
+              setDraft(value ?? undefined)
               setError(null)
             }
             setEditing((prev) => !prev)
@@ -2853,12 +2861,6 @@ export default function SalesDocumentDetailPage({
       ),
     [statusOptions]
   )
-  const statusOptionsForEditor = React.useMemo(() => {
-    if (kind === 'order') {
-      return statusOptions.filter((option) => option.value !== 'sent')
-    }
-    return statusOptions
-  }, [kind, statusOptions])
   const number = record?.orderNumber ?? record?.quoteNumber ?? record?.id
   const numberEditorKey = `${record?.id ?? 'unknown'}:${number ?? ''}`
   const customerSnapshot = (record?.customerSnapshot ?? null) as CustomerSnapshot | null
@@ -3161,7 +3163,7 @@ export default function SalesDocumentDetailPage({
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
         return savedCode
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message = err instanceof Error && err.message ? err.message : t('sales.documents.detail.updateError', 'Failed to update document.')
         flash(message, 'error')
         throw err
@@ -3190,7 +3192,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, placedAt: savedPlacedAt } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3224,7 +3226,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, expectedDeliveryAt: savedExpectedDelivery } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3251,7 +3253,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, comment: savedComment } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3278,7 +3280,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, externalReference: savedExternalReference } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3305,7 +3307,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, customerReference: savedCustomerReference } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3368,7 +3370,7 @@ export default function SalesDocumentDetailPage({
         })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3393,7 +3395,7 @@ export default function SalesDocumentDetailPage({
         }
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3443,7 +3445,7 @@ export default function SalesDocumentDetailPage({
         emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3501,7 +3503,7 @@ export default function SalesDocumentDetailPage({
         emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3538,7 +3540,7 @@ export default function SalesDocumentDetailPage({
         }
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3618,7 +3620,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3679,7 +3681,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3729,7 +3731,7 @@ export default function SalesDocumentDetailPage({
       setNumberEditing(false)
       flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
     } catch (err) {
-      if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+      if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -3773,7 +3775,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -4386,7 +4388,9 @@ export default function SalesDocumentDetailPage({
           shippingAddressSnapshot={shippingSnapshot ?? null}
           billingAddressSnapshot={billingSnapshot ?? null}
           lockedReason={addressGuardMessage}
+          documentUpdatedAt={record.updatedAt ?? null}
           onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
+          onReload={() => setReloadKey((prev) => prev + 1)}
         />
       )
     }
@@ -4922,10 +4926,11 @@ export default function SalesDocumentDetailPage({
               return (
                 <StatusInlineEditor
                   key={card.key}
+                  kind={kind}
                   label={card.title}
                   value={card.value}
                   emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
-                  options={statusOptionsForEditor}
+                  options={statusOptions}
                   onSave={handleUpdateStatus}
                   onLoadOptions={loadStatuses}
                   labels={statusLabels}

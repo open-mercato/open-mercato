@@ -1,0 +1,25 @@
+{
+  "name": "@acme/cache-provider-fixture",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Test fixture: a directory-backed Open Mercato cache provider packaged independently of the platform",
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "sideEffects": false,
+  "peerDependencies": {
+    "@open-mercato/cache": ">=0.11.0"
+  }
+}

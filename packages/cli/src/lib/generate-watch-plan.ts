@@ -2,7 +2,7 @@ export type GenerateWatchCategory =
   | 'api-route' | 'frontend-page' | 'backend-page' | 'commands' | 'di' | 'entities'
   | 'search' | 'events' | 'subscribers' | 'workers' | 'dashboard-widgets'
   | 'injection-widgets' | 'cli' | 'i18n' | 'registry-convention' | 'extension'
-  | 'openapi' | 'web-research-adapters' | 'generator-plugin' | 'configuration' | 'unknown'
+  | 'openapi' | 'web-research-adapters' | 'cache-providers' | 'generator-plugin' | 'configuration' | 'unknown'
 
 export type GenerateWatchRecord = {
   key: string
@@ -29,7 +29,7 @@ export type GenerateWatchChange = {
 
 export type GenerateWatchGroup =
   | 'entity-ids' | 'registry' | 'entities' | 'di' | 'package-sources'
-  | 'web-research-adapters' | 'openapi'
+  | 'web-research-adapters' | 'cache-providers' | 'openapi'
 
 export type GenerateWatchPlan = {
   mode: 'full' | 'incremental' | 'none'
@@ -40,7 +40,7 @@ export type GenerateWatchPlan = {
 }
 
 const GROUP_ORDER: readonly GenerateWatchGroup[] = [
-  'entity-ids', 'registry', 'entities', 'di', 'package-sources', 'web-research-adapters', 'openapi',
+  'entity-ids', 'registry', 'entities', 'di', 'package-sources', 'web-research-adapters', 'cache-providers', 'openapi',
 ]
 
 const REGISTRY_ORDER = [
@@ -87,6 +87,9 @@ export function planGenerateWatchChanges(
         break
       case 'web-research-adapters':
         groups.add('web-research-adapters')
+        break
+      case 'cache-providers':
+        groups.add('cache-providers')
         break
       case 'frontend-page':
         registry('main', 'runtime', 'app', 'frontend-routes')
