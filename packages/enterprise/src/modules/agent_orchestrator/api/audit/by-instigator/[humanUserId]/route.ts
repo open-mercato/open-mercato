@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveActionAgentAttribution } from '../../../../lib/identity/actionAgentAttribution'
 import {
   RUN_CORRELATION_KEY,
@@ -77,8 +78,13 @@ export async function GET(req: Request, ctx: RouteContext) {
   const parsedQuery = querySchema.safeParse({ limit: url.searchParams.get('limit') ?? undefined })
   if (!parsedQuery.success) return NextResponse.json({ error: 'Invalid query' }, { status: 400 })
 
-  const organizationId = auth.orgId ?? null
   const container = await createRequestContainer()
+  const { scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  const scopedOrganizationIds = scope.selectedId ? [scope.selectedId] : scope.filterIds
+  const organizationId = scopedOrganizationIds?.length === 1 ? scopedOrganizationIds[0] : null
+  if (Array.isArray(scopedOrganizationIds) && scopedOrganizationIds.length === 0) {
+    return NextResponse.json({ humanUserId: parsedId.data, items: [], total: 0 })
+  }
   const em = (container.resolve('em') as EntityManager).fork()
 
   let query = (em.getKysely<Record<string, never>>() as any)
@@ -105,8 +111,9 @@ export async function GET(req: Request, ctx: RouteContext) {
       ]),
     )
 
-  // Org-scope: pin the caller's organization so a human's chain never crosses orgs.
-  if (organizationId) query = query.where('action_logs.organization_id', '=', organizationId)
+  if (Array.isArray(scopedOrganizationIds)) {
+    query = query.where('action_logs.organization_id', 'in', scopedOrganizationIds)
+  }
 
   const rows = await query
     .orderBy('action_logs.created_at', 'desc')
@@ -132,7 +139,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     Array.isArray(row.correlationKeys) ? (row.correlationKeys as string[]) : null
   const attributions = await resolveActionAgentAttribution(
     em,
-    { tenantId: auth.tenantId, organizationId },
+    { tenantId: auth.tenantId, organizationId, organizationIds: scopedOrganizationIds ?? undefined },
     typedRows.map((row) => parseCorrelationKeys(readKeys(row))),
   )
 

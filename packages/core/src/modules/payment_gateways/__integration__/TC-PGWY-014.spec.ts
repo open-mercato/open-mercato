@@ -26,7 +26,7 @@ import { getTokenScope } from '@open-mercato/core/modules/core/__integration__/h
  * holding only `view` is rejected from manage/capture/refund routes — while each is still
  * allowed on the route its single feature covers.
  */
-const PASSWORD = 'Qa!2026Pgwy'
+const PASSWORD = 'Qa!2026Pgwys'
 const unique = () => `${Date.now()}-${randomUUID().slice(0, 12)}`
 
 test.describe('TC-PGWY-014: RBAC feature gates (403)', () => {

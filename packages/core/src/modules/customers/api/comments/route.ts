@@ -89,6 +89,7 @@ const crud = makeCrudRoute({
       response: ({ result }) => ({
         id: result?.commentId ?? result?.id ?? null,
         authorUserId: result?.authorUserId ?? null,
+        updatedAt: result?.updatedAt,
       }),
       status: 201,
     },
@@ -99,7 +100,7 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         return commentUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
       },
-      response: () => ({ ok: true }),
+      response: ({ result }) => ({ ok: true, updatedAt: result?.updatedAt }),
     },
     delete: {
       commandId: 'customers.comments.delete',
@@ -210,6 +211,7 @@ const commentListItemSchema = z
 const commentCreateResponseSchema = z.object({
   id: z.string().uuid().nullable(),
   authorUserId: z.string().uuid().nullable(),
+  updatedAt: z.string().datetime().optional(),
 })
 
 export const openApi = createCustomersCrudOpenApi({
@@ -223,7 +225,7 @@ export const openApi = createCustomersCrudOpenApi({
   },
   update: {
     schema: commentUpdateSchema,
-    responseSchema: defaultOkResponseSchema,
+    responseSchema: defaultOkResponseSchema.extend({ updatedAt: z.string().datetime().optional() }),
     description: 'Updates an existing timeline comment.',
   },
   del: {

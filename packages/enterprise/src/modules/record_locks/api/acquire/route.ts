@@ -129,6 +129,7 @@ export async function POST(req: Request) {
     resourceId: parsed.data.resourceId,
     tenantId: ctxOrResponse.auth.tenantId,
     organizationId: ctxOrResponse.organizationId,
+    organizationScope: ctxOrResponse.organizationScope,
     userId: ctxOrResponse.auth.sub,
     lockedByIp: resolveRequestIp(req),
   })
@@ -190,6 +191,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload', schema: recordLockErrorSchema },
         { status: 401, description: 'Unauthorized', schema: recordLockErrorSchema },
+        { status: 403, description: 'Organization scope denied', schema: recordLockErrorSchema },
         { status: 423, description: 'Record locked by another user', schema: recordLockErrorSchema },
         { status: 429, description: 'Per-user active lock quota exceeded', schema: recordLockErrorSchema },
       ],

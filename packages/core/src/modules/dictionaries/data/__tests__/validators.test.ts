@@ -1,4 +1,4 @@
-import { dictionaryKeySchema } from '../validators'
+import { dictionaryKeySchema, upsertDictionarySchema } from '../validators'
 
 describe('dictionaryKeySchema', () => {
   it.each([
@@ -31,5 +31,27 @@ describe('dictionaryKeySchema', () => {
 
   it('rejects a key longer than the column allows', () => {
     expect(dictionaryKeySchema.safeParse('a'.repeat(101)).success).toBe(false)
+  })
+})
+
+describe('upsertDictionarySchema description', () => {
+  it('accepts an explicit null description on create', () => {
+    const result = upsertDictionarySchema.safeParse({ key: 'colors', name: 'Colors', description: null })
+    expect(result.success).toBe(true)
+    expect(result.success && result.data.description).toBeNull()
+  })
+
+  it('accepts an explicit null description on a partial update', () => {
+    const result = upsertDictionarySchema.partial().safeParse({ description: null })
+    expect(result.success).toBe(true)
+    expect(result.success && result.data.description).toBeNull()
+  })
+
+  it('still rejects a non-string description', () => {
+    expect(upsertDictionarySchema.partial().safeParse({ description: 42 }).success).toBe(false)
+  })
+
+  it('still rejects a description longer than 2000 characters', () => {
+    expect(upsertDictionarySchema.partial().safeParse({ description: 'a'.repeat(2001) }).success).toBe(false)
   })
 })

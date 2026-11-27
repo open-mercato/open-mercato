@@ -35,6 +35,7 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 import {
   applySidebarPreference,
   findSidebarPreference,
@@ -367,6 +368,7 @@ export async function resolveBackendChromePayload({
   // resolved id cannot answer "which organization am I viewing".
   let concretelySelectedOrganizationId: string | null = null
   let allowNavigation = true
+  let organizationScopeIsEmpty = false
 
   try {
     const { organizationId, scope, allowedOrganizationIds } = await resolveFeatureCheckContext({
@@ -379,6 +381,7 @@ export async function resolveBackendChromePayload({
     scopedOrganizationId = organizationId
     scopedTenantId = scope.tenantId ?? auth.tenantId ?? null
     concretelySelectedOrganizationId = scope.selectedId ?? null
+    organizationScopeIsEmpty = isExplicitlyEmptyOrganizationScope(scope)
     if (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length === 0) {
       allowNavigation = false
     }
@@ -505,8 +508,10 @@ export async function resolveBackendChromePayload({
 
   const requestOrganizationId = request ? getSelectedOrganizationFromRequest(request) : null
   const fallbackOrganizationId = selectedOrganizationId ?? requestOrganizationId ?? auth.orgId ?? null
-  const brandOrganizationId = scopedOrganizationId
-    ?? (fallbackOrganizationId && !isAllOrganizationsSelection(fallbackOrganizationId) ? fallbackOrganizationId : null)
+  const brandOrganizationId = organizationScopeIsEmpty
+    ? null
+    : scopedOrganizationId
+      ?? (fallbackOrganizationId && !isAllOrganizationsSelection(fallbackOrganizationId) ? fallbackOrganizationId : null)
 
   let brand: BackendChromePayload['brand'] = null
   // Resolved here rather than left to callers. `brand` only populates when the organization has a

@@ -383,7 +383,7 @@ test.describe('TC-WC-011: warranty claims external API', () => {
         ],
         organizations: [orgBId],
       })
-      const orgBPassword = 'Valid1!Pass'
+      const orgBPassword = 'QaValid1!Pass'
       const orgBEmail = `${stamp}@org-b.test.invalid`
       orgBUserId = await createUserFixture(request, superadminToken, {
         email: orgBEmail,

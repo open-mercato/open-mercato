@@ -61,10 +61,14 @@ export async function deleteGeneralEntityIfExists(
   token: string | null,
   path: string,
   id: string | null,
+  opts?: { headers?: Record<string, string> },
 ): Promise<void> {
   if (!token || !id) return;
   try {
-    await apiRequest(request, 'DELETE', `${path}?id=${encodeURIComponent(id)}`, { token });
+    await apiRequest(request, 'DELETE', `${path}?id=${encodeURIComponent(id)}`, {
+      token,
+      headers: opts?.headers,
+    });
   } catch {
     return;
   }

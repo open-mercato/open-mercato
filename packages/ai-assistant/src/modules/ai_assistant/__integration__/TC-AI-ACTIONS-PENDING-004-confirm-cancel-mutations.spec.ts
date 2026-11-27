@@ -164,7 +164,7 @@ test.describe('TC-AI-ACTIONS-PENDING-004: Pending action confirm/cancel', () => 
     const adminToken = await getAuthToken(request, 'admin');
     const { tenantId, organizationId, userId: adminId } = getTokenScope(adminToken);
     const stamp = randomUUID().slice(0, 8);
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
 
     let seededId: string | null = null;
     let roleId: string | null = null;

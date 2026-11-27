@@ -102,6 +102,23 @@ function shouldGuardCiphertext(): boolean {
   return resolveEncryptionMode(guardKmsService) !== 'active'
 }
 
+export type CiphertextGuardSource = { isEnabled?: () => boolean } | null | undefined
+
+/**
+ * The guard decision for a document decrypted by `encryption`, read AFTER that decrypt.
+ *
+ * {@link shouldGuardCiphertext} asks a KMS that never fetches a key, so its Vault circuit breaker
+ * never trips: it reports `active` through a real outage while the decrypt that ran just before
+ * got no DEK and handed back ciphertext. `encryption.isEnabled()` is the toggle ANDed with the
+ * health of the KMS whose `getDek` just called Vault, and it is the same signal
+ * `decryptIndexDocForSearch` uses to skip decryption, so the decrypt and the guard cannot disagree.
+ * Callers without a service keep the process-level check.
+ */
+export function resolveCiphertextGuard(encryption: CiphertextGuardSource): boolean {
+  if (typeof encryption?.isEnabled !== 'function') return shouldGuardCiphertext()
+  return !encryption.isEnabled()
+}
+
 /**
  * Fields whose value is an AES-GCM envelope rather than the text it is supposed to hold.
  *
@@ -516,10 +533,12 @@ export async function replaceSearchTokensForBatch(
   // here would still delete the tokens we are trying to protect. Skipping the record leaves every
   // one of its tokens, encrypted-field and plaintext-field alike, exactly as it was. The state is
   // transient by construction: `decrypt-database` followed by a reindex rebuilds all of it.
-  const guardCiphertext = shouldGuardCiphertext()
+  let processGuard: boolean | undefined
+  const guardFor = (payload: BuildTokenOptions): boolean =>
+    payload.guardCiphertext ?? (processGuard ??= shouldGuardCiphertext())
   const preservedRecordIds = new Set<string>()
   const payloads = indexablePayloads.filter((payload) => {
-    const ciphertextFields = ciphertextFieldsOf(payload.doc, guardCiphertext)
+    const ciphertextFields = ciphertextFieldsOf(payload.doc, guardFor(payload))
     if (!ciphertextFields.size) return true
     warnCiphertextSkipped(payload.entityType, payload.tenantId ?? null, ciphertextFields)
     preservedRecordIds.add(String(payload.recordId))
@@ -527,7 +546,7 @@ export async function replaceSearchTokensForBatch(
   })
   if (!payloads.length) return
 
-  const rows = payloads.flatMap((payload) => buildSearchTokenRows({ ...payload, config, guardCiphertext }))
+  const rows = payloads.flatMap((payload) => buildSearchTokenRows({ ...payload, config, guardCiphertext: guardFor(payload) }))
   if (!rows.length) {
     const entityType = payloads[0]?.entityType
     if (!entityType) return

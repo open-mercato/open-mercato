@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { withAdvisoryXactLock, AdvisoryLockUnavailableError } from '@open-mercato/shared/lib/db/advisoryLock'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import {
@@ -205,18 +205,23 @@ async function reserveDailyRecipients(
   input: { tenantId: string; externalEmails: readonly string[]; limit: number; now: Date },
 ): Promise<void> {
   const utcDay = utcDayAt(input.now)
-  const recipientHashes = Array.from(new Set(input.externalEmails.map((email) => hashForLookup(email, 'messages.external_recipient'))))
-  if (!recipientHashes.length) throw new ExternalEmailBudgetUnavailableError()
+  const recipients = new Map(input.externalEmails.map((email) => [
+    hashForLookup(email, 'messages.external_recipient'),
+    lookupHashCandidates(email, 'messages.external_recipient'),
+  ]))
+  if (!recipients.size) throw new ExternalEmailBudgetUnavailableError()
   const db = txEm.getKysely<ExternalEmailBudgetDatabase>()
   const existing = await db
     .selectFrom('message_external_recipient_days')
     .select('recipient_hash')
     .where('tenant_id', '=', input.tenantId)
     .where('utc_day', '=', utcDay)
-    .where('recipient_hash', 'in', recipientHashes)
+    .where('recipient_hash', 'in', Array.from(recipients.values()).flat())
     .execute()
   const existingHashes = new Set(existing.map((row) => row.recipient_hash))
-  const missingHashes = recipientHashes.filter((hash) => !existingHashes.has(hash))
+  const missingHashes = Array.from(recipients)
+    .filter(([, candidates]) => !candidates.some((hash) => existingHashes.has(hash)))
+    .map(([recipientHash]) => recipientHash)
   if (!missingHashes.length) return
 
   const countRow = await db

@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from './data/entities.js'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { auditSchedulerModuleQueueRows } from './lib/safeQueueTargets'
+import { isScheduleSourceModuleDisabled } from './lib/sourceModuleAvailability'
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
@@ -74,7 +75,10 @@ const listCommand: ModuleCli = {
       const schedule = (job.scheduleValue || '').substring(0, 18).padEnd(20)
       const status = (job.isEnabled ? '✓ Enabled' : '✗ Disabled').padEnd(10)
       const nextRun = job.nextRunAt ? new Date(job.nextRunAt).toISOString() : 'N/A'
-      writeLine(`${id}${name}${type}${schedule}${status}${nextRun}`)
+      const sourceNote = isScheduleSourceModuleDisabled(job)
+        ? `  ⚠ skipped: module ${job.sourceModule} is not enabled`
+        : ''
+      writeLine(`${id}${name}${type}${schedule}${status}${nextRun}${sourceNote}`)
     }
 
     writeLine('')

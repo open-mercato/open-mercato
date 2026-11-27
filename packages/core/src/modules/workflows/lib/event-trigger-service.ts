@@ -823,7 +823,7 @@ export async function processEventTriggers(
         },
         tenantId: context.tenantId,
         organizationId: context.organizationId,
-      })
+      }, container)
 
       startedWorkflow = true
       result.triggered++

@@ -1,0 +1,22 @@
+{
+  "form_policy_fixture.display": {
+    "roundTripId": "form_policy_fixture.display@v1",
+    "sourceHash": "bf6f26dafbe7788726cf68e6397e5facbe024518e475354caf3515663bb61a8c"
+  },
+  "form_policy_fixture.hide-private": {
+    "roundTripId": "form_policy_fixture.hide-private@v1",
+    "sourceHash": "26296c57005fd09930d2531a54c65306efabf470b73cacd766defe52df22f6b5"
+  },
+  "form_policy_fixture.hide-uncovered": {
+    "roundTripId": "form_policy_fixture.hide-uncovered@v1",
+    "sourceHash": "d1864899a3c05f43cb9e80f21415961ddb7fe70684896944f82625461297f08e"
+  },
+  "form_policy_fixture.record-host": {
+    "roundTripId": "form_policy_fixture.record-host@v1",
+    "sourceHash": "ef113ff621c54dacb254f61b80df7b6d9b75b8dd813cdae96a3e7b89d6020c7b"
+  },
+  "form_policy_fixture.replace-details": {
+    "roundTripId": "form_policy_fixture.replace-details@v1",
+    "sourceHash": "867ff4f64bbb6b05303e92a2ea9ee8c15e8ee055b3cca53b628691eaf747cb26"
+  }
+}

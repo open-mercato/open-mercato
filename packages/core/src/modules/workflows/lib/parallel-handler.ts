@@ -435,7 +435,7 @@ async function advanceOneBranch(
   const token = branchToken(instance, branch)
   // Token read context = instance snapshot overlaid with branch namespace.
   const readContext = { ...(instance.context || {}), ...(branch.contextNamespace || {}) }
-  const evalContext = { workflowContext: readContext, userId: context.userId }
+  const evalContext = { container, workflowContext: readContext, userId: context.userId }
 
   // Select the transition to take. Branches positioned on the fork follow their
   // own branch_key transition; otherwise pick the highest-priority valid auto one.

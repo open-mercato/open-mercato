@@ -54,7 +54,7 @@ test.describe('TC-ATTACH-XSS-004: Super-admin access to any private attachment',
       // Roles are assignable here because T1 is the primary seeded tenant.
       crossOrgUserId = await createUserFixture(request, superadminToken, {
         email: crossOrgUserEmail,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId: crossOrgId,
         roles: ['employee'],
       })
@@ -84,7 +84,7 @@ test.describe('TC-ATTACH-XSS-004: Super-admin access to any private attachment',
 
       t2UserId = await createUserFixture(request, superadminToken, {
         email: t2UserEmail,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId: t2OrgId,
         roles: [],
       })
@@ -100,7 +100,7 @@ test.describe('TC-ATTACH-XSS-004: Super-admin access to any private attachment',
       attachmentId = uploaded.id
 
       // T1/orgB user is blocked — confirms the organizationId filter is active.
-      const crossOrgUserToken = await getAuthToken(request, crossOrgUserEmail, 'Valid1!Pass')
+      const crossOrgUserToken = await getAuthToken(request, crossOrgUserEmail, 'QaValid1!Pass')
       const crossOrgResponse = await request.fetch(
         `${BASE_URL}/api/attachments/file/${encodeURIComponent(attachmentId)}`,
         { method: 'GET', headers: { Authorization: `Bearer ${crossOrgUserToken}` } },
@@ -108,7 +108,7 @@ test.describe('TC-ATTACH-XSS-004: Super-admin access to any private attachment',
       expect(crossOrgResponse.status()).toBe(404)
 
       // T2 user is blocked — confirms the tenantId filter is active.
-      const t2UserToken = await getAuthToken(request, t2UserEmail, 'Valid1!Pass')
+      const t2UserToken = await getAuthToken(request, t2UserEmail, 'QaValid1!Pass')
       const crossTenantResponse = await request.fetch(
         `${BASE_URL}/api/attachments/file/${encodeURIComponent(attachmentId)}`,
         { method: 'GET', headers: { Authorization: `Bearer ${t2UserToken}` } },
