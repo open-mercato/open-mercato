@@ -735,6 +735,8 @@
   "ui.blocks.entityHeader.error": "Etwas ist schiefgelaufen",
   "ui.blocks.entityHeader.loading": "Wird geladen",
   "ui.blocks.entityHeader.moreActions": "Weitere Aktionen",
+  "ui.blocks.entityHeader.moreBadges": "+{count}",
+  "ui.blocks.entityHeader.moreBadgesList": "{count} weitere: {labels}",
   "ui.blocks.entityHeader.retry": "Erneut versuchen",
   "ui.blocks.entityHeader.tabs": "Abschnitte",
   "ui.blocks.formSaveBar.dirty": "Ungespeicherte Änderungen",

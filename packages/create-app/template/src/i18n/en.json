@@ -735,6 +735,8 @@
   "ui.blocks.entityHeader.error": "Something went wrong",
   "ui.blocks.entityHeader.loading": "Loading",
   "ui.blocks.entityHeader.moreActions": "More actions",
+  "ui.blocks.entityHeader.moreBadges": "+{count}",
+  "ui.blocks.entityHeader.moreBadgesList": "{count} more: {labels}",
   "ui.blocks.entityHeader.retry": "Try again",
   "ui.blocks.entityHeader.tabs": "Sections",
   "ui.blocks.formSaveBar.dirty": "Unsaved changes",

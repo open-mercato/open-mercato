@@ -735,6 +735,8 @@
   "ui.blocks.entityHeader.error": "문제가 발생했습니다",
   "ui.blocks.entityHeader.loading": "로딩 중",
   "ui.blocks.entityHeader.moreActions": "더 보기",
+  "ui.blocks.entityHeader.moreBadges": "+{count}",
+  "ui.blocks.entityHeader.moreBadgesList": "{count}개 더: {labels}",
   "ui.blocks.entityHeader.retry": "다시 시도",
   "ui.blocks.entityHeader.tabs": "섹션",
   "ui.blocks.formSaveBar.dirty": "저장하지 않은 변경 사항",
