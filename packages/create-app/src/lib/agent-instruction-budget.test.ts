@@ -87,6 +87,28 @@ const CANON_C_RAISED_BUDGETS: ReadonlyArray<readonly [string, number]> = [
 ]
 const CANON_C_MAX_HEADROOM_BYTES = 8 * 1024
 
+test('module trimming fits the classic scaffold within its existing total context limit', () => {
+  const cases = JSON.parse(
+    fs.readFileSync(path.join(CREATE_APP_ROOT, 'agentic/shared/ai/harness/cases.json'), 'utf8'),
+  ) as Array<{ id: string; maxContextFiles: number; maxInitialContextBytes: number; maxTotalContextBytes: number }>
+  const record = cases.find((entry) => entry.id === 'OMH-008')
+  assert.ok(record)
+  const payloadBytes = STANDALONE_ROOT_TARGET_BYTES + [
+    'agentic/guides/architecture.md',
+    'agentic/shared/ai/skills/om-trim-unused-modules/SKILL.md',
+    'template/src/modules.ts',
+    'template/package.json.template',
+  ].reduce((total, relativePath) => total + fs.statSync(path.join(CREATE_APP_ROOT, relativePath)).size, 0)
+
+  assert.equal(record.maxContextFiles, 7)
+  assert.equal(record.maxTotalContextBytes, 98_304)
+  assert.ok(record.maxInitialContextBytes < record.maxTotalContextBytes)
+  assert.ok(
+    payloadBytes <= record.maxInitialContextBytes,
+    `OMH-008 needs ${payloadBytes} bytes for the declared classic scaffold context`,
+  )
+})
+
 test('the link-migration budget raises stay proportionate to what each case declares', () => {
   const cases = JSON.parse(
     fs.readFileSync(

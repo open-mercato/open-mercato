@@ -88,8 +88,8 @@ on:
       - 'release/v*'
       - feat/wms
   pull_request:
-    # Draft PRs get no CI: `audit-scope` detects the draft, `test` fails on purpose and every
-    # other job skips. `ready_for_review` starts the full run the moment the PR is marked ready.
+    # Ordinary draft PRs get no CI. Same-repository stabilization drafts run the full suite
+    # while fixes are collected; `ready_for_review` starts CI for other drafts.
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
@@ -292,7 +292,7 @@ jobs:
   # Determines whether dependency audit needs to run. Package manifests and
   # lockfiles are the only inputs that can change the dependency graph.
   #
-  # Also the draft detector: on a draft PR every other job skips, except
+  # Also the draft detector: on an ordinary draft PR every other job skips, except
   # `test`, which fails on purpose (see its note). The draft state is read live,
   # so re-running an old draft run after the PR was marked ready runs the suite
   # instead of re-publishing draft results.
@@ -311,11 +311,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true }}
+          RUN_STABILIZATION_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'stabilize/') }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
         run: |
           DRAFT=false
-          if [ "${EVENT_DRAFT}" = "true" ]; then
+          if [ "${EVENT_DRAFT}" = "true" ] && [ "${RUN_STABILIZATION_DRAFT}" != "true" ]; then
             DRAFT=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.draft' 2>/dev/null || echo false)
           fi
           if [ "${DRAFT}" = "true" ]; then

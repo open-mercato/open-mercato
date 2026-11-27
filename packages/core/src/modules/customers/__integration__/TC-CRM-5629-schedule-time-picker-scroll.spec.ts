@@ -39,7 +39,7 @@ test('wheel-scrolls the schedule dialog time list and restores the saved time on
     await login(page, 'admin')
     await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' })
     await page.getByRole('tab', { name: /Activity log/i }).click()
-    const activity = page.getByText(title, { exact: true }).first()
+    const activity = page.getByRole('button', { name: new RegExp(title) })
     await activity.click()
 
     const dialog = page.getByRole('dialog', { name: 'Edit activity', exact: true })
@@ -71,6 +71,8 @@ test('wheel-scrolls the schedule dialog time list and restores the saved time on
     expect(new Date(savedTime).toISOString()).toBe(activityDate.toISOString())
     await expect(dialog).toBeHidden()
 
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.getByRole('tab', { name: /Activity log/i }).click()
     await activity.click()
     await dialog.getByRole('button', { name: /^0?3:00\s+PM$/i }).click()
     await expect(laterSlot).toHaveAttribute('aria-pressed', 'true')

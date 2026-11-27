@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { flushSync } from "react-dom";
 import { extensionPoints } from "@open-mercato/core/modules/catalog/extension-points";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
@@ -1044,6 +1045,10 @@ function ProductBuilder({
   onMediaUploadingChange,
 }: ProductBuilderProps) {
   const t = useT();
+  const priceVariantsRef = React.useRef(values.variants);
+  React.useEffect(() => {
+    priceVariantsRef.current = values.variants;
+  }, [values.variants]);
   const steps = PRODUCT_FORM_STEPS;
   const [currentStep, setCurrentStep] = React.useState(0);
   const defaultTaxRate = React.useMemo(
@@ -1252,7 +1257,10 @@ function ProductBuilder({
   const setVariantPrice = React.useCallback(
     (variantId: string, priceKindId: string, amount: string) => {
       if (amount.trim().startsWith("-")) return;
-      const next = (Array.isArray(values.variants) ? values.variants : []).map(
+      const currentVariants = Array.isArray(priceVariantsRef.current) ? priceVariantsRef.current : [];
+      const currentVariant = currentVariants.find((variant) => variant.id === variantId);
+      if (!currentVariant || (currentVariant.prices?.[priceKindId]?.amount ?? "") === amount) return;
+      const next = currentVariants.map(
         (variant) => {
           if (variant.id !== variantId) return variant;
           const nextPrices = { ...(variant.prices ?? {}) };
@@ -1267,9 +1275,10 @@ function ProductBuilder({
           };
         },
       );
-      setValue("variants", next);
+      priceVariantsRef.current = next;
+      flushSync(() => setValue("variants", next));
     },
-    [values.variants, setValue],
+    [setValue],
   );
 
   const markDefaultVariant = React.useCallback(
@@ -1800,6 +1809,13 @@ function ProductBuilder({
                               type="text"
                               inputMode="decimal"
                               value={variant.prices?.[kind.id]?.amount ?? ""}
+                              onInput={(event) =>
+                                setVariantPrice(
+                                  variant.id,
+                                  kind.id,
+                                  event.currentTarget.value,
+                                )
+                              }
                               onChange={(event) =>
                                 setVariantPrice(
                                   variant.id,
