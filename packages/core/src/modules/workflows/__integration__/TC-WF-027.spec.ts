@@ -6,6 +6,7 @@ import {
   cancelWorkflowInstanceIfExists,
   createWorkflowDefinitionFixture,
   deleteWorkflowDefinitionIfExists,
+  getWorkflowInstanceSnapshot,
   pollWorkflowInstance,
   startWorkflowInstanceFixture,
 } from '@open-mercato/core/helpers/integration/workflowsFixtures'
@@ -32,7 +33,7 @@ type AdvanceBody = {
 }
 
 test.describe('TC-WF-027: instance advance API (#2462)', () => {
-  test('advances a manual workflow step by step and rejects advancing a completed instance', async ({ request }) => {
+  test('persists context only when advancing a manual workflow succeeds', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const timestamp = Date.now()
     const defPayload = buildManualAdvanceDefinitionPayload(timestamp)
@@ -57,9 +58,12 @@ test.describe('TC-WF-027: instance advance API (#2462)', () => {
         request,
         'POST',
         `/api/workflows/instances/${encodeURIComponent(instanceId)}/advance`,
-        { token, data: { toStepId: 'does-not-exist' } },
+        { token, data: { toStepId: 'does-not-exist', contextUpdates: { advancedBy: 'invalid-target' } } },
       )
       expect(badTargetResponse.status(), 'advancing to an invalid step returns 400').toBe(400)
+      const afterRejected = await getWorkflowInstanceSnapshot(request, token, instanceId)
+      expect(afterRejected?.currentStepId).toBe('start')
+      expect(afterRejected?.context).not.toHaveProperty('advancedBy')
 
       // Advance with an explicit target + context updates.
       const toMidResponse = await apiRequest(
@@ -74,6 +78,9 @@ test.describe('TC-WF-027: instance advance API (#2462)', () => {
       expect(toMidBody?.data?.instance?.previousStepId).toBe('start')
       expect(toMidBody?.data?.instance?.transitionFired).toBe('start-to-mid')
       expect(toMidBody?.data?.instance?.context?.advancedBy, 'contextUpdates merge into the workflow context').toBe('qa')
+      const afterAccepted = await getWorkflowInstanceSnapshot(request, token, instanceId)
+      expect(afterAccepted?.currentStepId).toBe('mid')
+      expect(afterAccepted?.context?.advancedBy).toBe('qa')
 
       // Advance without a target auto-selects the only valid transition (mid -> end).
       const toEndResponse = await apiRequest(

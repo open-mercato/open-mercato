@@ -14,7 +14,7 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
  * - Returns proper errors for invalid/missing tokens
  */
 test.describe('TC-AUTH-017: API Token Refresh Flow', () => {
-  const testUserPassword = 'Valid1!Pass'
+  const testUserPassword = 'QaValid1!Pass'
   const testUserEmail = `qa-auth-017-${Date.now()}@acme.com`
   let adminToken: string | null = null
   let testUserId: string | null = null

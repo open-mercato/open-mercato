@@ -14,7 +14,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { AttachmentService } from '../../../../../services/attachment-service'
 import type { AccessAuditLogger } from '../../../../../services/access-audit-logger'
-import { mapAttachmentError } from '../../../../attachment-helpers'
+import { mapAttachmentError, SANDBOXED_DOWNLOAD_HEADERS } from '../../../../attachment-helpers'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['forms.view'] },
@@ -68,6 +68,7 @@ function streamAttachment(result: { filename: string; contentType: string; bytes
     headers: {
       'content-type': result.contentType || 'application/octet-stream',
       'content-disposition': `attachment; filename="${safeName}"`,
+      ...SANDBOXED_DOWNLOAD_HEADERS,
     },
   })
 }

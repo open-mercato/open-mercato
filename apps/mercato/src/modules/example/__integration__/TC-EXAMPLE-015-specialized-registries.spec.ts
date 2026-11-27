@@ -249,10 +249,11 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
         { id: 'example_fixed_currency', providerKey: 'example_fixed_rates', bundleId: 'example_reference_bundle' },
         { id: 'example_mock_payment', providerKey: 'mock', bundleId: 'example_reference_bundle' },
         { id: 'example_mock_shipping', providerKey: 'mock_carrier', bundleId: 'example_reference_bundle' },
+        { id: 'example_todo_erp', providerKey: null, bundleId: 'example_reference_bundle' },
       ])
       expect(integrationList.bundles).toContainEqual(expect.objectContaining({
         id: 'example_reference_bundle',
-        integrationCount: 3,
+        integrationCount: 4,
       }))
 
       const paymentProviders = await apiRequest(request, 'GET', '/api/payment_gateways/providers', { token })
@@ -444,6 +445,10 @@ test.describe('TC-EXAMPLE-015: the nine specialized registries have real local c
       })
       expect(homeEntries.map((entry) => entry.recordId)).toEqual([todoId])
       expect(foreignEntries.map((entry) => entry.recordId)).toEqual([foreignTodoId])
+
+      await test.step('Use exact pgvector search for the two-row organization scope fixture', async () => {
+        await queryIntegrationDatabase(`DROP INDEX "${vectorTableName}_embedding_idx"`)
+      })
 
       await expect.poll(
         () =>

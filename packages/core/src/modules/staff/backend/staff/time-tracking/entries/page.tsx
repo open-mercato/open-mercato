@@ -208,6 +208,7 @@ export default function TimeTrackingEntriesPage() {
   const scopeVersion = useOrganizationScopeVersion()
   const { payload } = useBackendChrome()
   const canSeeMoney = hasFeature(payload?.grantedFeatures, RATES_FEATURE)
+  const canViewReports = hasFeature(payload?.grantedFeatures, 'staff.timesheets.reports.view')
   const canManage = hasFeature(payload?.grantedFeatures, MANAGE_OWN_FEATURE)
   // Reading somebody else's entries is `manage_all`, not `manage_own`: the list
   // route narrows every other caller back to their own rows, so offering them a
@@ -1194,7 +1195,7 @@ export default function TimeTrackingEntriesPage() {
           }}
           stickyActionsColumn
           rowActions={(row) =>
-            row.isLocked ? (
+            row.isLocked && !canViewReports ? null : row.isLocked ? (
               <RowActions
                 items={[
                   {

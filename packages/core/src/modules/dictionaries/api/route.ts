@@ -159,6 +159,7 @@ export async function POST(req: Request) {
       entrySortMode: resolveDictionaryEntrySortMode(dictionary.entrySortMode),
       createdAt: dictionary.createdAt,
       updatedAt: dictionary.updatedAt,
+      organizationId: dictionary.organizationId,
     }, { status: 201 })
   } catch (err) {
     if (isCrudHttpError(err)) {

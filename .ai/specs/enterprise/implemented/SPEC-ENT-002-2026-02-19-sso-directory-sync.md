@@ -401,6 +401,8 @@ SCIM server implemented directly — no SCIM library needed (straightforward RES
 
 ## Migration & Backward Compatibility
 
+For #9019, SSO return destinations remain application-relative paths. Initiation and both OIDC callback methods normalize the destination before checking that its pathname cannot become a protocol-relative URL. Unsafe destinations fall back to `/backend`, including values in an existing encrypted flow cookie. Safe paths, query strings, fragments, authentication cookies, endpoint schemas and configuration remain unchanged; no migration is required. Route regressions cover initiation and GET/POST callbacks with controlled identity-provider results, and helper regressions cover encoded dot segments and URL-parser normalization.
+
 The fix for #7824 preserves SCIM and SSO endpoint URLs, methods, response shapes, JWT claims, database schema, and existing two-argument `authService.createSession` calls. The core protected session writer and branded eligibility error are additive; the enterprise override accepts an optional trusted SSO scope while custom two-argument implementations remain structurally compatible. It enforces the existing deactivation policy on fresh sign-in, including configurations whose tenant was omitted at creation. Clients continue handling the existing generic password error or `sso_failed` callback redirect. Operators must send SCIM `active:true` for an intentionally restored identity; changing a password or relinking its email does not reactivate it. The enterprise DI override applies only when the SSO module is enabled. Custom auth service replacements must preserve both the scoped eligibility policy and atomic session issuance.
 
 ## Integration Test Coverage for #7824
@@ -414,6 +416,7 @@ The fix for #7824 preserves SCIM and SSO endpoint URLs, methods, response shapes
 
 | Date | Changes |
 |---|---|
+| 2026-11-22 | #9019: validate normalized SSO return paths at initiation and callback redirect boundaries. |
 | 2026-10-28 | #7824 review corrections: validate nullable-tenant marker ownership, serialize session issuance with every SCIM deactivation writer, and add both-order concurrency and POST regression coverage. |
 | 2026-10-27 | #7824: enforce outstanding SCIM deactivation during SSO linking and scoped password verification; preserve explicit reactivation and add login/session regression coverage. |
 | 2026-02-19 | Initial draft — high-level SSO & Directory Sync specification |

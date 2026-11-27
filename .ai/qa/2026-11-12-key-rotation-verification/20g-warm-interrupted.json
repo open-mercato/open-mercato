@@ -1,0 +1,28 @@
+{
+  "releaseAcceptance": false,
+  "sourceCommit": "fb0d766ecb",
+  "logicalGiB": 20,
+  "expectedUserRows": 327680,
+  "backupMs": 221971,
+  "resourceSampler": {
+    "complete": true,
+    "peakProcessTreeRssMiB": 221.984375,
+    "peakNodeRssMiB": 221.984375,
+    "totalProcessTreePass": true,
+    "samplingIntervalMs": 100,
+    "samples": 9330,
+    "maximumNativeDescendants": 1,
+    "definition": "sum resident RSS of benchmark Node process and all native descendants, excluding PostgreSQL server daemon; sampled with ps"
+  },
+  "termination": "SIGINT sent to standalone benchmark Node after actual repeated full custom-table scan/sort was observed; source database, original encrypted recovery backup, trusted baseline and committed batch journal retained.",
+  "finding": "The custom EXISTS predicate preceded keyset LIMIT, allowing PostgreSQL to choose a parallel full-table scan/sort and project TOAST documents repeatedly.",
+  "remediation": "Materialized lightweight PK frontier before eligibility filtering, then bounded lateral PK document reads. Empty eligible frontiers still advance and checkpoint the full frontier.",
+  "nativePlanAfterFix": {
+    "frontierLimit": 45,
+    "pointLookupLoops": 45,
+    "executionMs": 8.601,
+    "frontierIndexScan": true
+  },
+  "resume": "Original trusted baseline and recovery artifact will be reused; no new baseline may be made from partially rotated data.",
+  "performanceDisposition": "Interrupted run is diagnostic and correctness evidence only. Fresh final 20GiB warm/cold acceptance remains pending."
+}

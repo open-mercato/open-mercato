@@ -73,9 +73,6 @@ const OTHER_LOCK_PRIMITIVE =
  * are valid.
  */
 const WORKSPACE_ALLOWLIST: Record<string, string> = {
-  // --- Pre-existing tokenless TODO sites outside this phase's named scope ---
-  'packages/core/src/modules/sales/components/documents/AddressesSection.tsx':
-    'exempt — sales document-address sub-resource; the parent document aggregate owns the optimistic lock at the command layer (sub-resource guarded by parent aggregate). Threading the document version into this section is tracked separately (#2373-C); not a standalone collaborative-edit record.',
   // --- ai_assistant per-tenant config surfaces (single-admin settings) ---
   'packages/ai-assistant/src/modules/ai_assistant/backend/config/ai-assistant/agents/AiAgentSettingsPageClient.tsx':
     'exempt — per-tenant AI agent enablement/override config (single-admin settings toggles), not a collaborative-edit record surface. Outside Step-5 named scope.',

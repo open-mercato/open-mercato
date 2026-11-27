@@ -20,6 +20,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 import '@open-mercato/core/modules/customers/commands'
+import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
@@ -165,8 +166,16 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
     return active
   })
 
+  const lockQuery = {
+    selectFrom: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    forNoKeyUpdate: jest.fn().mockReturnThis(),
+    executeTakeFirst: jest.fn(async () => ({ id: person.id })),
+  }
   const em: any = {
     fork: jest.fn(),
+    getKysely: jest.fn(() => lockQuery),
     create: jest.fn((ctor: unknown, values: Record<string, unknown>) => {
       if (ctor !== CustomerPersonCompanyLink) throw new Error('Unexpected fixture entity')
       const id = typeof values.id === 'string' ? values.id : LINK_B_ID
@@ -532,6 +541,125 @@ describe('customers.personCompanyLinks undo — encryption re-baseline regressio
     expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
   })
 
+  async function promoteAndLog(fixtures: Fixtures, linkId: string) {
+    const handler = commandRegistry.get('customers.personCompanyLinks.update') as CommandHandler
+    const input = { linkId, tenantId: TENANT_ID, organizationId: ORG_ID, isPrimary: true }
+    const ctx = makeCtx(fixtures.em)
+    const before = await handler.prepare!(input, ctx)
+    const result = await handler.execute(input, ctx)
+    const after = await handler.captureAfter!(input, result, ctx)
+    const log = await handler.buildLog!({ input, ctx, result, snapshots: { ...before, after } })
+
+    return () => handler.undo!({
+      logEntry: log as Parameters<NonNullable<CommandHandler['undo']>>[0]['logEntry'],
+      ctx,
+    })
+  }
+
+  it('update undo restores the former primary company and keeps both links', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+
+    const undo = await promoteAndLog(fixtures, LINK_B_ID)
+    const lockQuery = fixtures.em.getKysely.mock.results[0].value
+    expect(lockQuery.selectFrom).toHaveBeenCalledWith('customer_entities')
+    expect(lockQuery.where.mock.calls).toEqual([
+      ['id', '=', PERSON_ID],
+      ['kind', '=', 'person'],
+      ['tenant_id', '=', TENANT_ID],
+      ['organization_id', '=', ORG_ID],
+      ['deleted_at', 'is', null],
+    ])
+    const promotionProfileRead = mockFindOneWithDecryption.mock.calls.findIndex(
+      ([, entity]) => entity === CustomerPersonProfile,
+    )
+    expect(lockQuery.forNoKeyUpdate).toHaveBeenCalledTimes(1)
+    expect(lockQuery.executeTakeFirst.mock.invocationCallOrder[0])
+      .toBeLessThan(mockFindOneWithDecryption.mock.invocationCallOrder[promotionProfileRead])
+    expect(fixtures.linkRows.get(LINK_A_ID)?.isPrimary).toBe(false)
+    expect(fixtures.linkRows.get(LINK_B_ID)?.isPrimary).toBe(true)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+
+    mockFindOneWithDecryption.mockClear()
+    await undo()
+    expect(lockQuery.forNoKeyUpdate).toHaveBeenCalledTimes(2)
+    expect(lockQuery.executeTakeFirst.mock.invocationCallOrder[1])
+      .toBeLessThan(mockFindOneWithDecryption.mock.invocationCallOrder[0])
+    expect(mockFindOneWithDecryption).toHaveBeenNthCalledWith(
+      2,
+      fixtures.em,
+      CustomerPersonCompanyLink,
+      { id: LINK_B_ID, person: PERSON_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: true, deletedAt: null })
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it.each([
+    ['empty', null],
+    ['profile-only', COMPANY_A_ID],
+  ])('update undo restores the %s assignment when there was no primary link', async (_name, previousCompanyId) => {
+    const fixtures = makeFixtures(
+      [{ id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null }],
+      previousCompanyId,
+    )
+
+    const undo = await promoteAndLog(fixtures, LINK_B_ID)
+    await undo()
+
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBe(previousCompanyId)
+  })
+
+  it('update undo preserves a newer primary selection', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+        { id: LINK_C_ID, companyId: COMPANY_C_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+
+    const undo = await promoteAndLog(fixtures, LINK_B_ID)
+    await promoteAndLog(fixtures, LINK_C_ID)
+    await undo()
+
+    expect(fixtures.linkRows.get(LINK_A_ID)?.isPrimary).toBe(false)
+    expect(fixtures.linkRows.get(LINK_B_ID)?.isPrimary).toBe(false)
+    expect(fixtures.linkRows.get(LINK_C_ID)?.isPrimary).toBe(true)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_C_ID)
+  })
+
+  it('update undo does not restore a removed company relationship', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+
+    const undo = await promoteAndLog(fixtures, LINK_B_ID)
+    const deletedAt = new Date('2026-06-02T00:00:00Z')
+    const removedLink = fixtures.links.find((link) => link.id === LINK_A_ID)!
+    removedLink.deletedAt = deletedAt
+    await fixtures.em.flush()
+    await undo()
+
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ isPrimary: false, deletedAt })
+    expect(fixtures.linkRows.get(LINK_B_ID)).toEqual({ isPrimary: false, deletedAt: null })
+    expect(fixtures.profileRow.companyId).toBeNull()
+  })
+
   it('update undo restores the primary flag and the legacy profile company', async () => {
     const fixtures = makeFixtures(
       [{ id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: false, deletedAt: null }],
@@ -569,6 +697,176 @@ describe('customers.personCompanyLinks undo — encryption re-baseline regressio
     expect(row.deletedAt).toBeNull()
     expect(row.isPrimary).toBe(true)
     expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+})
+
+describe('customers.personCompanyLinks — one primary link per person under concurrent promotions', () => {
+  afterEach(() => jest.clearAllMocks())
+
+  function onPersonRowLock(fixtures: Fixtures, onLock: () => void): jest.Mock {
+    const lockCalls = jest.fn()
+    const baseImplementation = mockFindOneWithDecryption.getMockImplementation()!
+    mockFindOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const [, ctor, , options] = args as [unknown, unknown, unknown, { lockMode?: LockMode } | undefined]
+      if (ctor === CustomerEntity && options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
+        lockCalls(fixtures.em.nativeUpdate.mock.calls.length)
+        onLock()
+      }
+      return baseImplementation(...args)
+    })
+    return lockCalls
+  }
+
+  function primaryLinkIds(fixtures: Fixtures): string[] {
+    return [...fixtures.linkRows.entries()].filter(([, row]) => row.isPrimary).map(([id]) => id)
+  }
+
+  it('locks the person row before clearing other primary links on update', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+    const lockCalls = onPersonRowLock(fixtures, () => {})
+    const handler = commandRegistry.get('customers.personCompanyLinks.update') as CommandHandler
+
+    await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, linkId: LINK_B_ID, isPrimary: true }, makeCtx(fixtures.em))
+
+    expect(lockCalls).toHaveBeenCalledTimes(1)
+    expect(lockCalls).toHaveBeenCalledWith(0)
+    expect(primaryLinkIds(fixtures)).toEqual([LINK_B_ID])
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+  })
+
+  it('clears a primary link committed by a concurrent request while waiting for the person lock', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+        { id: LINK_C_ID, companyId: COMPANY_C_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+    const lockCalls = onPersonRowLock(fixtures, () => {
+      fixtures.linkRows.get(LINK_A_ID)!.isPrimary = false
+      fixtures.linkRows.get(LINK_B_ID)!.isPrimary = true
+    })
+    const handler = commandRegistry.get('customers.personCompanyLinks.update') as CommandHandler
+
+    await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, linkId: LINK_C_ID, isPrimary: true }, makeCtx(fixtures.em))
+
+    expect(lockCalls).toHaveBeenCalledTimes(1)
+    expect(primaryLinkIds(fixtures)).toEqual([LINK_C_ID])
+  })
+
+  it('refuses the promotion with 404 when the person is gone by the time it is locked', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+    const baseImplementation = mockFindOneWithDecryption.getMockImplementation()!
+    mockFindOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const [, ctor, , options] = args as [unknown, unknown, unknown, { lockMode?: LockMode } | undefined]
+      if (ctor === CustomerEntity && options?.lockMode === LockMode.PESSIMISTIC_WRITE) return null
+      return baseImplementation(...args)
+    })
+    const handler = commandRegistry.get('customers.personCompanyLinks.update') as CommandHandler
+
+    await expect(
+      handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, linkId: LINK_B_ID, isPrimary: true }, makeCtx(fixtures.em)),
+    ).rejects.toMatchObject({ status: 404 })
+    expect(fixtures.em.nativeUpdate).not.toHaveBeenCalled()
+    expect(primaryLinkIds(fixtures)).toEqual([LINK_A_ID])
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('keeps the target primary when its in-memory flag is stale after a concurrent promotion', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+    onPersonRowLock(fixtures, () => {
+      fixtures.linkRows.get(LINK_A_ID)!.isPrimary = false
+      fixtures.linkRows.get(LINK_B_ID)!.isPrimary = true
+    })
+    const handler = commandRegistry.get('customers.personCompanyLinks.update') as CommandHandler
+
+    await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, linkId: LINK_A_ID, isPrimary: true }, makeCtx(fixtures.em))
+
+    expect(primaryLinkIds(fixtures)).toEqual([LINK_A_ID])
+  })
+
+  it('keeps the current primary link primary when it is promoted again', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+    const handler = commandRegistry.get('customers.personCompanyLinks.update') as CommandHandler
+
+    await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, linkId: LINK_A_ID, isPrimary: true }, makeCtx(fixtures.em))
+
+    expect(primaryLinkIds(fixtures)).toEqual([LINK_A_ID])
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('locks the person row before restoring a primary link on delete undo', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: false, deletedAt: new Date('2026-06-02T00:00:00Z') },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_B_ID,
+    )
+    const lockCalls = onPersonRowLock(fixtures, () => {
+      fixtures.linkRows.get(LINK_B_ID)!.isPrimary = true
+    })
+    const handler = commandRegistry.get('customers.personCompanyLinks.delete') as CommandHandler
+
+    await handler.undo!({
+      logEntry: { payload: { undo: { before: makeLinkSnapshot(LINK_A_ID, COMPANY_A_ID, true) } } },
+      ctx: makeCtx(fixtures.em),
+    } as unknown as Parameters<NonNullable<CommandHandler['undo']>>[0])
+
+    expect(lockCalls).toHaveBeenCalledWith(0)
+    expect(primaryLinkIds(fixtures)).toEqual([LINK_A_ID])
+    expect(fixtures.linkRows.get(LINK_A_ID)!.deletedAt).toBeNull()
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('locks the person row before promoting an existing link on create', async () => {
+    const fixtures = makeFixtures(
+      [
+        { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+        { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+        { id: LINK_C_ID, companyId: COMPANY_C_ID, isPrimary: false, deletedAt: null },
+      ],
+      COMPANY_A_ID,
+    )
+    const lockCalls = onPersonRowLock(fixtures, () => {
+      fixtures.linkRows.get(LINK_A_ID)!.isPrimary = false
+      fixtures.linkRows.get(LINK_C_ID)!.isPrimary = true
+    })
+    const handler = commandRegistry.get('customers.personCompanyLinks.create') as CommandHandler
+
+    await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, personEntityId: PERSON_ID, companyEntityId: COMPANY_B_ID, isPrimary: true },
+      makeCtx(fixtures.em),
+    )
+
+    expect(lockCalls).toHaveBeenCalledWith(0)
+    expect(primaryLinkIds(fixtures)).toEqual([LINK_B_ID])
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
   })
 })
 

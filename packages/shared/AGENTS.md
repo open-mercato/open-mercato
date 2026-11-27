@@ -49,7 +49,7 @@ yarn workspace @open-mercato/shared build
 | `decimal.ts` | Raw exact decimal math for EXISTING `number` + `<field>Exact` money contracts and for non-monetary FX math (rates) - exact add/subtract/multiply, division that keeps at least 17 significant digits, half-up rounding, and `decimalStringSchema` (accepts number or string, outputs a canonical decimal string). MUST NOT do money math on JS `number`; round amounts with `resolveAmountDecimalPlaces(currency.decimalPlaces)`. New monetary values use `lib/money` instead | `@open-mercato/shared/lib/decimal` |
 | `money/` | For EVERY new monetary value, in the shape for its layer: immutable `Money` (exact amount + `Currency`) in domain code (service signatures, command internals), `MoneyInput` in validated request/response payloads, `MoneySnapshot` in trusted messages, `MoneyColumns` in entities. Free functions (`addMoney`, `sumMoney`, `multiplyMoney`, `divideMoney`, `allocateMoney`, `convertMoney`, `rescaleMoney`, `compareMoney`, ...). A `Currency` comes ONLY from `await resolveCurrency(container, { code, tenantId, organizationId })` (no ISO fallback, throws `CurrencyNotResolvedError`). Cross-currency arithmetic throws `CurrencyMismatchError`; equal means same code AND decimal places. Rounding is never implicit: divide/convert/rescale/round take `{ decimalPlaces, mode }`, allocate takes `{ decimalPlaces }`. Client input: `moneyInputSchema` + `resolveMoney` (amounts stay exact; check `fitsCurrencyPrecision(money)` and answer 400 where a field must be in minor units). Queues/caches/events/JSON state: `snapshotMoney` + `restoreMoney` (never feed request input to `restoreMoney`). Persist with `MoneyColumns` (see Money Value Objects below). Spec: `.ai/specs/2026-10-22-money-value-object.md` | `@open-mercato/shared/lib/money` |
 | `delivery/` | When scheduling delivery/retry attempts — exponential backoff with jitter for delivery pipelines (currently the push delivery worker) | `@open-mercato/shared/lib/delivery/retry` (`calculateBackoffDelayMs`) |
-| `di/` | When setting up dependency injection (Awilix). The app-level hook (`src/di.ts` → `register`) is wired explicitly in BOTH bootstrap paths — `src/bootstrap.ts` for the Next.js runtime, `bootstrapFromAppRoot()` for worker/scheduler/CLI processes. Never rely on the legacy `import('@/di')` fallback: the alias does not exist outside the app bundler | `@open-mercato/shared/lib/di` |
+| `di/` | When setting up dependency injection (Awilix). The app-level hook (`src/di.ts` → `register`) is wired explicitly in BOTH bootstrap paths — `src/bootstrap.ts` for the Next.js runtime, `bootstrapFromAppRoot()` for worker/scheduler/CLI processes. Never rely on the legacy `import('@/di')` fallback: the alias does not exist outside the app bundler. A new HTTP or job entry point that builds containers MUST wrap its work in `runInRequestScope` (`lib/di/request-scope`): module emitters then dispatch on that request's container instead of another request's (#2963) | `@open-mercato/shared/lib/di` |
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
@@ -125,7 +125,7 @@ Both paths require populated `search_tokens` for the entity, encrypted field, an
 
 When fallback would compare with ciphertext, both engines retain the existing warn-once log. Outside production, `meta.ciphertextSearchWarnings` additionally reports entity, field, reason and remediation hint on every affected query/list response, including `no-search-tokens`. No values, hashes or tenant IDs are exposed. Production response metadata is unchanged.
 
-- `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` routes plaintext columns to per-word SQL containment; encrypted columns retain token lookup. The flag remains off by default.
+- `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` routes plaintext columns to per-word SQL containment; encrypted columns retain token lookup. The flag remains off by default; off, plaintext-column token matches are ANDed with folded containment (`lib/search/tokenContainment`).
 - Direct `…WithDecryption` helpers warn outside production about `$like`/`$ilike`/`$re` in encrypted-field ORM predicates (`lib/encryption/likeFilterWarning`); they decrypt returned rows but cannot repair a ciphertext filter.
 
 ### Money Value Objects — MUST use for every new monetary value
@@ -204,6 +204,36 @@ throw new Error('[internal] Event bus not available in container')
 ```
 
 The detection scripts (`yarn i18n:check-hardcoded`, `yarn i18n:check-values`) live in `scripts/`. See `.ai/specs/2026-05-26-missing-translations-audit-and-remediation.md` for the full convention and the per-module allowlist format (`<module>/i18n/.hardcoded-allowlist.json`).
+
+### Zod `.refine()`/`superRefine` messages — opt in to translation via `params.i18nKey`
+
+A zod schema's built-in messages (`z.uuid()`'s "Invalid UUID", `min`/`max`, etc.) are not
+translated — that is a separate, larger effort and out of scope here. A `.refine()` or
+`superRefine` call's own `message`, however, is business-rule text this codebase writes, and
+it CAN opt in to translation: attach `params: { i18nKey, i18nFallback }` alongside `message`,
+and `makeCrudRoute`'s `handleError` (via `translateZodIssues` in
+`packages/shared/src/lib/crud/factory.ts`) translates that issue's `message` through
+`translate(i18nKey, i18nFallback)` before it reaches the client.
+
+```typescript
+const schema = z.object({ /* ... */ }).refine(
+  (value) => /* business rule */,
+  {
+    message: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+    params: {
+      i18nKey: 'ledger.errors.journalEntryLineNotOneSided',
+      i18nFallback: 'Each journal entry line must have exactly one side (debit or credit) greater than zero.',
+    },
+  },
+)
+```
+
+This is per-schema, per-message and additive: an issue whose `params` has no `i18nKey` string
+is left exactly as `.refine()` produced it — zero behavior change for every schema that hasn't
+opted in. See `packages/core/src/modules/ledger/data/validators.ts` for the first real usage.
+
+MUST NOT rely on this for a schema's own built-in type/format messages — only a `.refine()`/
+`superRefine` custom `message` carries a `params` bag zod will pass through onto the issue.
 
 ### Request Scoping — use for scoped API payloads
 
@@ -300,6 +330,7 @@ Downstream apps replace or disable any contract a module presents through a sing
 | Notifications / interceptors / enrichers / guards | `applyNotificationTypeOverridesToEntries()`, `applyNotificationHandlerOverridesToEntries()`, `applyApiInterceptorOverridesToEntries()`, `applyCommandInterceptorOverridesToEntries()`, `applyResponseEnricherOverridesToEntries()`, `applyPageGuardOverridesToEntries()` |
 | DI | `applyDiOverridesToContainer()` |
 | Sidebar nav ordering | `applyNavGroupOrderOverrides()`, `getNavGroupOrderOverride()` |
+| CrudForm sections | `applyFormSectionOverrides()`, `composeFormSectionOverrides()` |
 
 MUST rules:
 - `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
@@ -311,6 +342,8 @@ MUST rules:
 - An `enabledModules` entry gated on a **server-only** env var (anything not `NEXT_PUBLIC_*`) MUST NOT carry `widgets` or `notifications` overrides. The browser re-evaluates `modules.ts` with those reads `undefined`, so the entry is absent there: the server dispatches the override and the client does not, and the widget returns on hydration with nothing logged. Declare such an override on an ungated entry, or gate it on a `NEXT_PUBLIC_` var. Outside production `ClientBootstrap` warns for every module id in `enabled-module-ids.generated` that the browser-evaluated list is missing.
 - Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
 - `nav.groupOrder` **prepends** group ids ahead of the built-in ordering; ids it does not name keep their current position. It is a default, resolved beneath role and per-user sidebar preferences, and an absent override MUST leave ordering byte-identical.
+- Address `forms.sections` entries as `<hostId>/<formVariant>/<formOperation>/<sectionId>`. Preserve `null` through composition so the resolver can restore a base section or omit an addition. Runtime descriptors and registry validation belong outside the shared override composer.
+- Declare facts and loader identities with `defineCrudFormSections` and `lazyCrudFormSectionRuntime` from `@open-mercato/shared/modules/form-sections`. Bind conventional hosts with `defineCrudRouteSectionHost` from `@open-mercato/shared/lib/crud/form-sections/derived-route-host`. Authorization, final-input validation, and target locking belong to the [section policy adapter](../../.ai/docs/module-development.md#crudform-section-policies).
 - Nav ordering state lives on `globalThis` because its reader is `@open-mercato/core` while its writer is app bootstrap; a module-local variable would be invisible across duplicated module instances in standalone builds. The injection-widget `key`⇄`widgetId` alias index is on `globalThis` for the same reason — `@open-mercato/ui` writes it while filtering entries, `@open-mercato/core` reads it while filtering tables.
 
 ### Query Engine Extensibility (UMES)

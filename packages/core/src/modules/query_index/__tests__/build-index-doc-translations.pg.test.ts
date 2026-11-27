@@ -10,8 +10,13 @@ import { Pool } from 'pg'
 import { buildIndexDoc } from '../lib/indexer'
 
 const mockReportError = jest.fn()
+const mockTryGetModules = jest.fn()
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+jest.mock('@open-mercato/shared/lib/modules/registry', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/modules/registry'),
+  tryGetModules: () => mockTryGetModules(),
 }))
 
 const PG_URL = process.env.OM_QUERY_INDEX_PG_URL ?? process.env.OM_COUNT_CAP_PG_URL
@@ -84,11 +89,30 @@ maybe('buildIndexDoc entity_translations read does not poison the caller transac
 
   beforeEach(async () => {
     mockReportError.mockReset()
+    mockTryGetModules.mockReset()
+    mockTryGetModules.mockReturnValue([{ id: 'translations' }])
     await sql`truncate table ${sql.id(SCHEMA, 'widgets')}, ${sql.id(SCHEMA, 'custom_field_values')}, ${sql.id(SCHEMA, 'indexer_error_logs')}`.execute(db)
     await sql`drop table if exists ${sql.id(SCHEMA, 'entity_translations')}`.execute(db)
   })
 
   const fakeEm = (executor: Kysely<Record<string, never>>) => ({ getKysely: () => executor }) as unknown as EntityManager
+
+  it.each([
+    { state: 'disabled', modules: [{ id: 'query_index' }] },
+    { state: 'unavailable', modules: null },
+  ])('indexes the base record without touching translation storage when translations are $state', async ({ modules }) => {
+    mockTryGetModules.mockReturnValue(modules)
+    const recordId = crypto.randomUUID()
+    await sql`insert into widgets (id, title) values (${recordId}::uuid, 'Lean profile')`.execute(db)
+
+    await db.transaction().execute(async (trx) => {
+      const doc = await buildIndexDoc(fakeEm(trx), { entityType: ENTITY, recordId })
+      expect(doc?.title).toBe('Lean profile')
+      expect(mockReportError).not.toHaveBeenCalled()
+    })
+    const errors = await sql<{ message: string }>`select message from indexer_error_logs`.execute(db)
+    expect(errors.rows).toHaveLength(0)
+  })
 
   it('keeps the enclosing transaction usable when entity_translations is missing a queried column', async () => {
     await sql`create table entity_translations (

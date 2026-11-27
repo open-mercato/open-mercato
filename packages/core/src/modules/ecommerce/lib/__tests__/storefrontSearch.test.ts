@@ -201,7 +201,7 @@ function searchRegistry(options: RegistryOptions) {
 }
 
 const mediaKysely: Record<string, unknown> = {}
-for (const method of ['selectFrom', 'innerJoin', 'select', 'where']) {
+for (const method of ['selectFrom', 'innerJoinLateral', 'select', 'where']) {
   mediaKysely[method] = () => mediaKysely
 }
 mediaKysely.execute = async () => {

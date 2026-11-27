@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "attemptHead": "8dfa804c6c",
+  "productionRuntimeCommit": "243661d18a7cb74df34aa518b2bc094dd480dc9e",
+  "nodeVersion": "24.22.2",
+  "commands": [
+    {
+      "command": "yarn build:packages",
+      "result": "passed"
+    },
+    {
+      "command": "yarn generate",
+      "result": "passed"
+    },
+    {
+      "command": "yarn build:packages",
+      "result": "passed"
+    },
+    {
+      "command": "yarn i18n:check-sync",
+      "result": "passed"
+    },
+    {
+      "command": "yarn i18n:check-usage",
+      "result": "passed"
+    },
+    {
+      "command": "yarn typecheck",
+      "result": "passed"
+    },
+    {
+      "command": "yarn test",
+      "result": "failed"
+    },
+    {
+      "command": "yarn build:app",
+      "result": "not run"
+    }
+  ],
+  "failure": {
+    "suite": "coordinator-crash.test.ts",
+    "case": "SIGKILL after commit cannot authenticate changed logical-value on resume",
+    "reason": "Exceeded30-second test timeout during an attempt overlapping the confirmed1032-second host sleep from21:16:31 to21:33:43 local time. The1085-second suite duration is not evidence of production or full-fanout slowness.",
+    "fullEnterpriseResult": "1failed,2400passed,111skipped",
+    "crashSuiteDurationMs": 1085628
+  },
+  "releaseAcceptance": false,
+  "disposition": "Preserved failed infrastructure attempt. The test-only production-backed bundle additionally reduces focused startup time without changing any assertion or deadline. Rerun unchanged required commands under a task-scoped idle-sleep lease; no acceptance waiver.",
+  "infrastructureValidity": {
+    "hostSleepOverlap": true,
+    "validForGateAcceptance": false
+  }
+}

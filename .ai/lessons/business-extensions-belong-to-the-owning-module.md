@@ -1,6 +1,6 @@
 ---
 title: "Business extensions belong to the owning module"
-modules: ["customers", "example", "shared", "ui"]
+modules: ["customers", "example", "sales", "shared", "ui"]
 areas: ["architecture", "backend-ui", "testing"]
 topics: ["module-boundaries", "testing", "template-sync", "public-contracts"]
 ---
@@ -14,3 +14,5 @@ topics: ["module-boundaries", "testing", "template-sync", "public-contracts"]
 **Applies to**: Customers calendar extension contracts, optional example integrations, shared UI components, and their standalone templates and harness guides.
 
 Shared form value projection must use declared injected fields to identify owned namespaces, rather than treating every underscore-prefixed host value as contributed data. Tests for contributor retry/version baselines must declare the owning field namespace and retain assertions that native submissions exclude it. Public event hooks must preserve full rendered-widget return types while accepting typed headless participants. Evidence: PR #6931 independent review and `CrudForm.resourceIdentity`, `CrudForm.injectionLifecycle`, and `InjectionSpot.features` regressions.
+
+Headless picker contributions must stay within the persistence API's accepted discriminators. An open-ended string in a new descriptor does not extend the server validator, and a host that only reads registry data must not advertise visual widget rendering. Evidence: #8802 independent review caught both mismatches in the schedule-link host before publication; the host retains the existing link kinds and declares headless registry capabilities.

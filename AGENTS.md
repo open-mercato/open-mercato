@@ -34,7 +34,7 @@ Leverage the module system and follow strict naming and coding conventions to ke
 
 - Never expose cross-tenant data or skip tenant/organization scoping.
 - Never edit generated files by hand.
-- Never add code directly under `apps/mercato/src/` except committed, typed `*.generated.ts` registries described below.
+- Never put app source outside its [allowed locations](#where-to-put-code).
 - Never create direct ORM relationships between modules.
 - Never bypass mutation guards, command side effects, encryption helpers, RBAC wildcard matching, or shared UI data-call helpers.
 - Never hard-code user-facing strings or design-system status colors.
@@ -110,8 +110,9 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | MCP tools (`registerMcpTool`), OpenCode config, AI chat debugging, session tokens, command palette, two-tier auth | `ai-assistant` |
 | Generators (`yarn generate`), migrations (`yarn db:generate`), module scaffolding, build order | `cli` |
 | Event bus architecture, ephemeral vs persistent subscriptions, queue integration, event workers | `events` |
-| Cache in a module, tag-based invalidation, tenant-scoped caching, strategy (memory/SQLite/Redis) | `cache` |
-| Background workers, concurrency (I/O vs CPU-bound), idempotent jobs, queue strategies | `queue` |
+| Scoped caching and invalidation | `cache` |
+| Workers, concurrency, idempotent jobs | `queue` |
+| App infrastructure providers (cache, queue, KMS) | `apps/mercato/src/providers/` + matching package guide |
 | Operation progress in the top bar, `ProgressJob`s, client-local progress events | `core:progress` + `events` → DOM Event Bridge |
 | Onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `onboarding` |
 | Static content pages (privacy policies, terms, legal pages) | `content` |
@@ -187,7 +188,7 @@ All packages use the `@open-mercato/<package>` naming convention: **shared** (cr
 - Put shared utilities and types in `packages/shared/src/lib/` or `packages/shared/src/modules/`
 - Put UI components in `packages/ui/src/`
 - Put user/app-specific modules in `apps/mercato/src/modules/<module>/`
-- MUST NOT add code directly in `apps/mercato/src/` (boilerplate for user apps). Only exception: committed, typed `*.generated.ts` registries that must survive `yarn clean-generated` — see [Generated Files: versioned vs ephemeral](.ai/docs/module-development.md#generated-files-versioned-vs-ephemeral).
+- Register infrastructure npm packages in `apps/mercato/src/providers/`. Other app code belongs in modules, except [versioned generated registries](.ai/docs/module-development.md#generated-files-versioned-vs-ephemeral).
 
 ### `external/official-modules/` (git submodule)
 
