@@ -7,7 +7,7 @@ import { createBackup, verifyBackup, createPostgresSource, recipientsFromFile, i
 import { createRotationPresentation } from './presentation'
 import type { VerificationResult } from './verifier'
 import { createRotationArtifactCipher } from './age'
-import { createEnterpriseRotationProtection } from './coordinator'
+import { createEnterpriseRotationProtection, RotationResumeDatabaseMismatchError } from './coordinator'
 import { resolveRotationProviders, rotationProviderKinds } from './providers'
 import { resolveRecoveryConfiguration, requireRecoveryDirectories, requireRecoveryCustodyFile, RecoveryConfigurationError } from '../../../../lib/recovery-configuration'
 import { publishRotationReport, publishRotationFailureReport } from './report'
@@ -133,6 +133,13 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
             'Encryption map {mapId} has no usable entity metadata. Restore the module that registered the entity and verify coverage before retrying. Deleting the map can leave encrypted data outside the verification scope.',
             { mapId: error.mapId },
           ))
+          throw error
+        }
+        if (error instanceof RotationResumeDatabaseMismatchError) {
+          presentation.failed(translate(
+            'backups.rotation.resumeDatabaseMismatch',
+            'This run cannot resume because the PostgreSQL instance no longer matches its recorded identity. Keep writers stopped and retain the original backup, trusted run artifacts, and both keys. Follow the protected rotation runbook to assess or restore the original data before starting a new run.',
+          ), { canResume: false })
           throw error
         }
         presentation.failed(translate('backups.rotation.failed', 'Protected key rotation did not complete. Keep writers stopped, retain all previous keys and recovery artifacts, and inspect the trusted run record before resuming.'))

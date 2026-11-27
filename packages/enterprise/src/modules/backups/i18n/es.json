@@ -82,6 +82,7 @@
   "backups.rotation.presentation.title": "Rotación de claves protegida",
   "backups.rotation.presentation.verify": "Verificar datos persistidos",
   "backups.rotation.reportWritten": "Informe de verificación:",
+  "backups.rotation.resumeDatabaseMismatch": "No se puede reanudar esta ejecución porque la instancia de PostgreSQL ya no coincide con la identidad registrada. Mantenga detenidas las escrituras y conserve la copia original, los artefactos de confianza de la ejecución y ambas claves. Siga la guía de rotación protegida para evaluar o restaurar los datos originales antes de iniciar otra ejecución.",
   "backups.rotation.rotating": "Rotando datos cifrados con recuperación protegida.",
   "backups.rotation.runPrepared": "Ejecución protegida de rotación; conserve este identificador para reanudarla explícitamente:",
   "backups.rotation.unmappedEntity": "El mapa de cifrado {mapId} no tiene metadatos de entidad utilizables. Restaure el módulo que registró la entidad y compruebe la cobertura antes de volver a intentarlo. Eliminar el mapa puede dejar datos cifrados fuera del alcance de la verificación.",

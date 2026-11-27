@@ -66,9 +66,9 @@ export function createRotationPresentation(context: RotationProtectionContext, t
       if (mode === 'json') for (const line of lines) notice('completed', line, { rowsDone: result.comparedRows, rowsTotal: result.expectedRows, rowsTotalExact: true, bytesDone: result.comparedBytes })
       else ui.result(text('completed', 'Persisted data verification passed'), lines)
     },
-    failed(message: string) {
+    failed(message: string, { canResume = true } = {}) {
       const lines = [message, `${text('run', 'Run')}: ${runId}`]
-      if (runId !== 'rotation') lines.push(`${text('resume', 'Inspect the trusted run record before resuming the same command with')}: OM_ROTATION_RESUME_ID=${runId}`)
+      if (canResume && runId !== 'rotation') lines.push(`${text('resume', 'Inspect the trusted run record before resuming the same command with')}: OM_ROTATION_RESUME_ID=${runId}`)
       if (mode === 'json') for (const line of lines) notice('failed', line)
       else ui.error(text('failed', 'ERROR: Protected key rotation incomplete'), lines)
     },
