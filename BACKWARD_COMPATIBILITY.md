@@ -765,6 +765,6 @@ STABLE superadmin reset and invite email uses the instance provider. Tenant fall
 
 STABLE APIs §7 require organization grants and return `403` for explicitly empty scope. Grant scope and handle `403`. `PUT /api/auth/profile` requires current-password proof for email changes. Send proof and reauthenticate. ADDITIVE-ONLY schema §8 uses owner-unique partition codes. Rehome incompatible references. Bridging prior behavior retains unscoped access or unverified changes. [Migration and specs](UPGRADE_NOTES.md). Named waiver pending.
 
-## 2026-11-26 — Audit-log actor visibility (#10788)
+## #10788 (2026-11-26)
 
-STABLE audit reads limit other actors to granted orgs. A bridge leaks rows. Named waiver pending. [Upgrade](UPGRADE_NOTES.md#audit-log-scope-10788) · [Spec](.ai/specs/2026-07-28-audit-log-read-tenant-scope-fail-closed.md).
+STABLE audit scope. Bridge leaks. Named waiver due. [Guide](UPGRADE_NOTES.md#audit-log-scope-10788).

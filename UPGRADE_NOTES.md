@@ -28,6 +28,8 @@ Role grants cover an organization and its descendants. A user-level ACL or an or
 
 Action for operators and integrators: a user or API key whose `view_tenant` role is limited to some organizations must name one of them in `?organizationId=` to list or export other actors' rows. To read every organization in one request, grant `audit_logs.view_tenant` through a role without an organization restriction. No database migration or configuration change is required.
 
+[Compatibility spec](.ai/specs/2026-07-28-audit-log-read-tenant-scope-fail-closed.md).
+
 ## An empty organization scope is stopped at the feature guard (#10503)
 
 A non-super-admin principal whose organization scope resolves to **no organization** is now denied
