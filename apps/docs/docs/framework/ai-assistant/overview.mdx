@@ -136,7 +136,7 @@ Env:   ANTHROPIC_API_KEY set, OM_AI_PROVIDER=anthropic
 
 Browser sends ?provider=openai&model=gpt-4o  ← Step 1 wins → uses openai/gpt-4o
 Browser sends nothing, tenant has override (openai, gpt-5-mini) ← Step 2 wins
-Tenant has per-agent override for catalog.merch (google, gemini-3-pro) ← Step 3 wins
+Tenant has per-agent override for catalog.merch (google, gemini-3.1-pro-preview) ← Step 3 wins
 No runtime/tenant override, OM_AI_CATALOG_MODEL=gpt-4o-mini ← Step 4 wins
 No env, agent intentionally pins defaultModel/defaultProvider ← Step 5 wins
 No agent default, OM_AI_MODEL=openai/gpt-5-mini ← Step 6 wins

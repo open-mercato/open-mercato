@@ -37,7 +37,7 @@ export const OPEN_CODE_PROVIDERS: Record<OpenCodeProviderId, OpenCodeProviderDef
     id: 'google',
     name: 'Google',
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY', 'OPENCODE_GOOGLE_API_KEY'],
-    defaultModel: 'gemini-3-flash',
+    defaultModel: 'gemini-3-flash-preview',
   },
 }
 

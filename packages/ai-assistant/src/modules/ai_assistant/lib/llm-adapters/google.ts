@@ -16,18 +16,18 @@ import type {
   LlmProvider,
 } from '@open-mercato/shared/lib/ai/llm-provider'
 
-const DEFAULT_MODEL = 'gemini-3-flash'
+const DEFAULT_MODEL = 'gemini-3-flash-preview'
 
 const DEFAULT_MODELS: readonly LlmModelInfo[] = [
   {
-    id: 'gemini-3-flash',
-    name: 'Gemini 3 Flash',
+    id: 'gemini-3-flash-preview',
+    name: 'Gemini 3 Flash (Preview)',
     contextWindow: 1048576,
     tags: ['budget'],
   },
   {
-    id: 'gemini-3-pro',
-    name: 'Gemini 3 Pro',
+    id: 'gemini-3.1-pro-preview',
+    name: 'Gemini 3.1 Pro (Preview)',
     contextWindow: 1048576,
     tags: ['flagship'],
   },

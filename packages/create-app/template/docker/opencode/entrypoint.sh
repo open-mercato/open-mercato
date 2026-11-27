@@ -110,7 +110,7 @@ if [ -z "$MODEL" ]; then
       MODEL="openai/gpt-5-mini"
       ;;
     google)
-      MODEL="google/gemini-3-flash"
+      MODEL="google/gemini-3-flash-preview"
       ;;
     openrouter)
       MODEL="meta-llama/llama-3.3-70b-instruct"

@@ -161,7 +161,7 @@ Native protocol adapters:
 | Provider id | SDK | Default model | Context |
 |-------------|-----|---------------|---------|
 | `anthropic` | `@ai-sdk/anthropic` | `claude-haiku-4-5-20251001` | 200K |
-| `google` | `@ai-sdk/google` | `gemini-3-flash` | 1M |
+| `google` | `@ai-sdk/google` | `gemini-3-flash-preview` | 1M |
 
 OpenAI-compatible presets (all share one protocol adapter with different
 `baseURL` and env keys):
