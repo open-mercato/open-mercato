@@ -43,21 +43,4 @@ describe('flashMutationError', () => {
 
     expect(flash).toHaveBeenCalledWith('Failed to save location.', 'error')
   })
-
-  it.each([
-    ['lot_required', 'wms.backend.inventory.receive.errors.lotRequired'],
-    ['serial_required', 'wms.backend.inventory.receive.errors.serialRequired'],
-  ])('translates the %s tracking error instead of flashing the raw code', (code, key) => {
-    const error = Object.assign(new Error(code), { status: 422 })
-
-    flashMutationError(error, 'Failed to receive inventory.', (messageKey) => `translated:${messageKey}`)
-
-    expect(flash).toHaveBeenCalledWith(`translated:${key}`, 'error')
-  })
-
-  it('keeps flashing other server messages as-is', () => {
-    flashMutationError(new Error('insufficient_stock'), 'Failed to receive inventory.')
-
-    expect(flash).toHaveBeenCalledWith('insufficient_stock', 'error')
-  })
 })

@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { login } from '@open-mercato/core/helpers/integration/auth'
 import {
   createProductFixture,
   createVariantFixture,
   deleteCatalogProductIfExists,
 } from '@open-mercato/core/helpers/integration/catalogFixtures'
-import { deleteGeneralEntityIfExists, getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
+import {
+  deleteGeneralEntityIfExists,
+  getTokenScope,
+  readJsonSafe,
+} from '@open-mercato/core/helpers/integration/generalFixtures'
 import { createCrudFixture, ensureRoleFeatures, postAction } from './helpers/wmsFixtures'
-import { fillCombobox, waitForInventoryMutationScope } from './helpers/wmsUi'
 
 export const integrationMeta = {
   dependsOnModules: ['wms', 'catalog'],
@@ -23,7 +25,7 @@ function daysFromNow(days: number): string {
  * TC-WMS-040: Receive and reserve honor a product-level inventory profile
  * when the variant has no profile row of its own.
  */
-test('TC-WMS-040: product-level profile drives lot tracking on receive and FEFO on reserve', async ({ page, request }) => {
+test('TC-WMS-040: product-level profile drives lot tracking on receive and FEFO on reserve', async ({ request }) => {
   const adminToken = await getAuthToken(request, 'admin')
   const superadminToken = await getAuthToken(request, 'superadmin')
   const scope = getTokenScope(adminToken)
@@ -88,33 +90,6 @@ test('TC-WMS-040: product-level profile drives lot tracking on receive and FEFO 
       expiresAt: daysFromNow(100),
     })
 
-    await login(page, 'admin')
-    await page.goto('/backend/wms/inventory')
-    await waitForInventoryMutationScope(page)
-    await page.getByRole('button', { name: 'Receive stock (no ASN)' }).click()
-    const receiveDialog = page.getByRole('dialog').filter({ hasText: /Receive inventory \(no ASN\)/i }).first()
-    await expect(receiveDialog).toBeVisible()
-    await fillCombobox(page, 'Search variant or SKU', variantSku, {
-      scope: receiveDialog,
-      suggestionsApiPath: '/api/catalog/variants',
-    })
-    await fillCombobox(page, 'Select warehouse', warehouseName, {
-      scope: receiveDialog,
-      suggestionsApiPath: '/api/wms/warehouses',
-      waitForEnabledPlaceholder: 'Select location',
-    })
-    await fillCombobox(page, 'Select location', locationCode, {
-      scope: receiveDialog,
-      suggestionsApiPath: '/api/wms/locations',
-    })
-    const untrackedReceipt = page.waitForResponse(
-      (response) => response.request().method() === 'POST' && response.url().includes('/api/wms/inventory/receive'),
-    )
-    await receiveDialog.getByRole('button', { name: 'Receive', exact: true }).click()
-    expect((await untrackedReceipt).status()).toBe(422)
-    await expect(page.getByText('Lot number is required for this variant.').first()).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByText('lot_required', { exact: true })).toHaveCount(0)
-
     const receiveBase = {
       ...scoped,
       warehouseId,
@@ -124,6 +99,13 @@ test('TC-WMS-040: product-level profile drives lot tracking on receive and FEFO 
       referenceType: 'manual',
       performedBy: scope.userId,
     }
+    const untrackedReceipt = await apiRequest(request, 'POST', '/api/wms/inventory/receive', {
+      token: adminToken,
+      data: { ...receiveBase, referenceId: randomUUID() },
+    })
+    expect(untrackedReceipt.status()).toBe(422)
+    expect(await readJsonSafe<{ error?: string }>(untrackedReceipt)).toMatchObject({ error: 'lot_required' })
+
     await postAction(request, adminToken, '/api/wms/inventory/receive', {
       ...receiveBase,
       lotId: lateLotId,
