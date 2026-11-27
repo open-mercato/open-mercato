@@ -71,8 +71,8 @@ This spec adds that driver as a provider package and the minimal seam core needs
 | `FULLTEXT_DRIVER` | Registered + configured factories | Result |
 |---|---|---|
 | set to a registered id | that factory `isConfigured()` | that factory |
-| set to a registered id | that factory not configured | `null` driver, no fulltext strategy registered (exactly today's behaviour when `MEILISEARCH_HOST` is unset: `createFulltextDriver` returns `null` and `di.ts` pushes no strategy); `reportSearchError('FulltextDriver', …, 'search.fulltext_driver_unconfigured')` once per process |
-| set to an unknown id | any | `null` driver; `reportSearchError('FulltextDriver', …, 'search.fulltext_driver_unknown')` once per process |
+| set to a registered id | that factory not configured | an **unavailable stand-in driver** (id `unavailable`): the fulltext strategy exists but `isHealthy()` is `false`, so `fulltext-index.worker.ts` throws and the queue retries instead of completing jobs without indexing, searches skip it, and Settings → Search shows the reason; `reportSearchError('FulltextDriver', …, 'search.fulltext_driver_unconfigured')` once per process |
+| set to an unknown id | any | the same unavailable stand-in; `reportSearchError('FulltextDriver', …, 'search.fulltext_driver_unknown')` once per process. Silent absence (no strategy) is reserved for the intentional case: nothing selected and nothing configured |
 | unset | none configured | `null` (today's behaviour) |
 | unset | exactly one configured | that factory (with only Meilisearch registered this is byte-identical to today's `MEILISEARCH_HOST` auto-detect) |
 | unset | more than one configured | `meilisearch` if configured, else the first registered in registration order; a warning names `FULLTEXT_DRIVER` |
@@ -84,14 +84,15 @@ This spec adds that driver as a provider package and the minimal seam core needs
 | Decision | Rationale |
 |----------|-----------|
 | Provider package, not a folder in `packages/search` | Root `AGENTS.md`: every external integration provider lives in its own workspace package; 2026-07-24 § B.2 says the same for fulltext drivers; keeps `@elastic/elasticsearch` out of every install |
-| Process-level registry, populated at module import and from the module `di.ts` | Zero generator/template changes; same mechanism as gateway adapters and webhook handlers; consulted lazily at driver creation so it works for both `registerSearchModule` (bootstrap-time) and `registerScopedSearchModule` (first resolve). Import-time registration makes it independent of DI-registrar order; the `di.ts` call is the idempotent belt-and-braces for HMR (Phase 1 step 6 verifies the order with a test) |
+| Process-level registry, populated from the module `di.ts` through the DI lifecycle (`defineProcessDiRegistrar` + `registerProcessActivation` for the process root, direct `register` for legacy containers — the exact `gateway-stripe` pattern); **no import-time registration** | Zero generator/template changes; same mechanism as gateway adapters and webhook handlers; the container discards stale generations before publishing activations, so a disabled or replaced provider never survives a reload. Order is guaranteed by the container: `buildLegacyRequestContainer` runs module registrars before core `bootstrap()` (which calls `registerSearchModule`), and the process root runs activations before any scoped `searchStrategies` resolve (lazy `registerScopedSearchModule`). Phase 1 step 6 covers both paths with tests |
 | `FULLTEXT_DRIVER` explicit override, auto-detect when unset | No existing deployment changes behaviour on upgrade; a single configured driver "just works"; ambiguity is logged, not guessed silently |
 | One Elasticsearch index per tenant (`${prefix}_${tenant}`) | Same isolation boundary and admin semantics (`clearIndex`, `recreateIndex`, `getIndexStats`) as Meilisearch, so `SearchIndexer`, the reindex API and the Settings page need no new branches; a filter bug cannot cross tenants |
 | Metadata under a `meta` object, not `_`-prefixed top-level fields | `_id` and other `_`-prefixed names are reserved Elasticsearch metadata; `meta.presenter` / `meta.links` are stored with `enabled: false` so they are never tokenised |
 | Scores normalised to `_score / max_score` (relative to the page's top hit) | `ResultMerger` weights `fulltext: 1.2` against `vector` / `tokens`; raw BM25 would dominate the merge. Meilisearch's score is absolute; the relative form is accepted for MVP (Risk register) |
 | Native `purge` via `_delete_by_query` | Avoids the `listDocumentIds` enumerate-and-delete fallback and its offset limits |
-| `search_after` not used for `listDocumentIds` | The driver contract is offset/limit; the driver raises `index.max_result_window` per index instead (configurable) and documents the ceiling. A cursor contract is a separate, additive upstream change |
+| `listDocumentIds` walks a point-in-time with `search_after` behind the offset/limit contract | The interface promises uncapped enumeration for reconciliation/retention (`types.ts`); `from/size` is capped by `index.max_result_window`, and raising the window only moves the ceiling. A sequential-cursor cache makes the strategy's page loop O(n) |
 | Driver-neutral settings response copies the vector-store shape | One mental model for operators and one UI pattern (`drivers[].envVars[]`) already in the module |
+| Selection is resolved once per process generation and reported from the live instance | `di.ts` memoises the driver; settings API, CLI and Settings UI read `activeDriver` from the fulltext strategy's `driver.id` on a request container, never from a fresh `resolveFulltextDriverSelection()`, so the registry and the serving instance cannot disagree. `unregister` exists for tests and hot reloads only; changing `FULLTEXT_DRIVER` or enabling a provider needs a restart, as every other env-driven setting does |
 
 ### Alternatives Considered
 
@@ -113,7 +114,8 @@ This spec adds that driver as a provider package and the minimal seam core needs
 
 ```
 app src/modules.ts ── enables { id: 'fulltext_elasticsearch', from: '@open-mercato/fulltext-elasticsearch' }
-   └─ module di.ts ──────── registerFulltextDriverFactory(elasticsearchDriverFactory)   (also at import time)
+   └─ module di.ts ──────── defineProcessDiRegistrar(registerProcessActivation(…)) / legacy register
+                             └─ registerFulltextDriverFactory(elasticsearchDriverFactory)
 packages/search  fulltext/drivers/index.ts ── registers meilisearchDriverFactory (built in)
 packages/search  di.ts ── createFulltextDriver({ fieldPolicyResolver, encryptionMapResolver })
    └─ registry.resolve(FULLTEXT_DRIVER ?? auto-detect) ── factory.create(config) ── FullTextSearchDriver
@@ -153,7 +155,7 @@ export function listFulltextDriverFactories(): FulltextDriverFactory[]          
 export function resolveFulltextDriverId(env?: NodeJS.ProcessEnv): FullTextSearchDriverId | null
 ```
 
-`createFulltextDriver(options)` keeps its signature; `FulltextDriverFactoryOptions` keeps its existing `meilisearch` and `algolia` keys unchanged (type is a contract surface) and gains an optional `driver?: FullTextSearchDriverId` override (tests, CLI). `defaultLimit` (20) is passed through to every factory and used as the `search` / `listDocumentIds` default size, as the Meilisearch driver does today. Exports are added to `packages/search/src/fulltext/index.ts` and `src/index.ts` (additive).
+`createFulltextDriver(options)` keeps its signature; `FulltextDriverFactoryOptions` keeps its existing `meilisearch` and `algolia` keys unchanged (type is a contract surface) and gains an optional `driver?: FullTextSearchDriverId` override (tests, CLI). `defaultLimit` (20) is passed through to every factory and used as the `search` / `listDocumentIds` default size, as the Meilisearch driver does today. `createFulltextDriver({ meilisearch: { host } })` keeps selecting and configuring Meilisearch without any environment variable (today's programmatic path); provider factories are configured from the environment only — `create(config)` receives the resolvers and `defaultLimit`, and a provider that needs programmatic overrides exposes its own `createXDriver(options)` export, as Meilisearch does. Exports are added to `packages/search/src/fulltext/index.ts` and `src/index.ts` (additive).
 
 ### Provider package layout (`packages/fulltext-elasticsearch`)
 
@@ -168,7 +170,7 @@ src/driver/documents.ts prepareDocument (field policy + encryption map parity); 
 src/driver/queries.ts   buildQuery(text, options) → bool query; organization/entity filters
 src/factory.ts          elasticsearchDriverFactory: { id: 'elasticsearch', describe, isConfigured, create }
 src/modules/fulltext_elasticsearch/index.ts   module metadata (id, title, version)
-src/modules/fulltext_elasticsearch/di.ts      defineProcessDiRegistrar(register) → registerFulltextDriverFactory(...)
+src/modules/fulltext_elasticsearch/di.ts      defineProcessDiRegistrar((c) => registerProcessActivation(c, activate), { legacy: register }) → registerFulltextDriverFactory(...)
 src/__tests__/*.test.ts                        unit (mocked Client); integration gated on ELASTICSEARCH_URL
 ```
 
@@ -182,13 +184,13 @@ src/__tests__/*.test.ts                        unit (mocked Client); integration
 | `index(doc)` | `addDocuments([doc], { primaryKey: '_id' })` | `client.index({ index, id: recordId, document, refresh })` |
 | `bulkIndex(docs)` | group by tenant; one `addDocuments` per tenant | group by tenant; `client.bulk` calls of at most `ELASTICSEARCH_BULK_CHUNK_SIZE` documents (default 500) or ~5 MB serialised, whichever comes first, so a large queue batch never exceeds the cluster's `http.max_content_length` (100 MB default); if `response.errors`, throw an aggregated error naming the first failed id (fail-loud, queue retries) |
 | `delete(recordId, tenantId)` | ignore `index_not_found` | `client.delete({ index, id, refresh })`; ignore 404 (`index_not_found_exception` / document missing) |
-| `purge(entityId, tenantId, orgId?)` | `deleteDocuments({ filter })` | `deleteByQuery({ query: { bool: { filter: [term meta.entity_id, term meta.organization_id?] } }, conflicts: 'proceed', refresh })`; ignore 404 |
-| `clearIndex(tenantId)` | `deleteAllDocuments()` | `deleteByQuery({ match_all })`, ignore 404 |
+| `purge(entityId, tenantId, orgId?)` | `deleteDocuments({ filter })` | `deleteByQuery({ query: { bool: { filter: [term meta.entity_id, term meta.organization_id?] } }, conflicts: 'proceed', refresh: <boolean> })`; ignore 404. The response is validated: any entry in `failures[]` throws; `version_conflicts > 0` re-runs the delete (up to 3 passes) and throws if conflicts remain, so the scoped reindex in `search-indexer.ts` never proceeds on a partial purge. `_delete_by_query` accepts only boolean `refresh`, so `ELASTICSEARCH_REFRESH=wait_for` is translated to `true` here |
+| `clearIndex(tenantId)` | `deleteAllDocuments()` | `deleteByQuery({ match_all })` with the same response validation and refresh translation as `purge`; ignore 404 |
 | `recreateIndex(tenantId)` | `deleteIndex` + ensure | `indices.delete` (ignore 404) + ensure |
 | `search(query, options)` | `index.search` with filter string, `showRankingScore` | `client.search({ index, size, from, query: bool{ should: [match(all_text, fuzziness AUTO), match_phrase_prefix(all_text, boost 2)], minimum_should_match 1, filter: [...] }, track_scores: true })`; `index_not_found_exception` → `[]`; score = `_score / max_score` (`0.5` when `max_score` is null) |
-| organization filtering | `_organizationId = "x"` / `IN [...]` / sentinel when `organizationIds` is `[]` | `term meta.organization_id` / `terms` / **return `[]` without a request** when `organizationIds` is `[]`; documents with `organization_id: null` are excluded whenever an organization filter is present (parity) |
+| organization filtering | `_organizationId = "x"` takes precedence over `organizationIds`; `IN [...]`; sentinel filter when the list is `[]` and no single id is set | Same precedence: a non-empty `organizationId` → `term meta.organization_id`, otherwise `organizationIds` → `terms`; an empty list with no single id → **return `[]` without a request** (the strategy already short-circuits that case). Documents with `organization_id: null` are excluded whenever an organization filter is present (parity) |
 | `getDocuments(ids, tenantId)` | `getDocuments({ filter: _id IN [...] })` | `client.mget({ index, ids, _source: ['meta'] })`; map keyed `${entityId}:${recordId}`; errors → empty map (parity) |
-| `listDocumentIds(entityId, tenantId, { offset, limit, organizationId })` | `getDocuments({ filter, fields: ['_id'], limit, offset })` | `client.search({ index, from, size, _source: false, sort: [{ 'meta.record_id': 'asc' }], query: { bool: { filter } }, track_total_hits: false })` → ids from `hits.hits[]._id`; `index_not_found_exception` → `[]` |
+| `listDocumentIds(entityId, tenantId, { offset, limit, organizationId })` | `getDocuments({ filter, fields: ['_id'], limit, offset })` | Uncapped enumeration behind the offset/limit signature: a point-in-time (`openPointInTime`, `keep_alive` 1m) + `search_after` walk sorted by `meta.record_id` with `_source: false`, `track_total_hits: false`. The driver keeps one sequential cursor per `(entityId, tenantId, organizationId)`: a call whose `offset` equals the previous `offset + limit` continues from the stored `search_after` values; any other offset restarts the walk from the beginning and skips forward. The PIT is closed when a page comes back short or the cursor is replaced. `FullTextSearchStrategy.listAllDocumentIds` pages sequentially, so reconciliation is O(n) with no `max_result_window` dependency; `index_not_found_exception` → `[]` |
 | `getIndexStats(tenantId)` | `index.getStats()` | `indices.stats({ index })` → `numberOfDocuments = _all.primaries.docs.count`, `isIndexing: false`, `fieldDistribution: {}` (no cheap Elasticsearch equivalent; documented); 404 → `null` |
 | `getEntityCounts(tenantId)` | facet `_entityId` | `terms` aggregation on `meta.entity_id` (`size: 1000`) with `size: 0`; 404 → `null` |
 
@@ -210,21 +212,22 @@ No database entities, no migrations.
     "organization_id": "… | null", "indexed_at": "2026-11-27T10:00:00.000Z",
     "presenter": { "...": "stored only" }, "url": "…", "links": [ { "...": "stored only" } ]
   },
-  "first_name": "Ada", "email": "ada@example.com", "…": "searchable fields from extractSearchableFields"
+  "all_text": ["Ada", "ada@example.com", "…"]
 }
 ```
 
-**Index mapping** (`${prefix}_${suffix}`, prefix default `om`). Tenant ids are UUIDs (`tenants.id`), so the suffix is the lower-cased UUID, which cannot collide. Any id that is not a UUID is replaced by the first 24 hex characters of its SHA-256 so case-folding and character stripping can never map two tenants to one index (unit test: `Tenant-A` vs `tenant-a` → distinct indices). Names follow the Elasticsearch index-name rules (lower-case, no `\\/*?"<>| ,#`, not starting with `-_+`):
+`all_text` is an explicit array of strings built from the output of `extractSearchableFields` (the same field-policy / encryption-map filtered map the Meilisearch driver spreads into its document): string values as-is, numbers and booleans stringified, dates as ISO strings, objects and arrays flattened to their string leaves. Field names are not indexed, so no two entities can ever produce a mapping conflict, no searchable field can collide with `meta`, and date-looking strings are never auto-typed. This mirrors Meilisearch's `searchableAttributes: ['*']` relevance model (every field weighted equally).
+
+**Index mapping** (`${prefix}_${suffix}`, prefix default `om`). Tenant ids are UUIDs (`tenants.id`), so the suffix is the lower-cased UUID, which cannot collide. Any id that is not a UUID is replaced by the first 24 hex characters of its SHA-256 so case-folding and character stripping can never map two tenants to one index (unit test: `Tenant-A` vs `tenant-a` → distinct indices). Names follow the Elasticsearch index-name rules (lower-case, no `\\/*?"<>| ,#`, not starting with `-_+`). The mapping is **static** (`dynamic: false`): fields outside it are stored in `_source` but never mapped.
 
 | Field | Type | Notes |
 |---|---|---|
 | `meta.record_id`, `meta.entity_id`, `meta.organization_id`, `meta.url` | `keyword` | filters, sort tiebreaker |
 | `meta.indexed_at` | `date` | |
 | `meta.presenter`, `meta.links` | `object`, `enabled: false` | stored in `_source`, never indexed |
-| `all_text` | `text`, analyzer `standard` | target of `copy_to` from every string field |
-| dynamic template `strings` | `text` with `copy_to: all_text`, `fields.keyword` (`ignore_above: 256`) | searchable fields |
+| `all_text` | `text`, analyzer `standard` | the only searched field |
 
-Settings: `number_of_shards: 1`, `number_of_replicas` from `ELASTICSEARCH_NUMBER_OF_REPLICAS` (default `1`), `index.max_result_window` from `ELASTICSEARCH_MAX_RESULT_WINDOW` (default `100000`), `index.mapping.total_fields.limit` from `ELASTICSEARCH_TOTAL_FIELDS_LIMIT` (default `5000`). A searchable field literally named `meta` or `all_text` is dropped with a reported `search.fulltext_reserved_field` error rather than corrupting the mapping.
+Settings: `number_of_shards: 1`, `number_of_replicas` from `ELASTICSEARCH_NUMBER_OF_REPLICAS` (default `1`). No dynamic templates, keyword sub-fields, field-count or result-window knobs.
 
 ## API Contracts
 
@@ -245,12 +248,12 @@ Settings: `number_of_shards: 1`, `number_of_replicas` from `ELASTICSEARCH_NUMBER
     configured: boolean, active: boolean,
     available: boolean | null,             // isAvailable() probe of the active driver only; null otherwise
     unavailableReason: string | null,
-    envVars: Array<{ name: string, required: boolean, secret: boolean, set: boolean, hint: string /* translated via hintKey */, value?: string /* never for secret; userinfo stripped for url kind */, defaultValue?: string }>
+    envVars: Array<{ name: string, required: boolean, secret: boolean, set: boolean, hint: string /* translated via hintKey */, value?: string /* never for secret; url kind passes through sanitizeUrlForDisplay (per node) */, defaultValue?: string }>
   }>
 }
 ```
 - `openApi`: `fulltextSettingsResponseSchema` extended with the new fields; `driver` keeps `z.enum(['meilisearch']).nullable()` and `configured` keeps its computation, both with a deprecation note; description changed from "Returns Meilisearch configuration status" to driver-neutral wording.
-- Consequence to document in `UPGRADE_NOTES.md`: with Elasticsearch active the legacy pair reads `driver: null, configured: false` while `activeDriver` is set. `SearchSettingsPageClient` / `FulltextSearchSection` stop gating the status card on `configured` and use `activeDriver` + `drivers[].configured` instead (Phase 3 step 3).
+- Consequence to document in `UPGRADE_NOTES.md`: the legacy pair keeps reflecting the Meilisearch variables only, regardless of which driver is active — with Elasticsearch active and Meilisearch unset it reads `driver: null, configured: false`; with both configured it reads `driver: 'meilisearch', configured: true`. Active-engine status is expressed exclusively through `activeDriver` / `selection` / `drivers[]`. `SearchSettingsPageClient` / `FulltextSearchSection` stop gating the status card on the legacy pair and use `activeDriver` + `drivers[].configured` instead (Phase 3 step 3).
 - Values of variables flagged `secret` are never returned (only `set`), matching today's `MEILISEARCH_API_KEY` handling.
 
 No other routes change. `POST /api/search/reindex` and `GET /api/search/settings` already go through `FullTextSearchStrategy` and need no edits.
@@ -293,8 +296,6 @@ Budgets: 0 new `"use client"` files; no new heavy deps; the section stays under 
 | `ELASTICSEARCH_TLS_REJECT_UNAUTHORIZED` | fulltext-elasticsearch | `true` | `false` only for self-signed dev clusters |
 | `ELASTICSEARCH_REFRESH` | fulltext-elasticsearch | `false` | `wait_for` for tests/dev; never `true` in production |
 | `ELASTICSEARCH_NUMBER_OF_REPLICAS` | fulltext-elasticsearch | `1` | `0` for single-node dev |
-| `ELASTICSEARCH_MAX_RESULT_WINDOW` | fulltext-elasticsearch | `100000` | ceiling for `listDocumentIds` offset+limit |
-| `ELASTICSEARCH_TOTAL_FIELDS_LIMIT` | fulltext-elasticsearch | `5000` | mapping growth guard |
 | `ELASTICSEARCH_BULK_CHUNK_SIZE` | fulltext-elasticsearch | `500` | documents per `bulk` request |
 
 Documented in `apps/mercato/.env.example` and `packages/create-app/template/.env.example` (same task, `yarn template:sync:fix`), `apps/docs/docs/framework/database/hybrid-search.mdx` and `packages/search/AGENTS.md` env table.
@@ -312,10 +313,10 @@ Documented in `apps/mercato/.env.example` and `packages/create-app/template/.env
 ### Phase 1 — Registry + selection in `@open-mercato/search` (PR 1)
 1. Add `fulltext/drivers/registry.ts` with the contract above; `globalThis` storage under `Symbol.for('@open-mercato/search/fulltext-driver-registry')`.
 2. Wrap the Meilisearch driver in `meilisearchDriverFactory` (`describe()` lists `MEILISEARCH_HOST`, `MEILISEARCH_API_KEY`, `MEILISEARCH_INDEX_PREFIX`, `MEILISEARCH_REQUEST_TIMEOUT_MS`) and register it at module load in `fulltext/drivers/index.ts`.
-3. Rewrite `createFulltextDriver` to resolve through `resolveFulltextDriverId` + factory; keep `FulltextDriverFactoryOptions.meilisearch` overrides working by passing them to the Meilisearch factory.
+3. Rewrite `createFulltextDriver` to resolve through `resolveFulltextDriverSelection` + factory; keep `FulltextDriverFactoryOptions.meilisearch` overrides working; return the unavailable stand-in driver for an explicit but unknown/unconfigured selection.
 4. Export the registry from `fulltext/index.ts` and `src/index.ts`.
 5. Unit tests: registry (register / idempotent re-register / unregister / list order / survives a second module instance via `globalThis`); `createFulltextDriver` selection matrix (five rows of the Selection table, including the `di-singletons.test.ts`-style assertion that the existing memoisation and the `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` no-memo branch are unchanged).
-6. Order test: a module `di.ts` registering a fake factory, then `registerSearchModule` on a container → the strategy uses it (guards the "registration happens before driver creation" assumption for both the bootstrap and scoped paths).
+6. Order tests: a fake factory registered the way a module `di.ts` does, then `registerSearchModule` on a container → the strategy uses it (legacy path: module registrars run before core `bootstrap()` in `buildLegacyRequestContainer`); `registerScopedSearchModule` on a root, registration afterwards, first scoped resolve → the strategy uses it (process-root path: activations run before any scope resolves). Real-bootstrap evidence comes from the Phase 3 integration test that boots the app with the module enabled.
 7. Env + docs: `FULLTEXT_DRIVER` in both `.env.example` files, `hybrid-search.mdx` "Selecting a fulltext driver" + "Adding a fulltext driver" subsections, `packages/search/AGENTS.md` env table and structure block.
 8. `UPGRADE_NOTES.md`: additive note (`FULLTEXT_DRIVER`, `driver` field deprecation).
 
@@ -323,10 +324,10 @@ Documented in `apps/mercato/.env.example` and `packages/create-app/template/.env
 1. Scaffold the package from `packages/web-research-exa` (`package.json`, `build.mjs`, `watch.mjs`, `tsconfig.json`, `jest.config.cjs`); add `@elastic/elasticsearch`.
 2. `driver/client.ts`: lazy `Client` from env/options (nodes, auth, `requestTimeout`, `tls.rejectUnauthorized`); client `redaction` option enabled so `ResponseError.meta` never carries `Authorization` or `user:pass@` URLs; thrown errors are re-wrapped with the URL's userinfo stripped; never logs credentials.
 3. `driver/index-name.ts`: name builder + mapping/settings constants + `ensureIndex` with the in-flight map.
-4. `driver/documents.ts`: `prepareDocument` (port of the Meilisearch branch incl. `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` sanitisation; reserved-name guard) and `hitToResult` with score normalisation.
+4. `driver/documents.ts`: `prepareDocument` (port of the Meilisearch branch incl. `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` sanitisation; `all_text` flattening) and `hitToResult` with score normalisation.
 5. `driver/queries.ts`: `buildFilters` (organization / organizationIds / entityTypes parity, early `[]` on empty `organizationIds`), `buildSearchQuery` (fuzzy + phrase-prefix on `all_text`).
 6. `driver/index.ts`: the twelve methods per the parity table.
-7. `factory.ts` + module `fulltext_elasticsearch/{index.ts,di.ts}` (import-time registration + `defineProcessDiRegistrar`).
+7. `factory.ts` + module `fulltext_elasticsearch/{index.ts,di.ts}` (`defineProcessDiRegistrar` with `registerProcessActivation`, legacy `register` for request containers; no import-time side effects).
 8. Unit tests with a mocked `Client` (see Testing Strategy); integration test skipped unless `ELASTICSEARCH_URL` is set, using `ELASTICSEARCH_REFRESH=wait_for` and a unique prefix per run, cleaning its indices in `finally`; API integration test asserting `GET /api/search/settings/fulltext` lists `elasticsearch` in `drivers[]` once the module is enabled (coverage for the surface this phase changes).
 9. Wire `apps/mercato/package.json` + `src/modules.ts` and the create-app template equivalents (`yarn template:sync:fix`); `yarn generate`.
 10. Docs: Elasticsearch section in `hybrid-search.mdx` (setup, variables, index layout, reindex after switch, known limits), package `README.md`, `.env.example` entries, `.ai/specs/README.md` row (already added with this spec).
@@ -335,7 +336,8 @@ Documented in `apps/mercato/.env.example` and `packages/create-app/template/.env
 1. `api/settings/fulltext/route.ts`: build `activeDriver`, `selection`, `drivers[]` from the registry; probe `available` through `searchStrategies` on a request container (pattern: vector-store route); keep legacy fields.
 2. `api/openapi.ts`: extend `fulltextSettingsResponseSchema`; neutral descriptions; mark `driver` deprecated.
 3. `FulltextSearchSection.tsx` + `SearchSettingsPageClient.tsx`: render from `drivers[]`; Boy Scout fixes above.
-4. `cli.ts`: `status` prints `FULLTEXT_DRIVER` and the active driver's env vars (secret → `(set)`/`(not set)`); the `query` command's `--strategy` help text becomes `fulltext,vector,tokens` (one-line fix on a touched file).
+4. `cli.ts`: `status` prints `FULLTEXT_DRIVER` and the active driver's env vars (secret → `(set)`/`(not set)`; `kind: 'url'` values pass through `sanitizeUrlForDisplay`); the `query` command's `--strategy` help text becomes `fulltext,vector,tokens` (one-line fix on a touched file).
+7. `packages/search/src/lib/url-redaction.ts`: `sanitizeUrlForDisplay(value)` strips userinfo from every entry of a comma-separated URL list and is the single redaction path for the settings API, CLI status and the Elasticsearch driver's error wrapping; unit tests with credential-bearing single and multi-node values.
 5. i18n keys in all locale files; `yarn i18n:check-sync`, `yarn i18n:check-usage`.
 6. Integration tests: API test for `GET /api/search/settings/fulltext` asserting legacy fields are byte-compatible and new fields present; Playwright test that Settings → Search shows the active driver label and the missing-variable state.
 
@@ -351,6 +353,7 @@ Documented in `apps/mercato/.env.example` and `packages/create-app/template/.env
 | `packages/search/src/modules/search/api/settings/fulltext/route.ts`, `api/openapi.ts` | Modify | Driver-neutral response (additive) |
 | `packages/search/src/modules/search/frontend/components/sections/FulltextSearchSection.tsx`, `SearchSettingsPageClient.tsx` | Modify | Render from descriptors; Boy Scout fixes |
 | `packages/search/src/modules/search/cli.ts` | Modify | `status` output; `--strategy` help |
+| `packages/search/src/lib/url-redaction.ts` | Create | Shared per-node URL userinfo stripping (settings API, CLI, driver errors) |
 | `packages/search/src/modules/search/i18n/*.json` | Modify | Keys above |
 | `apps/mercato/package.json`, `apps/mercato/src/modules.ts`, `packages/create-app/template/package.json.template`, `packages/create-app/template/src/modules.ts` | Modify | Depend on + enable the module |
 | `apps/mercato/.env.example`, `packages/create-app/template/.env.example` | Modify | `FULLTEXT_DRIVER`, `ELASTICSEARCH_*` |
@@ -362,7 +365,7 @@ Documented in `apps/mercato/.env.example` and `packages/create-app/template/.env
 ### Testing Strategy
 - **Unit (search):** registry semantics; selection matrix; memoisation unchanged; order test.
 - **Unit (package, mocked `@elastic/elasticsearch` `Client`):** index-name sanitisation (upper-case tenant ids, forbidden characters); `ensureIndex` once per index under concurrency and after `recreateIndex`; `buildFilters` for `organizationId`, `organizationIds`, `[]` short-circuit, `entityTypes`; `prepareDocument` parity incl. the `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` branch and the reserved-name guard; score normalisation incl. `max_score: null`; `bulkIndex` groups by tenant and throws on `errors: true`; `delete` / `purge` / `clearIndex` / `listDocumentIds` / `getIndexStats` / `getEntityCounts` 404 handling; `isHealthy` false when unconfigured or ping throws; module `di.ts` registers id `elasticsearch`; credentials never appear in thrown error messages.
-- **Integration (opt-in, `ELASTICSEARCH_URL`):** index two tenants, search with a typo and a prefix, verify tenant and organization isolation, `purge` by organization, `getEntityCounts`, `listDocumentIds` paging, `recreateIndex`.
+- **Integration (opt-in, `ELASTICSEARCH_URL`):** driver level — index two tenants, search with a typo and a prefix, verify tenant and organization isolation, `purge` by organization with the response validation path, `getEntityCounts`, `listDocumentIds` paging across more than one PIT page, `recreateIndex`; application level — boot the app with the module enabled, `POST /api/search/reindex`, drain the `fulltext-indexing` queue, then `GET /api/search/search` as a user with and without the entity's `aclFeatures` (hits only for the former), and the encryption-policy failure case (`SEARCH_EXCLUDE_ENCRYPTED_FIELDS=on` with the custom-field definitions unavailable → indexing refused, nothing reaches the cluster). This run is required evidence before the provider-package PR leaves draft.
 - **Integration coverage required by `.ai/qa/AGENTS.md`:** Phase 3 — API `GET /api/search/settings/fulltext` (legacy fields byte-compatible, new fields present, 401 without auth) and UI Settings → Search fulltext section (active driver label, missing-variable rows). Phase 2 — API test that `drivers[]` includes `elasticsearch` with its env descriptors when the module is enabled. Phase 1 — none (no behaviour change; unit tests only). Fixtures are env-only; no seeded data needed.
 - **Gates:** `yarn generate && yarn typecheck && yarn lint && yarn test && yarn build:packages`, `yarn i18n:check-sync`, `yarn template:sync`, `yarn check:client-boundaries`.
 
@@ -382,11 +385,11 @@ Documented in `apps/mercato/.env.example` and `packages/create-app/template/.env
 - Noisy neighbour: one index per tenant bounds mapping growth and deep-page cost per tenant; `total_fields.limit` guards runaway mappings.
 
 ### Migration & Deployment Risks
-- Zero-downtime: additive code; no schema change; driver switch is an env change + reindex.
+- Deploying the code is zero-downtime: additive, no schema change. **Switching the active driver is not**: the new engine starts empty, so fulltext search is unavailable (searches fall back to tokens, `isAvailable()` stays true but returns no fulltext hits) from the restart until the reindex completes; the existing full reindex also recreates the tenant index. Operators should run the reindex immediately after the switch, ideally off-peak; a pre-populate-then-cut-over procedure is out of scope for v1 and documented as such.
 - No backfill; reindex uses the existing queue-based path and its progress UI.
 
 ### Operational Risks
-- Detection: Settings → Search shows `available: false` + `unavailableReason`; `search status` prints the driver and variables; `reportSearchError` codes `search.fulltext_driver_unknown`, `search.fulltext_driver_unconfigured`, `search.fulltext_reserved_field`.
+- Detection: Settings → Search shows `available: false` + `unavailableReason`; `search status` prints the driver and variables; `reportSearchError` codes `search.fulltext_driver_unknown`, `search.fulltext_driver_unconfigured`.
 - Blast radius: fulltext strategy only; tokens and vector unaffected.
 - Storage: one index per tenant, `_source` stored; comparable to Meilisearch.
 
@@ -406,12 +409,12 @@ Documented in `apps/mercato/.env.example` and `packages/create-app/template/.env
 - **Mitigation**: `prepareDocument` is a port of the Meilisearch branch with the same unit tests (`index-doc-filter`, `plaintext-custom-field-boundaries` patterns); `meta.presenter`/`meta.links` are `enabled: false` so even stored values are never tokenised; the driver is never memoised when the resolver is per-request.
 - **Residual risk**: operators who leave the flag off index decrypted values by design, as with Meilisearch today.
 
-#### Reserved field names / mapping conflicts
-- **Scenario**: an entity exposes a searchable field named `meta` or `all_text`, or two entities map the same field name to different types (e.g. `amount` numeric vs string) in the shared per-tenant index, causing `mapper_parsing_exception` on index.
+#### Mapping conflicts between entities
+- **Scenario**: two entities map the same field name to different types, or a searchable field name collides with `meta`, causing `mapper_parsing_exception` on index.
 - **Severity**: Medium
 - **Affected area**: indexing of the affected entity
-- **Mitigation**: reserved names dropped + reported; dynamic template maps all strings to `text`; non-string scalars are stringified before indexing (Meilisearch is schemaless, so this keeps parity) — only `meta.*` fields carry typed mappings.
-- **Residual risk**: none significant; a typed-mapping option is future work.
+- **Mitigation**: field names are never mapped — searchable values go into the explicit `all_text` string array and the mapping is `dynamic: false`; only `meta.*` carries typed fields and it is written by the driver alone.
+- **Residual risk**: none; per-field boosting is future work.
 
 #### Score normalisation skews the merge
 - **Scenario**: a single-hit response has `max_score == _score`, so every lone hit scores 1.0 and outranks vector/token results.
@@ -420,12 +423,12 @@ Documented in `apps/mercato/.env.example` and `packages/create-app/template/.env
 - **Mitigation**: `ResultMerger` weights are unchanged; the normalisation is documented as relative (Meilisearch's `_rankingScore` is absolute per hit, so this is a deliberate difference, not parity); min-max over the page or a BM25 saturation function is a tuning knob for a later spec.
 - **Residual risk**: accepted for MVP.
 
-#### `listDocumentIds` ceiling (`index.max_result_window`)
-- **Scenario**: reconciliation enumerates more than `ELASTICSEARCH_MAX_RESULT_WINDOW` documents of one entity in one tenant; Elasticsearch rejects the deep page.
-- **Severity**: Medium
-- **Affected area**: `FullTextSearchStrategy.listAllDocumentIds` callers (retention/reconciliation); `purge` is unaffected (native `_delete_by_query`)
-- **Mitigation**: default window raised to 100 000 per index (ids-only, single shard, acceptable memory); the error is surfaced, not swallowed; documented.
-- **Residual risk**: tenants above the window need a cursor-based contract — tracked as follow-up upstream work, out of scope.
+#### Point-in-time cursors for `listDocumentIds`
+- **Scenario**: a reconciliation walk is interrupted and its PIT stays open until `keep_alive` expires, or two walks over the same scope interleave and one restarts the other's cursor.
+- **Severity**: Low
+- **Affected area**: cluster resources (open PITs), reconciliation correctness
+- **Mitigation**: `keep_alive` of 1 minute refreshed per page; cursors are per process and per scope and replaced, never shared; a restarted walk skips forward deterministically on the `meta.record_id` sort, so results stay complete, only slower.
+- **Residual risk**: interleaved walks over one scope from one process are slower than necessary; accepted.
 
 #### Near-real-time visibility
 - **Scenario**: a record is indexed and searched within the refresh interval (1 s) and is not found.
@@ -503,4 +506,5 @@ None.
 ## Changelog
 ### 2026-11-27
 - Initial specification: registry + env selection in `@open-mercato/search`, `@open-mercato/fulltext-elasticsearch` provider package, driver-neutral operator surfaces. Skeleton questions Q1–Q6 resolved on the recommended options (Elasticsearch 9.x only; process-level registry; additive settings API; index per tenant; mocked unit tests + opt-in integration test).
+- Codex review (13 findings, triaged on PR #10987): explicit invalid `FULLTEXT_DRIVER` now registers an unhealthy stand-in so queued jobs retry instead of being dropped; registration moves to the DI lifecycle (`registerProcessActivation` + legacy `register`, no import-time side effects); `_delete_by_query` responses validated with bounded conflict retries and boolean refresh translation; document model switched to an explicit `all_text` array with a static `dynamic: false` mapping (field-count and result-window knobs cut); `listDocumentIds` walks a point-in-time with `search_after` behind the offset contract; shared per-node URL redaction for API, CLI and errors; legacy settings pair stated as Meilisearch-only; selection immutable per process generation with status read from the live strategy; `organizationId` precedence parity; driver switch documented as fulltext-unavailable until reindex; application-path and encryption-failure integration coverage added.
 - Fresh-context checklist review (§ 1 scope cohesion run by a separate agent): SPLIT verdict recorded as Q7; corrections applied — `query` (not `reindex`) `--strategy` help, legacy `configured`/`driver` computations kept verbatim and deprecated, unconfigured selected driver yields no strategy (today's behaviour), index-suffix collision rule, `algolia` factory key retained, bulk chunking, URL userinfo stripping + client redaction, `hintKey`/`hint` split, provider-package i18n, PR order 1 → 3 → 2 with per-phase integration coverage, relative score normalisation stated as a deliberate difference.
