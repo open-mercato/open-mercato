@@ -7,6 +7,7 @@ import { AccessLogService } from '@open-mercato/core/modules/audit_logs/services
 export function register(container: AppContainer) {
   container.register({
     actionLogService: asClass(ActionLogService).scoped(),
+    actionLogHistoryService: asClass(ActionLogService).scoped(),
   })
 
   container.register({

@@ -12,6 +12,16 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/shared/lib/modules/registry', () => ({
+  getModules: () => [{
+    id: 'scheduler_fixture',
+    workers: [
+      { queue: 'scheduler-test', schedulerSafe: true },
+      { queue: 'module-fixture', schedulerSafe: false },
+    ],
+  }],
+}))
+
 function loadCommands() {
   let update: any
   jest.isolateModules(() => {
@@ -55,6 +65,12 @@ function makeEm(schedule: Record<string, unknown>) {
     findOne: jest.fn().mockResolvedValue(schedule),
     persist: jest.fn(),
     flush: jest.fn().mockResolvedValue(undefined),
+    isInTransaction: jest.fn().mockReturnValue(false),
+    begin: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
+    getTransactionContext: jest.fn().mockReturnValue(undefined),
+    getConnection: jest.fn().mockReturnValue({ execute: jest.fn().mockResolvedValue([]) }),
     count: jest.fn().mockResolvedValue(0),
   }
 }
@@ -136,11 +152,69 @@ describe('scheduler.jobs.update target-change detection (#5213 N1)', () => {
       ctx,
     )
     expect(result).toEqual({ ok: true })
+    expect(legacyUnsafe.isEnabled).toBe(false)
+    expect(em.flush).toHaveBeenCalledTimes(1)
 
     // retargeting onto another unapproved queue is still rejected
     await expect(
       update.execute({ id: legacyUnsafe.id, targetQueue: 'payment-gateways-webhook' }, ctx),
     ).rejects.toMatchObject({ status: 422 })
+  })
+
+  it.each([
+    { storedEnabled: false, requestedEnabled: true },
+    { storedEnabled: true, requestedEnabled: undefined },
+  ])('requires approval when the saved queue schedule would be enabled ($storedEnabled → $requestedEnabled)', async ({
+    storedEnabled,
+    requestedEnabled,
+  }) => {
+    const update = loadCommands()
+    const schedule = { ...safeQueueRow, targetQueue: 'unapproved-fixture', isEnabled: storedEnabled }
+    const em = makeEm(schedule)
+    const ctx = {
+      auth: { isSuperAdmin: false, tenantId: 'tenant-a', orgId: 'org-a', sub: 'user-1' },
+      container: { resolve: jest.fn(() => em) },
+    }
+
+    await expect(update.execute({ id: schedule.id, isEnabled: requestedEnabled }, ctx))
+      .rejects.toMatchObject({ status: 422 })
+    expect(schedule.isEnabled).toBe(storedEnabled)
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { ...safeQueueRow, isEnabled: false },
+    { ...moduleOwnedRow, sourceModule: 'scheduler_fixture', targetQueue: 'module-fixture', isEnabled: false },
+  ])('enables $sourceType schedules with an eligible target', async (fixture) => {
+    const update = loadCommands()
+    const schedule = { ...fixture }
+    const em = makeEm(schedule)
+    const ctx = {
+      auth: { isSuperAdmin: false, tenantId: 'tenant-a', orgId: 'org-a', sub: 'user-1' },
+      container: { resolve: jest.fn(() => em) },
+    }
+
+    await expect(update.execute({ id: schedule.id, isEnabled: true }, ctx)).resolves.toEqual({ ok: true })
+    expect(schedule.isEnabled).toBe(true)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows re-enabling a schedule when its queue is corrected in the same update', async () => {
+    const update = loadCommands()
+    const schedule = { ...safeQueueRow, targetQueue: 'unapproved-fixture', isEnabled: false }
+    const em = makeEm(schedule)
+    const ctx = {
+      auth: { isSuperAdmin: false, tenantId: 'tenant-a', orgId: 'org-a', sub: 'user-1' },
+      container: { resolve: jest.fn(() => em) },
+    }
+
+    await expect(update.execute({
+      id: schedule.id,
+      targetQueue: safeQueueRow.targetQueue,
+      isEnabled: true,
+    }, ctx)).resolves.toEqual({ ok: true })
+    expect(schedule).toMatchObject({ isEnabled: true, targetQueue: safeQueueRow.targetQueue })
+    expect(em.flush).toHaveBeenCalledTimes(1)
   })
 
   it('treats an empty-object stored payload as equal to the null the form submits (#5213 N1-residual)', async () => {

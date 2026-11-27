@@ -60,7 +60,7 @@ test.describe('TC-SEC-014: MFA-pending tokens are rejected by general staff APIs
   let adminToken: string
   let userId: string | null = null
   let userEmail = ''
-  let userPassword = 'Valid1!Pass'
+  let userPassword = 'QaValid1!Pass'
   let totpSecret = ''
 
   test.beforeAll(async ({ request }) => {

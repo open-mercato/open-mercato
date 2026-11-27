@@ -7,7 +7,13 @@ import { inspectNpmModuleTarget } from '../module-inspection'
 
 describe('module artifact inspection', () => {
   let root: string
-  beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-inspection-test-')) })
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'module-inspection-test-'))
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      NPM_CONFIG_USERCONFIG: path.join(root, 'npm-user-config'),
+    })
+  })
   afterEach(() => { jest.restoreAllMocks(); fs.rmSync(root, { recursive: true, force: true }) })
 
   it('inspects large packages whose artifact indexes exceed the subprocess default buffer', () => {
@@ -150,8 +156,8 @@ describe('module artifact inspection', () => {
 
     expect(() => inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root)).toThrow('while trying to validate the packed module artifact')
     try { inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root) } catch (error) {
-      expect(String(error)).toContain('@vendor/example/modules/example/index')
-      expect(String(error)).not.toContain('private registry token')
+      expect(String(error).includes('@vendor/example/modules/example/index')).toBe(true)
+      expect(String(error).includes('private registry token')).toBe(false)
     }
   })
 
@@ -173,15 +179,87 @@ describe('module artifact inspection', () => {
       const values = args ?? []
       temporaryConfig = String(values[values.indexOf('--userconfig') + 1])
       expect(fs.statSync(temporaryConfig).mode & 0o777).toBe(0o600)
-      expect(fs.readFileSync(temporaryConfig, 'utf8')).toContain('//private.example.test/npm/:_authToken="test-token-do-not-print"')
-      expect(values).toContain('--@vendor:registry=https://private.example.test/npm/')
-      expect(values.join(' ')).not.toContain('test-token-do-not-print')
+      expect(fs.readFileSync(temporaryConfig, 'utf8').includes('//private.example.test/npm/:_authToken="test-token-do-not-print"')).toBe(true)
+      expect(values.includes('--@vendor:registry=https://private.example.test/npm/')).toBe(true)
+      expect(values.some((value) => value.includes('test-token-do-not-print'))).toBe(false)
       return { status, stdout: JSON.stringify([{ name: '@vendor/example', version: '1.2.3', filename: 'candidate.tgz' }]), stderr: 'test-token-do-not-print', pid: 1, output: [], signal: null }
     })
     if (status === 0) expect(inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root).version).toBe('1.2.3')
     else expect(() => inspectNpmModuleTarget('@vendor/example@next', '@vendor/example', root)).toThrow('No package was installed')
     expect(temporaryConfig).toBeDefined()
     expect(fs.existsSync(temporaryConfig!)).toBe(false)
+  })
+
+  function mockYarnConfigOutput(output: Record<string, string>, onPack: (args: readonly string[], npmrc: string) => void) {
+    jest.spyOn(childProcess, 'execFileSync').mockImplementation((_command, args) => args?.[0] === '-xOf'
+      ? JSON.stringify({ name: '@vendor/example', version: '1.2.3' })
+      : 'package/src/modules/example/index.ts\npackage/dist/modules/example/index.js\n')
+    jest.spyOn(spawn, 'sync').mockImplementation((command, args) => {
+      if (command === 'yarn' || command === 'yarn.cmd') return { status: 0, stdout: output[String(args?.[2])], stderr: '', pid: 1, output: [], signal: null }
+      const values = args ?? []
+      onPack(values, fs.readFileSync(String(values[values.indexOf('--userconfig') + 1]), 'utf8'))
+      return { status: 0, stdout: JSON.stringify([{ name: '@vendor/example', version: '1.2.3', filename: 'candidate.tgz' }]), stderr: '', pid: 1, output: [], signal: null }
+    })
+  }
+
+  it.each([
+    ['undefined', 'undefined\n'],
+    ['empty', ''],
+  ])('treats %s Yarn output for unset npmScopes and npmRegistries as not set', (_label, unset) => {
+    fs.writeFileSync(path.join(root, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+    let packArgs: readonly string[] = []
+    let npmrc = ''
+    mockYarnConfigOutput({
+      npmRegistryServer: '"https://registry.yarnpkg.com"\n',
+      npmScopes: unset,
+      npmRegistries: unset,
+      npmAuthToken: 'null\n',
+      npmAuthIdent: 'null\n',
+    }, (args, config) => { packArgs = args; npmrc = config })
+    expect(inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root)).toMatchObject({ version: '1.2.3', moduleIds: ['example'] })
+    expect(packArgs).toEqual(expect.arrayContaining(['--registry', 'https://registry.yarnpkg.com', '--@vendor:registry=https://registry.yarnpkg.com']))
+    expect(npmrc.includes('registry="https://registry.yarnpkg.com"')).toBe(true)
+    expect(npmrc.includes('_auth')).toBe(false)
+  })
+
+  it('keeps top-level Yarn authentication when npmScopes and npmRegistries are unset', () => {
+    fs.writeFileSync(path.join(root, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+    let npmrc = ''
+    mockYarnConfigOutput({
+      npmRegistryServer: '"https://registry.yarnpkg.com"\n',
+      npmScopes: 'undefined\n',
+      npmRegistries: 'undefined\n',
+      npmAuthToken: '"test-token-do-not-print"\n',
+      npmAuthIdent: 'null\n',
+    }, (_args, config) => { npmrc = config })
+    expect(inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root).version).toBe('1.2.3')
+    expect(npmrc.includes('//registry.yarnpkg.com/:_authToken="test-token-do-not-print"')).toBe(true)
+  })
+
+  it('still fails closed on malformed Yarn configuration output', () => {
+    fs.writeFileSync(path.join(root, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+    mockYarnConfigOutput({
+      npmRegistryServer: '"https://registry.yarnpkg.com"\n',
+      npmScopes: 'not json test-token-do-not-print',
+      npmRegistries: 'undefined\n',
+      npmAuthToken: 'null\n',
+      npmAuthIdent: 'null\n',
+    }, () => { throw new Error('npm pack must not run') })
+    expect(() => inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root)).toThrow('while trying to read the project registry configuration. Yarn setting npmScopes returned output that is not JSON.')
+    try { inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root) } catch (error) {
+      expect(String(error).includes('test-token-do-not-print')).toBe(false)
+    }
+  })
+
+  it('names the Yarn setting and exit code when yarn config get fails, without exposing its output', () => {
+    fs.writeFileSync(path.join(root, '.yarnrc.yml'), 'nodeLinker: node-modules\n')
+    jest.spyOn(spawn, 'sync').mockImplementation((_command, args) => args?.[2] === 'npmRegistries'
+      ? { status: 1, stdout: 'test-token-do-not-print', stderr: 'test-token-do-not-print', pid: 1, output: [], signal: null }
+      : { status: 0, stdout: 'undefined\n', stderr: '', pid: 1, output: [], signal: null })
+    expect(() => inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root)).toThrow('Yarn setting npmRegistries could not be read (exit 1).')
+    try { inspectNpmModuleTarget('@vendor/example@1.2.3', '@vendor/example', root) } catch (error) {
+      expect(String(error).includes('test-token-do-not-print')).toBe(false)
+    }
   })
 
   it('fails closed on unavailable inspection without exposing private tool output', () => {

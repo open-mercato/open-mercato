@@ -19,6 +19,7 @@ jest.mock('@open-mercato/core/modules/attachments/lib/partitions', () => ({
     { code: 'privateAttachments' },
     { code: 'productsMedia' },
   ],
+  FORM_LOGO_PARTITION_CODE: 'formLogos',
   ensureDefaultPartitions: jest.fn(async () => {}),
   sanitizePartitionCode: (input: unknown) =>
     typeof input === 'string' ? input.trim() : null,
@@ -79,6 +80,7 @@ type PartitionRow = {
 type AttachmentRow = {
   partitionCode: string
   tenantId: string | null
+  organizationId?: string | null
 }
 
 const store: { partitions: PartitionRow[]; attachments: AttachmentRow[] } = {
@@ -88,11 +90,12 @@ const store: { partitions: PartitionRow[]; attachments: AttachmentRow[] } = {
 
 function matchesFilter(row: PartitionRow, filter: any): boolean {
   if (!filter) return true
-  if (filter.$or && Array.isArray(filter.$or)) {
-    return filter.$or.some((part: any) => matchesFilter(row, part))
-  }
   for (const key of Object.keys(filter)) {
     const expected = filter[key]
+    if (key === '$or' && Array.isArray(expected)) {
+      if (!expected.some((part) => matchesFilter(row, part))) return false
+      continue
+    }
     const actual = (row as any)[key]
     if (expected === null) {
       if (actual !== null && actual !== undefined) return false
@@ -110,12 +113,7 @@ const mockEm = {
   findOne: jest.fn(async (entity: any, filter: any) => {
     const name = typeof entity?.name === 'string' ? entity.name : ''
     if (name === 'AttachmentPartition' || entity === undefined) {
-      if (filter?.id) {
-        return store.partitions.find((row) => row.id === filter.id) ?? null
-      }
-      if (filter?.code) {
-        return store.partitions.find((row) => row.code === filter.code) ?? null
-      }
+      return store.partitions.find((row) => matchesFilter(row, filter)) ?? null
     }
     return null
   }),
@@ -125,6 +123,7 @@ const mockEm = {
       if (Object.prototype.hasOwnProperty.call(filter ?? {}, 'tenantId')) {
         if (filter.tenantId !== row.tenantId) return false
       }
+      if (filter?.organizationId && filter.organizationId !== row.organizationId) return false
       return true
     }).length,
   ),
@@ -157,6 +156,8 @@ const mockEm = {
     return this
   }),
   flush: jest.fn(async () => {}),
+  execute: jest.fn(async () => []),
+  transactional: jest.fn(async (run: (em: unknown) => Promise<unknown>) => run(mockEm)),
 }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -237,6 +238,20 @@ describe('attachment partitions API — tenant scoping', () => {
     const body = await res.json()
     const codes = body.items.map((it: any) => it.code).sort()
     expect(codes).toEqual(['privateAttachments', 'tenantAPriv'])
+  })
+
+  it('omits sibling-organization partitions from reads and refuses their mutations', async () => {
+    const siblingPartition = store.partitions[2]
+    siblingPartition.tenantId = 'tenantA'
+    const { GET, PUT, DELETE } = await loadHandlers()
+
+    const list = await (await GET(buildRequest('GET', null))).json()
+    expect(list.items.map((entry: PartitionRow) => entry.id)).not.toContain(siblingPartition.id)
+    expect((await PUT(buildRequest('PUT', {
+      id: siblingPartition.id, code: siblingPartition.code, title: 'Updated title',
+    }))).status).toBe(404)
+    expect((await DELETE(buildRequest('DELETE', null, `?id=${siblingPartition.id}`))).status).toBe(404)
+    expect(store.partitions).toContain(siblingPartition)
   })
 
   it('GET as superadmin returns every partition', async () => {
@@ -342,6 +357,7 @@ describe('attachment partitions API — tenant scoping', () => {
     // attempting deletion of a default code by tenant.
     const seeded = store.partitions.find((p) => p.id === '11111111-1111-4111-8111-111111111111')!
     seeded.tenantId = 'tenantA'
+    seeded.organizationId = 'orgA'
     const { DELETE: del } = await loadHandlers()
     const res = await del(buildRequest('DELETE', null, '?id=11111111-1111-4111-8111-111111111111'))
     expect(res.status).toBe(400)
@@ -470,7 +486,7 @@ describe('attachment partitions API — tenant scoping', () => {
       expect(mockEnqueueDocumentSectionSearch).toHaveBeenCalledWith(expect.anything(), {
         mode: 'index',
         tenantId: 'tenantA',
-        organizationId: null,
+        organizationId: 'orgA',
         partitionCode: 'tenantAPriv',
       })
       expect(mockEm.flush.mock.invocationCallOrder[0]).toBeLessThan(
@@ -495,7 +511,7 @@ describe('attachment partitions API — tenant scoping', () => {
       expect(mockEnqueueDocumentSectionSearch).toHaveBeenCalledWith(expect.anything(), {
         mode: 'delete',
         tenantId: 'tenantA',
-        organizationId: null,
+        organizationId: 'orgA',
         partitionCode: 'tenantAPriv',
       })
     })

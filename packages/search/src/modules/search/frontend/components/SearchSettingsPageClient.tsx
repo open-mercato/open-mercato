@@ -6,7 +6,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { GlobalSearchSection } from './sections/GlobalSearchSection'
 import { FulltextSearchSection } from './sections/FulltextSearchSection'
 import { VectorSearchSection } from './sections/VectorSearchSection'
@@ -252,7 +252,7 @@ export function SearchSettingsPageClient() {
     void refreshEmbeddingStatsOnly()
   }, [refreshStatsOnly, refreshEmbeddingStatsOnly])
 
-  useAppEvent('om:bridge:reconnected', () => {
+  useAppEvent(BRIDGE_RECONNECTED_EVENT_ID, () => {
     void refreshStatsOnly()
     void refreshEmbeddingStatsOnly()
   }, [refreshStatsOnly, refreshEmbeddingStatsOnly])

@@ -91,6 +91,19 @@ describe('resolveActionAgentAttribution', () => {
     expect(find).not.toHaveBeenCalled()
   })
 
+  it('scopes both attribution queries to the approved organizations', async () => {
+    const find = await mockStore()
+    const organizationIds = [ORG, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa']
+    await resolveActionAgentAttribution(em, { tenantId: TENANT, organizationId: null, organizationIds }, [
+      { proposalId: PROPOSAL, agentRunId: RUN },
+    ])
+
+    expect(find.mock.calls.map(([, entity, where]) => [entity, where.organizationId])).toEqual([
+      [AgentProposal, { $in: organizationIds }],
+      [AgentRun, { $in: organizationIds }],
+    ])
+  })
+
   it('never reaches a proposal or run in another organization', async () => {
     const find = await mockStore()
     const attributions = await resolveActionAgentAttribution(em, scope, [

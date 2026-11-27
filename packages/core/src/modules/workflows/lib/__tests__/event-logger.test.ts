@@ -224,7 +224,7 @@ describe('Event Logger (Unit Tests)', () => {
         WorkflowEvent,
         { workflowInstanceId: testInstanceId },
         expect.objectContaining({
-          orderBy: { occurredAt: 'ASC' },
+          orderBy: { occurredAt: 'ASC', id: 'ASC' },
         })
       )
       expect(results).toEqual(mockEvents)

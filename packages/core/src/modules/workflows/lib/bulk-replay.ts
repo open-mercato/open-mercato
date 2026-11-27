@@ -20,6 +20,7 @@ import { WorkflowInstance } from '../data/entities'
 import * as workflowExecutor from './workflow-executor'
 import { isRetryableRunOutcome, type WorkflowRunOutcome } from './run-outcome'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
+import { tryResolve } from './tryResolve'
 
 const logger = createLogger('workflows')
 
@@ -37,7 +38,7 @@ export type BulkReplayScope = {
 }
 
 export type BulkReplayJobPayload = {
-  progressJobId: string
+  progressJobId: string | null
   action: BulkReplayAction
   ids: string[]
   scope: BulkReplayScope
@@ -114,26 +115,29 @@ async function retryInstance(
 
 export async function runBulkReplay(params: {
   container: AwilixContainer
-  progressJobId: string
+  progressJobId: string | null
   action: BulkReplayAction
   ids: readonly string[]
   scope: BulkReplayScope
 }): Promise<BulkReplaySummary> {
   const { container, progressJobId, action, ids, scope } = params
   const em = container.resolve('em') as EntityManager
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = progressJobId ? tryResolve<ProgressService>(container, 'progressService') : undefined
+  const tracked = progressService && progressJobId ? { service: progressService, jobId: progressJobId } : null
   const progressContext: ProgressServiceContext = {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     userId: scope.userId ?? null,
   }
 
-  await progressService.startJob(progressJobId, progressContext)
-  await progressService.updateProgress(
-    progressJobId,
-    { totalCount: ids.length, processedCount: 0 },
-    progressContext
-  )
+  if (tracked) {
+    await tracked.service.startJob(tracked.jobId, progressContext)
+    await tracked.service.updateProgress(
+      tracked.jobId,
+      { totalCount: ids.length, processedCount: 0 },
+      progressContext
+    )
+  }
 
   let affectedCount = 0
   let skippedCount = 0
@@ -165,11 +169,13 @@ export async function runBulkReplay(params: {
       logger.error('Bulk replay failed for instance', { instanceId, action, err: error })
     }
 
-    await progressService.updateProgress(
-      progressJobId,
-      { totalCount: ids.length, processedCount: index + 1 },
-      progressContext
-    )
+    if (tracked) {
+      await tracked.service.updateProgress(
+        tracked.jobId,
+        { totalCount: ids.length, processedCount: index + 1 },
+        progressContext
+      )
+    }
   }
 
   const summary: BulkReplaySummary = {
@@ -180,6 +186,8 @@ export async function runBulkReplay(params: {
     failedCount,
   }
 
-  await progressService.completeJob(progressJobId, { resultSummary: summary }, progressContext)
+  if (tracked) {
+    await tracked.service.completeJob(tracked.jobId, { resultSummary: summary }, progressContext)
+  }
   return summary
 }

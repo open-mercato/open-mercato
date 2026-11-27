@@ -204,6 +204,7 @@ export function TimeGrid({
   anchor,
   items,
   conflictIds,
+  conflictDescriptions,
   showWeekends,
   showConflicts,
   aiSummaries,
@@ -484,6 +485,8 @@ export function TimeGrid({
                       <AllDayChip
                         item={item}
                         conflicted={showConflicts && conflictIds.has(item.id)}
+                        aria-description={showConflicts ? conflictDescriptions?.get(item.id) : undefined}
+                        title={showConflicts ? conflictDescriptions?.get(item.id) : undefined}
                         highlighted={highlightItemId === item.id}
                         selected={selectedId === item.id}
                         nowMs={nowMs}
@@ -621,6 +624,7 @@ export function TimeGrid({
                         width={block.width}
                         compact={block.compact}
                         conflicted={showConflicts && conflictIds.has(block.item.id)}
+                        conflictDescription={showConflicts ? conflictDescriptions?.get(block.item.id) : undefined}
                         highlighted={highlightItemId === block.item.id}
                         selected={selectedId === block.item.id}
                         nowMs={nowMs}
@@ -639,6 +643,7 @@ export function TimeGrid({
                       width={overflow.width}
                       open={openOverflowKey === overflow.key}
                       conflictIds={conflictIds}
+                      conflictDescriptions={conflictDescriptions}
                       showConflicts={showConflicts}
                       highlightItemId={highlightItemId}
                       typeIcons={typeIcons}

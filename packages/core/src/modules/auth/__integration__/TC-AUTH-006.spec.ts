@@ -39,7 +39,7 @@ test.describe('TC-AUTH-006: Complete Password Reset', () => {
   test('should reject a completion attempt that replays an invalid token straight at the API', async ({ request }) => {
     const response = await postForm(request, '/api/auth/reset/confirm', {
       token: 'qa-invalid-token',
-      password: 'Valid1!Pass',
+      password: 'QaValid1!Pass',
     });
 
     expect(response.status(), 'confirm must reject a dead token server-side').toBe(400);
