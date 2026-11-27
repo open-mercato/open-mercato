@@ -573,7 +573,7 @@ function publicMediaRows(): Array<{ id: string; mime_type: string }> {
 
 let kyselyTable = ''
 const kyselyBuilder: Record<string, unknown> = {}
-for (const method of ['innerJoin', 'select', 'where', 'unionAll']) {
+for (const method of ['innerJoin', 'innerJoinLateral', 'select', 'where', 'unionAll']) {
   kyselyBuilder[method] = () => kyselyBuilder
 }
 kyselyBuilder.selectFrom = (table: string) => {

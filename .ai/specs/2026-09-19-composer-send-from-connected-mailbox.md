@@ -45,11 +45,9 @@ That renderer moved out of `messages/lib/email-sender.ts` into `messages/lib/mar
 
 Refusing a markdown body instead was considered and rejected: it would add a second surprising refusal to a path that already has one, for the composer's own first-class editing mode rather than an edge case, and it would make the mailbox path render *less* faithfully than the platform path it replaces.
 
-### Known limitation
+### Attachments and linked records
 
-`sendAsUser`'s input contract carries recipients, subject, body and threading headers — it has no place for attachments, context objects or priority. Rather than silently dropping them, the route **rejects** a mailbox send that carries `attachmentIds` or `objects` with a 422 on the `senderChannelId` field. Carrying that payload through the hub is follow-up work (it needs a widened `SendAsUserInput` plus outbound-delivery support), tracked separately.
-
-> 2026-10-19: `SendAsUserInput.attachments` and outbound delivery now exist (`2026-05-21-email-integration-foundation.md` § Amendment — Outbound Attachments). The composer still rejects attachments on this path until it decides which owner its uploads carry and whether a mailbox send re-parents them to the message (#6261).
+Issue #6261 extends the mailbox composer to accept temporary compose uploads and linked records. The chosen adapter validates the files and delivers them from their final owner, the in-app sent message. Linked records are saved in Open Mercato. The mailbox path uses normal message priority.
 
 ## Architecture
 
@@ -83,7 +81,7 @@ None. No entity, migration or snapshot change. All rows written on the mailbox p
 |---|---|---|
 | `senderChannelId` | `string` (uuid), optional | The employee-owned communication channel to send through. Absent or empty → platform sender, existing behaviour byte for byte. |
 
-Accepted only on a non-draft, `visibility: 'public'` compose. Rejected with 422 when combined with `attachmentIds` or `objects` (see Known limitation). A `bodyFormat: 'markdown'` body is rendered to HTML before it reaches the hub (see Body format).
+Accepted only on a non-draft, `visibility: 'public'` compose. Mailbox sends that include files identify them with the temporary `attachmentRecordId` and optional selected `attachmentIds`. The route reports collection or provider validation failures on `senderChannelId`. A `bodyFormat: 'markdown'` body is rendered to HTML before it reaches the hub (see Body format).
 
 Every failure message on this path is translated server-side through `resolveTranslations()` against the `messages.errors.sender*` keys, which ship in all five locale files.
 
@@ -133,7 +131,7 @@ No deprecation protocol applies: nothing is removed, renamed or narrowed. No `UP
 
 | # | Scenario | Severity | Area | Mitigation | Residual |
 |---|---|---|---|---|---|
-| 1 | The mailbox path silently drops attachments or context objects | High | messages compose | Route returns 422 on `senderChannelId` instead of sending; the composer shows it on the field | User must remove attachments or send via the platform sender until the follow-up lands |
+| 1 | A selected file is unavailable or exceeds the provider's limits | High | messages compose | The provider preflight rejects the send before compose, and the composer shows the error on the sender field | The sender can change the selection and retry |
 | 1b | A markdown compose reaches the client as raw markup | High | outbound content | Markdown is rendered to `body.html` with the platform path's own renderer, markdown source kept as `body.plain`; unit-tested | Rendering differences between the two paths are impossible: they share one renderer |
 | 2 | Duplicate send — a `send_as_user`-sourced message also triggers a platform SMTP send | High | messages notification subscriber | Out of scope here: handled by the concurrent fix in `messages/subscribers/message-notification.ts`, which keys on `sourceEntityType === 'communication_channels.send_as_user'` — the exact value this path produces | Depends on that fix landing; without it a mailbox send double-delivers |
 | 3 | A user selects a mailbox that has gone stale between page load and send | Medium | UX | `sendAsUser` re-validates ownership and status at send time and returns 422/409; the composer shows the message on the field, not as a generic failure | User re-picks or reconnects the mailbox |
@@ -173,3 +171,4 @@ Integration tests are self-contained: the channel is seeded per test through the
 
 - 2026-09-19 — Spec written. Architectural choice recorded: route-level delegation to `sendAsUser` with a provider-agnostic UI option contract; widget injection and a UI-level submit override rejected.
 - 2026-09-19 — Review follow-up: delegation failure messages moved onto `messages.errors.sender*` locale keys resolved server-side; markdown bodies rendered to HTML through the shared `renderMarkdownEmailBody` instead of being sent as raw source.
+- 2026-11-22 — Issue #6261 adds mailbox composer uploads and linked records.

@@ -43,7 +43,7 @@ function harness(options: { commentExists?: boolean; dealLive?: boolean } = {}):
     steps,
     comment: options.commentExists === false
       ? null
-      : ({ id: commentId, tenantId, organizationId, entity, deal: null, body: 'Original', authorUserId: null } as unknown as CustomerComment),
+      : ({ id: commentId, tenantId, organizationId, entity, deal: null, body: 'Original', authorUserId: null, updatedAt: new Date() } as unknown as CustomerComment),
     persisted,
     dealLive,
   }
@@ -64,7 +64,7 @@ function harness(options: { commentExists?: boolean; dealLive?: boolean } = {}):
       if (sql.includes('pg_advisory_xact_lock')) steps.push(`lock:${String(params[0]).split(':').pop()}`)
       return []
     }),
-    create: jest.fn((_type: unknown, data: Record<string, unknown>) => ({ id: commentId, ...data })),
+    create: jest.fn((_type: unknown, data: Record<string, unknown>) => ({ id: commentId, updatedAt: new Date(), ...data })),
     persist: jest.fn((row: CustomerComment) => {
       steps.push('persist')
       persisted.push(row)

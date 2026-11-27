@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
-import { apiRequest, getAuthToken, postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { apiRequest, getAuthToken, postForm, withCredentialIsolatedRequest } from '@open-mercato/core/helpers/integration/api'
+import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 async function isSecurityModuleActive(request: APIRequestContext): Promise<boolean> {
   const probe = await request.get('/api/security/mfa').catch(() => null)
@@ -9,7 +9,7 @@ async function isSecurityModuleActive(request: APIRequestContext): Promise<boole
 
 test.describe('TC-AUTH-019: Self-service password change requires current password', () => {
   const stamp = Date.now()
-  const initialPassword = 'Valid1!Pass'
+  const initialPassword = 'Valid1!TestPass'
 
   let adminToken: string | null = null
   let organizationId: string | null = null
@@ -71,6 +71,55 @@ test.describe('TC-AUTH-019: Self-service password change requires current passwo
       })
       expect(loginWithOld.status()).toBe(401)
       expect((await loginWithOld.json()).ok).toBe(false)
+    } finally {
+      await deleteTestUser(request, userId)
+    }
+  })
+
+  test('verified login email change requires fresh sign-in on all prior sessions', async ({ request }) => {
+    const email = `qa-auth-019-email-${stamp}@example.test`
+    const nextEmail = `qa-auth-019-updated-${stamp}@example.test`
+    const userId = await createTestUser(request, email)
+
+    try {
+      const existingSession = await withCredentialIsolatedRequest(async (isolated) => {
+        const response = await postForm(isolated, '/api/auth/login', {
+          email, password: initialPassword, remember: 'on',
+        })
+        expect(response.status()).toBe(200)
+        return (await response.json()) as { token: string; refreshToken: string }
+      })
+      const changeResponse = await withCredentialIsolatedRequest(async (isolated) => {
+        const currentToken = await getAuthToken(isolated, email, initialPassword)
+        const response = await apiRequest(isolated, 'PUT', '/api/auth/profile', {
+          token: currentToken,
+          data: { email: nextEmail, currentPassword: initialPassword },
+        })
+        return {
+          status: response.status(),
+          body: await response.json(),
+          cookies: response.headersArray().filter((header) => header.name.toLowerCase() === 'set-cookie'),
+        }
+      })
+      expect(changeResponse.status).toBe(200)
+      expect(changeResponse.body).toEqual({ ok: true, email: nextEmail })
+      expect(changeResponse.cookies).toEqual(expect.arrayContaining([
+        expect.objectContaining({ value: expect.stringMatching(/^auth_token=;.*Max-Age=0/i) }),
+        expect.objectContaining({ value: expect.stringMatching(/^session_token=;.*Max-Age=0/i) }),
+      ]))
+
+      await withCredentialIsolatedRequest(async (isolated) => {
+        const oldProfile = await apiRequest(isolated, 'GET', '/api/auth/profile', { token: existingSession.token })
+        expect(oldProfile.status()).toBe(401)
+        const refresh = await isolated.post('/api/auth/session/refresh', {
+          data: { refreshToken: existingSession.refreshToken },
+        })
+        expect(refresh.status()).toBe(401)
+        const newToken = await getAuthToken(isolated, nextEmail, initialPassword)
+        const updatedProfile = await apiRequest(isolated, 'GET', '/api/auth/profile', { token: newToken })
+        expect(updatedProfile.status()).toBe(200)
+        expect((await updatedProfile.json()).email).toBe(nextEmail)
+      })
     } finally {
       await deleteTestUser(request, userId)
     }
@@ -144,7 +193,7 @@ test.describe('TC-AUTH-019: Self-service password change requires current passwo
 
   test('self-service password change rejects incorrect current password', async ({ request }) => {
     const testEmail = `qa-auth-019c-${stamp}@acme.com`
-    const newPassword = 'SafePass4@'
+    const newPassword = 'SafeAuthPass4@'
     const userId = await createTestUser(request, testEmail)
 
     try {

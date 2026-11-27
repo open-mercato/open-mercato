@@ -25,7 +25,7 @@ import { createPaymentSession } from './helpers/fixtures'
  *   - page=1&pageSize=100 → all 25 items, totalPages=1
  *   - zero-transaction org → items=[], total=0, totalPages=1
  */
-const PASSWORD = 'Qa!2026Pgwy'
+const PASSWORD = 'Qa!2026Pgwys'
 const TRANSACTION_COUNT = 25
 const PAYMENT_FEATURES = [
   'payment_gateways.view',

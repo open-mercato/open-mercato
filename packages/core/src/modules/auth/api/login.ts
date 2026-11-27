@@ -16,10 +16,11 @@ import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/c
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { getAppBaseUrl, isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
-import { isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { capturePasswordSessionProof, isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { readBoundedRequestBytes, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks/body'
 
 const logger = createLogger('auth.api')
 
@@ -55,6 +56,7 @@ const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
 const loginIpRateLimitConfig = readEndpointRateLimitConfig('LOGIN_IP', {
   points: 20, duration: 60, blockDuration: 60, keyPrefix: 'login-ip',
 })
+const LOGIN_BODY_MAX_BYTES = 16 * 1024
 
 export const metadata = { requireAuth: false }
 
@@ -81,9 +83,9 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
   const contentType = rawContentType.split(';')[0].trim().toLowerCase()
 
   try {
+    const body = Buffer.from(await readBoundedRequestBytes(req, { maxBytes: LOGIN_BODY_MAX_BYTES }))
     if (contentType === 'application/x-www-form-urlencoded') {
-      const body = await req.text()
-      const params = new URLSearchParams(body)
+      const params = new URLSearchParams(body.toString('utf8'))
       const requireRoleRaw = String(params.get('requireRole') ?? params.get('role') ?? '').trim()
       return {
         email: String(params.get('email') ?? ''),
@@ -95,7 +97,7 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
       }
     }
 
-    const form = await req.formData()
+    const form = await new Response(body, { headers: { 'content-type': rawContentType } }).formData()
     const requireRoleRaw = String(form.get('requireRole') ?? form.get('role') ?? '').trim()
     return {
       email: String(form.get('email') ?? ''),
@@ -105,7 +107,8 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
       requiredRoles: requireRoleRaw ? parseRequiredRoles(requireRoleRaw) : [],
       redirectTo: String(form.get('redirect') ?? ''),
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) throw error
     return {
       email: '',
       password: '',
@@ -132,6 +135,9 @@ export async function POST(req: Request) {
   try {
     return await handleLoginRequest(req)
   } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return NextResponse.json({ ok: false, error: await resolveGenericLoginError() }, { status: 413 })
+    }
     return handleAuthRouteError(error, {
       scope: 'auth.login',
       message: await resolveGenericLoginError(),
@@ -144,11 +150,15 @@ async function handleLoginRequest(req: Request) {
   if (isCrossSiteBrowserRequest(req)) {
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
   }
+  const { error: ipRateLimitError } = await checkAuthRateLimit({
+    req, ipConfig: loginIpRateLimitConfig, ipCheck: 'trusted-only',
+  })
+  if (ipRateLimitError) return ipRateLimitError
   const { email, password, remember, tenantIdRaw, requiredRoles, redirectTo } = await parseLoginForm(req)
   // Rate limit — two layers, both checked before validation and DB work
   const { error: rateLimitError, compoundKey: rateLimitCompoundKey } = await checkAuthRateLimit({
     req, ipConfig: loginIpRateLimitConfig, compoundConfig: loginRateLimitConfig, compoundIdentifier: email,
-    isolateByIdentifierWithoutTrustedIp: true,
+    isolateByIdentifierWithoutTrustedIp: true, ipCheck: 'untrusted-only',
   })
   if (rateLimitError) return rateLimitError
   const parsed = userLoginSchema.pick({ email: true, password: true, tenantId: true }).safeParse({
@@ -178,9 +188,10 @@ async function handleLoginRequest(req: Request) {
   // comparison even when the user is missing or has no hash — so unknown-email,
   // wrong-password, and multi-tenant cases return an identical 401 with
   // identical latency.
+  const proof = user ? capturePasswordSessionProof(user) : null
   const ok = await auth.verifyPassword(user, parsed.data.password)
   const tenantActive = user ? await isStaffTenantActive(container.resolve('em'), user.tenantId) : false
-  if (!user || !ok || user.isConfirmed === false || !tenantActive) {
+  if (!user || !proof || !ok || user.isConfirmed === false || !tenantActive) {
     // The 401 body stays identical for every branch so the response never reveals
     // which one fired. `reason` goes to the audit stream instead, where separating a
     // deactivated account from a mistyped password is the whole point — otherwise
@@ -223,7 +234,7 @@ async function handleLoginRequest(req: Request) {
     : new Date(Date.now() + accessTokenMaxAgeSeconds * 1000)
   let createdSession: Awaited<ReturnType<AuthService['createSession']>>
   try {
-    createdSession = await auth.createSession(user, sessionExpiresAt)
+    createdSession = await auth.createSession(user, sessionExpiresAt, proof)
   } catch (error) {
     if (!isAuthSessionRejectedError(error)) throw error
     void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'account_deactivated' }).catch(() => undefined)
@@ -372,6 +383,7 @@ const loginMethodDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed', schema: loginErrorSchema },
     { status: 401, description: 'Invalid credentials', schema: loginErrorSchema },
     { status: 403, description: 'User lacks required role, or the request was submitted cross-site', schema: loginErrorSchema },
+    { status: 413, description: 'Login payload is too large', schema: loginErrorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
   ],
 }

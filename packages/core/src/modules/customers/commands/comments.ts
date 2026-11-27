@@ -59,7 +59,7 @@ type CommentUndoPayload = {
   after?: CommentSnapshot | null
 }
 
-type CommentCreateResult = { commentId: string; authorUserId: string | null }
+type CommentCreateResult = { commentId: string; authorUserId: string | null; updatedAt: string }
 
 async function loadCommentSnapshot(em: EntityManager, id: string, ctx: CommandRuntimeContext): Promise<CommentSnapshot | null> {
   const comment = await findScopedCustomerCommandTarget(
@@ -174,7 +174,7 @@ async function redoCreatedComment(ctx: CommandRuntimeContext, logEntry: CommandU
     indexer: commentCrudIndexer,
     events: commentCrudEvents,
   })
-  return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
+  return { commentId: comment.id, authorUserId: comment.authorUserId ?? null, updatedAt: comment.updatedAt.toISOString() }
 }
 
 const createCommentCommand: CommandHandler<CommentCreateInput, CommentCreateResult> = {
@@ -222,7 +222,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, CommentCreateResu
       events: commentCrudEvents,
     })
 
-    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
+    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null, updatedAt: comment.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -262,7 +262,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, CommentCreateResu
   redo: async ({ ctx, logEntry }) => redoCreatedComment(ctx, logEntry),
 }
 
-const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: string }> = {
+const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: string; updatedAt: string }> = {
   id: 'customers.comments.update',
   async prepare(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
@@ -322,7 +322,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
       events: commentCrudEvents,
     })
 
-    return { commentId: comment.id }
+    return { commentId: comment.id, updatedAt: comment.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()

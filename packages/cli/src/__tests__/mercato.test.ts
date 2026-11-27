@@ -148,6 +148,7 @@ function mockDevServerEnvironment() {
   jest.doMock('../lib/generators', () => ({
     generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
     generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+    generateCacheProviders: jest.fn().mockResolvedValue(undefined),
   }))
   jest.doMock('../lib/resolver', () => ({
     resolveEnvironment: () => ({ appDir: '/tmp/test-app', rootDir: '/tmp/test-root' }),
@@ -1033,6 +1034,7 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -1080,6 +1082,7 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -1136,6 +1139,7 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
@@ -1241,6 +1245,7 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
@@ -1315,6 +1320,7 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
@@ -1604,6 +1610,7 @@ describe('init on an already initialized database', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -1772,6 +1779,7 @@ describe('generate post-step structural invalidation', () => {
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
     const generateWebResearchAdapters = jest.fn().mockResolvedValue(undefined)
+    const generateCacheProviders = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
     const invalidate = jest.fn().mockResolvedValue({
       cacheEntriesDeleted: 2,
@@ -1787,6 +1795,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleDi,
       generateModulePackageSources,
       generateWebResearchAdapters,
+      generateCacheProviders,
       generateOpenApi,
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -1830,6 +1839,7 @@ describe('generate post-step structural invalidation', () => {
       generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
       generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(unchangedResult),
+      generateCacheProviders: jest.fn().mockResolvedValue(unchangedResult),
     }
     const invalidate = jest.fn()
 
@@ -1870,6 +1880,7 @@ describe('generate post-step structural invalidation', () => {
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
     const generateWebResearchAdapters = jest.fn().mockResolvedValue(undefined)
+    const generateCacheProviders = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
     const invalidate = jest.fn().mockRejectedValue(new Error('cache maintenance unavailable'))
 
@@ -1880,6 +1891,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleDi,
       generateModulePackageSources,
       generateWebResearchAdapters,
+      generateCacheProviders,
       generateOpenApi,
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -1918,6 +1930,7 @@ describe('generate post-step structural invalidation', () => {
       generateModulePackageSources: generate,
       generateOpenApi: generate,
       generateWebResearchAdapters: generate,
+      generateCacheProviders: generate,
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -2024,6 +2037,7 @@ describe('server dev managed process exits', () => {
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -2072,6 +2086,7 @@ describe('server dev managed process exits', () => {
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -2443,6 +2458,7 @@ describe('server dev managed process exits', () => {
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -2598,6 +2614,7 @@ describe('server dev managed process exits', () => {
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({
@@ -2886,6 +2903,7 @@ describe('server start managed process exits', () => {
     jest.doMock('../lib/generators', () => ({
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateWebResearchAdapters: jest.fn().mockResolvedValue(undefined),
+      generateCacheProviders: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       resolveEnvironment: () => ({

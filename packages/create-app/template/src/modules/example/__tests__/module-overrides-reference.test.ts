@@ -22,6 +22,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { InjectionMode, asValue, createContainer } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { crudFormSectionOverrideKey } from '@open-mercato/shared/lib/crud/form-sections/composition'
 import {
   applyModuleOverridesFromEnabledModules,
   registerModuleOverrideApplier,
@@ -53,6 +54,7 @@ const WIRED_DOMAINS: ModuleOverrideDomain[] = [
   'di',
   'encryption',
   'nav',
+  'forms',
 ]
 
 const moduleRoot = path.join(__dirname, '..')
@@ -82,10 +84,11 @@ const KEYED_MAP_LABELS = [
   'acl.features',
   'di',
   'encryption.maps',
+  'forms.sections',
 ]
 
 /** Exact number of keys across every keyed map, so a domain cannot be silently voided. */
-const TOTAL_KEYED_ENTRIES = 20
+const TOTAL_KEYED_ENTRIES = 21
 
 function recordDispatch(): Map<ModuleOverrideDomain, Array<ModuleOverrideEntry<unknown>>> {
   const seen = new Map<ModuleOverrideDomain, Array<ModuleOverrideEntry<unknown>>>()
@@ -248,6 +251,15 @@ async function keyedDomains(): Promise<KeyedDomain[]> {
       keys: Object.keys(value.encryption?.maps ?? {}),
       declaredIds: async () => (await import('../encryption')).default.map((map) => map.entityId),
     },
+    {
+      label: 'forms.sections',
+      keys: Object.keys(value.forms?.sections ?? {}),
+      declaredIds: async () => (await import('../form-sections')).crudFormExtensions.flatMap((extension) =>
+        extension.targets.flatMap((target) => Object.keys(extension.sections).map((sectionId) =>
+          crudFormSectionOverrideKey({ hostId: extension.host.slice('crud-form:'.length), ...target, sectionId }),
+        )),
+      ),
+    },
   ]
 }
 
@@ -265,6 +277,13 @@ describe('example module overrides reference', () => {
     const missing = WIRED_DOMAINS.filter((domain) => !seen.has(domain))
     expect(missing).toEqual([])
     expect(seen.size).toBe(WIRED_DOMAINS.length)
+  })
+
+  it('masks exactly the showcase edit observer', () => {
+    expect(recordDispatch().get('forms')).toEqual([{
+      moduleId: 'example',
+      overrides: { sections: { 'example.todo/showcase/update/observer': null } },
+    }])
   })
 
   it('attributes every dispatched bucket to the declaring module', () => {

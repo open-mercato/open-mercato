@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { Attachment, AttachmentPartition } from '../data/entities'
+import { Attachment } from '../data/entities'
 import { StorageDriverFactory } from './drivers'
 import { assertAttachmentStoragePartitionExists } from './drivers/storageValidation'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode } from './partitions'
+import { canUseAttachmentPartition, resolveAttachmentPartition } from './partitionScope'
 import { buildAttachmentFileUrl } from './imageUrls'
 import { mergeAttachmentMetadata, upsertAssignment } from './metadata'
 import { assertAttachmentScopeInvariant } from './access'
@@ -57,13 +58,15 @@ export async function createAttachmentFromBuffer(input: CreateAttachmentFromBuff
     ? input.partitionCode
     : resolveDefaultPartitionCode(input.entityId)
 
-  let partition = await em.findOne(AttachmentPartition, { code })
+  let partition = await resolveAttachmentPartition(em, code, input)
   if (!partition) {
     assertAttachmentStoragePartitionExists(false)
     await ensureDefaultPartitions(em)
-    partition = await em.findOne(AttachmentPartition, { code })
+    partition = await resolveAttachmentPartition(em, code, input)
   }
-  if (!partition) throw new Error(`[internal] attachment partition "${code}" is not available`)
+  if (!partition || !canUseAttachmentPartition(partition, input)) {
+    throw new Error(`[internal] attachment partition "${code}" is not available`)
+  }
 
   await ensureAttachmentPartitionProtection(em, partition)
 

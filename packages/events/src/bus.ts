@@ -744,7 +744,7 @@ function createEventBusWithState(
         // `mercato server` guard can do automatically) silently downgrades
         // persistent delivery to at-most-once.
         persistentDeliveredInline: !enqueueOnly && !skipPersistentInline && !inlinePersistentFailed,
-      })
+      }, ...(options.enqueue ? [options.enqueue] : []))
     }
   }
 

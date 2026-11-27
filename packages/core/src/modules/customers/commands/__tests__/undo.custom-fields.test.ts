@@ -16,6 +16,7 @@ import { commandRegistry, registerCommand } from '@open-mercato/shared/lib/comma
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import {
   CustomerEntity,
   CustomerPersonProfile,
@@ -318,6 +319,17 @@ describe('customers commands undo custom fields', () => {
       })
     )
     expect(existingEntity.displayName).toBe('Before Name')
+    const lockCallIndex = em.findOne.mock.calls.findIndex(
+      ([ctor, , opts]: unknown[]) =>
+        ctor === CustomerEntity && (opts as { lockMode?: LockMode } | undefined)?.lockMode === LockMode.PESSIMISTIC_WRITE,
+    )
+    const profileCallIndex = em.findOne.mock.calls.findIndex(([ctor]: unknown[]) => ctor === CustomerPersonProfile)
+    expect(lockCallIndex).toBeGreaterThanOrEqual(0)
+    const lockWhere = em.findOne.mock.calls[lockCallIndex][1] as Record<string, unknown>
+    expect(lockWhere).toEqual({ id: 'person-1', tenantId: 'tenant-1', organizationId: 'org-1' })
+    expect(lockWhere).not.toHaveProperty('deletedAt')
+    expect(profileCallIndex).toBeGreaterThan(lockCallIndex)
+    expect(em.findOne.mock.invocationCallOrder[lockCallIndex]).toBeLessThan(em.flush.mock.invocationCallOrder[0])
   })
 
   it('companies.update undo restores custom fields', async () => {
