@@ -187,9 +187,15 @@ describe('Deals Kanban', () => {
     expect(mockCurrencyDictionary).toHaveBeenLastCalledWith(false)
     expect(mockFetchAssignableStaff).not.toHaveBeenCalled()
     expect(mockApiCall.mock.calls.some(([url]) => String(url).startsWith('/api/customers/companies'))).toBe(false)
-    expect(within(deal).queryByRole('button', { name: 'Deal actions' })).not.toBeInTheDocument()
     fireEvent.click(deal)
-    expect(mockPush).not.toHaveBeenCalled()
+    expect(mockPush).toHaveBeenCalledWith('/backend/customers/deals/deal-60')
+
+    mockPush.mockClear()
+    fireEvent.click(within(deal).getByRole('button', { name: 'Deal actions' }))
+    const openDeal = await screen.findByRole('menuitem', { name: 'Open deal' })
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+    fireEvent.click(openDeal)
+    expect(mockPush).toHaveBeenCalledWith('/backend/customers/deals/deal-60')
 
     fireEvent.click(within(deal).getByRole('checkbox', { name: 'Select deal' }))
     expect(screen.getByRole('button', { name: 'Export CSV' })).toBeInTheDocument()
@@ -225,12 +231,9 @@ describe('Deals Kanban', () => {
     expect(Boolean(screen.queryByRole('link', { name: 'New deal' }))).toBe(deals)
     expect(Boolean(screen.queryByRole('button', { name: 'Quickly add a deal to Qualified' }))).toBe(deals)
     expect(screen.queryAllByRole('button', { name: 'New stage' })).toHaveLength(stages ? 2 : 0)
-    const openActions = within(deal).queryByRole('button', { name: 'Deal actions' })
-    expect(Boolean(openActions)).toBe(deals)
-    if (openActions) {
-      fireEvent.click(openActions)
-      expect(await screen.findByRole('menuitem', { name: 'Open deal' })).toBeInTheDocument()
-    }
+    fireEvent.click(within(deal).getByRole('button', { name: 'Deal actions' }))
+    expect(await screen.findByRole('menuitem', { name: 'Open deal' })).toBeInTheDocument()
+    expect(Boolean(screen.queryByRole('menuitem', { name: 'Edit' }))).toBe(deals)
   })
 
   it('shows a permission denial when the pipeline data request is forbidden', async () => {
