@@ -188,7 +188,7 @@ export async function createSecondTenantActor(
     organizations: [organizationId],
   });
   const email = `qa-prom-${stamp}@test.invalid`;
-  const password = 'Valid1!Pass';
+  const password = 'QaValid1!Pass';
   const userId = await createUserFixture(request, superadminToken, {
     email,
     password,

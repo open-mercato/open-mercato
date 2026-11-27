@@ -64,6 +64,8 @@ export type CustomFieldDefinition = {
   filterable?: boolean
   // whether field should be editable in generated CRUD forms
   formEditable?: boolean
+  /** A compiled CrudForm section owns this generated field control. */
+  sectionOnly?: true
   indexed?: boolean
   listVisible?: boolean
   // Store the value encrypted with the tenant key. Declaring it here keeps the

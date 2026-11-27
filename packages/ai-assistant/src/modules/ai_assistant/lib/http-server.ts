@@ -1,5 +1,7 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { timingSafeEqual } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import type { AwilixContainer } from 'awilix'
@@ -8,7 +10,7 @@ import { z, type ZodType } from 'zod'
 import { getToolRegistry } from './tool-registry'
 import { buildPendingApprovalMcpResponse, executeTool } from './tool-executor'
 import { loadAllModuleTools, indexToolsForSearch } from './tool-loader'
-import { authenticateMcpRequest, extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
+import { extractApiKeyFromHeaders, hasRequiredFeatures } from './auth'
 import { jsonSchemaToZod, toSafeZodSchema } from './schema-utils'
 import { buildMcpToolAnnotations } from './mcp-tool-annotations'
 import {
@@ -29,7 +31,6 @@ import {
   type McpExposureCaller,
   type McpExposureConfig,
 } from './mcp-exposure'
-import { redactSecretForLog } from './log-redaction'
 import { runWithMcpToolExecutionObserver } from './mcp-tool-execution-observer'
 import {
   CORRELATION_ID_HEADER,
@@ -49,6 +50,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
+import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('ai_assistant').child({ component: 'mcp-http' })
@@ -91,6 +93,22 @@ export type McpHttpRequestHandlerOptions = {
 export type McpHttpRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>
 
 const SESSION_TOKEN_HEADER = 'x-om-session-token'
+
+async function isConfiguredDelegationKey(presentedKey: string): Promise<boolean> {
+  let configuredKey = process.env.MCP_SERVER_API_KEY?.trim()
+  const keyFile = process.env.MCP_SERVER_API_KEY_FILE?.trim() || process.env.MCP_API_KEY_FILE?.trim()
+  if (!configuredKey && keyFile) {
+    try {
+      configuredKey = (await readFile(keyFile, 'utf8')).trim()
+    } catch {
+      return false
+    }
+  }
+  if (!configuredKey) return false
+  const expected = Buffer.from(configuredKey)
+  const received = Buffer.from(presentedKey)
+  return received.length === expected.length && timingSafeEqual(received, expected)
+}
 
 type ResolvedSessionContext = {
   context: McpToolContext
@@ -142,6 +160,8 @@ function buildExposureHealth(exposureConfig: McpExposureConfig) {
 async function resolveSessionContext(
   sessionToken: string,
   baseContext: McpToolContext,
+  transportKey: ApiKey,
+  canDelegate: boolean,
   debug?: boolean
 ): Promise<ResolvedSessionContext | null> {
   try {
@@ -152,12 +172,14 @@ async function resolveSessionContext(
     const sessionResult = await findSessionApiKeyWithSecret(em, sessionToken)
     if (!sessionResult) {
       if (debug) {
-        logger.debug('Session token not found, expired, or secret unavailable', { sessionToken: redactSecretForLog(sessionToken) })
+        logger.debug('Session token not found, expired, or secret unavailable')
       }
       return null
     }
 
     const { key: sessionKey, secret: sessionSecret } = sessionResult
+    if (sessionKey.id !== transportKey.id && !canDelegate) return null
+    if (!await isStaffTenantActive(em, sessionKey.tenantId)) return null
 
     // Load ACL for the session user
     const userId = sessionKey.sessionUserId || sessionKey.createdBy
@@ -307,10 +329,11 @@ async function resolveListPrincipal(
   config: McpServerConfig,
   toolContext: McpToolContext,
   apiKeyRecord: ApiKey,
-  sessionHeaderToken: string | undefined
+  sessionHeaderToken: string | undefined,
+  canDelegate: boolean,
 ): Promise<ListPrincipal | null> {
   if (sessionHeaderToken) {
-    const resolvedSession = await resolveSessionContext(sessionHeaderToken, toolContext, config.debug)
+    const resolvedSession = await resolveSessionContext(sessionHeaderToken, toolContext, apiKeyRecord, canDelegate, config.debug)
     if (!resolvedSession) return null
     const sessionContext = resolvedSession.context
     return {
@@ -387,9 +410,10 @@ async function createMcpServerForRequest(
   apiKeyRecord: ApiKey,
   exposureConfig: McpExposureConfig,
   sessionHeaderToken: string | undefined,
+  canDelegate: boolean,
   correlationId: string
 ): Promise<McpServer | null> {
-  const listPrincipal = await resolveListPrincipal(config, toolContext, apiKeyRecord, sessionHeaderToken)
+  const listPrincipal = await resolveListPrincipal(config, toolContext, apiKeyRecord, sessionHeaderToken, canDelegate)
   if (!listPrincipal) return null
 
   const server = new McpServer(
@@ -475,7 +499,8 @@ async function createMcpServerForRequest(
           const startedAt = Date.now()
 
           // Extract session token from args
-          const sessionToken = toolArgs._sessionToken as string | undefined
+          const argumentToken = typeof toolArgs._sessionToken === 'string' ? toolArgs._sessionToken : undefined
+          const sessionToken = sessionHeaderToken ?? argumentToken
           delete toolArgs._sessionToken // Remove before passing to tool handler
 
           // Always log tool calls for debugging
@@ -523,7 +548,10 @@ async function createMcpServerForRequest(
 
           // Resolve user context from session token
           if (sessionToken) {
-            const resolvedSession = await resolveSessionContext(sessionToken, toolContext, config.debug)
+            const tokensMatch = !argumentToken || !sessionHeaderToken || argumentToken === sessionHeaderToken
+            const resolvedSession = tokensMatch
+              ? await resolveSessionContext(sessionToken, toolContext, apiKeyRecord, canDelegate, config.debug)
+              : null
             if (resolvedSession) {
               // Session context includes the decrypted API key secret + session ID for memory layer
               effectiveContext = { ...resolvedSession.context, sessionId: sessionToken }
@@ -740,30 +768,31 @@ export function createMcpHttpRequestHandler(options: McpHttpRequestHandlerOption
       return
     }
 
-    // Validate API key against database (prefix lookup + bcrypt verify + expiry check)
-    const em = container.resolve<EntityManager>('em')
-    const apiKeyRecord = await findApiKeyBySecret(em, providedApiKey)
-    if (!apiKeyRecord) {
-      res.writeHead(401, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'Invalid or expired API key' }))
-      return
-    }
-
-    if (config.debug) {
-      logger.debug('Server-level auth passed', { method: req.method, keyPrefix: apiKeyRecord.keyPrefix })
-    }
-
-    // Create base tool context using API key's tenant/org scope
-    // Session tokens can override with user-specific permissions
-    const toolContext = buildApiKeyToolContext(apiKeyRecord, container, providedApiKey)
-
     try {
+      // Validate API key against database (prefix lookup + bcrypt verify + expiry check)
+      const em = container.resolve<EntityManager>('em')
+      const apiKeyRecord = await findApiKeyBySecret(em, providedApiKey)
+      if (!apiKeyRecord || !await isStaffTenantActive(em, apiKeyRecord.tenantId)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Invalid or expired API key' }))
+        return
+      }
+
+      if (config.debug) {
+        logger.debug('Server-level auth passed', { method: req.method, keyPrefix: apiKeyRecord.keyPrefix })
+      }
+
+      // Create base tool context using API key's tenant/org scope
+      // Session tokens can override with user-specific permissions
+      const toolContext = buildApiKeyToolContext(apiKeyRecord, container, providedApiKey)
+
       const mcpServer = await createMcpServerForRequest(
         config,
         toolContext,
         apiKeyRecord,
         exposureConfig,
         headers[SESSION_TOKEN_HEADER],
+        await isConfiguredDelegationKey(providedApiKey),
         resolveCorrelationId(headers[CORRELATION_ID_HEADER])
       )
       if (!mcpServer) {

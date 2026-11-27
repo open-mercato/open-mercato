@@ -25,7 +25,7 @@ import { AGENT_RUNS_API, type AgentRunListBody, createConversationFixture } from
  * `userId = caller` scope (no readable conversations) and the `$or` scope
  * (caller participates in a conversation). `runs.view_all` filtering is unchanged.
  */
-const PASSWORD = 'Secret123!';
+const PASSWORD = 'QaSecret123!';
 
 async function listRunIds(request: APIRequestContext, token: string, query: string): Promise<string[]> {
   const response = await apiRequest(request, 'GET', `${AGENT_RUNS_API}?${query}`, { token });

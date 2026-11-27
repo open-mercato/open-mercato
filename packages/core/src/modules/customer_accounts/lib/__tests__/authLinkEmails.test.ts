@@ -2,12 +2,19 @@
 
 import * as React from 'react'
 
+const mockLoadDictionary = jest.fn()
 const mockResolveTranslations = jest.fn()
+const mockCreateFallbackTranslator = jest.fn()
 const mockSendEmail = jest.fn()
 const mockUrlForCustomerOrg = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  loadDictionary: (...args: unknown[]) => mockLoadDictionary(...args),
   resolveTranslations: (...args: unknown[]) => mockResolveTranslations(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/translate', () => ({
+  createFallbackTranslator: (...args: unknown[]) => mockCreateFallbackTranslator(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/email/send', () => ({
@@ -29,23 +36,47 @@ const input = {
   organizationId: 'org-1',
   email: 'buyer@example.com',
   rawToken: 'raw token+/=',
+  locale: 'en' as const,
 }
 
 describe('customer auth link emails', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockResolveTranslations.mockResolvedValue({
-      translate: (key: string, fallback: string) => `${key}:${fallback}`,
-    })
+    mockLoadDictionary.mockResolvedValue({})
+    mockResolveTranslations.mockResolvedValue({ translate: (_key: string, fallback: string) => `request-locale:${fallback}` })
+    mockCreateFallbackTranslator.mockReturnValue((key: string, fallback: string) => `${key}:${fallback}`)
     mockUrlForCustomerOrg.mockImplementation(async (_orgId: string, path: string) => `https://acme.example/portal${path}`)
     mockSendEmail.mockResolvedValue(undefined)
   })
+
+  it.each(['sendCustomerPasswordResetEmail', 'sendCustomerMagicLinkEmail'] as const)(
+    'preserves request-local translation for legacy %s callers without a locale',
+    async (senderName) => {
+      const senders = await import('../authLinkEmails')
+      const legacyInput = {
+        container: input.container,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        email: input.email,
+        rawToken: input.rawToken,
+      }
+
+      await senders[senderName](legacyInput)
+
+      expect(mockResolveTranslations).toHaveBeenCalledTimes(1)
+      expect(mockLoadDictionary).not.toHaveBeenCalled()
+      expect(mockSendEmail).toHaveBeenCalledWith(expect.objectContaining({
+        subject: expect.stringMatching(/^request-locale:/),
+      }))
+    },
+  )
 
   it('sends a password reset email linking to the portal reset-password page with the raw token', async () => {
     const { sendCustomerPasswordResetEmail } = await import('../authLinkEmails')
 
     await sendCustomerPasswordResetEmail(input)
 
+    expect(mockLoadDictionary).toHaveBeenCalledWith('en')
     expect(mockUrlForCustomerOrg).toHaveBeenCalledWith(
       'org-1',
       '/reset-password?token=raw%20token%2B%2F%3D',
@@ -72,6 +103,7 @@ describe('customer auth link emails', () => {
 
     await sendCustomerMagicLinkEmail(input)
 
+    expect(mockLoadDictionary).toHaveBeenCalledWith('en')
     expect(mockUrlForCustomerOrg).toHaveBeenCalledWith(
       'org-1',
       '/magic-link?token=raw%20token%2B%2F%3D',

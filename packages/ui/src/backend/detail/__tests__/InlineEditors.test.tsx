@@ -304,3 +304,237 @@ describe('InlineTextEditor server validation errors are localized (#5925)', () =
     expect(screen.getByText('Enter a valid email address')).toBeInTheDocument()
   })
 })
+
+describe('InlineTextEditor stale draft on value refresh while editing (#8647)', () => {
+  function getEditToggle() {
+    return screen.getByRole('button', { name: 'Edit' })
+  }
+
+  it('pins the draft to the value at open time by default (unchanged behavior)', () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { rerender } = renderWithProviders(
+      <InlineTextEditor label="Title" value="A" emptyLabel="No title" onSave={onSave} />,
+      { dict: {} },
+    )
+    act(() => {
+      fireEvent.click(getEditToggle())
+    })
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('A')
+
+    rerender(<InlineTextEditor label="Title" value="B" emptyLabel="No title" onSave={onSave} />)
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('A')
+  })
+
+  it('follows a value refresh while the draft is untouched when followUntouchedDraft is set', () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { rerender } = renderWithProviders(
+      <InlineTextEditor label="Title" value="A" emptyLabel="No title" onSave={onSave} followUntouchedDraft />,
+      { dict: {} },
+    )
+    act(() => {
+      fireEvent.click(getEditToggle())
+    })
+    rerender(
+      <InlineTextEditor label="Title" value="B" emptyLabel="No title" onSave={onSave} followUntouchedDraft />,
+    )
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('B')
+  })
+
+  it('keeps a user-typed draft when it has diverged from the seed, even with followUntouchedDraft set', () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { rerender } = renderWithProviders(
+      <InlineTextEditor label="Title" value="A" emptyLabel="No title" onSave={onSave} followUntouchedDraft />,
+      { dict: {} },
+    )
+    act(() => {
+      fireEvent.click(getEditToggle())
+    })
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    act(() => {
+      fireEvent.change(input, { target: { value: 'Typed by user' } })
+    })
+    rerender(
+      <InlineTextEditor label="Title" value="B" emptyLabel="No title" onSave={onSave} followUntouchedDraft />,
+    )
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Typed by user')
+  })
+
+  it('resumes following new values once the draft returns to matching the seed (A→X→A)', () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { rerender } = renderWithProviders(
+      <InlineTextEditor label="Title" value="A" emptyLabel="No title" onSave={onSave} followUntouchedDraft />,
+      { dict: {} },
+    )
+    act(() => {
+      fireEvent.click(getEditToggle())
+    })
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    act(() => {
+      fireEvent.change(input, { target: { value: 'X' } })
+    })
+    act(() => {
+      fireEvent.change(input, { target: { value: 'A' } })
+    })
+    rerender(
+      <InlineTextEditor label="Title" value="B" emptyLabel="No title" onSave={onSave} followUntouchedDraft />,
+    )
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('B')
+  })
+
+  it('honors a custom draftEquals comparator', () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const draftEquals = (draft: string, seed: string) => draft.trim().toLowerCase() === seed.trim().toLowerCase()
+    const { rerender } = renderWithProviders(
+      <InlineTextEditor
+        label="Title"
+        value="A"
+        emptyLabel="No title"
+        onSave={onSave}
+        followUntouchedDraft
+        draftEquals={draftEquals}
+      />,
+      { dict: {} },
+    )
+    act(() => {
+      fireEvent.click(getEditToggle())
+    })
+    const input = screen.getByRole('textbox') as HTMLInputElement
+    act(() => {
+      // Still "equal" per the custom comparator (case/whitespace-insensitive).
+      fireEvent.change(input, { target: { value: ' a ' } })
+    })
+    rerender(
+      <InlineTextEditor
+        label="Title"
+        value="B"
+        emptyLabel="No title"
+        onSave={onSave}
+        followUntouchedDraft
+        draftEquals={draftEquals}
+      />,
+    )
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('B')
+  })
+})
+
+describe('InlineMultilineEditor stale draft on value refresh while editing (#8647)', () => {
+  function getEditToggle() {
+    return screen.getByRole('button', { name: 'Edit' })
+  }
+
+  it('pins the draft to the value at open time by default (unchanged behavior)', () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { rerender } = renderWithProviders(
+      <InlineMultilineEditor label="Notes" value="A" emptyLabel="No notes" onSave={onSave} />,
+      { dict: {} },
+    )
+    act(() => {
+      fireEvent.click(getEditToggle())
+    })
+    rerender(<InlineMultilineEditor label="Notes" value="B" emptyLabel="No notes" onSave={onSave} />)
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('A')
+  })
+
+  it('follows a value refresh while the draft is untouched when followUntouchedDraft is set', () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { rerender } = renderWithProviders(
+      <InlineMultilineEditor label="Notes" value="A" emptyLabel="No notes" onSave={onSave} followUntouchedDraft />,
+      { dict: {} },
+    )
+    act(() => {
+      fireEvent.click(getEditToggle())
+    })
+    rerender(
+      <InlineMultilineEditor label="Notes" value="B" emptyLabel="No notes" onSave={onSave} followUntouchedDraft />,
+    )
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('B')
+  })
+
+  it('keeps a user-typed draft when it has diverged from the seed, even with followUntouchedDraft set', () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { rerender } = renderWithProviders(
+      <InlineMultilineEditor label="Notes" value="A" emptyLabel="No notes" onSave={onSave} followUntouchedDraft />,
+      { dict: {} },
+    )
+    act(() => {
+      fireEvent.click(getEditToggle())
+    })
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+    act(() => {
+      fireEvent.change(textarea, { target: { value: 'Typed by user' } })
+    })
+    rerender(
+      <InlineMultilineEditor label="Notes" value="B" emptyLabel="No notes" onSave={onSave} followUntouchedDraft />,
+    )
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Typed by user')
+  })
+})
+
+describe('InlineSelectEditor stale draft on value refresh while editing (#8647)', () => {
+  const statusOptions = [
+    { value: 'draft', label: 'Draft' },
+    { value: 'active', label: 'Active' },
+  ]
+
+  it('saves the value pinned at open time by default (unchanged behavior)', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { rerender } = renderWithProviders(
+      <InlineSelectEditor
+        label="Status"
+        value="draft"
+        emptyLabel="No status"
+        options={statusOptions}
+        onSave={onSave}
+      />,
+      { dict: {} },
+    )
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    })
+    rerender(
+      <InlineSelectEditor
+        label="Status"
+        value="active"
+        emptyLabel="No status"
+        options={statusOptions}
+        onSave={onSave}
+      />,
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Save|⌘/ }))
+    })
+    expect(onSave).toHaveBeenCalledWith('draft')
+  })
+
+  it('saves the refreshed value when the draft was untouched and followUntouchedDraft is set', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { rerender } = renderWithProviders(
+      <InlineSelectEditor
+        label="Status"
+        value="draft"
+        emptyLabel="No status"
+        options={statusOptions}
+        onSave={onSave}
+        followUntouchedDraft
+      />,
+      { dict: {} },
+    )
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    })
+    rerender(
+      <InlineSelectEditor
+        label="Status"
+        value="active"
+        emptyLabel="No status"
+        options={statusOptions}
+        onSave={onSave}
+        followUntouchedDraft
+      />,
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Save|⌘/ }))
+    })
+    expect(onSave).toHaveBeenCalledWith('active')
+  })
+})
