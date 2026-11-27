@@ -700,6 +700,7 @@ No other new dependencies. All other features built on existing TanStack React T
 
 | Date | Change |
 |------|--------|
+| 2026-11-27 | Pinned-column edge shadows (first data column, actions column) are shown only while content is scrolled underneath them, matching Step 3.4. |
 | 2026-10-29 | #7996: Add approved narrow negated ILIKE support with scoped encrypted-token exclusion, resolved custom-field sources, preserved join/custom-storage OR groups, and disposable-PostgreSQL regression coverage. |
 | 2026-10-28 | #7996: Repair all-of compilation and JSONB staff role filters. |
 | 2026-10-26 | #7831: Reject empty OR and unsupported QueryEngine field operators; preserve absent-filter semantics and document module/preset migration. |
