@@ -406,6 +406,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
 
     const effectiveTargetType = input.targetType ?? schedule.targetType
     const effectiveQueue = input.targetQueue ?? schedule.targetQueue
+    const effectiveIsEnabled = input.isEnabled ?? schedule.isEnabled
     const queueChanged =
       effectiveTargetType === 'queue'
       && (
@@ -423,10 +424,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
       // row stays allowed so admins can remediate legacy targets from the UI.
       // (Dispatch-time re-verification remains the backstop either way.)
       const keepsUnapprovedQueueActive =
-        effectiveQueue != null
-        && !isSchedulerSafeQueue(effectiveQueue)
-        && input.isEnabled !== false
-        && schedule.isEnabled !== false
+        effectiveIsEnabled && !isSchedulerSafeQueue(effectiveQueue)
       if (
         (retargetedToUnapprovedQueue || keepsUnapprovedQueueActive)
         && schedule.sourceType !== 'module'
