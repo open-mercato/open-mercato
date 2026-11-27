@@ -3,9 +3,13 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
-import { appendWidgetsToRoles, findRoleByName, resolveAnalyticsWidgetIds } from '@open-mercato/core/modules/dashboards/lib/role-widgets'
+import { appendWidgetsToRoles, dashboardDefaultRoleNames, findRoleByName, resolveAnalyticsWidgetIds, selectDefaultRoleWidgetIds } from './lib/role-widgets'
 import { seedAnalyticsData } from './seed/analytics'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { z } from 'zod'
+import { repairDashboardRoleWidgets } from './lib/repair-role-widgets'
 
 type Args = Record<string, string>
 
@@ -24,7 +28,7 @@ export async function seedDashboardDefaultsForTenant(
   {
     tenantId,
     organizationId = null,
-    roleNames = ['superadmin', 'admin', 'employee'],
+    roleNames = [...dashboardDefaultRoleNames],
     widgetIds,
     logger,
   }: {
@@ -43,11 +47,6 @@ export async function seedDashboardDefaultsForTenant(
   const resolvedWidgetIds = widgetIds && widgetIds.length
     ? widgetIds.filter((id) => widgetMap.has(id))
     : null
-  const defaultWidgetIds = widgets
-    .filter((widget) => widget.metadata.defaultEnabled)
-    .map((widget) => widget.metadata.id)
-  const allWidgetIds = widgets.map((widget) => widget.metadata.id)
-
   if (resolvedWidgetIds && resolvedWidgetIds.length === 0) {
     log('No widgets resolved for dashboard seeding.')
     return false
@@ -55,8 +54,7 @@ export async function seedDashboardDefaultsForTenant(
 
   await em.transactional(async (tem) => {
     for (const roleName of roleNames) {
-      const isAdminRole = roleName === 'admin' || roleName === 'superadmin'
-      const roleWidgetIds = resolvedWidgetIds ?? (isAdminRole ? allWidgetIds : defaultWidgetIds)
+      const roleWidgetIds = resolvedWidgetIds ?? selectDefaultRoleWidgetIds(widgets, roleName)
       if (!roleWidgetIds.length) {
         log(`No widgets resolved for role "${roleName}".`)
         continue
@@ -93,6 +91,37 @@ export async function seedDashboardDefaultsForTenant(
   })
 
   return true
+}
+
+const repairRoleWidgetsOptions = z.strictObject({
+  tenant: z.uuid(),
+  organization: z.uuid().optional(),
+  'tenant-wide': z.literal(true).optional(),
+  apply: z.literal(true).optional(),
+}).refine((options) => Boolean(options.organization) !== Boolean(options['tenant-wide']))
+
+const repairRoleWidgetsUsage = 'mercato dashboards repair-role-widgets --tenant <uuid> (--organization <uuid> | --tenant-wide) [--apply]'
+
+const repairRoleWidgets: ModuleCli = {
+  command: 'repair-role-widgets',
+  help: repairRoleWidgetsUsage,
+  async run(rest) {
+    const { t } = await resolveTranslations()
+    const options = repairRoleWidgetsOptions.safeParse(parseModuleCliOptions(rest))
+    if (!options.success) throw new Error(t('dashboards.cli.repairRoleWidgets.usage', { command: repairRoleWidgetsUsage }))
+
+    const { tenant, organization, apply = false } = options.data
+    const { resolve } = await createRequestContainer()
+    const result = await repairDashboardRoleWidgets(resolve<EntityManager>('em'), {
+      tenantId: tenant,
+      organizationId: organization ?? null,
+      apply,
+    }, t)
+
+    console.log(apply
+      ? t('dashboards.cli.repairRoleWidgets.applied', result)
+      : t('dashboards.cli.repairRoleWidgets.preview', result))
+  },
 }
 
 const seedDefaults: ModuleCli = {
@@ -330,4 +359,4 @@ const debugAnalytics: ModuleCli = {
   },
 }
 
-export default [seedDefaults, enableAnalyticsWidgets, seedAnalytics, debugAnalytics]
+export default [seedDefaults, enableAnalyticsWidgets, seedAnalytics, debugAnalytics, repairRoleWidgets]

@@ -85,7 +85,11 @@ export function installTenantPoolBoundary(pool: BoundaryPool, options: BoundaryP
         if (physical && typeof physical.release === 'function') physical.release(asError(error))
         throw error
       }
-      const originalRelease = physical.release.bind(physical)
+      const originalRelease = physical.release
+      const releasePhysical: ClientRelease = (error) => {
+        // The primary pool replaces release when it discards a disconnected client.
+        if (physical.release === originalRelease) originalRelease.call(physical, error)
+      }
       const originalQuery = physical.query.bind(physical)
       try {
         assertBoundaryInvocation(owner)
@@ -98,7 +102,7 @@ export function installTenantPoolBoundary(pool: BoundaryPool, options: BoundaryP
         }
         assertBoundaryInvocation(owner)
       } catch (error) {
-        originalRelease(asError(error))
+        releasePhysical(asError(error))
         throw error
       }
 
@@ -115,7 +119,7 @@ export function installTenantPoolBoundary(pool: BoundaryPool, options: BoundaryP
         leased -= 1
         removeLeaseListeners()
         const expired = owner && !owner.invocation.isActive()
-        originalRelease(expired ? new Error('[internal] Tenant boundary owner completed before release') : error)
+        releasePhysical(expired ? new Error('[internal] Tenant boundary owner completed before release') : error)
       }
 
       const execute = async (arguments_: unknown[]): Promise<unknown> => {

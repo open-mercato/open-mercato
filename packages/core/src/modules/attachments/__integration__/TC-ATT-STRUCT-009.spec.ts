@@ -36,7 +36,7 @@ import {
  * of the same tenant, holding attachments.view, gets "not found" for the same link.
  */
 
-const PASSWORD = 'Valid1!Pass'
+const PASSWORD = 'QaValid1!Pass'
 const UNKNOWN_ANCHOR = 'ffffffffffffffffffffffffffffffff'
 
 async function loginWithCredentials(page: Page, email: string, password: string, token: string): Promise<void> {

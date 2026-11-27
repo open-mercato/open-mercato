@@ -53,6 +53,7 @@ export async function runGenerateWatchSuite(
   if (selected('di')) record(await generators.generateModuleDi({ resolver, quiet }))
   if (selected('package-sources')) record(await generators.generateModulePackageSources({ resolver, quiet }))
   if (selected('web-research-adapters')) record(await generators.generateWebResearchAdapters({ resolver, quiet }))
+  if (selected('cache-providers')) record(await generators.generateCacheProviders({ resolver, quiet }))
   if (cascadeReason) {
     if (onOpenApiCascade) onOpenApiCascade(cascadeReason)
     else if (!quiet) console.log(`[generate:watch] Cascading; groups=openapi; reason=${cascadeReason}`)

@@ -23,6 +23,12 @@ import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
 import { resolveConsentClientIp } from '@open-mercato/onboarding/modules/onboarding/lib/consentClientIp'
 import { runBestEffortProvisioningStep } from '@open-mercato/onboarding/modules/onboarding/lib/provisioning'
+import {
+  ProvisioningLeaseLostError,
+  isProvisioningLeaseActive,
+  startProvisioningLeaseHeartbeat,
+  type ProvisioningLease,
+} from '@open-mercato/onboarding/modules/onboarding/lib/provisioning-lease'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -82,25 +88,22 @@ async function runModuleSetupHook(args: {
   }
 }
 
-async function completeProvisionedRequest(args: {
-  service: OnboardingService
-  request: OnboardingRequest
-}) {
-  const ids = resolveProvisioningIds(args.request)
-  if (!ids) return null
+async function completeProvisionedRequest(request: OnboardingRequest) {
+  const ids = resolveProvisioningIds(request)
+  if (!ids || isProvisioningLeaseActive(request.processingStartedAt)) return null
   const identityContainer = await createRequestContainer()
   try {
-    if (!await hasPersistedWorkspace(identityContainer.resolve('em') as EntityManager, args.request)) return null
+    if (!await hasPersistedWorkspace(identityContainer.resolve('em') as EntityManager, request)) return null
   } finally {
     await identityContainer.dispose()
   }
   return runOnboardingTenant(ids.tenantId, async (container) => {
     const em = container.resolve('em') as EntityManager
     const service = new OnboardingService(em)
-    const current = await service.findById(args.request.id)
-    if (!current || current.tokenHash !== args.request.tokenHash || current.status !== 'processing'
-      || current.deletedAt || current.tenantId !== ids.tenantId || current.organizationId !== ids.organizationId) return null
-    await service.markCompleted(current, ids)
+    const current = await service.findById(request.id)
+    if (!current || current.tokenHash !== request.tokenHash || current.status !== 'processing'
+      || current.deletedAt || isProvisioningLeaseActive(current.processingStartedAt) || current.tenantId !== ids.tenantId || current.organizationId !== ids.organizationId) return null
+    if (!await service.markCompleted(current, ids)) return null
     after(async () => {
       await runDeferredProvisioning({ requestId: current.id, tenantId: ids.tenantId, organizationId: ids.organizationId })
     })
@@ -170,12 +173,12 @@ async function handleGet(req: Request) {
   const processingStartedAt = request.processingStartedAt?.getTime() ?? 0
   const processingFresh = request.status === 'processing' && processingStartedAt > Date.now() - lockWindowMs
   if (processingFresh) {
-    const recovered = await completeProvisionedRequest({ service, request })
+    const recovered = await completeProvisionedRequest(request)
     if (recovered) return redirectToPreparing(baseUrl, recovered.tenantId)
     return redirectToPreparing(baseUrl, request.tenantId ?? null)
   }
   if (request.status === 'processing' && !processingFresh) {
-    const recovered = await completeProvisionedRequest({ service, request })
+    const recovered = await completeProvisionedRequest(request)
     if (recovered) return redirectToPreparing(baseUrl, recovered.tenantId)
     await service.resetProcessing(request)
   }
@@ -196,11 +199,16 @@ async function handleGet(req: Request) {
         : redirectToPreparing(baseUrl, current.tenantId)
     }
     if (current?.status === 'processing') {
-      const recovered = await completeProvisionedRequest({ service: currentService, request: current })
+      const recovered = await completeProvisionedRequest(current)
       if (recovered) return redirectToPreparing(baseUrl, recovered.tenantId)
     }
     return redirectToPreparing(baseUrl, current?.tenantId ?? request.tenantId ?? null)
   }
+  // From here on the request row is written only through lease-guarded native updates.
+  // Detach it from the request EM so a flush issued by provisioning code sharing that EM
+  // (setup hooks resolve services from the request container) cannot write its stale
+  // in-memory processing_started_at over a renewed lease and lose the claim.
+  em.getUnitOfWork().unsetIdentity(request)
   if (!request.passwordHash) {
     logger.error('Missing password hash for request', { requestId: request.id })
     await service.resetProcessing(request)
@@ -210,6 +218,7 @@ async function handleGet(req: Request) {
   let tenantId: string | null = null
   let organizationId: string | null = null
   let userId: string | null = null
+  let lease: ProvisioningLease | null = null
 
   try {
     const setupResult = await setupInitialTenant(em, {
@@ -240,11 +249,14 @@ async function handleGet(req: Request) {
     const user = mainUserSnapshot.user
     const resolvedUserId = String(user.id)
     userId = resolvedUserId
-    await service.updateProvisioningIds(request, {
+    const leaseHeldSince = await service.updateProvisioningIds(request, {
       tenantId: resolvedTenantId,
       organizationId: resolvedOrganizationId,
       userId: resolvedUserId,
     })
+    if (!leaseHeldSince) throw new ProvisioningLeaseLostError()
+    const activeLease = startProvisioningLeaseHeartbeat(new OnboardingService(em.fork()), request.id, leaseHeldSince)
+    lease = activeLease
 
     if (!await hasPersistedWorkspace(em, request)) throw new Error('[internal] Invalid onboarding workspace')
     const verifiedRequestId = request.id
@@ -253,11 +265,12 @@ async function handleGet(req: Request) {
       const em = container.resolve('em') as EntityManager
       const service = new OnboardingService(em)
       const current = await service.findById(verifiedRequestId)
-      if (!current || current.tokenHash !== verifiedTokenHash || current.status !== 'processing' || current.tenantId !== resolvedTenantId || current.organizationId !== resolvedOrganizationId) {
+      if (!current || current.tokenHash !== verifiedTokenHash || current.status !== 'processing' || current.deletedAt || current.tenantId !== resolvedTenantId || current.organizationId !== resolvedOrganizationId) {
         throw new Error('[internal] Onboarding request changed')
       }
       const request = current
       if (request.marketingConsent) {
+        activeLease.assertHeld()
         const now = new Date()
         const clientIp = resolveConsentClientIp(req)
         const integrityHash = computeConsentIntegrityHash({
@@ -303,6 +316,7 @@ async function handleGet(req: Request) {
       const modules = getModules()
       for (const mod of modules) {
         if (!mod.setup?.seedDefaults) continue
+        activeLease.assertHeld()
         await runBestEffortProvisioningStep(`seedDefaults:${mod.id}`, () =>
           runOnboardingTenant(resolvedTenantId, async (seedContainer) => runModuleSetupHook({
             moduleId: mod.id,
@@ -317,11 +331,14 @@ async function handleGet(req: Request) {
           })),
         )
       }
-      await service.markCompleted(request, {
+      const heldSince = await activeLease.release()
+      if (!heldSince) throw new ProvisioningLeaseLostError()
+      const completed = await service.markCompleted(request, {
         tenantId: resolvedTenantId,
         organizationId: resolvedOrganizationId,
         userId: resolvedUserId,
-      })
+      }, heldSince)
+      if (!completed) throw new ProvisioningLeaseLostError()
       // TODO: Move deferred provisioning into a durable job keyed by request id so process restarts can resume
       // seedExamples/index rebuild/email dispatch instead of leaving completed requests stuck on preparing.
       after(async () => {
@@ -334,12 +351,17 @@ async function handleGet(req: Request) {
       return redirectToPreparing(baseUrl, resolvedTenantId)
     })
   } catch (error) {
+    const heldSince = lease ? await lease.release() : request.processingStartedAt ?? null
+    if (error instanceof ProvisioningLeaseLostError || !heldSince) {
+      logger.warn('Verification stopped after losing the provisioning lease', { requestId: request.id, err: error })
+      return redirectWithStatus(baseUrl, 'error')
+    }
     if (error instanceof Error && error.message === 'USER_EXISTS') {
-      await service.resetProcessing(request)
+      await service.resetProcessing(request, heldSince)
       return redirectWithStatus(baseUrl, 'already_exists')
     }
     logger.error('Verification failed', { err: error })
-    await service.resetProcessing(request)
+    await service.resetProcessing(request, heldSince)
     return redirectWithStatus(baseUrl, 'error')
   }
 }

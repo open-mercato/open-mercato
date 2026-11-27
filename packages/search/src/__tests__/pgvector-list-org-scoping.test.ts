@@ -63,4 +63,29 @@ describe('pgvector list organization scoping', () => {
     const call = listCall(calls)
     expect(call!.text).not.toMatch(/organization_id =/)
   })
+
+  it('applies matched organization and entity scopes before pagination', async () => {
+    const calls: QueryCall[] = []
+    const driver = createPgVectorDriver({ pool: createPool(calls) })
+    const entityAccess = [
+      { organizationId: 'org-a', entityIds: ['demo:allowed'] },
+      { organizationId: 'org-b', entityIds: ['demo:other'] },
+    ]
+
+    await driver.list!({ tenantId: 'tenant-1', entityAccess, limit: 25, offset: 10 })
+
+    const call = listCall(calls)
+    expect(call?.text).toMatch(/jsonb_to_recordset\(\$3::jsonb\)/)
+    expect(call?.text).toMatch(/access\."organizationId" = organization_id[\s\S]*entity_id = ANY\(access\."entityIds"\)[\s\S]*LIMIT \$4 OFFSET \$5/)
+    expect(call?.params).toEqual(['pgvector', 'tenant-1', JSON.stringify(entityAccess), 25, 10])
+  })
+
+  it('returns no entries when the entity scope is explicitly empty', async () => {
+    const calls: QueryCall[] = []
+    const driver = createPgVectorDriver({ pool: createPool(calls) })
+
+    expect(await driver.list!({ tenantId: 'tenant-1', entityAccess: [] })).toEqual([])
+    expect(listCall(calls)).toBeUndefined()
+  })
+
 })

@@ -120,7 +120,7 @@ export async function GET(req: Request) {
         if (!z.string().uuid().safeParse(attachmentId).success) return notFound()
         const attachment = await loadVisibleAttachment(api, scope, owned.task.id, attachmentId)
         if (!attachment) return notFound()
-        const partition = await scope.em.findOne(api.AttachmentPartition, { code: attachment.partitionCode })
+        const partition = await api.resolveAttachmentPartition(scope.em, attachment.partitionCode, attachment)
         if (!partition) return notFound()
         if (!api.checkAttachmentAccess(portalAttachmentAuth(scope), attachment, partition, { requireAuthForPublic: true }).ok) return notFound()
         const driver = await (await resolveDriverFactory(api, scope)).resolveForPartition(attachment.partitionCode, {

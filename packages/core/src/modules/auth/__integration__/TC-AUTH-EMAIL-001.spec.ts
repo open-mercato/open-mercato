@@ -34,7 +34,7 @@ test.describe('TC-AUTH-EMAIL-001: Auth transactional email uses system channel',
         token,
         data: {
           email: passwordUserEmail,
-          password: 'Valid1!Pass',
+          password: 'QaValid1!Pass',
           organizationId: scope.organizationId,
           roles: ['employee'],
         },

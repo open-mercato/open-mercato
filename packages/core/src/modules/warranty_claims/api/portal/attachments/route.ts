@@ -1,4 +1,5 @@
 import { runWithDatabaseExecutionContext } from '@open-mercato/shared/lib/db/runtime'
+import { attachmentPartitionVisibility, indexAttachmentPartitions, resolveAttachmentPartition } from '@open-mercato/core/modules/attachments/lib/partitionScope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -260,7 +261,7 @@ async function streamOwnedAttachment(
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
   }
   const { attachment } = owned
-  const partition = await context.em.findOne(AttachmentPartition, { code: attachment.partitionCode })
+  const partition = await resolveAttachmentPartition(context.em, attachment.partitionCode, attachment)
   if (!partition) {
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data.') }, { status: 500 })
   }
@@ -335,13 +336,14 @@ export async function GET(req: Request) {
       { tenantId: context.tenantId, organizationId: context.organizationId },
     )
     const partitionCodes = Array.from(new Set(attachments.map((attachment) => attachment.partitionCode)))
+    const partitionScope = { tenantId: context.tenantId, organizationId: context.organizationId }
     const partitions = partitionCodes.length
-      ? await context.em.find(AttachmentPartition, { code: { $in: partitionCodes } })
+      ? await context.em.find(AttachmentPartition, { code: { $in: partitionCodes }, ...attachmentPartitionVisibility(partitionScope) })
       : []
-    const partitionsByCode = new Map(partitions.map((partition) => [partition.code, partition]))
+    const partitionsByCode = indexAttachmentPartitions(partitions)
     const auth = attachmentAuth(context)
     const visible = attachments.filter((attachment) => {
-      const partition = partitionsByCode.get(attachment.partitionCode)
+      const partition = partitionsByCode(attachment.partitionCode, attachment)
       if (!partition) return false
       if (!isCustomerVisibleAttachment(readAttachmentMetadata(attachment.storageMetadata).tags)) return false
       return checkAttachmentAccess(auth, attachment, partition, { requireAuthForPublic: true }).ok

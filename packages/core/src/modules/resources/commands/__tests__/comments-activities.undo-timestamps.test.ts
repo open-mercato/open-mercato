@@ -64,7 +64,7 @@ function buildHarness() {
     selectedOrganizationId: ORGANIZATION_ID,
     organizationIds: [ORGANIZATION_ID],
   }
-  return { em, ctx, removeRecord: () => { record = null } }
+  return { em, ctx, getRecord: () => record, removeRecord: () => { record = null } }
 }
 
 function roundTrip<T>(value: T): T {
@@ -88,8 +88,13 @@ describe.each([
 
   afterEach(() => jest.useRealTimers())
 
-  it.each(['payload', 'snapshotAfter'])('preserves createdAt through create undo/redo using %s', async (source) => {
-    const { em, ctx } = buildHarness()
+  it.each([
+    ['payload', false],
+    ['snapshotAfter', false],
+    ['payload', true],
+    ['snapshotAfter', true],
+  ] as const)('preserves createdAt through create undo/redo using %s, historical removal: %s', async (source, historicallyRemoved) => {
+    const { em, ctx, getRecord, removeRecord } = buildHarness()
     const handler = commandRegistry.get(`resources.resource-${kind}.create`)!
     const log = await handler.buildLog!({ result, ctx, snapshots: {} } as never)
     const logEntry = roundTrip({
@@ -98,16 +103,19 @@ describe.each([
     })
 
     await handler.undo!({ logEntry, ctx } as never)
+    if (historicallyRemoved) removeRecord()
     await handler.redo!({ logEntry, ctx } as never)
 
-    expect(em.create).toHaveBeenCalledWith(entity, expect.objectContaining({
-      id: CHILD_ID,
-      createdAt: new Date(CREATED_AT),
-    }))
-    const restored = em.create.mock.results[0].value
-    expect(restored.updatedAt).toEqual(new Date(REPLAY_AT))
+    const restored = getRecord()
+    expect(restored).toMatchObject({ id: CHILD_ID, createdAt: new Date(CREATED_AT), deletedAt: null })
+    if (historicallyRemoved) {
+      expect(em.create).toHaveBeenCalledWith(entity, expect.objectContaining({ createdAt: new Date(CREATED_AT) }))
+      expect(restored!.updatedAt).toEqual(new Date(REPLAY_AT))
+    } else {
+      expect(em.create).not.toHaveBeenCalled()
+    }
     if (kind === 'activities') {
-      expect(restored.occurredAt).toEqual(new Date(CREATED_AT))
+      expect(restored!.occurredAt).toEqual(new Date(CREATED_AT))
       expect(setCustomFieldsIfAny).toHaveBeenCalledWith(expect.objectContaining({
         values: { scheduledAt: CREATED_AT.replace('.123Z', '.000Z') },
       }))

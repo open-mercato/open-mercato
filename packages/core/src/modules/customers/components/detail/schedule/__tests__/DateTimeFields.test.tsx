@@ -147,6 +147,31 @@ describe('DateTimeFields — pickers follow the app locale', () => {
     renderFields('en')
     expect(screen.getByText('02:30 PM')).toBeInTheDocument()
   })
+
+  it.each(['wheel', 'touchMove'] as const)('scopes %s suppression to the portaled time list', async (eventName) => {
+    renderFields('en')
+    const trigger = screen.getByRole('button', { name: '02:30 PM' })
+    await act(async () => {
+      fireEvent.click(trigger)
+    })
+    const timeSlot = await screen.findByRole('button', { name: '14:30' })
+    const domEventName = eventName === 'wheel' ? 'wheel' : 'touchmove'
+    const eventInit = eventName === 'wheel'
+      ? { deltaY: 120 }
+      : { touches: [{ clientX: 0, clientY: 0 }], changedTouches: [{ clientX: 0, clientY: 0 }] }
+    const documentListener = jest.fn()
+    document.addEventListener(domEventName, documentListener)
+
+    try {
+      fireEvent[eventName](timeSlot, eventInit)
+      expect(documentListener).not.toHaveBeenCalled()
+
+      fireEvent[eventName](trigger, eventInit)
+      expect(documentListener).toHaveBeenCalledTimes(1)
+    } finally {
+      document.removeEventListener(domEventName, documentListener)
+    }
+  })
 })
 
 describe('DateTimeFields — recurrence card', () => {

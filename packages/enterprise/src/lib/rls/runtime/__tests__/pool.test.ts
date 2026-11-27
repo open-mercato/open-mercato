@@ -36,6 +36,22 @@ it('sets tenant state on the exact client before handing out a restricted facade
   expect(physical.release).toHaveBeenCalledTimes(1)
 })
 
+it('retires a guarded lease without releasing a client already discarded by its pool', async () => {
+  const { pool, physical } = fixture()
+  const boundary = installTenantPoolBoundary(pool, { configurationKey: 'test' })
+  await runWithTenantBoundary(contextA, async () => {
+    const lease = await pool.connect()
+    const physicalRelease = physical.release
+    physical.release = jest.fn()
+    physicalRelease(new Error('connection terminated'))
+    lease.release()
+    expect(physicalRelease).toHaveBeenCalledTimes(1)
+    expect(physical.release).not.toHaveBeenCalled()
+    await expect(lease.query('select retired')).rejects.toThrow('released')
+  })
+  expect(() => boundary.dispose()).not.toThrow()
+})
+
 it.each([tenantA, tenantB])('never lets an old released handle inherit the next lease for tenant %s', async (tenantId) => {
   const { pool, physical } = fixture()
   installTenantPoolBoundary(pool, { configurationKey: 'test' })

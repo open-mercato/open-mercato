@@ -88,6 +88,7 @@ export type VectorDriverListParams = {
   limit?: number
   offset?: number
   orderBy?: 'created' | 'updated'
+  entityAccess?: Array<{ organizationId: string | null; entityIds: string[] | null }>
 }
 
 export type VectorDriverCountParams = {
@@ -135,6 +136,7 @@ export interface VectorDriver {
   count?(params: VectorDriverCountParams): Promise<number>
   removeOrphans?(params: VectorDriverRemoveOrphansParams): Promise<number | void>
   getTableDimension?(): Promise<number | null>
+  /** @deprecated Migrate shared vector dimensions through an operator-managed migration. */
   recreateWithDimension?(newDimension: number): Promise<void>
 }
 

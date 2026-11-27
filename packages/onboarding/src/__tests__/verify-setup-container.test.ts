@@ -23,7 +23,7 @@ test('verification uses the live onboarding container and manager for tenant set
   })
 
   try {
-    const manager = {}
+    const manager = { fork: jest.fn(() => manager), getUnitOfWork: () => ({ unsetIdentity: jest.fn() }) }
     const container = { resolve: () => manager, dispose: jest.fn() }
     const modules = [{ id: 'configs' }, { id: 'record_locks' }]
     const email = 'owner@example.com'
@@ -41,8 +41,12 @@ test('verification uses the live onboarding container and manager for tenant set
       marketingConsent: false,
     }
     const claimed = { ...pending, ...workspace, status: 'processing' }
-    const updateProvisioningIds = jest.fn(async () => { Object.assign(pending, workspace) })
-    const markCompleted = jest.fn()
+    const heldSince = new Date()
+    const updateProvisioningIds = jest.fn(async () => {
+      Object.assign(pending, workspace, { processingStartedAt: heldSince })
+      return heldSince
+    })
+    const markCompleted = jest.fn().mockResolvedValue(true)
 
     jest.mocked(createRequestContainer).mockResolvedValue(container as never)
     jest.mocked(validateDeclaredDatabaseBinding).mockResolvedValue(true)
@@ -73,7 +77,7 @@ test('verification uses the live onboarding container and manager for tenant set
       includeSuperadminRole: false,
     }))
     expect(markCompleted).toHaveBeenCalledTimes(1)
-    expect(markCompleted).toHaveBeenCalledWith(claimed, workspace)
+    expect(markCompleted).toHaveBeenCalledWith(claimed, workspace, heldSince)
   } finally {
     env.restore()
   }
