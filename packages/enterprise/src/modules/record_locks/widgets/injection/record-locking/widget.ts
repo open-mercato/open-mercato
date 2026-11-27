@@ -67,7 +67,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
         if (currentState?.recordDeleted) {
           return {
             ok: false,
-            message: 'Record was deleted by another user',
+            message: 'record_locks.conflict.record_deleted_title',
             details: {
               code: 'record_deleted',
               resourceKind: currentState.resourceKind ?? null,
@@ -83,7 +83,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
         if (currentState?.conflict && !hasSelectedConflictResolution) {
           return {
             ok: false,
-            message: 'Record conflict detected',
+            message: 'record_locks.conflict.title',
             details: {
               code: 'record_lock_conflict',
               lock: currentState.lock ?? null,
@@ -98,7 +98,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
         if (!validation.ok) {
           return {
             ok: false,
-            message: 'Record conflict detected',
+            message: 'record_locks.conflict.title',
             details: {
               code: 'record_lock_conflict',
               lock: validation.lock ?? null,
@@ -132,7 +132,7 @@ const widget: InjectionWidgetModule<CrudInjectionContext, Record<string, unknown
         })
         return {
           ok: false,
-          message: 'Record conflict detected',
+          message: 'record_locks.conflict.title',
           details: {
             code: 'record_lock_conflict',
             lock: validation.lock ?? null,

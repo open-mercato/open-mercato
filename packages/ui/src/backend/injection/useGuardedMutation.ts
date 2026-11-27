@@ -74,7 +74,11 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
     const beforeSave = await triggerEvent('onBeforeSave', payload, context)
     if (!beforeSave.ok) {
       emitMutationSaveError(beforeSave.details ?? beforeSave)
-      throw new Error(beforeSave.message || blockedMessage)
+      // Widgets may return either literal text or an i18n key (e.g. the
+      // record-lock conflict toast); resolve it the same way CrudForm
+      // translates widget-supplied validation messages.
+      const message = beforeSave.message ? t(beforeSave.message, beforeSave.message) : ''
+      throw new Error(message || blockedMessage)
     }
 
     try {
@@ -94,7 +98,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
       emitMutationSaveError(error)
       throw error
     }
-  }, [blockedMessage, emitMutationSaveError, triggerEvent])
+  }, [blockedMessage, emitMutationSaveError, t, triggerEvent])
 
   const retryLastMutation = React.useCallback(async (): Promise<boolean> => {
     const lastMutation = lastMutationRef.current
