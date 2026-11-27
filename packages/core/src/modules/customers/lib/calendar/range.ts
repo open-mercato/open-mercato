@@ -15,6 +15,7 @@ export function getVisibleRange(view: CalendarView, anchor: Date, agendaHorizonD
   switch (view) {
     case 'day':
       return { from: startOfDay(anchor), to: endOfDay(anchor) }
+    case 'workweek':
     case 'week':
       return { from: startOfWeek(anchor, MONDAY_WEEK), to: endOfWeek(anchor, MONDAY_WEEK) }
     case 'month':
@@ -35,6 +36,7 @@ export function shiftAnchor(view: CalendarView, anchor: Date, direction: 1 | -1)
   switch (view) {
     case 'day':
       return addDays(anchor, direction)
+    case 'workweek':
     case 'week':
       return addWeeks(anchor, direction)
     case 'month':

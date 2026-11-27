@@ -458,6 +458,7 @@
   "customers.calendar.views.label": "Widok kalendarza",
   "customers.calendar.views.month": "Miesiąc",
   "customers.calendar.views.week": "Tydzień",
+  "customers.calendar.views.workweek": "Tydzień roboczy",
   "customers.changelog.actions.assign": "Przypisanie",
   "customers.changelog.actions.create": "Utworzenie",
   "customers.changelog.actions.delete": "Usunięcie",

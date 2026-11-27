@@ -25,6 +25,12 @@ describe('getVisibleRange', () => {
     expect(differenceInCalendarDays(range.to, range.from)).toBe(6)
   })
 
+  it('gives the work week the same Monday-start range as the week view', () => {
+    const anchorThursday = new Date(2026, 5, 11, 9, 0, 0)
+    expect(getVisibleRange('workweek', anchorThursday, 7)).toEqual(getVisibleRange('week', anchorThursday, 7))
+    expect(shiftAnchor('workweek', anchorThursday, 1)).toEqual(shiftAnchor('week', anchorThursday, 1))
+  })
+
   it('keeps the week anchored when the anchor itself is a Monday', () => {
     const anchorMonday = new Date(2026, 5, 8, 0, 0, 0)
     const range = getVisibleRange('week', anchorMonday, 7)

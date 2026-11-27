@@ -458,6 +458,7 @@
   "customers.calendar.views.label": "Calendar view",
   "customers.calendar.views.month": "Month",
   "customers.calendar.views.week": "Week",
+  "customers.calendar.views.workweek": "Work week",
   "customers.changelog.actions.assign": "Assign",
   "customers.changelog.actions.create": "Create",
   "customers.changelog.actions.delete": "Delete",

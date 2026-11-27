@@ -117,3 +117,14 @@ describe('TimeGrid drag-to-create', () => {
     expect(screen.queryByText('New event')).not.toBeInTheDocument()
   })
 })
+
+describe('TimeGrid default visible hours', () => {
+  it('opens scrolled to 07:00 and is sized to show the hours through 20:00', () => {
+    const { container } = renderGrid(7)
+    const scroller = container.querySelector<HTMLDivElement>('.overflow-auto')!
+    expect(scroller.scrollTop).toBe(7 * HOUR_HEIGHT_PX)
+    const maxHeight = Number.parseFloat(scroller.style.maxHeight)
+    expect(maxHeight).toBeGreaterThanOrEqual((20 - 7) * HOUR_HEIGHT_PX)
+    expect(maxHeight).toBeLessThan((20 - 7 + 1) * HOUR_HEIGHT_PX)
+  })
+})

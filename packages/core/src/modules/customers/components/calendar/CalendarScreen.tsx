@@ -549,7 +549,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
         items={viewItems}
         conflictIds={conflictIds}
         conflictDescriptions={conflictDescriptions}
-        showWeekends={preferences.showWeekends}
+        showWeekends={view === 'workweek' ? false : preferences.showWeekends}
         showConflicts={preferences.conflictWarnings}
         aiSummaries={preferences.aiSummaries}
         canManage={canManage}
