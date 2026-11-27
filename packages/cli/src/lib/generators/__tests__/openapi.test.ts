@@ -150,7 +150,7 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     const similarlyNamedSource = path.join(tmpDir, 'packages', 'core', 'generated-sources', 'schema.ts')
     touchFile(source, 'export const schema = {}')
     touchFile(path.join(resolver.getOutputDir(), 'openapi.generated.inputs.json'), JSON.stringify({
-      version: 1,
+      version: 2,
       inputPaths: [
         source,
         path.join(resolver.getOutputDir(), 'entities.generated.ts'),
@@ -173,12 +173,12 @@ export function buildOpenApiDocument(modules: any[], options: any) {
     expect(getOpenApiGeneratorDependencies(resolver)).toBeNull()
     touchFile(manifestPath, '{')
     expect(getOpenApiWatchInputs(resolver)).toEqual([])
-    touchFile(manifestPath, JSON.stringify({ version: 2, inputPaths: ['/stale.ts'] }))
+    touchFile(manifestPath, JSON.stringify({ version: 1, inputPaths: ['/stale.ts'] }))
     expect(getOpenApiWatchInputs(resolver)).toEqual([])
-    touchFile(manifestPath, JSON.stringify({ version: 1, inputPaths: [123] }))
+    touchFile(manifestPath, JSON.stringify({ version: 2, inputPaths: [123] }))
     expect(getOpenApiWatchInputs(resolver)).toEqual([])
     expect(getOpenApiGeneratorDependencies(resolver)).toBeNull()
-    touchFile(manifestPath, JSON.stringify({ version: 1, inputPaths: [] }))
+    touchFile(manifestPath, JSON.stringify({ version: 2, inputPaths: [] }))
     expect(getOpenApiGeneratorDependencies(resolver)).toEqual([])
   })
 
