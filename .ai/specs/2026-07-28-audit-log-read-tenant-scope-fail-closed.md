@@ -81,7 +81,7 @@ Action-log lists, CSV export and access-log lists resolve `audit_logs.view_tenan
 
 Clients with organization-limited grants should pass the intended `organizationId` for list or export operations that need other actors' rows. Operators can grant tenant-wide visibility through an unrestricted role when the principal needs that access. Access-log lists report malformed organization identifiers as HTTP 400. Read paths, response fields and storage remain stable. See the [upgrade notes](../../UPGRADE_NOTES.md#audit-log-scope-10788).
 
-Keeping the former actor-visibility behavior as a bridge would preserve reads of other actors' rows outside the assigned grant. The Emergency Security Exception requires a named maintainer's acceptance of this scope change. That decision is pending.
+Keeping the former actor-visibility behavior as a bridge would preserve reads of other actors' rows outside the assigned grant. The Emergency Security Exception requires a named maintainer's acceptance of this scope change. @kmrosiek acknowledged the waiver on 2026-11-27: [human approval](https://github.com/open-mercato/open-mercato/pull/10788#issuecomment-7226197403).
 
 `TC-AUD-022` covers list, access and export with restricted, unrestricted and mismatched organization scope. Unit tests verify the read organization passed to the permission check and malformed-identifier handling.
 

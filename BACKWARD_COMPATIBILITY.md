@@ -767,4 +767,4 @@ STABLE APIs §7 require organization grants and return `403` for explicitly empt
 
 ## #10788 (2026-11-26)
 
-STABLE audit scope. Bridge leaks. Named waiver due. [Guide](UPGRADE_NOTES.md#audit-log-scope-10788).
+STABLE audit scope. Bridge leaks. Waiver acknowledged by @kmrosiek on 2026-11-27: [human approval](https://github.com/open-mercato/open-mercato/pull/10788#issuecomment-7226197403). [Guide](UPGRADE_NOTES.md#audit-log-scope-10788).
