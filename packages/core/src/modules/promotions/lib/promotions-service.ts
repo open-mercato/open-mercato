@@ -20,6 +20,8 @@ import type {
   PromotionsService,
   RegisterUsageInput,
   ReserveCodeInput,
+  RevertCodeUseInput,
+  RevertCodeUseResult,
   RevertUsageInput,
   UseCodeInput,
 } from './types'
@@ -393,6 +395,20 @@ export class PromotionsServiceImpl implements PromotionsService {
       'promotions.code.release',
       { input: { codeId, cartId }, ctx },
     )
+  }
+
+  // Release 5 C5/SPEC-055 amendment: a registered command (`promotions.code.use.revert`),
+  // the reversal counterpart of `useCode` above — same "financially or budget
+  // consequential" reasoning as §A.2a's own five.
+  async revertCodeUse(input: RevertCodeUseInput): Promise<RevertCodeUseResult> {
+    const { auth, scope } = resolvePromotionsServiceAuthAndScope(this.container)
+    const commandBus = resolvePromotionsCommandBus(this.container)
+    const ctx = buildPromotionsCommandContext(this.container, auth, scope)
+    const { result } = await commandBus.execute<RevertCodeUseInput, RevertCodeUseResult>(
+      'promotions.code.use.revert',
+      { input, ctx },
+    )
+    return result
   }
 
   // §A.2a: a registered command (`promotions.usage.register`) — "financially or budget
