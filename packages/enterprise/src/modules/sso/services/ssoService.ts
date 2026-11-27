@@ -1,7 +1,6 @@
 import crypto from 'node:crypto'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { SsoConfig } from '../data/entities'
@@ -13,8 +12,10 @@ import { emitSsoEvent } from '../events'
 import { isSsoRolesRevokedError } from '../lib/errors'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { issueStaffSessionToken } from '../../../lib/staffSessionToken'
 
 const logger = createLogger('sso').child({ component: 'service' })
+const millisecondsPerDay = 24 * 60 * 60 * 1000
 
 export class SsoService {
   constructor(
@@ -132,40 +133,41 @@ export class SsoService {
       throw err
     }
 
-    await this.rbacService.invalidateUserCache(String(user.id))
+    const userId = String(user.id)
+    await this.rbacService.invalidateUserCache(userId)
     const tenantId = user.tenantId ?? null
+    const staffTenantId = tenantId || null
 
-    const roles = await this.authService.getUserRoles(user, tenantId || null)
-
+    const roles = await this.authService.getUserRoles(user, staffTenantId)
     await this.authService.updateLastLoginAt(user)
 
-    const days = Number(process.env.REMEMBER_ME_DAYS || '30')
-    const sessionExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
-    const { session, token: sessionRefreshToken } = await this.authService.createSession(user, sessionExpiresAt, {
+    const sessionLifetime = Number(process.env.REMEMBER_ME_DAYS || '30') * millisecondsPerDay
+    const sessionExpiresAt = new Date(Date.now() + sessionLifetime)
+    const issuance = await this.authService.createSession(user, sessionExpiresAt, {
       tenantId,
       organizationId: config.organizationId,
       ssoConfigId: config.id,
       configUpdatedAt,
     })
 
-    const token = signJwt({
-      sub: String(user.id),
-      sid: String(session.id),
-      tenantId: tenantId || null,
-      orgId: user.organizationId ? String(user.organizationId) : null,
+    const token = issueStaffSessionToken({
+      subject: userId,
+      sessionId: String(issuance.session.id),
+      tenantId: staffTenantId,
+      organizationId: user.organizationId ? String(user.organizationId) : null,
       email: user.email,
       roles,
     })
 
     void emitSsoEvent('sso.login.completed', {
-      id: String(user.id),
+      id: userId,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
     }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return {
       token,
-      sessionToken: sessionRefreshToken,
+      sessionToken: issuance.token,
       sessionExpiresAt,
       redirectUrl: flowState.returnUrl || '/backend',
       tenantId,

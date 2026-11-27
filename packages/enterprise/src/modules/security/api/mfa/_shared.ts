@@ -6,11 +6,11 @@ import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/com
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import '../../lib/mfaCompletionRoutes'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { MfaService, MfaServiceError } from '../../services/MfaService'
 import type { MfaVerificationService, MfaVerificationServiceError } from '../../services/MfaVerificationService'
 import { localizeSecurityApiBody, securityApiError } from '../i18n'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { issueStaffSessionToken } from '../../../../lib/staffSessionToken'
 
 const logger = createLogger('security').child({ component: 'mfa' })
 const MFA_MANAGE_FEATURE = 'security.mfa.manage'
@@ -144,28 +144,19 @@ function isMfaVerificationServiceError(error: unknown): error is MfaVerification
 }
 
 export function issueVerifiedMfaToken(auth: MfaRequestContext['auth'], methods: string[]): string {
-  const nextPayload: Record<string, unknown> = {
-    sub: auth.sub,
-    sid: typeof auth.sid === 'string' ? auth.sid : undefined,
+  return issueStaffSessionToken({
+    subject: auth.sub,
+    sessionId: typeof auth.sid === 'string' ? auth.sid : undefined,
     tenantId: auth.tenantId ?? null,
-    orgId: auth.orgId ?? null,
+    organizationId: auth.orgId ?? null,
     email: typeof auth.email === 'string' ? auth.email : null,
     roles: Array.isArray(auth.roles) ? auth.roles : [],
-    mfa_pending: false,
-    mfa_verified: true,
-    mfa_methods: methods,
-  }
-  if (typeof auth.actorTenantId === 'string') {
-    nextPayload.actorTenantId = auth.actorTenantId
-  }
-  if (typeof auth.actorOrgId === 'string') {
-    nextPayload.actorOrgId = auth.actorOrgId
-  }
-  if (auth.isSuperAdmin === true) {
-    nextPayload.isSuperAdmin = true
-  }
-  return signJwt({
-    ...nextPayload,
+  }, {
+    stage: 'verified',
+    methods,
+    actorTenantId: typeof auth.actorTenantId === 'string' ? auth.actorTenantId : undefined,
+    actorOrgId: typeof auth.actorOrgId === 'string' ? auth.actorOrgId : undefined,
+    isSuperAdmin: auth.isSuperAdmin === true ? true : undefined,
   })
 }
 

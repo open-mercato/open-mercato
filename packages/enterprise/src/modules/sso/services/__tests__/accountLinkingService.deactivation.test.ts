@@ -14,7 +14,7 @@ jest.mock('../../events', () => ({ emitSsoEvent: jest.fn(async () => undefined) 
 jest.mock('../../lib/state-cookie', () => ({
   decryptStateCookie: jest.fn(() => ({ state: 'flow-state', configId: 'config-1' })),
 }))
-jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({ signJwt: jest.fn(() => 'signed-token') }))
+jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({ signAudienceJwt: jest.fn(() => 'signed-token') }))
 
 const config = {
   updatedAt: new Date('2026-11-15T00:00:00.000Z'),
