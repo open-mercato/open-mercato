@@ -16,6 +16,9 @@ import { timelinePropsSchema } from '@open-mercato/ui/blocks/contracts/timeline'
 import { wizardPropsSchema } from '@open-mercato/ui/blocks/contracts/wizard'
 import { EditableKeyValueExample, KanbanBoardExample, WizardNavigationExample } from '../demos/block-interactions'
 import type { GalleryEntry } from '../types'
+import { listToolbarEntry } from './blocks-list-toolbar'
+import { bulkActionBarEntry } from './blocks-bulk-action-bar'
+import { formSaveBarEntry } from './blocks-form-save-bar'
 
 function StackSamples({ count }: { count: number }) {
   return (
@@ -1071,4 +1074,4 @@ const wizardEntry: GalleryEntry = {
   ],
 }
 
-export const entries: GalleryEntry[] = [stackEntry, entityHeaderEntry, keyValueEntry, timelineEntry, kanbanEntry, wizardEntry]
+export const entries: GalleryEntry[] = [stackEntry, entityHeaderEntry, keyValueEntry, timelineEntry, kanbanEntry, wizardEntry, bulkActionBarEntry, formSaveBarEntry, listToolbarEntry]

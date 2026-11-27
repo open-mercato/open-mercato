@@ -61,6 +61,9 @@ export const fullWidthEntryIds: ReadonlySet<string> = new Set([
   'key-value',
   'timeline',
   'kanban',
+  'list-toolbar',
+  'bulk-action-bar',
+  'form-save-bar',
   'wizard',
 ])
 

@@ -57,6 +57,27 @@ function BlockSpecimen({ id }: { id: string }) {
           { id: 'received', kind: 'received', occurredAt: '2026-03-12T09:00:00Z', title: t('design.sample.received') },
         ]} />
       )
+    case 'form-save-bar':
+      return (
+        <div className="flex items-center justify-between gap-3 rounded-card border border-border bg-card px-3 py-2">
+          <span className="text-xs text-foreground">{t('ui.blocks.formSaveBar.dirty', 'Unsaved changes')}</span>
+          <span className="rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground">{t('ui.blocks.formSaveBar.save', 'Save')}</span>
+        </div>
+      )
+    case 'bulk-action-bar':
+      return (
+        <div className="flex items-center justify-between gap-3 rounded-card border border-border bg-card px-3 py-2 shadow-sm">
+          <span className="text-xs text-foreground">{t('ui.blocks.bulkActionBar.selected', '{count} selected', { count: 3 })}</span>
+          <span className="rounded-md border border-border px-2 py-1 text-xs text-foreground">{t('ui.blocks.bulkActionBar.moreActions', 'More actions')}</span>
+        </div>
+      )
+    case 'list-toolbar':
+      return (
+        <div className="flex items-center gap-2">
+          <span className="flex-1 rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground">{t('ui.blocks.listToolbar.searchLabel', 'Search')}</span>
+          <span className="rounded-full border border-border px-2 py-1 text-xs text-foreground">{t('ui.blocks.listToolbar.filters', 'Filters')}</span>
+        </div>
+      )
     case 'kanban':
       return (
         <div className="grid grid-cols-2 gap-2">
