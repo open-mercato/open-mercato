@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/core/modules/query_index/extension-points'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -311,7 +312,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
 
 export default function QueryIndexesTable() {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'entityId', desc: false }])
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [page, setPage] = React.useState(1)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const qc = useQueryClient()

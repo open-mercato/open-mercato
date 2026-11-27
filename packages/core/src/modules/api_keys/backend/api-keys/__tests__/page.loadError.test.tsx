@@ -8,6 +8,12 @@ const mockApiCall = jest.fn()
 const mockFlash = jest.fn()
 const mockTranslate = (key: string) => (pl as Record<string, string>)[key] ?? key
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
   useLocale: () => 'pl',

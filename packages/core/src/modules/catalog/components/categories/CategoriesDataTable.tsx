@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/core/modules/catalog/extension-points'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -58,7 +59,7 @@ export default function CategoriesDataTable() {
   const scopeVersion = useOrganizationScopeVersion()
   const [page, setPage] = React.useState(1)
   const [status, setStatus] = React.useState<'all' | 'active' | 'inactive'>('all')
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [canManage, setCanManage] = React.useState(false)
 
   React.useEffect(() => {

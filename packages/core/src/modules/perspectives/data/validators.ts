@@ -1,6 +1,13 @@
 import { z } from 'zod'
 import type { PerspectiveSettings } from '@open-mercato/shared/modules/perspectives/types'
 
+export const PERSPECTIVE_MAX_PAGE_SIZE = 100
+
+const clampPageSize = (value: unknown): unknown =>
+  typeof value === 'number' && Number.isFinite(value) && value > PERSPECTIVE_MAX_PAGE_SIZE
+    ? PERSPECTIVE_MAX_PAGE_SIZE
+    : value
+
 export const perspectiveSettingsSchema: z.ZodType<PerspectiveSettings> = z.object({
   columnOrder: z.array(z.string().min(1)).max(120).optional(),
   columnVisibility: z.record(z.string(), z.boolean()).optional(),
@@ -13,7 +20,7 @@ export const perspectiveSettingsSchema: z.ZodType<PerspectiveSettings> = z.objec
     .array(z.object({ id: z.string().min(1), desc: z.boolean().optional() }))
     .max(20)
     .optional(),
-  pageSize: z.number().int().positive().max(500).optional(),
+  pageSize: z.preprocess(clampPageSize, z.number().int().positive().max(PERSPECTIVE_MAX_PAGE_SIZE)).optional(),
   searchValue: z.string().max(200).optional(),
 })
 

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState, type UrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -238,6 +239,7 @@ function buildInventoryQuery(
 }
 
 type InventoryDataTableSectionProps<T extends RowData> = {
+  searchState?: UrlSearchState
   sectionQueryKey: string
   endpoint: string
   titleKey: string
@@ -267,6 +269,7 @@ type InventoryDataTableSectionProps<T extends RowData> = {
 }
 
 function InventoryDataTableSection<T extends RowData>({
+  searchState,
   sectionQueryKey,
   endpoint,
   titleKey,
@@ -296,7 +299,8 @@ function InventoryDataTableSection<T extends RowData>({
 }: InventoryDataTableSectionProps<T>) {
   const t = useT()
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const urlSearchState = useUrlSearchState()
+  const [search, setSearch] = searchState ?? urlSearchState
   const [sorting, setSorting] = React.useState<SortingState>([])
 
   const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
@@ -494,12 +498,14 @@ function InventoryScopeBar({
 }
 
 export function InventoryBalancesSection({
+  searchState,
   access,
   warehouseId = '',
   variantId = '',
   lotId = '',
   lowStock = null,
 }: {
+  searchState?: UrlSearchState
   access: WmsInventoryMutationAccess
   warehouseId?: string
   variantId?: string
@@ -658,6 +664,7 @@ export function InventoryBalancesSection({
     <>
       <InventoryDataTableSection<InventoryBalanceRow>
         sectionQueryKey="balances"
+        searchState={searchState}
         endpoint="/api/wms/inventory/balances"
         titleKey="wms.backend.inventory.balances.title"
         titleFallback="Inventory balances"
@@ -725,11 +732,13 @@ export function InventoryBalancesSection({
 }
 
 export function InventoryReservationsSection({
+  searchState,
   access,
   warehouseId = '',
   variantId = '',
   lotId = '',
 }: {
+  searchState?: UrlSearchState
   access: WmsInventoryMutationAccess
   warehouseId?: string
   variantId?: string
@@ -906,6 +915,7 @@ export function InventoryReservationsSection({
     <>
       <InventoryDataTableSection<InventoryReservationRow>
         sectionQueryKey="reservations"
+        searchState={searchState}
         endpoint="/api/wms/inventory/reservations"
         titleKey="wms.backend.inventory.reservations.title"
         titleFallback="Inventory reservations"
@@ -954,10 +964,12 @@ export function InventoryReservationsSection({
 }
 
 export function InventoryMovementsSection({
+  searchState,
   warehouseId = '',
   variantId = '',
   lotId = '',
 }: {
+  searchState?: UrlSearchState
   warehouseId?: string
   variantId?: string
   lotId?: string
@@ -1068,6 +1080,7 @@ export function InventoryMovementsSection({
   return (
     <InventoryDataTableSection<InventoryMovementRow>
       sectionQueryKey="movements"
+        searchState={searchState}
       endpoint="/api/wms/inventory/movements"
       titleKey="wms.backend.inventory.movements.title"
       titleFallback="Inventory movement ledger"
@@ -1099,6 +1112,9 @@ export default function WmsInventoryConsolePage() {
   const [variantId, setVariantId] = React.useState(scopeFromUrl.catalogVariantId)
   const [lotId, setLotId] = React.useState(scopeFromUrl.lotId)
   const [lowStock, setLowStock] = React.useState(scopeFromUrl.lowStock)
+  const balancesSearchState = React.useState('')
+  const reservationsSearchState = React.useState('')
+  const movementsSearchState = React.useState('')
 
   React.useEffect(() => {
     setWarehouseId(scopeFromUrl.warehouseId)
@@ -1131,6 +1147,7 @@ export default function WmsInventoryConsolePage() {
             onVariantChange={handleVariantChange}
           />
           <InventoryBalancesSection
+            searchState={balancesSearchState}
             access={access}
             warehouseId={warehouseId}
             variantId={variantId}
@@ -1138,12 +1155,14 @@ export default function WmsInventoryConsolePage() {
             lowStock={lowStock}
           />
           <InventoryReservationsSection
+            searchState={reservationsSearchState}
             access={access}
             warehouseId={warehouseId}
             variantId={variantId}
             lotId={lotId}
           />
           <InventoryMovementsSection
+            searchState={movementsSearchState}
             warehouseId={warehouseId}
             variantId={variantId}
             lotId={lotId}

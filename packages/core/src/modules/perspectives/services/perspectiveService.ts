@@ -436,6 +436,7 @@ export async function saveRolePerspectives(
     expectedUpdatedAtByRoleId?: ExpectedUpdatedAtById
     expectedUpdatedAtByPerspectiveId?: ExpectedUpdatedAtById
     request?: Request | Headers | null
+    createOnly?: boolean
   },
 ): Promise<ResolvedRolePerspective[]> {
   const { tableId, input } = options
@@ -459,6 +460,12 @@ export async function saveRolePerspectives(
       deletedAt: null,
     })
     for (const existing of existingRecords) recordByRole.set(existing.roleId, existing)
+  }
+  if (options.createOnly && recordByRole.size > 0) {
+    throw new CrudHttpError(409, {
+      error: 'A view with this name already exists.',
+      code: 'duplicate_name',
+    })
   }
   const defaultRecordsByRole = new Map<string, RolePerspective[]>()
   if (input.setDefault === true && input.roleIds.length) {

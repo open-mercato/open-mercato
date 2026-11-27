@@ -11,6 +11,8 @@ const mockApiCall = jest.fn(async () => ({
 let mockGrantedFeatures: string[] = []
 
 jest.mock('next/navigation', () => ({
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: jest.fn() }),
 }))
 

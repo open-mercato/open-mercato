@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/core/modules/auth/extension-points'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -137,7 +138,7 @@ export default function UsersListPage() {
   const t = useT()
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'email', desc: false }])
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [organizationOptions, setOrganizationOptions] = React.useState<FilterOption[]>([])
   const [roleOptions, setRoleOptions] = React.useState<FilterOption[]>([])

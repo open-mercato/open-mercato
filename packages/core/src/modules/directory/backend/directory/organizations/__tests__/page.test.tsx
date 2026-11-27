@@ -12,6 +12,12 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   ...jest.requireActual('@open-mercato/shared/lib/i18n/context'),
   useT: () => mockTranslate,

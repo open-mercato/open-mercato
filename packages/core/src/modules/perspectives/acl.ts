@@ -8,6 +8,7 @@ export const features = [
     id: 'perspectives.role_defaults',
     title: 'Manage role default perspectives',
     module: 'perspectives',
+    dependsOn: ['perspectives.use', 'auth.roles.list'],
   },
 ] as const
 

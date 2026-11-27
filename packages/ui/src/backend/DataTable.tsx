@@ -683,6 +683,7 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined,
 // blow the table out horizontally.
 const COLUMN_MIN_WIDTH = 60
 const COLUMN_MAX_WIDTH = 900
+const PERSPECTIVE_MAX_PAGE_SIZE = 100
 
 function formatDurationLabel(durationMs?: number | null): string {
   if (durationMs == null) return ''
@@ -803,7 +804,7 @@ export function sanitizePerspectiveSettings(source?: PerspectiveSettings | null)
   }
 
   if (typeof source.pageSize === 'number' && Number.isFinite(source.pageSize)) {
-    const pageSize = Math.max(1, Math.min(500, Math.floor(source.pageSize)))
+    const pageSize = Math.max(1, Math.min(PERSPECTIVE_MAX_PAGE_SIZE, Math.floor(source.pageSize)))
     result.pageSize = pageSize
   }
 
@@ -1201,7 +1202,28 @@ function ColumnResizeHandle({
   )
 }
 
-function SortableHeaderCell({ id, children, className, width }: { id: string; children: React.ReactNode; className?: string; width?: number }) {
+function collectStickyHeaderScrollAncestors(header: HTMLElement): HTMLElement[] {
+  const ancestors: HTMLElement[] = []
+  let ancestor = header.parentElement
+  while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+    if (/(auto|scroll|hidden|overlay)/.test(getComputedStyle(ancestor).overflowY)) {
+      ancestors.push(ancestor)
+    }
+    ancestor = ancestor.parentElement
+  }
+  return ancestors
+}
+
+type HeaderAriaSort = 'ascending' | 'descending' | 'none'
+
+function resolveHeaderAriaSort(isSortable: boolean, sortState: false | 'asc' | 'desc'): HeaderAriaSort | undefined {
+  if (!isSortable) return undefined
+  if (sortState === 'asc') return 'ascending'
+  if (sortState === 'desc') return 'descending'
+  return 'none'
+}
+
+function SortableHeaderCell({ id, children, className, width, ariaSort }: { id: string; children: React.ReactNode; className?: string; width?: number; ariaSort?: HeaderAriaSort }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   const isSticky = typeof className === 'string' && className.includes('sticky')
   const style: React.CSSProperties = {
@@ -1213,7 +1235,7 @@ function SortableHeaderCell({ id, children, className, width }: { id: string; ch
     ...(typeof width === 'number' ? { width, minWidth: width, maxWidth: width } : {}),
   }
   return (
-    <TableHead ref={setNodeRef} style={style} className={className} {...attributes} {...listeners}>
+    <TableHead ref={setNodeRef} style={style} className={className} {...attributes} {...listeners} role="columnheader" aria-sort={ariaSort}>
       {children}
     </TableHead>
   )
@@ -3648,7 +3670,7 @@ function DataTableImpl<T extends RowData>({
   const toolbarWrapperClassName = embedded ? 'mt-2' : 'mt-3 pt-3 border-t'
   // `isolate` keeps the z-index of pinned cells local to the table so they
   // scroll beneath the sticky app top bar instead of over it.
-  const tableScrollWrapperClassName = embedded ? 'isolate' : 'isolate overflow-auto'
+  const tableScrollWrapperClassName = embedded ? 'isolate overflow-x-auto md:overflow-visible' : 'isolate overflow-auto'
   // Non-embedded tables sit on the `bg-card` container above; embedded ones
   // render on whatever surface hosts them, so they keep the page background.
   const stickySurfaceClass = embedded ? 'md:bg-background' : 'md:bg-card'
@@ -3675,18 +3697,30 @@ function DataTableImpl<T extends RowData>({
   React.useEffect(() => {
     const header = tableScrollEl?.querySelector('thead')
     if (!tableScrollEl || !header) return
-    const scrollAncestors: HTMLElement[] = []
-    let ancestor = header.parentElement
-    while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
-      if (/(auto|scroll|hidden|overlay)/.test(getComputedStyle(ancestor).overflowY)) {
-        scrollAncestors.push(ancestor)
-      }
-      ancestor = ancestor.parentElement
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => scheduleUpdate(true))
+    let scrollAncestors: HTMLElement[] = []
+    let scrollParent: HTMLElement | undefined
+    let ancestorsCollected = false
+    const refreshScrollAncestors = () => {
+      const next = collectStickyHeaderScrollAncestors(header)
+      const unchanged = next.length === scrollAncestors.length && next.every((element, index) => element === scrollAncestors[index])
+      if (ancestorsCollected && unchanged) return
+      ancestorsCollected = true
+      scrollAncestors = next
+      scrollParent = scrollAncestors[0]
+      if (!observer) return
+      observer.disconnect()
+      if (containerRef.current) observer.observe(containerRef.current)
+      scrollAncestors.forEach((element) => observer.observe(element))
     }
-    const scrollParent = scrollAncestors[0]
     let frame: number | undefined
+    let ancestorsStale = false
     const update = () => {
       frame = undefined
+      if (ancestorsStale) {
+        ancestorsStale = false
+        refreshScrollAncestors()
+      }
       const topbarHeight = Number.parseFloat(getComputedStyle(tableScrollEl).getPropertyValue('--topbar-height')) || 0
       const visibleTop = scrollAncestors.reduce(
         (top, element) => Math.max(top, element.getBoundingClientRect().top + element.clientTop),
@@ -3698,18 +3732,26 @@ function DataTableImpl<T extends RowData>({
       const scrollParentPadding = scrollParent ? Number.parseFloat(getComputedStyle(scrollParent).paddingTop) || 0 : 0
       header.style.top = `${Math.max(0, visibleTop - scrollParentTop) - scrollParentPadding}px`
     }
-    const scheduleUpdate = () => {
+    function scheduleUpdate(layoutChanged: boolean) {
+      if (layoutChanged) ancestorsStale = true
       if (frame === undefined) frame = requestAnimationFrame(update)
     }
+    const handleScroll = (event: Event) => {
+      const target = event.target
+      if (target instanceof Element) {
+        if (!target.contains(header)) return
+        if (!scrollAncestors.includes(target as HTMLElement)) ancestorsStale = true
+      }
+      scheduleUpdate(false)
+    }
+    const handleResize = () => scheduleUpdate(true)
+    refreshScrollAncestors()
     update()
-    window.addEventListener('scroll', scheduleUpdate, { capture: true, passive: true })
-    window.addEventListener('resize', scheduleUpdate)
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleUpdate)
-    if (containerRef.current) observer?.observe(containerRef.current)
-    scrollAncestors.forEach((element) => observer?.observe(element))
+    window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+    window.addEventListener('resize', handleResize)
     return () => {
-      window.removeEventListener('scroll', scheduleUpdate, true)
-      window.removeEventListener('resize', scheduleUpdate)
+      window.removeEventListener('scroll', handleScroll, true)
+      window.removeEventListener('resize', handleResize)
       observer?.disconnect()
       if (frame !== undefined) cancelAnimationFrame(frame)
       header.style.removeProperty('top')
@@ -3880,6 +3922,7 @@ function DataTableImpl<T extends RowData>({
                   const isFirstDataColumn = headerIndex === 0
                   const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 ${stickyHeaderSurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const isColumnSortable = sortable && !!header.column.getCanSort?.()
+                  const ariaSort = header.isPlaceholder ? undefined : resolveHeaderAriaSort(Boolean(isColumnSortable), header.column.getIsSorted())
                   const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
                   // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
                   // interactive controls (Checkbox, etc.) in their header. Wrapping those in a <Button>
@@ -3915,13 +3958,14 @@ function DataTableImpl<T extends RowData>({
                     />
                   ) : null
                   return enableHeaderDnd ? (
-                    <SortableHeaderCell key={header.id} id={header.id} width={sizedWidth} className={cn('group', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}>
+                    <SortableHeaderCell key={header.id} id={header.id} width={sizedWidth} ariaSort={ariaSort} className={cn('group', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}>
                       {headerCellContent}
                       {resizeHandle}
                     </SortableHeaderCell>
                   ) : (
                     <TableHead
                       key={header.id}
+                      aria-sort={ariaSort}
                       className={cn('group relative', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}
                       style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
                     >

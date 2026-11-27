@@ -7,7 +7,9 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
 jest.mock('next/navigation', () => ({
-  useSearchParams: () => ({ getAll: () => [] }),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({

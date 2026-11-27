@@ -38,6 +38,8 @@ function statementRow(id: string, status: string): StatementRowStub {
 }
 
 jest.mock('next/navigation', () => ({
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: jest.fn() }),
 }))
 

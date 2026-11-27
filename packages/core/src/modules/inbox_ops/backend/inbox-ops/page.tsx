@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -95,7 +96,7 @@ export default function InboxOpsProposalsPage() {
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(25)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [initialLoadComplete, setInitialLoadComplete] = React.useState(false)

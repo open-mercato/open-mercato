@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { resolveExtensionPointPattern } from '@open-mercato/shared/modules/widgets/extension-points'
 import { extensionPoints } from '@open-mercato/core/modules/entities/extension-points'
 import { useSearchParams } from 'next/navigation'
@@ -82,7 +83,7 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'id', desc: false }])
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(50)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [filterValues, setFilterValues] = React.useState<Record<string, any>>({})
   const [rawData, setRawData] = React.useState<any[]>([])
   const [total, setTotal] = React.useState(0)

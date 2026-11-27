@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { useUrlSearchState } from '@open-mercato/ui/backend/hooks/useUrlSearchState'
 import { extensionPoints } from '@open-mercato/enterprise/modules/security/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation.js'
@@ -50,7 +51,7 @@ export default function SecurityEnforcementPage() {
   const router = useRouter()
   const t = useT()
   const [page, setPage] = React.useState(1)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = useUrlSearchState()
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'deadline', desc: true }])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [loading, setLoading] = React.useState(true)

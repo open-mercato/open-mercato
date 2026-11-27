@@ -17,7 +17,11 @@ jest.mock('next/link', () => ({
   __esModule: true,
   default: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
 }))
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: routerPushMock }) }))
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: routerPushMock, replace: jest.fn() }),
+  usePathname: () => '/backend/documents',
+  useSearchParams: () => new URLSearchParams(),
+}))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),

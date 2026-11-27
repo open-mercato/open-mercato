@@ -14,7 +14,7 @@ describe('advanced filter', () => {
     { field: 'active', first: 'is_true', firstValue: null, second: 'is_false', secondValue: null, expected: [{ op: 'eq', value: true }, { op: 'eq', value: false }] },
     { field: 'title', first: 'equals', firstValue: 'X', second: 'not_equals', secondValue: 'X', expected: [{ op: 'eq', value: 'X' }, { op: 'ne', value: 'X' }] },
     { field: 'amount', first: 'greater_than', firstValue: 10, second: 'less_than', secondValue: 20, expected: [{ op: 'gt', value: 10 }, { op: 'lt', value: 20 }] },
-    { field: 'tags', first: 'has_any_of', firstValue: ['vip'], second: 'has_none_of', secondValue: ['eu'], expected: [{ op: 'in', value: ['vip'] }, { op: 'nin', value: ['eu'] }] },
+    { field: 'tags', first: 'has_any_of', firstValue: ['vip'], second: 'has_none_of', secondValue: ['eu'], expected: [{ op: 'overlap', value: ['vip'] }, { op: 'noverlap', value: ['eu'] }] },
   ] as const)('preserves both $first and $second predicates on $field in either order', (scenario) => {
     const conditions: AdvancedFilterState['conditions'] = [
       { id: 'first', field: scenario.field, operator: scenario.first, value: scenario.firstValue },
@@ -40,6 +40,26 @@ describe('advanced filter', () => {
       { field: 'display_name', op: 'ilike', value: '%solar%' },
       { field: 'display_name', op: 'ilike', value: '%energy%' },
       { field: 'display_name', op: 'ilike', value: '%systems%' },
+    ])
+  })
+
+  it('combines successive tag conjunctions with repeated scalar predicates', () => {
+    const compiled = convertAdvancedFilterToWhere({
+      logic: 'and',
+      conditions: [
+        { id: 'first-tag-set', field: 'tags', operator: 'has_all_of', value: ['vip', 'eu'] },
+        { id: 'first-name', field: 'title', operator: 'contains', value: 'summer' },
+        { id: 'second-tag-set', field: 'tags', operator: 'has_all_of', value: ['web', 'email'] },
+        { id: 'second-name', field: 'title', operator: 'contains', value: 'sale' },
+      ],
+    })
+    expect(normalizeFilters(compiled)).toEqual([
+      { field: 'tags', op: 'overlap', value: ['vip'] },
+      { field: 'tags', op: 'overlap', value: ['eu'] },
+      { field: 'tags', op: 'overlap', value: ['web'] },
+      { field: 'tags', op: 'overlap', value: ['email'] },
+      { field: 'title', op: 'ilike', value: '%summer%' },
+      { field: 'title', op: 'ilike', value: '%sale%' },
     ])
   })
 

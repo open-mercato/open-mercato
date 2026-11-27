@@ -17,6 +17,12 @@ const mockTranslate = (key: string, fallback?: string) => fallback ?? key
 // cell renderers can be exercised directly in tests.
 let mockLatestColumns: any[] = []
 
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
+  usePathname: () => '/backend',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   I18nProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))

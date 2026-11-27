@@ -28,7 +28,11 @@ jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({ buildOptimis
 jest.mock('@open-mercato/ui/backend/conflicts', () => ({ surfaceRecordConflict: jest.fn(() => false) }))
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => translateMock }))
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: routerPushMock }) }))
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: routerPushMock, replace: jest.fn() }),
+  usePathname: () => '/backend/documents',
+  useSearchParams: () => new URLSearchParams(),
+}))
 
 import { useDocumentsList } from '../backend/documents/useDocumentsList'
 
