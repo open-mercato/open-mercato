@@ -134,6 +134,7 @@ test('fresh scaffolds receive the disabled local-reference projection', () => {
       '.ai/guides/reference-module-facts.json',
       '.ai/guides/reference-modules/example/index.md',
       '.ai/guides/reference-modules/example/entities.md',
+      '.ai/guides/reference-modules/example/exact-override-targets.md',
     ]) {
       assert.equal(fs.existsSync(join(target, relativePath)), true, `${relativePath} must reach a fresh scaffold`)
     }
@@ -146,6 +147,15 @@ test('fresh scaffolds receive the disabled local-reference projection', () => {
     assert.equal(ownedPaths.has('.ai/guides/reference-module-facts.json'), true)
     assert.equal(ownedPaths.has('.ai/guides/reference-modules/example/index.md'), true)
     assert.equal(ownedPaths.has('.ai/guides/reference-modules/example/entities.md'), true)
+    assert.equal(ownedPaths.has('.ai/guides/reference-modules/example/exact-override-targets.md'), true)
+
+    const { example: reference } = JSON.parse(fs.readFileSync(join(target, '.ai/guides/reference-module-facts.json'), 'utf8')) as {
+      example: { runtimeSelected: boolean; facts: { overrideTargets: Array<{ domain: string; key: string }> } }
+    }
+    assert.equal(reference.runtimeSelected, false)
+    const targets = reference.facts.overrideTargets.filter((entry) => entry.domain === 'forms')
+    assert.equal(targets.length, 14)
+    assert.ok(targets.some((entry) => entry.key === 'example.todo/showcase/update/observer'))
   } finally {
     fs.rmSync(parent, { recursive: true, force: true })
   }

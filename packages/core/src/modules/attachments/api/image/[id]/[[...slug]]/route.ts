@@ -1,3 +1,4 @@
+import { resolveAttachmentPartition } from '../../../../lib/partitionScope'
 import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { assertAttachmentStoragePartitionExists } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
 import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../../../../lib/access-runner'
@@ -7,7 +8,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
+import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { renderImageRendition } from '@open-mercato/core/modules/attachments/lib/imageRendition'
 import { canRenderInlineAttachment } from '@open-mercato/core/modules/attachments/lib/security'
 import { checkAttachmentAccess, isSuperAdminAuth } from '@open-mercato/core/modules/attachments/lib/access'
@@ -65,7 +66,7 @@ async function readAttachmentImage(
   if (!attachment) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
-  const partition = await em.findOne(AttachmentPartition, { code: attachment.partitionCode })
+  const partition = await resolveAttachmentPartition(em, attachment.partitionCode, attachment)
   assertAttachmentStoragePartitionExists(Boolean(partition))
   if (!partition) {
     return NextResponse.json({ error: 'Partition misconfigured' }, { status: 500 })

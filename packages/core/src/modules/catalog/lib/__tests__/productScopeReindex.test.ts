@@ -114,7 +114,7 @@ describe('product scope_keys reindex subscribers', () => {
       {
         event: 'query_index.reindex',
         payload: { entityType: 'catalog:catalog_product', tenantId: TENANT, organizationId: ORG },
-        options: { persistent: true, deliverInline: false },
+        options: { persistent: true, deliverInline: false, tenantId: TENANT, organizationId: ORG },
       },
     ])
   })

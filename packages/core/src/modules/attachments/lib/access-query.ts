@@ -1,8 +1,8 @@
+import { indexAttachmentPartitions, resolveAttachmentPartition } from './partitionScope'
 import { ensureAttachmentPartitionProtection } from './access-protection'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { AttachmentPartition, type Attachment } from '../data/entities'
+import type { AttachmentPartition, Attachment } from '../data/entities'
 import { attachmentAccessRequirementsSchema } from '../data/validators'
 import { getAttachmentAccessRegistry } from './access-registry'
 import { evaluateAttachmentAccess, type AttachmentAccessContext } from './access-runner'
@@ -29,9 +29,7 @@ export async function assertAttachmentOwnerAccess(input: {
   action: AttachmentAccessAction
   persistProtection?: boolean
 }): Promise<void> {
-  const partition = await findOneWithDecryption(input.em, AttachmentPartition, { code: input.attachment.partitionCode }, undefined, {
-    tenantId: input.attachment.tenantId, organizationId: input.attachment.organizationId,
-  })
+  const partition = await resolveAttachmentPartition(input.em, input.attachment.partitionCode, input.attachment, { decrypt: true })
   if (!partition) {
     if (input.action === 'delete') assertAttachmentStoragePartitionExists(false)
     await throwAttachmentAccessError(404)
@@ -55,7 +53,7 @@ export async function scanAuthorizedAttachments(input: {
   const timeoutBody = await attachmentAccessErrorBody(504)
   let timer: ReturnType<typeof setTimeout> | undefined
   const scan = async () => {
-    const partitions = new Map(input.partitions.map((partition) => [partition.code, partition]))
+    const partitions = indexAttachmentPartitions(input.partitions)
     const records: Attachment[] = []
     const tags = new Set<string>()
     let total = 0
@@ -64,7 +62,7 @@ export async function scanAuthorizedAttachments(input: {
       const batch = await input.loadBatch(batchOffset, 100)
       for (const attachment of batch) {
         if (Date.now() >= deadline) await throwAttachmentAccessError(504)
-        const partition = partitions.get(attachment.partitionCode)
+        const partition = partitions(attachment.partitionCode, attachment)
         if (!partition) continue
         const access = await evaluateAttachmentAccess({
           auth: input.auth, attachment, partition, action: 'metadata', context: input.context,

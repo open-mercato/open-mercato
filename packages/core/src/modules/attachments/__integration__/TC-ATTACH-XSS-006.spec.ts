@@ -45,7 +45,7 @@ test.describe('TC-ATTACH-XSS-006: Cross-org access to private attachment via ima
 
       crossOrgUserId = await createUserFixture(request, superadminToken, {
         email: crossOrgUserEmail,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId: crossOrgId,
         roles: ['employee'],
       })
@@ -63,7 +63,7 @@ test.describe('TC-ATTACH-XSS-006: Cross-org access to private attachment via ima
       // Cross-org user (org B, same tenant) tries the image route.
       // em.findOne({ id, organizationId: orgB }) → null → 404,
       // reached before any MIME-type check.
-      const crossOrgUserToken = await getAuthToken(request, crossOrgUserEmail, 'Valid1!Pass')
+      const crossOrgUserToken = await getAuthToken(request, crossOrgUserEmail, 'QaValid1!Pass')
       const response = await request.fetch(
         `${BASE_URL}/api/attachments/image/${encodeURIComponent(attachmentId)}`,
         {

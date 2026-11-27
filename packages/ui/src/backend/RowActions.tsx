@@ -152,28 +152,29 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
     first?.focus()
   }, [open, anchorRect, getFocusableItems])
 
-  // Cleanup timeout on unmount
-  React.useEffect(() => {
-    return () => {
-      if (hoverTimeoutRef.current) {
-        clearTimeout(hoverTimeoutRef.current)
-      }
-    }
+  const cancelHoverClose = React.useCallback(() => {
+    if (hoverTimeoutRef.current === null) return
+    clearTimeout(hoverTimeoutRef.current)
+    hoverTimeoutRef.current = null
   }, [])
+
+  React.useEffect(() => cancelHoverClose, [cancelHoverClose])
 
   if (items.length === 0) return null
 
   const handlePointerEnter = (event: React.PointerEvent) => {
     if (event.pointerType === 'touch') return
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current)
-    }
+    cancelHoverClose()
     setOpen(true)
   }
 
   const handlePointerLeave = (event: React.PointerEvent) => {
     if (event.pointerType === 'touch') return
+    cancelHoverClose()
     hoverTimeoutRef.current = setTimeout(() => {
+      hoverTimeoutRef.current = null
+      const active = document.activeElement
+      if (active && (active === btnRef.current || menuRef.current?.contains(active))) return
       setOpen(false)
     }, 150)
   }
@@ -192,7 +193,13 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
         aria-expanded={open}
         // A click — and Enter/Space on the trigger, which the browser reports as
         // one — is a deliberate open, so it takes focus. Hover does not (#6771).
-        onClick={(e) => { e.stopPropagation(); focusOnOpenRef.current = true; setOpen(true); requestAnimationFrame(updatePosition) }}
+        onClick={(event) => {
+          event.stopPropagation()
+          cancelHoverClose()
+          focusOnOpenRef.current = true
+          if (open) updatePosition()
+          setOpen(true)
+        }}
       >
         <span aria-hidden="true">⋯</span>
         <span className="sr-only">{t('ui.rowActions.openActions', 'Open actions')}</span>

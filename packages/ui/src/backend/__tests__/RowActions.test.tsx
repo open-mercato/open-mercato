@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { screen, fireEvent } from '@testing-library/react'
+import { act, screen, fireEvent } from '@testing-library/react'
 import { RowActions, type RowActionItem } from '../RowActions'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
@@ -188,6 +188,31 @@ describe('RowActions — keyboard navigation (#6718)', () => {
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     expect(document.activeElement).toBe(screen.getByRole('button', { name: TRIGGER_LABEL }))
+  })
+
+  it('keeps a deliberately opened menu focused after the pointer leaves', () => {
+    jest.useFakeTimers()
+    try {
+      renderMenu(THREE_ITEMS)
+      const trigger = screen.getByRole('button', { name: TRIGGER_LABEL })
+      fireEvent.pointerEnter(trigger, { pointerType: 'mouse' })
+      fireEvent.pointerLeave(trigger, { pointerType: 'mouse' })
+      trigger.focus()
+      openMenu()
+
+      act(() => jest.advanceTimersByTime(200))
+      const first = itemNamed('Set as primary')
+      expect(first).toHaveFocus()
+      fireEvent.pointerLeave(screen.getByRole('menu'), { pointerType: 'mouse' })
+      act(() => jest.advanceTimersByTime(200))
+      expect(first).toHaveFocus()
+
+      fireEvent.keyDown(document, { key: 'Escape' })
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+      expect(trigger).toHaveFocus()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('still runs the action when an item is activated', () => {

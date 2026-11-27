@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
@@ -11,6 +13,8 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
+import { crudFormSectionSinkSnapshotProtocol } from '@open-mercato/shared/lib/crud/form-sections/protocol'
+import { isRecord } from '@open-mercato/shared/lib/utils'
 import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
@@ -19,6 +23,25 @@ import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-r
 import { getEnrichersForEntity } from '@open-mercato/shared/lib/crud/enricher-registry'
 
 const AUDIT_ACTION_LOG_ENRICHER_ENTITY = 'audit_logs.action_log'
+
+function publicActionLogContext(context: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!isRecord(context?.extensions)) return context
+  const extensions = { ...context.extensions }
+  let removedSnapshot = false
+  for (const [ownerId, owner] of Object.entries(extensions)) {
+    if (!isRecord(owner)) continue
+    const entries = Object.entries(owner)
+    const publicEntries = entries.filter(([, entry]) =>
+      !isRecord(entry) || entry.protocol !== crudFormSectionSinkSnapshotProtocol)
+    if (publicEntries.length === entries.length) continue
+    removedSnapshot = true
+    if (publicEntries.length) extensions[ownerId] = Object.fromEntries(publicEntries)
+    else delete extensions[ownerId]
+  }
+  if (!removedSnapshot) return context
+  const { extensions: _privateExtensions, ...otherContext } = context
+  return Object.keys(extensions).length ? { ...otherContext, extensions } : otherContext
+}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -161,6 +184,12 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const { organizationId: defaultOrganizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  try {
+    resolveSingleOrganizationIdOrDeny(scope, auth)
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
 
   const rbac = (container.resolve('rbacService') as RbacService)
   const actionLogs = (container.resolve('actionLogService') as ActionLogService)
@@ -289,7 +318,7 @@ export async function GET(req: Request) {
     snapshotBefore: entry.snapshotBefore,
     snapshotAfter: entry.snapshotAfter,
     changes: entry.changesJson,
-    context: entry.contextJson,
+    context: publicActionLogContext(entry.contextJson),
   }))
 
   const enrichedItems = await enrichActionItems(items, {
@@ -366,7 +395,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid filter values', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
-        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin', schema: errorSchema },
+        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin, or its organization scope is explicitly empty', schema: errorSchema },
       ],
     },
   },

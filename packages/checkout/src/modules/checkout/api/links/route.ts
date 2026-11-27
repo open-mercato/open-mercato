@@ -50,7 +50,7 @@ export async function GET(req: Request) {
       CheckoutLink,
       where,
       {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'desc', id: 'desc' },
         offset: (page - 1) * pageSize,
         limit: pageSize,
       },

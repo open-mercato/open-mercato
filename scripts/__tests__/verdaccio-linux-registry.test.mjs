@@ -8,6 +8,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID, createHash } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
+import { createLocalPublisherCredential } from '../registry/publish.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const enabled = process.env.OM_RUN_VERDACCIO_LINUX_SMOKE === '1'
@@ -65,6 +66,11 @@ test('native Linux bridge registry advertises downloadable tarballs and supports
     assert.equal(configured.environment.VERDACCIO_PUBLIC_URL, registryUrl)
     assert.ok(configured.ports.every((entry) => entry.host_ip === gateway && String(entry.published) === String(port)))
     run([...compose, 'up', '-d', '--no-deps', 'verdaccio'], { env })
+    const publisher = await createLocalPublisherCredential()
+    run([...compose, 'exec', '-T', 'verdaccio', 'sh', '-ec', 'umask 077; cat > /verdaccio/storage/htpasswd'], {
+      env,
+      input: publisher.htpasswd,
+    })
     let ready = false
     for (let attempt = 0; attempt < 45; attempt += 1) {
       try {
@@ -92,7 +98,7 @@ test('native Linux bridge registry advertises downloadable tarballs and supports
     const version = { name, version: '1.0.0', main: 'index.cjs', dist: distribution }
     const response = await fetch(registryUrl + '/' + encodeURIComponent(name), {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: `Basic ${publisher.basicAuth}` },
       body: JSON.stringify({
         _id: name, name, 'dist-tags': { latest: '1.0.0' }, versions: { '1.0.0': version },
         _attachments: { [filename]: { content_type: 'application/octet-stream', data: tarball.toString('base64'), length: tarball.length } },

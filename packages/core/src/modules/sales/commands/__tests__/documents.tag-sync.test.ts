@@ -41,6 +41,7 @@ const TENANT_ID = '33333333-3333-4333-8333-333333333333'
 const TAG_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const TAG_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const TAG_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const DELETED_TAG = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
 const KNOWN_TAG_IDS = [TAG_A, TAG_B, TAG_C]
 
@@ -108,6 +109,9 @@ function makeEm(existingTagIds: string[], shape: AssignmentShape = 'entity') {
     persist: jest.fn(),
     remove: jest.fn(),
     nativeDelete: jest.fn(async () => 0),
+    count: jest.fn(async () => 0),
+    clear: jest.fn(),
+    transactional: async (work: (tx: unknown) => Promise<unknown>) => work(em),
     getReference: jest.fn((_entityClass: unknown, id: string) => ({ id })),
     flush: jest.fn(async () => {}),
     begin: jest.fn(async () => {}),
@@ -233,14 +237,56 @@ describe('syncSalesDocumentTags — diff-based tag assignment sync', () => {
 
   it('rejects a tag outside the document scope before writing anything', async () => {
     const { em } = makeEm([TAG_A])
-    const unknownTag = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
-    await expect(updateOrderTags(em, [TAG_A, unknownTag])).rejects.toMatchObject({
+    await expect(updateOrderTags(em, [TAG_A, DELETED_TAG])).rejects.toMatchObject({
       status: 400,
     })
 
     expect(em.persist).not.toHaveBeenCalled()
     expect(em.remove).not.toHaveBeenCalled()
     expect(em.nativeDelete).not.toHaveBeenCalled()
+  })
+
+  it('replays an order update with only the requested tags still in the document scope', async () => {
+    const { em } = makeEm([TAG_A])
+    const handler = commandRegistry.get<DocumentUpdateInput, { order: SalesOrder }>('sales.orders.update')
+
+    expect(handler?.redo).toBeDefined()
+    await handler?.redo?.({
+      input: { id: ORDER_ID, tags: [TAG_B.toUpperCase(), DELETED_TAG] },
+      ctx: makeCtx(em),
+      logEntry: {},
+    })
+
+    expect(em.find).toHaveBeenCalledWith(SalesDocumentTag, {
+      id: { $in: [TAG_B, DELETED_TAG] },
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+    })
+    expect(persistedTagIds(em)).toEqual([TAG_B])
+    expect(removedTagIds(em)).toEqual([TAG_A])
+  })
+})
+
+describe('order graph undo with a missing tag assignment', () => {
+  it.each([
+    [DELETED_TAG, true],
+    [TAG_A, false],
+  ])('checks whether tag %s still exists before allowing undo', async (tagId, allowsUndo) => {
+    const { em } = makeEm([])
+    const ctx = makeCtx(em)
+    const handler = commandRegistry.get('sales.orders.create')!
+    const graph = await handler.captureAfter?.({}, { orderId: ORDER_ID }, ctx)
+    expect(graph).toMatchObject({ tags: [] })
+    const after = { ...graph as object, tags: [{ id: 'old-assignment', tagId }] }
+
+    const undo = handler.undo?.({ input: {}, ctx, logEntry: { snapshotAfter: after } })
+    if (allowsUndo) {
+      await expect(undo).resolves.toBeUndefined()
+      expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: ORDER_ID }))
+    } else {
+      await expect(undo).rejects.toMatchObject({ status: 409 })
+      expect(em.remove).not.toHaveBeenCalled()
+    }
   })
 })
