@@ -1,11 +1,20 @@
-import { randomBytes } from 'node:crypto'
 import { encryptWithAesGcm, decryptWithAesGcm, isEncryptedPayloadShape, isRotationCiphertextShape } from '../aes'
 
-test('recognizes valid empty ciphertext without weakening the established nonempty shape contract', () => {
-  const key = randomBytes(32).toString('base64'); const envelope = encryptWithAesGcm('', key).value
-  expect(isEncryptedPayloadShape(envelope)).toBe(false)
+const key = Buffer.alloc(32, 17).toString('base64')
+const wrongKey = Buffer.alloc(32, 29).toString('base64')
+
+test.each(['', 'text'])('recognizes and authenticates the v1 envelope for %j', (plaintext) => {
+  const { raw: envelope } = encryptWithAesGcm(plaintext, key)
+
+  expect(isEncryptedPayloadShape(envelope)).toBe(true)
   expect(isRotationCiphertextShape(envelope)).toBe(true)
-  expect(decryptWithAesGcm(envelope, key)).toBe('')
-  expect(decryptWithAesGcm(envelope, randomBytes(32).toString('base64'))).toBeNull()
-  expect(isRotationCiphertextShape('aaaa::bbbb:v1')).toBe(false)
+  expect(decryptWithAesGcm(envelope, key)).toBe(plaintext)
+  expect(decryptWithAesGcm(envelope, wrongKey)).toBeNull()
+})
+
+test('rejects a malformed empty v1 envelope', () => {
+  const malformed = 'aaaa::bbbb:v1'
+
+  expect(isEncryptedPayloadShape(malformed)).toBe(false)
+  expect(isRotationCiphertextShape(malformed)).toBe(false)
 })
