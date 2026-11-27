@@ -118,6 +118,25 @@ describe('Events Worker', () => {
       expect(calls).toEqual([{ id: 'deal-1' }])
     })
 
+    it('hands subscribers the per-job container from ctx.container', async () => {
+      process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+      const seen: unknown[] = []
+      const bus = createBusWith([
+        {
+          id: 'demo:container-probe',
+          event: 'user.created',
+          persistent: true,
+          handler: (_payload, ctx) => { seen.push(ctx.container) },
+        },
+      ])
+      const baseContext = createMockContext(bus)
+      const jobContainer = { resolve: baseContext.resolve, register: jest.fn() }
+
+      await handle(createMockJob('user.created', {}), { ...baseContext, container: jobContainer })
+
+      expect(seen).toEqual([jobContainer])
+    })
+
     it('throws an actionable error when the job container has no event bus', async () => {
       const job = createMockJob('user.created', {})
 

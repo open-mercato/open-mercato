@@ -81,6 +81,7 @@ export const formsEventPayloadSchemas = {
   'forms.invitation.sent': z.object({
     invitationId: z.string().uuid(),
     distributionId: z.string().uuid(),
+    source: z.enum(['create', 'send']).optional(),
   }),
   'forms.invitation.opened': z.object({
     invitationId: z.string().uuid(),

@@ -1014,15 +1014,20 @@ body[data-ai-chat-open="true"] .om-demo-feedback-floating {
  * and in-flow form footers both ended up unreachable that way (#5984).
  * Stacking order alone cannot fix that: those controls are ordinary in-flow
  * content, not overlays. Reserving the CTA's own footprint at the end of
- * `<main>` and the global legal footer lets page content and legal links
- * scroll clear of the button throughout its animation.
+ * `<main>` lets page content scroll clear of the button throughout its
+ * animation. The global legal footer needs no reserve: the CTA's bottom
+ * offset keeps it just above the footer links. When that footer follows
+ * `<main>`, the footer itself already sits under the CTA, so `<main>` only
+ * reserves the rest (1.75rem less, still clearing the bounce animation).
  *
  * The attribute is mirrored from the widget's own visibility, so pages that
  * never render the CTA (demo mode off, `ff_om_hide_contact`, AI dock mounted)
  * keep their original spacing. */
-body[data-demo-feedback-fab="visible"] main,
-body[data-demo-feedback-fab="visible"] #main-content + footer {
+body[data-demo-feedback-fab="visible"] main {
   padding-bottom: var(--om-floating-cta-safe-area);
+}
+body[data-demo-feedback-fab="visible"] #main-content:has(+ footer) {
+  padding-bottom: calc(var(--om-floating-cta-safe-area) - 1.75rem);
 }
 
 /* Hide native scrollbar while keeping scroll behavior — used by sticky sidebars */

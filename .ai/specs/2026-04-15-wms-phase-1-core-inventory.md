@@ -159,7 +159,7 @@ Events consumed by WMS (subscribers):
 | Event | Source Module | WMS Action |
 |-------|-------------|------------|
 | `sales.order.confirmed` | Sales | Create inventory reservation for order line items (`source_type = order`) |
-| `sales.order.cancelled` | Sales | Release all active reservations linked to the cancelled order |
+| `sales.order.cancelled` | Sales | Release active reservations that have no non-cancelled pick task, including an allocated reservation with no pick task. A reservation with a non-cancelled pick task follows the phase 3 order-cancel rules |
 
 Undo expectations:
 - CRUD-style configuration commands are undoable by reverting fields or soft-deleting the created row.
@@ -247,6 +247,7 @@ Indexes required:
 - `source_id`: UUID
 - `expires_at`: timestamp nullable
 - `status`: `active | released | fulfilled`
+- `order_cancelled_at`: timestamp nullable. Set only by the phase 3 `sales.order.cancelled` subscriber. Public reserve, allocate, and release do not accept or clear it.
 
 Indexes required:
 - `(organization_id, source_type, source_id)`
@@ -346,11 +347,14 @@ All list routes:
 - `POST /api/wms/inventory/release`
 - Request: `{ "reservationId": "uuid", "reason": "order_cancelled" }`
 - Response: `{ "ok": true }`
+- A reservation with no non-cancelled pick task releases as before. `allocationState = allocated` decrements `quantity_allocated`. Every other state decrements `quantity_reserved`. A non-cancelled pick task returns `409 release_blocked_by_wave` and writes nothing. The phase 3 order-cancel subscriber handles that reservation.
 
 #### Allocate reservation
 - `POST /api/wms/inventory/allocate`
-- Request: `{ "reservationId": "uuid" }`
+- Request: `{ "reservationId": "uuid", "buckets": [{ "balanceId": "uuid", "quantity": "2" }] }`
+- `buckets` is optional. Omitted, allocate moves every still-reserved bucket (the original behavior). When present, only those buckets move from `quantity_reserved` to `quantity_allocated`.
 - Response: `{ "ok": true, "allocationState": "allocated" }`
+- `allocationState` may also be `partial` when reserved and allocated buckets remain on the same reservation. Phase 3 release uses the filter so a second wave cannot allocate stock already sitting on the pack location. See `2026-04-15-wms-phase-3-picking-packing.md`.
 
 #### Adjust inventory
 - `POST /api/wms/inventory/adjust`
@@ -679,8 +683,17 @@ None.
 ### 2026-11-22
 - A lot update that sent only one or two dates compared them with each other but not with the lot's stored dates, so `PUT /api/wms/lots` with just `expiresAt` could save an expiry earlier than the stored manufactured or best-before date. `wms.lots.update` now checks the stored dates merged with the patched ones before writing and answers with the same 400 validation error as create. Updates that don't touch a date are not re-checked, and existing lots are not repaired. Coverage: `configuration.lotDateOrdering.test.ts`, `TC-WMS-036`.
 
+### 2026-11-21
+- `409 release_blocked_by_wave` is only for a reservation that has a non-cancelled pick task. Allocate then release with no pick task still decrements `quantity_allocated` and restores availability. `InventoryReservation.order_cancelled_at` is the phase 3 cancellation stamp. The order-cancel row above matches that rule.
+
+### 2026-11-19
+- `POST /api/wms/inventory/release` returns `409 release_blocked_by_wave` when the reservation has a non-cancelled pick task or an allocated bucket. Fully reserved reservations with no pick task still release. Order cancel of in-flight phase 3 work is specified in `2026-04-15-wms-phase-3-picking-packing.md`.
+
 ### 2026-11-15
 - The CSV inventory import read a `quantity` that isn't a number (for example `1,000` with a comma thousands separator, a decimal comma like `1,5`, or other text) as 0, so the row was skipped in additive mode or set the bucket to 0 in reconcile mode. Validation now rejects it with the existing `quantity_invalid` row error, whose message now asks for a plain number with a dot for decimals. Coverage: `inventoryImportService.test.ts`, `TC-WMS-035`.
+
+### 2026-11-11
+- Documented an additive optional `buckets` filter on `POST /api/wms/inventory/allocate`, and reservation metadata `allocationState = partial`. Phase 3 wave release is the caller. Omitting `buckets` preserves full-reservation allocate.
 
 ### 2026-10-09
 - Balance buckets without a serial number had no unique index, and `upsertBalanceBucket` read the bucket `FOR UPDATE` (locking nothing when no row exists) before inserting it, so concurrent receipts, adjustments, cycle counts or moves into an empty bucket each inserted their own row. Cycle counts and moves then read one of those rows, and `verify-balances --repair` set every row to the bucket total. Creating a bucket now takes a transaction-scoped advisory lock on the bucket identity (warehouse, location, variant, lot, serial) and re-reads it before inserting; writes to existing buckets are unchanged. `move` no longer creates an empty source bucket before answering `409 insufficient_stock`. Existing duplicate rows are not merged. Coverage: `inventory-actions.balanceBucket.test.ts`, `TC-WMS-030`.
