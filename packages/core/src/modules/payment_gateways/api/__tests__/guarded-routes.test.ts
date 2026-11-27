@@ -65,6 +65,22 @@ beforeEach(() => {
 })
 
 describe('payment gateway write routes wire the mutation guard lifecycle', () => {
+  describe.each([
+    { name: 'capture', handler: capturePayment, serviceMethod: 'capturePayment' as const },
+    { name: 'refund', handler: refundPayment, serviceMethod: 'refundPayment' as const },
+    { name: 'cancel', handler: cancelPayment, serviceMethod: 'cancelPayment' as const },
+  ])('$name scoped transaction refusal', ({ handler, serviceMethod }) => {
+    it('preserves a service not-found response without running success callbacks', async () => {
+      service[serviceMethod].mockRejectedValue(new CrudHttpError(404, { error: 'Transaction not found' }))
+
+      const response = await handler(buildRequest({ transactionId: TXN_ID }))
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ error: 'Transaction not found' })
+      expect(runPaymentGatewayMutationGuardAfterSuccess).not.toHaveBeenCalled()
+    })
+  })
+
   describe('POST /payment_gateways/sessions (create)', () => {
     const body = { providerKey: 'stripe', amount: 10, currencyCode: 'USD' }
 

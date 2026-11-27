@@ -19,10 +19,12 @@ import type { CredentialsService } from '../../integrations/lib/credentials-serv
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { transactionNotFound } from './transaction-not-found'
 import { GatewayPaymentOperation, GatewaySessionInitialization, GatewayTransaction } from '../data/entities'
 import { canApplyManualAction, isValidTransition, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
+<<<<<<< HEAD
 import { reconcileSessionAmountWithOrder } from './order-amount-reconciliation'
 import {
   alignCapturedAmountWithStatus,
@@ -32,6 +34,18 @@ import {
   releaseCaptureAmount,
   reserveCaptureAmount,
   settleCapturedAmount,
+=======
+import { reconcileSessionAmountWithOrder, resolveConflictTranslator, resolvePaymentGatewayTranslator } from './order-amount-reconciliation'
+import { decimalToNumber, resolveExactDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyDecimalPlaces, type CurrencyPrecisionResolver } from '@open-mercato/shared/lib/currencyPrecision'
+import {
+  alignCapturedAmountWithStatus,
+  assertCaptureWithinRemainingExact,
+  assertNothingCapturedBeforeCancel,
+  releaseCaptureAmountExact,
+  reserveCaptureAmountExact,
+  settleCapturedAmountExact,
+>>>>>>> 8ae8607250 (fix(payment_gateways): refuse to cancel a payment that already has captured funds (#8222) (#9441))
 } from './capture-ledger'
 import {
   completePaymentOperation,
@@ -137,7 +151,8 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       scope,
     )
     if (!transaction) {
-      throw new Error('Transaction not found')
+      const translate = await resolveConflictTranslator()
+      throw transactionNotFound(translate('payment_gateways.errors.transactionNotFound', 'Transaction not found'))
     }
     return transaction
   }
@@ -263,6 +278,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         transaction.providerKey,
         { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
       )
+<<<<<<< HEAD
       const result = await input.invoke({
         adapter,
         credentials,
@@ -281,6 +297,57 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           return changed
         },
       )
+=======
+      const invokeAndComplete = async (targetEm: EntityManager, currentTransaction: GatewayTransaction) => {
+        const result = await input.invoke({
+          adapter,
+          credentials,
+          transaction: currentTransaction,
+          idempotencyKey: prepared.claim.providerIdempotencyKey,
+        })
+        providerInvoked = true
+        const statusChanged = await completePaymentOperation(
+          targetEm,
+          prepared.claim,
+          result as unknown as Record<string, unknown>,
+          async (tx) => {
+            const current = await findTransactionOrThrow(input.transactionId, input.scope, tx, {
+              lockMode: LockMode.PESSIMISTIC_WRITE,
+              refresh: true,
+            })
+            const outcome = applyAdapterResultStatus(input.action, current, result.status, {
+              tolerateIncompatible: current.unifiedStatus !== startedFrom || resumesEarlierAttempt,
+            })
+            incompatibleConcurrentStatus = outcome === 'incompatible'
+              ? current.unifiedStatus as UnifiedPaymentStatus
+              : null
+            input.applyResult(current, result)
+            return { statusChanged: outcome === 'applied', settledStatus: current.unifiedStatus }
+          },
+        )
+        return { result, statusChanged }
+      }
+      const { result, statusChanged } = input.action === 'cancel'
+        ? await withFreshCancelIdentityMap(async (tx) => {
+          const current = await findTransactionOrThrow(input.transactionId, input.scope, tx, {
+            lockMode: LockMode.PESSIMISTIC_WRITE,
+          })
+          assertManualActionAllowed(input.action, current)
+          if (toDecimal(current.capturedAmount ?? '0').gt(0)) {
+            const translate = await resolvePaymentGatewayTranslator()
+            throw new CrudHttpError(409, {
+              code: 'payment_cancel_captured_funds',
+              error: translate(
+                'payment_gateways.errors.cancelCaptureConflict',
+                'Cannot cancel a payment with captured funds or an outstanding capture reservation.',
+              ),
+            })
+          }
+          input.assertInitialAllowed?.(current)
+          return invokeAndComplete(tx, current)
+        })
+        : await invokeAndComplete(em, transaction)
+>>>>>>> 8ae8607250 (fix(payment_gateways): refuse to cancel a payment that already has captured funds (#8222) (#9441))
       settled = true
       if (statusChanged) {
         await emitStatusEvent(result.status, {
@@ -659,12 +726,18 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       scope: { organizationId: string; tenantId: string },
       operationId?: string,
     ): Promise<CancelResult> {
+      const translate = await resolveConflictTranslator()
       return executeManualOperation({
         action: 'cancel',
         transactionId,
         operationId,
         payload: { reason: reason ?? null },
         scope,
+        assertInitialAllowed: (transaction) => { assertNothingCapturedBeforeCancel(transaction, translate) },
+        beforeInvoke: async () => {
+          const current = await findTransactionOrThrow(transactionId, scope, em.fork())
+          assertNothingCapturedBeforeCancel(current, translate)
+        },
         invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.cancel({
           sessionId: readProviderSessionId(transaction),
           reason,
