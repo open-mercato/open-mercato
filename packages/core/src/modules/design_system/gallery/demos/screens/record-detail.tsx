@@ -18,7 +18,7 @@ export type RecordDetailScreenProps = {
 
 const CUSTOMER_NAME = 'Brightwater Clinic'
 const LATEST_ACTIVITY_COUNT = 3
-const SECTION_CLASS = 'flex min-w-0 flex-col gap-4 rounded-card border border-border p-card'
+const SECTION_CLASS = 'flex min-w-0 flex-col gap-4'
 const SECTION_TITLE_CLASS = 'text-base text-foreground'
 
 function buildDetails(t: Translate): KeyValueItem[] {

@@ -19,9 +19,9 @@ export function ScreenFrame({ width = 'wide', className, children }: ScreenFrame
   return (
     <div
       data-slot="screen-frame"
-      className="relative transform-gpu overflow-hidden rounded-card border border-border bg-background text-foreground"
+      className="relative transform-gpu bg-background text-foreground"
     >
-      <div data-slot="screen-page" className={cn('mx-auto flex w-full flex-col gap-section p-page', WIDTH_CLASS[width], className)}>
+      <div data-slot="screen-page" className={cn('mx-auto flex w-full flex-col gap-section', WIDTH_CLASS[width], className)}>
         {children}
       </div>
     </div>

@@ -379,6 +379,23 @@ When building a new module UI, use the **customers module** as reference:
 | Error state on input | `aria-invalid:border-destructive` |
 | Remove border | `border-0` |
 
+### Frames: one level only
+A frame is a surface with a border and a radius: a card, a panel, a bordered table or list container, a bordered section.
+
+- NEVER place a frame directly inside another frame. Nested frames spend 16 to 24 px of padding per level on every side and add lines that carry no meaning.
+- A page is not a frame. Do not wrap page content in a bordered container; the page already has its padding (`p-page`).
+- Inside a frame, separate groups with spacing, a heading, a divider (`border-t border-border` or `<Separator>`) or a muted background (`bg-muted/40`), not with another border.
+- Padding belongs to one level. A container that sits inside a padded parent adds no outer padding of its own.
+- A preview, dialog or drawer counts as the frame for what it shows. Content rendered inside it starts without a frame.
+- Controls are not frames: inputs, buttons, chips, badges and table rows inside a frame are fine.
+
+| Situation | Do | Do not |
+|-----------|----|--------|
+| Sections on a detail page | Heading plus spacing, optional `border-t` between sections | A bordered card per section inside a bordered page container |
+| A list or table on a page | One bordered table container on the page background | The table container inside a card |
+| Groups of fields in a card or dialog | Headings and `gap-group`, or a divider | A bordered box per group |
+| A highlighted note inside a card | `bg-muted/40 rounded-md` without a border, or a left accent | A second bordered box |
+
 ## Focus States (Accessibility)
 - NEVER use `focus:` for rings/outline — use `focus-visible:` (rings appear on keyboard nav only)
 - NEVER use hardcoded focus colors (`focus-visible:ring-blue-500`, etc.)
