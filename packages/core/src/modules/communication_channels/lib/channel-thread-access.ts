@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { assertCanAccessChannel, channelOrgScopeWhere } from './access-control'
 import { ChannelThreadMapping, CommunicationChannel } from '../data/entities'
@@ -47,10 +47,10 @@ export type ChannelThreadAccess = {
  * from DI (mirroring `communicationChannelsResolveChannelType`) instead of
  * reaching into these entities.
  *
- * `canAccess` reuses {@link assertCanAccessChannel}: a personal mailbox stays
- * owner-only, a tenant-wide / shared channel is open to any caller the route
- * already feature-gated. Returns `null` when the thread is not channel-linked —
- * an internal message keeps the participant rule untouched.
+ * Thread-wide access requires access to every mapped channel. An explicit
+ * external conversation resolves its own channel. Both checks reuse
+ * {@link assertCanAccessChannel}, including its owner-only mailbox policy.
+ * Returns `null` when no mapped channel resolves in scope.
  *
  * Always tenant/organization scoped: a thread that does not resolve inside the
  * caller's scope reads as not channel-linked rather than being looked up
@@ -70,20 +70,21 @@ export async function resolveChannelThreadAccess(
   const dscope = { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null }
   const baseFilter = { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null }
 
-  const mapping = await findOneWithDecryption(
+  const mappings = await findWithDecryption(
     em,
     ChannelThreadMapping,
     messageThreadId ? { messageThreadId, ...baseFilter } : { externalConversationId, ...baseFilter },
-    undefined,
+    { orderBy: { createdAt: 'ASC', id: 'ASC' } },
     dscope,
   )
-  if (!mapping) return null
+  if (mappings.length === 0) return null
 
-  const channel = await findOneWithDecryption(
+  const channelIds = [...new Set(mappings.map((mapping) => mapping.channelId))]
+  const channels = await findWithDecryption(
     em,
     CommunicationChannel,
     {
-      id: mapping.channelId,
+      id: { $in: channelIds },
       tenantId: scope.tenantId,
       ...channelOrgScopeWhere(scope.organizationId),
       deletedAt: null,
@@ -91,11 +92,16 @@ export async function resolveChannelThreadAccess(
     undefined,
     dscope,
   )
-  if (!channel) return null
+  const channelsById = new Map(channels.map((channel) => [channel.id, channel]))
+  const mapping = mappings.find((candidate) => channelsById.has(candidate.channelId))
+  const channel = mapping && channelsById.get(mapping.channelId)
+  if (!mapping || !channel) return null
 
-  let canAccess = true
+  let canAccess = channelsById.size === channelIds.length
   try {
-    assertCanAccessChannel(channel, actor.userId, actor.features)
+    for (const mappedChannel of channelsById.values()) {
+      assertCanAccessChannel(mappedChannel, actor.userId, actor.features)
+    }
   } catch {
     canAccess = false
   }
