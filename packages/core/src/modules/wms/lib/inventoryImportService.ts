@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { E } from '#generated/entities.ids.generated'
 import {
   InventoryBalance,
@@ -601,7 +601,7 @@ export async function applyInventoryImport(
     } catch (error) {
       failed += 1
       const message =
-        error instanceof CrudHttpError
+        isCrudHttpError(error)
           ? String((error.body as { error?: unknown })?.error ?? 'apply_failed')
           : 'apply_failed'
       resultRows.push({
