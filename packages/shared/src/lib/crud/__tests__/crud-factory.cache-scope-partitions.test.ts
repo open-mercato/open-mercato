@@ -87,9 +87,11 @@ const querySchema = z.object({
   sortField: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).default('asc'),
   scope: z.string().optional(),
+  sectionDetail: z.literal('showcase').optional(),
 }).passthrough()
 
 let routeScope: string | null | undefined = undefined
+const resolveRouteScope = jest.fn(() => routeScope)
 
 const route = makeCrudRoute({
   metadata: { GET: { requireAuth: true } },
@@ -101,8 +103,9 @@ const route = makeCrudRoute({
     fields: ['id', 'title'],
     sortFieldMap: { id: 'id' },
     buildFilters: (query: z.infer<typeof querySchema>) => (query.scope ? { scope: { $eq: query.scope } } : {}),
-    cacheScope: () => routeScope,
+    cacheScope: resolveRouteScope,
   },
+  enrichers: { entityId: 'example:todo', detailRequest: (query) => query.sectionDetail === 'showcase' },
 })
 
 const listUrl = 'http://x/api/example/todos?page=1&pageSize=10'
@@ -170,6 +173,21 @@ describe('CRUD list cache — partitions the URL cannot see', () => {
     await readTitle()
     expect(store.size).toBe(entriesBeforeBypass)
     expect(cache.get).toHaveBeenCalledTimes(3)
+  })
+
+  it('bypasses list cache scope for fresh detail enrichment', async () => {
+    routeScope = 'projects:a'
+    await readTitle()
+    jest.clearAllMocks()
+
+    const response = await route.GET(new Request(`${listUrl}&sectionDetail=showcase`))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
+    expect(resolveRouteScope).not.toHaveBeenCalled()
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
   })
 
   it('partitions by a before-interceptor query rewrite (#7529)', async () => {

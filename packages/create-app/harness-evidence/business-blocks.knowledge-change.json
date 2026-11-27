@@ -5,7 +5,7 @@
     "OMH-030",
     "OMH-221",
     "OMH-228",
-    "OMH-244"
+    "OMH-256"
   ],
   "affectedRanges": [],
   "changedContracts": [
@@ -77,7 +77,7 @@
     }
   ],
   "generatedFiles": [],
-  "expectedCatalogCount": 244,
+  "expectedCatalogCount": 256,
   "requiredReleaseLanes": [
     "deterministic",
     "routing"

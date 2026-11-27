@@ -160,7 +160,7 @@ test('compatibility routing covers existing public contracts without pulling in 
     // The trigger must exclude the tenant-scope boilerplate every prompt carries, or it
     // fires on nearly all 184 cases and burns the refused-read budget.
     assert.match(source, /tenant\/org scope alone is not a contract/)
-    assert.match(source, /Additive page\/form\/table\/conflict UI skips it/)
+    assert.match(source, /Inspect app call sites before bounded `framework-context`\. Skip it for additive page\/form\/table\/conflict UI\./)
   }
 })
 

@@ -173,7 +173,7 @@ export function resolveListCacheEnricherPlan(
   targetEntity: string,
   context: EnricherContext,
 ): ListCacheEnricherPlan {
-  const active = getActiveEnrichers(targetEntity, context)
+  const active = getActiveEnrichers(targetEntity, context).filter(({ enricher }) => !enricher.detailOnly)
   if (active.length === 0) return { signature: '', skipEnrichersOnCacheHit: false }
   const allCacheable = active.every((entry) => entry.enricher.cacheableOnListHit === true)
   if (!allCacheable) return { signature: '', skipEnrichersOnCacheHit: false }
@@ -401,9 +401,9 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
   preFilteredEntries?: EnricherRegistryEntry[],
 ): Promise<EnrichmentResult<T>> {
   const enricherContext: EnricherContext = { ...context, targetEntity }
-  const activeEntries = preFilteredEntries
+  const activeEntries = (preFilteredEntries
     ? filterByACLAndTenant(preFilteredEntries, context)
-    : getActiveEnrichers(targetEntity, context)
+    : getActiveEnrichers(targetEntity, context)).filter(({ enricher }) => !enricher.detailOnly)
 
   if (activeEntries.length === 0) {
     return { items, _meta: { enrichedBy: [] } }

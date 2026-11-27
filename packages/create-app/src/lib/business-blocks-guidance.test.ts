@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 const agenticRoot = fileURLToPath(new URL('../../agentic/', import.meta.url))
 const packageRoot = path.resolve(agenticRoot, '..')
 
-const CASE_ID = 'OMH-244'
+const CASE_ID = 'OMH-256'
 const OWNER = '.ai/skills/om-backend-ui-design/references/frontend-and-design-system.md'
 const OWNER_SOURCE = 'shared/ai/skills/om-backend-ui-design/references/frontend-and-design-system.md'
 const BLOCK_IDS = ['entity-header', 'key-value', 'timeline', 'kanban', 'wizard', 'stack']
