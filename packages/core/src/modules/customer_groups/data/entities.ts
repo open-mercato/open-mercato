@@ -1,7 +1,10 @@
-import { OptionalProps } from '@mikro-orm/core'
-import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
+import { OptionalProps, type EventArgs } from '@mikro-orm/core'
+import { BeforeCreate, BeforeUpdate, Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type { AssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
+import { badRequest } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { lockCustomerGroup } from '../lib/groupLock'
 
 export type CustomerGroupKind = 'b2c' | 'b2b' | 'internal' | 'partner'
 export type CustomerGroupMembershipSource = 'manual' | 'import' | 'rule' | 'onboarding'
@@ -164,6 +167,18 @@ export class CustomerGroupMembership {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+
+  @BeforeCreate()
+  @BeforeUpdate()
+  async assertLiveGroupForAssignment({ em, changeSet }: EventArgs<CustomerGroupMembership>): Promise<void> {
+    if (this.deletedAt) return
+    const previous = changeSet?.originalEntity
+    if (previous && !previous.deletedAt && previous.groupId === this.groupId && previous.customerId === this.customerId) return
+    const group = await lockCustomerGroup(em, this.tenantId, this.groupId)
+    if (group?.deleted_at === null) return
+    const { translate } = await resolveTranslations()
+    throw badRequest(translate('customer_groups.errors.membershipGroupNotFound', 'The selected customer group does not exist.'))
+  }
 }
 
 // `group_id` is a plain uuid column rather than a MikroORM relation, for the same

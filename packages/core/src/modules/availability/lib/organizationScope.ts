@@ -1,13 +1,34 @@
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
+import { isExplicitlyEmptyOrganizationScope, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { withScopedPayload, type ScopedContext } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 export const AVAILABILITY_POLICY_ORGANIZATION_REQUIRED_MESSAGE = {
   key: 'availability.policies.errors.organizationRequired',
   fallback: 'Select a specific organization in the header before creating a policy.',
+}
+
+async function resolveAvailabilityReadScope(container: AwilixContainer, auth: AuthContext, request: Request) {
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request }).catch((error: unknown) => {
+    reportTelemetryError(error, { module: 'availability', code: 'availability.organization_scope_resolution_failed' })
+    return null
+  })
+  if (!scope?.selectionRejected) return scope
+
+  const { translate } = await resolveTranslations()
+  return Response.json({
+    error: translate(
+      'availability.errors.organizationSelectionInvalid',
+      'Your selected organization is no longer available. Please re-select an organization and try again.',
+    ),
+    code: 'organization_selection_invalid',
+  }, {
+    status: 422,
+    headers: { 'set-cookie': 'om_selected_org=; Path=/; Max-Age=0; SameSite=Lax' },
+  })
 }
 
 // Policy writes go through `makeCrudRoute`, which scopes them to the organization
@@ -19,8 +40,10 @@ export async function resolveAvailabilityOrganizationId(
   container: AwilixContainer,
   auth: AuthContext,
   request: Request,
-): Promise<string | null> {
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request }).catch(() => null)
+): Promise<string | null | Response> {
+  const scope = await resolveAvailabilityReadScope(container, auth, request)
+  if (scope instanceof Response) return scope
+  if (isExplicitlyEmptyOrganizationScope(scope)) return null
   return scope?.selectedId ?? resolveActiveOrganizationId(auth)
 }
 
@@ -31,8 +54,9 @@ export async function resolveAvailabilityListOrganizationIds(
   container: AwilixContainer,
   auth: AuthContext,
   request: Request,
-): Promise<string[] | null> {
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request }).catch(() => null)
+): Promise<string[] | null | Response> {
+  const scope = await resolveAvailabilityReadScope(container, auth, request)
+  if (scope instanceof Response) return scope
   if (scope?.selectedId) return [scope.selectedId]
   if (scope?.tenantId) return scope.filterIds ?? null
   const fallbackOrganizationId = resolveActiveOrganizationId(auth)

@@ -1,9 +1,13 @@
 const resolveScopeMock = jest.fn()
+const reportTelemetryErrorMock = jest.fn()
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
   resolveOrganizationScopeForRequest: (...args: unknown[]) => resolveScopeMock(...args),
 }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (key: string) => `t:${key}` }),
+}))
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  reportTelemetryError: (...args: unknown[]) => reportTelemetryErrorMock(...args),
 }))
 
 import type { AwilixContainer } from 'awilix'
@@ -47,9 +51,20 @@ describe('resolveAvailabilityOrganizationId', () => {
   })
 
   it('falls back to the home organization when the scope cannot be resolved', async () => {
-    resolveScopeMock.mockRejectedValue(new Error('rbac unavailable'))
+    const error = new Error('[internal] rbac unavailable')
+    resolveScopeMock.mockRejectedValue(error)
 
     await expect(resolveAvailabilityOrganizationId(container, auth, request)).resolves.toBe(HOME_ORG)
+    expect(reportTelemetryErrorMock).toHaveBeenCalledWith(error, {
+      module: 'availability',
+      code: 'availability.organization_scope_resolution_failed',
+    })
+  })
+
+  it('keeps an empty access scope empty when resolving one organization', async () => {
+    resolveScopeMock.mockResolvedValue({ selectedId: null, filterIds: [], allowedIds: [], tenantId: TENANT_ID })
+
+    await expect(resolveAvailabilityOrganizationId(container, auth, request)).resolves.toBeNull()
   })
 })
 
@@ -106,6 +121,26 @@ describe('resolveAvailabilityListOrganizationIds', () => {
     ).resolves.toEqual([])
   })
 })
+
+it.each([resolveAvailabilityOrganizationId, resolveAvailabilityListOrganizationIds])(
+  '%p returns the rejected selection response instead of falling back to the home organization',
+  async (resolveOrganization) => {
+    resolveScopeMock.mockResolvedValue({
+      selectedId: null,
+      filterIds: [HOME_ORG],
+      allowedIds: [HOME_ORG],
+      tenantId: TENANT_ID,
+      selectionRejected: true,
+    })
+
+    const response = await resolveOrganization(container, auth, request)
+    expect(response).toBeInstanceOf(Response)
+    if (!(response instanceof Response)) throw new Error('[internal] expected a rejected-selection response')
+    expect(response.status).toBe(422)
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0')
+    await expect(response.json()).resolves.toMatchObject({ code: 'organization_selection_invalid' })
+  },
+)
 
 describe('scopeAvailabilityPolicyWriteInput', () => {
   const ctxFor = (selectedOrganizationId: string | null, orgId: string | null) =>

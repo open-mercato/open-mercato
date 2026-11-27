@@ -8,6 +8,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createPolicyResolutionService } from '../../../lib/policyResolution'
 import { resolveAvailabilityOrganizationId } from '../../../lib/organizationScope'
+import { organizationSelectionInvalidError } from '../../openapi'
 
 /**
  * `GET /api/availability/policies/resolve-preview` — the currently PERSISTED
@@ -41,6 +42,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid request or missing organization scope', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        organizationSelectionInvalidError,
       ],
     },
   },
@@ -54,6 +56,7 @@ export async function GET(req: Request) {
   }
   const container = await createRequestContainer()
   const organizationId = await resolveAvailabilityOrganizationId(container, auth, req)
+  if (organizationId instanceof Response) return organizationId
   if (!organizationId) return organizationScopeRequiredResponse()
 
   const url = new URL(req.url)

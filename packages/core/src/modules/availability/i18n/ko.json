@@ -23,6 +23,7 @@
   "availability.common.yes": "예",
   "availability.errors.invalidCheckRequest": "잘못된 요청입니다",
   "availability.errors.invalidPreviewRequest": "잘못된 요청입니다",
+  "availability.errors.organizationSelectionInvalid": "선택한 조직을 더 이상 사용할 수 없습니다. 조직을 다시 선택한 후 다시 시도해 주세요.",
   "availability.errors.productNotFound": "해당 상품이 없습니다",
   "availability.errors.unauthorized": "권한이 없습니다",
   "availability.errors.variantNotFound": "해당 옵션이 없습니다",

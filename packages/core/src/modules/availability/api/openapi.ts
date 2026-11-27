@@ -1,5 +1,5 @@
-import { type ZodTypeAny } from 'zod'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { z, type ZodTypeAny } from 'zod'
+import type { OpenApiResponseDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   createCrudOpenApiFactory,
   createPagedListResponseSchema as createSharedPagedListResponseSchema,
@@ -10,6 +10,11 @@ import {
 
 export const defaultCreateResponseSchema = sharedDefaultCreateResponseSchema
 export const defaultOkResponseSchema = sharedDefaultOkResponseSchema
+export const organizationSelectionInvalidError: OpenApiResponseDoc = {
+  status: 422,
+  description: 'Selected organization is no longer available',
+  schema: z.object({ error: z.string(), code: z.literal('organization_selection_invalid') }),
+}
 
 export function createPagedListResponseSchema(itemSchema: ZodTypeAny) {
   return createSharedPagedListResponseSchema(itemSchema, { paginationMetaOptional: true })

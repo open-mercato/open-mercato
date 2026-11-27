@@ -76,6 +76,7 @@ function createFakeEm(config: FakeEmConfig = {}) {
       return result
     }),
     fork: (): unknown => em,
+    getTransactionContext: () => undefined,
     getConnection: () => ({
       execute: jest.fn(async (sql: string, params: unknown[]) => {
         calls.push('execute')
@@ -558,7 +559,8 @@ describe('customer group CRUD route', () => {
 
         const countQuery = executed.find((entry) => entry.sql.includes('customer_group_memberships'))
         expect(countQuery?.sql).toContain('m.deleted_at is null')
-        expect(countQuery?.sql).toContain('not exists')
+        expect(countQuery?.sql).toContain('inner join customer_entities c on c.id = m.customer_id and c.tenant_id = m.tenant_id')
+        expect(countQuery?.sql).toContain('c.organization_id is null or c.organization_id not in (?)')
         expect(countQuery?.params).toEqual([TENANT_ID, GROUP_ID, ORG_A])
       })
 
@@ -584,8 +586,8 @@ describe('customer group CRUD route', () => {
         expect(countQuery?.params).toEqual([TENANT_ID, GROUP_ID, ORG_A, ORG_B])
       })
 
-      it('refuses any member for a caller who sees no organization', async () => {
-        const { em } = createFakeEm({ execute: () => [{ total: '2' }] })
+      it('refuses a membership with an existing customer for a caller who sees no organization', async () => {
+        const { em } = createFakeEm({ execute: outsideScopeCount(2) })
 
         await expect(opts.hooks!.beforeDelete!(GROUP_ID, createCtx(em, []))).rejects.toMatchObject({ status: 409 })
       })
@@ -607,10 +609,16 @@ describe('customer group CRUD route', () => {
 
       it('retires the memberships when every member is inside the caller organizations', async () => {
         const memberships = [{ id: 'm-1', tenantId: TENANT_ID, organizationId: null, groupId: GROUP_ID, customerId: 'c-1' }]
-        const { em } = createFakeEm({ memberships, execute: outsideScopeCount(0) })
+        const queries: string[] = []
+        const { em } = createFakeEm({ memberships, execute: (sql) => {
+          queries.push(sql)
+          return outsideScopeCount(0)(sql)
+        } })
 
         await opts.hooks!.afterDelete!(GROUP_ID, createCtx(em, [ORG_A]))
 
+        expect(queries[0]).toContain('for update')
+        expect(queries[2]).toContain('customer_group_memberships')
         expect(emitMock).toHaveBeenCalledTimes(1)
       })
     })

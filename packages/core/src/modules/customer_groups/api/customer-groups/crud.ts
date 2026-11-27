@@ -19,6 +19,7 @@ import {
 import { emitCustomerGroupLifecycleEvent } from '../../lib/groupEvents'
 import { clearCreateConflictRecheck, registerCreateConflictRecheck } from '../../lib/createConflictRecheck'
 import { countGroupMembershipsOutsideScope } from '../../lib/customerScope'
+import { lockCustomerGroup } from '../../lib/groupLock'
 import { emitMembershipEvent } from './memberships/crud'
 
 // Shared (non-route) module: `route.ts` delegates to this single `makeCrudRoute`
@@ -316,6 +317,7 @@ export async function cascadeGroupDelete(
 ): Promise<CustomerGroupMembership[]> {
   try {
     return await em.transactional(async (tem) => {
+      await lockCustomerGroup(tem, tenantId, groupId)
       if (assertInScope) await assertInScope(tem)
       await softDeleteGroupTerms(tem, tenantId, groupId)
       return softDeleteGroupMemberships(tem, tenantId, groupId)

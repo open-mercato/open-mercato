@@ -15,6 +15,7 @@ import {
   createAvailabilityCrudOpenApi,
   createPagedListResponseSchema,
   defaultOkResponseSchema,
+  organizationSelectionInvalidError,
 } from '../openapi'
 
 const routeMetadata = {
@@ -131,6 +132,7 @@ export async function GET(req: Request) {
   }
   const container = await createRequestContainer()
   const organizationIds = await resolveAvailabilityListOrganizationIds(container, auth, req)
+  if (organizationIds instanceof Response) return organizationIds
   // "All organizations" (om_selected_org=__all__) lists every organization the
   // caller may access; a caller with no organization in scope gets the standard
   // 400, never a 401 (that reads as an expired session to the client and
@@ -238,6 +240,9 @@ export const openApi: OpenApiRouteDoc = {
   ...policyCrudOpenApi,
   methods: {
     ...policyCrudOpenApi.methods,
+    ...(policyCrudOpenApi.methods.GET
+      ? { GET: { ...policyCrudOpenApi.methods.GET, errors: [organizationSelectionInvalidError] } }
+      : {}),
     ...(policyCrudOpenApi.methods.DELETE
       ? { DELETE: { ...policyCrudOpenApi.methods.DELETE, query: policyDeleteQuerySchema } }
       : {}),
