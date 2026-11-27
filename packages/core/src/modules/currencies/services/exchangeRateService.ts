@@ -1,4 +1,6 @@
 import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ExchangeRate } from '../data/entities'
 import { RateFetchingService } from './rateFetchingService'
 
@@ -21,6 +23,16 @@ export interface GetRatesParams {
     maxDaysBack?: number
     autoFetch?: boolean
   }
+}
+
+export interface GetStoredRatesForOrganizationsParams {
+  tenantId: string
+  requests: Array<{
+    organizationId: string
+    pairs: Array<{ fromCurrencyCode: string; toCurrencyCode: string }>
+  }>
+  date: Date
+  maxDaysBack?: number
 }
 
 export interface RateResult {
@@ -110,6 +122,96 @@ export class ExchangeRateService {
       }
     }
 
+    return results
+  }
+
+  /**
+   * Batched, read-only counterpart of `getRates` with `autoFetch: false` for several
+   * organizations at once. Every organization resolves each pair from its own stored rates
+   * only — the most recent day between `date` and `maxDaysBack` days earlier (default 30),
+   * matched on exact UTC days exactly like `getRate` — so a rate stored in one organization
+   * is never used for another. All organizations, pairs and days are read in one statement,
+   * decrypted bound to the tenant only: each row keeps its own organization's key scope.
+   *
+   * Returns organizationId → `FROM/TO` → result; a pair without a stored rate has
+   * `rates: []` and `actualDate: null`.
+   */
+  async getStoredRatesForOrganizations(
+    params: GetStoredRatesForOrganizationsParams,
+  ): Promise<Map<string, Map<string, RateResult>>> {
+    const { tenantId, requests, date } = params
+    const maxDaysBack = params.maxDaysBack ?? 30
+    this.validateDate(date)
+
+    const requested = new Map<string, Map<string, { fromCode: string; toCode: string }>>()
+    const fromCodes = new Set<string>()
+    const toCodes = new Set<string>()
+    for (const { organizationId, pairs } of requests) {
+      const organizationPairs = requested.get(organizationId) ?? new Map<string, { fromCode: string; toCode: string }>()
+      for (const pair of pairs) {
+        const fromCode = pair.fromCurrencyCode.toUpperCase().trim()
+        const toCode = pair.toCurrencyCode.toUpperCase().trim()
+        if (!fromCode || !toCode || fromCode === toCode) continue
+        organizationPairs.set(`${fromCode}/${toCode}`, { fromCode, toCode })
+        fromCodes.add(fromCode)
+        toCodes.add(toCode)
+      }
+      requested.set(organizationId, organizationPairs)
+    }
+
+    const results = new Map<string, Map<string, RateResult>>()
+    if (fromCodes.size === 0) {
+      for (const organizationId of requested.keys()) results.set(organizationId, new Map())
+      return results
+    }
+
+    const lastDay = this.normalizeDate(date)
+    const days = Array.from(
+      { length: maxDaysBack + 1 },
+      (_, offset) => new Date(lastDay.getTime() - offset * 24 * 60 * 60 * 1000),
+    )
+    const rows = await findWithDecryption(
+      this.em as PostgreSqlEntityManager,
+      ExchangeRate,
+      {
+        tenantId,
+        organizationId: { $in: Array.from(requested.keys()) },
+        fromCurrencyCode: { $in: Array.from(fromCodes) },
+        toCurrencyCode: { $in: Array.from(toCodes) },
+        date: { $in: days },
+        deletedAt: null,
+        isActive: true,
+      },
+      undefined,
+      { tenantId, organizationId: null },
+    )
+
+    const latestByKey = new Map<string, { day: number; rates: ExchangeRate[] }>()
+    for (const row of rows) {
+      const key = `${row.organizationId}|${row.fromCurrencyCode}/${row.toCurrencyCode}`
+      const day = new Date(row.date).getTime()
+      const current = latestByKey.get(key)
+      if (!current || day > current.day) {
+        latestByKey.set(key, { day, rates: [row] })
+      } else if (day === current.day) {
+        current.rates.push(row)
+      }
+    }
+
+    for (const [organizationId, organizationPairs] of requested) {
+      const organizationResults = new Map<string, RateResult>()
+      for (const [pairKey, { fromCode, toCode }] of organizationPairs) {
+        const latest = latestByKey.get(`${organizationId}|${pairKey}`)
+        organizationResults.set(pairKey, {
+          rates: latest?.rates ?? [],
+          fromCurrencyCode: fromCode,
+          toCurrencyCode: toCode,
+          requestedDate: date,
+          actualDate: latest ? new Date(latest.day) : null,
+        })
+      }
+      results.set(organizationId, organizationResults)
+    }
     return results
   }
 

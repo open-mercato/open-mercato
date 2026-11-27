@@ -8,7 +8,7 @@ import type { ExchangeRateService, RateResult } from '@open-mercato/core/modules
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveDealsOrganizationIds } from '../../../lib/dealsOrganizationScope'
 import { resolveOptionalBaseCurrencyCode } from '../../../lib/optionalBaseCurrency'
-import { loadDealsSummaryQueryRows } from '../../../lib/dealsSummaryQueries'
+import { loadDealsSummaryQueryRows, type MonthlyCurrencyRow } from '../../../lib/dealsSummaryQueries'
 import {
   averageAmountExact,
   computeDelta,
@@ -26,7 +26,14 @@ import {
   type Delta,
 } from '../../../lib/dealsMetrics'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { decimalToString, parseDecimal, resolveAmountDecimalPlaces } from '@open-mercato/shared/lib/decimal'
+import {
+  decimalToNumber,
+  decimalToString,
+  parseDecimal,
+  resolveAmountDecimalPlaces,
+  roundDecimal,
+  toDecimal,
+} from '@open-mercato/shared/lib/decimal'
 import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 
 const logger = createLogger('customers')
@@ -36,6 +43,7 @@ export const metadata = {
 }
 
 const TOP_OWNERS = 5
+const RATE_LOOKBACK_DAYS = 60
 
 const deltaSchema = z.object({
   value: z.number(),
@@ -133,7 +141,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Pipeline KPI metrics with period-over-period deltas for the deals list',
       description:
-        'Returns the four list-level KPI metrics (pipeline value, active deals, won, win rate) for the window selected with `?range=quarter|3m|6m|12m`. `quarter` (the default, also used for an absent or unknown value) compares the current calendar quarter with the previous one and returns 6 trailing months in the series; `3m`, `6m` and `12m` compare the trailing window with the one before it and return one series point per month of that window. Also returns the per-stage open-pipeline breakdown, top owners and monthly series (value and count of deals created, won value, win rate). Values are converted to the tenant base currency where rates are available; partial conversions are disclosed via convertedAll/missingRateCurrencies. Money values are rounded to whole units for display; each has a `<field>Exact` decimal-string sibling with the unrounded value (sums and FX conversions are exact; `avgDealExact` is rounded to max(4, currency decimal places)).',
+        'Returns the four list-level KPI metrics (pipeline value, active deals, won, win rate) for the window selected with `?range=quarter|3m|6m|12m`. `quarter` (the default, also used for an absent or unknown value) compares the current calendar quarter with the previous one and returns 6 trailing months in the series; `3m`, `6m` and `12m` compare the trailing window with the one before it and return one series point per month of that window. Also returns the per-stage open-pipeline breakdown, top owners and monthly series (value and count of deals created, won value, win rate). Values are converted to the base currency shared by every organization in scope (baseCurrencyCode is null when they differ), converting the deals of each organization with the exchange rates of that organization; partial conversions are disclosed via convertedAll/missingRateCurrencies. Money values are rounded to whole units for display; each has a `<field>Exact` decimal-string sibling with the unrounded value (sums and FX conversions are exact; `avgDealExact` is rounded to max(4, currency decimal places)).',
       responses: [
         { status: 200, description: 'Deals KPI summary payload', schema: summaryResponseSchema },
       ],
@@ -158,6 +166,34 @@ function winRate(won: number, lost: number): number {
 function toExactAmount(value: string | number | null | undefined): string {
   const parsed = parseDecimal(value)
   return parsed ? decimalToString(parsed) : '0'
+}
+
+type OrganizationAmount = AmountEntry & { organizationId: string }
+
+type StoredRatesRequest = Parameters<ExchangeRateService['getStoredRatesForOrganizations']>[0]
+
+/**
+ * Reads every organization's rates in one batched lookup. An overriding exchange-rate service
+ * that predates `getStoredRatesForOrganizations` is still honoured through per-organization
+ * `getRates` calls, issued concurrently.
+ */
+async function loadRatesByOrganization(
+  exchange: ExchangeRateService,
+  params: StoredRatesRequest,
+): Promise<Map<string, Map<string, RateResult>>> {
+  if (typeof exchange.getStoredRatesForOrganizations === 'function') {
+    return exchange.getStoredRatesForOrganizations(params)
+  }
+  const entries = await Promise.all(params.requests.map(async ({ organizationId, pairs }) => [
+    organizationId,
+    await exchange.getRates({
+      pairs,
+      date: params.date,
+      scope: { tenantId: params.tenantId, organizationId },
+      options: { maxDaysBack: params.maxDaysBack, autoFetch: false },
+    }),
+  ] as const))
+  return new Map(entries)
 }
 
 function resolveSummaryWindows(range: SummaryRange, now: Date) {
@@ -203,7 +239,7 @@ export async function GET(req: Request) {
   const baseCurrencyCode = await resolveOptionalBaseCurrencyCode(
     container,
     effectiveTenantId,
-    orgFilterIds[0],
+    orgFilterIds,
   )
 
   const { openRows, inflowRows, wonRows, winLossRows, seriesRows, inflowSeriesRows, wonSeriesRows, overdueRows, openStuckIds } =
@@ -222,9 +258,9 @@ export async function GET(req: Request) {
 
   // Reduce open rows: per-stage sums, distinct owners, owner counts, and a flat
   // per-currency list for the converted pipeline total.
-  const stageMap = new Map<string, { stage: string | null; count: number; byCurrency: AmountEntry[] }>()
   const openOwnerCounts = new Map<string, number>()
-  const openSums: AmountEntry[] = []
+  const stageMap = new Map<string, { stage: string | null; count: number; byCurrency: OrganizationAmount[] }>()
+  const openSums: OrganizationAmount[] = []
   for (const row of openRows) {
     const stageKey = row.stage ?? '__null__'
     const amount = toExactAmount(row.total)
@@ -235,41 +271,47 @@ export async function GET(req: Request) {
     }
     const stageAgg = stageMap.get(stageKey)!
     stageAgg.count += count
-    if (currency) stageAgg.byCurrency.push({ currency, amount })
-    openSums.push({ currency, amount })
+    if (currency) stageAgg.byCurrency.push({ organizationId: row.organization_id, currency, amount })
+    openSums.push({ organizationId: row.organization_id, currency, amount })
     if (row.owner_user_id) {
       openOwnerCounts.set(row.owner_user_id, (openOwnerCounts.get(row.owner_user_id) ?? 0) + count)
     }
   }
 
-  // Collect every distinct non-base currency across all metrics and fetch rates ONCE.
-  const distinctCurrencies = new Set<string>()
-  const collect = (entries: Array<{ currency: string | null }>) => {
+  // Exchange rates are kept per organization, so each organization's deals convert with the
+  // rates entered in that organization — exactly what a single-organization view shows.
+  // Collect the distinct non-base currencies per organization and read them in one batch.
+  const currenciesByOrganization = new Map<string, Set<string>>()
+  const collect = (entries: Array<{ organizationId: string; currency: string | null }>) => {
     for (const entry of entries) {
+      const { organizationId } = entry
       const currency = (entry.currency ?? '').toString().trim().toUpperCase()
-      if (currency && currency !== baseCurrencyCode) distinctCurrencies.add(currency)
+      if (!organizationId || !currency || currency === baseCurrencyCode) continue
+      const currencies = currenciesByOrganization.get(organizationId) ?? new Set<string>()
+      currencies.add(currency)
+      currenciesByOrganization.set(organizationId, currencies)
     }
   }
   collect(openSums)
-  collect(inflowRows)
-  collect(wonRows)
-  collect(inflowSeriesRows)
-  collect(wonSeriesRows)
+  collect(inflowRows.map((row) => ({ organizationId: row.organization_id, currency: row.currency })))
+  collect(wonRows.map((row) => ({ organizationId: row.organization_id, currency: row.currency })))
+  collect(inflowSeriesRows.map((row) => ({ organizationId: row.organization_id, currency: row.currency })))
+  collect(wonSeriesRows.map((row) => ({ organizationId: row.organization_id, currency: row.currency })))
 
-  let rates = new Map<string, RateResult>()
-  if (baseCurrencyCode && distinctCurrencies.size > 0) {
+  let ratesByOrganization = new Map<string, Map<string, RateResult>>()
+  if (baseCurrencyCode && currenciesByOrganization.size > 0) {
     const exchange = container.resolve('exchangeRateService') as ExchangeRateService | undefined
     if (exchange) {
-      const pairs = Array.from(distinctCurrencies).map((code) => ({
-        fromCurrencyCode: code,
-        toCurrencyCode: baseCurrencyCode,
+      const requests = Array.from(currenciesByOrganization, ([organizationId, currencies]) => ({
+        organizationId,
+        pairs: Array.from(currencies, (code) => ({ fromCurrencyCode: code, toCurrencyCode: baseCurrencyCode })),
       }))
       try {
-        rates = await exchange.getRates({
-          pairs,
+        ratesByOrganization = await loadRatesByOrganization(exchange, {
+          tenantId: effectiveTenantId,
+          requests,
           date: today,
-          scope: { tenantId: effectiveTenantId, organizationId: orgFilterIds[0] },
-          options: { maxDaysBack: 60, autoFetch: false },
+          maxDaysBack: RATE_LOOKBACK_DAYS,
         })
       } catch (err) {
         logger.warn('exchange-rate lookup failed; falling back to per-currency totals', { component: 'deals.summary', err })
@@ -285,16 +327,30 @@ export async function GET(req: Request) {
 
   // Degraded path: when there is no base currency, fall back to the dominant currency's
   // raw sum so the cards still show a number (mirrors the aggregate route's disclosure).
-  const convert = (entries: AmountEntry[]): ConvertedAmount => {
+  const convert = (entries: OrganizationAmount[]): ConvertedAmount => {
     if (!baseCurrencyCode) {
       convertedAll = false
       trackMissing(sumsByCurrency(entries).map((entry) => entry.currency))
       return dominantCurrencyAmount(entries)
     }
-    const result = convertSumsToBase(sumsByCurrency(entries), baseCurrencyCode, rates)
-    if (!result.convertedAll) convertedAll = false
-    trackMissing(result.missingRateCurrencies)
-    return { value: result.total, valueExact: result.totalExact, currencyCode: baseCurrencyCode }
+    const entriesByOrganization = new Map<string, OrganizationAmount[]>()
+    for (const entry of entries) {
+      const group = entriesByOrganization.get(entry.organizationId) ?? []
+      group.push(entry)
+      entriesByOrganization.set(entry.organizationId, group)
+    }
+    let total = toDecimal(0)
+    for (const [organizationId, group] of entriesByOrganization) {
+      const result = convertSumsToBase(sumsByCurrency(group), baseCurrencyCode, ratesByOrganization.get(organizationId) ?? null)
+      if (!result.convertedAll) convertedAll = false
+      trackMissing(result.missingRateCurrencies)
+      total = total.plus(parseDecimal(result.totalExact) ?? toDecimal(0))
+    }
+    return {
+      value: decimalToNumber(roundDecimal(total, 0)),
+      valueExact: decimalToString(total),
+      currencyCode: baseCurrencyCode,
+    }
   }
 
   // Pipeline value (open deals, converted) + per-stage converted breakdown.
@@ -310,8 +366,8 @@ export async function GET(req: Request) {
   })
 
   // Pipeline inflow delta (open value created this vs previous quarter).
-  const inflowCurrent = convert(inflowRows.map((row) => ({ currency: row.currency, amount: toExactAmount(row.current_total) })))
-  const inflowPrevious = convert(inflowRows.map((row) => ({ currency: row.currency, amount: toExactAmount(row.previous_total) })))
+  const inflowCurrent = convert(inflowRows.map((row) => ({ organizationId: row.organization_id, currency: row.currency, amount: toExactAmount(row.current_total) })))
+  const inflowPrevious = convert(inflowRows.map((row) => ({ organizationId: row.organization_id, currency: row.currency, amount: toExactAmount(row.previous_total) })))
   const pipelineDelta: Delta = computeDelta(inflowCurrent.value, inflowPrevious.value)
 
   // Active deals: count of open deals, owners, need-attention, top owners.
@@ -326,8 +382,8 @@ export async function GET(req: Request) {
   const ownersOverflow = Math.max(0, ownersCount - owners.length)
 
   // Won this quarter.
-  const wonCurrent = convert(wonRows.map((row) => ({ currency: row.currency, amount: toExactAmount(row.current_total) })))
-  const wonPrevious = convert(wonRows.map((row) => ({ currency: row.currency, amount: toExactAmount(row.previous_total) })))
+  const wonCurrent = convert(wonRows.map((row) => ({ organizationId: row.organization_id, currency: row.currency, amount: toExactAmount(row.current_total) })))
+  const wonPrevious = convert(wonRows.map((row) => ({ organizationId: row.organization_id, currency: row.currency, amount: toExactAmount(row.previous_total) })))
   const dealsClosed = wonRows.reduce((sum, row) => sum + toNumber(row.current_count), 0)
   const wonDelta: Delta = computeDelta(wonCurrent.value, wonPrevious.value)
   const avgDeal = dealsClosed > 0 ? Math.round(wonCurrent.value / dealsClosed) : 0
@@ -366,18 +422,18 @@ export async function GET(req: Request) {
 
   // Monthly trends behind the metric tabs: value / count of all deals created per month
   // and won value per month, converted like the headline numbers.
-  const monthlyBuckets = (rows: Array<{ period: string; currency: string | null; count: string | number; total: string | number | null }>) => {
-    const byPeriod = new Map<string, { count: number; byCurrency: AmountEntry[] }>()
+  const monthlyBuckets = (rows: MonthlyCurrencyRow[]) => {
+    const byPeriod = new Map<string, { count: number; byCurrency: OrganizationAmount[] }>()
     for (const row of rows) {
       const bucket = byPeriod.get(row.period) ?? { count: 0, byCurrency: [] }
       bucket.count += toNumber(row.count)
       const currency = normalizeCurrencyCode(row.currency)
-      if (currency) bucket.byCurrency.push({ currency, amount: toExactAmount(row.total) })
+      if (currency) bucket.byCurrency.push({ organizationId: row.organization_id, currency, amount: toExactAmount(row.total) })
       byPeriod.set(row.period, bucket)
     }
     return byPeriod
   }
-  const monthlyValuePoint = (period: string, entries: AmountEntry[]) => {
+  const monthlyValuePoint = (period: string, entries: OrganizationAmount[]) => {
     const converted = convert(entries)
     return { period, value: converted.value, valueExact: converted.valueExact }
   }
