@@ -84,7 +84,8 @@ attests to a contributor's CLA: the CLA service must evaluate the new head.
 The configuration records the collection's default triage eligibility and QA
 gate keys explicitly. `qaGateLabel` is `needs-human-qa`; `qaReadyLabel` is unset.
 `humanQaPolicy` holds the triage rules and `qaBatch` the daily batch QA settings
-([PR workflow](.ai/docs/pr-workflow.md#daily-batch-qa)).
+([PR workflow](.ai/docs/pr-workflow.md#daily-batch-qa)); `qaBatch.testers` lists
+the tester logins trusted to give a batch verdict or `--retest`.
 The `claim-reset`, `automerge-signal-*` and `automerge-blocked` labels are additive
 audit and queue markers. `claim-reset` is human-owned; automation only reads its
 audit history. A local-CI signal does not waive this repository's required host

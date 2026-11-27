@@ -138,7 +138,7 @@ When QA passes, move it back and record approval (`gh pr edit <number> --remove-
 
 ## QA meta labels and the merge gate
 
-- QA triage (`om-auto-review-pr`, rules in `.ai/agentic.config.json` → `humanQaPolicy`) puts
+- QA triage (`om-auto-review-pr`; `om-triage-pr` once open-mercato/skills#211 ships, same rules; rules in `.ai/agentic.config.json` → `humanQaPolicy`) puts
   every PR in one lane, judging what the change does, not who wrote it:
   - `needs-human-qa`: a tester MUST check it **before merge**, because fixing forward would not
     help. A new feature or visible UX change without an approved design (a merged spec with
@@ -240,11 +240,18 @@ Labels on the batch PR:
   newer `main` commits while it carries this label. An untouched batch may be refreshed.
 - `qa-failed`: verdict **unstable**, at least one open blocker. It stays frozen until the retest.
 - `qa-approved`: verdict **stable** for the tested head. The stabilizer may tag `green/<date>` and
-  merge back. A new head needs a new verdict.
+  merge back. A new head needs a new verdict, except a merge-back conflict fix: the verdict stays
+  on the green-tagged commit, and the `main` PRs the fix merges in are tested in the next batch,
+  whose range starts at the previous green tag.
 
 The verdict comment carries `QA verdict: STABLE|UNSTABLE`, `QA head: <full sha>` and the range.
 The tester also posts the same verdict, with blockers when unstable, as a short message on the
 team's QA channel. Retests after fixes cover only the fixed area.
+
+Only `qaBatch.testers` plus the person running `om-qa-batch` are trusted to give a verdict or run
+`--retest`. With an empty list, one tester's write action treats another tester's verdict as
+untrusted and withdraws a valid `qa-approved`, so teams with more than one tester MUST set
+`qaBatch.testers`.
 
 A defect **blocks** the batch when a user cannot finish a main task: a main screen does not load
 or a main path returns a server error; signing in, saving or creating a basic record fails; data
@@ -256,7 +263,8 @@ next batch. Everything else (cosmetics, translations, small UX issues) is an iss
 
 When nobody tests on a given day, no new batch is cut while one is open; the open batch grows
 with `main` until a tester claims it. The same pass, with an upgrade from the previous version
-and migrations, runs on a release line before each release. That pass is what covers backports,
+and migrations, runs on a release line before each release, and the release waits until that pass
+is green. That pass is what covers backports,
 which do not carry `needs-human-qa` over from the original PR; a backport whose cherry-pick
 conflict was resolved by hand gets `needs-human-qa` from the reviewer (§ Release lines and
 backports).

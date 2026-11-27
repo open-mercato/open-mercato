@@ -54,7 +54,8 @@
     "smoke": ".ai/qa/batch-smoke.md",
     "inProgressLabel": "qa-in-progress",
     "bugLabels": ["bug", "daily-qa"],
-    "blockerLabel": "qa-blocker"
+    "blockerLabel": "qa-blocker",
+    "testers": []
   },
   "ci": { "maxWaitMinutes": 40 },
   "autofix": { "label": "cez-autofix", "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] } },
