@@ -41,6 +41,14 @@ describe('inventoryImportCsv', () => {
     expect(parsed.rows).toEqual([['WH-1', 'A-01', 'SKU;1', '5']])
   })
 
+  it('keeps splitting on commas when an ignored column has more semicolons than the header has commas', () => {
+    const text = 'sku,quantity,remarks; please; verify; before import\nSKU-1,5,looks fine\n'
+    const parsed = parseCsvText(text)
+    expect(parsed.headers).toEqual(['sku', 'quantity', 'remarks; please; verify; before import'])
+    expect(parsed.rows).toEqual([['SKU-1', '5', 'looks fine']])
+    expect(parseInventoryImportCsv(text)).toEqual([{ sku: 'SKU-1', quantity: '5' }])
+  })
+
   it('detects the separator from the header after blank, empty-cell, and comment lines', () => {
     const text = '\r\n;;;\r\n""\r\n# c, d\r\nwarehouse_code;sku\r\nW;S,1\r\n'
     const parsed = parseCsvText(text)

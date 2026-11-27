@@ -54,47 +54,76 @@ function trimCell(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
-function detectHeaderDelimiter(text: string): ',' | ';' {
-  let commaCount = 0
-  let semicolonCount = 0
+function lineHasHeaderContent(line: string): boolean {
   let inQuotes = false
-  let lineStart = true
-  let lineHasContent = false
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index]
-
-    if (lineStart && char === '#') {
-      while (index < text.length && text[index] !== '\n') {
-        index += 1
-      }
-      continue
-    }
-    lineStart = false
-
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]
     if (char === '"') {
       inQuotes = !inQuotes
       continue
     }
-    if (inQuotes) {
-      if (char.trim().length > 0) lineHasContent = true
-      continue
-    }
-
-    if (char === '\n') {
-      if (lineHasContent) break
-      commaCount = 0
-      semicolonCount = 0
-      lineStart = true
-      continue
-    }
-
-    if (char === ',') commaCount += 1
-    else if (char === ';') semicolonCount += 1
-    else if (char.trim().length > 0) lineHasContent = true
+    if (char === ',' || char === ';') continue
+    if (char.trim().length > 0) return true
   }
+  return false
+}
 
-  return semicolonCount > commaCount ? ';' : ','
+function extractHeaderLine(text: string): string | null {
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine
+    if (line.trimStart().startsWith('#')) continue
+    if (!lineHasHeaderContent(line)) continue
+    return line
+  }
+  return null
+}
+
+function splitDelimitedLine(line: string, delimiter: ',' | ';'): string[] {
+  const cells: string[] = []
+  let current = ''
+  let inQuotes = false
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]
+    const next = line[index + 1]
+    if (inQuotes) {
+      if (char === '"' && next === '"') {
+        current += '"'
+        index += 1
+      } else if (char === '"') {
+        inQuotes = false
+      } else {
+        current += char
+      }
+      continue
+    }
+    if (char === '"') {
+      inQuotes = true
+      continue
+    }
+    if (char === delimiter) {
+      cells.push(current)
+      current = ''
+      continue
+    }
+    current += char
+  }
+  cells.push(current)
+  return cells
+}
+
+function countRecognizedHeaders(headers: string[]): number {
+  return headers.reduce(
+    (count, header) => (HEADER_ALIASES[normalizeHeader(header)] ? count + 1 : count),
+    0,
+  )
+}
+
+function detectHeaderDelimiter(text: string): ',' | ';' {
+  const headerLine = extractHeaderLine(text)
+  if (!headerLine) return ','
+  const commaMapped = countRecognizedHeaders(splitDelimitedLine(headerLine, ','))
+  const semicolonMapped = countRecognizedHeaders(splitDelimitedLine(headerLine, ';'))
+  return semicolonMapped > commaMapped ? ';' : ','
 }
 
 export function parseCsvText(text: string): { headers: string[]; rows: string[][] } {
