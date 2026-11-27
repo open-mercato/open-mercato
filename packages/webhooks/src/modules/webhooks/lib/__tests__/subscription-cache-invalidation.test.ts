@@ -138,6 +138,7 @@ describe('processWebhookDeliveryJob auto-disable invalidates the subscription ca
   function buildEm(delivery: Record<string, unknown>) {
     return {
       findOne: jest.fn(async () => delivery),
+      nativeUpdate: jest.fn(async () => 1),
       flush: jest.fn(async () => undefined),
     } as unknown as EntityManager
   }
@@ -171,6 +172,7 @@ describe('processWebhookDeliveryJob auto-disable invalidates the subscription ca
     }
     const em = {
       findOne: jest.fn(async () => delivery),
+      nativeUpdate: jest.fn(async () => 1),
       flush: jest.fn(async () => { calls.push(`flush:isActive=${webhook.isActive}`) }),
     } as unknown as EntityManager
 

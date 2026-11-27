@@ -10,10 +10,12 @@
  * Functional API (no classes) following Open Mercato conventions.
  */
 
+import type { InvokeAgentCallSettings } from '../data/activity-config-schemas'
 import { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
+import type { ApiKeyOneTimeIssuer } from '@open-mercato/shared/lib/auth/principal-service'
 import { createModuleQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import {
@@ -22,7 +24,7 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
+import { getDeclaredEvents, isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import {
   definitionDeclaresGrant,
@@ -76,6 +78,8 @@ export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateParams } from '@open-mercato/shared/lib/i18n/context'
+
+import { assertTrustedEventTriggerIdentity } from './event-trigger-identity'
 
 const logger = createLogger('workflows')
 
@@ -577,6 +581,8 @@ export async function executeActivity(
   activity: ActivityDefinition,
   context: ActivityContext
 ): Promise<ActivityExecutionResult> {
+  assertTrustedEventTriggerIdentity(context.workflowInstance)
+
   const retryPolicy = activity.retryPolicy || {
     maxAttempts: 1,
     initialIntervalMs: 0,
@@ -621,6 +627,7 @@ export async function executeActivity(
       // it would only re-log the same refusal N times before reaching the same
       // answer.
       if (isDryRunRefusal(error)) break
+      if (error instanceof CallApiRefusalError) break
 
       // Log activity retry attempt with context
       if (attempt < retryPolicy.maxAttempts - 1) {
@@ -956,9 +963,9 @@ export async function executeEmitEvent(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
-  const { eventName, payload } = config
+  const { eventName, payload }: { eventName?: unknown; payload?: Record<string, unknown> } = config
 
-  if (!eventName) {
+  if (typeof eventName !== 'string' || !eventName) {
     throw new Error('EMIT_EVENT requires "eventName" field')
   }
 
@@ -968,6 +975,11 @@ export async function executeEmitEvent(
   // regular event activity into a cross-process invalidation primitive.
   if (isPrivateCrossProcessBroadcastEvent(eventName)) {
     throw new Error(`EMIT_EVENT cannot emit private cross-process event "${eventName}"`)
+  }
+
+  const declaration = getDeclaredEvents().find((event) => event.id === eventName)
+  if (declaration?.workflowEmittable !== true || declaration.portalBroadcast || declaration.crossProcessBroadcast) {
+    throw new Error(`EMIT_EVENT cannot emit event "${eventName}" from a workflow`)
   }
 
   // Emissions are fire-and-forget and no subscriber validates the payload shape,
@@ -991,22 +1003,23 @@ export async function executeEmitEvent(
   }
 
   // Publish event with workflow metadata
-  const enrichedPayload = {
+  const { tenantId, organizationId } = context.workflowInstance
+  const enrichedPayload: Record<string, unknown> = {
     ...payload,
+    tenantId,
+    organizationId,
     _workflow: {
       workflowInstanceId: context.workflowInstance.id,
       workflowId: context.workflowInstance.workflowId,
-      tenantId: context.workflowInstance.tenantId,
-      organizationId: context.workflowInstance.organizationId,
+      tenantId,
+      organizationId,
     },
   }
+  delete enrichedPayload.organizationIds
 
   await raceAbortable(
     Promise.resolve(
-      eventBus.emitEvent(eventName, enrichedPayload, {
-        tenantId: context.workflowInstance.tenantId,
-        organizationId: context.workflowInstance.organizationId,
-      })
+      eventBus.emitEvent(eventName, enrichedPayload, { tenantId, organizationId })
     ),
     signal
   )
@@ -1070,6 +1083,8 @@ export async function executeUpdateEntity(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
+  assertTrustedEventTriggerIdentity(context.workflowInstance)
+
   const { commandId, input, statusDictionary } = config
 
   if (!commandId) {
@@ -1163,6 +1178,7 @@ export async function executeUpdateEntity(
     organizationIds: context.workflowInstance.organizationId
       ? [context.workflowInstance.organizationId]
       : null,
+    ...(await withWorkflowAuditCorrelation(context, container)),
   }
 
   // Execute the command. A timeout AbortSignal refuses a start (throwIfAborted
@@ -1186,6 +1202,81 @@ export async function executeUpdateEntity(
     result,
     logEntryId: logEntry?.id,
   }
+}
+
+function readCorrelationValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+type ProposalVerificationBridgeLike = {
+  verifyProposalForInstance?: (args: {
+    proposalId: string
+    workflowInstanceId: string
+    tenantId: string
+    organizationId: string
+  }) => Promise<boolean>
+}
+
+const CORRELATION_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The workflow context is user-writable (task completion merges form data, admins
+ * can PATCH it), so a proposal id read from it is stamped only after the optional
+ * agent_orchestrator peer confirms the proposal belongs to this very instance.
+ * An absent peer, a failed lookup or a mismatch drops the id; the write proceeds.
+ */
+async function isProposalOfInstance(
+  container: AwilixContainer,
+  context: ActivityContext,
+  proposalId: string,
+  workflowInstanceId: string,
+): Promise<boolean> {
+  const tenantId = context.workflowInstance?.tenantId
+  const organizationId = context.workflowInstance?.organizationId
+  if (!tenantId || !organizationId) return false
+  if (!CORRELATION_UUID_PATTERN.test(proposalId) || !CORRELATION_UUID_PATTERN.test(workflowInstanceId)) return false
+  let bridge: ProposalVerificationBridgeLike | undefined
+  try {
+    bridge = container.resolve<ProposalVerificationBridgeLike>('agentWorkflowBridge')
+  } catch {
+    return false
+  }
+  if (!bridge || typeof bridge.verifyProposalForInstance !== 'function') return false
+  try {
+    return (await bridge.verifyProposalForInstance({ proposalId, workflowInstanceId, tenantId, organizationId })) === true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Correlation ids stamped on the action log of a workflow-driven write: the
+ * instance always, and the agent proposal whose verdict the run is carrying out
+ * when the context holds one (`proposalId` from a human dispose, `agentProposalId`
+ * from the inline resolution path) and it is verified to belong to this instance.
+ */
+async function buildWorkflowAuditCorrelation(
+  context: ActivityContext,
+  container: AwilixContainer,
+): Promise<Record<string, string>> {
+  const correlation: Record<string, string> = {}
+  const workflowInstanceId = readCorrelationValue(context.workflowInstance?.id)
+  if (workflowInstanceId) correlation.workflowInstanceId = workflowInstanceId
+  const workflowContext = context.workflowContext ?? {}
+  const proposalId =
+    readCorrelationValue(workflowContext.proposalId) ?? readCorrelationValue(workflowContext.agentProposalId)
+  if (proposalId && workflowInstanceId && (await isProposalOfInstance(container, context, proposalId, workflowInstanceId))) {
+    correlation.proposalId = proposalId
+  }
+  return correlation
+}
+
+async function withWorkflowAuditCorrelation(
+  context: ActivityContext,
+  container: AwilixContainer,
+): Promise<{ auditCorrelation?: Record<string, string> }> {
+  const auditCorrelation = await buildWorkflowAuditCorrelation(context, container)
+  return Object.keys(auditCorrelation).length > 0 ? { auditCorrelation } : {}
 }
 
 /**
@@ -1502,6 +1593,8 @@ type AgentWorkflowBridgeLike = {
       // proposal this step raises, and by when. Absent means the unassigned
       // task the disposition service raised before the section existed.
       review?: AgentDispositionReview
+      // Optional per-call model settings (invokeAgentConfigSchema.callSettings).
+      callSettings?: InvokeAgentCallSettings
     }
   }) => Promise<
     | { kind: 'research'; data: unknown }
@@ -1538,7 +1631,7 @@ export async function executeInvokeAgent(
       .join('; ')
     throw new Error(`INVOKE_AGENT config invalid: ${issues}`)
   }
-  const { agentId, input, onResult, outputMapping, subject, review } = parsed.data
+  const { agentId, input, onResult, outputMapping, subject, review, callSettings } = parsed.data
 
   // The Review section is resolved HERE, against the context the step ran with,
   // for the same reason a USER_TASK's assignment is resolved at creation rather
@@ -1599,6 +1692,7 @@ export async function executeInvokeAgent(
         ...(context.stepInstanceId ? { invocationId: context.stepInstanceId } : {}),
         ...(subject ? { subject } : {}),
         ...(dispositionReview ? { review: dispositionReview } : {}),
+        ...(callSettings ? { callSettings } : {}),
       },
     })
     if (outcome.kind === 'research') {
@@ -1647,6 +1741,7 @@ export async function executeInvokeAgent(
     ...(outputMapping ? { outputMapping } : {}),
     ...(subject ? { subject } : {}),
     ...(dispositionReview ? { review: dispositionReview } : {}),
+    ...(callSettings ? { callSettings } : {}),
     tenantId: context.workflowInstance.tenantId,
     organizationId: context.workflowInstance.organizationId,
     userId: effectiveUserId,
@@ -1661,11 +1756,46 @@ export async function executeInvokeAgent(
   }
 }
 
+function isMissingApiKeyOneTimeIssuerError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { name?: unknown; message?: unknown }
+  if (candidate.name !== 'AwilixResolutionError') return false
+  const message = typeof candidate.message === 'string' ? candidate.message : ''
+  return /Could not resolve ['"]apiKeyOneTimeIssuer['"]/.test(message)
+}
+
+function resolveApiKeyOneTimeIssuer(container: AwilixContainer): ApiKeyOneTimeIssuer | null {
+  if (
+    typeof container.hasRegistration === 'function' &&
+    !container.hasRegistration('apiKeyOneTimeIssuer')
+  ) {
+    return null
+  }
+  let candidate: unknown
+  try {
+    candidate = container.resolve<ApiKeyOneTimeIssuer | null | undefined>('apiKeyOneTimeIssuer')
+  } catch (error) {
+    if (isMissingApiKeyOneTimeIssuerError(error)) {
+      return null
+    }
+    throw error
+  }
+  if (candidate === null || candidate === undefined) {
+    return null
+  }
+  if (typeof (candidate as ApiKeyOneTimeIssuer).withOneTimeApiKey !== 'function') {
+    throw new Error(
+      '[CALL_API] Registered apiKeyOneTimeIssuer service is invalid: missing withOneTimeApiKey().',
+    )
+  }
+  return candidate as ApiKeyOneTimeIssuer
+}
+
 /**
  * CALL_API activity handler
  *
  * Makes authenticated HTTP request to internal Open Mercato APIs
- * - Automatically creates one-time API key for authentication
+ * - Soft-resolves `apiKeyOneTimeIssuer` from DI to mint a short-lived one-time API key
  * - Injects tenant/organization context headers
  * - Validates URL security (SSRF prevention)
  * - Classifies errors (retriable vs non-retriable)
@@ -1678,6 +1808,8 @@ export async function executeCallApi(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
+  assertTrustedEventTriggerIdentity(context.workflowInstance)
+
   // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, allowlisted {{env.*}}, {{now}})
   const interpolatedConfig = interpolateActivityConfig(config, context, 'CALL_API')
 
@@ -1697,29 +1829,20 @@ export async function executeCallApi(
   // 2. Build full URL (prepend APP_URL for relative paths)
   const requestUrl = await resolveCallApiUrl(endpoint)
 
-  // 3. Import the one-time API key helper
-  const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
+  // 3. Soft-resolve the API Keys-owned one-time credential issuer from the active container.
+  //    A missing registration takes the translated API Keys-unavailable refusal; a present
+  //    dependency that fails propagates into normal activity failure and retry classification.
+  const apiKeyOneTimeIssuer = resolveApiKeyOneTimeIssuer(container)
+  if (!apiKeyOneTimeIssuer) {
+    throw await createCallApiError(
+      'workflows.errors.callApi.apiKeysModuleDisabled',
+      'CALL_API needs the api_keys module to authenticate internal calls',
+    )
+  }
 
-  // 4. Create the one-time API key on an EntityManager that is fully detached
-  //    from the surrounding request/transaction context.
-  //
-  //    CALL_API runs inside `workflowExecutor.executeWorkflow()`, which wraps
-  //    the whole execution in `em.transactional(...)`. The request EM is forked
-  //    with `useContext: true`, so while that transaction is open, EVERY
-  //    operation on the container's `em` — including this API key's
-  //    persist/flush — is transparently redirected to the uncommitted
-  //    transaction fork (MikroORM `getContext()` → `TransactionContext`). The
-  //    key would therefore stay invisible until the transaction commits, but
-  //    the commit cannot happen until this activity returns. The outbound
-  //    self-authenticated `fetch` below opens a SEPARATE DB connection that
-  //    cannot see the uncommitted row, so the internal API responds `401` and
-  //    the activity fails (issue #4202).
-  //
-  //    Forking with `useContext: false` (matching the query_index/webhooks
-  //    isolated-EM convention) gives the key its own pooled connection with
-  //    autocommit, so it is committed and visible to the internal request
-  //    immediately.
-  const apiKeyEm = container
+  // 4. Resolve active user roles on a context-free EntityManager fork outside the surrounding
+  //    workflow transaction (matching the isolated-EM convention).
+  const roleResolutionEm = container
     .resolve<PostgreSqlEntityManager>('em')
     .fork({ clear: true, freshEventManager: true, useContext: false }) as PostgreSqlEntityManager
 
@@ -1743,7 +1866,7 @@ export async function executeCallApi(
   //        when the instance was started by an event trigger with no user.
   //     3. If no traceable principal exists, the activity refuses to run —
   //        there is no "system" fallback that bypasses RBAC.
-  const resolvedRoleIds = await resolveCallApiRoleIds(apiKeyEm, context.workflowInstance)
+  const resolvedRoleIds = await resolveCallApiRoleIds(roleResolutionEm, context.workflowInstance)
 
   if (resolvedRoleIds.length === 0) {
     throw new Error(
@@ -1753,9 +1876,8 @@ export async function executeCallApi(
     )
   }
 
-  // 6. Execute request with one-time API key scoped to the resolved user's roles
-  return await withOnetimeApiKey(
-    apiKeyEm,
+  // 6. Execute request with a one-time API key issued by the API Keys provider
+  return await apiKeyOneTimeIssuer.withOneTimeApiKey(
     {
       name: `__workflow_${context.workflowInstance.id}__`,
       description: `One-time key for workflow ${context.workflowInstance.workflowId} instance ${context.workflowInstance.id}`,
@@ -1894,6 +2016,8 @@ export async function resolveCallApiRoleIds(
   em: any,
   instance: CallApiInstanceLike
 ): Promise<string[]> {
+  assertTrustedEventTriggerIdentity(instance)
+
   if (!instance.definitionId) return []
 
   const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
@@ -1948,6 +2072,8 @@ export async function resolveWorkflowPrincipalUserId(
   em: any,
   instance: CallApiInstanceLike
 ): Promise<string | null> {
+  assertTrustedEventTriggerIdentity(instance)
+
   const definition = await loadInstanceDefinition(em, instance)
 
   // 0. A declared execution grant outranks both — the run acts as its own
@@ -1966,9 +2092,11 @@ export async function resolveWorkflowPrincipalUserId(
 const CALL_API_MAX_REDIRECTS = 3
 const CALL_API_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
+class CallApiRefusalError extends Error {}
+
 async function createCallApiError(key: string, fallback: string, params?: TranslateParams): Promise<Error> {
   const { translate } = await resolveTranslations()
-  return new Error(translate(key, fallback, params))
+  return new CallApiRefusalError(translate(key, fallback, params))
 }
 
 function createAppUrlNotHttpError(appUrl: string): Promise<Error> {
@@ -2000,11 +2128,8 @@ async function resolveCallApiUrl(endpoint: string): Promise<URL> {
     target = endpoint.startsWith('/')
       ? new URL(`${appUrl.replace(/\/+$/, '')}${endpoint}`)
       : new URL(endpoint)
-  } catch (error) {
-    if (error instanceof TypeError) {
-      throw new Error(`Invalid endpoint URL: ${endpoint}`)
-    }
-    throw error
+  } catch {
+    throw new CallApiRefusalError(`Invalid endpoint URL: ${endpoint}`)
   }
 
   if (appUrlObj.protocol !== 'http:' && appUrlObj.protocol !== 'https:') {
@@ -2030,7 +2155,7 @@ async function resolveCallApiUrl(endpoint: string): Promise<URL> {
 
   const apiPathPrefix = `${appUrlObj.pathname.replace(/\/+$/, '')}/api/`
   if (!target.pathname.startsWith(apiPathPrefix)) {
-    throw new Error(`CALL_API only supports /api/* paths, got: ${endpoint}`)
+    throw new CallApiRefusalError(`CALL_API only supports /api/* paths, got: ${endpoint}`)
   }
 
   return target
@@ -2064,7 +2189,7 @@ async function fetchCallApiWithGuardedRedirects(
     const location = response.headers.get('location')
     const refuse = async () => {
       const { translate } = await resolveTranslations()
-      return new Error(
+      return new CallApiRefusalError(
         translate(
           'workflows.errors.callApi.redirectRefused',
           'CALL_API refused to follow redirect {status} to {location}',

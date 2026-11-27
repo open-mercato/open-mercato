@@ -10,6 +10,8 @@ import { isValidIso639 } from '@open-mercato/shared/lib/i18n/iso639'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { tryResolve } from '../../lib/tryResolve'
 
 const logger = createLogger('translations').child({ component: 'locales' })
 
@@ -30,6 +32,15 @@ async function PUT(req: Request) {
     const body = bodySchema.parse(await req.json())
     const uniqueLocales = [...new Set(body.locales.map((l) => l.toLowerCase().trim()))]
 
+    const configService = tryResolve<ModuleConfigService>(context.container, 'moduleConfigService')
+    if (!configService) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        { error: translate('translations.locales.errors.storageUnavailable', 'Settings storage unavailable') },
+        { status: 503 },
+      )
+    }
+
     const guardUserId = resolveTranslationsActorId(context.auth)
     const guardResult = await validateCrudMutationGuard(context.container, {
       tenantId: context.tenantId,
@@ -46,7 +57,6 @@ async function PUT(req: Request) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    const configService = context.container.resolve('moduleConfigService') as ModuleConfigService
     await configService.setValue('translations', 'supported_locales', uniqueLocales, { tenantId: context.tenantId })
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
@@ -91,6 +101,7 @@ const putDoc: OpenApiMethodDoc = {
   ],
   errors: [
     { status: 400, description: 'Invalid request body' },
+    { status: 503, description: 'Settings storage unavailable (configs module disabled)' },
   ],
 }
 

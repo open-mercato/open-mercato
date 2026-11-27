@@ -7,6 +7,7 @@ import { getSupportedLocales } from '@open-mercato/shared/lib/i18n/locale-set'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { tryResolve } from '../../lib/tryResolve'
 
 const logger = createLogger('translations').child({ component: 'locales' })
 
@@ -19,11 +20,13 @@ async function GET(req: Request) {
   try {
     const context = await resolveTranslationsRouteContext(req)
 
-    const configService = context.container.resolve('moduleConfigService') as ModuleConfigService
-    const locales = await configService.getValue<string[]>('translations', 'supported_locales', {
-      defaultValue: [...defaultLocales],
-      scope: { tenantId: context.tenantId },
-    })
+    const configService = tryResolve<ModuleConfigService>(context.container, 'moduleConfigService')
+    const locales = configService
+      ? await configService.getValue<string[]>('translations', 'supported_locales', {
+          defaultValue: [...defaultLocales],
+          scope: { tenantId: context.tenantId },
+        })
+      : [...defaultLocales]
 
     // `servable` is what the application can actually render its own UI in
     // (platform baseline plus app-registered locales). The stored selection also

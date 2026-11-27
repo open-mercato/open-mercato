@@ -16,7 +16,7 @@ export async function POST(
   req: Request,
   { params }: { params: { id: string; actionId: string } }
 ) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
 
   const rawBody = await req.json().catch(() => ({}))

@@ -7,9 +7,11 @@ const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const getValueMock = jest.fn()
 const setValueMock = jest.fn()
 
+let configsEnabled = true
+
 const container = {
   resolve: jest.fn((name: string) => {
-    if (name === 'moduleConfigService') {
+    if (name === 'moduleConfigService' && configsEnabled) {
       return {
         getValue: (...args: unknown[]) => getValueMock(...args),
         setValue: (...args: unknown[]) => setValueMock(...args),
@@ -34,6 +36,12 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  })),
+}))
+
 import { GET, PUT } from '../route'
 
 const makePutRequest = (unitPriceDisplayEnabled: boolean) =>
@@ -47,6 +55,7 @@ describe('catalog settings route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     authValue = { tenantId, sub: userId, orgId: organizationId }
+    configsEnabled = true
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
     getValueMock.mockResolvedValue(undefined)
@@ -109,5 +118,28 @@ describe('catalog settings route', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Conflict' })
     expect(setValueMock).not.toHaveBeenCalled()
     expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  describe('without the configs module', () => {
+    beforeEach(() => {
+      configsEnabled = false
+    })
+
+    it('GET returns the default instead of failing', async () => {
+      const response = await GET(new Request('http://localhost/api/catalog/settings'))
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ unitPriceDisplayEnabled: true })
+    })
+
+    it('PUT returns 503 with a translated message before running the mutation guard', async () => {
+      const response = await PUT(makePutRequest(false))
+      expect(response.status).toBe(503)
+      await expect(response.json()).resolves.toEqual({
+        error: 'Catalog settings cannot be saved because the configs module is not enabled.',
+      })
+      expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+      expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+      expect(setValueMock).not.toHaveBeenCalled()
+    })
   })
 })

@@ -24,7 +24,7 @@ import {
  * but NOT search.reindex must therefore be provisioned explicitly to prove the
  * granular reindex gate (employee cannot stand in — it lacks search.view too).
  */
-const VALID_PASSWORD = 'Valid1!Pass'
+const VALID_PASSWORD = 'QaValid1!Pass'
 
 test.describe('TC-SEARCH-003: search API auth & feature gates (401/403)', () => {
   test('gates search.view and search.reindex by authentication and feature', async ({ request }) => {
@@ -75,6 +75,16 @@ test.describe('TC-SEARCH-003: search API auth & feature gates (401/403)', () => 
       // narrows the readable set to nothing and the results come back empty;
       // the gate assertion is about the status code, which stays 200.
       expect(viewerSearch.status(), 'search.view passes the gate, so the search succeeds with 200').toBe(200)
+
+      for (const entityId of [undefined, 'customers:customer_company_profile']) {
+        const query = new URLSearchParams({ limit: '2', offset: '1' })
+        if (entityId) query.set('entityId', entityId)
+        const indexPage = await apiRequest(request, 'GET', `/api/search/index?${query}`, {
+          token: viewerToken,
+        })
+        expect(indexPage.status()).toBe(200)
+        expect(await indexPage.json()).toEqual({ entries: [], limit: 2, offset: 1 })
+      }
 
       const viewerReindex = await apiRequest(request, 'POST', '/api/search/reindex', { token: viewerToken, data: {} })
       expect(viewerReindex.status(), 'viewer lacking search.reindex must be forbidden on reindex').toBe(403)

@@ -85,9 +85,11 @@ it('runs rendered and headless handlers once in priority order across canonical,
 })
 
 it('headless validation blocks save, then transformations and visible contributor values reach handlers only', async () => {
+  const fieldLoad = jest.fn()
   const saved = jest.fn()
   const nativeSubmit = jest.fn()
   const field = fieldWidget('test.priority', {
+    onLoad: fieldLoad,
     onBeforeSave: async (data) => data['_extension.priority'] === 'blocked' ? { ok: false, fieldErrors: { '_extension.priority': 'Invalid priority' } } : true,
     transformFormData: async (data) => ({ ...data, name: 'Transformed' }),
     onSave: saved,
@@ -95,6 +97,7 @@ it('headless validation blocks save, then transformations and visible contributo
   field.fields.push({ id: '_extension.secret', label: 'Secret', type: 'text', group: 'details', visibleWhen: { field: 'name', operator: 'eq', value: 'Visible' } })
   register([field], { [`${SPOT}:fields`]: 'test.priority' })
   const { container, getByLabelText } = renderForm({ initialValues: { id: 'record-1', name: 'Original', _extension: { priority: 'blocked', secret: 'hidden' } }, onSubmit: nativeSubmit })
+  await waitFor(() => expect(fieldLoad).toHaveBeenCalledTimes(1))
   await waitFor(() => expect(getByLabelText('Priority')).toHaveValue('blocked'))
   fireEvent.submit(container.querySelector('form')!)
   await waitFor(() => expect(container.textContent).toContain('Invalid priority'))
@@ -386,9 +389,12 @@ it('does not emit a save failure when the post-save success callback throws', as
     const { container } = renderForm({ onSubmit, onSubmitSuccess, successRedirect: '/saved' })
     fireEvent.submit(container.querySelector('form')!)
     await waitFor(() => expect(onSubmitSuccess).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(container.querySelector('button[type="submit"]')).not.toBeDisabled())
-    expect(onSubmit).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/saved'))
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    // A successful save that redirects keeps the submit lock held until the
+    // route actually unmounts the form (issue #8645) — the button stays
+    // disabled rather than re-opening a window for a duplicate submit.
+    expect(container.querySelector('button[type="submit"]')).toBeDisabled()
     expect(saveError).not.toHaveBeenCalled()
     expect(container.textContent).not.toContain('refresh failed')
   } finally {

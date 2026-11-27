@@ -2,8 +2,8 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
-import { CompanyDetailTabs } from '../CompanyDetailTabs'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { CompanyDetailTabs, resolveLegacyTab } from '../CompanyDetailTabs'
 
 let mockGrantedFeatures: string[] = []
 
@@ -30,11 +30,30 @@ function renderTabs() {
   )
 }
 
+// Tabs past the inline limit live in the More menu, so the order spans both lists.
 function tabOrder() {
-  return screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())
+  const inline = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())
+  const more = screen.queryByRole('button', { name: /^More/ })
+  if (!more) return inline
+  fireEvent.click(more)
+  const overflow = screen.queryAllByRole('menuitem').map((item) => item.textContent?.trim())
+  return [...inline, ...overflow]
 }
 
 describe('CompanyDetailTabs', () => {
+  it('selects the built-in Addresses tab for an addresses deep link', () => {
+    mockGrantedFeatures = ['customers.*']
+    const onTabChange = jest.fn()
+    render(
+      <CompanyDetailTabs activeTab={resolveLegacyTab('addresses')} onTabChange={onTabChange}>
+        <div>content</div>
+      </CompanyDetailTabs>,
+    )
+
+    expect(screen.getByRole('tab', { name: 'Addresses' })).toHaveAttribute('aria-selected', 'true')
+    expect(onTabChange).not.toHaveBeenCalled()
+  })
+
   it('preserves a pending injected selection and native defaults while sorting deduplicated tabs', () => {
     const onTabChange = jest.fn()
     const { rerender } = render(
@@ -78,6 +97,38 @@ describe('CompanyDetailTabs', () => {
     renderTabs()
     expect(screen.queryByRole('tab', { name: /deals/i })).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /people/i })).toBeInTheDocument()
+  })
+
+  it('folds overflowing tabs into a More menu instead of scrolling the strip (#7487)', () => {
+    mockGrantedFeatures = ['customers.*']
+    const onTabChange = jest.fn()
+    render(
+      <CompanyDetailTabs
+        activeTab="people"
+        onTabChange={onTabChange}
+        injectedTabs={[
+          { id: 'pending-work', label: 'Pending work', priority: 75 },
+          { id: 'groups', label: 'Groups', priority: 45 },
+          { id: 'claims', label: 'Claims', priority: 40 },
+        ]}
+      >
+        <div>content</div>
+      </CompanyDetailTabs>,
+    )
+    // Injected tabs with a positive priority precede the built-ins (#8020); the rail keeps
+    // six inline and folds the rest into More.
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Pending work',
+      'Groups',
+      'Claims',
+      'People',
+      'Deals',
+      'Activity log',
+    ])
+    expect(screen.getByRole('tablist').className).not.toMatch(/overflow-x-auto/)
+    fireEvent.click(screen.getByRole('button', { name: /^More/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /changelog/i }))
+    expect(onTabChange).toHaveBeenCalledWith('changelog')
   })
 
   it('renders the Deals tab for a wildcard customers.* grant', () => {

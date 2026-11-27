@@ -5,7 +5,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { AgentRun, AgentRunArtifact } from '../../../../data/entities'
+import { AgentRun, AgentRunArtifact, AgentSpan } from '../../../../data/entities'
+import { ARTIFACT_CAPTURE_SPAN_NAME, readArtifactCaptureFailure } from '../../../../lib/trace/artifactCaptureStatus'
 
 /**
  * List the file artifacts an OpenCode file-agent produced during a run (file
@@ -48,8 +49,16 @@ export async function GET(req: Request, ctx: RouteContext) {
     { orderBy: { createdAt: 'asc' } },
     decryptionScope,
   )
+  const captureSpans = await findWithDecryption(
+    em,
+    AgentSpan,
+    { agentRunId: run.id, ...scope, name: ARTIFACT_CAPTURE_SPAN_NAME },
+    { orderBy: { sequence: 'desc' }, limit: 1 },
+    decryptionScope,
+  )
 
   return NextResponse.json({
+    captureFailure: readArtifactCaptureFailure(captureSpans[0]),
     items: artifacts.map((artifact) => ({
       id: artifact.id,
       fileName: artifact.fileName,
@@ -71,7 +80,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List the files a file-agent produced during a run',
       description:
-        'Returns metadata (no bytes) for every captured AgentRunArtifact of the run. Org-scoped; gated by agent_orchestrator.trace.view. Download bytes via /api/agent_orchestrator/artifacts/file/:id.',
+        'Returns metadata (no bytes) for every captured AgentRunArtifact of the run, plus `captureFailure` ({ count, reason } with reason `encryption_unavailable` or `storage_unavailable`, or null) for files the agent produced that were not stored. Org-scoped; gated by agent_orchestrator.trace.view. Download bytes via /api/agent_orchestrator/artifacts/file/:id.',
       responses: [{ status: 200, description: 'Run artifact list' }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },

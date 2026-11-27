@@ -209,8 +209,9 @@ async function expectDialogComboboxLabel(dialog: Locator, label: string): Promis
   await expect(dialog.getByRole('combobox').filter({ hasText: label }).first()).toBeVisible()
 }
 
+// A saved lookup value renders as the picker's collapsed summary row (#6196).
 async function expectDialogLookupLabel(dialog: Locator, label: string): Promise<void> {
-  await expect(dialog.getByRole('option').filter({ hasText: label }).first()).toBeVisible()
+  await expect(dialog.getByTestId('lookup-select-selected').filter({ hasText: label }).first()).toBeVisible()
 }
 
 test.describe('TC-SALES-031: Sales edit dialogs prefill saved async selects', () => {

@@ -11,6 +11,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { getVisibleRange } from '../../lib/calendar/range'
 import { eventDisplayTitle } from '../../lib/calendar/labels'
 import { formatTimeRangeLabel } from '../../lib/calendar/format'
+import { readableTypeColor } from './EventBlock'
 import type { CalendarItem, MonthGridProps } from './types'
 
 const MAX_PILLS_PER_DAY = 2
@@ -56,20 +57,22 @@ function groupItemsByDay(items: CalendarItem[]): Map<string, CalendarItem[]> {
   return byDay
 }
 
-function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (item: CalendarItem) => void }) {
+function MonthPill({ item, onItemClick, conflictDescription }: { item: CalendarItem; onItemClick: (item: CalendarItem) => void; conflictDescription?: string }) {
   const t = useT()
   const locale = useLocale()
   const canceled = item.status === 'canceled'
   const title = eventDisplayTitle(item.title, t('customers.calendar.grid.untitled', 'Untitled'))
-  const timeLabel = item.allDay ? '' : ` · ${formatTimeRangeLabel(locale, item.start, item.end)}`
+  const timeLabel = item.allDay ? '' : `, ${formatTimeRangeLabel(locale, item.start, item.end)}`
   const tintStyle = item.color
-    ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: item.color }
+    ? { backgroundColor: `${item.color}${SOFT_TINT_ALPHA}`, color: readableTypeColor(item.color) }
     : undefined
   return (
     <Button
       type="button"
       variant="ghost"
       aria-label={`${title}${timeLabel}`}
+      aria-description={conflictDescription}
+      title={conflictDescription}
       onClick={(event) => {
         event.stopPropagation()
         onItemClick(item)
@@ -78,6 +81,7 @@ function MonthPill({ item, onItemClick }: { item: CalendarItem; onItemClick: (it
         'h-4 w-full min-w-0 justify-center gap-0 rounded-full p-0 pr-2',
         !item.color && 'bg-muted text-muted-foreground',
         canceled && 'opacity-60',
+        conflictDescription && 'ring-1 ring-status-warning-icon',
       )}
       style={tintStyle}
     >
@@ -105,12 +109,14 @@ function MonthDayCell({
   items,
   onItemClick,
   onDayOpen,
+  conflictDescriptions,
 }: {
   day: Date
   anchor: Date
   items: CalendarItem[]
   onItemClick: (item: CalendarItem) => void
   onDayOpen: (date: Date) => void
+  conflictDescriptions?: ReadonlyMap<string, string>
 }) {
   const t = useT()
   const locale = useLocale()
@@ -119,6 +125,7 @@ function MonthDayCell({
   const visibleItems = items.slice(0, MAX_PILLS_PER_DAY)
   const hiddenCount = items.length - visibleItems.length
   const dayLabel = fullDateLabel(locale, day)
+  const conflictDescription = items.flatMap((item) => conflictDescriptions?.get(item.id) ?? []).join(' · ') || undefined
   return (
     <div
       className={cn(
@@ -130,6 +137,8 @@ function MonthDayCell({
         type="button"
         variant="ghost"
         aria-label={dayLabel}
+        aria-description={conflictDescription}
+        title={conflictDescription}
         onClick={() => onDayOpen(day)}
         className="absolute inset-0 z-0 h-full w-full rounded-none p-0 hover:bg-muted/50"
       >
@@ -146,7 +155,7 @@ function MonthDayCell({
       )}
       <span className="relative z-20 hidden w-full flex-col gap-1 sm:flex">
         {visibleItems.map((item) => (
-          <MonthPill key={item.id} item={item} onItemClick={onItemClick} />
+          <MonthPill key={item.id} item={item} onItemClick={onItemClick} conflictDescription={conflictDescriptions?.get(item.id)} />
         ))}
         {hiddenCount > 0 ? (
           <Button
@@ -168,7 +177,11 @@ function MonthDayCell({
           {items.slice(0, 4).map((item) => (
             <span
               key={item.id}
-              className={cn('size-1.5 rounded-full', !item.color && 'bg-muted-foreground')}
+              className={cn(
+                'size-1.5 rounded-full',
+                !item.color && 'bg-muted-foreground',
+                conflictDescriptions?.has(item.id) && 'ring-1 ring-status-warning-icon',
+              )}
               style={item.color ? { backgroundColor: item.color } : undefined}
             />
           ))}
@@ -183,7 +196,7 @@ function MonthDayCell({
   )
 }
 
-export function MonthGrid({ anchor, items, onItemClick, onDayOpen }: MonthGridProps) {
+export function MonthGrid({ anchor, items, onItemClick, onDayOpen, conflictDescriptions }: MonthGridProps) {
   const t = useT()
   const locale = useLocale()
   const weeks = React.useMemo(() => buildWeeks(anchor), [anchor])
@@ -219,6 +232,7 @@ export function MonthGrid({ anchor, items, onItemClick, onDayOpen }: MonthGridPr
               items={itemsByDay.get(dayKeyOf(day)) ?? []}
               onItemClick={onItemClick}
               onDayOpen={onDayOpen}
+              conflictDescriptions={conflictDescriptions}
             />
           ))}
         </div>

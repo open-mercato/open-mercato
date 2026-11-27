@@ -27,19 +27,19 @@ describe('FlashMessages', () => {
   })
 
   it.each([
-    ['en', 'Close'],
-    ['pl', 'Zamknij'],
-    ['de', 'Schließen'],
-    ['es', 'Cerrar'],
-    ['ko', '닫기'],
-  ])('localizes the close control in %s and dismisses the flash', (locale, closeLabel) => {
-    renderWithProviders(<FlashMessages />, { locale, dict: { 'common.close': closeLabel } })
+    ['en', 'Dismiss notification'],
+    ['pl', 'Zamknij powiadomienie'],
+    ['de', 'Benachrichtigung schließen'],
+    ['es', 'Descartar notificación'],
+    ['ko', '알림 닫기'],
+  ])('localizes the dismiss control in %s and dismisses the flash', (locale, dismissLabel) => {
+    renderWithProviders(<FlashMessages />, { locale, dict: { 'ui.flash.dismiss': dismissLabel } })
 
     act(() => {
       flash('Dictionary conflict', 'error')
     })
 
-    fireEvent.click(screen.getByRole('button', { name: closeLabel }))
+    fireEvent.click(screen.getByRole('button', { name: dismissLabel }))
 
     expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
     act(() => {
@@ -48,16 +48,36 @@ describe('FlashMessages', () => {
     expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
   })
 
-  it('keeps the close control usable without an i18n provider', () => {
+  it('keeps the dismiss control usable without an i18n provider', () => {
     render(<FlashMessages />)
 
     act(() => {
       flash('Dictionary conflict', 'error')
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification' }))
 
     expect(screen.queryByText('Dictionary conflict')).not.toBeInTheDocument()
+  })
+
+  it('keeps the dismiss control distinct from a dialog Close button shown at the same time', () => {
+    renderWithProviders(
+      <>
+        <div role="dialog" aria-label="API key">
+          <button type="button">Close</button>
+        </div>
+        <FlashMessages />
+      </>,
+      { dict: { 'common.close': 'Close', 'ui.flash.dismiss': 'Dismiss notification' } },
+    )
+
+    act(() => {
+      flash('API key created', 'success')
+    })
+
+    expect(screen.getByText('API key created')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Close' })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: /close/i })).toHaveLength(1)
   })
 
   it('auto-dismisses URL-based flashes after stripping query params', () => {
@@ -261,6 +281,47 @@ describe('FlashMessages', () => {
     expect(window.location.search).toBe('')
 
     jest.useFakeTimers()
+  })
+
+  /**
+   * Regression for #8701: unlike a programmatic flash, a URL-sourced one used
+   * to be delivered only to the primary host's own local state. When that
+   * host unmounted mid-display, the survivor took over the primary role but
+   * had never received the message (and the URL params were already
+   * stripped), so the still-visible toast vanished instead of handing over.
+   */
+  it('hands a displayed URL flash over when the primary host unmounts, preserving its original expiry', () => {
+    window.history.replaceState({}, '', 'http://localhost/backend/checkout/pay-links?flash=Saved&type=success')
+
+    function Hosts({ withPrimary }: { withPrimary: boolean }) {
+      return (
+        <>
+          {withPrimary ? <FlashMessages /> : null}
+          <FlashMessages />
+        </>
+      )
+    }
+
+    const { rerender } = renderWithProviders(<Hosts withPrimary />)
+
+    expect(screen.getAllByText('Saved')).toHaveLength(1)
+    expect(window.location.search).toBe('')
+
+    act(() => {
+      jest.advanceTimersByTime(1500)
+    })
+
+    act(() => {
+      rerender(<Hosts withPrimary={false} />)
+    })
+
+    expect(screen.getAllByText('Saved')).toHaveLength(1)
+
+    act(() => {
+      jest.advanceTimersByTime(1500)
+    })
+
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
   })
 
   it('auto-dismisses programmatic flashes', () => {

@@ -1,5 +1,6 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { isSearchDebugEnabled, searchDebug, searchDebugWarn, searchWarn, searchError } from '../lib/debug'
+import { registerTelemetryRuntime, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { isSearchDebugEnabled, reportSearchError, searchDebug, searchDebugWarn, searchWarn, searchError } from '../lib/debug'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -133,6 +134,46 @@ describe('search debug utilities', () => {
       searchError('search.test', 'failed')
 
       expect(searchLoggerError).toHaveBeenCalledWith('failed', undefined)
+    })
+  })
+
+  describe('reportSearchError', () => {
+    it('normalizes non-Error rejection values before reporting them', () => {
+      const reportError = jest.fn()
+      const unregister = registerTelemetryRuntime({ reportError } as unknown as TelemetryRuntime)
+      try {
+        const rejectedValue = { credentials: 'must-not-reach-telemetry' }
+
+        reportSearchError('search.test', rejectedValue, 'search.test_failure')
+
+        expect(reportError).toHaveBeenCalledWith(
+          expect.objectContaining({ message: '[internal] Search failure rejected with a non-Error value' }),
+          { module: 'search', code: 'search.test_failure', attributes: undefined },
+        )
+        expect(reportError.mock.calls[0][0]).not.toBe(rejectedValue)
+      } finally {
+        unregister()
+      }
+    })
+
+    it('does not put non-Error telemetry failures into structured logs', () => {
+      const telemetryFailure = { credentials: 'must-not-reach-logs' }
+      const unregister = registerTelemetryRuntime({
+        reportError: () => {
+          throw telemetryFailure
+        },
+      } as unknown as TelemetryRuntime)
+      try {
+        reportSearchError('search.test', new Error('indexing failed'), 'search.test_failure')
+
+        expect(searchLoggerWarn).toHaveBeenCalledWith('Telemetry error report failed', {
+          code: 'search.test_failure',
+          error: '[internal] Telemetry backend threw a non-Error value',
+        })
+        expect(searchLoggerWarn.mock.calls[0][1].error).not.toBe(telemetryFailure)
+      } finally {
+        unregister()
+      }
     })
   })
 })

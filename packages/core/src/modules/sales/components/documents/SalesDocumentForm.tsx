@@ -1,10 +1,14 @@
 "use client"
 
 import * as React from 'react'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { Label } from '@open-mercato/ui/primitives/label'
+import { Alert } from '@open-mercato/ui/primitives/alert'
+import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Select,
@@ -29,6 +33,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { E } from '#generated/entities.ids.generated'
 import {
   DictionaryEntrySelect,
@@ -341,7 +346,6 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
     <div className="relative" ref={menuRef}>
       <Button
         type="button"
-        size="sm"
         variant="outline"
         className="gap-2"
         onClick={() => setMenuOpen((open) => !open)}
@@ -476,8 +480,10 @@ function DocumentNumberField({ value, setValue, values, t }: DocumentNumberField
   const [error, setError] = React.useState<string | null>(null)
   const autoValueRef = React.useRef<string | null>(null)
   const lastKindRef = React.useRef<DocumentKind | null>(null)
+  const requestIdRef = React.useRef(0)
 
   const requestNumber = React.useCallback(async () => {
+    const requestId = ++requestIdRef.current
     setLoading(true)
     setError(null)
     try {
@@ -486,37 +492,48 @@ function DocumentNumberField({ value, setValue, values, t }: DocumentNumberField
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ kind }),
       })
+      if (requestId !== requestIdRef.current) return
       const nextNumber = typeof call.result?.number === 'string' ? call.result.number : null
       if (call.ok && nextNumber) {
         autoValueRef.current = nextNumber
-        lastKindRef.current = kind
         setValue(nextNumber)
       } else {
         setError(call.result?.error || t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.'))
       }
     } catch (err) {
+      if (requestId !== requestIdRef.current) return
       logger.error('sales.documents.generateNumber', { err })
       setError(t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.'))
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }, [kind, setValue, t])
 
-  React.useEffect(() => {
-    const current = typeof value === 'string' ? value.trim() : ''
-    if (!current.length && !lastKindRef.current) {
+  React.useLayoutEffect(() => {
+    if (lastKindRef.current === kind) return
+    lastKindRef.current = kind
+    const current = typeof value === 'string' ? value : ''
+    const wasGenerated = current === autoValueRef.current
+    autoValueRef.current = null
+    if (wasGenerated) setValue('')
+    if (wasGenerated || !current.trim()) {
       void requestNumber()
     } else {
-      lastKindRef.current = kind
+      requestIdRef.current += 1
+      setLoading(false)
+      setError(null)
     }
-  }, [kind, requestNumber, value])
+  }, [kind, requestNumber, setValue, value])
 
   return (
     <div className="space-y-2">
       <div className="flex w-full flex-col gap-2 md:flex-row md:items-center md:gap-3">
         <Input
           value={typeof value === 'string' ? value : ''}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            autoValueRef.current = null
+            setValue(event.target.value)
+          }}
           disabled={loading}
           spellCheck={false}
           className="w-full md:flex-1"
@@ -666,6 +683,10 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
 
 function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, customerQuerySetter, loadAddresses, loadCustomers, fetchCustomerEmail, resetAddressFormState }: CustomerGroupComponentProps) {
   const emailValue = typeof values.customerEmail === 'string' ? values.customerEmail : ''
+  const emailFieldId = React.useId()
+  // The e-mail the form filled in from the picked customer. Clearing that customer takes
+  // it away again, so the duplicate check does not offer the customer the user just removed.
+  const autoFilledEmailRef = React.useRef<string | null>(null)
   const { duplicate, checking } = useEmailDuplicateCheck(emailValue, {
     disabled: false,
     debounceMs: 400,
@@ -681,6 +702,12 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
               resetAddressFormState(setValue)
             }
             setValue('customerEntityId', next)
+            if (!next) {
+              if (autoFilledEmailRef.current && autoFilledEmailRef.current === values.customerEmail) {
+                setValue('customerEmail', '')
+              }
+              autoFilledEmailRef.current = null
+            }
             loadAddresses(next).then((addrs) => {
               const primary = addrs.find((addr) => addr.isPrimary)
               if (primary) {
@@ -694,11 +721,15 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
                   ? match.primaryEmail
                   : null
               if (possibleEmail) {
+                autoFilledEmailRef.current = possibleEmail
                 setValue('customerEmail', possibleEmail)
               } else {
                 fetchCustomerEmail(next, match?.kind)
                   .then((email) => {
-                    if (email) setValue('customerEmail', email)
+                    if (email) {
+                      autoFilledEmailRef.current = email
+                      setValue('customerEmail', email)
+                    }
                   })
                   .catch(() => {})
               }
@@ -745,6 +776,7 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
                   }
                 }).catch((err) => { logger.error('sales.documents.autoSelectAddress', { err }) })
                 if (email && !values.customerEmail) {
+                  autoFilledEmailRef.current = email
                   setValue('customerEmail', email)
                 }
               }}
@@ -760,37 +792,36 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
         />
       </div>
       <div className="space-y-2">
+        <Label htmlFor={emailFieldId}>{t('sales.documents.form.email.label', 'Send to')}</Label>
         <EmailInput
+          id={emailFieldId}
           value={emailValue}
           onChange={(event) => setValue('customerEmail', event.target.value)}
           placeholder={t('sales.documents.form.email.placeholder', 'Email used for the document')}
           spellCheck={false}
         />
-        {duplicate ? (
-          <div className="flex items-center justify-between rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">
-            <span>
-              {t('customers.people.form.emailDuplicateNotice', undefined, { name: duplicate.displayName })}
-            </span>
-            <Button
-              size="sm"
-              variant="secondary"
-              className="px-4"
-              type="button"
-              disabled={values.customerEntityId === duplicate.id}
-              aria-disabled={values.customerEntityId === duplicate.id}
-              onClick={() => {
-                setValue('customerEntityId', duplicate.id)
-                resetAddressFormState(setValue)
-                loadAddresses(duplicate.id)
-              }}
-            >
-              {values.customerEntityId === duplicate.id
-                ? t('sales.documents.form.email.alreadySelected', 'Selected customer')
-                : t('sales.documents.form.email.selectCustomer', 'Select customer')}
-            </Button>
-          </div>
+        {duplicate && !values.customerEntityId ? (
+          <Alert
+            status="information"
+            style="lighter"
+            size="sm"
+            action={
+              <LinkButton
+                type="button"
+                onClick={() => {
+                  setValue('customerEntityId', duplicate.id)
+                  resetAddressFormState(setValue)
+                  loadAddresses(duplicate.id)
+                }}
+              >
+                {t('sales.documents.form.email.useCustomer', 'Use this customer')}
+              </LinkButton>
+            }
+          >
+            {t('sales.documents.form.email.knownCustomer', 'This e-mail belongs to {{name}}.', { name: duplicate.displayName })}
+          </Alert>
         ) : null}
-        {!duplicate && checking ? (
+        {!duplicate && checking && !values.customerEntityId ? (
           <p className="text-xs text-muted-foreground">{t('customers.people.form.emailChecking')}</p>
         ) : null}
       </div>
@@ -800,6 +831,8 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
 
 export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind, inboxPreFill }: SalesDocumentFormProps) {
   const t = useT()
+  const { payload: backendChrome, isReady: backendChromeReady } = useBackendChrome()
+  const canEditDocumentNumber = backendChromeReady && hasFeature(backendChrome?.grantedFeatures, 'sales.documents.number.edit')
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
@@ -1111,6 +1144,10 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     [],
   )
 
+  // The order lines card only exists for orders; CrudForm cannot read the live
+  // document kind from its own values, so the toggle mirrors it here.
+  const [documentKindState, setDocumentKindState] = React.useState<DocumentKind>(initialKind === 'order' ? 'order' : 'quote')
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'documentKind',
@@ -1130,7 +1167,10 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     key={kind}
                     type="button"
                     variant={current === kind ? 'default' : 'ghost'}
-                    onClick={() => setValue(kind)}
+                    onClick={() => {
+                      setValue(kind)
+                      setDocumentKindState(kind)
+                    }}
                   >
                     {t(`sales.documents.form.kind.${kind}`, kind.charAt(0).toUpperCase() + kind.slice(1))}
                   </Button>
@@ -1147,13 +1187,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         )
       },
     },
-    {
+    ...(canEditDocumentNumber ? [{
       id: 'documentNumber',
       label: t('sales.documents.form.number', 'Document number'),
       type: 'custom',
       required: true,
       component: (props) => <DocumentNumberField {...props} t={t} />,
-    },
+    } satisfies CrudField] : []),
     {
       id: 'currencyCode',
       label: t('sales.documents.form.currency', 'Currency'),
@@ -1323,6 +1363,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     addressOptions,
     addressesError,
     addressesLoading,
+    canEditDocumentNumber,
     channelsEnabled,
     currencyLabels,
     defaultCurrency,
@@ -1337,7 +1378,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   ])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'docType', title: '', column: 1, fields: ['documentKind', 'documentNumber'] },
+    { id: 'docType', title: '', column: 1, fields: canEditDocumentNumber ? ['documentKind', 'documentNumber'] : ['documentKind'] },
     {
       id: 'customer',
       title: '',
@@ -1352,6 +1393,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     { id: 'billing', title: '', column: 2, fields: ['billingAddressSection'] },
     { id: 'custom', title: t('sales.documents.form.customFields', 'Custom fields'), column: 2, kind: 'customFields' },
   ], [
+    canEditDocumentNumber,
     channelsEnabled,
     customers,
     fetchCustomerEmail,
@@ -1415,12 +1457,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         metadata: base.customerEmail ? { customerEmail: base.customerEmail } : undefined,
       }
       payload.channelId = base.channelId || undefined
-      const documentNumber = typeof base.documentNumber === 'string' ? base.documentNumber.trim() : ''
-      if (!documentNumber) {
-        throw createCrudFormError(t('sales.documents.form.errors.numberRequired', 'Document number is required.'))
+      if (canEditDocumentNumber) {
+        const documentNumber = typeof base.documentNumber === 'string' ? base.documentNumber.trim() : ''
+        if (!documentNumber) {
+          throw createCrudFormError(t('sales.documents.form.errors.numberRequired', 'Document number is required.'))
+        }
+        payload[documentKind === 'order' ? 'orderNumber' : 'quoteNumber'] = documentNumber
       }
       if (documentKind === 'order') {
-        payload.orderNumber = documentNumber
         const lines = Array.isArray(base.lines) ? base.lines : []
         if (lines.length === 0) {
           const message = t('sales.orders.linesRequired', 'Add at least one line item before creating the order.')
@@ -1436,8 +1480,6 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           } = line.payload
           return { ...linePayload, currencyCode: linePayload.currencyCode || payload.currencyCode }
         })
-      } else {
-        payload.quoteNumber = documentNumber
       }
       const shippingSnapshot = base.useCustomShipping ? normalizeAddressDraft(base.shippingAddressDraft) : null
       let billingSnapshot = base.useCustomBilling ? normalizeAddressDraft(base.billingAddressDraft) : null
@@ -1520,7 +1562,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         throw createCrudFormError(t('sales.documents.form.errors.submit', 'Failed to create document.'))
       }
     },
-    [onCreated, t],
+    [canEditDocumentNumber, onCreated, t],
   )
 
   const cancelHref = initialKind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
@@ -1537,6 +1579,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       submitLabel={t('sales.documents.form.submit', 'Create')}
       cancelHref={cancelHref}
       onSubmit={handleSubmit}
+      hiddenGroupIds={documentKindState === 'order' ? undefined : ['lines']}
     />
   )
 }

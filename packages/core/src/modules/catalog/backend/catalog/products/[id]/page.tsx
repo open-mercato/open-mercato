@@ -116,6 +116,7 @@ import { ProductUomSection } from "@open-mercato/core/modules/catalog/components
 import { ProductComplianceSection } from "@open-mercato/core/modules/catalog/components/products/ProductComplianceSection";
 import { canonicalizeUnitCode } from "@open-mercato/core/modules/catalog/lib/unitCodes";
 import {
+  applyProductMarkdownPreference,
   UNIT_PRICE_REFERENCE_UNITS,
   toTrimmedOrNull,
   parseNumericInput,
@@ -1026,6 +1027,10 @@ export default function EditCatalogProductPage({
             initialCategoryOptions={categorizeOptions.categories}
             initialChannelOptions={categorizeOptions.channels}
             initialTagOptions={categorizeOptions.tags}
+            productId={productId ?? ""}
+            initialCategoryIds={
+              Array.isArray(initialValues?.categoryIds) ? (initialValues.categoryIds as string[]) : []
+            }
           />
         ),
       },
@@ -1039,6 +1044,7 @@ export default function EditCatalogProductPage({
     [
       categorizeOptions,
       handleVariantDeleted,
+      initialValues,
       priceKinds,
       productId,
       refreshVariants,
@@ -3203,8 +3209,10 @@ function extractUomFields(record: Record<string, unknown>) {
 function buildMetadataPayload(
   values: ProductFormValues,
 ): Record<string, unknown> {
-  const metadata = normalizeMetadata(values.metadata);
-  metadata.__useMarkdown = values.useMarkdown ?? false;
+  const metadata = applyProductMarkdownPreference(
+    normalizeMetadata(values.metadata),
+    values.useMarkdown,
+  );
   delete metadata.optionSchema;
   delete metadata.option_schema;
   delete metadata.dimensions;

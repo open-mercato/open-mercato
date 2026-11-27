@@ -49,14 +49,11 @@ describe('customer_accounts signup — organization lookup must bind tenantId', 
     expect(existingBranch).not.toMatch(/resolvePortalLoginUrl\s*\(\s*baseUrl\s*,\s*orgRow\.slug/)
   })
 
-  test('existing-account branch pays the bcrypt floor so the 202 response is not a timing oracle', () => {
+  test('new and existing account branches pay the same bcrypt floor', () => {
     expect(signupSource).toMatch(/from\s+['"]bcryptjs['"]/)
     expect(signupSource).toMatch(/TIMING_EQUALIZATION_HASH\s*=\s*['"]\$2[aby]\$10\$/)
 
-    const existingBranchMatch = signupSource.match(/if\s*\(\s*existing\s*\)\s*\{([\s\S]*?)\n\s{2}\}/)
-    expect(existingBranchMatch).not.toBeNull()
-    const existingBranch = existingBranchMatch?.[1] ?? ''
-    expect(existingBranch).toMatch(/await\s+bcryptCompare\s*\(\s*password\s*,\s*TIMING_EQUALIZATION_HASH\s*\)/)
+    expect(signupSource).toMatch(/await\s+bcryptCompare\(password\s*\?\?\s*'',\s*TIMING_EQUALIZATION_HASH\)[\s\S]*?if\s*\(existing\)/)
   })
 })
 

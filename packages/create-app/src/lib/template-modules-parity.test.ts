@@ -5,12 +5,6 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { TEMPLATE_COMMENTED_MODULES, TEMPLATE_CONTENT_TRANSFORMS } from '../../../../scripts/template-sync.ts'
 
-// `packages/create-app/template/src/modules.ts` deliberately diverges from
-// `apps/mercato/src/modules.ts`: design_system/example are stripped outright, while
-// channel_discord stays commented out with a maintainer-facing byte-budget explanation
-// (#5598). `TEMPLATE_CONTENT_TRANSFORMS['modules.ts']` is the only thing standing between
-// the two files silently drifting apart again.
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..')
 
@@ -57,4 +51,24 @@ test('modules.ts transform keeps every commented module commented out, not delet
       `${moduleId} must not remain enabled in the template`,
     )
   }
+})
+
+
+test('optional Discord registration does not install its inactive provider', () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(REPO_ROOT, 'packages/create-app/template/package.json.template'),
+    'utf8',
+  )) as { dependencies: Record<string, string> }
+  const source = fs.readFileSync(TEMPLATE_MODULES_FILE, 'utf8')
+
+  assert.equal(Object.hasOwn(manifest.dependencies, '@open-mercato/channel-discord'), false)
+  assert.match(source, /^\s*\/\/ \{ id: 'channel_discord', from: '@open-mercato\/channel-discord' \},/m)
+  assert.doesNotMatch(source, /^\s*\{ id: 'channel_discord',/m)
+})
+
+test('Discord opt-in instructions include installation before registration', () => {
+  const source = TEMPLATE_CONTENT_TRANSFORMS['modules.ts'](fs.readFileSync(APP_MODULES_FILE, 'utf8'))
+
+  assert.match(source, /yarn add @open-mercato\/channel-discord/)
+  assert.match(source, /uncomment the registration/)
 })

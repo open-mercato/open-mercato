@@ -15,12 +15,15 @@ import {
   acquireReindexLock,
   clearReindexLock,
   getReindexLockStatus,
+  isReindexLockDrained,
+  setReindexLockTotal,
 } from '../../lib/reindex-lock'
 import {
   completeReindexProgress,
-  ensureReindexProgressJob,
   failReindexProgress,
+  startReindexProgressJob,
 } from '../../lib/reindex-progress'
+import { tryResolve } from '../../lib/tryResolve'
 import { reindexOpenApi } from '../openapi'
 
 /** Strategy with optional stats support */
@@ -91,7 +94,7 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = tryResolve<ProgressService>(container, 'progressService')
   const db = (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
 
   // Check if another fulltext reindex operation is already in progress
@@ -167,6 +170,21 @@ export async function POST(req: Request) {
 
       let result
       const orgId = typeof auth.orgId === 'string' ? auth.orgId : null
+      const progressScope = {
+        tenantId,
+        organizationId: auth.orgId ?? null,
+        userId: auth.sub ?? null,
+      }
+      const progressJobId = await startReindexProgressJob({
+        em,
+        progressService,
+        type: 'fulltext',
+        ...progressScope,
+        description: entityId
+          ? `Reindex ${entityId} (${useQueue ? 'queued' : 'sync'})`
+          : `Reindex all entities (${useQueue ? 'queued' : 'sync'})`,
+        supersededMessage: t('search.api.errors.reindexSuperseded', 'Superseded by a newer reindex.'),
+      })
 
       // Debug: List enabled entities
       const enabledEntities = searchIndexer.listEnabledEntities()
@@ -309,20 +327,25 @@ export async function POST(req: Request) {
         }
       }
 
-      await ensureReindexProgressJob({
-        em,
-        progressService,
-        type: 'fulltext',
-        tenantId,
-        organizationId: auth.orgId ?? null,
-        userId: auth.sub ?? null,
-        totalCount: result.recordsIndexed,
-        description: entityId
-          ? `Reindex ${entityId} (${useQueue ? 'queued' : 'sync'})`
-          : `Reindex all entities (${useQueue ? 'queued' : 'sync'})`,
-      })
+      if (progressService && progressJobId) {
+        await progressService.updateProgress(progressJobId, { totalCount: result.recordsIndexed }, progressScope)
+      }
       const jobsEnqueued = result.jobsEnqueued ?? 0
-      if (!useQueue || jobsEnqueued === 0) {
+      const lockCounts = useQueue && jobsEnqueued > 0
+        ? await setReindexLockTotal(db, tenantId, 'fulltext', result.recordsIndexed, auth.orgId ?? null)
+        : null
+      if (useQueue && jobsEnqueued > 0 && !isReindexLockDrained(lockCounts)) {
+        keepLockForQueuedWorkers = true
+      } else if (!result.success) {
+        await failReindexProgress({
+          em,
+          progressService,
+          type: 'fulltext',
+          tenantId,
+          organizationId: auth.orgId ?? null,
+          errorMessage: result.errors[0]?.error ?? t('search.api.errors.reindexFailed', 'Reindex operation failed.'),
+        })
+      } else {
         await completeReindexProgress({
           em,
           progressService,
@@ -336,8 +359,6 @@ export async function POST(req: Request) {
             errors: result.errors.length,
           },
         })
-      } else {
-        keepLockForQueuedWorkers = true
       }
 
       // Get updated stats from all strategies
@@ -345,6 +366,9 @@ export async function POST(req: Request) {
 
       return toJson({
         ok: result.success,
+        ...(result.success
+          ? {}
+          : { error: t('search.api.errors.reindexIncomplete', 'Reindex did not complete. Check the search activity log for details.') }),
         action,
         entityId: entityId ?? null,
         useQueue,

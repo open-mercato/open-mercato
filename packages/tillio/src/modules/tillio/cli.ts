@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import { createInterface } from 'node:readline'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -29,29 +30,7 @@ async function confirmOperatorReplacement(operator: TillioOperatorRecord): Promi
 }
 
 function parseArgs(rest: string[]): Record<string, string | boolean> {
-  const args: Record<string, string | boolean> = {}
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index]
-    if (!arg || !arg.startsWith('--')) continue
-
-    const [key, inlineValue] = arg.replace(/^--/, '').split('=')
-    if (inlineValue !== undefined) {
-      args[key] = inlineValue
-      continue
-    }
-
-    const next = rest[index + 1]
-    if (next && !next.startsWith('--')) {
-      args[key] = next
-      index += 1
-      continue
-    }
-
-    args[key] = true
-  }
-
-  return args
+  return parseModuleCliOptions(rest)
 }
 
 function readScopeArg(args: Record<string, string | boolean>, keys: string[]): string | null {

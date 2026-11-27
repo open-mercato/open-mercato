@@ -1,9 +1,10 @@
 import type { ChannelCapabilities } from './adapter'
 
 /**
- * Shared default attachment ceiling for email providers (Gmail allows
- * more, but larger uploads need resumable/upload-session APIs we don't use, so
- * all providers cap at the same conservative value).
+ * Shared default attachment ceiling for email providers, counted on the raw
+ * file bytes. Base64 makes the sent message about a third larger, which still
+ * fits Gmail's 35 MB upload limit; a server with a lower limit answers with a
+ * size rejection the adapters report as `message_too_large`.
  */
 export const EMAIL_MAX_ATTACHMENT_BYTES = 25_000_000
 
@@ -31,6 +32,11 @@ export const baseEmailCapabilities: ChannelCapabilities = {
     'text/plain',
     'text/html',
     'text/csv',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-excel',
+    'application/msword',
   ],
   readReceipts: false,
   deliveryReceipts: false,

@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { bootstrap } from '@/bootstrap'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { isEmailDeliveryConfigured } from '@open-mercato/shared/lib/email/config'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -60,6 +61,10 @@ for (const route of apiRouteMetadata) {
 }
 
 export default async function StartPage() {
+  return runInOwnedRequestScope(renderStartPage)
+}
+
+async function renderStartPage() {
   const { t } = await resolveTranslations()
   const quickLinks = buildHomeQuickLinks(modules)
 

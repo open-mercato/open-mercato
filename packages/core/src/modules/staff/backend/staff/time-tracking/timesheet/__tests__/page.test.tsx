@@ -37,6 +37,11 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
 jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({ useBackendChrome: jest.fn() }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({ useConfirmDialog: jest.fn() }))
@@ -222,5 +227,24 @@ describe('timesheet query-string contract', () => {
     })
 
     expect(window.localStorage.getItem(`staff.time_tracking.timesheet.period:${STAFF_MEMBER_ID}`)).toBe('quarter')
+  })
+})
+
+describe('timesheet capacity fallback', () => {
+  it('reports a failed capacity load and keeps rendering with the flat target', async () => {
+    const failure = new Error('capacity unavailable')
+    readApiResultMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/staff/timesheets/capacity')) throw failure
+      return stubApi(url) as never
+    })
+    setSearch('period=week&view=list')
+
+    await renderPage()
+
+    expect(mockReportError).toHaveBeenCalledWith(failure, {
+      module: 'staff',
+      code: 'staff.timesheet_capacity_load_failed',
+    })
+    expect(screen.getByTestId('list-view')).toBeInTheDocument()
   })
 })

@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { DELETE, GET, POST } from '../definitions'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 const installCustomEntitiesFromModulesMock = jest.fn(async () => ({
   processed: 1,
@@ -623,12 +624,57 @@ describe('entities/definitions DELETE', () => {
     mockEm.findOne.mockResolvedValue(null)
   })
 
-  const makeDeleteRequest = (body: Record<string, unknown>) =>
+  const makeDeleteRequest = (body: Record<string, unknown>, version?: string) =>
     new Request('http://x/api/entities/definitions', {
       method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...(version ? { [OPTIMISTIC_LOCK_HEADER_NAME]: version } : {}),
+      },
       body: JSON.stringify(body),
     })
+
+  it('rejects a stale schema version caused by a change to another field', async () => {
+    const olderVersion = '2026-01-01T00:00:00.000Z'
+    const newerVersion = '2026-01-02T00:00:00.000Z'
+    mockEm.findOne
+      .mockResolvedValueOnce({ id: 'unchanged-field', key: 'quantity', updatedAt: new Date(olderVersion) })
+      .mockResolvedValueOnce({ updatedAt: new Date(newerVersion) })
+
+    const response = await DELETE(makeDeleteRequest({
+      entityId: 'example:inventory',
+      key: 'quantity',
+    }, olderVersion))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({
+      code: 'optimistic_lock_conflict',
+      currentUpdatedAt: newerVersion,
+      expectedUpdatedAt: olderVersion,
+    })
+    expect(mockEm.persist).not.toHaveBeenCalled()
+  })
+
+  it('returns the checked delete version without adopting a subsequent writer version', async () => {
+    const expectedVersion = '2026-01-01T00:00:00.000Z'
+    const definition = { id: 'deleted-field', key: 'quantity', updatedAt: new Date(expectedVersion) }
+    mockEm.findOne
+      .mockResolvedValueOnce(definition)
+      .mockResolvedValueOnce({ updatedAt: new Date(expectedVersion) })
+    mockEm.flush.mockImplementationOnce(async () => {
+      definition.updatedAt = new Date('2026-12-01T00:00:00.000Z')
+      mockEm.findOne.mockResolvedValue({ updatedAt: new Date('2099-01-01T00:00:00.000Z') })
+    })
+
+    const response = await DELETE(makeDeleteRequest({
+      entityId: 'example:inventory',
+      key: 'quantity',
+    }, expectedVersion))
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, version: definition.updatedAt.toISOString() })
+    expect(mockEm.findOne).toHaveBeenCalledTimes(3)
+  })
 
   it('creates a scoped tombstone when deleting an inherited definition', async () => {
     const inherited = {

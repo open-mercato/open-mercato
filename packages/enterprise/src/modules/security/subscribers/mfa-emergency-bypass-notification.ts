@@ -4,6 +4,7 @@ import { buildBatchNotificationFromType } from '@open-mercato/core/modules/notif
 import { getRecipientUserIdsForFeature, getScopedNotificationRecipientUserIds } from '@open-mercato/core/modules/notifications/lib/notificationRecipients'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { inAppNotificationsAvailable } from '../lib/inAppNotifications'
 import { notificationTypes } from '../notifications'
 import { mfaEmergencyBypassEventSchema } from '../data/validators'
 
@@ -35,6 +36,8 @@ export default async function mfaEmergencyBypassNotification(payload: unknown, c
 
   const typeDef = notificationTypes.find((type) => type.type === metadata.event)
   if (!typeDef) return
+  if (!inAppNotificationsAvailable(ctx)) return
+
   const scope = { tenantId, organizationId }
   const groupKey = `${metadata.event}:${observedAt.slice(0, 10)}`
   const em = ctx.resolve<EntityManager>('em').fork()

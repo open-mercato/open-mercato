@@ -174,6 +174,18 @@ describe('Workflow Instances API', () => {
       )
     })
 
+    test('orders by createdAt with an id tiebreak so tied rows page deterministically', async () => {
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      await listInstances(new NextRequest('http://localhost/api/workflows/instances?limit=2&offset=2'))
+
+      expect(mockEm.findAndCount.mock.calls[0][2]).toEqual({
+        orderBy: { createdAt: 'DESC', id: 'DESC' },
+        limit: 2,
+        offset: 2,
+      })
+    })
+
     // Dry-run isolation (spec section 8.2): simulations are excluded from the
     // run list — and from anything counting off it — unless asked for by name.
     test('excludes dry runs from the list by default', async () => {
@@ -495,7 +507,8 @@ describe('Workflow Instances API', () => {
           initialContext: { cartId: '123' },
           tenantId: testTenantId,
           organizationId: testOrgId,
-        })
+        }),
+        mockContainer,
       )
     })
 
@@ -510,7 +523,8 @@ describe('Workflow Instances API', () => {
 
       expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
         mockEm,
-        expect.objectContaining({ isDryRun: false })
+        expect.objectContaining({ isDryRun: false }),
+        mockContainer,
       )
     })
 
@@ -531,7 +545,8 @@ describe('Workflow Instances API', () => {
       )
       expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
         mockEm,
-        expect.objectContaining({ isDryRun: true })
+        expect.objectContaining({ isDryRun: true }),
+        mockContainer,
       )
     })
 
@@ -569,7 +584,8 @@ describe('Workflow Instances API', () => {
           metadata: expect.objectContaining({
             initiatedBy: testUserId,
           }),
-        })
+        }),
+        mockContainer,
       )
     })
 
@@ -601,7 +617,8 @@ describe('Workflow Instances API', () => {
             entityId: 'order-123',
             initiatedBy: testUserId,
           }),
-        })
+        }),
+        mockContainer,
       )
       expect(workflowExecutor.executeWorkflow).toHaveBeenCalledWith(
         mockEm,
@@ -1163,7 +1180,7 @@ describe('Workflow Instances API', () => {
           organizationId: { $in: [testOrgId] },
         }),
         expect.objectContaining({
-          orderBy: { occurredAt: 'DESC' },
+          orderBy: { occurredAt: 'DESC', id: 'DESC' },
         })
       )
     })

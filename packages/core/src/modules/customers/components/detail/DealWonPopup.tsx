@@ -26,6 +26,7 @@ type DealWonPopupProps = {
   stats: DealStatsPayload | null
   onViewDashboard?: () => void
   onBackToPipeline?: () => void
+  backActionLabel?: string
 }
 
 function formatCurrency(value: number | null, currency: string | null): string {
@@ -80,6 +81,7 @@ export function DealWonPopup({
   stats,
   onViewDashboard,
   onBackToPipeline,
+  backActionLabel,
 }: DealWonPopupProps) {
   const t = useT()
 
@@ -102,9 +104,6 @@ export function DealWonPopup({
               <h2 className="text-2xl font-bold leading-tight text-foreground">
                 {t('customers.deals.detail.won.title', 'Closed successfully')}
               </h2>
-              <p className="text-sm font-medium text-muted-foreground">
-                {t('customers.deals.detail.won.subtitle', 'You are a sales machine!')}
-              </p>
             </div>
 
             <div className="rounded-xl border bg-muted/20 px-4 py-4">
@@ -115,7 +114,7 @@ export function DealWonPopup({
                 {stats ? formatCurrency(stats.dealValue, stats.dealCurrency) : '—'}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {t('customers.deals.detail.won.closed', 'Won')} · {stats ? formatClosedDate(stats.closedAt, t) : '—'}
+                {t('customers.deals.detail.won.closed', 'Won')} {stats ? formatClosedDate(stats.closedAt, t) : '—'}
               </p>
             </div>
 
@@ -153,7 +152,7 @@ export function DealWonPopup({
                 </Button>
               ) : null}
               <Button type="button" variant={onViewDashboard ? 'outline' : 'default'} className="w-full" onClick={onBackToPipeline ?? onClose}>
-                {t('customers.deals.detail.won.secondaryAction', 'Back to pipeline')}
+                {backActionLabel ?? t('customers.deals.detail.won.secondaryAction', 'Back to pipeline')}
               </Button>
             </div>
           </div>

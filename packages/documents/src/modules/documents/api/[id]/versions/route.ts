@@ -9,6 +9,7 @@ import { DOCUMENTS_VERSION_LIST_PAGE_SIZE } from '../../../lib/historyLimits'
 import { assertTier } from '../../../lib/permissions'
 import { resolveUserLabels } from '../../../lib/userLabels'
 import {
+  assertDocumentId,
   assertDocumentNotArchived,
   handleDocumentsRouteError,
   readBody,
@@ -87,6 +88,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   try {
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
+    assertDocumentId(documentId)
     await assertTier(ctx.em, documentId, ctx.auth, 'viewer')
     const url = new URL(request.url)
     const query = versionListQuerySchema.parse(Object.fromEntries(url.searchParams.entries()))

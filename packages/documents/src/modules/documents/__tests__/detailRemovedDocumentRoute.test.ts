@@ -149,3 +149,19 @@ describe('document detail for a removed document', () => {
     expect(response.status).toBe(200)
   })
 })
+
+describe('document detail id validation', () => {
+  it.each(['abc', 'not-a-uuid', '44444444-4444-4444-8444-44444444444g'])(
+    'returns not found for malformed id %s without querying records or permissions',
+    async (id) => {
+      const response = await GET(
+        new Request(`http://localhost/api/documents/${id}`),
+        { params: Promise.resolve({ id }) },
+      )
+
+      expect(response.status).toBe(404)
+      expect(em.findOne).not.toHaveBeenCalled()
+      expect(em.find).not.toHaveBeenCalled()
+    },
+  )
+})

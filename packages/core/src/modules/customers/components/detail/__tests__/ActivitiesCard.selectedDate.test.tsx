@@ -12,8 +12,12 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: jest.fn(async () => ({ items: [] })),
 }))
 
-jest.mock('../ActivityHistorySection', () => ({
-  ActivityHistorySection: () => null,
+jest.mock('../hooks/useCanManageInteractions', () => ({
+  useCanManageInteractions: () => true,
+}))
+
+jest.mock('../ActivitiesSection', () => ({
+  ActivitiesSection: () => null,
 }))
 
 async function clickButton(name: string) {
@@ -68,7 +72,7 @@ describe('activity calendar create date (#7478)', () => {
     expect(onAddNew).toHaveBeenLastCalledWith('meeting', new Date(2026, 8, 30))
   })
 
-  it('forwards a previous-month selection through ActivityLogTab to the typed create handler', async () => {
+  it('forwards an earlier week selection through the shared person composer', async () => {
     const onAddActivity = jest.fn()
     const onScheduleRequested = jest.fn()
     await act(async () => {
@@ -83,15 +87,15 @@ describe('activity calendar create date (#7478)', () => {
       )
     })
 
-    await clickButton('Previous month')
-    await clickButton('MON 31')
-    await chooseActivity('New task')
+    await clickButton('Previous week')
+    await clickButton('24')
+    await clickButton('Schedule')
 
-    expect(onAddActivity).toHaveBeenCalledWith('task', new Date(2026, 7, 31))
-    expect(onScheduleRequested).not.toHaveBeenCalled()
+    expect(onScheduleRequested).toHaveBeenCalledWith(new Date(2026, 8, 24))
+    expect(onAddActivity).not.toHaveBeenCalled()
   })
 
-  it('forwards the selected day to the ActivityLogTab schedule fallback', async () => {
+  it('forwards the selected day through the shared company composer', async () => {
     const onScheduleRequested = jest.fn()
     await act(async () => {
       renderWithProviders(
@@ -104,8 +108,8 @@ describe('activity calendar create date (#7478)', () => {
       )
     })
 
-    await clickButton('THU 01')
-    await chooseActivity('New meeting')
+    await clickButton('1')
+    await clickButton('Schedule')
 
     expect(onScheduleRequested).toHaveBeenCalledWith(new Date(2026, 9, 1))
   })

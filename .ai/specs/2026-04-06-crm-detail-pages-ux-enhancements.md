@@ -1,5 +1,7 @@
 # SPEC-072: CRM Detail Pages UX Enhancements
 
+> ⚠️ Superseded by `.ai/specs/2026-11-22-crm-activity-date-time.md` (2026-11-22) — Enhancement 2, inline composer creation fields. Current state: see the new spec.
+
 **Created:** 2026-04-06
 **Module:** `customers`, `sales`
 **Status:** Draft
@@ -823,7 +825,7 @@ Each `ActivityCard` exposes a row of contextual AI action chips (e.g., "Draft re
 | `packages/core/src/modules/customers/components/detail/AiActionChips.tsx` | New — chip row |
 | `packages/core/src/modules/customers/components/detail/ActivityAiActions.tsx` | New — execution wrapper |
 | `packages/core/src/modules/customers/components/detail/ActivityCard.tsx` | New — canonical activity card composition |
-| `packages/core/src/modules/customers/components/detail/ActivityLogTab.tsx` | New — Activities tab shell |
+| `packages/core/src/modules/customers/components/detail/ActivityLogTab.tsx` | New — Activities tab shell. Since #7494 it composes the deal reference layout (`InlineActivityComposer` → `PlannedActivitiesSection` → `ActivitiesSection`) for both person and company pages; `ActivitiesCard` / `ActivityHistorySection` stay exported but are no longer mounted by the detail pages |
 | `packages/core/src/modules/customers/components/detail/ActivityHistorySection.tsx` | New — grouped history list |
 
 ---
@@ -1131,7 +1133,7 @@ Key behavior:
 - Respects `prefers-reduced-motion` for week-swap transitions.
 - No new API — consumes the same planned-activities payload used by `PlannedActivitiesSection`.
 
-Creation-date correction (#7478): an explicitly selected local calendar day seeds the company/person **Add new** activity dialog and the deal composer's **Schedule** dialog. The requested activity type is preserved. Future days use day-independent defaults: 17:00 for tasks and 09:00 for timed activities. Selecting today retains the strictly-forward default; after the last half-hour slot, it advances to 09:00 tomorrow instead of creating an overdue activity today. Historical days retain the existing clock-derived time on the selected date, allowing past activities to be logged. Changing the selection after cancelling uses the latest day. Without an explicit selection, forward-slot defaults still apply, including their next-day handling near midnight. Existing activity edits retain persisted timestamps, and undated tasks remain undated.
+Creation-date correction (#7478): an explicitly selected local calendar day seeds **Schedule** in the shared company, person, and deal composer. The dialog opens with the meeting default and retains the selected day when the user chooses another activity type. Callers using the legacy per-type menu retain the requested activity type. Future days use day-independent defaults: 17:00 for tasks and 09:00 for timed activities. Selecting today retains the strictly-forward default; after the last half-hour slot, it advances to 09:00 tomorrow instead of creating an overdue activity today. Historical days retain the existing clock-derived time on the selected date, allowing past activities to be logged. Changing the selection after cancelling uses the latest day. Without an explicit selection, forward-slot defaults still apply, including their next-day handling near midnight. Existing activity edits retain persisted timestamps, and undated tasks remain undated.
 
 The calendar selection and creation callbacks gain optional date inputs; existing callers remain valid. This is additive UI wiring with no API, database, event, ACL, or DI changes. Regression coverage follows real calendar/menu callbacks, create-dialog state, local month/year boundaries and type-specific defaults; browser coverage exercises creation and persistence on the company, person and deal routes.
 
@@ -1357,6 +1359,29 @@ Pin an activity:
 
 This section satisfies the root `BACKWARD_COMPATIBILITY.md` deprecation-protocol requirement for every PR that touches contract surfaces. The feat/crm-details-screens branch introduces:
 
+### Related-data permissions on customer detail (2026-11-21, #9149)
+
+Person and company details use the record’s organization when evaluating view permissions for related data. `customers.activities.view` covers addresses, comments (including `notes`), and activities. `customers.interactions.view` covers interactions, tasks (including `todos`), and planned interaction summaries. `customers.deals.view` covers deal rows and metrics. `customers.people.view` covers linked people in company detail.
+
+Existing relation arrays remain present and return empty arrays when the caller lacks their view permission. Restricted counts return zero, next-interaction fields return null, and the planned preview and restricted KPI entries are omitted. Clients can continue to use the existing detail endpoints, with view access granted through their role or API key. The authorization behavior applies to cached and uncached responses. Regression coverage includes `TC-CRM-9149-detail-view-permissions.spec.ts` and both route cache suites.
+
+The company detail page uses the presence of the server-authorized Active deals count to render the Active deals and Customer value cards and the completed-deals caption. The component's `canViewDeals` prop is optional and defaults to `true` for existing consumers; the company page always passes the server-authorized value explicitly. `TC-CRM-9335-company-kpi-permissions.spec.ts` covers card visibility for users with and without deal access, including a company with zero deals.
+
+### Deprecated deal header inputs (2026-11-10, #8552)
+
+The decluttered deal header (Enhancement 4 revisited) moved stage changes to clickable `PipelineStepper` segments and the Won / Lost buttons to a "Close deal" menu in `DealDetailHeader.secondaryActions`. The component inputs that drove the previous presentation remain accepted and `@deprecated`, with a functional bridge where the input carried behavior:
+
+| Surface | Bridge | Removal |
+| ------- | ------ | ------- |
+| `DealDetailHeader.stageOptions` / `currentStageId` / `onStageChange` / `isStageSaving` | Rendered as a `StageSelectMenu` in the action cluster when `stageOptions` and `onStageChange` are both passed for an open deal; disabled while dirty, saving or a stage change is in flight | Not before one minor release after 0.10.0 |
+| `PipelineStepper.footer` | Rendered under the strip, separated by a rule, with and without stages | Same |
+| `DealClosureActionBar.embedded` | Accepted, no effect (popover trigger, no card) | Same |
+| `CollapsibleGroupProps.fieldCount` (`packages/ui`) | Accepted, no effect | Same |
+
+`DealCreateSidebar` itself was removed on `main` by the create-deal rebuild (#8650), so its `customCount` input needs no bridge here.
+
+`StageSelectMenu` is also what `PipelineStepper` renders below `sm`, so narrow screens keep a quick stage change with the same callback and dirty/saving guards as the desktop strip. Consumer-side regressions: `components/detail/__tests__/{DealDetailHeader,PipelineStepper,DealClosureActionBar,StageSelectMenu}.test.tsx`; browser coverage in `TC-CRM-8552-deal-header-write-paths.spec.ts` (desktop strip and phone-width menu). Release note: `UPGRADE_NOTES.md`.
+
 ### New contract surfaces (purely additive — no deprecation bridge required)
 
 | Surface | Addition | Notes |
@@ -1434,9 +1459,19 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-11-21 | #9149 applies related-data view permissions to person and company detail rows, counts, previews, KPIs, and cached responses. |
+| 2026-11-21 | #9335 uses the scoped company detail response to control the visibility of deal KPIs. |
+| 2026-11-16 | Rev 11 (#7494, QA follow-up #9619): the activity tab fits phone widths down to 320 px. In history rows narrower than 448 px (container query) the date moves to a line above the title, and "Mark done" with the row menu wraps under the title instead of covering it; wider rows keep the date column. The AI chips row wraps. In `PlannedActivitiesSection` the header and the overdue row wrap: "Schedule" drops under the title and overdue count, and "Mark done" with the row menu drops under the row text as one group. No API, data or i18n change. |
+| 2026-11-14 | Rev 10 (#7494, QA follow-up #9483 #9484 #9489 #9491): `GET /api/customers/interactions` gains the additive `sortField=activityDate` (`coalesce(occurred_at, scheduled_at)`), which the history's newest-first order now requests so open activities are on the first page instead of the last. Mark done in the history sends the row's `updatedAt` and shows the record-conflict bar. `ActivityLogTab` checks `customers.interactions.manage` and renders the lists without the composer or write actions for a view-only user; `ActivitiesSection` gains the optional `readOnly` prop. The Log activity box wraps at phone width. |
+| 2026-11-10 | Rev 9 (#8552): deal header declutter review follow-up. `DealDetailHeader` stage inputs, `PipelineStepper.footer`, `DealClosureActionBar.embedded` restored as deprecated inputs with a functional bridge (`StageSelectMenu`); the same menu gives `PipelineStepper` a stage change below `sm`. Removal target and consumer regressions recorded under Migration & Backward Compatibility. |
+| 2026-11-05 | Rev 9 (#7494): a failed planned-list read no longer empties the list. `usePlannedActivities` keeps the last good rows, exposes `plannedLoadFailed` and reports the error; `PlannedActivitiesSection` shows a localized error with Retry on deal, person and company pages. Rows and the failure reset when the record changes, and a response older than the latest load is ignored. |
 | 2026-11-05 | Integrated the verified calendar containment and nullable-edit repair into selected-day scheduling. Composer actions wrap and activity types use two columns on narrow viewports; native coverage checks page and control-label bounds at 390px and 1440px before preserving the existing selected-date save/reopen flow (#7478, #8382). API contracts and keyboard callback behavior remain unchanged. |
+| 2026-11-04 | Rev 8 (#7494): The planned list selects open activities with the new additive `excludeStatus` query parameter on `GET /api/customers/interactions`, so custom non-terminal statuses stay visible on person, company and deal records. Complete and cancel send the displayed activity's `updatedAt` as the optimistic-lock version. |
+| 2026-11-03 | Rev 7 (#7494): `ActivitiesSection` gains the optional `serverHistoryControls` prop, set by `ActivityLogTab` for person and company. It sends `search` and `sortField`/`sortDir` to `GET /api/customers/interactions`, shows the sort control, and turns failed interaction loads into `ErrorMessage` with retry. Other callers keep the local filter. Loaded rows are still matched locally because the API search does not cover author, deal or type. |
+| 2026-11-03 | `GET /api/customers/interactions` with `search` no longer returns nothing when `title` or `body` are encrypted: it drops the ILIKE, decrypts a candidate set ordered by the requested sort, and matches title and body case-insensitively. The scan is capped by `OM_ENCRYPTED_SEARCH_MAX_ROWS` (default 5000); a capped scan logs a warning and can miss older matches. Tenants without encrypted `title`/`body` keep the SQL search. |
 | 2026-11-03 | Preserved the zero-argument `useScheduleDialog.openSchedule` callback contract alongside the selected-Date overload (#7478). Direct React mouse/keyboard handlers ignore event payloads when choosing the default day; a real shared Button regression covers the consuming boundary. |
 | 2026-11-01 | Rev 7 (#7490): one modal flow for role assignment and reassignment. `AssignRoleDialog` gains optional `editingAssignment` + `onReassign` (role fixed, incumbent preselected, `PUT …/roles?roleId=`), `RoleAssignmentRow` gains optional `onChangeUser`, the generic shortcut is labelled *Assign role* and hidden once every role type is assigned. Existing routes, commands, schema and ACLs unchanged; the inline lookup remains as a fallback for hosts that do not pass `onChangeUser` |
+| 2026-10-29 | Rev 6 (#7494): Person and company activity tabs now reuse the deal Activities composition. `ActivityLogTab` renders `InlineActivityComposer` → `PlannedActivitiesSection` → `ActivitiesSection` scoped to the owning record (planned list fetched by `entityId`, never a deal filter) and accepts `entityType`, `entityName`, `addActionLabel`, `emptyState`, `onActionChange`; its `onAddActivity` / `entityCompanyName` props are deprecated no-ops. Planned/complete/cancel state moved into the shared `usePlannedActivities` hook (`useDealActivities` delegates to it). No route, API, schema or ACL changes |
 | 2026-10-25 | Corrected selected-day time defaults after review: future tasks use 17:00 and timed activities use 09:00; today preserves forward scheduling including next-day rollover, and historical dates retain their existing time behavior. Added regressions for future days after 17:00, today after 23:30, and historical dates. |
 | 2026-10-22 | Implement the four advertised Sales order/quote stage-bar and closure render-widget hosts (#7782), with live canonical declarations, unchanged native lifecycle, context/compatibility documentation, and rendering coverage. |
 | 2026-10-15 | Corrected activity creation to inherit the explicitly selected local calendar day on company, person and deal pages (#7478), preserving type-specific defaults and edit timestamps through optional callback inputs. |

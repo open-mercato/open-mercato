@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { config as loadEnv } from 'dotenv'
 import { Client } from 'pg'
-import { expect, test } from '@playwright/test'
+import { expect, test as base } from '@playwright/test'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -29,6 +29,13 @@ const runtimeAppRoot = process.env.OM_TEST_APP_ROOT?.trim()
 if (!process.env.OM_TEST_APP_ROOT?.trim()) {
   loadEnv({ path: path.resolve(appDir, '.env') })
 }
+
+const test = base.extend<object, { appRuntime: typeof createRequestContainer }>({
+  appRuntime: [async ({}, use) => {
+    await bootstrapFromAppRoot(runtimeAppRoot)
+    await use(createRequestContainer)
+  }, { scope: 'worker', timeout: 150_000 }],
+})
 
 type PgClient = InstanceType<typeof Client>
 
@@ -274,9 +281,7 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
     })
   })
 
-  test('an outer upgrade transaction rollback removes its encryption-map write', async () => {
-    // Bootstrapping the full app in-process (module registry, DI, ORM) costs most of the
-    // default budget on a cold worker before the rollback scenario itself runs.
+  test('an outer upgrade transaction rollback removes its encryption-map write', async ({ appRuntime }) => {
     test.slow()
     const tenantId = randomUUID()
     const organizationId = randomUUID()
@@ -284,8 +289,7 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
     const rollbackError = new Error('TC-ENTITIES-009 deliberate outer transaction rollback')
 
     try {
-      await bootstrapFromAppRoot(runtimeAppRoot)
-      const container = await createRequestContainer()
+      const container = await appRuntime()
       const em = container.resolve<EntityManager>('em')
 
       await expect(em.transactional(async (transactionalEm) => {
@@ -317,7 +321,7 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
     }
   })
 
-  test('a tenant-wide seed appends a missing rule to existing organization maps exactly once under repeated and overlapping runs', async () => {
+  test('a tenant-wide seed appends a missing rule to existing organization maps exactly once under repeated and overlapping runs', async ({ appRuntime }) => {
     test.slow()
     const tenantId = randomUUID()
     const organizationId = randomUUID()
@@ -342,8 +346,7 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
       const before = await readMaps(entityId)
 
       await withEncryptionEnabled(async () => {
-        await bootstrapFromAppRoot(runtimeAppRoot)
-        const container = await createRequestContainer()
+        const container = await appRuntime()
         const em = container.resolve<EntityManager>('em')
         const encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
         const resolveOrganizationFields = () => encryptionService.getEncryptedFieldNames(
@@ -386,7 +389,7 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
     }
   })
 
-  test('an outer transaction rollback discards a tenant-wide organization-map append and its deferred invalidation', async () => {
+  test('an outer transaction rollback discards a tenant-wide organization-map append and its deferred invalidation', async ({ appRuntime }) => {
     test.slow()
     const tenantId = randomUUID()
     const organizationId = randomUUID()
@@ -401,8 +404,7 @@ test.describe('TC-ENTITIES-009: encryption map materialization is conflict-safe'
       const before = await readMaps(entityId)
 
       await withEncryptionEnabled(async () => {
-        await bootstrapFromAppRoot(runtimeAppRoot)
-        const container = await createRequestContainer()
+        const container = await appRuntime()
         const em = container.resolve<EntityManager>('em')
         const encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
         const afterCommitCallbacks: Array<() => Promise<void>> = []

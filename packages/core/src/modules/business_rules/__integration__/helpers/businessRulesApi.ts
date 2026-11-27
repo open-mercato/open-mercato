@@ -12,7 +12,7 @@ import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/g
 
 const BASE_URL = process.env.BASE_URL?.trim() || null
 
-export const BUSINESS_RULES_TEST_PASSWORD = 'Secret123!'
+export const BUSINESS_RULES_TEST_PASSWORD = 'QaSecret123!'
 
 export type BusinessRulePayload = {
   ruleId: string

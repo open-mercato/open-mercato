@@ -1,7 +1,10 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import { createOrderLineFixture, createSalesOrderFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { createWorkflowDefinitionFixture } from '@open-mercato/core/helpers/integration/workflowsFixtures'
+import type { CodeWorkflowDefinitionData } from '@open-mercato/shared/modules/workflows'
 import {
   cancelThenDeleteClaimIfPossible, createClaimFixture, listClaimLines, readClaim,
   readWarrantyClaimSettings, requestJson, restoreWarrantyClaimSettings, saveWarrantyClaimSettings,
@@ -9,6 +12,63 @@ import {
 } from './helpers'
 
 type AuditAction = { id: string; commandId: string; undoToken: string | null; executionState: string }
+
+async function createGrantedApprovalWorkflow(request: APIRequestContext, token: string) {
+  const response = await apiRequest(request, 'GET', '/api/workflows/definitions/code%3Asales.order-approval', { token })
+  expect(response.status()).toBe(200)
+  const body = await readJsonSafe<{ data: { definition: CodeWorkflowDefinitionData } }>(response)
+  expect(body?.data?.definition).toBeTruthy()
+  const definition = body!.data.definition
+  const workflowId = uniqueLabel('replacement-undo-approval')
+  const id = await createWorkflowDefinitionFixture(request, token, {
+    workflowId,
+    workflowName: 'Replacement undo approval fixture',
+    definition: {
+      ...definition,
+      transitions: definition.transitions.map((transition) => ({
+        ...transition,
+        activities: transition.activities?.map((activity) => activity.activityType === 'EMIT_EVENT'
+          ? { ...activity, async: false }
+          : activity),
+      })),
+    },
+    grantedFeatures: ['sales.orders.manage'],
+    enabled: true,
+  })
+  return { id, workflowId }
+}
+
+async function deleteApprovalWorkflow(request: APIRequestContext, token: string, workflow: { id: string; workflowId: string }) {
+  try {
+    await expect.poll(async () => {
+      await drainIntegrationQueue('events')
+      await drainIntegrationQueue('workflow-activities')
+      const instances = await apiRequest(request, 'GET', `/api/workflows/instances?workflowId=${encodeURIComponent(workflow.workflowId)}&limit=100`, { token })
+      expect(instances.status()).toBe(200)
+      const body = await readJsonSafe<{ data: Array<{ id: string }> }>(instances)
+      expect(body?.data).toBeDefined()
+      for (const instance of body!.data) {
+        const snapshot = await apiRequest(request, 'GET', `/api/workflows/instances/${instance.id}`, { token })
+        expect(snapshot.status()).toBe(200)
+        const current = await readJsonSafe<{ data: { status: string } }>(snapshot)
+        expect(current?.data).toBeDefined()
+        if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(current!.data.status)) continue
+        if (!['RUNNING', 'PAUSED'].includes(current!.data.status)) return false
+        const cancelled = await apiRequest(request, 'POST', `/api/workflows/instances/${instance.id}/cancel`, { token })
+        if (cancelled.status() === 400) return false
+        expect(cancelled.status(), await cancelled.text()).toBe(200)
+      }
+      return true
+    }).toBe(true)
+  } finally {
+    const detail = await apiRequest(request, 'GET', `/api/workflows/definitions/${workflow.id}`, { token })
+    expect(detail.status()).toBe(200)
+    const definition = await readJsonSafe<{ data: { updatedAt: string } }>(detail)
+    expect(definition?.data.updatedAt).toBeTruthy()
+    const deleted = await requestJson(request, 'DELETE', `/api/workflows/definitions/${workflow.id}`, token, undefined, definition!.data.updatedAt)
+    expect(deleted.status(), await deleted.text()).toBe(200)
+  }
+}
 
 async function readOrder(request: APIRequestContext, token: string, orderId: string) {
   const response = await apiRequest(request, 'GET', `/api/sales/orders?id=${orderId}`, { token })
@@ -33,6 +93,7 @@ test.describe('TC-WC-040: replacement-order undo after approval initialization',
       const settings = await readWarrantyClaimSettings(request, token)
       let sourceOrderId: string | null = null
       let claimId: string | null = null
+      let approvalWorkflow: { id: string; workflowId: string } | null = null
       const replacementIds = new Set<string>()
       try {
         await saveWarrantyClaimSettings(request, token, { autoApproveEnabled: false }, settings.updatedAt)
@@ -51,6 +112,7 @@ test.describe('TC-WC-040: replacement-order undo after approval initialization',
         }, line.updatedAt)
         expect(approve.status(), await approve.text()).toBe(200)
         claim = await transitionAndExpect(request, token, await readClaim(request, token, claimId), 'approved')
+        approvalWorkflow = await createGrantedApprovalWorkflow(request, token)
         const created = await apiRequest(request, 'POST', '/api/warranty_claims/replacement-order', {
           token, data: { claimId, updatedAt: claim.updatedAt },
         })
@@ -91,11 +153,15 @@ test.describe('TC-WC-040: replacement-order undo after approval initialization',
         }
       } finally {
         try {
-          await cancelThenDeleteClaimIfPossible(request, token, claimId)
-          for (const orderId of replacementIds) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
-          if (sourceOrderId) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', sourceOrderId)
+          if (approvalWorkflow) await deleteApprovalWorkflow(request, token, approvalWorkflow)
         } finally {
-          await restoreWarrantyClaimSettings(request, token, settings)
+          try {
+            await cancelThenDeleteClaimIfPossible(request, token, claimId)
+            for (const orderId of replacementIds) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+            if (sourceOrderId) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', sourceOrderId)
+          } finally {
+            await restoreWarrantyClaimSettings(request, token, settings)
+          }
         }
       }
     })

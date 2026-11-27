@@ -57,6 +57,22 @@ describe('organization scope bootstrap', () => {
     expect(events.getCurrentOrganizationScopeVersion()).toBe(1)
   })
 
+  it('publishes the server-selected initial scope and invalidates only subsequent changes', () => {
+    const events = loadEvents()
+    const initial = { organizationId: 'organization-one', tenantId: 'tenant-one' }
+    const changed = { ...initial, organizationId: 'organization-two' }
+    const listener = jest.fn()
+    const unsubscribe = events.subscribeOrganizationScopeChanged(listener)
+    try {
+      events.emitOrganizationScopeChanged(initial, initial)
+      expect(listener).toHaveBeenLastCalledWith(initial)
+      expect(events.getCurrentOrganizationScopeVersion()).toBe(0)
+      events.emitOrganizationScopeChanged(changed, changed)
+      expect(listener).toHaveBeenLastCalledWith(changed)
+      expect(events.getCurrentOrganizationScopeVersion()).toBe(1)
+    } finally { unsubscribe() }
+  })
+
   it.each([
     ['', '', { organizationId: null, tenantId: null }],
     ['organization-one', '', { organizationId: 'organization-one', tenantId: null }],
@@ -79,5 +95,18 @@ describe('organization scope bootstrap', () => {
     events.emitOrganizationScopeChanged({ organizationId: 'organization-one', tenantId: 'tenant%bad' })
     expect(events.getCurrentOrganizationScope()).toEqual({ organizationId: 'organization-one', tenantId: 'tenant%bad' })
     expect(events.getCurrentOrganizationScopeVersion()).toBe(0)
+  })
+
+  it('names the scope a request runs under only when an organization cookie exists', () => {
+    const events = loadEvents()
+    expect(events.readRequestOrganizationScope()).toBeNull()
+    document.cookie = 'om_selected_tenant=tenant-one; path=/'
+    expect(events.readRequestOrganizationScope()).toBeNull()
+    document.cookie = 'om_selected_org=organization%2Done; path=/'
+    expect(events.readRequestOrganizationScope()).toEqual({ organizationId: 'organization-one', tenantId: 'tenant-one' })
+    document.cookie = 'om_selected_org=__all__; path=/'
+    expect(events.readRequestOrganizationScope()).toEqual({ organizationId: null, tenantId: 'tenant-one' })
+    document.cookie = 'om_selected_org=; path=/'
+    expect(events.readRequestOrganizationScope()).toEqual({ organizationId: null, tenantId: 'tenant-one' })
   })
 })

@@ -49,7 +49,7 @@ test.describe('TC-CUR-010: cross-organization currency isolation', () => {
   test('a currency in org B is invisible to an org A user and vice versa', async ({ request }) => {
     test.slow();
     const stamp = Date.now();
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     const orgBUserEmail = `tc-cur-010-orgb-${stamp}@example.com`;
 
     let adminToken: string | null = null;

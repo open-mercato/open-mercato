@@ -128,6 +128,7 @@
   "portal.signup.error.email.invalid": "Introduce una dirección de correo electrónico válida.",
   "portal.signup.error.generic": "Error en el registro. Inténtalo de nuevo.",
   "portal.signup.error.password.minLength": "La contraseña debe tener al menos 8 caracteres.",
+  "portal.signup.error.rateLimited": "Demasiados intentos de registro. Espera unos minutos e inténtalo de nuevo.",
   "portal.signup.hasAccount": "¿Ya tienes cuenta?",
   "portal.signup.loginLink": "Inicia sesión",
   "portal.signup.password": "Contraseña",
@@ -144,8 +145,9 @@
   "portal.verify.error.backToLogin": "Volver a iniciar sesión",
   "portal.verify.error.generic": "La verificación del correo electrónico falló. Inténtalo de nuevo.",
   "portal.verify.error.invalidToken": "Falta el token de verificación.",
+  "portal.verify.submit": "Verificar correo electrónico y establecer contraseña",
   "portal.verify.success.description": "Su correo electrónico ha sido verificado. Ahora puede iniciar sesión en el portal.",
   "portal.verify.success.loginLink": "Iniciar sesión",
   "portal.verify.success.title": "Correo verificado",
-  "portal.verify.title": "Verificando correo electrónico"
+  "portal.verify.title": "Verificar correo electrónico"
 }

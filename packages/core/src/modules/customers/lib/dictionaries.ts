@@ -28,6 +28,17 @@ export const CUSTOMER_DICTIONARY_KINDS = [
 ] as const
 
 export type CustomerDictionaryKind = typeof CUSTOMER_DICTIONARY_KINDS[number]
+
+const STATUS_DICTIONARY_KINDS: ReadonlySet<CustomerDictionaryKind> = new Set(['statuses', 'deal-statuses', 'interaction-statuses'])
+
+/**
+ * How a dictionary value reads in tables and inline editors: a quiet pill for
+ * every kind, with the colour disc only on status dictionaries, where the
+ * colour carries meaning.
+ */
+export function dictionaryValueAppearance(kind: CustomerDictionaryKind): 'pill-dot' | 'pill' {
+  return STATUS_DICTIONARY_KINDS.has(kind) ? 'pill-dot' : 'pill'
+}
 export type CustomerDictionaryDisplayEntry = DictionaryDisplayEntry
 export type CustomerDictionaryMap = DictionaryMap
 

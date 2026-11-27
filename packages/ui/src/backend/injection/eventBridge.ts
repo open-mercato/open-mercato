@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react'
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import { subscribeOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
-import { APP_EVENT_DOM_NAME } from './useAppEvent'
+import { APP_EVENT_DOM_NAME, BRIDGE_RECONNECTED_EVENT_ID } from './useAppEvent'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('ui').child({ component: 'EventBridge' })
@@ -12,7 +12,6 @@ const HEARTBEAT_TIMEOUT = 45_000 // Expect heartbeat every 30s, allow 45s grace
 const RECONNECT_BASE_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
 const DEDUP_WINDOW_MS = 500
-const BRIDGE_RECONNECTED_EVENT_ID = 'om:bridge:reconnected'
 const SCOPE_COOKIE_NAMES = ['om_selected_org', 'om_selected_tenant'] as const
 
 function readScopeCookieSignature(): string {

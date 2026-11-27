@@ -4,6 +4,7 @@ import {
   resourcesResourceCreateSchema,
   resourcesResourceTagCreateSchema,
   resourcesResourceTypeCreateSchema,
+  resourcesResourceUpdateSchema,
 } from '../validators'
 
 const tenantId = '123e4567-e89b-12d3-a456-426614174000'
@@ -30,6 +31,27 @@ describe('Resources validators', () => {
         capacity: 1.5,
       }),
     ).toThrow()
+  })
+
+  test.each([
+    ['fractional', 1.5],
+    ['zero', 0],
+    ['negative', -3],
+    ['non-numeric', 'abc'],
+  ])('capacity reports a translatable key for %s input', (_label, capacity) => {
+    const createResult = resourcesResourceCreateSchema.safeParse({ tenantId, organizationId, name: 'Truck', capacity })
+    const updateResult = resourcesResourceUpdateSchema.safeParse({ id: organizationId, capacity })
+    for (const result of [createResult, updateResult]) {
+      expect(result.success).toBe(false)
+      expect(result.error?.issues).toEqual([
+        expect.objectContaining({ path: ['capacity'], message: 'resources.resources.validation.capacityInvalid' }),
+      ])
+    }
+  })
+
+  test.each([[4], ['4'], [null], [undefined]])('capacity accepts %p', (capacity) => {
+    expect(resourcesResourceCreateSchema.safeParse({ tenantId, organizationId, name: 'Truck', capacity }).success).toBe(true)
+    expect(resourcesResourceUpdateSchema.safeParse({ id: organizationId, capacity }).success).toBe(true)
   })
 
   test('resourcesResourceTypeCreateSchema validates appearanceColor', () => {

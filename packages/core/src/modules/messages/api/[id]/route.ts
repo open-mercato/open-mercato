@@ -29,6 +29,7 @@ import {
 } from '../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
+import { getExternalEmailBudgetErrorResponse } from '../../lib/externalEmailBudget'
 
 const logger = createLogger('messages').child({ component: 'api' })
 
@@ -77,7 +78,7 @@ async function resolveGrantedFeatures(
 }
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const em = ctx.container.resolve('em') as EntityManager
   const url = new URL(req.url)
   const skipMarkReadParam = url.searchParams.get('skipMarkRead')
@@ -369,7 +370,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
   const body = await req.json().catch(() => ({}))
@@ -491,6 +492,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     })
     return response
   } catch (error) {
+    const budgetResponse = getExternalEmailBudgetErrorResponse(error)
+    if (budgetResponse) return budgetResponse
     if (isCrudHttpError(error)) {
       return Response.json(error.body, { status: error.status })
     }
@@ -515,7 +518,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  const { ctx, scope } = await resolveMessageContext(req)
+  const { ctx, scope } = await resolveMessageContext(req, params.id)
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
 
@@ -662,6 +665,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
         { status: 409, description: 'Only drafts can be edited, or the draft was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
+        { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
+        { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
       ],
     },
     DELETE: {

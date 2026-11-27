@@ -13,44 +13,29 @@ import {
 type Surface = 'company' | 'person' | 'deal'
 type Interaction = { id: string; title: string | null; scheduledAt: string | null }
 
-const activityMenus = [
-  { label: 'New meeting', type: 'Meeting' },
-  { label: 'Log call', type: 'Call' },
-  { label: 'New task', type: 'Task' },
-  { label: 'Compose email', type: 'Email' },
-] as const
-
-async function selectedDays(page: Page, surface: Surface) {
-  return page.evaluate((currentSurface) => {
+async function selectedDays(page: Page) {
+  return page.evaluate(() => {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const first = new Date(today)
-    const second = new Date(today)
-    if (currentSurface === 'deal') {
-      const mondayOffset = (today.getDay() + 6) % 7
-      first.setDate(today.getDate() - mondayOffset + 8)
-      second.setDate(today.getDate() - mondayOffset + 9)
-    } else {
-      first.setDate(today.getDate() + 1)
-      second.setDate(today.getDate() - 1)
-    }
-    const labels = (date: Date) => ({
-      dateLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      dateOnly: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
-      stripLabel: `${date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()} ${String(date.getDate()).padStart(2, '0')}`,
-      numericDay: String(date.getDate()),
+    const startOffset = 8 - (today.getDay() + 6) % 7
+    return [startOffset, startOffset + 1].map((offset) => {
+      const date = new Date(today)
+      date.setDate(today.getDate() + offset)
+      return {
+        dateLabel: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        dateOnly: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+        numericDay: String(date.getDate()),
+      }
     })
-    return { first: labels(first), second: labels(second) }
-  }, surface)
+  })
 }
 
-async function openMeeting(page: Page, surface: Surface) {
-  if (surface === 'deal') {
-    await page.getByRole('button', { name: 'Schedule', exact: true }).first().click()
-  } else {
-    await page.getByRole('button', { name: 'Add new', exact: true }).click()
-    await page.getByRole('button', { name: 'New meeting', exact: true }).click()
-  }
+function activitiesTab(page: Page, surface: Surface) {
+  return page.getByRole('tab', { name: surface === 'company' ? /^Activity log/ : /^Activities\b/ })
+}
+
+async function openMeeting(page: Page) {
+  await page.getByRole('button', { name: 'Schedule', exact: true }).first().click()
   return page.getByRole('dialog', { name: 'New meeting', exact: true })
 }
 
@@ -86,63 +71,52 @@ test.describe('TC-CRM-7478: schedule activities on the selected local day', () =
         await login(page, 'admin')
         await page.goto(detailPath)
         await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
-        if (surface === 'company') {
-          await page.getByRole('tab', { name: /^Activity log/ }).click()
-        } else {
-          await page.getByRole('tab', { name: /^Activities\b/ }).click()
-        }
+        await activitiesTab(page, surface).click()
 
-        const days = await selectedDays(page, surface)
-        if (surface === 'deal') {
-          await expect(page.getByRole('heading', { name: 'Log activity', exact: true })).toBeVisible()
-          const composer = page.getByRole('heading', { name: 'Log activity', exact: true }).locator('../..')
-          for (const width of [390, 1440]) {
-            await page.setViewportSize({ width, height: 900 })
-            await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-            for (const button of await composer.getByRole('button').all()) {
-              if (!await button.isVisible()) continue
-              const bounds = await button.evaluate((element) => {
-                const control = element.getBoundingClientRect()
-                const range = document.createRange()
-                range.selectNodeContents(element)
-                const content = range.getBoundingClientRect()
-                return {
-                  left: control.left, right: control.right,
-                  contentLeft: content.left, contentRight: content.right,
-                  hasText: Boolean(element.textContent?.trim()),
-                }
-              })
-              expect(bounds.left).toBeGreaterThanOrEqual(0)
-              expect(bounds.right).toBeLessThanOrEqual(width)
-              if (bounds.hasText) {
-                expect(bounds.contentLeft).toBeGreaterThanOrEqual(bounds.left - 1)
-                expect(bounds.contentRight).toBeLessThanOrEqual(bounds.right + 1)
+        const [firstDay, secondDay] = await selectedDays(page)
+        await expect(page.getByRole('heading', { name: 'Log activity', exact: true })).toBeVisible()
+        const composer = page.getByRole('heading', { name: 'Log activity', exact: true }).locator('../..')
+        for (const width of [390, 1440]) {
+          await page.setViewportSize({ width, height: 900 })
+          await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+          for (const button of await composer.getByRole('button').all()) {
+            if (!await button.isVisible()) continue
+            const bounds = await button.evaluate((element) => {
+              const control = element.getBoundingClientRect()
+              const range = document.createRange()
+              range.selectNodeContents(element)
+              const content = range.getBoundingClientRect()
+              return {
+                left: control.left, right: control.right,
+                contentLeft: content.left, contentRight: content.right,
+                hasText: Boolean(element.textContent?.trim()),
               }
+            })
+            expect(bounds.left).toBeGreaterThanOrEqual(0)
+            expect(bounds.right).toBeLessThanOrEqual(width)
+            if (bounds.hasText) {
+              expect(bounds.contentLeft).toBeGreaterThanOrEqual(bounds.left - 1)
+              expect(bounds.contentRight).toBeLessThanOrEqual(bounds.right + 1)
             }
           }
-          const showPreview = page.getByRole('button', { name: 'Show week preview', exact: true })
-          if (await showPreview.isVisible()) await showPreview.click()
-          await page.getByRole('button', { name: 'Next week', exact: true }).click()
-          await page.getByRole('button', { name: days.first.numericDay, exact: true }).click()
-          const initial = await openMeeting(page, surface)
-          await expect(initial.getByRole('button', { name: days.first.dateLabel, exact: true })).toBeVisible()
-          await initial.getByRole('button', { name: 'Cancel', exact: true }).first().click()
-          await page.getByRole('button', { name: days.second.numericDay, exact: true }).click()
-        } else {
-          await page.getByRole('button', { name: days.first.stripLabel, exact: true }).click()
-          for (const menu of activityMenus) {
-            await page.getByRole('button', { name: 'Add new', exact: true }).click()
-            await page.getByRole('button', { name: menu.label, exact: true }).click()
-            const initial = page.getByRole('dialog', { name: menu.label, exact: true })
-            await expect(initial.getByRole('button', { name: days.first.dateLabel, exact: true })).toBeVisible()
-            await expect(initial.getByRole('button', { name: menu.type, exact: true })).toHaveAttribute('aria-pressed', 'true')
-            await initial.getByRole('button', { name: 'Cancel', exact: true }).first().click()
-          }
-          await page.getByRole('button', { name: days.second.stripLabel, exact: true }).click()
         }
+        const showPreview = page.getByRole('button', { name: 'Show week preview', exact: true })
+        if (await showPreview.isVisible()) await showPreview.click()
+        await composer.getByRole('button', { name: 'Next week', exact: true }).click()
+        await composer.getByRole('button', { name: firstDay.numericDay, exact: true }).click()
+        const initial = await openMeeting(page)
+        await expect(initial.getByRole('button', { name: firstDay.dateLabel, exact: true })).toBeVisible()
+        for (const type of ['Call', 'Task', 'Email']) {
+          const option = page.getByRole('dialog').getByRole('button', { name: type, exact: true })
+          await option.click()
+          await expect(option).toHaveAttribute('aria-pressed', 'true')
+          await expect(page.getByRole('dialog').getByRole('button', { name: firstDay.dateLabel, exact: true })).toBeVisible()
+        }
+        await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).first().click()
+        await composer.getByRole('button', { name: secondDay.numericDay, exact: true }).click()
 
-        const dialog = await openMeeting(page, surface)
-        await expect(dialog.getByRole('button', { name: days.second.dateLabel, exact: true })).toBeVisible()
+        const dialog = await openMeeting(page)
+        await expect(dialog.getByRole('button', { name: secondDay.dateLabel, exact: true })).toBeVisible()
         await dialog.getByRole('textbox', { name: 'Activity title...', exact: true }).fill(title)
         await dialog.getByRole('button', { name: /^\d{2}:\d{2} [AP]M$/ }).click()
         const timePicker = page.getByRole('dialog', { name: 'Time picker', exact: true })
@@ -173,17 +147,14 @@ test.describe('TC-CRM-7478: schedule activities on the selected local day', () =
             hours: date.getHours(), minutes: date.getMinutes(),
           }
         }, stored!.scheduledAt!)
-        expect(storedLocal).toEqual({ dateOnly: days.second.dateOnly, hours: 23, minutes: 30 })
-        expect(stored!.scheduledAt!.slice(0, 10)).not.toBe(days.second.dateOnly)
+        expect(storedLocal).toEqual({ dateOnly: secondDay.dateOnly, hours: 23, minutes: 30 })
+        expect(stored!.scheduledAt!.slice(0, 10)).not.toBe(secondDay.dateOnly)
 
         await page.reload()
-        if (surface === 'company') await page.getByRole('tab', { name: /^Activity log/ }).click()
-        if (surface !== 'deal') {
-          await page.getByRole('button', { name: days.second.stripLabel, exact: true }).click()
-        }
+        await activitiesTab(page, surface).click()
         await page.getByRole('button', { name: new RegExp(title) }).first().click()
         const reopened = page.getByRole('dialog', { name: 'Edit activity', exact: true })
-        await expect(reopened.getByRole('button', { name: days.second.dateLabel, exact: true })).toBeVisible()
+        await expect(reopened.getByRole('button', { name: secondDay.dateLabel, exact: true })).toBeVisible()
         await expect(reopened.getByRole('button', { name: '11:30 PM', exact: true })).toBeVisible()
         const screenshot = testInfo.outputPath(`${surface}-selected-day.png`)
         await page.screenshot({ path: screenshot, fullPage: true })
@@ -193,7 +164,7 @@ test.describe('TC-CRM-7478: schedule activities on the selected local day', () =
         if (surface === 'deal') {
           await page.getByRole('button', { name: 'Schedule', exact: true }).last().click()
           const fallback = page.getByRole('dialog', { name: 'New meeting', exact: true })
-          await expect(fallback.getByRole('button', { name: days.second.dateLabel, exact: true })).toHaveCount(0)
+          await expect(fallback.getByRole('button', { name: secondDay.dateLabel, exact: true })).toHaveCount(0)
           await expect(fallback.getByRole('button', { name: /^\w{3} \d{1,2}, \d{4}$/ })).toBeVisible()
           await fallback.getByRole('button', { name: 'Cancel', exact: true }).first().click()
         }

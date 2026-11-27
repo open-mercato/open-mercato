@@ -1019,6 +1019,22 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
+        "sso_provenance": {
+          "name": "sso_provenance",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "last_used_at": {
           "name": "last_used_at",
           "type": "timestamptz",

@@ -1,10 +1,13 @@
+import { resolveAttachmentPartition } from './partitionScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Attachment, AttachmentPartition } from '../data/entities'
+import { Attachment } from '../data/entities'
 import { OcrService } from './ocrService'
 import type { StorageDriver } from './drivers/types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveOcrMaxConcurrency, resolveOcrMaxWaitQueue } from './ocrLimits'
 import { extractAttachmentContent } from './textExtraction'
+import { stripNulCharacters } from './extractedText'
+import { enqueueAttachmentOcr } from './ocrJobQueue'
 
 const logger = createLogger('attachments').child({ component: 'ocr' })
 
@@ -17,7 +20,12 @@ export type OcrRequestedEvent = {
   tenantId: string | null
 }
 
-/** Outcome of `requestOcrProcessing` — background LLM OCR vs inline text fallback. */
+/**
+ * Outcome of `requestOcrProcessing`: `queued` means durable background OCR on the
+ * `attachments-ocr` queue (or, when that queue cannot accept the job, the in-process
+ * scheduler); `inline_fallback` means the in-process wait queue was full and plain
+ * text extraction ran inline instead.
+ */
 export type OcrProcessingDispatch = 'queued' | 'inline_fallback'
 
 let activeOcrJobs = 0
@@ -67,7 +75,7 @@ export async function processAttachmentOcr(
 
   const { filePath, cleanup } = await driver.toLocalPath(partitionCode, storagePath)
   try {
-    const partition = await em.findOne(AttachmentPartition, { code: partitionCode })
+    const partition = await resolveAttachmentPartition(em, partitionCode, payload)
     const resolvedModel = partition?.ocrModel ?? process.env.OCR_MODEL ?? 'gpt-4o'
 
     const ocrService = new OcrService()
@@ -94,7 +102,7 @@ export async function processAttachmentOcr(
       return
     }
 
-    attachment.content = result.content
+    attachment.content = stripNulCharacters(result.content)
     await em.persist(attachment).flush()
 
     logger.info('Processing completed', {
@@ -170,6 +178,20 @@ export async function requestOcrProcessing(
       '[internal] attachments OCR background processing requires an EntityManager that exposes fork(); ' +
         'reusing the request-scoped EntityManager in the async worker would race with later request mutations.',
     )
+  }
+
+  try {
+    await enqueueAttachmentOcr({
+      attachmentId: attachment.id,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+    })
+    return 'queued'
+  } catch (error) {
+    logger.warn('Durable OCR queue unavailable; scheduling OCR in-process', {
+      attachmentId: attachment.id,
+      err: error,
+    })
   }
 
   const workerEm = em.fork()

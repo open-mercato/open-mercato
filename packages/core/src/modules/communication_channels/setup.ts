@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { CommunicationChannel } from './data/entities'
+import { isAutomaticSyncAvailable, pollTickScheduleId, stableScheduleUuid } from './lib/automatic-sync'
 import { COMMUNICATION_CHANNELS_QUEUES } from './lib/queue'
 import { isTestChannelSeedingEnabled, TEST_SEED_PROVIDER_KEY } from './lib/test-seed'
 
@@ -56,33 +56,17 @@ const POLL_TICK_INTERVAL_SECONDS = Math.max(
   Number.parseInt(process.env.OM_HUB_POLL_SCHEDULER_TICK_SECONDS ?? '60', 10) || 60,
 )
 
-/**
- * `scheduled_jobs.id` is a uuid column, so a module-owned schedule's stable
- * registration key must be hashed into a uuid rather than used verbatim — this
- * keeps `schedulerService.register()` an idempotent upsert across re-runs of
- * seedDefaults instead of trying to insert a raw string into the uuid PK.
- */
-function stableScheduleUuid(stableKey: string): string {
-  const hex = createHash('sha256').update(stableKey).digest('hex')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
-}
-
-function stablePollTickScheduleId(organizationId: string): string {
-  return stableScheduleUuid(`communication_channels:poll-tick:${organizationId}`)
-}
-
 async function ensureCommunicationChannelSchedules(ctx: {
   container: import('awilix').AwilixContainer
   tenantId: string
   organizationId: string
 }): Promise<void> {
-  const cradle = ctx.container as { hasRegistration?: (name: string) => boolean }
-  if (typeof cradle.hasRegistration !== 'function' || !cradle.hasRegistration('schedulerService')) return
+  if (!isAutomaticSyncAvailable(ctx.container)) return
 
   const schedulerService = ctx.container.resolve('schedulerService') as SchedulerServiceLike
   try {
     await schedulerService.register({
-      id: stablePollTickScheduleId(ctx.organizationId),
+      id: pollTickScheduleId(ctx.organizationId),
       name: 'Communication channels poll tick',
       description:
         `Enumerates active polling channels every ${POLL_TICK_INTERVAL_SECONDS}s and enqueues per-channel poll jobs.`,
@@ -245,9 +229,9 @@ export const setup: ModuleSetupConfig = {
      * fans out to the `communication-channels-poll` queue.
      *
      * The registration is per-organization (one tick row per org/tenant pair)
-     * so multi-tenant deploys schedule independently. Skipped silently when the
+     * so multi-tenant deploys schedule independently. Skipped when the
      * scheduler module isn't enabled — keeps the hub usable in scheduler-less
-     * test harnesses.
+     * test harnesses; the profile page reports that automatic sync is off.
      */
     await ensureCommunicationChannelSchedules({ container, tenantId, organizationId })
   },

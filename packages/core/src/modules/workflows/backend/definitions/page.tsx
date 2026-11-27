@@ -32,6 +32,7 @@ import {
   useDefinitionMetrics,
 } from '../../components/DefinitionMetricsCells'
 import type { WorkflowRollupWindowKey } from '../../lib/metrics/definition-metrics'
+import { getWorkflowListPageBounds } from '../../data/pagination'
 
 type WorkflowDefinitionSource = 'code' | 'code_override' | 'user'
 
@@ -90,7 +91,7 @@ export default function WorkflowDefinitionsListPage() {
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
-  const [totalPages, setTotalPages] = React.useState(1)
+  const { lastAccessiblePage, reachableTotal, totalPages } = getWorkflowListPageBounds(total, pageSize)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const router = useRouter()
@@ -131,8 +132,6 @@ export default function WorkflowDefinitionsListPage() {
       const response = result.result
       if (response?.pagination) {
         setTotal(response.pagination.total || 0)
-        const calculatedPages = Math.ceil((response.pagination.total || 0) / pageSize)
-        setTotalPages(calculatedPages || 1)
         setTotalIsCapped(response.pagination?.totalIsCapped === true)
       }
 
@@ -521,7 +520,14 @@ export default function WorkflowDefinitionsListPage() {
               createLabel={t('workflows.actions.create')}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
+          pagination={{
+            page,
+            pageSize,
+            total: reachableTotal,
+            totalPages,
+            totalIsCapped: totalIsCapped && page < lastAccessiblePage,
+            onPageChange: (nextPage) => setPage(Math.min(nextPage, lastAccessiblePage)),
+          }}
         />
         <TemplateGalleryDialog
           open={showTemplateGallery}

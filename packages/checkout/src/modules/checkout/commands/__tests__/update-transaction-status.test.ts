@@ -389,6 +389,23 @@ describe('updateTransactionStatusCommand — state-machine guard', () => {
   })
 })
 
+describe('updateTransactionStatusCommand — unknown transaction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('fails with 404 Transaction not found when the id is not a checkout transaction', async () => {
+    const em = makeMockEm(makeTransaction('processing'), 1)
+    em.findOne.mockResolvedValue(null)
+
+    await expect(runUpdateStatus(em, 'completed')).rejects.toMatchObject({
+      status: 404,
+      body: { error: 'Transaction not found' },
+    })
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+})
+
 describe('updateTransactionStatusCommand — pay-link usage counters', () => {
   beforeEach(() => {
     jest.clearAllMocks()

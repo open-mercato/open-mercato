@@ -3,6 +3,7 @@
 import { Check, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { PASSWORD_MAX_BYTES } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import type {
   PasswordPolicy,
   PasswordRequirement,
@@ -25,7 +26,7 @@ type RequirementItemProps = {
   label: string
 }
 
-const requirementTextById: Record<Exclude<PasswordRequirementId, 'minLength'>, { key: string; fallback: string }> = {
+const requirementTextById: Record<Exclude<PasswordRequirementId, 'minLength' | 'maxBytes'>, { key: string; fallback: string }> = {
   digit: { key: 'auth.password.requirements.digit', fallback: 'One number' },
   uppercase: { key: 'auth.password.requirements.uppercase', fallback: 'One uppercase letter' },
   special: { key: 'auth.password.requirements.special', fallback: 'One special character' },
@@ -64,6 +65,9 @@ function resolveRequirementLabel(
       'At least {min} characters',
       { min: requirement.value ?? policy.minLength },
     )
+  }
+  if (requirement.id === 'maxBytes') {
+    return t('auth.password.requirements.maxBytes', 'At most {max} bytes (UTF-8)', { max: requirement.value ?? PASSWORD_MAX_BYTES })
   }
 
   const requirementText = requirementTextById[requirement.id]

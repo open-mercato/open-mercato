@@ -2,7 +2,8 @@ import type { NextRequest } from 'next/server'
 import { LockMode } from '@mikro-orm/core'
 import { registerAttachmentAccessResolvers } from '../../lib/access-registry'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { PATCH, DELETE as deleteLibrary } from '../library/[id]/route'
+import { GET as getLibraryAttachment, PATCH, DELETE as deleteLibrary } from '../library/[id]/route'
+import { GET as listLibrary } from '../library/route'
 import { POST as transfer } from '../transfer/route'
 import { GET as listRecord, DELETE as deleteRecord } from '../route'
 
@@ -39,7 +40,31 @@ const mockTx = {
   flush: jest.fn(async () => undefined), remove: jest.fn(),
   getKysely: () => ({ selectFrom: () => mockReferenceQuery }),
 }
+const mockQueryEngine = { query: jest.fn() }
+const mockLoadAcl = jest.fn()
+let mockLibraryOffset = 0
+let mockLibraryLimit = 25
+const mockLibraryQuery = {
+  where: jest.fn(() => mockLibraryQuery),
+  andWhere: jest.fn(() => mockLibraryQuery),
+  clone: jest.fn(() => mockLibraryQuery),
+  orderBy: jest.fn(() => mockLibraryQuery),
+  limit: jest.fn((limit: number) => { mockLibraryLimit = limit; return mockLibraryQuery }),
+  offset: jest.fn((offset: number) => { mockLibraryOffset = offset; return mockLibraryQuery }),
+  getResultList: jest.fn(async () => mockRecords.slice(mockLibraryOffset, mockLibraryOffset + mockLibraryLimit)),
+  getCount: jest.fn(async () => mockRecords.length),
+}
+const mockTagsQuery = {
+  select: jest.fn(() => mockTagsQuery),
+  where: jest.fn(() => mockTagsQuery),
+  orderBy: jest.fn(() => mockTagsQuery),
+  execute: jest.fn(async () => []),
+}
 const mockEm = {
+  getKysely: () => ({ selectFrom: () => mockTagsQuery }),
+  findOne: jest.fn(async (entity: { name: string }, where: { id: string }) => entity.name === 'AttachmentPartition'
+    ? mockPartition : mockRecords.find((record) => record.id === where.id)),
+  createQueryBuilder: jest.fn(() => mockLibraryQuery),
   find: jest.fn(async () => [mockPartition]),
   transactional: jest.fn(async (callback: (tx: typeof mockTx) => Promise<unknown>) => {
     const result = await callback(mockTx)
@@ -49,8 +74,8 @@ const mockEm = {
 }
 const mockContainer = { resolve: (key: string) => ({
   em: mockEm, storageDriverFactory: { resolveForPartition: mockResolveDriver },
-  dataEngine: { flushOrmEntityChanges: jest.fn(async () => undefined) }, queryEngine: null,
-  rbacService: { loadAcl: async () => ({ isSuperAdmin: false, organizations: null }), getEffectiveFeatures: async () => ['documents.edit'] },
+  dataEngine: { flushOrmEntityChanges: jest.fn(async () => undefined) }, queryEngine: mockQueryEngine,
+  rbacService: { loadAcl: mockLoadAcl, userHasAllFeatures: async () => false, getEffectiveFeatures: async () => ['documents.edit'] },
 })[key] }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: async () => mockAuth }))
@@ -58,16 +83,31 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({ createRequestContain
 jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({ runRouteMutationGuards: (...args: unknown[]) => mockGuard(...args) }))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({ findOneWithDecryption: jest.fn(), findWithDecryption: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({ emitCrudSideEffects: (...args: unknown[]) => mockEmit(...args), setCustomFieldsIfAny: (...args: unknown[]) => mockSetCustomFields(...args) }))
-jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({ t: (key: string) => key }) }))
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({ t: (key: string) => key }), getModules: () => [{ id: 'auth' }] }))
 jest.mock('../../lib/requestScope', () => ({ resolveAttachmentRequestScope: async () => ({ denied: false, organizationId: 'org' }) }))
 jest.mock('../../data/entities', () => ({ Attachment: class Attachment {}, AttachmentPartition: class AttachmentPartition {} }))
-jest.mock('../../lib/assignmentDetails', () => ({ resolveAssignmentEnrichments: async () => new Map(), applyAssignmentEnrichments: (value: unknown) => value }))
+jest.mock('../../lib/partitions', () => ({ ensureDefaultPartitions: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
+  splitCustomFieldPayload: jest.requireActual('@open-mercato/shared/lib/crud/custom-fields').splitCustomFieldPayload,
+  loadCustomFieldValues: async () => ({}),
+}))
+jest.mock('../../lib/documentStructure/purge', () => ({
+  purgeDocumentStructure: jest.fn(async () => ({ extractionCount: 0, sectionCount: 0, indexedSectionIds: [] })),
+  enqueuePurgedSectionSearchDelete: jest.fn(async () => undefined),
+}))
+const mockPurgeModule = jest.requireMock('../../lib/documentStructure/purge') as {
+  purgeDocumentStructure: jest.Mock
+  enqueuePurgedSectionSearchDelete: jest.Mock
+}
 
 const request = (body: unknown, method = 'PATCH') => new Request('http://localhost/api/attachments/library/file', { method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }) as NextRequest
 const params = { params: Promise.resolve({ id: firstId }) }
 
 beforeEach(() => {
   jest.clearAllMocks(); mockReferenceIds = [firstId]; mockModifiedPayload = undefined; mockDeniedRecord = undefined; mockRecordDestination = undefined; mockRecords = [makeRecord()]
+  mockLoadAcl.mockResolvedValue({ isSuperAdmin: false, organizations: null, features: ['attachments.view', 'attachments.manage'] })
+  mockLibraryOffset = 0
+  mockLibraryLimit = 25
   jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity, where) => entity.name === 'AttachmentPartition'
     ? mockPartition as never : mockRecords.find((record) => record.id === (where as { id: string }).id) as never)
   jest.mocked(findWithDecryption).mockImplementation(async (_em, _entity, _where, options) => {
@@ -232,4 +272,50 @@ it('caps an unpaged protected record list at 100 visible rows after filtering hi
   expect(result.items[0].id).toBe('visible-0')
   expect(result.items[99].id).toBe('visible-99')
   expect(result.items.some((record) => record.id === firstId)).toBe(false)
+})
+
+it.each(['library', 'record'])('purges document structure inside the %s delete transaction and queues section search cleanup after commit', async (surface) => {
+  mockPurgeModule.purgeDocumentStructure.mockResolvedValueOnce({ extractionCount: 1, sectionCount: 2, indexedSectionIds: ['section-1', 'section-2'] })
+  const response = surface === 'library'
+    ? await deleteLibrary(new Request('http://localhost/api/attachments/library/file', { method: 'DELETE' }) as NextRequest, params)
+    : await deleteRecord(new Request(`http://localhost/api/attachments?id=${firstId}`, { method: 'DELETE' }) as NextRequest)
+  expect(response.status).toBe(200)
+  expect(mockPurgeModule.purgeDocumentStructure).toHaveBeenCalledWith(
+    mockTx,
+    { attachmentId: firstId, tenantId: 'tenant', organizationId: 'org' },
+    { flush: false },
+  )
+  expect(mockPurgeModule.purgeDocumentStructure.mock.invocationCallOrder[0]).toBeLessThan(mockTx.remove.mock.invocationCallOrder[0])
+  expect(mockPurgeModule.enqueuePurgedSectionSearchDelete).toHaveBeenCalledWith(
+    { tenantId: 'tenant', organizationId: 'org' },
+    ['section-1', 'section-2'],
+  )
+  expect(mockCommit.mock.invocationCallOrder[0]).toBeLessThan(mockPurgeModule.enqueuePurgedSectionSearchDelete.mock.invocationCallOrder[0])
+})
+
+it('keeps synthetic unresolvable assignment metadata opaque in PATCH, detail GET and paginated library GET', async () => {
+  registerAttachmentAccessResolvers([])
+  const openPartition = { ...mockPartition, accessResolverRequirements: [] }
+  mockEm.find.mockResolvedValueOnce([openPartition])
+  const assignment = { type: 'auth:user', id: '10000000-0000-4000-8000-000000000003' }
+  mockRecords = [
+    { ...makeRecord(), storageMetadata: { assignments: [] } },
+    { ...makeRecord(secondId), storageMetadata: { assignments: [assignment] } },
+  ]
+  jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity, where) => entity.name === 'AttachmentPartition'
+    ? openPartition as never : mockRecords.find((record) => record.id === (where as { id: string }).id) as never)
+  mockEm.findOne.mockImplementation(async (entity, where) => entity.name === 'AttachmentPartition'
+    ? openPartition : mockRecords.find((record) => record.id === where.id))
+  const patch = await PATCH(request({ assignments: [assignment], tags: ['fixture'] }), params)
+  expect(patch.status).toBe(200)
+  expect((await patch.json()).item.assignments).toEqual([assignment])
+
+  const detail = await getLibraryAttachment(new Request('http://localhost/api/attachments/library/file') as NextRequest, params)
+  expect(detail.status).toBe(200)
+  expect((await detail.json()).item.assignments).toEqual([assignment])
+
+  const list = await listLibrary(new Request('http://localhost/api/attachments/library?page=2&pageSize=1'))
+  expect(list.status).toBe(200)
+  expect((await list.json()).items).toEqual([expect.objectContaining({ id: secondId, assignments: [assignment] })])
+  expect(mockQueryEngine.query).not.toHaveBeenCalled()
 })

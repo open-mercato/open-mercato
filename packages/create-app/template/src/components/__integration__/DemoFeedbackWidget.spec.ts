@@ -6,6 +6,10 @@ import postcss from 'postcss'
 import tailwindcss from '@tailwindcss/postcss'
 
 const projectRoot = process.cwd()
+const feedbackTranslations = Object.fromEntries(['en', 'pl', 'es', 'de', 'ko'].map((locale) => [
+  locale,
+  JSON.parse(readFileSync(path.join(projectRoot, 'packages/onboarding/src/modules/onboarding/i18n', `${locale}.json`), 'utf8')) as Record<string, string>,
+])) as Record<string, Record<string, string>>
 const shellSource = readFileSync(path.join(projectRoot, 'packages/ui/src/backend/AppShell.tsx'), 'utf8')
 const footer = shellSource.match(/<footer className="border-t[\s\S]*?<\/footer>/)?.[0]
 if (!footer) throw new Error('[internal] AppShell legal footer fixture not found')
@@ -21,7 +25,7 @@ async function mountFeedbackFixture(page: Page, appRoot: string) {
   const bundle = await build({
     stdin: {
       contents: `import React from 'react'; import { createRoot } from 'react-dom/client'; import { DemoFeedbackWidget } from ${JSON.stringify(componentPath)};
-        const version = 'fixture'; const t = (key) => ({'common.terms':'Terms','common.privacy':'Privacy'}[key] || key); const Link = (props) => <a {...props}/>;
+        const version = 'fixture'; const dictionaries = window.__feedbackTranslations; const t = (key, fallbackOrParams, params) => { const dictionary = dictionaries[document.documentElement.lang || 'en']; const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : undefined; const resolvedParams = typeof fallbackOrParams === 'string' ? params : fallbackOrParams; const template = dictionary?.[key] ?? fallback ?? key; return template.replace(/\\{\\{(\\w+)\\}\\}|\\{(\\w+)\\}/g, (match, doubleKey, singleKey) => { const name = doubleKey ?? singleKey; const value = resolvedParams?.[name]; return value === undefined ? match : String(value); }); }; const Link = (props) => <a {...props}/>;
         createRoot(document.getElementById('fixture')).render(<><main id="main-content" style={{minHeight:'120vh',display:'flex',flexDirection:'column',justifyContent:'flex-end'}}>Owned page content <p>Final content row</p></main>${footer}<DemoFeedbackWidget demoModeEnabled={true}/></>);`,
       resolveDir: projectRoot,
       loader: 'tsx',
@@ -34,7 +38,11 @@ async function mountFeedbackFixture(page: Page, appRoot: string) {
       name: 'fixture-context',
       setup(builder) {
         builder.onResolve({ filter: /^(@open-mercato\/shared\/lib\/i18n\/context|@open-mercato\/ui\/ai\/AiDock|@open-mercato\/ui\/backend\/utils\/apiCall|next\/image)$/ }, (args) => ({ path: args.path, namespace: 'fixture' }))
-        builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `export const useT = () => (_key, fallback) => fallback || _key; export const useAiDock = () => ({state:{}}); export const apiCall = async () => ({ok:true}); export default () => null;` }))
+        builder.onLoad({ filter: /.*/, namespace: 'fixture' }, (args) => {
+          if (args.path === '@open-mercato/shared/lib/i18n/context') return { resolveDir: projectRoot, contents: `import { useSyncExternalStore } from 'react'; const subscribe = (callback) => { window.addEventListener('languagechange', callback); return () => window.removeEventListener('languagechange', callback); }; export const useT = () => { useSyncExternalStore(subscribe, () => document.documentElement.lang || 'en', () => 'en'); return (key, fallbackOrParams, params) => { const dictionaries = window.__feedbackTranslations; const dictionary = dictionaries[document.documentElement.lang || 'en']; const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : undefined; const resolvedParams = typeof fallbackOrParams === 'string' ? params : fallbackOrParams; const template = dictionary?.[key] ?? fallback ?? key; return template.replace(/\\{\\{(\\w+)\\}\\}|\\{(\\w+)\\}/g, (match, doubleKey, singleKey) => { const name = doubleKey ?? singleKey; const value = resolvedParams?.[name]; return value === undefined ? match : String(value); }); }; };` }
+          if (args.path === '@open-mercato/ui/backend/utils/apiCall') return { contents: `export const apiCall = async () => { const replies = window.__feedbackApiReplies || []; const reply = replies.shift() || {status:200,result:{ok:true}}; return {ok:reply.status >= 200 && reply.status < 300, status:reply.status, result:reply.result, response:new Response(JSON.stringify(reply.result)), cacheStatus:null} };` }
+          return { contents: `export const useAiDock = () => ({state:{}}); export default () => null;` }
+        })
         builder.onResolve({ filter: /^@open-mercato\/(ui|shared)\// }, (args) => {
           const source = args.path.replace('@open-mercato/', 'packages/').replace(/^(packages\/[^/]+)\//, '$1/src/')
           return builder.resolve(path.join(projectRoot, source), { resolveDir: projectRoot, kind: args.kind })
@@ -42,11 +50,22 @@ async function mountFeedbackFixture(page: Page, appRoot: string) {
       },
     }],
   })
+  await page.addInitScript((dictionaries) => {
+    const target = window as Window & { __feedbackTranslations?: typeof dictionaries }
+    target.__feedbackTranslations = dictionaries
+  }, feedbackTranslations)
   await page.route('http://feedback.test/**', (route) => route.fulfill({ contentType: 'text/html', body: '<html><body><div id="fixture"></div></body></html>' }))
   await page.goto('http://feedback.test/')
   await page.addStyleTag({ content: stylesheet.css })
   await page.addScriptTag({ content: bundle.outputFiles[0].text })
   return page.getByRole('button', { name: 'Open feedback form', exact: true })
+}
+
+async function queueFeedbackReplies(page: Page, replies: Array<{ status: number; result: Record<string, unknown> }>) {
+  await page.evaluate((nextReplies) => {
+    const target = window as Window & { __feedbackApiReplies?: Array<{ status: number; result: Record<string, unknown> }> }
+    target.__feedbackApiReplies = nextReplies
+  }, replies)
 }
 
 function measureFeedbackButton(button: Locator) {
@@ -123,10 +142,12 @@ for (const appRoot of ['apps/mercato', 'packages/create-app/template']) {
             }, phase)
             const buttonBounds = await button.boundingBox()
             expect(buttonBounds).not.toBeNull()
+            const finalRowBounds = (await page.getByText('Final content row', { exact: true }).boundingBox())!
+            expect(finalRowBounds.y + finalRowBounds.height).toBeLessThan(buttonBounds!.y)
             for (const link of await links.all()) {
               const bounds = await link.boundingBox()
               expect(bounds).not.toBeNull()
-              expect(bounds!.y + bounds!.height).toBeLessThan(buttonBounds!.y - 4)
+              expect(bounds!.y).toBeGreaterThanOrEqual(buttonBounds!.y + buttonBounds!.height + 4 - 0.5)
               expect(await link.evaluate((element) => {
                 const bounds = element.getBoundingClientRect()
                 return [bounds.left + 1, bounds.right - 1].every((horizontal) =>
@@ -145,9 +166,60 @@ for (const appRoot of ['apps/mercato', 'packages/create-app/template']) {
       await expect(page.getByRole('dialog')).toBeHidden()
       await expect(button).toBeVisible()
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
-      expect((await links.first().boundingBox())!.y).toBeLessThan((await button.boundingBox())!.y)
+      const finalButtonBounds = (await button.boundingBox())!
+      expect((await links.first().boundingBox())!.y).toBeGreaterThanOrEqual(finalButtonBounds.y + finalButtonBounds.height + 4 - 0.5)
+      await expect(page.getByRole('contentinfo')).toHaveCSS('padding-top', '4px')
+      await expect(page.getByRole('contentinfo')).toHaveCSS('padding-bottom', '4px')
       await page.evaluate(() => { document.body.removeAttribute('data-demo-feedback-fab') })
-      await expect(page.getByRole('contentinfo')).toHaveCSS('padding-bottom', '12px')
+      await expect(page.getByRole('contentinfo')).toHaveCSS('padding-bottom', '4px')
     })
   }
 }
+
+test('apps/mercato: displays the disabled-feedback message in every locale and recovers on retry at 390px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mountFeedbackFixture(page, 'apps/mercato')
+
+  for (const locale of ['en', 'pl', 'es', 'de', 'ko']) {
+    await page.evaluate((value) => {
+      document.documentElement.lang = value
+      window.dispatchEvent(new Event('languagechange'))
+    }, locale)
+    await queueFeedbackReplies(page, [
+      { status: 404, result: { ok: false, error: feedbackTranslations[locale]['demoFeedback.errors.disabled'] } },
+      { status: 200, result: { ok: true } },
+    ])
+    const localizedButton = page.getByRole('button', { name: feedbackTranslations[locale]['demoFeedback.button.ariaLabel'] })
+    await expect(localizedButton).toBeVisible()
+    await localizedButton.click()
+    const dialog = page.getByRole('dialog')
+    const bounds = await dialog.boundingBox()
+    expect(bounds).not.toBeNull()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
+    await page.locator('#feedback-email').fill(`qa-${locale}@example.test`)
+    await page.locator('#feedback-terms').click()
+    await page.getByRole('button', { name: feedbackTranslations[locale]['demoFeedback.form.submit'] }).click()
+    await expect(page.getByText(feedbackTranslations[locale]['demoFeedback.errors.disabled'])).toBeVisible()
+    await page.getByRole('button', { name: feedbackTranslations[locale]['demoFeedback.form.submit'] }).click()
+    await expect(page.getByText(feedbackTranslations[locale]['demoFeedback.dialog.successTitle'])).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+  }
+})
+
+test('apps/mercato: allows retry after a transient feedback delivery error', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const button = await mountFeedbackFixture(page, 'apps/mercato')
+  await queueFeedbackReplies(page, [
+    { status: 500, result: { ok: false } },
+    { status: 200, result: { ok: true } },
+  ])
+  await button.click()
+  await page.locator('#feedback-email').fill('qa-retry@example.test')
+  await page.locator('#feedback-terms').click()
+  await page.getByRole('button', { name: feedbackTranslations.en['demoFeedback.form.submit'] }).click()
+  await expect(page.getByText(feedbackTranslations.en['demoFeedback.errors.generic'])).toBeVisible()
+  await page.getByRole('button', { name: feedbackTranslations.en['demoFeedback.form.submit'] }).click()
+  await expect(page.getByText(feedbackTranslations.en['demoFeedback.dialog.successTitle'])).toBeVisible()
+})

@@ -356,7 +356,7 @@ export async function validateInventoryImport(
     const errors: string[] = []
     const warnings: string[] = []
 
-    const quantity = toNumber(raw.quantity)
+    const quantity = Number(raw.quantity)
     if (raw.quantity === undefined || raw.quantity.trim().length === 0) {
       errors.push('quantity_required')
     } else if (!Number.isFinite(quantity) || quantity < 0) {

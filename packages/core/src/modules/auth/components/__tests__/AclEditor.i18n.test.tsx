@@ -104,4 +104,46 @@ describe('AclEditor i18n', () => {
     expect(await screen.findByText('Superadministrator (wszystkie uprawnienia)')).toBeInTheDocument()
     expect(screen.getByText('Tylko superadministratorzy mogą zmieniać tę opcję.')).toBeInTheDocument()
   })
+
+  it('shows assigned roles by their translated labels and keeps the role edit links', async () => {
+    apiCallMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/auth/roles')) {
+        return {
+          ok: true,
+          status: 200,
+          response: new Response(),
+          result: {
+            items: [
+              { id: 'role-employee', name: 'employee' },
+              { id: 'role-custom', name: 'warehouse_lead' },
+            ],
+          },
+        }
+      }
+      if (url === '/api/auth/features') {
+        return { ok: true, status: 200, response: new Response(), result: { items: [], modules: [] } }
+      }
+      return {
+        ok: true,
+        status: 200,
+        response: new Response(),
+        result: { hasCustomAcl: false, isSuperAdmin: false, features: [], organizations: null },
+      }
+    })
+
+    renderWithProviders(
+      <AclEditor
+        kind="user"
+        targetId="user-1"
+        canEditOrganizations={false}
+        userRoles={['employee', 'warehouse_lead']}
+      />,
+      { locale: 'pl', dict: { 'auth.roles.employee': 'Pracownik' } },
+    )
+
+    const translated = await screen.findByRole('link', { name: 'Pracownik' })
+    expect(translated).toHaveAttribute('href', '/backend/roles/role-employee/edit')
+    expect(screen.getByRole('link', { name: 'warehouse_lead' })).toHaveAttribute('href', '/backend/roles/role-custom/edit')
+    expect(screen.queryByRole('link', { name: 'employee' })).not.toBeInTheDocument()
+  })
 })

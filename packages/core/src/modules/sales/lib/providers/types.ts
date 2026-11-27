@@ -36,8 +36,12 @@ export type ProviderAdjustment = {
   kind?: SalesAdjustmentDraft['kind']
   code?: string | null
   label?: string | null
+  /** Float copy of `amountNetExact`; prefer the exact field. */
   amountNet: number
+  amountNetExact?: string | null
+  /** Float copy of `amountGrossExact`; prefer the exact field. */
   amountGross?: number | null
+  amountGrossExact?: string | null
   currencyCode?: string | null
   metadata?: Record<string, unknown> | null
 }
@@ -53,8 +57,12 @@ export type ShippingMethodContext = {
   name?: string | null
   providerKey?: string | null
   currencyCode?: string | null
+  /** Float copy of `baseRateNetExact`; prefer the exact field. */
   baseRateNet?: number | null
+  baseRateNetExact?: string | null
+  /** Float copy of `baseRateGrossExact`; prefer the exact field. */
   baseRateGross?: number | null
+  baseRateGrossExact?: string | null
   metadata?: Record<string, unknown> | null
   providerSettings?: Record<string, unknown> | null
 }
@@ -73,8 +81,12 @@ export type ShippingMetrics = {
   itemCount: number
   totalWeight: number
   totalVolume: number
+  /** Float copy of `subtotalNetExact`; prefer the exact field. */
   subtotalNet: number
+  subtotalNetExact?: string
+  /** Float copy of `subtotalGrossExact`; prefer the exact field. */
   subtotalGross: number
+  subtotalGrossExact?: string
 }
 
 export type ShippingProviderCalculateInput = {

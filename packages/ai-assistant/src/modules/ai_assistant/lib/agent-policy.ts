@@ -30,6 +30,8 @@ export type AgentPolicyDenyCode =
   | 'loop_active_tools_outside_allowlist'
   /** agent.loop.allowRuntimeOverride is false and a per-call loop override was supplied. */
   | 'loop_runtime_override_disabled'
+  /** agent.allowRuntimeOverride is false and per-call callSettings were supplied. */
+  | 'runtime_override_disabled'
 
 export type AgentPolicyDecision =
   | { ok: true; agent: AiAgentDefinition; tool?: AiToolDefinition }
@@ -59,8 +61,10 @@ export interface AgentPolicyCheckInput {
 /**
  * Restrictiveness ranking of `AiAgentMutationPolicy` (most restrictive first).
  * `read-only` blocks all mutation tools. `destructive-confirm-required` forces
- * confirmation for every write (including non-destructive ones). `confirm-required`
- * is the least restrictive policy — writes go through a single confirmation.
+ * confirmation only for destructive writes; non-destructive writes run directly
+ * on the in-process agent channel (on `mcp` / `tools-api` in approval mode every
+ * write is still queued). `confirm-required` gates every write through a single
+ * confirmation.
  *
  * This ordering is load-bearing for both the runtime's effective-policy
  * computation AND the route-layer escalation guard. Changing the order is a

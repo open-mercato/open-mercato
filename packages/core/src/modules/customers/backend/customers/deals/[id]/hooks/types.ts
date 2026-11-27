@@ -10,6 +10,7 @@ export type PipelineStageInfo = {
   id: string
   label: string
   order: number
+  defaultProbability?: number | null
   color: string | null
   icon: string | null
 }
@@ -60,6 +61,7 @@ export type DealDetailPayload = {
   } | null
   pipelineStages: PipelineStageInfo[]
   pipelineName: string | null
+  pipelineStageProbabilitiesEnabled?: boolean
   stageTransitions: StageTransitionInfo[]
   owner: { id: string; name: string; email: string } | null
 }
@@ -79,4 +81,5 @@ export type DealStatsPayload = {
 export type GuardedMutationRunner = <TResult>(
   operation: () => Promise<TResult>,
   mutationPayload?: Record<string, unknown>,
+  onSuccess?: () => void | Promise<void>,
 ) => Promise<TResult>

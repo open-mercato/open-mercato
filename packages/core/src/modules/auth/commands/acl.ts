@@ -46,6 +46,7 @@ type AclRecord = {
   isSuperAdmin: boolean
   featuresJson?: string[] | null
   organizationsJson?: string[] | null
+  updatedAt?: Date | null
 }
 
 /**
@@ -216,6 +217,15 @@ export type AclUpdateResult = {
   resourceId: string
   tenantId: string
   organizationId: string | null
+  /**
+   * The persisted row's new version, or `null` when the write cleared it.
+   * Optional (not just nullable) so a producer written against the
+   * pre-#8683 shape — `{ resourceId, tenantId, organizationId }` — still
+   * satisfies this type; narrowing it to required would be a breaking
+   * change under `BACKWARD_COMPATIBILITY.md`'s "Type Definitions &
+   * Interfaces (STABLE)" contract. Callers read it with `?? null`.
+   */
+  updatedAt?: string | null
 }
 
 export const AUTH_ROLE_ACL_UPDATE_COMMAND_ID = 'auth.role-acl.update'
@@ -229,7 +239,14 @@ type AclCommandConfig<TInput extends AclCommandInput> = {
   resourceId: (input: TInput) => string
   lockParent: (em: EntityManager, input: TInput) => Promise<void>
   loadAcl: (em: EntityManager, input: TInput) => Promise<AclRecord | null>
-  persist: (params: { em: EntityManager; input: TInput; existing: AclRecord | null }) => Promise<void>
+  /**
+   * Returns the persisted row (or `null` when the write cleared it), so `execute`
+   * can read its post-flush `updatedAt` back into the command result — the entity
+   * reference `onUpdate` hooks mutate in place during `em.flush()`, so reading it
+   * after `withAtomicFlush` resolves reflects the committed version without a
+   * second query.
+   */
+  persist: (params: { em: EntityManager; input: TInput; existing: AclRecord | null }) => Promise<AclRecord | null>
   invalidate: (params: { ctx: CommandRuntimeContext; input: TInput }) => Promise<void>
   /**
    * Post-state when the row is absent after the write. Only the user command's
@@ -299,10 +316,11 @@ function createAclUpdateCommand<TInput extends AclCommandInput>(
     },
     async execute(input, ctx) {
       const em = resolveEm(ctx)
+      const persistedBox: { current: AclRecord | null } = { current: null }
       await withAtomicFlush(em, [async () => {
         await config.lockParent(em, input)
         const existing = await config.loadAcl(em, input)
-        await config.persist({ em, input, existing })
+        persistedBox.current = await config.persist({ em, input, existing })
       }], { transaction: true, label: `${config.id}.locked` })
       // Cache invalidation runs only after the write commits, never inside the
       // atomic flush — and must never propagate. The command bus persists the
@@ -332,6 +350,7 @@ function createAclUpdateCommand<TInput extends AclCommandInput>(
         resourceId: config.resourceId(input),
         tenantId: input.tenantId,
         organizationId: resolveOrganizationId(ctx, input.tenantId),
+        updatedAt: persistedBox.current?.updatedAt instanceof Date ? persistedBox.current.updatedAt.toISOString() : null,
       }
     },
     captureAfter: async (input, _result, ctx) => {
@@ -404,6 +423,7 @@ const updateRoleAclCommand = createAclUpdateCommand<RoleAclUpdateInput>({
     acl.isSuperAdmin = input.isSuperAdmin
     acl.featuresJson = input.features
     em.persist(acl)
+    return acl
   },
   invalidate: async ({ ctx, input }) => {
     // Every user in the tenant inherits this role's grants, so the whole tenant
@@ -437,10 +457,10 @@ const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
     em.findOne(UserAcl, { user: input.userId as unknown as User, tenantId: input.tenantId, deletedAt: null }),
   persist: async ({ em, input, existing }) => {
     if (input.clear) {
-      if (!existing) return
+      if (!existing) return null
       const aclToRemove = existing as UserAcl
       em.remove(aclToRemove)
-      return
+      return null
     }
     const acl =
       (existing as UserAcl | null) ??
@@ -454,6 +474,7 @@ const updateUserAclCommand = createAclUpdateCommand<UserAclUpdateInput>({
     acl.featuresJson = input.features
     acl.organizationsJson = input.organizations
     em.persist(acl)
+    return acl
   },
   invalidate: async ({ ctx, input }) => {
     const rbacService = ctx.container.resolve('rbacService') as RbacService

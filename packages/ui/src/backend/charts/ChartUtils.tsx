@@ -172,9 +172,16 @@ export function getChartColor(index: number): string {
   return CHART_COLORS[index % CHART_COLORS.length]
 }
 
+function isRawCssColor(color: string): boolean {
+  return color.startsWith('#') || color.startsWith('var(') || /^(rgb|hsl|oklch|oklab|color)\(/.test(color)
+}
+
 export function resolveChartColor(color: string | undefined, index: number): string {
   if (color && NAMED_COLORS[color]) {
     return NAMED_COLORS[color]
+  }
+  if (color && isRawCssColor(color)) {
+    return color
   }
   return CHART_COLORS[index % CHART_COLORS.length]
 }

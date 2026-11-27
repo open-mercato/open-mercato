@@ -24,6 +24,7 @@ import {
   type WarrantyClaimEffectiveSettings,
 } from '../../lib/settings'
 import { WARRANTY_CLAIM_SETTINGS_RESOURCE_KIND, type SaveWarrantyClaimSettingsResult } from '../../commands/settings'
+import { withWarrantyExactAmounts } from '../../commands/shared'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('warranty_claims')
@@ -136,7 +137,11 @@ export async function PUT(req: Request) {
     const guardedPayload = guarded.modifiedPayload
       ? warrantyClaimSettingsUpdateSchema.parse({ ...parsedPayload, ...guarded.modifiedPayload })
       : parsed
-    const commandInput = warrantyClaimSettingsSaveSchema.parse(withScopedPayload({ ...guardedPayload }, ctx, translate))
+    const exactSource = guarded.modifiedPayload ? { ...payload, ...guarded.modifiedPayload } : payload
+    const commandInput = withWarrantyExactAmounts(
+      warrantyClaimSettingsSaveSchema.parse(withScopedPayload({ ...guardedPayload }, ctx, translate)),
+      exactSource,
+    )
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<
       WarrantyClaimSettingsSaveInput,
@@ -153,6 +158,7 @@ export async function PUT(req: Request) {
         slaAtRiskThresholdPct: result.slaAtRiskThresholdPct,
         autoApproveEnabled: result.autoApproveEnabled,
         autoApproveMaxAmount: result.autoApproveMaxAmount,
+        autoApproveMaxAmountExact: result.autoApproveMaxAmountExact ?? null,
         autoApproveCurrencyCode: result.autoApproveCurrencyCode,
         autoApproveRequireInWarranty: result.autoApproveRequireInWarranty,
         defaultWarrantyMonths: result.defaultWarrantyMonths,
@@ -186,6 +192,7 @@ const settingsResultSchema = z.object({
   slaAtRiskThresholdPct: z.number(),
   autoApproveEnabled: z.boolean(),
   autoApproveMaxAmount: z.number().nullable(),
+  autoApproveMaxAmountExact: z.string().nullable().optional(),
   autoApproveCurrencyCode: z.string().nullable(),
   autoApproveRequireInWarranty: z.boolean(),
   defaultWarrantyMonths: z.number().nullable(),

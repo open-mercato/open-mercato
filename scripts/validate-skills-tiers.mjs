@@ -64,6 +64,17 @@ export function validateSkillsTiers(rootDir) {
   const assigned = tierNames.flatMap((tier) => (Array.isArray(tiers[tier]?.skills) ? tiers[tier].skills : []))
   const uniqueAssigned = [...new Set(assigned)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   const multiAssigned = [...new Set(assigned.filter((skill, index) => assigned.indexOf(skill) !== index))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  if (manifest.external) {
+    if (typeof manifest.external.source !== 'string' || !/^[A-Za-z0-9-]+\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(manifest.external.source ?? '')) {
+      errors.push("'external.source' must be a GitHub owner/repo.")
+    }
+    if (typeof manifest.external.ref !== 'string' || !/^[a-f0-9]{40}$/.test(manifest.external.ref ?? '')) {
+      errors.push("'external.ref' must be a full immutable commit SHA.")
+    }
+    if (typeof manifest.external.cliVersion !== 'string' || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(manifest.external.cliVersion ?? '')) {
+      errors.push("'external.cliVersion' must be an exact stable version.")
+    }
+  }
   const externalSkills = new Set(Array.isArray(manifest.external?.skills) ? manifest.external.skills : [])
 
   const externalAndTiered = uniqueAssigned.filter((skill) => externalSkills.has(skill))

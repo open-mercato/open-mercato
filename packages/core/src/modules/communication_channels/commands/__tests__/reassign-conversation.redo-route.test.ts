@@ -6,6 +6,10 @@ const mockFlush = jest.fn(async () => undefined)
 const mockRbac = { userHasAllFeatures: jest.fn(), loadAcl: jest.fn() }
 const mockLogs = { findById: jest.fn(), latestUndoneForActor: jest.fn(), markRedone: jest.fn() }
 const mockCommandBus = { execute: jest.fn() }
+const mockEm: { flush: typeof mockFlush; transactional: jest.Mock } = {
+  flush: mockFlush,
+  transactional: jest.fn(async (callback: (tem: unknown) => Promise<unknown>) => callback(mockEm)),
+}
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOne(...args),
@@ -22,7 +26,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       if (token === 'rbacService') return mockRbac
       if (token === 'actionLogService') return mockLogs
       if (token === 'commandBus') return mockCommandBus
-      if (token === 'em') return { fork: () => ({ flush: mockFlush }) }
+      if (token === 'em') return { fork: () => mockEm }
       return null
     },
   })),
@@ -79,6 +83,7 @@ function seedPersonalMailboxLookups(options: { granted: boolean }): void {
   if (options.granted) {
     mockFindOne
       .mockResolvedValueOnce({ id: ASSIGNEE })
+      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT })
       .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null })
   }
 }

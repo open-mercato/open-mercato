@@ -8,6 +8,24 @@ import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_ass
 const delegateTool = aiTools.find((t) => t.name === DELEGATE_TOOL_ID) as AiToolDefinition
 
 const SUB_AGENT_ID = 'parent_trace.worker'
+const PARENT_AGENT_ID = 'parent_trace.lead'
+
+function registerParentAgent(): void {
+  if (getAgentEntry(PARENT_AGENT_ID)) return
+  registerFileAgent({
+    id: PARENT_AGENT_ID,
+    moduleId: 'agent_orchestrator',
+    resultKind: 'research',
+    schema: z.object({ kind: z.literal('research'), data: z.unknown() }),
+    tools: [DELEGATE_TOOL_ID],
+    skills: [],
+    subAgents: [SUB_AGENT_ID],
+    label: 'Lead',
+    description: 'Parent that delegates to the worker.',
+    instructions: 'delegate',
+    runtime: 'in-process',
+  })
+}
 
 function registerResearcherSubAgent(): AgentRegistryEntry {
   const existing = getAgentEntry(SUB_AGENT_ID)
@@ -54,6 +72,7 @@ describe('parent_run_id nested-run trace (Phase 4)', () => {
 
   it('the in-process delegate tool stamps the current run id as the nested run parentRunId', async () => {
     registerResearcherSubAgent()
+    registerParentAgent()
     let runCtxSeen: { parentRunId?: string } | undefined
     const agentRuntime = {
       async run(_agentId: string, _input: unknown, ctx: { parentRunId?: string }) {
@@ -75,25 +94,25 @@ describe('parent_run_id nested-run trace (Phase 4)', () => {
     } as unknown as Parameters<NonNullable<typeof delegateTool.handler>>[1]
 
     // Inside a run context, the delegate tool must forward the parent run id.
-    const result = await withRunContext('parent-run-77', () =>
-      delegateTool.handler!({ agentId: SUB_AGENT_ID, input: { y: 2 } }, toolCtx),
+    const result = await withRunContext(
+      'parent-run-77',
+      () => delegateTool.handler!({ agentId: SUB_AGENT_ID, input: { y: 2 } }, toolCtx),
+      undefined,
+      undefined,
+      undefined,
+      PARENT_AGENT_ID,
     )
     expect((result as { ok: boolean }).ok).toBe(true)
     expect(runCtxSeen?.parentRunId).toBe('parent-run-77')
   })
 
-  it('outside a run context the delegated run carries no parentRunId (top-level)', async () => {
+  it('outside a run context the delegation is refused and no nested run starts', async () => {
     registerResearcherSubAgent()
-    let runCtxSeen: { parentRunId?: string } | undefined
-    const agentRuntime = {
-      async run(_agentId: string, _input: unknown, ctx: { parentRunId?: string }) {
-        runCtxSeen = ctx
-        return { kind: 'research' as const, data: {} }
-      },
-    }
+    registerParentAgent()
+    const run = jest.fn()
     const container = {
       resolve(name: string) {
-        if (name === 'agentRuntime') return agentRuntime
+        if (name === 'agentRuntime') return { run }
         throw new Error(`unexpected resolve("${name}")`)
       },
     }
@@ -104,7 +123,8 @@ describe('parent_run_id nested-run trace (Phase 4)', () => {
       container,
     } as unknown as Parameters<NonNullable<typeof delegateTool.handler>>[1]
 
-    await delegateTool.handler!({ agentId: SUB_AGENT_ID, input: {} }, toolCtx)
-    expect(runCtxSeen?.parentRunId).toBeUndefined()
+    const result = await delegateTool.handler!({ agentId: SUB_AGENT_ID, input: {} }, toolCtx)
+    expect(result).toEqual({ ok: false, agentId: SUB_AGENT_ID, error: 'no_active_run' })
+    expect(run).not.toHaveBeenCalled()
   })
 })

@@ -25,6 +25,8 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '^@open-mercato/cache$': '<rootDir>/../cache/src/index.ts',
+    '^@open-mercato/cache/(.*)$': '<rootDir>/../cache/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
   },

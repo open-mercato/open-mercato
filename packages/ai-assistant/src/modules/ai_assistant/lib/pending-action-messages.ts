@@ -13,3 +13,8 @@ export async function resolveToolFeaturesDeniedMessage(requiredFeatures: string[
     features: requiredFeatures.join(', '),
   })
 }
+
+export async function resolvePendingActionAlreadyResolvedMessage(): Promise<string> {
+  const { translate } = await resolveTranslations()
+  return translate('ai_assistant.chat.mutation_cards.confirmation.invalidStatusBody')
+}

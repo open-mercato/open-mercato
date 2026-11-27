@@ -19,6 +19,7 @@ export const channelCapabilitiesSchema = z.object({
   richText: z.boolean(),
   fileSharing: z.boolean(),
   maxFileSize: z.number().int().nonnegative().optional(),
+  maxTotalBytes: z.number().int().positive().optional(),
   supportedMimeTypes: z.array(z.string()).optional(),
   readReceipts: z.boolean(),
   deliveryReceipts: z.boolean(),

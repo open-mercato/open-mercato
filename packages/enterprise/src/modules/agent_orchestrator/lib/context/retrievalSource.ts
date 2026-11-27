@@ -64,7 +64,7 @@ export type RetrievalScope = {
 }
 
 /** A conservative default cap on hits pulled before the packer trims to budget. */
-const DEFAULT_RETRIEVAL_LIMIT = 20
+export const DEFAULT_RETRIEVAL_LIMIT = 20
 
 /**
  * Read a `retrieval` source via `searchService` (RRF), org+tenant scoped, and

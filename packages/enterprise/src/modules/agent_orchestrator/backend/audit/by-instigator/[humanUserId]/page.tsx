@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
@@ -9,6 +10,11 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../../../components/types'
+import {
+  buildAuditEntryHref,
+  buildProposalHref,
+  buildRunTraceHref,
+} from '../../../../lib/identity/auditEntryLinks'
 
 type InstigatorEntry = {
   id: string
@@ -22,7 +28,13 @@ type InstigatorEntry = {
   onBehalfOfUserId: string | null
   createdAt: string | null
   via: 'direct' | 'via_agent'
+  agentRunId: string | null
+  proposalId: string | null
+  agentId?: string | null
+  agentVersion?: string | null
 }
+
+const ENTRY_LINK_CLASS = 'text-xs font-medium text-foreground underline-offset-4 hover:underline'
 
 type InstigatorResponse = {
   humanUserId: string
@@ -109,12 +121,37 @@ export default function InstigatorAuditChainPage({ params }: { params?: { humanU
                       })}
                     </p>
                   ) : null}
+                  {entry.agentId ? (
+                    <p className="text-xs text-muted-foreground">
+                      {entry.agentVersion
+                        ? t('agent_orchestrator.identity.audit.producedByVersion', {
+                            agent: entry.agentId,
+                            version: entry.agentVersion,
+                          })
+                        : t('agent_orchestrator.identity.audit.producedBy', { agent: entry.agentId })}
+                    </p>
+                  ) : null}
                   {entry.resourceKind ? (
                     <p className="font-mono text-xs text-muted-foreground">
                       {entry.resourceKind}
                       {entry.resourceId ? ` · ${entry.resourceId}` : ''}
                     </p>
                   ) : null}
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    <Link href={buildAuditEntryHref(entry.id)} className={ENTRY_LINK_CLASS} data-testid="instigator-entry-audit-link">
+                      {t('agent_orchestrator.audit.links.openEntry')}
+                    </Link>
+                    {entry.agentRunId ? (
+                      <Link href={buildRunTraceHref(entry.agentRunId)} className={ENTRY_LINK_CLASS} data-testid="instigator-entry-run-link">
+                        {t('agent_orchestrator.audit.links.openRun')}
+                      </Link>
+                    ) : null}
+                    {entry.proposalId ? (
+                      <Link href={buildProposalHref(entry.proposalId)} className={ENTRY_LINK_CLASS} data-testid="instigator-entry-proposal-link">
+                        {t('agent_orchestrator.audit.links.openProposal')}
+                      </Link>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>

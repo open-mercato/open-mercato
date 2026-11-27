@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { EntityManager } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { ScheduledJob } from '../../../data/entities.js'
+import { resolveScheduleAccess } from '../../../lib/scheduleAccess.js'
 
 const logger = createLogger('scheduler').child({ component: 'queue-jobs' })
 
@@ -15,15 +20,31 @@ export const metadata = {
   requireFeatures: ['scheduler.jobs.view'],
 }
 
+const SCHEDULER_MODULE_ID = 'scheduler'
+
+/**
+ * Only the scheduler module's own worker queues are inspectable here (#9141).
+ * A generic queue inspector is out of scope: BullMQ job ids are sequential
+ * integers, so accepting any module's queue would let a scheduler.jobs.view
+ * holder walk another module's queue and read its payloads. Queue ownership is
+ * resolved from the live registry, never parsed from queue or worker ids.
+ */
+function isSchedulerOwnedQueue(queueName: string): boolean {
+  return getModules().some((mod) =>
+    mod.id === SCHEDULER_MODULE_ID && (mod.workers ?? []).some((worker) => worker.queue === queueName))
+}
+
 /**
  * GET /api/scheduler/queue-jobs/[jobId]
- * Fetch BullMQ job details and logs
- * 
+ * Fetch BullMQ job details and logs for a scheduled execution
+ *
  * Query params:
- * - queue: Queue name (required)
- * 
- * Note: This endpoint returns job data from BullMQ directly.
- * Tenant/org isolation is enforced at the queue level (jobs contain tenant/org IDs in their data).
+ * - queue: Queue name (required; only queues owned by the scheduler module)
+ *
+ * Note: This endpoint returns job data from BullMQ directly. A job is readable
+ * only when it sits on a scheduler-owned queue and its schedule passes
+ * `resolveScheduleAccess` — the same per-schedule tenant/organization/scope
+ * isolation the executions route applies (#9141).
  */
 export async function GET(
   req: NextRequest,
@@ -49,11 +70,8 @@ export async function GET(
   }
   const queueName = queryResult.data.queue
 
-  // Validate queue name against registered module queues
-  const registeredQueues = new Set(
-    getModules().flatMap((m) => m.workers?.map((w) => w.queue) ?? [])
-  )
-  if (!registeredQueues.has(queueName)) {
+  // Refuse queues this module does not own (#9141)
+  if (!isSchedulerOwnedQueue(queueName)) {
     return NextResponse.json(
       { error: translate('scheduler.error.invalid_queue_name', 'Invalid queue name') },
       { status: 400 }
@@ -76,77 +94,97 @@ export async function GET(
       connection: parseRedisUrl(getRedisUrlOrThrow('QUEUE')),
     })
 
-    const job = await queue.getJob(jobId)
+    try {
+      const job = await queue.getJob(jobId)
 
-    if (!job) {
+      if (!job) {
+        return NextResponse.json(
+          { error: translate('scheduler.error.job_not_found', 'Job not found in BullMQ (may have been removed)') },
+          { status: 404 }
+        )
+      }
+
+      // Per-schedule isolation (#9141): the job's own tenant/org payload fields
+      // are enqueue-time copies, so the schedule row is the authority. Load it
+      // by id alone, then apply the same access decision as the executions
+      // route. A job without a resolvable schedule fails closed.
+      const jobData = job.data as { payload?: { scheduleId?: unknown }; scheduleId?: unknown } | null | undefined
+      const scheduleId = jobData?.payload?.scheduleId ?? jobData?.scheduleId ?? null
+      const schedule = scheduleIdSchema.safeParse(scheduleId).success
+        ? await loadSchedule(String(scheduleId))
+        : null
+
+      if (!schedule) {
+        return NextResponse.json(
+          { error: translate('scheduler.error.not_found', 'Schedule not found') },
+          { status: 404 }
+        )
+      }
+
+      const access = resolveScheduleAccess(schedule, auth)
+      if (access === 'not_found') {
+        return NextResponse.json(
+          { error: translate('scheduler.error.not_found', 'Schedule not found') },
+          { status: 404 }
+        )
+      }
+      if (access === 'forbidden') {
+        return NextResponse.json(
+          { error: translate('scheduler.error.access_denied', 'Access denied') },
+          { status: 403 }
+        )
+      }
+
+      // Get job state and logs
+      const state = await job.getState()
+      const logs = await queue.getJobLogs(jobId)
+
+      return NextResponse.json({
+        id: job.id,
+        name: job.name,
+        data: job.data,
+        state,
+        progress: job.progress,
+        returnvalue: job.returnvalue,
+        failedReason: job.failedReason,
+        stacktrace: job.stacktrace,
+        attemptsMade: job.attemptsMade,
+        processedOn: job.processedOn ? new Date(job.processedOn).toISOString() : null,
+        finishedOn: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+        logs: logs.logs || [],
+      })
+    } finally {
       await queue.close()
-      return NextResponse.json(
-        { error: translate('scheduler.error.job_not_found', 'Job not found in BullMQ (may have been removed)') },
-        { status: 404 }
-      )
     }
-
-    // Validate tenant/org access from job data
-    const jobData = job.data as Record<string, unknown> | undefined
-    const jobPayload = jobData?.payload as Record<string, unknown> | undefined
-
-    // Resolve tenant/org IDs from job data (may be nested in payload)
-    const jobTenantId = jobData?.tenantId ?? jobPayload?.tenantId ?? null
-    const jobOrgId = jobData?.organizationId ?? jobPayload?.organizationId ?? null
-
-    // System-scoped jobs (no tenantId/orgId) require super-admin. Use the
-    // immutable `isSuperAdmin` flag — never compare mutable/spoofable role names.
-    const isSuperAdmin = auth.isSuperAdmin === true
-    if (!jobTenantId && !jobOrgId && !isSuperAdmin) {
-      await queue.close()
-      return NextResponse.json({ error: translate('scheduler.error.forbidden', 'Forbidden') }, { status: 403 })
-    }
-
-    // Deny access to jobs belonging to a different tenant
-    if (jobTenantId && auth.tenantId && jobTenantId !== auth.tenantId) {
-      await queue.close()
-      return NextResponse.json({ error: translate('scheduler.error.forbidden', 'Forbidden') }, { status: 403 })
-    }
-
-    // Deny access to jobs belonging to a different organization
-    if (jobOrgId && auth.orgId && jobOrgId !== auth.orgId) {
-      await queue.close()
-      return NextResponse.json({ error: translate('scheduler.error.forbidden', 'Forbidden') }, { status: 403 })
-    }
-
-    // Get job state and logs
-    const state = await job.getState()
-    const logs = await queue.getJobLogs(jobId)
-
-    await queue.close()
-
-    return NextResponse.json({
-      id: job.id,
-      name: job.name,
-      data: job.data,
-      state,
-      progress: job.progress,
-      returnvalue: job.returnvalue,
-      failedReason: job.failedReason,
-      stacktrace: job.stacktrace,
-      attemptsMade: job.attemptsMade,
-      processedOn: job.processedOn ? new Date(job.processedOn).toISOString() : null,
-      finishedOn: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
-      logs: logs.logs || [],
-    })
   } catch (error: unknown) {
     logger.error('Error fetching job', { err: error })
+    try {
+      getTelemetryRuntime()?.reportError(error, { module: 'scheduler', code: 'scheduler.fetch_job_failed' })
+    } catch (telemetryError) {
+      logger.warn('Failed to report queue job error to telemetry', { err: telemetryError })
+    }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : translate('scheduler.error.fetch_job_failed', 'Failed to fetch job details') },
+      { error: translate('scheduler.error.fetch_job_failed', 'Failed to fetch job details') },
       { status: 500 }
     )
   }
+}
+
+async function loadSchedule(scheduleId: string) {
+  const container = await createRequestContainer()
+  const em = container.resolve<EntityManager>('em')
+  // Load by id alone, then apply isolation to the loaded row. Folding the
+  // actor's tenant/org into the lookup would make system-scoped schedules
+  // unmatchable, the same reason the executions route loads this way.
+  return em.findOne(ScheduledJob, { id: scheduleId, deletedAt: null })
 }
 
 // Query schemas
 const queueJobQuerySchema = z.object({
   queue: z.string(),
 })
+
+const scheduleIdSchema = z.guid()
 
 // Response schemas
 const queueJobResponseSchema = z.object({
@@ -178,7 +216,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       operationId: 'getQueueJobDetails',
       summary: 'Get BullMQ job details and logs',
-      description: 'Fetch detailed information and logs for a queue job. Requires QUEUE_STRATEGY=async.',
+      description: 'Fetch detailed information and logs for a scheduled execution queue job. Only scheduler-owned queues are accepted, and the job is readable only when its schedule passes schedule access checks. Requires QUEUE_STRATEGY=async.',
       query: queueJobQuerySchema,
       responses: [
         {
@@ -191,7 +229,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid request or local strategy not supported', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
-        { status: 404, description: 'Job not found', schema: errorResponseSchema },
+        { status: 404, description: 'Job or schedule not found', schema: errorResponseSchema },
         { status: 500, description: 'Internal server error', schema: errorResponseSchema },
       ],
     },

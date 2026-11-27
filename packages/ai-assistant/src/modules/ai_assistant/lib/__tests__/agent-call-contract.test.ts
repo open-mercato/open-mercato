@@ -1,0 +1,180 @@
+import {
+  aiAgentCallSettingsSchema,
+  aiAgentHttpCallSettingsSchema,
+  mergeCallSettings,
+  mergeProviderOptions,
+  toSdkCallSettings,
+  type AiAgentCallSettings,
+} from '../agent-call-contract'
+
+describe('mergeCallSettings', () => {
+  it('returns an empty object when both inputs are absent', () => {
+    expect(mergeCallSettings(undefined, undefined)).toEqual({})
+  })
+
+  it('lets call settings win key by key over model settings', () => {
+    const modelSettings: AiAgentCallSettings = { temperature: 0.2, topP: 0.9, maxOutputTokens: 512 }
+    const callSettings: AiAgentCallSettings = { temperature: 0.7, seed: 42 }
+    expect(mergeCallSettings(modelSettings, callSettings)).toEqual({
+      temperature: 0.7,
+      topP: 0.9,
+      maxOutputTokens: 512,
+      seed: 42,
+    })
+  })
+
+  it('drops undefined keys and keeps the lower-priority value for them', () => {
+    const merged = mergeCallSettings(
+      { temperature: 0.3, topK: undefined },
+      { temperature: undefined, frequencyPenalty: 0.5 },
+    )
+    expect(merged).toEqual({ temperature: 0.3, frequencyPenalty: 0.5 })
+    expect(Object.keys(merged)).not.toContain('topK')
+  })
+
+  it('returns a new object without mutating inputs', () => {
+    const modelSettings: AiAgentCallSettings = { temperature: 0.1 }
+    const callSettings: AiAgentCallSettings = { topP: 0.5 }
+    const merged = mergeCallSettings(modelSettings, callSettings)
+    expect(merged).not.toBe(modelSettings)
+    expect(merged).not.toBe(callSettings)
+    expect(mergeCallSettings(modelSettings, undefined)).not.toBe(modelSettings)
+    expect(modelSettings).toEqual({ temperature: 0.1 })
+    expect(callSettings).toEqual({ topP: 0.5 })
+  })
+
+  it('replaces providerOptions as a whole value', () => {
+    const merged = mergeCallSettings(
+      { providerOptions: { openai: { reasoningEffort: 'low' } } },
+      { providerOptions: { anthropic: { thinking: { type: 'enabled' } } } },
+    )
+    expect(merged.providerOptions).toEqual({ anthropic: { thinking: { type: 'enabled' } } })
+  })
+})
+
+describe('aiAgentCallSettingsSchema', () => {
+  it('accepts a full valid settings object', () => {
+    const settings = {
+      temperature: 0.4,
+      topP: 0.95,
+      topK: 40,
+      maxOutputTokens: 1024,
+      seed: 7,
+      stopSequences: ['END'],
+      presencePenalty: 0.1,
+      frequencyPenalty: -0.1,
+      providerOptions: { openai: { user: 'abc' } },
+    }
+    expect(aiAgentCallSettingsSchema.parse(settings)).toEqual(settings)
+  })
+
+  it('accepts an empty object', () => {
+    expect(aiAgentCallSettingsSchema.safeParse({}).success).toBe(true)
+  })
+
+  it('rejects unknown keys', () => {
+    expect(aiAgentCallSettingsSchema.safeParse({ temperature: 0.2, maxTokens: 100 }).success).toBe(false)
+  })
+
+  it.each([
+    [{ temperature: -1 }],
+    [{ topP: 1.5 }],
+    [{ topK: 0 }],
+    [{ topK: 2.5 }],
+    [{ maxOutputTokens: 0 }],
+    [{ seed: 1.5 }],
+    [{ temperature: 'hot' }],
+    [{ stopSequences: [''] }],
+    [{ providerOptions: 'openai' }],
+  ])('rejects invalid value %j', (value) => {
+    expect(aiAgentCallSettingsSchema.safeParse(value).success).toBe(false)
+  })
+})
+
+describe('mergeProviderOptions', () => {
+  it('returns the base reference untouched when there is no override', () => {
+    const baseOptions = { openai: { safety_identifier: 'user-hash' } }
+    expect(mergeProviderOptions(baseOptions, undefined)).toBe(baseOptions)
+    expect(mergeProviderOptions(undefined, undefined)).toBeUndefined()
+  })
+
+  it('merges shallowly per provider key', () => {
+    expect(
+      mergeProviderOptions(
+        { openai: { safety_identifier: 'user-hash', store: false } },
+        { openai: { store: true, reasoningEffort: 'low' }, anthropic: { thinking: { type: 'enabled' } } },
+      ),
+    ).toEqual({
+      openai: { safety_identifier: 'user-hash', store: true, reasoningEffort: 'low' },
+      anthropic: { thinking: { type: 'enabled' } },
+    })
+  })
+})
+
+describe('toSdkCallSettings', () => {
+  it('returns an empty object when nothing is declared', () => {
+    expect(toSdkCallSettings({})).toEqual({})
+  })
+
+  it('keeps base provider options and merges declared ones over them', () => {
+    expect(
+      toSdkCallSettings(
+        { temperature: 0.4, providerOptions: { openai: { store: true } } },
+        { openai: { safety_identifier: 'user-hash' } },
+      ),
+    ).toEqual({ temperature: 0.4, providerOptions: { openai: { safety_identifier: 'user-hash', store: true } } })
+  })
+})
+
+describe('call settings key whitelist', () => {
+  const strayDefinitionSettings = {
+    temperature: 0.3,
+    system: 'injected system prompt',
+    prepareStep: () => ({ tools: {} }),
+    tools: { injected: {} },
+  } as unknown as AiAgentCallSettings
+
+  it('mergeCallSettings keeps only contract keys', () => {
+    const merged = mergeCallSettings(strayDefinitionSettings, { seed: 3 })
+    expect(merged).toEqual({ temperature: 0.3, seed: 3 })
+    expect(Object.keys(merged)).not.toContain('system')
+    expect(Object.keys(merged)).not.toContain('prepareStep')
+    expect(Object.keys(merged)).not.toContain('tools')
+  })
+
+  it('toSdkCallSettings never forwards stray keys', () => {
+    const sdkSettings = toSdkCallSettings(strayDefinitionSettings) as Record<string, unknown>
+    expect(sdkSettings).toEqual({ temperature: 0.3 })
+  })
+})
+
+describe('aiAgentHttpCallSettingsSchema', () => {
+  it('accepts capped settings', () => {
+    const settings = {
+      temperature: 2,
+      topP: 1,
+      topK: 1000,
+      maxOutputTokens: 32768,
+      seed: 7,
+      stopSequences: ['A', 'B', 'C', 'D'],
+      presencePenalty: -2,
+      frequencyPenalty: 2,
+    }
+    expect(aiAgentHttpCallSettingsSchema.parse(settings)).toEqual(settings)
+  })
+
+  it.each([
+    [{ providerOptions: { openai: { user: 'abc' } } }],
+    [{ temperature: 2.5 }],
+    [{ topK: 1001 }],
+    [{ maxOutputTokens: 32769 }],
+    [{ maxOutputTokens: 0 }],
+    [{ stopSequences: ['A', 'B', 'C', 'D', 'E'] }],
+    [{ stopSequences: ['x'.repeat(65)] }],
+    [{ presencePenalty: 3 }],
+    [{ frequencyPenalty: -2.5 }],
+    [{ seed: 1.5 }],
+  ])('rejects %j', (value) => {
+    expect(aiAgentHttpCallSettingsSchema.safeParse(value).success).toBe(false)
+  })
+})

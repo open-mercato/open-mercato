@@ -342,7 +342,7 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       typed: '12,50',
       shown: '12.50',
       posted: 12.5,
-      stored: '12.50',
+      stored: '12.5',
     },
     {
       locale: 'en',
@@ -350,7 +350,7 @@ test.describe('TC-CRM-071: Create deal (UX redesign)', () => {
       typed: '1,250',
       shown: '1250',
       posted: 1250,
-      stored: '1250.00',
+      stored: '1250',
     },
   ]) {
     test(`saves the amount typed as ${scenario.typed} in ${scenario.locale} as ${scenario.stored} PLN`, async ({ page, request, baseURL }) => {

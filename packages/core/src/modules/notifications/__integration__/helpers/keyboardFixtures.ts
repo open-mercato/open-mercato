@@ -30,8 +30,11 @@ type KeyboardFixture = {
   expectUnrelatedNotificationUnchanged: () => Promise<void>
 }
 
-export const test = base.extend<{ keyboardFixture: KeyboardFixture }>({
-  keyboardFixture: async ({ request, page, baseURL }, use) => {
+type KeyboardAction = { id: string; label: string; labelKey?: string }
+
+export const test = base.extend<{ keyboardFixture: KeyboardFixture; keyboardActions: KeyboardAction[] }>({
+  keyboardActions: [actionNames.map((label) => ({ id: label.toLowerCase(), label })), { option: true }],
+  keyboardFixture: async ({ request, page, baseURL, keyboardActions }, provide) => {
     expect(baseURL, 'the native runner should provide the application URL').toBeTruthy()
     const adminToken = await getAuthToken(request, 'admin')
     const { organizationId, tenantId } = getTokenScope(adminToken)
@@ -73,13 +76,12 @@ export const test = base.extend<{ keyboardFixture: KeyboardFixture }>({
         sourceEntityType: 'keyboard_fixture',
         sourceEntityId: randomUUID(),
         linkHref: parentHref,
-        primaryActionId: 'approve',
+        primaryActionId: keyboardActions[0]?.id,
         data: { marker: stamp },
         channels: ['in_app'],
-        actions: actionNames.map((label) => ({
-          id: label.toLowerCase(),
-          label,
-          ...(label === 'View' ? { href: actionHref } : {}),
+        actions: keyboardActions.map((action) => ({
+          ...action,
+          ...(action.id === 'view' ? { href: actionHref } : {}),
         })),
       })
       const unrelatedId = await createNotificationFixture(request, actorToken, {
@@ -100,7 +102,7 @@ export const test = base.extend<{ keyboardFixture: KeyboardFixture }>({
       const unrelatedBefore = initialNotifications.find((notification) => notification.id === unrelatedId)
       expect(before).toMatchObject({ status: 'unread', readAt: null, actionTaken: null })
       expect(unrelatedBefore, 'the unrelated fixture should be persisted').toBeDefined()
-      await use({
+      await provide({
         id: notificationId,
         title,
         origin: new URL(baseURL!).origin,

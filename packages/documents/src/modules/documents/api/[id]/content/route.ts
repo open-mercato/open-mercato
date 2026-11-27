@@ -13,6 +13,7 @@ import type {
   ReplaceDocumentContentCommandResult,
 } from '../../../commands/content'
 import {
+  assertDocumentId,
   assertDocumentNotArchived,
   handleDocumentsRouteError,
   readBody,
@@ -58,6 +59,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   try {
     const id = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
+    assertDocumentId(id)
     await assertTier(ctx.em, id, ctx.auth, 'viewer')
     const content = await loadDocumentContent(ctx.em, id, {
       tenantId: ctx.tenantId,

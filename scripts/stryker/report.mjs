@@ -19,6 +19,7 @@
  */
 
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 export const SURVIVING_STATUSES = Object.freeze(['Survived', 'NoCoverage'])
 export const SCORED_STATUSES = Object.freeze(['Killed', 'Survived', 'NoCoverage', 'Timeout'])
@@ -277,6 +278,6 @@ function main() {
   )
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   main()
 }

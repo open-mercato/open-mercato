@@ -238,11 +238,11 @@ export function FieldRow({
           className="h-auto min-w-0 flex-1 justify-start px-0 py-0 text-left"
           onClick={() => onSelect(fieldKey)}
         >
-          <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <span className="flex min-w-0 flex-1 items-center gap-2 text-sm font-medium text-foreground">
             <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="truncate">{label}</span>
           </span>
-          <span className="mt-1 block text-xs text-muted-foreground">
+          <span className="mt-1 block shrink-0 text-xs text-muted-foreground">
             {resolveTypeLabel(omType, t)}
           </span>
           {help ? <span className="mt-1 block text-xs text-muted-foreground">{help}</span> : null}

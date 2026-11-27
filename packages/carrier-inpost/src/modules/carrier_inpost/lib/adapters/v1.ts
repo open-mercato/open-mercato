@@ -185,10 +185,7 @@ type InpostParcel =
       weight: { amount: string; unit: 'kg' }
     }
 
-function buildParcel(input: CreateShipmentInput): InpostParcel {
-  const pkg = input.packages[0]
-  const kind = INPOST_SERVICES.find((s) => s.serviceCode === input.serviceCode)?.kind
-
+function buildParcel(pkg: CreateShipmentInput['packages'][number] | undefined, kind: ServiceKind | undefined): InpostParcel {
   return match([pkg, kind] as const)
     .with([P.nullish, P._], () => ({ template: 'small' }))
     .with([P._, 'locker'], ([p]) => ({ template: selectLockerTemplate(p!.heightCm, false) }))
@@ -292,28 +289,11 @@ async function fetchLabel(
   }
 }
 
-function buildCalculateParcel(pkg: { weightKg: number; lengthCm: number; widthCm: number; heightCm: number } | undefined) {
-  if (!pkg) return { template: 'small' }
-  return {
-    dimensions: {
-      length: String(Math.round(pkg.lengthCm * 10)),
-      width: String(Math.round(pkg.widthCm * 10)),
-      height: String(Math.round(pkg.heightCm * 10)),
-      unit: 'mm',
-    },
-    weight: {
-      amount: String(pkg.weightKg),
-      unit: 'kg',
-    },
-  }
-}
-
 export const inpostAdapterV1: ShippingAdapter = {
   providerKey: 'inpost',
 
   async calculateRates(input) {
     const orgId = resolveOrganizationId(input.credentials)
-    const parcel = buildCalculateParcel(input.packages[0])
 
     // Each service has different required fields for the calculate endpoint.
     // We send one request per service and silently skip services that return errors
@@ -356,7 +336,7 @@ export const inpostAdapterV1: ShippingAdapter = {
         const shipmentPayload: Record<string, unknown> = {
           id: serviceCode,
           receiver,
-          parcels: [parcel],
+          parcels: [buildParcel(input.packages[0], kind)],
           service: inpostCode,
           ...(customAttributes ? { custom_attributes: customAttributes } : {}),
         }
@@ -391,6 +371,7 @@ export const inpostAdapterV1: ShippingAdapter = {
 
     const targetPoint = resolveTargetPoint(input.credentials)
     const isC2c = input.serviceCode === 'courier_c2c'
+    const kind = INPOST_SERVICES.find((s) => s.serviceCode === input.serviceCode)?.kind
     const c2cSendingMethod = resolveC2cSendingMethod(input.credentials)
     const c2cNeedsTargetPoint = c2cSendingMethod === 'parcel_locker' || c2cSendingMethod === 'pop'
     const customAttributes = match({ targetPoint, isC2c })
@@ -410,7 +391,7 @@ export const inpostAdapterV1: ShippingAdapter = {
     const body: Record<string, unknown> = {
       receiver: buildReceiverAddress(input.destination, input.credentials),
       sender: buildSenderAddress(input.origin, input.credentials),
-      parcels: [buildParcel(input)],
+      parcels: [buildParcel(input.packages[0], kind)],
       service: inpostServiceCode,
       reference,
       ...(customAttributes ? { custom_attributes: customAttributes } : {}),

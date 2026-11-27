@@ -62,6 +62,30 @@ export function getGlobalEventBus(): GlobalEventBus | null {
   return globalEventBus
 }
 
+const SCOPED_EVENT_BUS_RESOLVER_KEY = '__openMercatoScopedEventBusResolver__'
+
+export type ScopedEventBusResolver = () => GlobalEventBus | null
+
+/**
+ * Registers how module emitters find the event bus of the current request or
+ * job. Installed by `@open-mercato/shared/lib/di/request-scope`; kept as a hook
+ * so this module stays free of Node-only imports. When the resolver returns
+ * null, emitters fall back to the global bus.
+ */
+export function setScopedEventBusResolver(resolver: ScopedEventBusResolver | null): void {
+  ;(globalThis as Record<string, unknown>)[SCOPED_EVENT_BUS_RESOLVER_KEY] = resolver
+}
+
+function resolveScopedEventBus(): GlobalEventBus | null {
+  const resolver = (globalThis as Record<string, unknown>)[SCOPED_EVENT_BUS_RESOLVER_KEY]
+  if (typeof resolver !== 'function') return null
+  try {
+    return (resolver as ScopedEventBusResolver)()
+  } catch {
+    return null
+  }
+}
+
 // =============================================================================
 // Event Registry for Validation
 // =============================================================================
@@ -366,8 +390,7 @@ export function createModuleEvents<
       }
     }
 
-    // Get event bus from global reference
-    const eventBus = getGlobalEventBus()
+    const eventBus = resolveScopedEventBus() ?? getGlobalEventBus()
     if (!eventBus) {
       logger.warn('Event bus not available, cannot emit event', { eventId })
       return

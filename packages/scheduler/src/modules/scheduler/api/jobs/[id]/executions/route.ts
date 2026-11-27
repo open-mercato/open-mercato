@@ -9,6 +9,7 @@ import { resolveScheduleAccess } from '../../../../lib/scheduleAccess.js'
 import { getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('scheduler').child({ component: 'executions' })
 
@@ -35,10 +36,13 @@ export async function GET(
     return NextResponse.json({ error: translate('scheduler.error.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
+  const scheduleId = params.id
+  if (!scheduleIdSchema.safeParse(scheduleId).success) {
+    return NextResponse.json({ error: translate('scheduler.error.invalid_id', 'Invalid schedule id') }, { status: 400 })
+  }
+
   const container = await createRequestContainer()
   const em = container.resolve<EntityManager>('em')
-
-  const scheduleId = params.id
 
   try {
     // Load by id alone, then apply isolation to the loaded row. Folding the actor's
@@ -139,12 +143,19 @@ export async function GET(
 
   } catch (error: unknown) {
     logger.error('Error fetching execution history', { err: error })
+    try {
+      getTelemetryRuntime()?.reportError(error, { module: 'scheduler', code: 'scheduler.fetch_executions_failed' })
+    } catch (telemetryError) {
+      logger.warn('Failed to report execution history error to telemetry', { err: telemetryError })
+    }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : translate('scheduler.error.fetch_executions_failed', 'Failed to fetch execution history') },
+      { error: translate('scheduler.error.fetch_executions_failed', 'Failed to fetch execution history') },
       { status: 500 }
     )
   }
 }
+
+const scheduleIdSchema = z.guid()
 
 // Query schemas
 const executionsQuerySchema = z.object({
@@ -201,7 +212,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
-        { status: 400, description: 'Local strategy not supported', schema: errorResponseSchema },
+        { status: 400, description: 'Invalid schedule id or local strategy not supported', schema: errorResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Schedule not found', schema: errorResponseSchema },

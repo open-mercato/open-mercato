@@ -1,4 +1,4 @@
-import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import type { ModuleConfigRecord, ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { StaffTimeTrackingSettingsInput } from '../../data/validators'
 import {
   type RoundingDirection,
@@ -30,6 +30,7 @@ export const TIME_TRACKING_ROUNDING_UNIT_MINUTES_KEY = 'rounding.unitMinutes'
 export const TIME_TRACKING_ROUNDING_DIRECTION_KEY = 'rounding.direction'
 export const TIME_TRACKING_DEFAULTS_BILLABLE_KEY = 'defaults.billable'
 export const TIME_TRACKING_DEFAULTS_CHAIN_START_KEY = 'defaults.chainStartFromPreviousEnd'
+export const TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY = 'defaults.entryMode'
 export const TIME_TRACKING_TARGETS_DAILY_HOURS_KEY = 'targets.dailyHours'
 export const TIME_TRACKING_WARNINGS_OVERLAP_KEY = 'warnings.overlap'
 export const TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY = 'warnings.runningTimer'
@@ -38,7 +39,7 @@ export const TIME_TRACKING_SUPPORT_REFERENCE_PREFIX_KEY = 'support.referencePref
 
 /**
  * The built-in keys the module ships. FROZEN — a stored config row is named after one
- * of these, so none may be renamed or removed. The list is no longer the whole truth:
+ * of these, so none may be renamed or removed; new built-ins are appended. The list is no longer the whole truth:
  * `timeTrackingSettingKeyIds()` returns these plus every contributed key (EP-42).
  */
 export const TIME_TRACKING_SETTING_KEYS = [
@@ -51,13 +52,22 @@ export const TIME_TRACKING_SETTING_KEYS = [
   TIME_TRACKING_WARNINGS_RUNNING_TIMER_KEY,
   TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY,
   TIME_TRACKING_SUPPORT_REFERENCE_PREFIX_KEY,
+  TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY,
 ] as const
 
 export type TimeTrackingSettingKey = (typeof TIME_TRACKING_SETTING_KEYS)[number]
 
+export type TimeEntryMode = 'task' | 'project'
+
 export type TimeTrackingEntryDefaults = {
   billable: boolean
   chainStartFromPreviousEnd: boolean
+  /**
+   * Optional so a literal written against the pre-#6989 shape still compiles. Read
+   * through `normalizeTimeTrackingSettings`, it is always present; when absent, treat
+   * it as `'task'`.
+   */
+  entryMode?: TimeEntryMode
 }
 
 export type TimeTrackingTargets = {
@@ -143,16 +153,25 @@ export async function readTimeTrackingSettings(
   scope: TimeTrackingSettingsScope,
 ): Promise<TimeTrackingSettings> {
   const configScope = { tenantId: scope.tenantId }
-  // `getRecord` rather than `getValue` so an explicitly stored `null`
-  // (`targets.dailyHours` = "no daily target") stays distinguishable from an
-  // absent row, which must fall back to the default.
+  const entries = listTimeTrackingSettingKeys()
   const stored: TimeTrackingSettingsRecord = {}
-  for (const entry of listTimeTrackingSettingKeys()) {
-    const record = await configService.getRecord(STAFF_TIME_TRACKING_MODULE_ID, entry.id, configScope)
-    if (!record) continue
+  const applyRecord = (entry: TimeTrackingSettingKeyDefinition, record: ModuleConfigRecord | null) => {
+    if (!record) return
     const group = stored[entry.group] ?? {}
     group[entry.key] = record.value
     stored[entry.group] = group
+  }
+  if (configService.getRecords) {
+    const records = await configService.getRecords(
+      STAFF_TIME_TRACKING_MODULE_ID,
+      entries.map((entry) => entry.id),
+      configScope,
+    )
+    for (const entry of entries) applyRecord(entry, records[entry.id] ?? null)
+  } else {
+    for (const entry of entries) {
+      applyRecord(entry, await configService.getRecord(STAFF_TIME_TRACKING_MODULE_ID, entry.id, configScope))
+    }
   }
   return normalizeTimeTrackingSettings(stored)
 }

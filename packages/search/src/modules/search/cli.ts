@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
@@ -67,22 +68,7 @@ function createGroupedProgress(label: string, partitionTargets: number[]) {
 }
 
 function parseArgs(rest: string[]): ParsedArgs {
-  const args: ParsedArgs = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part?.startsWith('--')) continue
-    const [rawKey, rawValue] = part.slice(2).split('=')
-    if (!rawKey) continue
-    if (rawValue !== undefined) {
-      args[rawKey] = rawValue
-    } else if (i + 1 < rest.length && !rest[i + 1]!.startsWith('--')) {
-      args[rawKey] = rest[i + 1]!
-      i += 1
-    } else {
-      args[rawKey] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { skipEmptyKeys: true, consumeEmptyValues: true })
 }
 
 function stringOpt(args: ParsedArgs, ...keys: string[]): string | undefined {
@@ -821,7 +807,7 @@ async function workerCommand(rest: string[]): Promise<void> {
     await runWorker<VectorIndexJobPayload>({
       queueName: VECTOR_INDEXING_QUEUE_NAME,
       handler: async (job: QueuedJob<VectorIndexJobPayload>, ctx: JobContext) => {
-        await handleVectorIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
+        await handleVectorIndexJob(job, ctx, { resolve: container.resolve })
       },
       connection: { url: redisUrl },
       concurrency,
@@ -833,7 +819,7 @@ async function workerCommand(rest: string[]): Promise<void> {
     await runWorker<FulltextIndexJobPayload>({
       queueName: FULLTEXT_INDEXING_QUEUE_NAME,
       handler: async (job: QueuedJob<FulltextIndexJobPayload>, ctx: JobContext) => {
-        await handleFulltextIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
+        await handleFulltextIndexJob(job, ctx, { resolve: container.resolve })
       },
       connection: { url: redisUrl },
       concurrency,

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { ProgressService } from '../../../../progress/lib/progressService'
+import { resolveProgressService } from '../../../lib/resolve-progress-service'
 import type { SyncRunService } from '../../../lib/sync-run-service'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
@@ -38,7 +38,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const container = await createRequestContainer()
   const syncRunService = container.resolve('dataSyncRunService') as SyncRunService
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = resolveProgressService(container)
   const scope = { organizationId, tenantId: auth.tenantId }
 
   const run = await syncRunService.getRun(parsed.data.id, scope)
@@ -46,7 +46,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     return NextResponse.json({ error: 'Run not found' }, { status: 404 })
   }
 
-  const progressJob = run.progressJobId
+  const progressJob = progressService && run.progressJobId
     ? await progressService.getJob(run.progressJobId, {
       tenantId: auth.tenantId,
       organizationId,

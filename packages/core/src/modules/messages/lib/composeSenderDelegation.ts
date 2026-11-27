@@ -1,4 +1,5 @@
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isMessageComposerUploadRecordId, type MailboxComposePayload } from '@open-mercato/shared/modules/messages/compose-payload'
 import { renderMarkdownEmailBody } from './markdownEmailBody'
 
 /**
@@ -25,12 +26,12 @@ export type ComposeSenderActor = {
 }
 
 export type ComposeSenderResult =
-  | { ok: true; messageId: string; threadId: string }
-  | { ok: false; status: number; error: string; fieldErrors: Record<string, string> }
+  | { ok: true; messageId: string; threadId: string; deliveryEnqueueStatus?: 'unconfirmed' }
+  | { ok: false; status: number; error: string; fieldErrors: Record<string, string>; headers?: Record<string, string> }
 
 type SendAsUserResult =
-  | { ok: true; messageId: string; threadId: string; channelId: string; providerKey: string }
-  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string> }
+  | (Extract<ComposeSenderResult, { ok: true }> & { channelId: string; providerKey: string })
+  | { ok: false; status: number; error: string; fieldErrors?: Record<string, string>; headers?: Record<string, string> }
 
 type SendAsUserService = (
   container: ContainerLike,
@@ -42,6 +43,7 @@ type SendAsUserService = (
     body: { plain?: string; html?: string; bodyFormat?: 'text' | 'markdown' }
     parentMessageId?: string
     channelMetadata?: Record<string, unknown>
+    composerPayload?: MailboxComposePayload
   },
 ) => Promise<SendAsUserResult>
 
@@ -61,6 +63,7 @@ export function tryResolveSendAsUserService(
 export type ComposeSenderRequest = {
   senderChannelId?: string
   visibility?: string | null
+  type?: string
   externalEmail?: string
   subject?: string
   body?: string
@@ -69,7 +72,7 @@ export type ComposeSenderRequest = {
   parentMessageId?: string
   attachmentIds?: string[]
   attachmentRecordId?: string
-  objects?: unknown[]
+  objects?: MailboxComposePayload['objects']
 }
 
 /** Whether this compose asked to be routed through one of the caller's mailboxes. */
@@ -126,19 +129,14 @@ export async function delegateComposeToSender(
       ),
     )
   }
-  // `SendAsUserInput` carries recipients, subject, body and threading headers
-  // and nothing else. Refusing is the only honest answer while that is true —
-  // accepting would drop the payload after the message had already been sent.
-  if (
-    (input.attachmentIds?.length ?? 0) > 0 ||
-    (input.objects?.length ?? 0) > 0 ||
-    input.attachmentRecordId
-  ) {
+  const hasAttachments = Boolean(input.attachmentIds?.length || input.attachmentRecordId)
+  const uploadRecordId = input.attachmentRecordId
+  if (hasAttachments && (!uploadRecordId || !isMessageComposerUploadRecordId(uploadRecordId))) {
     return fail(
       422,
       t(
-        'messages.errors.senderPayloadUnsupported',
-        'Sending from your own mailbox does not support attachments or linked records yet.',
+        'communication_channels.errors.attachments.notFound',
+        'One of the attached files is not available.',
       ),
     )
   }
@@ -165,11 +163,25 @@ export async function delegateComposeToSender(
       subject: input.subject ?? '',
       body: await buildSenderBody(input.body ?? '', input.bodyFormat),
       parentMessageId: input.parentMessageId,
+      ...(hasAttachments || input.objects?.length
+        ? {
+            composerPayload: {
+              messageType: input.type,
+              objects: input.objects,
+              uploads: uploadRecordId ? { recordId: uploadRecordId, attachmentIds: input.attachmentIds } : undefined,
+            },
+          }
+        : {}),
     },
   )
 
   if (result.ok) {
-    return { ok: true, messageId: result.messageId, threadId: result.threadId }
+    return {
+      ok: true,
+      messageId: result.messageId,
+      threadId: result.threadId,
+      ...(result.deliveryEnqueueStatus ? { deliveryEnqueueStatus: result.deliveryEnqueueStatus } : {}),
+    }
   }
 
   const fieldMessage = Object.values(result.fieldErrors ?? {})[0] ?? result.error
@@ -178,5 +190,6 @@ export async function delegateComposeToSender(
     status: result.status,
     error: result.error,
     fieldErrors: { [COMPOSE_SENDER_FIELD]: fieldMessage },
+    ...(result.headers ? { headers: result.headers } : {}),
   }
 }

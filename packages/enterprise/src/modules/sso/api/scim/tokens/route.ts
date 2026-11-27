@@ -4,7 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { ScimTokenService } from '../../../services/scimTokenService'
 import { createScimTokenSchema, scimTokenListSchema } from '../../../data/validators'
 import { resolveSsoAdminContext } from '../../admin-context'
-import { handleSsoAdminApiError } from '../../error-handler'
+import { handleSsoAdminApiError, ssoErrorResponse } from '../../error-handler'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['sso.config.view'] },
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
       ssoConfigId: url.searchParams.get('ssoConfigId') ?? undefined,
     })
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
+      return ssoErrorResponse('sso.errors.invalidRequest', 'Invalid request', 400, { details: parsed.error.flatten() })
     }
 
     const container = await createRequestContainer()
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     const body = await req.json()
     const parsed = createScimTokenSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
+      return ssoErrorResponse('sso.errors.invalidRequest', 'Invalid request', 400, { details: parsed.error.flatten() })
     }
 
     const container = await createRequestContainer()

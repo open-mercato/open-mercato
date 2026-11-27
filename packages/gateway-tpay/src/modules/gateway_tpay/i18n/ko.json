@@ -1,4 +1,16 @@
 {
+  "gateway_tpay.credentials.clientId.helpText": "Tpay Merchant Panel -> Integrations -> API. Create an API key and copy its Client ID.",
+  "gateway_tpay.credentials.clientId.label": "Client ID",
+  "gateway_tpay.credentials.clientSecret.helpText": "Tpay Merchant Panel -> Integrations -> API. Copy the Secret of the same API key as the Client ID.",
+  "gateway_tpay.credentials.clientSecret.label": "Client Secret",
+  "gateway_tpay.credentials.environment.helpText": "Use Sandbox with credentials from the Tpay sandbox panel and Production with live credentials.",
+  "gateway_tpay.credentials.environment.label": "Environment",
+  "gateway_tpay.credentials.environment.options.production": "Production",
+  "gateway_tpay.credentials.environment.options.sandbox": "Sandbox",
+  "gateway_tpay.credentials.notificationSecurityCode.helpText": "Required for payment notifications: Tpay Merchant Panel -> Settings -> Notifications -> Security. Payment sessions work without it, but Tpay notifications are rejected until it is set.",
+  "gateway_tpay.credentials.notificationSecurityCode.label": "Notification Security Code",
+  "gateway_tpay.credentials.notificationUrl.helpText": "Public address of the /api/payment_gateways/webhook/tpay endpoint: HTTPS on port 443 (sandbox also allows HTTP and port 8080) without credentials, query string, or fragment. Leave empty if the Tpay Merchant Panel already configures the notification address.",
+  "gateway_tpay.credentials.notificationUrl.label": "Notification URL",
   "gateway_tpay.description": "Tpay를 통해 PLN 호스팅 결제, BLIK, 카드, 계좌 이체를 받으세요.",
   "gateway_tpay.description.fallback": "Tpay 결제",
   "gateway_tpay.errors.currencyNotSupported": "Tpay는 PLN 결제만 지원합니다.",
@@ -11,6 +23,7 @@
   "gateway_tpay.feature.configure": "Tpay 설정 구성",
   "gateway_tpay.feature.view": "Tpay 구성 보기",
   "gateway_tpay.health.healthy": "Tpay 연결이 정상입니다.",
+  "gateway_tpay.health.notificationsDisabled": "Tpay 연결은 정상이지만 알림 보안 코드를 설정할 때까지 결제 알림이 거부됩니다.",
   "gateway_tpay.health.unhealthy": "Tpay 연결에 실패했습니다. 자격 증명을 확인하세요.",
   "gateway_tpay.title": "Tpay"
 }

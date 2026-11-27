@@ -119,6 +119,11 @@ function validateEnricher(enricher: IndexDocEnricher, existing: readonly Registe
   return keys
 }
 
+export function validateIndexDocEnricher(enricher: IndexDocEnricher): void {
+  const registry = (globalThis as GlobalEnricherRegistry)[GLOBAL_ENRICHER_REGISTRY_KEY]
+  validateEnricher(enricher, registry?.byEntityType.get(enricher.entityType) ?? [])
+}
+
 /**
  * Registers an enricher. Re-registering the same `id` for the same entity type replaces the
  * previous registration (HMR-safe). Throws on an invalid or colliding key declaration.

@@ -59,10 +59,10 @@ async function ensureAttachmentPartition(
   em: EntityManager,
   code: string,
 ): Promise<AttachmentPartition> {
-  let partition = await em.findOne(AttachmentPartition, { code });
+  let partition = await em.findOne(AttachmentPartition, { code, tenantId: null, organizationId: null });
   if (!partition) {
     await ensureDefaultPartitions(em);
-    partition = await em.findOne(AttachmentPartition, { code });
+    partition = await em.findOne(AttachmentPartition, { code, tenantId: null, organizationId: null });
   }
   if (!partition) {
     throw new Error(`Attachment partition "${code}" is not configured.`);
@@ -861,7 +861,7 @@ export async function seedCatalogExamples(
   const defaultTaxRateValue = defaultTaxRate?.rate ?? null;
   if (!regularKind || !saleKind) {
     throw new Error(
-      "Missing catalog price kinds; run `mercato catalog seed-price-kinds` first.",
+      "[internal] Catalog price kinds `regular` and `sale` must exist and not be deleted; run `mercato catalog seed-price-kinds` to create missing ones, or restore deleted ones.",
     );
   }
 

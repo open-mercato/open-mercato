@@ -36,7 +36,7 @@ export function ActivityTypeSelector({ selectedType, onSelect }: ActivityTypeSel
             onClick={() => onSelect(type)}
             aria-pressed={isSelected}
             className={cn(
-              'h-10 gap-2 rounded-lg',
+              'h-10 flex-1 gap-2 rounded-lg',
               isSelected
                 ? 'border-foreground bg-background text-foreground shadow-sm'
                 : 'border-border text-muted-foreground',

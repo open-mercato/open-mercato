@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { Attachment as AttachmentEntity } from '@open-mercato/core/modules/attachments/data/entities'
 import type { SupportPortalScope } from './portalTickets'
@@ -15,6 +16,9 @@ const logger = createLogger('staff').child({ component: 'lib/support/portalAttac
 export type PortalAttachmentsApi = {
   Attachment: typeof import('@open-mercato/core/modules/attachments/data/entities').Attachment
   AttachmentPartition: typeof import('@open-mercato/core/modules/attachments/data/entities').AttachmentPartition
+  attachmentPartitionVisibility: typeof import('@open-mercato/core/modules/attachments/lib/partitionScope').attachmentPartitionVisibility
+  indexAttachmentPartitions: typeof import('@open-mercato/core/modules/attachments/lib/partitionScope').indexAttachmentPartitions
+  resolveAttachmentPartition: typeof import('@open-mercato/core/modules/attachments/lib/partitionScope').resolveAttachmentPartition
   StorageDriverFactory: typeof import('@open-mercato/core/modules/attachments/lib/drivers').StorageDriverFactory
   checkAttachmentAccess: typeof import('@open-mercato/core/modules/attachments/lib/access').checkAttachmentAccess
   attachmentCrudEvents: typeof import('@open-mercato/core/modules/attachments/lib/crud').attachmentCrudEvents
@@ -25,6 +29,7 @@ export type PortalAttachmentsApi = {
   isMultipartRequestWithinUploadLimit: typeof import('@open-mercato/core/modules/attachments/lib/upload-limits').isMultipartRequestWithinUploadLimit
   resolveAttachmentMaxBytes: typeof import('@open-mercato/core/modules/attachments/lib/upload-limits').resolveAttachmentMaxBytes
   isScopedAttachmentUploadError: typeof import('@open-mercato/core/modules/attachments/lib/scoped-upload-service').isScopedAttachmentUploadError
+  removeAttachmentRecord: typeof import('@open-mercato/core/modules/attachments/lib/storageReferences').removeAttachmentRecord
 }
 
 export const portalSupportAttachmentItemSchema = z.object({
@@ -42,11 +47,14 @@ export type PortalSupportAttachmentItem = z.infer<typeof portalSupportAttachment
 
 /**
  * Staff keeps no static edge to the attachments module: it is loaded on demand and a
- * deployment without it reads as "attachments unavailable" (`null`).
+ * deployment without it reads as "attachments unavailable" (`null`). The attachments
+ * code always ships in `@open-mercato/core`, so availability is decided by whether the
+ * app registered the `attachments:attachment` entity, not by whether the import works.
  */
 export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi | null> {
+  if (!getEntityIds(false).attachments?.attachment) return null
   try {
-    const [entities, drivers, access, crud, metadataLib, imageUrls, thumbnails, limits, uploadService] = await Promise.all([
+    const [entities, drivers, access, crud, metadataLib, imageUrls, thumbnails, limits, uploadService, storageReferences, partitions] = await Promise.all([
       import('@open-mercato/core/modules/attachments/data/entities'),
       import('@open-mercato/core/modules/attachments/lib/drivers'),
       import('@open-mercato/core/modules/attachments/lib/access'),
@@ -56,10 +64,15 @@ export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi |
       import('@open-mercato/core/modules/attachments/lib/thumbnailCache'),
       import('@open-mercato/core/modules/attachments/lib/upload-limits'),
       import('@open-mercato/core/modules/attachments/lib/scoped-upload-service'),
+      import('@open-mercato/core/modules/attachments/lib/storageReferences'),
+      import('@open-mercato/core/modules/attachments/lib/partitionScope'),
     ])
     return {
       Attachment: entities.Attachment,
       AttachmentPartition: entities.AttachmentPartition,
+      attachmentPartitionVisibility: partitions.attachmentPartitionVisibility,
+      indexAttachmentPartitions: partitions.indexAttachmentPartitions,
+      resolveAttachmentPartition: partitions.resolveAttachmentPartition,
       StorageDriverFactory: drivers.StorageDriverFactory,
       checkAttachmentAccess: access.checkAttachmentAccess,
       attachmentCrudEvents: crud.attachmentCrudEvents,
@@ -70,6 +83,7 @@ export async function loadPortalAttachmentsApi(): Promise<PortalAttachmentsApi |
       isMultipartRequestWithinUploadLimit: limits.isMultipartRequestWithinUploadLimit,
       resolveAttachmentMaxBytes: limits.resolveAttachmentMaxBytes,
       isScopedAttachmentUploadError: uploadService.isScopedAttachmentUploadError,
+      removeAttachmentRecord: storageReferences.removeAttachmentRecord,
     }
   } catch (err) {
     logger.warn('staff portal support attachments module unavailable', { err })
@@ -126,12 +140,14 @@ export async function listCustomerVisibleAttachments(
     decryptionScope,
   )
   const codes = Array.from(new Set(attachments.map((attachment) => attachment.partitionCode)))
-  const partitions = codes.length ? await scope.em.find(api.AttachmentPartition, { code: { $in: codes } }) : []
-  const partitionByCode = new Map(partitions.map((partition) => [partition.code, partition]))
+  const partitions = codes.length
+    ? await scope.em.find(api.AttachmentPartition, { code: { $in: codes }, ...api.attachmentPartitionVisibility(decryptionScope) })
+    : []
+  const partitionFor = api.indexAttachmentPartitions(partitions)
   const auth = portalAttachmentAuth(scope)
   return attachments
     .filter((attachment) => {
-      const partition = partitionByCode.get(attachment.partitionCode)
+      const partition = partitionFor(attachment.partitionCode, attachment)
       if (!partition) return false
       if (!readAttachmentTags(api, attachment).includes(CUSTOMER_VISIBLE_ATTACHMENT_TAG)) return false
       return api.checkAttachmentAccess(auth, attachment, partition, { requireAuthForPublic: true }).ok

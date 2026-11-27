@@ -10,6 +10,7 @@ import type { AiToolDefinition } from '../types'
 import type { AiPendingAction } from '../../data/entities'
 import { AiPendingActionRepository } from '../../data/repositories/AiPendingActionRepository'
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import { AiPendingActionStateError } from '../pending-action-types'
 import plTranslations from '../../i18n/pl.json'
 
 const requestHeaders = { acceptLanguage: '' }
@@ -79,6 +80,9 @@ function makeRepoStub(initialRow: AiPendingAction) {
   let row = { ...initialRow } as AiPendingAction & Record<string, unknown>
   const setStatus = jest.fn(
     async (_id: string, nextStatus: string, _scope: unknown, extra?: Record<string, unknown>) => {
+      if (extra?.expectedStatus && row.status !== extra.expectedStatus) {
+        throw new AiPendingActionStateError(row.status, nextStatus as AiPendingAction['status'])
+      }
       row = {
         ...row,
         status: nextStatus as never,
@@ -100,6 +104,7 @@ function makeRepoStub(initialRow: AiPendingAction) {
   )
   return {
     setStatus,
+    getById: jest.fn(async () => row),
     get current() {
       return row
     },
@@ -124,6 +129,56 @@ function makeCtx() {
 }
 
 describe('executePendingActionConfirm', () => {
+  it('executes one handler and emits one event for concurrent confirmations of detached pending snapshots', async () => {
+    const action = makeAction()
+    const repo = makeRepoStub(action)
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const handler = jest.fn(async () => ({ recordId: 'p-1' }))
+    const results = await Promise.all(Array.from({ length: 20 }, () => executePendingActionConfirm({
+      action: { ...action },
+      agent: makeAgent(),
+      tool: makeTool({ handler }),
+      ctx: makeCtx(),
+      repo: repo as unknown as AiPendingActionRepository,
+      emitEvent,
+    })))
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(emitEvent).toHaveBeenCalledTimes(1)
+    expect(results.every((result) => result.ok)).toBe(true)
+    expect(repo.current.status).toBe('confirmed')
+    expect(repo.current.executionResult).toEqual({ recordId: 'p-1' })
+  })
+
+  it.each(['cancelled', 'expired', 'failed'] as const)('localizes a lost claim to %s without invoking a handler or emitting', async (status) => {
+    registerModules([
+      { id: 'ai_assistant', translations: { pl: plTranslations } },
+    ] as unknown as Parameters<typeof registerModules>[0])
+    requestHeaders.acceptLanguage = 'pl'
+    try {
+      const repo = makeRepoStub(makeAction({ status }))
+      const handler = jest.fn()
+      const emitEvent = jest.fn()
+      const result = await executePendingActionConfirm({
+        action: makeAction(),
+        agent: makeAgent(),
+        tool: makeTool({ handler }),
+        ctx: makeCtx(),
+        repo: repo as unknown as AiPendingActionRepository,
+        emitEvent,
+      })
+      expect(result.ok).toBe(false)
+      expect(result.action.status).toBe(status)
+      expect(result.executionResult.error).toEqual({
+        code: 'invalid_status',
+        message: plTranslations['ai_assistant.chat.mutation_cards.confirmation.invalidStatusBody'],
+      })
+      expect(handler).not.toHaveBeenCalled()
+      expect(emitEvent).not.toHaveBeenCalled()
+    } finally {
+      requestHeaders.acceptLanguage = ''
+    }
+  })
+
   it('transitions pending → confirmed → executing → confirmed on handler success and emits typed ai.action.confirmed', async () => {
     const repo = makeRepoStub(makeAction())
     const emitEvent = jest.fn().mockResolvedValue(undefined)

@@ -21,3 +21,23 @@ export function resolveTimerActionError(err: unknown, fallback: string): string 
   const trimmed = typeof message === 'string' ? message.trim() : ''
   return trimmed.length > 0 ? trimmed : fallback
 }
+
+/**
+ * True when the write was refused because someone else holds the record lock on
+ * the time entry (enterprise `record_locks`, pessimistic strategy: HTTP 423 with
+ * `code: 'record_locked'`). Its server message is not localized, so callers show
+ * their own message instead of `resolveTimerActionError`'s.
+ */
+export function isRecordLockedError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const candidate = err as { status?: unknown; code?: unknown; body?: unknown }
+  if (candidate.status === 423) return true
+  if (candidate.code === 'record_locked') return true
+  const body = candidate.body
+  return Boolean(body && typeof body === 'object' && (body as { code?: unknown }).code === 'record_locked')
+}
+
+/** True for an HTTP 409: an optimistic-lock or record-lock conflict on the entry. */
+export function isConflictError(err: unknown): boolean {
+  return Boolean(err && typeof err === 'object' && (err as { status?: unknown }).status === 409)
+}

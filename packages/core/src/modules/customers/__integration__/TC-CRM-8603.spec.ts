@@ -9,7 +9,6 @@ import { createInteractionFixture, listInteractionsInWindow, type InteractionFix
 import { authenticateCrm, cleanupCrmFixtures } from './helpers/umesFixtures'
 
 const scheduledAt = '2026-11-03T23:30:00.000Z'
-const calendarName = /^(January|February|March|April|May|June|July|August|September|October|November|December) \d{4}$/
 type CalendarAccount = { request: APIRequestContext; token: string }
 const test = base.extend<{}, { calendarAccount: CalendarAccount }>({
   calendarAccount: [async ({ playwright }, provideAccount) => {
@@ -89,16 +88,19 @@ async function withCalendar(
     await page.evaluate(() => new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
     }))
-    const activityTab = page.getByRole('tab', { name: kind === 'companies' ? /^Activity log(?: \d+)?$/ : 'Activity', exact: true })
+    const activityTab = page.getByRole('tab', { name: kind === 'companies' ? /^Activity log/ : /^Activities\b/, exact: true })
     if (kind === 'companies' || page.viewportSize()!.width === 390) {
       await expect(activityTab).toBeVisible()
       await activityTab.click()
     }
-    const card = page.getByRole('heading', { name: 'Activities', level: 3, exact: true }).locator('../../..')
-    const dates = card.getByRole('group', { name: calendarName })
-    await expect(dates.getByRole('button')).toHaveCount(5)
-    await expect(dates.getByRole('button', { name: 'WED 04' })).toHaveAttribute('aria-pressed', 'true')
-    await expect(card.getByText(populated ? 'Calendar meeting' : 'Nothing scheduled for this day.', { exact: true })).toBeVisible()
+    const card = page.getByRole('heading', { name: 'Log activity', level: 3, exact: true }).locator('../..')
+    const showPreview = card.getByRole('button', { name: 'Show week preview', exact: true })
+    if (await showPreview.isVisible()) await showPreview.click()
+    const dates = card.getByRole('group', { name: /November 2026$/ })
+    await expect(dates.getByRole('button')).toHaveCount(7)
+    await expect(dates.getByRole('button', { name: '4', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    if (populated) await expect(card.getByText('Calendar meeting', { exact: true })).toBeVisible()
+    else await expect(card.getByText('Calendar meeting', { exact: true })).toHaveCount(0)
     await run({ card, dates, entityId, interactionId, token })
   } finally {
     await cleanupCrmFixtures(cleanups)
@@ -107,7 +109,7 @@ async function withCalendar(
 
 async function assertBounds(card: Locator): Promise<void> {
   const bounds = await card.evaluate((element) => {
-    const controls = ['Previous month', 'Next month', 'Previous days', 'Next days']
+    const controls = ['Previous week', 'Next week']
     return {
       left: element.getBoundingClientRect().left,
       right: element.getBoundingClientRect().right,
@@ -123,7 +125,7 @@ async function assertBounds(card: Locator): Promise<void> {
   expect(bounds.right).toBeLessThanOrEqual(bounds.viewport)
   expect(bounds.documentWidth).toBeLessThanOrEqual(bounds.viewport)
   expect(bounds.scrollX).toBe(0)
-  expect(bounds.controls).toHaveLength(4)
+  expect(bounds.controls).toHaveLength(2)
   for (const button of bounds.controls) {
     expect(button.left).toBeGreaterThanOrEqual(bounds.left)
     expect(button.right).toBeLessThanOrEqual(bounds.right)
@@ -167,60 +169,28 @@ for (const kind of ['companies', 'people'] as const) {
               await assertBounds(card)
               if (inputMode === 'pointer') await attachEvidence(card, dates, testInfo)
               const buttons = dates.getByRole('button')
-              const initialNames = await buttons.evaluateAll((elements) => elements.map((element) => element.getAttribute('aria-label')))
+              const initialDates = await buttons.allTextContents()
               const dimensions = await dates.evaluate((element) => ({ viewport: element.clientWidth, content: element.scrollWidth }))
-              if (width === 390) {
-                expect(dimensions.content).toBeGreaterThan(dimensions.viewport)
-              } else {
-                expect(dimensions.content).toBe(dimensions.viewport)
-                for (const button of await buttons.all()) await assertDateVisible(button)
-              }
-              if (width === 390 && inputMode === 'pointer') {
-                await dates.hover()
-                await page.mouse.wheel(600, 0)
-                await expect.poll(() => dates.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
-                await page.mouse.wheel(-600, 0)
-                await expect.poll(() => dates.evaluate((element) => element.scrollLeft)).toBe(0)
-                const box = await dates.boundingBox()
-                expect(box).not.toBeNull()
-                const touch = await page.context().newCDPSession(page)
-                try {
-                  const startX = box!.x + box!.width - 16
-                  const centerY = box!.y + box!.height / 2
-                  await touch.send('Input.dispatchTouchEvent', {
-                    type: 'touchStart', touchPoints: [{ x: startX, y: centerY }],
-                  })
-                  for (let step = 1; step <= 6; step += 1) {
-                    await touch.send('Input.dispatchTouchEvent', {
-                      type: 'touchMove', touchPoints: [{ x: startX - (box!.width - 32) * step / 6, y: centerY }],
-                    })
-                  }
-                  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-                  await expect.poll(() => dates.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
-                } finally {
-                  await touch.detach()
-                }
-              }
-              if (inputMode === 'pointer') {
-                for (const button of await buttons.all()) {
-                  await button.scrollIntoViewIfNeeded()
-                  await button.click()
-                  await expect(button).toHaveAttribute('aria-pressed', 'true')
-                  await assertDateVisible(button)
-                  await assertBounds(card)
-                }
-              } else {
-                await dates.focus()
-                for (let index = 0; index < 5; index += 1) {
-                  await page.keyboard.press('Tab')
-                  await expect(buttons.nth(index)).toBeFocused()
+              expect(dimensions.content).toBeLessThanOrEqual(dimensions.viewport)
+              for (const button of await buttons.all()) await assertDateVisible(button)
+              if (inputMode === 'keyboard') await buttons.first().focus()
+              for (let index = 0; index < 7; index += 1) {
+                const button = buttons.nth(index)
+                if (inputMode === 'keyboard') {
+                  if (index > 0) await page.keyboard.press('Tab')
+                  await expect(button).toBeFocused()
                   await page.keyboard.press('Enter')
-                  await expect(buttons.nth(index)).toHaveAttribute('aria-pressed', 'true')
-                  await assertDateVisible(buttons.nth(index))
+                } else if (width === 390) {
+                  await button.tap()
+                } else {
+                  await button.click()
                 }
+                await expect(button).toHaveAttribute('aria-pressed', 'true')
+                await assertDateVisible(button)
               }
               await buttons.nth(2).click()
-              await expect(card.getByText(populated ? 'Calendar meeting' : 'Nothing scheduled for this day.', { exact: true })).toBeVisible()
+              if (populated) await expect(card.getByText('Calendar meeting', { exact: true })).toBeVisible()
+              else await expect(card.getByText('Calendar meeting', { exact: true })).toHaveCount(0)
               const activateNavigation = async (name: string): Promise<void> => {
                 const control = card.getByRole('button', { name, exact: true })
                 if (inputMode === 'keyboard') {
@@ -232,15 +202,14 @@ for (const kind of ['companies', 'people'] as const) {
                   await control.click()
                 }
               }
-              await activateNavigation('Next days')
-              await expect(buttons.first()).not.toHaveAttribute('aria-label', initialNames[0]!)
-              await activateNavigation('Previous days')
-              await expect(buttons.first()).toHaveAttribute('aria-label', initialNames[0]!)
-              await activateNavigation('Next month')
-              await expect(dates).toHaveAccessibleName('December 2026')
-              await activateNavigation('Previous month')
-              await expect(dates).toHaveAccessibleName('November 2026')
-              await expect(buttons).toHaveCount(5)
+              await activateNavigation('Next week')
+              await expect(buttons.first()).not.toHaveText(initialDates[0]!)
+              await activateNavigation('Previous week')
+              await expect(buttons.first()).toHaveText(initialDates[0]!)
+              for (let week = 0; week < 5; week += 1) await activateNavigation('Next week')
+              await expect(card.getByRole('group', { name: 'December 2026', exact: true })).toBeVisible()
+              for (let week = 0; week < 5; week += 1) await activateNavigation('Previous week')
+              await expect(buttons).toHaveCount(7)
               await assertBounds(card)
             })
           })
@@ -252,7 +221,7 @@ for (const kind of ['companies', 'people'] as const) {
   test(`TC-CRM-8603 ${kind} preserves completed activity local date when editing or canceling`, async ({ page, calendarAccount }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await withCalendar(page, calendarAccount, kind, true, async ({ card, dates, entityId, interactionId, token }) => {
-      await card.getByText('Calendar meeting', { exact: true }).click()
+      await page.getByRole('button', { name: /Calendar meeting/ }).last().click()
       const dialog = page.getByRole('dialog', { name: 'Edit activity' })
       await expect(dialog.getByRole('button', { name: 'Nov 4, 2026', exact: true })).toBeVisible()
       await expect(dialog.getByRole('button', { name: '12:30 AM', exact: true })).toBeVisible()
@@ -260,8 +229,8 @@ for (const kind of ['companies', 'people'] as const) {
       await dialog.getByRole('button', { name: 'Update activity', exact: true }).click()
       await expect(dialog).toBeHidden()
       await expect(card.getByText('Calendar updated', { exact: true })).toBeVisible()
-      await expect(dates.getByRole('button', { name: 'WED 04' })).toHaveAttribute('aria-pressed', 'true')
-      await card.getByText('Calendar updated', { exact: true }).click()
+      await expect(dates.getByRole('button', { name: '4', exact: true })).toHaveAttribute('aria-pressed', 'true')
+      await page.getByRole('button', { name: /Calendar updated/ }).last().click()
       await expect(dialog.getByRole('textbox', { name: 'Activity title...' })).toHaveValue('Calendar updated')
       await page.keyboard.press('Escape')
       await expect(dialog).toBeHidden()
@@ -279,7 +248,7 @@ for (const kind of ['companies', 'people'] as const) {
   for (const concurrentEdit of [false, true]) {
     test(`TC-CRM-8730 ${kind} preserves untouched activity fields${concurrentEdit ? ' after a stale edit and retry' : ''}`, async ({ page, calendarAccount }) => {
       await page.setViewportSize({ width: 390, height: 844 })
-      await withCalendar(page, calendarAccount, kind, true, async ({ card, entityId, interactionId, token }) => {
+      await withCalendar(page, calendarAccount, kind, true, async ({ entityId, interactionId, token }) => {
         const readRecord = async (): Promise<Record<string, unknown> & { updatedAt: string }> => {
           const params = new URLSearchParams({ entityId, pageSize: '100' })
           const response = await apiRequest(calendarAccount.request, 'GET', `/api/customers/interactions?${params}`, { token })
@@ -291,7 +260,7 @@ for (const kind of ['companies', 'people'] as const) {
         }
         const initial = await readRecord()
         expect(initial).toMatchObject({ allDay: null, reminderMinutes: null, visibility: null, location: 'Original room' })
-        await card.getByText('Calendar meeting', { exact: true }).click()
+        await page.getByRole('button', { name: /Calendar meeting/ }).last().click()
         const dialog = page.getByRole('dialog', { name: 'Edit activity' })
         await dialog.getByPlaceholder('Add location or meeting link...').fill('Updated room')
         let beforeSave = initial
@@ -313,8 +282,8 @@ for (const kind of ['companies', 'people'] as const) {
           expect(rejection.request().headers()[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(initial.updatedAt)
           expect(await readRecord()).toEqual(beforeSave)
           await page.reload()
-          await page.getByRole('tab', { name: kind === 'companies' ? /^Activity log(?: \d+)?$/ : 'Activity', exact: true }).click()
-          await card.getByText('Concurrent title', { exact: true }).click()
+          await page.getByRole('tab', { name: kind === 'companies' ? /^Activity log/ : /^Activities\b/, exact: true }).click()
+          await page.getByRole('button', { name: /Concurrent title/ }).last().click()
           await dialog.getByPlaceholder('Add location or meeting link...').fill('Updated room')
         }
 

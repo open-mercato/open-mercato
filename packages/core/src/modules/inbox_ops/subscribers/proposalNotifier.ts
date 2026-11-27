@@ -1,6 +1,7 @@
-import { resolveNotificationService } from '../../notifications/lib/notificationService'
+import type { NotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { tryResolve } from '../lib/tryResolve'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('inbox_ops').child({ component: 'proposal-notifier' })
@@ -27,8 +28,14 @@ interface ResolverContext {
 }
 
 export default async function handle(payload: ProposalCreatedPayload, ctx: ResolverContext) {
+  const notificationService = tryResolve<NotificationService>(ctx, 'notificationService')
+  if (!notificationService) {
+    logger.debug('Notifications module not available, skipping proposal notification', {
+      proposalId: payload.proposalId,
+    })
+    return
+  }
   try {
-    const notificationService = resolveNotificationService(ctx)
     const typeDef = notificationTypes.find((t) => t.type === 'inbox_ops.proposal.created')
     if (!typeDef) return
 

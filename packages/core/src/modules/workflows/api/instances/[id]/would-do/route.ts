@@ -16,6 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { WORKFLOW_LIST_MAX_OFFSET, WORKFLOW_LIST_OFFSET_ERROR } from '../../../../data/pagination'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -95,6 +96,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const requestedLimit = parsePositiveInt(searchParams.get('limit'), WOULD_DO_PAGE_SIZE_MAX)
     const limit = Math.min(Math.max(requestedLimit, 1), WOULD_DO_PAGE_SIZE_MAX)
     const offset = Math.max(parsePositiveInt(searchParams.get('offset'), 0), 0)
+    if (offset > WORKFLOW_LIST_MAX_OFFSET) {
+      return NextResponse.json({ error: WORKFLOW_LIST_OFFSET_ERROR }, { status: 400 })
+    }
 
     const [events, total] = await em.findAndCount(
       WorkflowEvent,
@@ -189,9 +193,14 @@ export const openApi = {
       params: z.object({ id: z.string().uuid() }),
       query: z.object({
         limit: z.number().int().positive().max(WOULD_DO_PAGE_SIZE_MAX).optional(),
-        offset: z.number().int().min(0).optional(),
+        offset: z.number().int().min(0).max(WORKFLOW_LIST_MAX_OFFSET).optional(),
       }),
       responses: [
+        {
+          status: 400,
+          description: 'Requested pagination offset exceeds 100000 (WORKFLOW_LIST_OFFSET_EXCEEDED).',
+          schema: z.object({ error: z.string() }),
+        },
         {
           status: 200,
           description: 'The would-do report',

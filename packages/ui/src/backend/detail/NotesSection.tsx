@@ -18,6 +18,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { flash } from '../FlashMessages'
 import { surfaceRecordConflict } from '../conflicts'
+import { extractOptimisticLockConflict, extractRecordLockConflict } from '../utils/optimisticLock'
 import { SwitchableMarkdownInput } from '../inputs/SwitchableMarkdownInput'
 import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
@@ -99,7 +100,13 @@ export type NotesDataAdapter<C = unknown> = {
     totalPages: number
   }>
   create: (params: NotesCreatePayload & { context?: C }) => Promise<Partial<CommentSummary> | void>
-  update: (params: { id: string; patch: NotesUpdatePayload; updatedAt?: string | null; context?: C }) => Promise<void>
+  update: (params: {
+    id: string
+    patch: NotesUpdatePayload
+    updatedAt?: string | null
+    context?: C
+    onSavedVersion?: (updatedAt: string) => void
+  }) => Promise<void>
   delete: (params: { id: string; updatedAt?: string | null; context?: C }) => Promise<void>
 }
 
@@ -719,6 +726,7 @@ function NotesSectionImpl<C = unknown>({
             id: typeof responseBody?.id === 'string' ? responseBody.id : generateTempId(),
             body,
             createdAt: new Date().toISOString(),
+            updatedAt: typeof responseBody.updatedAt === 'string' ? responseBody.updatedAt : undefined,
             authorUserId: resolvedAuthorId,
             authorName: resolvedAuthorName,
             authorEmail: resolvedAuthorEmail,
@@ -727,7 +735,7 @@ function NotesSectionImpl<C = unknown>({
             appearanceIcon: icon,
             appearanceColor: color,
           }
-          return [newNote, ...prev]
+          return prev.some((note) => note.id === newNote.id) ? prev : [newNote, ...prev]
         })
         setVisibleCount((prev) => Math.max(prev, 1))
         flash(label('success'), 'success')
@@ -756,7 +764,19 @@ function NotesSectionImpl<C = unknown>({
       const sanitizedColor =
         patch.appearanceColor !== undefined ? sanitizeHexColor(patch.appearanceColor ?? null) : undefined
       const noteUpdatedAt = notes.find((comment) => comment.id === noteId)?.updatedAt ?? null
+      const applySavedPatch = (updatedAt?: string) => {
+        setNotes((prev) => prev.map((comment) => {
+          if (comment.id !== noteId || (comment.updatedAt ?? null) !== noteUpdatedAt) return comment
+          const next = { ...comment }
+          if (sanitizedBody !== undefined) next.body = sanitizedBody
+          if (sanitizedIcon !== undefined) next.appearanceIcon = sanitizedIcon ?? null
+          if (sanitizedColor !== undefined) next.appearanceColor = sanitizedColor ?? null
+          if (updatedAt !== undefined) next.updatedAt = updatedAt
+          return next
+        }))
+      }
       try {
+        let receivedSavedVersion = false
         await dataAdapter.update({
           id: noteId,
           patch: {
@@ -766,18 +786,12 @@ function NotesSectionImpl<C = unknown>({
           },
           updatedAt: noteUpdatedAt,
           context: dataContext,
+          onSavedVersion: (updatedAt) => {
+            receivedSavedVersion = true
+            applySavedPatch(updatedAt)
+          },
         })
-        setNotes((prev) => {
-          const nextComments = prev.map((comment) => {
-            if (comment.id !== noteId) return comment
-            const next = { ...comment }
-            if (sanitizedBody !== undefined) next.body = sanitizedBody
-            if (sanitizedIcon !== undefined) next.appearanceIcon = sanitizedIcon ?? null
-            if (sanitizedColor !== undefined) next.appearanceColor = sanitizedColor ?? null
-            return next
-          })
-          return nextComments
-        })
+        if (!receivedSavedVersion) applySavedPatch()
         flash(label('updateSuccess'), 'success')
       } catch (error) {
         const message = error instanceof Error ? error.message : label('updateError')
@@ -898,7 +912,7 @@ function NotesSectionImpl<C = unknown>({
         err instanceof Error
           ? err.message
           : label('appearance.error', 'Failed to update appearance.')
-      setAppearanceDialogError(message)
+      setAppearanceDialogError(extractOptimisticLockConflict(err) || extractRecordLockConflict(err) ? null : message)
     } finally {
       setAppearanceDialogSaving(false)
     }
@@ -925,7 +939,7 @@ function NotesSectionImpl<C = unknown>({
     } catch (err) {
       const message =
         err instanceof Error ? err.message : label('updateError', 'Failed to update note')
-      setContentError(message)
+      setContentError(extractOptimisticLockConflict(err) || extractRecordLockConflict(err) ? null : message)
     } finally {
       setContentSavingId(null)
     }

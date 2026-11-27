@@ -1,0 +1,87 @@
+{
+  "changeClass": "knowledge-contract",
+  "baseRef": "29770a5cd8bd5ac75d2b67105a991b3b24788423",
+  "affectedCaseIds": [
+    "OMH-049",
+    "OMH-051",
+    "OMH-242"
+  ],
+  "affectedRanges": [],
+  "changedContracts": [
+    "skill-link",
+    "source-link",
+    "context-read",
+    "evaluator",
+    "oracle"
+  ],
+  "focusedTestFiles": [
+    "packages/create-app/src/lib/agent-offline-eval-harness.test.mjs"
+  ],
+  "authoritativeFiles": [
+    {
+      "path": ".ai/specs/2026-07-24-standalone-ai-development-harness.md",
+      "sha256": "e95d5f0753fb3b531af6e6b47babac137a92c2a0076de6ec05d2f0ed4ed22535"
+    },
+    {
+      "path": "packages/create-app/README.md",
+      "sha256": "413100dce3b5178b1ee729b71ef3220d1c85532bfe392b74fd9d676c93025a00"
+    },
+    {
+      "path": "packages/create-app/agentic/guides/ai-workflows.md",
+      "sha256": "45ed98fd02c03ca7221a0c452ed493f10223b0f041a3cf67c96dfa1058fa8183"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/README.md",
+      "sha256": "3fe336d3637de92c63177e7c12b2429dff3f24f49a3f170766eb7d58744fc7bc"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/RELEASE.md",
+      "sha256": "72659d82f7c8dbd96b0f86f8b70636dc5202931c362336c56e089b068fe17d61"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/cases.json",
+      "sha256": "6864d1458fba1c657848571c443a0d610e9c444d3428784034be290ad2f175c5"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/cases.schema.json",
+      "sha256": "d61e349c16fb52a856f0e8d893986056a867556240a00c3d28ec4cf63395cdf0"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/harness/validators.json",
+      "sha256": "e825cfe89ff540327e76a8709496c9adb3257ba59f0ebf09d165c2ecc61e3154"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-create-ai-agent/SKILL.md",
+      "sha256": "a29579909902a6ea455e82e5fd1e89f3ded19248e5614557f42188abdbaa93ed"
+    },
+    {
+      "path": "packages/create-app/agentic/shared/ai/skills/om-create-ai-agent/references/surface-selector.md",
+      "sha256": "11eba363608939506b63370a47e165001b66b3b988f0312f5a62d271e45d0bec"
+    },
+    {
+      "path": "packages/create-app/scripts/source-links/source-link-inventory.json",
+      "sha256": "78593895e0e8a477644a83bab4c34bb1f08e5134449389949ed57ccf525c4433"
+    }
+  ],
+  "generatedFiles": [],
+  "expectedCatalogCount": 242,
+  "requiredReleaseLanes": [
+    "deterministic",
+    "routing"
+  ],
+  "documentationFiles": [
+    "packages/create-app/agentic/shared/ai/harness/README.md",
+    ".ai/specs/2026-07-24-standalone-ai-development-harness.md"
+  ],
+  "sourceLinkInventory": {
+    "path": "packages/create-app/scripts/source-links/source-link-inventory.json",
+    "baselineRef": "f7c941570003f3abe920b1765995cbef98dcad0b",
+    "expectedOwnerCount": 33,
+    "expectedTopicCount": 159,
+    "resolvedLinkCount": 135,
+    "baselineAssetCount": 8,
+    "baselineDispositionCount": 136,
+    "baselinePath": "packages/create-app/scripts/source-links/source-link-baseline.json",
+    "baselineSchemaPath": "packages/create-app/scripts/source-links/source-link-baseline.schema.json"
+  }
+}

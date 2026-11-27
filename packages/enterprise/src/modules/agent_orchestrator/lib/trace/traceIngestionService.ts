@@ -9,13 +9,36 @@ import {
   type AgentToolCallStatus,
 } from '../../data/entities'
 import { traceIngestSchema, type TraceIngest, type TraceSpanIngest } from '../../data/validators'
-import { ARTIFACT_REFS, type ArtifactEncryptionRef, type ArtifactOffloader } from './artifactStore'
+import {
+  ARTIFACT_REFS,
+  type ArtifactEncryptionRef,
+  type ArtifactOffloader,
+  type ArtifactPutResult,
+  type ArtifactResultOffloader,
+} from './artifactStore'
 import { computeCostMinor } from '../runtime/modelPricing'
 import { redactSecrets } from './redactToolSummary'
+import { hasGenAiVocabularyKey, normalizeGenAiAttributes } from './genAiAttributes'
+import type { RunManifestCapture } from './runManifest'
+import type {
+  NativeModelCallContent,
+  NativeModelCallContentOutcome,
+} from '../runtime/nativeModelCallRecorder'
+import {
+  buildIngestContentAttributes,
+  buildIngestLlmContent,
+  buildIngestLlmMetadataAttributes,
+  buildIngestManifestSpan,
+  fitIngestLlmAttributes,
+  mergeIngestLlmAttributes,
+  withoutServerContentKeys,
+} from './ingestLlmAttributes'
 
 export type IngestScope = { tenantId: string; organizationId: string }
 
 export type IngestTraceOptions = {
+  /** Authorization check for the row selected by the upsert, before any writes. */
+  assertRunScope?: (run: AgentRun | null) => Promise<void>
   /**
    * When supplied, payloads exceeding the inline cap are offloaded to encrypted
    * storage and the returned key is stamped on the row's artifact-key column
@@ -24,6 +47,33 @@ export type IngestTraceOptions = {
    * pure over the EntityManager.
    */
   offloadArtifact?: ArtifactOffloader
+  /**
+   * Like `offloadArtifact`, but reports why a payload was not offloaded; takes
+   * precedence when both are supplied. The reason is stamped as `offloadStatus`
+   * on the truncated inline summary so the trace UI can explain the missing
+   * full payload.
+   */
+  offloadArtifactResult?: ArtifactResultOffloader
+  /**
+   * The capture resolved for the ingested run. Decides whether span `llm`
+   * request/response bodies are offloaded (`full`) or dropped, and is written
+   * as `om.capture` on a `run.manifest` span. Absent → bodies are dropped and
+   * the manifest carries no `om.capture`.
+   */
+  capture?: RunManifestCapture
+  /**
+   * Offloads the `llm` bodies of freshly appended spans at `full`, returning
+   * one outcome per entry. Absent at `full` → `storage_unavailable`.
+   */
+  offloadLlmContent?: (
+    contents: NativeModelCallContent[],
+  ) => Promise<Array<NativeModelCallContentOutcome | null>>
+  /**
+   * Keep server-owned `om.content.*` keys present on span attributes. Only the
+   * in-process native capture, which stamps keys it uploaded itself, sets it;
+   * external adapter payloads always have them stripped.
+   */
+  trustSpanContentKeys?: boolean
 }
 
 export type IngestTraceResult = {
@@ -40,7 +90,7 @@ export type IngestTraceResult = {
  * storage with the key stamped on the row's artifact-key column. Attribute /
  * context payloads with no artifact-key column stay capped inline only.
  */
-const SUMMARY_CHAR_LIMIT = 4000
+export const SUMMARY_CHAR_LIMIT = 4000
 
 function capSummary(value: unknown): unknown {
   if (value === undefined || value === null) return value ?? null
@@ -55,14 +105,76 @@ function capSummary(value: unknown): unknown {
 }
 
 /**
+ * External adapters MAY send `gen_ai.*` / `om.*` keys directly on llm spans;
+ * those spans get the same type-checked, legacy-backfilled shape the native
+ * runner writes. Spans carrying only legacy keys (capture level `off`, older
+ * adapters) and non-llm spans are stored exactly as sent.
+ */
+function normalizeLlmSpanAttributes(span: TraceSpanIngest): unknown {
+  if (span.kind !== 'llm' || !hasGenAiVocabularyKey(span.attributes)) return span.attributes
+  return normalizeGenAiAttributes(span.attributes)
+}
+
+type LlmContentOutcomes = Map<TraceSpanIngest, NativeModelCallContentOutcome | null>
+
+async function offloadFreshLlmContent(
+  spans: TraceSpanIngest[],
+  options: IngestTraceOptions,
+): Promise<LlmContentOutcomes> {
+  const outcomes: LlmContentOutcomes = new Map()
+  if (options.capture?.level !== 'full' || !options.offloadLlmContent) return outcomes
+  const pending: Array<{ span: TraceSpanIngest; content: NativeModelCallContent }> = []
+  for (const span of spans) {
+    const content = span.llm && span.kind === 'llm' ? buildIngestLlmContent(span.llm) : null
+    if (content) pending.push({ span, content })
+  }
+  if (pending.length === 0) return outcomes
+  try {
+    const results = await options.offloadLlmContent(pending.map((entry) => entry.content))
+    pending.forEach((entry, index) => outcomes.set(entry.span, results[index] ?? null))
+  } catch {
+    return outcomes
+  }
+  return outcomes
+}
+
+function buildSpanAttributes(
+  span: TraceSpanIngest,
+  options: IngestTraceOptions,
+  outcomes: LlmContentOutcomes,
+): unknown {
+  if (!span.llm || span.kind !== 'llm') {
+    const normalized = normalizeLlmSpanAttributes(span)
+    return capSummary(options.trustSpanContentKeys ? normalized : withoutServerContentKeys(normalized))
+  }
+  const merged = mergeIngestLlmAttributes(
+    span.attributes,
+    buildIngestLlmMetadataAttributes(span.llm),
+    buildIngestContentAttributes(span.llm, options.capture?.level ?? 'metadata', outcomes.get(span) ?? null),
+  )
+  return capSummary(fitIngestLlmAttributes(normalizeGenAiAttributes(merged), SUMMARY_CHAR_LIMIT))
+}
+
+function resolveManifestPlacement(spans: TraceSpanIngest[]): { sequence: number; recordedAt: string } {
+  if (spans.length === 0) return { sequence: 0, recordedAt: new Date().toISOString() }
+  const sequence = Math.max(...spans.map((span) => span.sequence)) + 1
+  const recordedAt = spans
+    .map((span) => span.startedAt)
+    .reduce((earliest, current) => (Date.parse(current) < Date.parse(earliest) ? current : earliest))
+  return { sequence, recordedAt }
+}
+
+/**
  * Cap a keyed payload inline, offloading the full value to encrypted storage
  * when it exceeds the cap and an offloader is available. Returns the inline
- * summary to persist plus the artifact key (or null when not offloaded).
+ * summary to persist plus the artifact key (or null when not offloaded). When
+ * the offloader reports why nothing was stored, the summary carries it as
+ * `offloadStatus` (`encryption_unavailable` | `storage_unavailable`).
  */
 async function offloadOrCap(
   value: unknown,
   ref: ArtifactEncryptionRef,
-  offload: ArtifactOffloader | undefined,
+  offload: PayloadOffloader | undefined,
 ): Promise<{ summary: unknown; key: string | null }> {
   if (value === undefined || value === null) return { summary: value ?? null, key: null }
   let serialized: string
@@ -72,10 +184,28 @@ async function offloadOrCap(
     return { summary: { _unserializable: true }, key: null }
   }
   if (serialized.length <= SUMMARY_CHAR_LIMIT) return { summary: value, key: null }
-  const key = offload ? await offload(ref, value) : null
+  const result = offload ? await offload(ref, value) : null
+  const key = result?.status === 'stored' ? result.key : null
   return {
-    summary: { _truncated: true, offloaded: key != null, preview: serialized.slice(0, SUMMARY_CHAR_LIMIT) },
+    summary: {
+      _truncated: true,
+      offloaded: key != null,
+      ...(result && result.status !== 'stored' ? { offloadStatus: result.status } : {}),
+      preview: serialized.slice(0, SUMMARY_CHAR_LIMIT),
+    },
     key,
+  }
+}
+
+type PayloadOffloader = (ref: ArtifactEncryptionRef, value: unknown) => Promise<ArtifactPutResult | null>
+
+function resolvePayloadOffloader(options: IngestTraceOptions): PayloadOffloader | undefined {
+  if (options.offloadArtifactResult) return options.offloadArtifactResult
+  const legacy = options.offloadArtifact
+  if (!legacy) return undefined
+  return async (ref, value) => {
+    const key = await legacy(ref, value)
+    return key ? { status: 'stored', key } : null
   }
 }
 
@@ -99,7 +229,7 @@ export async function ingestTrace(
 ): Promise<IngestTraceResult> {
   const payload: TraceIngest = traceIngestSchema.parse(rawPayload)
   const { tenantId, organizationId } = scope
-  const offload = options.offloadArtifact
+  const offload = resolvePayloadOffloader(options)
 
   // 1. Upsert the run, then flush so its id is available and run-level scalar
   //    changes are committed before any subsequent find (avoids the MikroORM
@@ -110,6 +240,7 @@ export async function ingestTrace(
     runtime: payload.runtime,
     externalRunId: payload.externalRunId,
   })
+  await options.assertRunScope?.(run)
   const created = !run
   if (!run) {
     run = em.create(AgentRun, {
@@ -149,7 +280,26 @@ export async function ingestTrace(
   const existingSpans = await em.find(AgentSpan, { agentRunId: run.id })
   const spansByExternal = new Map<string, AgentSpan>(existingSpans.map((s) => [s.externalSpanId, s]))
   const freshSpans: Array<{ span: AgentSpan; payloadSpan: TraceSpanIngest }> = []
-  for (const spanPayload of payload.spans ?? []) {
+  const payloadSpans = [...(payload.spans ?? [])]
+  if (payload.manifest) {
+    payloadSpans.push(
+      buildIngestManifestSpan({
+        runId: run.id,
+        agentId: payload.agentId,
+        manifest: payload.manifest,
+        capture: options.capture ?? null,
+        ...resolveManifestPlacement(payload.spans ?? []),
+      }),
+    )
+  }
+  const seenExternalIds = new Set(spansByExternal.keys())
+  const freshPayloadSpans = payloadSpans.filter((spanPayload) => {
+    if (seenExternalIds.has(spanPayload.externalSpanId)) return false
+    seenExternalIds.add(spanPayload.externalSpanId)
+    return true
+  })
+  const llmContentOutcomes = await offloadFreshLlmContent(freshPayloadSpans, options)
+  for (const spanPayload of payloadSpans) {
     if (spansByExternal.has(spanPayload.externalSpanId)) continue
     const span = em.create(AgentSpan, {
       tenantId,
@@ -163,7 +313,7 @@ export async function ingestTrace(
       endedAt: spanPayload.endedAt ? new Date(spanPayload.endedAt) : null,
       durationMs: spanPayload.durationMs ?? null,
       status: (spanPayload.status ?? 'ok') as AgentSpanStatus,
-      attributes: capSummary(spanPayload.attributes),
+      attributes: buildSpanAttributes(spanPayload, options, llmContentOutcomes),
     })
     em.persist(span)
     spansByExternal.set(spanPayload.externalSpanId, span)

@@ -37,6 +37,9 @@ export async function GET(
   }
   const params = await Promise.resolve(context.params)
   const formId = String(params.id)
+  if (!z.string().uuid().safeParse(formId).success) {
+    return NextResponse.json({ error: 'forms.errors.form_not_found' }, { status: 404 })
+  }
 
   const url = new URL(req.url)
   const parsed = querySchema.safeParse(Object.fromEntries(url.searchParams))

@@ -1,0 +1,280 @@
+---
+title: Running agent evals in CI
+description: Gate pull requests on Agent Orchestrator eval runs using git-versioned eval-set files, recorded tool fixtures, pinned call settings and rubric-scored judges, with markdown and JUnit reports.
+---
+
+# Running agent evals in CI
+
+Agent Orchestrator can run an agent's eval cases from a command line and fail a CI job when the verdict is not a pass. This page covers the pieces you combine for a reproducible job: an eval-set file kept in git, tool fixtures, pinned call settings, rubrics, and report outputs.
+
+The CLI is a thin wrapper over the same replay engine the workbench uses, so a CI verdict matches what you see in the UI.
+
+:::note
+Native evals support fully offline model and tool replay. Record a synthetic-data run with `--record <dir>`, then use `--replay <dir> --offline true`. Offline replay needs no provider API key and refuses missing or mismatched model/tool fixtures; it never falls back to live calls. `--replay <dir>` alone retains tool-only replay and still calls the real model.
+
+Recording writes model fixtures to `<dir>/<agentId>/<caseKey>.<trialIndex>.model.json` alongside the existing `.tools.json` files. Each model fixture contains ordered model resolutions and calls, including judge calls, plus URL-download results used by SDK preprocessing. Offline replay supplies the recorded bytes without fetching attachment URLs. Recorded tool outputs encapsulate nested inference and delegated agents; replay answers those tools from their fixtures without executing children. Request fingerprints cover the prompt, tools, effective structured-output schema and model settings. A changed prompt, schema, or call sequence requires a new recording. The original provider and model identity remain in traces; the report's `modelMode: scripted` comes from the suite's recorded replay mode, not an environment variable.
+
+An eval-set case may instead reference `fixtures.model` and `fixtures.tools` relative to its file. Model fixture identity must match the agent, case key and trial index. A model-replayed case requires tool replay with `onMiss: error`. OpenCode runtimes, including nested delegated agents on OpenCode, are rejected before dispatch in offline mode. Application database and storage access still operate normally; offline means no live model or tool calls.
+
+A file may mix cases with and without `fixtures.model`. Without `--offline true`, only the cases that declare `fixtures.model` replay the model; the rest call the live model, and the suite records `modelMode: mixed` in `summary.__evalRun` (the report's environment shows `live`, since live model calls ran). With `--offline true`, every case must have a model fixture, otherwise it errors with `model_fixture_missing`. A `fixtures.model` file holds a single recorded trial, so `--repeat` above 1 together with a case that declares `fixtures.model` exits 2. To repeat model replay, record and replay per-trial files with `--record <dir>` / `--replay <dir>`.
+
+Fixtures contain decrypted prompts, responses, downloaded attachment bytes and tool outputs. Keep production recordings private; commit only synthetic or public data. Model files are size limited, validated and written atomically with owner-only permissions. Model recordings with failed or incomplete provider calls cannot be replayed and must be recorded again. Concurrent runs use separate contexts; model resolutions within a case must occur in the same order.
+
+Custom `generateText`/`generateObject` escape-hatch callbacks must forward `experimental_download` from their prepared options when present. Direct SDK consumers of `createModelFactory` should pass `resolution.download` as `experimental_download`. The built-in runtime and judges do this automatically.
+
+For live evals, pin `--temperature` and `--seed`, replay tool fixtures, and use `--repeat` with `--fail-on-flaky` to measure variance.
+:::
+
+## Eval-set files
+
+An eval-set file (`format: open-mercato.agent-eval-set`, `formatVersion: 1`) holds an agent's assertions and cases in JSON or YAML (`.json`, `.yaml`, `.yml`). Keep it in git next to the code and review it like any other change.
+
+```yaml
+format: open-mercato.agent-eval-set
+formatVersion: 1
+agentId: marketing_validator
+label: baseline
+assertions:
+  - key: verdict_matches
+    scorerKey: json_match
+    severity: gate
+    title: The verdict equals the expected one
+    config: { source: expected, path: verdict }
+  - key: rationale
+    scorerKey: llm_judge
+    severity: warn
+    title: Rationale cites evidence
+    config: { rubricRef: rationale_quality }
+cases:
+  - key: risky-claim
+    name: Guaranteed returns claim
+    input: { text: "Guaranteed 20% returns" }
+    expected: { verdict: reject }
+    assertions:
+      - key: verdict_matches
+      - key: rationale
+    fixtures:
+      tools: fixtures/risky-claim.tools.json
+```
+
+Rules to know:
+
+- Assertion and case `key`s must be unique. A case lists assertions by key (`assertions`), and each entry may carry a `configOverride` or `disabled: true`. A per-case override can tune a rubric (threshold, samples, model) but cannot change its `rubricRef`.
+- `llm_judge` assertions must use `severity: warn`. A file that sets `gate` on a judge is refused.
+- `fixtures.tools` paths are relative to the file and must not leave its directory.
+- Limits: 5000 cases, 500 assertions, 100 assertion refs per case, and a total size cap of `OM_AGENT_EVAL_SET_MAX_BYTES` (default 5 MiB).
+- Cases from a file count as approved.
+
+### Validate and export
+
+```bash
+# offline schema and scorer-config check, no database access
+yarn mercato agent_orchestrator eval-set validate evals/marketing.eval.yaml
+
+# write the current approved cases as a file (stdout when --out is omitted)
+yarn mercato agent_orchestrator eval-set export \
+  --agent marketing_validator \
+  --tenant "$OM_EVAL_TENANT_ID" --org "$OM_EVAL_ORG_ID" \
+  --snapshot current --format yaml --out evals/marketing.eval.yaml
+```
+
+`--snapshot` accepts `current`, `latest` or `sha256:<hex>` (a frozen manifest). `validate` exits `2` on an invalid file. On export, `llm_judge` assertions saved as `gate` are downgraded to `warn`, and the affected keys are printed on stderr. Assertion refs that point at undeclared keys are dropped.
+
+## Running a file
+
+```bash
+yarn mercato agent_orchestrator eval \
+  --agent marketing_validator \
+  --cases evals/marketing.eval.yaml \
+  --gate true --report ./eval-report --format md,junit
+```
+
+`--cases <file>` runs the file instead of the database cases and pins the run to the file's manifest hash, so the run is reproducible and comparable to a baseline. It cannot be combined with `--snapshot` or `--eval-set-version`. Other pinning options for database cases are `--snapshot latest|sha256:<hex>` and `--eval-set-version <label>`; `--require-snapshot true` refuses label pins and unpinned runs.
+
+Without `--gate true` the command is report-only and exits `0`. Without a pin the run is advisory, and `--gate true` on an advisory run is refused.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Passed, or report-only (no `--gate`). |
+| `1` | Gate failed: failed outcome, a case run errored under fixture replay that errors on a miss, run threw under `--gate true`, or narrowed by `--fail-on-flaky true` / `--min-pass-score <0..1>`. |
+| `2` | Usage or environment error, advisory run refused, label pin refused under `--require-snapshot true`, invalid eval-set file, or the report could not be written. |
+
+The outcome itself fails only on a safety regression against the baseline or when no case could be measured. It applies no absolute pass threshold, so an ordinary failed case lowers the pass score without failing `--gate`; add `--min-pass-score` to block on it. Errored case runs are left out of the pass score. In a live run that keeps provider timeouts from failing a release, so they stay advisory there. Under fixture replay (`--replay`, `--offline true`, or a `--cases` file with `fixtures.tools`, `fixtures.model` or `mocks`) with `--on-fixture-miss error` (the default), an errored case means a fixture or mock is missing or does not match, and `--gate true` exits `1`.
+
+The narrowing flags apply only under `--gate true` and never turn a failure into a pass. Use `--repeat <n>` to run each case several times and `--baseline <suiteRunId>` to compare against an earlier run.
+
+## Tool fixtures
+
+Fixtures remove live tool side effects and variance from a run. They are CLI-only.
+
+```bash
+# record once against live tools (native agents only)
+yarn mercato agent_orchestrator eval --agent <id> --cases evals/marketing.eval.yaml \
+  --record evals/fixtures
+
+# replay in CI: tool calls are answered from the files, handlers do not run;
+# a missing fixture fails the gate, --min-pass-score 1 also fails on any failed case
+yarn mercato agent_orchestrator eval --agent <id> --cases evals/marketing.eval.yaml \
+  --replay evals/fixtures --offline true --gate true --min-pass-score 1
+
+# seed a fixture from a stored run
+yarn mercato agent_orchestrator eval --agent <id> --tenant <t> --org <o> \
+  --fixtures-from-run <runId> --record evals/fixtures --case risky-claim
+```
+
+- Tool trial 0 uses `<dir>/<agentId>/<caseKey>.tools.json`; later recorded trials use `<caseKey>.<trialIndex>.tools.json`. Offline replay reads the matching trial. Model files always include the trial index. All fixture files use mode `0600`.
+- `--record` and `--replay` are exclusive. A `--replay` directory wins over the `fixtures.tools` paths in the file.
+- A tool call with no fixture errors the case with `tool_fixture_missing`. `--on-fixture-miss live` runs the real tool instead and marks the suite as `mixed`.
+- `--fixtures-from-run` writes a best-effort fixture from the stored run summary and exits without running the suite.
+- Each fixture file is capped at `OM_AGENT_EVAL_TOOL_FIXTURE_MAX_BYTES` (default 5 MiB).
+- Tool-only replay reports OpenCode as `unsupported_runtime`; fully offline replay rejects it before dispatch.
+
+:::warning
+Fixture files contain real tool inputs and outputs, which are tenant data. Record against a synthetic or scrubbed tenant, review every file before committing, and never commit real customer data.
+:::
+
+## Tool mocks
+
+A case can declare hand-written tool results in `cases[].mocks`. No recording is needed, and the mocks are part of the frozen dataset (they change its content hash).
+
+```yaml
+cases:
+  - key: unknown-company
+    input: { question: "What does Acme Ltd owe us?" }
+    expected: { answer: "no matching company" }
+    mocks:
+      match: strict          # case default: strict | ordered | any
+      tools:
+        - tool: customers.search_companies
+          args: { query: "Acme Ltd" }
+          output: []
+        - id: stock
+          tool: catalog.get_stock
+          match: any
+          error: "upstream timeout"
+          required: true
+```
+
+- Every mock has exactly one of `output` or `error`. An `error` reaches the agent as a failed tool call.
+- `strict` compares the canonical args (key order does not matter) and requires `args`. Several identical `strict` mocks answer successive calls in file order.
+- `ordered` answers the next unused `ordered` mock for that tool; `any` answers every call to the tool. Both ignore args and must not declare them.
+- Per call the most specific answer wins: `strict`, then `ordered`, then `any`, then the recorded `fixtures.tools` file (or `--replay` directory), then `--on-fixture-miss` (`error` by default).
+- A case with mocks never runs tools live by accident: the CLI replays it without `--replay`, and an unmocked, unrecorded call errors the case with `tool_fixture_missing` unless `--on-fixture-miss live` is set. `--offline true` still refuses `live`.
+- Mock ids default to `<tool>#<n>` (the n-th mock of that tool in the case). A `required: true` mock that the agent never called fails the trial with `mock_required_unused`, which lowers the pass score. Like any failed trial it fails the gate only through `--min-pass-score`, so pass `--min-pass-score 1` when every mocked dependency must be consulted.
+- With `--record`, mocked calls are answered by the mocks and only the calls that ran live are written to the recording.
+- Mocks never stand in for a mutation tool; mutation calls are refused under replay as before.
+- The report adds per-trial `mocks` (`used`, `unused`, `unmatched` with how each unmatched call was resolved) and `environment.mocks`; the Markdown report shows a Mocks table and the CLI prints a `mocks:` summary line. Call args are not copied into the usage; open the trial's trace to see them.
+- Mocks take effect only when the file itself is run (`--cases`) or its frozen snapshot is replayed. `POST /eval-sets/import` accepts files with mocks but does not store mocks on the database cases. An older CLI rejects a file that uses `mocks`.
+- Seed mock outputs from a recording (`--record`, then copy the output) so they match what the real tool returns. Prefer `any` for idempotent reads: a retried call consumes the next `ordered` mock.
+
+## Call settings
+
+`--temperature <n>` and `--seed <int>` override the agent's `modelSettings` for the eval run only and are stored on the suite run. Invalid values exit `2`. There are no per-case call settings.
+
+The report's **Environment** section shows the effective settings: models, providers, temperature, seed (`requested` and whether it was `honored`), other model settings, tool mode (`live`, `replay`, `mixed`), model mode, git SHA, CLI version and any warnings. Treat a seed that was not honored as a sign the provider ignored it; do not expect bit-identical outputs. Settings come from the agent definition as read when the report is built, and provider-specific options are never included in the report.
+
+## Rubrics
+
+An `llm_judge` assertion can reference a reusable rubric with `config: { rubricRef: <key> }`.
+
+- Built-ins: `rationale_quality`, `groundedness`, `appropriate_abstention`.
+- An agent can declare more through `evalRubrics` in `defineAgent`. An agent rubric shadows a built-in of the same key.
+- A `rubricRef` that resolves to neither is rejected by `eval-set validate`. File-based (OpenCode) agents cannot declare rubrics yet.
+- A reference may be tuned with `threshold`, `samples`, `model`, `temperature`, `seed`, `aggregation`, `direction` and `requireReasoning`. The wording and scoring always come from the library.
+
+Judges are model calls and therefore noisy. Keep them at `warn` and gate on deterministic assertions.
+
+## Reports and gating
+
+`--report <dir>` writes the files before the exit code is set:
+
+| Format | File | Use |
+|--------|------|-----|
+| `json` | `report.json` | Machine-readable, full detail. On a thrown run, a minimal report with `status: error` is written. |
+| `md` | `report.md` | Paste into the GitHub job summary. |
+| `junit` | `junit.xml` | One test case per case and trial, for CI test reporters. |
+
+`--format` defaults to JSON and needs `--report`. Payloads are left out unless you pass `--include-payloads true`. Gate on the process exit code, and upload the report directory as an artifact so a failure can be inspected.
+
+## Sample GitHub Actions job
+
+```yaml
+name: agent-evals
+on:
+  pull_request:
+    paths: ['evals/**', 'packages/**/agent_orchestrator/**']
+  schedule:
+    - cron: '0 3 * * *'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    env:
+      OM_EVAL_TENANT_ID: ${{ secrets.OM_EVAL_TENANT_ID }}
+      OM_EVAL_ORG_ID: ${{ secrets.OM_EVAL_ORG_ID }}
+      DATABASE_URL: ${{ secrets.EVAL_DATABASE_URL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+      - run: yarn install --immutable
+      - run: yarn build:packages
+      - run: yarn mercato agent_orchestrator eval-set validate evals/marketing.eval.yaml
+      - name: Run evals
+        run: |
+          yarn mercato agent_orchestrator eval \
+            --agent marketing_validator \
+            --cases evals/marketing.eval.yaml \
+            --replay evals/fixtures --on-fixture-miss error \
+            --temperature 0 --seed 7 --repeat 3 \
+            --gate true --fail-on-flaky true --min-pass-score 0.9 \
+            --report eval-report --format md,junit
+      - name: Job summary
+        if: always()
+        run: cat eval-report/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: eval-report
+```
+
+Use a tenant that exists only for evals, and set the provider key variable your configured model provider expects. The tenant and organization may be passed with `--tenant` / `--org` or through `OM_EVAL_TENANT_ID` / `OM_EVAL_ORG_ID`. For a nightly live job, drop `--replay` (or pass `--on-fixture-miss live`) so tools run against the eval tenant, and keep the pull request job on replay.
+
+## Import and export APIs
+
+The same file format is available over HTTP so a set authored in git can be edited in the UI and back.
+
+- `POST /api/agent_orchestrator/eval-sets/import` takes `{ file }` (parsed) or `{ text }` (JSON or YAML) and an optional `approve: true`. Cases are created as drafts unless approved, and a content change demotes an approved case to draft unless the same import approves it. Re-importing an unchanged file changes nothing, and the write is undoable. It requires `agent_orchestrator.eval.manage`. The file is held to `OM_AGENT_EVAL_SET_MAX_BYTES` (422) and the request body to twice that (413). It has no optimistic lock, no dry run, and does not import fixtures.
+- `GET /api/agent_orchestrator/eval-sets/:version/export` returns the file for `current`, `latest` or a `sha256:<hex>` manifest, in JSON or YAML. It requires `agent_orchestrator.eval.export`. Judge assertions downgraded to `warn` are listed in the `x-om-eval-set-downgraded` response header.
+
+`POST /api/agent_orchestrator/eval-runs` is unchanged: runs of a file go through the CLI, the gate command or the import API.
+
+## Tracking regressions across agent versions
+
+Every agent run records the agent version it ran (a short hash of the agent definition). The regression dashboard groups completed eval runs by that version, so you can see when a prompt, tool or model change moved the pass score.
+
+- **Agent → Evaluation → Regressions** shows the pass score of the newest completed runs over time, one row per agent version (latest and average pass score, change against the previous version) and a list of runs with a **Compare with previous** link. A run whose cases ran under more than one version is marked *mixed*.
+- **Compare** (`/backend/eval-runs/compare?base=…&head=…`, also **Compare with baseline** on an eval run page) puts two finished runs of the same agent side by side: pass-score change, per-assertion pass rates, and a per-case diff — *regressed* (passed → failed or errored), *fixed*, *changed* (same status, different score or assertion verdicts), *added*, *removed*. Each case links to both traces.
+
+Pass rates are only comparable over the same cases. Deltas in the trend connect runs of the same dataset (frozen manifest hash, else the `evalSetVersion` pin), the version change is left empty when two versions last ran different datasets, and the comparison page warns when the frozen eval sets differ. Pin a snapshot (`snapshot: "latest"` or `--eval-set`) when you want version-to-version numbers you can trust.
+
+Both views use read-only endpoints gated by `agent_orchestrator.eval.manage`; they return verdicts and scores, never inputs, outputs or evidence:
+
+- `GET /api/agent_orchestrator/eval-runs/trend?agentDefinitionId=<id>[&evalSetVersion=<pin>][&limit=30]` — completed runs oldest first with `agentVersions` and dataset-scoped `passScoreDelta`, plus a per-version summary.
+- `GET /api/agent_orchestrator/eval-runs/compare?base=<suiteRunId>&head=<suiteRunId>` — the comparison; `404` for a run outside your organization, `409` (`run_not_finished`) while a run is in progress, `422` (`agent_mismatch`) for runs of different agents.
+
+## Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `OM_EVAL_TENANT_ID`, `OM_EVAL_ORG_ID` | Default `--tenant` / `--org` for the CLI. |
+| `OM_EVAL_USER_ID` | Default `--user` for the CLI: the user (UUID) the cases run as, with the agent's principal bound like a workbench run. Unset, each case runs as the agent's own principal. |
+| `OM_EVAL_GIT_SHA` | Commit recorded as the report's **Environment** git SHA, including the error report written when the run cannot complete. `GITHUB_SHA` wins when both are set, so set this in CI systems other than GitHub Actions. With neither set, the SHA is empty. |
+| `OM_AGENT_EVAL_SET_MAX_BYTES` | Eval-set file and manifest size cap (default 5242880). |
+| `OM_AGENT_EVAL_TOOL_FIXTURE_MAX_BYTES` | Per-fixture-file size cap (default 5242880). |

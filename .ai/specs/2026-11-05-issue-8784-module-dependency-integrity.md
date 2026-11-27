@@ -408,13 +408,14 @@ One environment variable, `OM_PRESET_BOOT`, set only by the preset boot script t
 
 ## Migration & Backward Compatibility
 
-All changes are additive. Per `BACKWARD_COMPATIBILITY.md`:
+All changes are additive except the E1 fix (#8801), which deprecates one import path and narrows what one seeding function does. Per `BACKWARD_COMPATIBILITY.md`:
 
 | Surface | Change | Handling |
 |---|---|---|
 | 2. Type definitions (STABLE) | `ModuleInfo.optionalRequires` (PR #6863); `minContributions?` on the injection host declaration; `enabledModuleIds?` on `BackendChromePayload`. | Optional fields. `ModuleExtensionPoints` explicitly allows new optional metadata. |
-| 3. Function signatures (STABLE) | New `isModuleEnabled` and `useModuleEnabled`. | New exports; nothing changed or removed. |
-| 4. Import paths (STABLE) | New `@open-mercato/ui/backend/modules/useModuleEnabled`. | New path. |
+| 2. Type definitions (STABLE), E1 (#8801) | `BackfillDealLossReasonDictionaryResult` gains `revivedDictionary`. | Optional field (`revivedDictionary?: boolean`); a required field would break downstream code that builds the published five-field shape. The implementation always returns it. `sales/lib/dictionaries.typecheck.ts` keeps the five-field shape compiling through the deprecated `sales` import under `yarn typecheck`. |
+| 3. Function signatures (STABLE) | New `isModuleEnabled` and `useModuleEnabled`. E1 (#8801): `seedSalesStatusDictionaries` no longer seeds `sales.deal_loss_reason`. | Signatures unchanged. `customers` `seedDefaults` and the `customers.seed-deal-loss-reasons` upgrade action (0.10.0) seed the dictionary instead. Recorded in `UPGRADE_NOTES.md`. |
+| 4. Import paths (STABLE) | New `@open-mercato/ui/backend/modules/useModuleEnabled`. E1 (#8801): `backfillDealLossReasonDictionary` and `BackfillDealLossReasonDictionaryResult` move to `@open-mercato/core/modules/customers/lib/dealLossReasons`. | New path. The old exports in `sales/lib/dictionaries` stay as `@deprecated` aliases since 0.10.0, removal no earlier than 0.12.0; recorded in `UPGRADE_NOTES.md`. |
 | 6. Widget injection spot IDs (FROZEN) | New spot ids: `data-table:configs.modules:*`, and the hosts added by the resolution table (link types, the two Translate hosts). | Additive; existing ids are unchanged. Each new id is frozen once shipped and is named in the PR that adds it. |
 | 7. API route URLs (STABLE) | New `GET /api/configs/modules`; one optional response field on `GET /api/auth/admin/nav`. | Additive. The dispatcher is unchanged. |
 | 10. ACL feature IDs (FROZEN) | None. | The page reuses `configs.system_status.view`. |
@@ -422,9 +423,26 @@ All changes are additive. Per `BACKWARD_COMPATIBILITY.md`:
 | 14. Generated file contracts (STABLE) | Module facts gain content: the `optionalRequires` fact (PR #6863), new `requires` values, the new configs route and page, the new hosts. | No export or shape change. |
 | 1, 5, 8, 9, 11, 12 | No change. | — |
 
+### Translate action hosts (#8803)
+
+The E3 fix adds these exact render-widget hosts. Existing hosts and the translations API remain unchanged:
+
+| Host | Mounted at | Context | Without `translations` |
+|---|---|---|---|
+| `dictionaries:entry:actions` | Each writable dictionary entry, between Edit and Delete | `{ dictionaryId: string, entry: DictionaryEntryRecord }` | No contributed Translate action; inherited read-only entries never mount the host. |
+| `entities:field-definition:actions` | Each field-definition card in the entity definitions editor (including the system-entity page that reuses it) | `{ entityId: string, definition: FieldDefinition }` | No contributed Translate action. |
+
+`translations.injection.dictionary-entry-translation` and `translations.injection.field-definition-translation` own the buttons and dialogs. Both require `translations.manage` and their host module. They reuse `TranslationManager`, preserving the dictionary entry UUID, the `${entityId}:${fieldKey}` custom-field record ID, the label/description/option translation keys, mutation guards and optimistic locking. `FieldDefinitionsEditorProps.renderFieldActions` is an optional generic renderer; the existing `onTranslate` callback remains supported unchanged.
+
+With All organizations selected, the dictionary-entry dialog prompts the user to choose a specific organization in the header before opening the translation editor. Tenant-wide field definitions retain their existing translation behavior. An embedded editor whose request scope has changed requires reopening before it can load or save translations.
+
+Regression coverage: dictionary and entity `8803-optional-translations` integration specs run without a translations module dependency and assert absent actions when its route is absent. `TC-TRANS-019` verifies the organization prompt, denied dictionary translation API reads and writes in All organizations, and persisted translations in the selected organization. `TC-TRANS-021` verifies saved field-definition translations. Component tests cover how both dialogs respond to All organizations, real host mounts, custom-field option mapping and the legacy editor callback.
+
 **Behavior that can newly fail.** Declaring a missing hard dependency in a module's `requires` makes `yarn generate` reject an app that enabled that module without the dependency. Each such addition is listed in `UPGRADE_NOTES.md` with the module to enable, following the precedent of the Catalog change. A reference is declared hard only when the code cannot run without the peer.
 
 **Behavior that moves.** The resolution table moves the seeding of one dictionary from `sales` to `customers` and moves sales-specific dashboard widgets to `sales`. Widget ids, dictionary keys and stored data are unchanged. In an app with all modules enabled nothing visible changes.
+
+**Schedule link types (#8802).** The additive, frozen host `schedule:customers.link-types` uses the `customers.schedule.link-types.v1` data contract, exported as `ScheduleLinkTypeDefinition` and `ScheduleLinkTypeWidget` from `customers/components/detail/schedule/linkTypes`. Definitions provide an existing schedule link id (`company`, `deal`, or `offer`), translated label, optional icon, search URL builder, and result-label resolver. This is a headless registry contribution host; visual widgets are not rendered. Adding a new persisted link kind remains a separate API-contract change. Company and Deal remain built in; `sales.injection.schedule-offer-link` contributes Offer with the existing `sales.quotes.view` permission. The injection loader filters disabled modules and the UI hook applies wildcard-aware grants. Providers load asynchronously while built-in types remain available. `LinkedEntity.type`, stored `company`, `deal`, and `offer` values, and saved labels are unchanged. Historical links remain visible and removable without their provider. No API, schema, event, or ACL id changes.
 
 **Monorepo and template.** No file under `apps/mercato/src/app/**` or `apps/mercato/src/i18n/**` changes, so the template sync checklist in `packages/create-app/AGENTS.md` is not triggered. `packages/create-app/template/AGENTS.md` and the standalone harness are refreshed with the `module doctor` command through `om-refresh-standalone-harness`.
 
@@ -644,6 +662,10 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 
 ## Changelog
 
+### 2026-11-15 — Schedule link ownership (#8802)
+- Implemented resolution-table row E2 independently: customers declares `schedule:customers.link-types`; sales owns the Offer endpoint, label resolution, and translations.
+- Added regression coverage for absent and asynchronously loaded providers, quote labels/search, pagination, and historical links, plus module-aware customers integration and all-modules sales coverage.
+
 ### 2026-11-05
 - Initial specification for #8784. Open Questions Q1 to Q10 resolved with autonomous defaults; Q1 and Q10 are flagged for the maintainer.
 - Grounded against `main` at `797e0e2a37`: the generators' `requires` check, `create-mercato-app` presets and their tests, the injection loader and extension-surface facts, and a source audit of the `crm` preset's modules.
@@ -662,3 +684,17 @@ None against AGENTS rules. The scope-cohesion review returned SPLIT (Q1); the sp
 
 ### 2026-11-05 — Q10 decided
 - The maintainer confirmed the platform kernel (Q10) with the seed `auth`, `directory` and `api_keys`. No maintainer decision remains open, and the spec PR leaves draft.
+
+### 2026-11-15 — E3 / #8803
+- Moved dictionary-entry and field-definition translation controls into translations-owned widgets at the two documented additive hosts. Preserved the legacy shared-editor callback and translation record identities.
+- Added absent-module browser regression specs and enabled-module save coverage, plus focused host/component tests. Runtime browser validation remains dependent on a runnable test environment.
+
+### 2026-11-15 — Deal loss reasons (#8801)
+- Implemented resolution-table row E1 independently: `customers/lib/dealLossReasons.ts` owns the `sales.deal_loss_reason` dictionary, its defaults and the backfill helper, and `customers` seeds it in `seedDefaults`. `sales` no longer seeds it (`seedSalesStatusDictionaries` and `mercato sales seed-statuses` included) and keeps `backfillDealLossReasonDictionary` as a deprecated re-export, so `mercato sales backfill-deal-loss-reasons` is unchanged.
+- Existing tenants without `sales` get the dictionary with `mercato seed:defaults --module customers`; the seed is idempotent, reuses a dictionary that `sales` created earlier and revives a soft-deleted one instead of failing on `dictionaries_scope_key_unique`.
+- Added unit coverage for idempotent seeding and for `sales` no longer seeding the key, plus `TC-CRM-8801`, which marks a deal lost with a reason and declares no `sales` dependency.
+- Review follow-up: the `customers.seed-deal-loss-reasons` upgrade action (0.10.0) seeds existing tenants; reseeding keeps tenant-set colors and icons on default entries and only fills missing ones; the backfill reports `revivedDictionary` (optional on the exported type, so the published five-field shape still compiles — first added as required, corrected after review); the deprecated `sales` exports carry since/removal versions. Seeding restores a soft-deleted loss-reason dictionary on purpose, because the deal-lost dialog cannot confirm without it. Migration & BC table updated (categories 2, 3 and 4).
+
+### 2026-11-21 — E3 bundled QA repairs (#10129)
+- Carried the four focused #9569 UI repairs into the kernel bundle: non-submit field-editor controls, serialized translation saves through version refresh, visible/retryable non-404 load failures and localized built-in property captions. Existing mutation guards, translation-row optimistic headers and legacy editor callbacks remain.
+- Included enclosing-form, duplicate mouse/keyboard save, failed-load/retry and Polish-caption regressions. When All Organizations is selected, dictionary translation asks the user to choose one organization in the existing switcher before opening the editor. The scoped flow uses the existing translation authorization and storage rules.

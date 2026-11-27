@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { formatLocaleNumberInput, parseLocaleNumber } from '@open-mercato/shared/lib/number'
+import { formatLocaleDecimalInput, formatLocaleNumberInput, parseLocaleDecimal } from '@open-mercato/shared/lib/number'
+import { decimalToNumber, decimalToString, resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import {
   AlertTriangle,
   BadgeCheck,
@@ -88,7 +89,7 @@ type LegalDocumentsValue = {
 
 type PriceListItem = PriceListItemInput
 // `amount` stays a raw locale-typed string while a row is being edited (issue #5828) —
-// converted to a number only at submit time.
+// converted to an exact decimal string only at submit time.
 type PriceListEditorItem = Omit<PriceListItem, 'amount'> & { amount: number | string }
 
 const DEFAULT_COLORS = {
@@ -116,16 +117,24 @@ function readNumberInputValue(value: unknown, locale?: string): string {
 
 // Money fields stay a raw locale-typed string while being edited (issue #5828) so an
 // in-progress decimal separator is never dropped mid-keystroke; this converts to the
-// canonical number the API expects right before submission.
-export function toSubmittedAmount(value: unknown, locale?: string): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+// canonical exact decimal string the API accepts right before submission, so no digit is
+// lost to a float.
+export function toSubmittedAmountExact(value: unknown, locale?: string): string | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? decimalToString(value) : null
   if (typeof value !== 'string') return null
   if (!value.trim()) return null
-  return parseLocaleNumber(value, locale)
+  return parseLocaleDecimal(value, locale)
 }
 
+/** Float copy of {@link toSubmittedAmountExact}. */
+export function toSubmittedAmount(value: unknown, locale?: string): number | null {
+  const exact = toSubmittedAmountExact(value, locale)
+  return exact === null ? null : decimalToNumber(exact)
+}
+
+
 function isUnparseableAmount(value: unknown, locale?: string): boolean {
-  return typeof value === 'string' && value.trim().length > 0 && toSubmittedAmount(value, locale) === null
+  return typeof value === 'string' && value.trim().length > 0 && toSubmittedAmountExact(value, locale) === null
 }
 
 // `toSubmittedAmount` turns unparseable text into `null`, which the API then reads as "no
@@ -231,6 +240,17 @@ function normalizePriceListItems(value: unknown): PriceListEditorItem[] {
     .filter((item): item is PriceListEditorItem => item !== null)
 }
 
+function hydratePriceListItems(value: unknown, locale?: string): PriceListEditorItem[] {
+  if (!Array.isArray(value)) return []
+  return normalizePriceListItems(
+    value.map((item) => {
+      if (!isRecord(item)) return item
+      const amount = toAmountInputValue(resolveExactDecimal(item.amountExact, item.amount), locale)
+      return amount === null ? item : { ...item, amount }
+    }),
+  )
+}
+
 function normalizeCustomerFields(value: unknown, t?: TranslateFn): CustomerFieldDefinitionInput[] {
   if (!Array.isArray(value)) return cloneDefaultCustomerFields(t)
   return value.reduce<CustomerFieldDefinitionInput[]>((result, field, index) => {
@@ -285,7 +305,11 @@ function normalizeLegalDocuments(value: unknown): LegalDocumentsValue {
   }
 }
 
-function normalizeFormValues(value: FormValues | null | undefined, t?: TranslateFn): FormValues {
+function toAmountInputValue(exact: string | null, locale?: string): string | null {
+  return exact === null ? null : formatLocaleDecimalInput(exact, locale)
+}
+
+export function normalizeFormValues(value: FormValues | null | undefined, t?: TranslateFn, locale?: string): FormValues {
   const defaults = createDefaultValues(t)
   const source = isRecord(value) ? value : {}
   const customFields = isRecord(source.customFields) ? source.customFields : {}
@@ -309,7 +333,14 @@ function normalizeFormValues(value: FormValues | null | undefined, t?: Translate
     collectCustomerDetails: readBoolean(source.collectCustomerDetails, true),
     customerFieldsSchema: normalizeCustomerFields(source.customerFieldsSchema, t),
     legalDocuments: normalizeLegalDocuments(source.legalDocuments),
-    priceListItems: normalizePriceListItems(source.priceListItems),
+    priceListItems: hydratePriceListItems(source.priceListItems, locale),
+    fixedPriceAmount: toAmountInputValue(resolveExactDecimal(source.fixedPriceAmountExact, source.fixedPriceAmount), locale),
+    fixedPriceOriginalAmount: toAmountInputValue(
+      resolveExactDecimal(source.fixedPriceOriginalAmountExact, source.fixedPriceOriginalAmount),
+      locale,
+    ),
+    customAmountMin: toAmountInputValue(resolveExactDecimal(source.customAmountMinExact, source.customAmountMin), locale),
+    customAmountMax: toAmountInputValue(resolveExactDecimal(source.customAmountMaxExact, source.customAmountMax), locale),
     fixedPriceCurrencyCode: readString(source.fixedPriceCurrencyCode).trim().toUpperCase() || 'USD',
     customAmountCurrencyCode: readString(source.customAmountCurrencyCode).trim().toUpperCase() || 'USD',
     sendStartEmail: readBoolean(source.sendStartEmail, true),
@@ -1403,7 +1434,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const [isApplyingTemplate, setIsApplyingTemplate] = React.useState(false)
   const [formInstanceKey, setFormInstanceKey] = React.useState(0)
   const [initialValues, setInitialValues] = React.useState<FormValues | null>(
-    recordId ? null : normalizeFormValues(createDefaultValues(t), t),
+    recordId ? null : normalizeFormValues(createDefaultValues(t), t, locale),
   )
   const [notFound, setNotFound] = React.useState(false)
 
@@ -1465,7 +1496,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const applyTemplate = React.useCallback(async (nextTemplateId: string | null) => {
     if (recordId || mode !== 'link') return
     if (!nextTemplateId) {
-      replaceInitialValues(normalizeFormValues(createDefaultValues(t), t))
+      replaceInitialValues(normalizeFormValues(createDefaultValues(t), t, locale))
       return
     }
     setIsApplyingTemplate(true)
@@ -1483,12 +1514,12 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
           ...result,
           slug: '',
           templateId: nextTemplateId,
-        }, t),
+        }, t, locale),
       )
     } finally {
       setIsApplyingTemplate(false)
     }
-  }, [mode, recordId, rememberTemplateOptions, replaceInitialValues, t])
+  }, [locale, mode, recordId, rememberTemplateOptions, replaceInitialValues, t])
 
   React.useEffect(() => {
     if (mode !== 'link' || recordId) return
@@ -1503,7 +1534,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     void readApiResultOrThrow<FormValues>(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`)
       .then((result) => {
         if (!active) return
-        replaceInitialValues(normalizeFormValues(result, t))
+        replaceInitialValues(normalizeFormValues(result, t, locale))
       })
       .catch((error) => {
         if (!active) return
@@ -1511,12 +1542,12 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
           setNotFound(true)
           return
         }
-        replaceInitialValues(normalizeFormValues({}, t))
+        replaceInitialValues(normalizeFormValues({}, t, locale))
       })
     return () => {
       active = false
     }
-  }, [mode, recordId, replaceInitialValues, t])
+  }, [locale, mode, recordId, replaceInitialValues, t])
 
   React.useEffect(() => {
     if (recordId || mode !== 'link' || !templateId) return
@@ -1748,13 +1779,13 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
               const payload = {
                 ...values,
                 status: submitIntent === 'publish' ? 'active' : values.status,
-                fixedPriceAmount: toSubmittedAmount(values.fixedPriceAmount, locale),
-                fixedPriceOriginalAmount: toSubmittedAmount(values.fixedPriceOriginalAmount, locale),
-                customAmountMin: toSubmittedAmount(values.customAmountMin, locale),
-                customAmountMax: toSubmittedAmount(values.customAmountMax, locale),
+                fixedPriceAmount: toSubmittedAmountExact(values.fixedPriceAmount, locale),
+                fixedPriceOriginalAmount: toSubmittedAmountExact(values.fixedPriceOriginalAmount, locale),
+                customAmountMin: toSubmittedAmountExact(values.customAmountMin, locale),
+                customAmountMax: toSubmittedAmountExact(values.customAmountMax, locale),
                 priceListItems: normalizePriceListItems(values.priceListItems).map((item) => ({
                   ...item,
-                  amount: toSubmittedAmount(item.amount, locale) ?? Number.NaN,
+                  amount: toSubmittedAmountExact(item.amount, locale) ?? Number.NaN,
                 })),
                 customFields: collectCustomFieldValues(values),
               }

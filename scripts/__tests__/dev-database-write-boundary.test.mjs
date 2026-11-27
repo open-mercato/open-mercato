@@ -21,6 +21,7 @@ function testContext(source, overrides = {}) {
     path,
     process: { cwd: () => '/workspace', env: { DATABASE_URL: 'postgres://from-shell/db', KEEP: 'value' } },
     args: [],
+    assertEncryptionCompatible: async ({ env }) => ({ status: 'verified', settings: env }),
     isMonorepo: false,
     startupAborted: false,
     verbose: true,
@@ -32,7 +33,7 @@ function testContext(source, overrides = {}) {
     formatProgressLine: () => '',
     resolveProgressPercent: () => 0,
     updateSplashState() {},
-    console: { log() {} },
+    console: { log() {}, warn() {} },
     shouldAutoMigrateOnDev: () => true,
     ...overrides,
   }
@@ -58,6 +59,27 @@ for (const file of devFiles) {
           : ['Applying migrations', ['db:migrate']]
       await assert.rejects(run(...argumentsForLauncher), /Remote database acknowledgment required/)
       assert.equal(checked, true)
+      assert.equal(spawned, false)
+    })
+  }
+
+  for (const launcher of ['runRawYarnCommand', 'runPassthroughStage', 'runRecoveryCommand', 'applyPendingMigrationsBestEffort', 'provisionMcpApiKey']) {
+    test(`${file}: ${launcher} rejects incompatible encryption before any mutation child`, async () => {
+      let spawned = false
+      const order = []
+      const context = testContext(source, {
+        async assertDatabaseWriteAllowed() { order.push('remote'); return { remote: false } },
+        async assertEncryptionCompatible() { order.push('encryption'); throw Object.assign(new Error('Encryption compatibility rejected'), { name: 'EncryptionCompatibilityError' }) },
+        spawnCommand() { spawned = true; throw new Error('must not spawn') },
+        spawnMcpCommand() { spawned = true; throw new Error('must not spawn') },
+      })
+      const run = vm.runInContext(`(${functionText(source, launcher)})`, context)
+      const argumentsForLauncher = launcher === 'runRawYarnCommand' ? [['initialize', '--reinstall']]
+        : ['applyPendingMigrationsBestEffort', 'provisionMcpApiKey'].includes(launcher) ? []
+          : ['Applying migrations', ['db:migrate']]
+      if (launcher === 'applyPendingMigrationsBestEffort') await run(...argumentsForLauncher)
+      else await assert.rejects(run(...argumentsForLauncher), /Encryption compatibility rejected/)
+      assert.deepEqual(order, ['remote', 'encryption'])
       assert.equal(spawned, false)
     })
   }

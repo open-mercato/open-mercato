@@ -114,6 +114,33 @@ describe('isTransientLockDbError', () => {
   })
 })
 
+describe('isUniqueViolation', () => {
+  it('matches the 23505 SQLSTATE and the MikroORM exception name', () => {
+    expect(isUniqueViolation({ code: '23505' })).toBe(true)
+    expect(isUniqueViolation({ name: 'UniqueConstraintViolationException', message: 'insert failed' })).toBe(true)
+  })
+
+  it('matches a violation wrapped behind cause or previous', () => {
+    expect(isUniqueViolation(new Error('flush failed', { cause: { code: '23505' } }))).toBe(true)
+    expect(isUniqueViolation({ message: 'transaction failed', previous: { name: 'UniqueConstraintViolationException' } })).toBe(true)
+  })
+
+  it('falls back to the exact Postgres message when the driver drops the code', () => {
+    expect(isUniqueViolation(new Error('duplicate key value violates unique constraint "rules_rule_id_unique"'))).toBe(true)
+  })
+
+  it('is false for a non-DB error that only mentions a unique constraint', () => {
+    expect(isUniqueViolation(new Error('Field "slug" has no unique constraint configured'))).toBe(false)
+    expect(isUniqueViolation(new Error('duplicate key value in payload'))).toBe(false)
+  })
+
+  it('is false for other SQLSTATEs and non-objects', () => {
+    expect(isUniqueViolation({ code: '23503', message: 'violates foreign key constraint' })).toBe(false)
+    expect(isUniqueViolation('duplicate key value violates unique constraint')).toBe(false)
+    expect(isUniqueViolation(null)).toBe(false)
+  })
+})
+
 describe('isForeignKeyViolation', () => {
   it('is true for the foreign_key_violation SQLSTATE', () => {
     expect(isForeignKeyViolation({ code: '23503' })).toBe(true)

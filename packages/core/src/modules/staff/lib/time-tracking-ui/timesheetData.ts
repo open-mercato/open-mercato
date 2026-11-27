@@ -82,6 +82,20 @@ function compareEntriesByClock(left: TimesheetEntry, right: TimesheetEntry): num
   return 0
 }
 
+/**
+ * A target answered by a CONTRIBUTED EP-40 capacity provider for the period and
+ * person on screen. The built-in answer is never passed in: the flat
+ * `dailyHours` arithmetic is what the built-in means, so every function below
+ * keeps its original behaviour when this is absent.
+ */
+export type TimesheetCapacity = {
+  providerId: string
+  targetMinutesByDate: Readonly<Record<string, number>>
+  totalTargetMinutes: number | null
+  label: string | null
+  labelKey?: string | null
+}
+
 export type TimesheetSummary = {
   totalMinutes: number
   billableMinutes: number
@@ -95,6 +109,7 @@ export function summarizeTimesheet(
   days: readonly TimesheetDay[],
   range: TimesheetDateRange,
   dailyHours: number | null | undefined,
+  capacity?: TimesheetCapacity | null,
 ): TimesheetSummary {
   let totalMinutes = 0
   let billableMinutes = 0
@@ -104,7 +119,12 @@ export function summarizeTimesheet(
   }
   const workingDays = countWorkingDays(range)
   const hasTarget = typeof dailyHours === 'number' && Number.isFinite(dailyHours) && dailyHours > 0
-  const targetMinutes = hasTarget ? Math.round(workingDays * dailyHours * 60) : null
+  const flatTargetMinutes = hasTarget ? Math.round(workingDays * dailyHours * 60) : null
+  const targetMinutes = capacity
+    ? capacity.totalTargetMinutes === null
+      ? null
+      : Math.round(capacity.totalTargetMinutes)
+    : flatTargetMinutes
   return {
     totalMinutes,
     billableMinutes,
@@ -122,8 +142,16 @@ export function summarizeTimesheet(
 export function resolveLoadScaleMinutes(
   days: readonly TimesheetDay[],
   dailyHours: number | null | undefined,
+  capacity?: TimesheetCapacity | null,
 ): number | null {
-  if (typeof dailyHours === 'number' && Number.isFinite(dailyHours) && dailyHours > 0) {
+  if (capacity) {
+    let largestTarget = 0
+    for (const day of days) {
+      const target = capacity.targetMinutesByDate[day.date] ?? 0
+      if (target > largestTarget) largestTarget = target
+    }
+    if (largestTarget > 0) return Math.round(largestTarget)
+  } else if (typeof dailyHours === 'number' && Number.isFinite(dailyHours) && dailyHours > 0) {
     return Math.round(dailyHours * 60)
   }
   let longest = 0
@@ -131,6 +159,37 @@ export function resolveLoadScaleMinutes(
     if (day.totalMinutes > longest) longest = day.totalMinutes
   }
   return longest > 0 ? longest : null
+}
+
+/**
+ * The target one day is compared against. A contributed provider answers per
+ * date, so a day it left out (approved leave, a non-working day of a part-time
+ * schedule) carries no target at all rather than a shortfall.
+ */
+export function resolveDayTargetMinutes(
+  day: Pick<TimesheetDay, 'date' | 'isWeekend'>,
+  dailyTargetMinutes: number | null,
+  targetMinutesByDate?: Readonly<Record<string, number>> | null,
+): number | null {
+  if (targetMinutesByDate) {
+    const target = targetMinutesByDate[day.date]
+    return typeof target === 'number' && target > 0 ? Math.round(target) : null
+  }
+  return dailyTargetMinutes !== null && !day.isWeekend ? dailyTargetMinutes : null
+}
+
+/**
+ * The scale one day's bar is drawn against: its own contributed target when it has
+ * one, so a 4:00 part-time day logged in full reads as full, otherwise the
+ * period-wide scale from `resolveLoadScaleMinutes`.
+ */
+export function resolveDayScaleMinutes(
+  date: string,
+  scaleMinutes: number | null,
+  targetMinutesByDate?: Readonly<Record<string, number>> | null,
+): number | null {
+  const target = targetMinutesByDate?.[date]
+  return typeof target === 'number' && target > 0 ? Math.round(target) : scaleMinutes
 }
 
 /** 0–100. A day over target pins at 100 — the bar reads "full", the number reads the overage. */
@@ -154,15 +213,17 @@ export function pickDefaultExpandedDay(
   days: readonly TimesheetDay[],
   dailyHours: number | null | undefined,
   todayIsoValue: string,
+  capacity?: TimesheetCapacity | null,
 ): string | null {
   const past = days.filter((day) => day.date <= todayIsoValue)
   if (past.length === 0) return null
   const hasTarget = typeof dailyHours === 'number' && Number.isFinite(dailyHours) && dailyHours > 0
-  if (hasTarget) {
-    const target = Math.round(dailyHours * 60)
+  if (capacity || hasTarget) {
+    const dailyTargetMinutes = hasTarget ? Math.round(dailyHours * 60) : null
     let best: { date: string; shortfall: number } | null = null
     for (const day of past) {
-      if (day.isWeekend) continue
+      const target = resolveDayTargetMinutes(day, dailyTargetMinutes, capacity?.targetMinutesByDate)
+      if (target === null) continue
       const shortfall = target - day.totalMinutes
       if (shortfall <= 0) continue
       if (!best || shortfall > best.shortfall || (shortfall === best.shortfall && day.date > best.date)) {

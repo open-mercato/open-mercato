@@ -18,6 +18,8 @@
   "search.api.errors.recreateFailed": "Failed to recreate vector table with new dimension.",
   "search.api.errors.reindexFailed": "Reindex operation failed.",
   "search.api.errors.reindexInProgress": "A reindex is already in progress.",
+  "search.api.errors.reindexIncomplete": "Reindex did not complete. Check the search activity log for details.",
+  "search.api.errors.reindexSuperseded": "Superseded by a newer reindex.",
   "search.api.errors.scopedQueueCancelFailed": "Failed to cancel queued reindex jobs.",
   "search.api.errors.scopedQueueCancelUnavailable": "Scoped queue cancellation is not available.",
   "search.api.errors.searchFailed": "Search operation failed.",

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 export const integrationMeta = {
   dependsOnModules: ['example', 'translations'],
@@ -117,24 +118,19 @@ test.describe('TC-EXAMPLE-009: the example todo title is translatable across con
       const rereadBody = await reread.json() as { items?: Array<{ title?: string }> }
       expect(rereadBody.items?.[0]?.title).toBe(baseTitle)
 
-      // Registration is NOT enforced at this route. `notes` is a real column on the same entity
-      // and `translations.ts` does not register it as translatable, yet the write is accepted
-      // and stored. That is worth pinning rather than asserting away: it means
-      // `translatableFields` drives which fields a UI offers, not what the API will persist, so
-      // the registration is discoverability rather than a whitelist. If that is tightened, this
-      // expectation fails and whoever tightens it sees exactly which contract moved.
       const unregistered = await apiRequest(request, 'PUT', `/api/translations/${ENTITY_TYPE}/${todoId}`, {
         token: superToken,
-        data: { de: { title: germanTitle, notes: 'unregistered field' } },
+        data: { de: { title: `${germanTitle} rejected`, notes: 'unregistered field' } },
       })
-      expect(
-        unregistered.ok(),
-        'today the translations route accepts a field the module never registered',
-      ).toBeTruthy()
+      expect(unregistered.status()).toBe(400)
+      expect(await readJsonSafe<{ code?: string }>(unregistered)).toMatchObject({
+        code: 'unregistered_translation_field',
+      })
 
-      // Whatever it stores, it must not corrupt the registered field or reach the record row.
       const afterUnregistered = await readTranslations(request, superToken, todoId!)
       expect(afterUnregistered.de?.title).toBe(germanTitle)
+      expect(afterUnregistered.fr?.title).toBe(frenchTitle)
+      expect(afterUnregistered.de).not.toHaveProperty('notes')
       const sourceRow = await apiRequest(
         request,
         'GET',

@@ -84,7 +84,7 @@ export const enabledModules: ModuleEntry[] = [
   // om-refresh-standalone-harness / om-evolve-harness workflow (live agentic release-suite
   // evaluation, a knowledge-change manifest, etc.), which is its own explicitly-authorized
   // task, not a one-line edit. Enabling is therefore a maintainer call about that harness
-  // work, same as channel_discord's byte-budget call below.
+  // work, like the other opt-in modules below.
   // { id: 'customer_groups', from: '@open-mercato/core' },
   { id: 'perspectives', from: '@open-mercato/core' },
   { id: 'entities', from: '@open-mercato/core' },
@@ -135,6 +135,16 @@ export const enabledModules: ModuleEntry[] = [
   // scaffold ships is required by at least one catalog case'). Run the
   // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
   // { id: 'cart', from: '@open-mercato/core' },
+  // Staff-authored priced proposals on a buyer's basket, accepted as a cart merge
+  // (.ai/specs/2026-09-22-assisted-selling.md). Requires cart. Stays commented out with cart
+  // above until the module-sets `commerce` preset enables the suite together with its
+  // standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/assisted_selling/index.md in context.required, so enabling it here
+  // trips packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'assisted_selling', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -146,6 +156,12 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'workflows', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
+  // General Ledger core engine — ships with the scaffold but stays disabled
+  // here until its module fact-sheet gains catalog coverage (run the
+  // om-refresh-standalone-harness skill to add it, then enable this line).
+  // Tracked in TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a
+  // deliberate divergence, not drift.
+  // { id: 'ledger', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },
@@ -200,16 +216,8 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'channel_apns', from: '@open-mercato/channel-apns' },
   { id: 'channel_expo', from: '@open-mercato/channel-expo' },
   { id: 'channel_fcm', from: '@open-mercato/channel-fcm' },
-  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
-  // but stays disabled by default. #4989 removed the hard overflow this used to
-  // cause (the generated root now sheds its module-fact index instead), but the
-  // headroom is still gone: enabling it puts the generated root at 12,275 of the
-  // 12,288-byte target, so the next module enabled after it drops the inline
-  // index to pointer form. Enabling is therefore a maintainer call about that
-  // budget, not a one-line edit — see
-  // packages/create-app/src/lib/agent-instruction-budget.test.ts
-  // ('one more template module still fits the root budget with its inline index
-  // intact'), and #4983 for the discussion.
+  // Optional Discord bot channel (SPEC 2026-06-19). To enable it, first run
+  // yarn add @open-mercato/channel-discord, then uncomment the registration.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'tillio', from: '@open-mercato/tillio' },
@@ -242,8 +250,11 @@ export const enabledModules: ModuleEntry[] = [
   // .ai/skills/om-refresh-standalone-harness/SKILL.md step 9. Enabling is
   // therefore a maintainer call that follows that skill.
   // { id: 'forms', from: '@open-mercato/core' },
-  { id: 'ratelimit_probe', from: '@app' },
 ]
+
+if (parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)) {
+  enabledModules.push({ id: 'ratelimit_probe', from: '@app' })
+}
 
 // Official modules activated via official-modules.json / official-modules.local.json
 // (managed by `yarn official-modules`; backed by the external/official-modules submodule).
@@ -285,4 +296,8 @@ if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
   // brand-new module (see apps/mercato/src/modules/agent_examples/README.md).
   // It imports the orchestrator SDK, so it is only enabled alongside it.
   enabledModules.push({ id: 'agent_examples', from: '@app' })
+}
+
+if (enterpriseModulesEnabled && parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_BACKUPS, false)) {
+  enabledModules.push({ id: 'backups', from: '@open-mercato/enterprise' })
 }

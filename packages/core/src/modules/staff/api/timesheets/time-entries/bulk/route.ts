@@ -8,9 +8,11 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { withExactAmounts, type WithExactAmounts } from '@open-mercato/shared/lib/decimal'
 import { emitCrudSideEffects, flushCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTeamMember, StaffTimeProject, StaffTimeTask } from '../../../../data/entities'
 import {
@@ -28,6 +30,7 @@ import {
   resolveTimeEntryWriteAccess,
   resolveTimeEntryWriteDenial,
   roundedMinutesFor,
+  timeEntryStoredTaskLeftBehind,
   timeEntryTaskMatchesProject,
   toStoredTimeEntryRateOverride,
   translateTimeEntryWriteDenial,
@@ -37,6 +40,8 @@ import {
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
 import { emitStaffEvent } from '../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../lib/timesheets/timeEntryCacheInvalidation'
+import { localizeValidationIssues } from '../../../../lib/validationIssues'
+import { findLiveSegmentsForEntries, markSegmentsDeleted } from '../../../../lib/timesheets/timeEntrySegmentCascade'
 import {
   STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
@@ -75,7 +80,7 @@ function bulkValidationError(errors: BulkRowError[]): NextResponse {
  * in scope) and the project the entry actually lands on, which a task-only row
  * inherits from its task exactly as the single-entry path does.
  */
-type BulkEntryInput = StaffTimeEntryBulkSaveInput['entries'][number]
+type BulkEntryInput = WithExactAmounts<StaffTimeEntryBulkSaveInput['entries'][number], 'rateOverrideAmount'>
 
 type ResolvedBulkRow = {
   index: number
@@ -113,14 +118,17 @@ export async function POST(req: Request) {
 
     const parsed = staffTimeEntryBulkSaveSchema.safeParse(session.body)
     if (!parsed.success) {
-      const errors = parsed.error.issues.map((issue) => ({
+      const errors = localizeValidationIssues(parsed.error.issues, translate).map((issue) => ({
         path: issue.path.join('.'),
         message: issue.message,
       }))
       return NextResponse.json({ ok: false, errors }, { status: 422 })
     }
 
-    const { entries } = parsed.data
+    const rawEntries = Array.isArray(session.body?.entries) ? (session.body.entries as unknown[]) : []
+    const entries: BulkEntryInput[] = parsed.data.entries.map((entry, index) =>
+      withExactAmounts(entry, rawEntries[index], ['rateOverrideAmount'] as const),
+    )
 
     // Tags are REFUSED here rather than accepted and dropped.
     //
@@ -427,17 +435,60 @@ export async function POST(req: Request) {
       let deleted = 0
       const changes: PendingChange[] = []
 
+      // Locked, and re-read live, before any zeroed row's segments are loaded below:
+      // the segment create route inserts under a PESSIMISTIC_WRITE lock on the same
+      // live parent, so a segment either commits first and is cascaded here, or
+      // waits and then finds its parent deleted. Ordered by id so two batches
+      // touching the same rows always queue on them in the same order.
       const existingEntries = existingIds.length > 0
         ? await findWithDecryption(
             trx,
             StaffTimeEntry,
             { id: { $in: existingIds }, tenantId, organizationId, staffMemberId, deletedAt: null },
-            {},
+            { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'asc' } },
             scopeCtx,
           )
         : []
 
       const existingMap = new Map(existingEntries.map((entry) => [entry.id, entry]))
+
+      // Zeroing a cell cascades to the entry's segments. Their read happens here,
+      // once for every zeroed row, because the loop below dirties entries as it
+      // goes and no query may follow a pending scalar change on this manager.
+      const zeroedEntryIds = resolvedRows
+        .filter(({ entry }) => entry.durationMinutes === 0 && entry.id && existingMap.has(entry.id))
+        .map(({ entry }) => entry.id as string)
+      const segmentsByZeroedEntry = await findLiveSegmentsForEntries(
+        trx,
+        zeroedEntryIds,
+        { tenantId, organizationId },
+      )
+
+      // A row that moves an existing entry to another project without naming a
+      // task must not keep a task of the previous project — the rule the
+      // single-entry update applies (#9473). The stored tasks are read here, once,
+      // for the same reason the segments are: no query may follow a pending change.
+      const storedTaskIds = [
+        ...new Set(
+          resolvedRows.flatMap(({ entry, timeProjectId }) => {
+            if (!entry.id || entry.taskId !== undefined || entry.durationMinutes === 0) return []
+            const existing = existingMap.get(entry.id)
+            if (!existing?.taskId || timeProjectId === (existing.timeProjectId ?? null)) return []
+            return [existing.taskId]
+          }),
+        ),
+      ]
+      const storedTasksById = new Map<string, { timeProjectId: string }>()
+      if (storedTaskIds.length > 0) {
+        const storedTasks = await trx.find(
+          StaffTimeTask,
+          { id: { $in: storedTaskIds }, tenantId, organizationId },
+          { fields: ['id', 'timeProjectId'] },
+        )
+        for (const storedTask of storedTasks) {
+          storedTasksById.set(storedTask.id, { timeProjectId: storedTask.timeProjectId })
+        }
+      }
 
       for (const { entry, task, timeProjectId } of resolvedRows) {
         const project = projectsById.get(timeProjectId) ?? null
@@ -448,7 +499,12 @@ export async function POST(req: Request) {
         if (entry.id && existingMap.has(entry.id)) {
           const existing = existingMap.get(entry.id)!
           if (entry.durationMinutes === 0) {
-            existing.deletedAt = new Date()
+            // Zeroing a grid cell soft-deletes the entry, so it carries the same
+            // cascade obligation as the delete command — a timer-created entry can
+            // own segments, and this route does not filter them out.
+            const deletedAt = new Date()
+            existing.deletedAt = deletedAt
+            markSegmentsDeleted(segmentsByZeroedEntry.get(existing.id) ?? [], deletedAt)
             deleted++
             changes.push({ action: 'deleted', entity: existing })
           } else {
@@ -493,15 +549,39 @@ export async function POST(req: Request) {
               organizationId,
             })
             if (entry.taskId !== undefined) existing.taskId = task?.id ?? null
+            else if (
+              projectChanged &&
+              existing.taskId &&
+              timeEntryStoredTaskLeftBehind(storedTasksById.get(existing.taskId), timeProjectId)
+            ) {
+              existing.taskId = null
+            }
             if (entry.isBillable !== undefined) existing.isBillable = entry.isBillable
             if (entry.rateOverrideAmount !== undefined) {
-              existing.rateOverrideAmount = toStoredTimeEntryRateOverride(entry.rateOverrideAmount)
+              existing.rateOverrideAmount = toStoredTimeEntryRateOverride(entry.rateOverrideAmount, entry.rateOverrideAmountExact)
             }
             if (notes !== undefined) existing.notes = notes
             existing.updatedAt = new Date()
             updated++
             changes.push({ action: 'updated', entity: existing })
           }
+        } else if (entry.id) {
+          // Passed the pre-check, then deleted before the row lock was taken. A
+          // zeroed cell already has what it asked for; any other value would
+          // otherwise fall through to the create branch and save onto a new
+          // entry the user never asked for (a 0-minute one for a zeroed cell).
+          if (entry.durationMinutes === 0) continue
+          throw new CrudHttpError(422, {
+            ok: false,
+            errors: [{
+              path: 'entries[].id',
+              message: translate(
+                'staff.timesheets.errors.entryNotFound',
+                'Time entry not found, deleted, or not owned by you.',
+              ),
+              value: entry.id,
+            }],
+          })
         } else {
           const now = new Date()
           const newEntry = trx.create(StaffTimeEntry, {
@@ -523,7 +603,7 @@ export async function POST(req: Request) {
               settings,
               scope: { tenantId, organizationId },
             }),
-            rateOverrideAmount: toStoredTimeEntryRateOverride(entry.rateOverrideAmount),
+            rateOverrideAmount: toStoredTimeEntryRateOverride(entry.rateOverrideAmount, entry.rateOverrideAmountExact),
             rateCurrencyCode: project?.currencyCode ?? null,
             source: 'manual',
             createdAt: now,

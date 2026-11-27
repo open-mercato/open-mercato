@@ -1,8 +1,8 @@
 # Agent Orchestrator — Agent Guidelines
 
-Use this enterprise module to run **propose-only** AI agents: an agent always returns a typed, validated `AgentResult` (`research | proposal | artifact`), persists an `AgentRun` (+ an `AgentProposal` for proposal results), and never writes domain state directly — every write flows through `proposal → disposition → effector (command)`. Two runtimes coexist behind one registry and one `agentRuntime.run()`; trace/eval/guardrail/context/identity overlays wrap every run.
+Use this enterprise module to run **propose-only** AI agents: an agent always returns a typed, validated `AgentResult` (`research | proposal | artifact`), persists an `AgentRun` (+ an `AgentProposal` for proposal results), and never writes domain state directly — every write flows through `proposal → disposition → effector (command)`. `agentRuntime.run()` dispatches both runtimes through shared overlays.
 
-See `.ai/specs/2026-06-22-opencode-file-defined-agents.md` (+ `-phase0-findings.md`) for the file-agent design, and `.ai/specs/enterprise/agent-orchestrator/` for the baseline, identity, trace-eval, guardrails, and context specs.
+Specs: `.ai/specs/2026-06-22-opencode-file-defined-agents.md` and `.ai/specs/enterprise/agent-orchestrator/`. Offline native evals: `--record <dir>`, then `--replay <dir> --offline true`; hand-written per-case tool mocks (`cases[].mocks`, `lib/eval/toolMocks.ts`) answer before recordings and never stand in for a mutation; see `apps/docs/docs/framework/ai-assistant/agent-eval-ci.mdx`.
 
 ## Agent Taxonomy (spec `2026-08-11-agent-taxonomy.md`)
 
@@ -153,8 +153,8 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 
 | Runtime | When to use | Authoring |
 |---------|-------------|-----------|
-| `in-process` | Simple typed agents authored as code; fastest path; supports `delegate_agent` sub-agents | `defineAgent` in `ai-agents.ts` (Vercel AI SDK object mode) |
-| `opencode` | Agents that need skills, sub-agents, or sandboxed scripts authored as files | File-defined `agents/<id>/` on the OpenCode runtime |
+| `native` (`in-process` alias) | Default for code AND file agents; in-process object mode, `delegate_agent` sub-agents | `defineAgent` in `ai-agents.ts`, or `agents/<id>/` files |
+| `opencode` | File agents with an `artifact` outcome; `OM_AGENT_FILE_AGENT_RUNTIME=opencode` (deprecated bridge). The file plane (`files`) is NOT supported on native: such agents run natively without it | File-defined `agents/<id>/` |
 
 ## Always
 
@@ -162,13 +162,14 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 2. **MUST dispatch through DI, not lib calls** — resolve `agentRuntime`, `dispositionService`, `guardrailService`, etc. via `container.resolve(...)`; `agentRuntime.run()` switches on `entry.runtime`. Never import and call the runners directly.
 3. **MUST persist writes through the Command path** — every domain mutation an agent proposes is applied by an effector via the command bus (`executeProposal.ts`), so audit/undo/cache/events/index stay consistent. Agent principals are `kind='agent'` `auth.User`s whose writes are attributed like a human's.
 4. **MUST gate disposition inline** — after `agentRuntime.run()`, `DispositionService` decides: `confidence ≥ threshold` → audited `auto_approved`; otherwise raise a `workflows` `USER_TASK`, park at `WAIT_FOR_SIGNAL`, and resume on `agent_orchestrator.proposal.ready`. Fail closed: missing/null confidence is treated as below threshold.
-5. **MUST keep the two propose-only gates intact for file agents** — (1) the generated OpenCode agent file's read-only `tools` allowlist + `permission` deny block, and (2) the per-run session-token ACL re-checked on every MCP call. `loadFileAgents` rejects any agent declaring an `isMutation:true` tool. Never weaken either gate.
+5. **MUST keep the propose-only gates intact for file agents** — native: the read-only ai-assistant definition (`buildFileAgentAiDefinition`: `readOnly` + `mutationPolicy: 'read-only'`); OpenCode: the agent file's `tools` allowlist + `permission` deny block, and the per-call session-token ACL. `loadFileAgents` rejects any agent declaring an `isMutation:true` tool. Never weaken a gate.
 6. **MUST keep OUTCOME schemas in the supported JSON-Schema subset** — `object`/`array`/`string`/`number`/`integer`/`boolean`/`nullable`/`const` only. Unsupported keywords (`oneOf`/`anyOf`/`$ref`/`format`/…) fail generation loudly (`lib/sdk/outcomeSchema.ts` compiles to Zod).
 7. **MUST run `yarn generate` after editing any `agents/<id>/` file** — it re-emits the committed manifest (`generated/file-agents.generated.ts`) and the container artifacts under `docker/opencode/{agents,skills}/`. Then **restart OpenCode** (`docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode`) — hot-reload is not guaranteed.
 8. **MUST scope every query by `tenantId` + `organizationId`** — runs, proposals, traces, evals, guardrail checks, context bundles, and principals are all tenant-scoped; never expose cross-tenant rows.
 9. **MUST treat trace/eval/guardrail/context rows as append-only** — `AgentSpan`, `AgentToolCall`, `AgentEvalResult`, `AgentGuardrailCheck`, `AgentContextBundle` (and `AgentRun` once terminal) are immutable audit records; they omit `updated_at`/`deleted_at`. Insert new rows, never mutate.
 10. **MUST reuse `agent_orchestrator.agents.run`** for new file-agent MCP tools' `requiredFeatures` — do not add new ACL features for the file-agent path. **Exception — network egress:** the `web_search`/`web_fetch` tools gate on a dedicated default-off `agent_orchestrator.web_search` feature (spec 2026-07-11-agent-web-search-tool) so web access is an explicit, separately-grantable capability. Any *new* egress/side-effecting tool should follow that precedent (dedicated default-off feature), not reuse `agents.run`.
 11. **MUST add new `acl.ts` features to `setup.ts` `defaultRoleFeatures`** and run `yarn mercato auth sync-role-acls` so existing tenants receive the grant.
+12. **MUST gate an agent's invocation with `requiredFeatures`** (`defineAgent` / `AGENT.md` frontmatter, existing features only) — `enforceAgentInvocable` in `agentRuntime.run()` enforces it at every door (`OM_AGENT_INVOKE_ENFORCEMENT=off` only logs). Expose an agent to MCP/tools-api through `defineAgentTool({ agentId })` in a module `ai-tools.ts` (tool features ⊇ agent features); ai-assistant reaches AO only via the `aiAgentRunDispatcher` (`lib/runtime/aiAgentRunDispatcher.ts`). Example: `agent_examples/ai-tools.ts`; guide: `mcp.mdx` → "Expose an Agent Orchestrator agent as a tool".
 
 ## Ask First
 
@@ -189,6 +190,46 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 - Never give a sub-agent a proposal OUTCOME or its own `subAgents` (depth cap = 1); sub-agents run under the caller's own scope, never escalated.
 - Never let an agent write outside its own Command — the fail-closed `agentNoBypassSubscriber` rejects any flush-time write not inside the agent's command path.
 - Never expose cross-tenant runs, proposals, traces, or principals; never mutate append-only audit rows.
+
+## Trace Capture and OTel Export (`lib/trace/`)
+
+- Capture policy (`capturePolicy.ts`): level resolves per-agent override, tenant, deployment default, then clamps to `OM_AGENT_TRACE_CONTENT_MAX`. Level `off` must stay byte-identical to the legacy attributes. Read llm span attributes through `readLlmSpanMetadata`, never ad-hoc keys.
+- Content capture (`full` only, `contentCapture.ts`): build artifacts through the redacting, capped builders and upload to `AGENT_TRACE_CONTENT_NAMESPACE`; never put prompt or response text on spans. Upload failures set `om.content.status = storage_unavailable` and never fail the run. Content is read only through `runs/[id]/artifact` (content kinds need `trace.view_content`, key must be referenced by the run, 410 when expired/missing, access-logged). Retention (`contentRetention.ts`) enumerates keys from the DB, never storage listings, and never mutates span/bundle rows.
+- OTel export is opt-in (deployment switch + tenant setting + allowlist) and fail-open: never throw into a run, report failures with `reportError` codes. Never export encrypted or free-text fields; pass string attributes through `redactAttributeValues`; derive ids only via `lib/trace/otel/ids.ts`. Prompt/response content leaves only through `loadRunExportContent` + `genAiContent` (three locks, access-logged, second redaction pass that follows the run's `om.capture.redactPii` — secrets always, PII only with it on; content attributes skip the email part of `redactAttributeValues`). Tenant endpoints only through `resolveOtelExportDestination` (vetted, pinned, fail closed). No `@opentelemetry/*` imports. Docs: `apps/docs/docs/framework/ai-assistant/agent-trace-*.mdx`.
+
+## Output Integrity (`lib/guardrails/integrity/`)
+
+Spec `.ai/specs/enterprise/agent-orchestrator/2026-10-21-output-integrity-guardrails.md`. `defineAgent({ integrity, untrustedInputs })`; paths are relative to the result envelope (`data.findings[*]`).
+
+- Rules run in declaration order after the output schema; `abstain_or_review` MUST be last. One `AgentGuardrailCheck` per rule with `evidence.ruleId`; evidence holds counts, pointers and reason codes, never input text.
+- A rule asks for a human by writing `holdsAutoApproval: true` on a `warn` row — the disposition gate holds those (`auto_disposition_block='guardrail'`). `route: 'review'` also emits `run.review_requested` (non-proposal runs notify a human: `subscribers/run-review-requested-notification.ts`). Shadow mode (`OM_AGENT_INTEGRITY=off`) strips the flag.
+- Untrusted input fields are screened as `sourceKind: 'input'` spans and rendered as nonce-delimited blocks; never interpolate them into the prompt yourself.
+- The run API `integrity` summary is derived from the check rows (`summary.ts`) — add new outcomes there, not in routes. The pre-repair output is an encrypted artifact (`rawOutputKey`, `kind=raw_output`), never inline.
+- OpenCode checks only the submitted outcome: the integrity rules when declared, else schema + `tool_scope`; no grounding or untrusted inputs.
+
+## Next Re-Squash Debt (promote at the next AO migration re-squash)
+
+No AO DDL until then (squash-only). Each item lives in a stand-in today; the re-squash adds the column/table plus a one-off backfill from the stand-in. Canonical list: roadmap `.ai/specs/2026-10-21-agent-platform-capabilities-roadmap.md` → Shared decisions §1.
+
+- `agent_runs.invoker_user_id`, `api_key_id`, `definition_hash`, `capture_level` ← manifest `om.invoker`, `om.agent.definition_hash`, `om.capture` (OBS-Q4).
+- `agent_runs.entry_point`, `correlation_id` ← manifest `om.entry_point`, `om.correlation_id` (ROAD-Q2).
+- `agent_runs.raw_output_key` ← check evidence `rawOutput.key`, manifest `om.integrity.raw_output_key` (ROAD-Q2).
+- `agent_guardrail_checks.rule_id` ← `evidence.ruleId`.
+- Table `agent_trace_exports` (OTel P2.4 ledger) ← logs + `reportError`, health in module config `otel_export_health`.
+- Table `agent_eval_set_snapshots` ← `agent_eval_suite_runs.summary.__evalSet` (EVAL-Q1).
+- Table `agent_trace_content_retention_cursors` ← module config `trace_content_retention_cursor:<orgId>:<source>` (C-4).
+- Candidate: table `agent_llm_calls` ← `llm` spans (observability alternatives).
+- Not scheduled (ROAD-Q3). `migrations/adopt-squash.mjs` cannot adopt the current squash and refuses to run.
+
+## Agent Principals and Audit Correlation (`lib/identity/`)
+
+Spec `.ai/specs/enterprise/agent-orchestrator/2026-10-21-agent-invocation-access-and-identity-binding.md`. `defineAgent({ principal: { roleFeatures, toolAcl?, required? } })`.
+
+- `syncAgentPrincipals` (setup hook, `principals:sync` CLI) provisions one principal per organization (key `<agentId>@<orgId>`) through core `provisionExecutionPrincipal`; never write User/Role/ACL rows here.
+- runAs is bound once in the runtime (`resolveRunAsForAgent`); never bind it per entry point. A `required` principal that is missing refuses with 409 `agent_principal_missing`.
+- Tool ACL: `principal.toolAcl` or `OM_AGENT_TOOL_ACL_MODE` (default `caller`); `intersect` uses `intersectFeatureGrants`. Denied tools never reach the model and are recorded in the manifest (`om.tool_acl`).
+- The `principal` summary on `GET /agents` / `/agents/:id` is for `agents.manage` holders only.
+- Run writes carry `agentRunId` (and effector writes `proposalId`) in action-log `correlation_keys`: pass `auditCorrelation` on command contexts, or wrap tool phases in `withAuditCorrelation`. `GET /runs/:id/actions` reads them through `actionLogService.listByCorrelationKeys`; never query `context_json` (encrypted). A `proposalId` on an entry is trusted only when the proposal belongs to the `agentRunId` or `workflowInstanceId` on the same entry (`resolveVerifiedProposalIds` / `verifiedProposalId` in `lib/identity/actionAgentAttribution.ts`) — workflow effectors copy it from the user-writable context, so never link or list by an unverified one.
 
 ## Web Egress (`web_search` / `web_fetch`)
 
@@ -222,7 +263,7 @@ yarn generate   # then, for file agents: docker compose --project-directory . -f
 - **AgentSpan** (`agent_spans`) / **AgentToolCall** (`agent_tool_calls`) — append-only OTel-GenAI trace tree. Full payloads offload to S3; rows keep redacted summaries.
 - **AgentCorrection** (`agent_corrections`) — append-only flywheel entry. MUST record `action` (`edit|reject|override|answer`) + mandatory `reason`.
 - **AgentEvalCase** (`agent_eval_cases`) — regression case (`draft → approved → archived`), sourced from a correction or golden run. Editable.
-- **AgentEvalAssertion** (`agent_eval_assertions`) — applied per-agent or `*`. `gate` MUST be `deterministic`; `llm_judge` is always `warn`. Unique on (org, appliesTo, key).
+- **AgentEvalAssertion** (`agent_eval_assertions`) — applied per-agent or `*`. An `llm_judge` row may carry `gate`, but it only gates where `judgeMayGate` is true (manual workbench runs); CI and online ingest run with `false`. Eval-set files refuse `gate` on a judge, and export rewrites it to `warn`. Unique on (org, appliesTo, key).
 - **AgentEvalResult** (`agent_eval_results`) — append-only verdict of one assertion on one run.
 - **AgentMetricRollup** (`agent_metric_rollups`) — precomputed KPI snapshot; idempotent per (org, agent, windowStart).
 - **AgentGuardrailCheck** (`agent_guardrail_checks`) — append-only audit of every runtime check; evidence MUST be redacted (never raw PII).
@@ -247,19 +288,21 @@ Author file agents under `packages/<pkg>/src/modules/<module>/agents/<agent_id>/
 
 ```
 agents/<agent_id>/
-├── AGENT.md            # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,maxSteps?) + body = instructions
+├── AGENT.md            # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,requiredFeatures?,maxSteps?) + body = instructions
 ├── OUTCOME.md          # frontmatter `kind: research|proposal|artifact` + FIRST fenced ```json block = JSON-Schema; trailing prose = guidance
 ├── SAMPLE.json         # optional example input — Playground "Insert sample" button
 ├── FACTS.json          # optional Caseload fact declarations (see below)
+├── GOVERNANCE.json     # optional principal / integrity / untrustedInputs / modelSettings (same keys as defineAgent)
 ├── skills/<sid>/       # SKILL.md (+ optional TEMPLATE.md, examples/*.md, scripts/*.ts run via run_skill_script)
 ├── sub-agents/<subid>/ # AGENT.md + OUTCOME.md; research-kind only, no further subAgents (depth cap 1)
 └── tools/*.ts          # `// @ref <defineAiTool id>` (preferred, ACL-gated) OR a sandboxed `run(args)` local tool
 ```
 
 - **OUTCOME.md**: frontmatter carries ONLY `kind`; the result JSON-Schema is the FIRST fenced ` ```json ` block. `research` ⇒ schema describes `data`; `proposal` ⇒ schema describes the `proposal` envelope. Compiles to the same `z.object({ kind, data|proposal })` the in-process path uses.
+- **GOVERNANCE.json** (optional, primaries and sub-agents): `{ principal?, integrity?, untrustedInputs?, modelSettings? }`, parsed by the same validators as `defineAgent`. Invalid → the agent is NOT registered. OpenCode cannot enforce `untrustedInputs`, `modelSettings`, a principal in `intersect` mode (declared or via `OM_AGENT_TOOL_ACL_MODE`) or `enforce: 'prepare_step'`, so an agent declaring them that would run there (artifact kind, `OM_AGENT_FILE_AGENT_RUNTIME=opencode`, or a native fallback) is NOT registered. Its content is part of the agent version hash. Call-time `callSettings` sent to an OpenCode agent are refused (`agent_call_settings_unsupported`; run-object → 422 `dispatch_option_unsupported`).
 - **Skills** inject instructions + union read-only tools into the agent's allowlist (deduped); read-only by construction.
 - **FACTS.json** (optional): declares the labelled facts the Caseload decision panel shows for this agent's proposals — `{ "facts": [{ "label", "source": "input"|"payload"|"output", "path", "format"?: "text"|"number"|"boolean"|"percent" }] }` where `path` is a dot-path (array indexes allowed) into the run input / proposal payload / run output. Agents without it get a generic derivation (input primitives + summarized upstream findings). In-process agents pass the same shape as `facts` to `defineAgent`. Rendering lives in `components/ProposalFacts.tsx`; resolution helpers in `components/proposalFacts.ts`.
-- **Token usage** (file agents only): `yarn generate` bakes a per-element token estimate (AGENT.md, OUTCOME.md, each skill + its subfiles, each tool, each sub-agent) into `generated/file-agents.generated.ts` (`FileAgentDescriptor.tokenUsage`), counted with the shared `o200k_base` tokenizer (`@open-mercato/shared/lib/ai/token-count` — an estimate, not an exact model count). It surfaces on the Agent detail page ("Token usage" card, `runtime: 'opencode'` only) and via the CLI: `yarn mercato agent_orchestrator token-usage --dir <agents/<id>> [--json]` (live from raw files) or `--agent <id>` (baked). The raw-file walker `lib/tokens/computeAgentTokenUsageFromDir` is MIRRORED by the generator (`packages/cli/.../extensions/agent-files.ts`); a parity test (`__tests__/agent-token-usage.test.ts`) guards the two against drift.
+- **Token usage** (file agents only): `yarn generate` bakes a per-element token estimate (AGENT.md, OUTCOME.md, each skill + its subfiles, each tool, each sub-agent) into `generated/file-agents.generated.ts` (`FileAgentDescriptor.tokenUsage`), counted with the shared `o200k_base` tokenizer (`@open-mercato/shared/lib/ai/token-count` — an estimate, not an exact model count). It surfaces on the Agent detail page ("Token usage" card, file agents only — key on `definitionSource`, never `runtime`) and via the CLI: `yarn mercato agent_orchestrator token-usage --dir <agents/<id>> [--json]` (live from raw files) or `--agent <id>` (baked). The raw-file walker `lib/tokens/computeAgentTokenUsageFromDir` is MIRRORED by the generator (`packages/cli/.../extensions/agent-files.ts`); a parity test (`__tests__/agent-token-usage.test.ts`) guards the two against drift.
 
 ## DI Services
 
@@ -287,6 +330,7 @@ agents/<agent_id>/
 | `/trace/ingest` | POST | HMAC (no user auth) | Runtime-adapter trace webhook; idempotent on (runtime, externalRunId) |
 | `/corrections` | GET/POST | `trace.correct` | Record human correction (flywheel) |
 | `/eval-cases[/:id/approve][/export]`, `/eval-assertions` | CRUD | `eval.manage` / `eval.export` | Manage + export eval cases/assertions |
+| `/eval-sets/import`, `/eval-sets/:version/export` | POST / GET | `eval.manage` / `eval.export` | Import an eval-set file (undoable `evalSets.import`, idempotent by key); export `current` or `sha256:` as JSON/YAML |
 | `/context-bundles` | GET | `context.read` | Inspect TDCR bundles |
 | `/guardrail-checks` | GET | `guardrail.read` | Inspect guardrail audit |
 | `/processes`, `/processes/:id` | CRUD | `processes.view` / `processes.manage` | Author process definitions; optimistic-locked on `updated_at` |
@@ -294,6 +338,7 @@ agents/<agent_id>/
 | `/executions`, `/executions/:id` | GET | `processes.view` | The ONE business-execution surface: derived status, milestones reached, proposals, outcome |
 | `/identity/well-known`, `/identity/token`, `/identity/agent/auth` | GET/POST | public / no-user-auth | OAuth discovery, client-credentials, ID-JAG |
 | `/identity/grants/:id/revoke` | POST | `identity.manage` | Revoke a delegation grant |
+| `/agents/:id/principal/sync` | POST | `identity.manage` | Sync ONE agent's declared principal in the selected organization (never disables other agents' principals) |
 
 Every route file MUST export `openApi`. Custom write routes MUST wire the mutation-guard contract.
 
@@ -318,7 +363,7 @@ Override per deployment with `RATE_LIMIT_{PREFIX}_{POINTS,DURATION,BLOCK_DURATIO
 
 ## Events (`events.ts`)
 
-`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast) (all prefixed `agent_orchestrator.`). There are deliberately no `task_event_trigger.*` events: a trigger edit IS a definition update. Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
+`run.created`, `run.completed`, `run.ingested`, `run.evaluated`, `run.review_requested`, `proposal.created`, `proposal.disposed`, `proposal.ready`, `proposal.corrected`, `eval_case.created`, `eval_case.approved`, `guardrail.tripped`, `delegation_grant.revoked`, `agent_principal.registered`, `process_definition.{created,updated,deleted}`, `process_run.{started,completed,failed}` (clientBroadcast) (all prefixed `agent_orchestrator.`). There are deliberately no `task_event_trigger.*` events: a trigger edit IS a definition update. Several set `clientBroadcast: true` for the cockpit. Declare new events here with `as const`.
 
 ## Backend Cockpit (`backend/`)
 

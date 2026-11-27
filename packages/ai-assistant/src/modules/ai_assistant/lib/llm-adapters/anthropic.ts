@@ -27,13 +27,13 @@ const DEFAULT_MODELS: readonly LlmModelInfo[] = [
     tags: ['budget'],
   },
   {
-    id: 'claude-sonnet-4-6-20260107',
+    id: 'claude-sonnet-4-6',
     name: 'Claude Sonnet 4.6',
     contextWindow: 200000,
     tags: ['flagship'],
   },
   {
-    id: 'claude-opus-4-6-20260107',
+    id: 'claude-opus-4-6',
     name: 'Claude Opus 4.6',
     contextWindow: 1000000,
     tags: ['flagship', 'reasoning'],

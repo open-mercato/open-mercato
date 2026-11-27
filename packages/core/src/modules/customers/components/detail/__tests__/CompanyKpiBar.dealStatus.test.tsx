@@ -88,9 +88,18 @@ const LTV = 'CUSTOMER VALUE (LTV)'
 // `renderWithProviders` supplies via I18nProvider.
 const EN = 'en-US'
 
-function renderBar(deals: DealSummary[], locale = EN) {
-  return renderWithProviders(<CompanyKpiBar data={buildOverview(deals)} />, { locale })
+function renderBar(deals: DealSummary[], locale = EN, canViewDeals = true) {
+  return renderWithProviders(<CompanyKpiBar data={buildOverview(deals)} canViewDeals={canViewDeals} />, { locale })
 }
+
+it('keeps company KPIs visible without showing deal tiles when deal viewing is denied', () => {
+  renderBar([OPEN_DEAL, CLOSED_WON_DEAL], EN, false)
+
+  expect(screen.getByText('ACTIVITIES')).toBeVisible()
+  expect(screen.getByText('CLIENT SINCE')).toBeVisible()
+  expect(screen.queryByText(ACTIVE_DEALS)).not.toBeInTheDocument()
+  expect(screen.queryByText(LTV)).not.toBeInTheDocument()
+})
 
 describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
   it('keeps a win deal out of the active total and counts it as won', () => {

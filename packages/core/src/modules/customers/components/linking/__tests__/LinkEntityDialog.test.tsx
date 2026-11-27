@@ -66,6 +66,91 @@ describe('LinkEntityDialog', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows a failed search and retries the same query without losing a selection', async () => {
+    const selectedDeal = { id: 'selected', label: 'Selected deal' }
+    const matchingDeal = { id: 'matching', label: 'Matching deal' }
+    const searchPage = jest.fn(async (query: string) => ({
+      items: query ? [matchingDeal] : [selectedDeal],
+      totalPages: 1,
+      total: 1,
+    }))
+    const adapter = buildAdapter({ kind: 'deal', confirmButtonLabel: 'Link deal', searchPage })
+    const onConfirm = jest.fn(async () => undefined)
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={onConfirm}
+      />,
+    )
+
+    await screen.findByText('Selected deal')
+    fireEvent.click(getSearchResultRow('Selected deal'))
+    searchPage.mockRejectedValueOnce(new Error('Network unavailable'))
+    const input = screen.getByRole('textbox', { name: 'Search…' })
+    fireEvent.change(input, { target: { value: 'matching' } })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load search results.')
+    expect(screen.queryByText('0 results')).not.toBeInTheDocument()
+    expect(screen.queryByText('No results.')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByText('Matching deal')).toBeInTheDocument()
+    expect(searchPage).toHaveBeenNthCalledWith(2, 'matching', 1, undefined)
+    expect(searchPage).toHaveBeenNthCalledWith(3, 'matching', 1, undefined)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(input).toHaveValue('matching')
+    fireEvent.click(screen.getByRole('button', { name: 'Link deal', exact: true }))
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ nextSelectedIds: ['selected'] }),
+    ))
+  })
+
+  // Regression guard for #7495: the dialog host is `p-0` + `overflow-hidden`, so the
+  // primitive's default bordered footer (`-mx-6`) would push the count and actions
+  // past the clipped edges. The footer must keep its own inset instead.
+  it('renders the footer without the primitive negative margins so its inset survives the p-0 host', async () => {
+    const adapter = buildAdapter()
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument())
+    const footer = screen.getByRole('button', { name: 'Cancel' }).closest('[data-slot="dialog-footer"]')
+    expect(footer).not.toBeNull()
+    const classes = (footer as HTMLElement).className.split(/\s+/)
+    expect(classes).toContain('px-6')
+    expect(classes).not.toContain('-mx-6')
+    expect(classes).not.toContain('border-input')
+    expect(footer).not.toHaveAttribute('data-bordered')
+    expect(classes).toContain('border-t')
+  })
+
+  // The panes only sit side by side from `lg`. A fixed height below that lets a full
+  // results page collapse the stacked right pane to its padding.
+  it('fixes the dialog height only for the side-by-side layout', async () => {
+    const adapter = buildAdapter()
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={async () => undefined}
+      />,
+    )
+    const classes = (await screen.findByRole('dialog')).className.split(/\s+/)
+    expect(classes).toContain('lg:h-160')
+    expect(classes).not.toContain('sm:h-160')
+  })
+
   it('toggles selection when a row is clicked and reports diff on save', async () => {
     const adapter = buildAdapter()
     const onConfirm = jest.fn(async () => undefined)

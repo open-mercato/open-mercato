@@ -27,6 +27,7 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
+import { createEnvFileFromExample } from './dev-env-file.mjs'
 import { readAppEnvFileValues, resolveAppPortPreflight } from './dev-port-preflight.mjs'
 import {
   ensureDevInotifyLimits,
@@ -81,6 +82,7 @@ import {
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
 import { assertDatabaseWriteAllowed } from './dev-database-write-guard.mjs'
+import { assertEncryptionCompatible } from './dev-encryption-preflight.mjs'
 import { acquireDevSessionWithRecovery as acquireDevSession } from './dev-session-recovery.mjs'
 import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
@@ -968,8 +970,8 @@ function recordManagedRuntimeExit(exitCode, signal) {
 
 function ensureStandaloneEnvFile() {
   if (!fs.existsSync('.env') && fs.existsSync('.env.example')) {
-    fs.copyFileSync('.env.example', '.env')
-    const message = '[setup] Copied .env.example to .env'
+    createEnvFileFromExample('.env.example', '.env')
+    const message = '📄 Copied .env.example to .env'
     console.log(message)
     updateSplashState({
       detail: 'Project files are ready',
@@ -979,7 +981,7 @@ function ensureStandaloneEnvFile() {
   }
 
   if (fs.existsSync('.env')) {
-    console.log('[setup] Keeping existing .env')
+    console.log('📄 Keeping existing .env')
     updateSplashState({
       detail: 'Project files are ready',
       activity: 'Project files are ready',
@@ -994,7 +996,7 @@ function resolveDatabaseEnvFilePath() {
 }
 
 async function guardDatabaseMutation(commandArgs, env = {}) {
-  if (!['db:migrate', 'initialize'].includes(commandArgs?.[0])) return
+  if (!['db:migrate', 'initialize', 'mcp:ensure-api-key'].includes(commandArgs?.[0])) return
   const result = await assertDatabaseWriteAllowed({
     projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
     env: { ...process.env, ...env },
@@ -1002,6 +1004,13 @@ async function guardDatabaseMutation(commandArgs, env = {}) {
   })
   if (result?.connectionEnv) { Object.assign(process.env, result.connectionEnv); Object.assign(env, result.connectionEnv) }
   if (result?.argument && !args.includes(result.argument)) args.push(result.argument)
+  const compatibility = await assertEncryptionCompatible({
+    projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
+    env: { ...process.env, ...env },
+  })
+  console.log(`🔒 encryption preflight: ${compatibility.status}`)
+  Object.assign(process.env, compatibility.settings)
+  Object.assign(env, compatibility.settings)
 }
 
 async function applyDatabaseNameOverrideIfRequested() {
@@ -2384,7 +2393,10 @@ function spawnMcpCommand(subcommandArgs, label, onLine) {
   const invocation = resolveMercatoInvocation({ cwd: mcpCliCwd })
   return spawnCommand(invocation.command, [...invocation.args, ...buildMcpCliArgs(subcommandArgs)], {
     cwd: mcpCliCwd,
-    env: isMonorepo ? { PATH: buildWorkspaceBinPath() } : undefined,
+    env: {
+      ...(isMonorepo ? { PATH: buildWorkspaceBinPath() } : {}),
+      MCP_SERVER_API_KEY_FILE: mcpKeyFilePath,
+    },
     label,
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
@@ -2395,6 +2407,7 @@ function spawnMcpCommand(subcommandArgs, label, onLine) {
 }
 
 async function provisionMcpApiKey() {
+  await guardDatabaseMutation(['mcp:ensure-api-key'])
   try {
     fs.mkdirSync(path.dirname(mcpKeyFilePath), { recursive: true })
   } catch (error) {
@@ -2478,9 +2491,11 @@ async function waitForMcpHealthy(child, port, isListening) {
 }
 
 async function fetchOpencodeMcpStatus() {
-  const baseUrl = (process.env.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
+  const baseUrl = (process.env.OPENCODE_URL?.trim() || appDotEnv.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
+  const password = process.env.OPENCODE_PASSWORD || appDotEnv.OPENCODE_PASSWORD
+  const headers = password ? { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}` } : undefined
   try {
-    const response = await fetch(`${baseUrl}/mcp`, { signal: AbortSignal.timeout(3000) })
+    const response = await fetch(`${baseUrl}/mcp`, { headers, redirect: 'error', signal: AbortSignal.timeout(3000) })
     if (!response.ok) return null
     const body = await response.json().catch(() => null)
     const status = body?.['open-mercato']?.status
@@ -2719,6 +2734,7 @@ function startMcpRuntime() {
 }
 
 async function applyPendingMigrationsBestEffort() {
+  try {
   if (!shouldAutoMigrateOnDev()) return
   await guardDatabaseMutation(['db:migrate'])
   console.log('💾 Applying database migrations...')
@@ -2733,6 +2749,10 @@ async function applyPendingMigrationsBestEffort() {
   if (resolveChildExitCode(result) !== 0) {
     console.warn('❗ Database migrations were not applied (database unreachable or migration failed).')
     console.warn('   ↳ start the infra containers with `yarn infra:up`, then run `yarn db:migrate` (opt out of this check with OM_DEV_AUTO_MIGRATE=0)')
+  }
+  } catch (error) {
+    if (error?.name !== 'EncryptionCompatibilityError') throw error
+    console.warn('[setup] Automatic migrations were skipped because encryption compatibility could not be verified. Restore the configured encryption keys and service access before running setup.')
   }
 }
 

@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import { asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -7,6 +8,7 @@ import { createCalendarEventTypeRegistry } from './calendar-event-types'
 import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from './lib/calendar/eventTypeResolver'
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
+import { loadCustomerAuditRedactionContext, redactCustomerAuditEntry } from './lib/auditRedaction'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
 // The CRUD factory derives resourceKind via singularize-the-second-segment of
@@ -75,7 +77,7 @@ export function register(container: AppContainer) {
     CustomerAddress: asValue(CustomerAddress),
     CustomerInteraction: asValue(CustomerInteraction),
     calendarEventTypeRegistry: asValue(calendarEventTypeRegistry),
-    calendarEventTypeCatalogService: asValue({
+    calendarEventTypeCatalogService: asScopedService((container) => ({
       async resolveBehavior(input: { tenantId: string; organizationId: string; key: string }) {
         const hierarchy = container.resolve('organizationHierarchyService') as OrganizationHierarchyService
         const ancestors = await hierarchy.resolveAncestorIds({ tenantId: input.tenantId, organizationId: input.organizationId })
@@ -89,6 +91,16 @@ export function register(container: AppContainer) {
         })
         return resolveCatalogEventType(catalog, input.key)?.behavior ?? null
       },
+    })),
+    // Registers this module's implementation of `audit_logs`'s generic
+    // `ActionLogRedactionProvider` extension point (see
+    // `audit_logs/lib/actionLogRedaction.ts`). The optional consumer
+    // (`customers`) owns this glue and resolves the peer's generic DI key —
+    // `audit_logs` never imports, resolves, or names `customers` (see
+    // `packages/core/AGENTS.md` § Cross-Module Coupling).
+    actionLogRedactionProvider: asValue({
+      loadContext: loadCustomerAuditRedactionContext,
+      redactEntry: redactCustomerAuditEntry,
     }),
   })
   // `crudMutationGuardService` is registered platform-wide in the shared
@@ -96,3 +108,5 @@ export function register(container: AppContainer) {
   // resolves the hand-wired readers above from the global store, so this
   // module no longer needs its own DI binding.
 }
+
+defineProcessDiRegistrar(register)

@@ -67,6 +67,7 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
 
   // --- customers ---
   'customers:CustomerEntity': { status: 'enabled', resourceKind: 'customers.person', reason: 'enabled — Phase 1; presence (person/company) + unified guard. Company shares the same entity via `customers.company`.' },
+  'customers:CustomerAddress': { status: 'enabled', resourceKind: 'customers.address', reason: 'enabled — address CRUD decorator enforces the child updated_at floor and record_locks enrichment; shared address panels send the child version.' },
   'customers:CustomerDeal': { status: 'enabled', resourceKind: 'customers.deal', reason: 'enabled — Phase 1; DealForm injectionSpotId + form/command guard. Detail-screen stage/closure ride the customers.deals.update CRUD route (auto-guarded); the custom command endpoints are the bulk ones.' },
   'customers:CustomerInteraction': { status: 'enabled', resourceKind: 'customers.interaction', reason: 'enabled — Phase 2; interactions migrated to the async command seam + merge surface. Status-transition endpoints (complete/cancel/visibility) are state-machine writes.' },
   'customers:CustomerTag': { status: 'enabled', resourceKind: 'customers.tag', reason: 'enabled — entity edit via CRUD decorator; tag assign/unassign is a junction (exempt).' },
@@ -83,6 +84,7 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
 
   // --- staff ---
   'staff:StaffTeam': { status: 'enabled', resourceKind: 'staff.team', reason: 'enabled — Phase 5; presence + CRUD decorator. Notes/addresses sub-resources send the lock header (Phase 7).' },
+  'staff:StaffTeamMemberAddress': { status: 'enabled', resourceKind: 'staff.team.member.address', reason: 'enabled — team-member address CRUD decorator enforces the child updated_at floor and record_locks enrichment; shared address panels send the child version.' },
   'staff:StaffTeamRole': { status: 'enabled', resourceKind: 'staff.team_role', reason: 'enabled — Phase 5; presence + CRUD decorator. Team-member/leave-request edits enabled too; accept/reject = status txn.' },
   'staff:StaffTimeTaskStatus': { status: 'enabled', resourceKind: 'staff.timesheets.task_status', reason: 'enabled — T3.1 (D-1); the Kanban columns are project configuration edited through the task-statuses CRUD route (floor + record_locks via the generic reader). Column moves and the board-wide reorder are position writes carried by the same guarded route.' },
   'staff:StaffTimeTask': { status: 'exempt', resourceKind: '', reason: 'OSS-floor-only — the task drawer saves each property on its own (time-tracking spec: per-field saves, no Save button) and board drags are single status moves; every write sends the task `updated_at` and a stale one answers 409. A record lock taken per save could only block the editor (#8045, #8101), so the drawer sends no record-lock resource. Claim/release are atomic conditional updates.' },

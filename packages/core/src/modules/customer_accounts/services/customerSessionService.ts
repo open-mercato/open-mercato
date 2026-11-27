@@ -3,6 +3,7 @@ import { CustomerUser, CustomerUserSession } from '@open-mercato/core/modules/cu
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 import { signAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { withAdvisoryXactLock } from '@open-mercato/shared/lib/db/advisoryLock'
 import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
 
 export const CUSTOMER_JWT_AUDIENCE = 'customer'
@@ -33,18 +34,21 @@ export class CustomerSessionService {
     const days = Number(process.env.CUSTOMER_SESSION_TTL_DAYS || DEFAULT_SESSION_TTL_DAYS)
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
 
-    await this.enforceSessionCap(user.id, user.tenantId, user.organizationId)
+    const session = await withAdvisoryXactLock(this.em, `customer_accounts:session_cap:${user.id}`, async (tx) => {
+      await this.enforceSessionCap(tx, user.id, user.tenantId, user.organizationId)
 
-    const session = this.em.create(CustomerUserSession, {
-      user,
-      tokenHash,
-      ipAddress: ip || null,
-      userAgent: userAgent || null,
-      expiresAt,
-      lastUsedAt: new Date(),
-      createdAt: new Date(),
-    } as any) as CustomerUserSession
-    await this.em.persist(session).flush()
+      const created = tx.create(CustomerUserSession, {
+        user: tx.getReference(CustomerUser, user.id),
+        tokenHash,
+        ipAddress: ip || null,
+        userAgent: userAgent || null,
+        expiresAt,
+        lastUsedAt: new Date(),
+        createdAt: new Date(),
+      })
+      await tx.persist(created).flush()
+      return created
+    })
 
     const jwt = this.signCustomerJwt(user, resolvedFeatures, session.id)
 
@@ -161,13 +165,14 @@ export class CustomerSessionService {
   }
 
   private async enforceSessionCap(
+    em: EntityManager,
     userId: string,
     tenantId: string,
     organizationId: string,
   ): Promise<void> {
     const cap = resolveMaxSessionsPerUser()
     const existing = await findWithDecryption(
-      this.em,
+      em,
       CustomerUserSession,
       {
         user: userId as any,
@@ -180,7 +185,7 @@ export class CustomerSessionService {
     const toRevoke = existing.length - (cap - 1)
     if (toRevoke <= 0) return
     const oldestIds = existing.slice(0, toRevoke).map((s) => s.id)
-    await this.em.nativeUpdate(
+    await em.nativeUpdate(
       CustomerUserSession,
       { id: { $in: oldestIds } },
       { deletedAt: new Date() },

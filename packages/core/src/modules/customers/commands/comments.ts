@@ -1,11 +1,13 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId, normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerComment } from '../data/entities'
 import { commentCreateSchema, commentUpdateSchema, type CommentCreateInput, type CommentUpdateInput } from '../data/validators'
 import {
+  findScopedCustomerCommandRecord,
+  findScopedCustomerCommandTarget,
   ensureOrganizationScope,
   ensureTenantScope,
   requireTimelineParentEntity,
@@ -15,6 +17,7 @@ import {
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { requireInteractionUsersInScope } from '../lib/interactionUsers'
 import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
@@ -54,9 +57,17 @@ type CommentUndoPayload = {
   after?: CommentSnapshot | null
 }
 
-async function loadCommentSnapshot(em: EntityManager, id: string): Promise<CommentSnapshot | null> {
-  const comment = await em.findOne(CustomerComment, { id }, { populate: ['entity'] })
+async function loadCommentSnapshot(em: EntityManager, id: string, ctx: CommandRuntimeContext): Promise<CommentSnapshot | null> {
+  const comment = await findScopedCustomerCommandTarget(
+    em,
+    CustomerComment,
+    { id, deletedAt: null },
+    { populate: ['entity'] },
+    ctx,
+  )
   if (!comment) return null
+  ensureTenantScope(ctx, comment.tenantId)
+  ensureOrganizationScope(ctx, comment.organizationId)
   const entityRef = comment.entity
   const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
     ? (entityRef as { kind: string }).kind
@@ -75,7 +86,9 @@ async function loadCommentSnapshot(em: EntityManager, id: string): Promise<Comme
   }
 }
 
-const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: string; authorUserId: string | null }> = {
+type CreatedCommentResult = { commentId: string; authorUserId: string | null; updatedAt: string }
+
+const createCommentCommand: CommandHandler<CommentCreateInput, CreatedCommentResult> = {
   id: 'customers.comments.create',
   async execute(rawInput, ctx) {
     const parsed = commentCreateSchema.parse(rawInput)
@@ -117,11 +130,11 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       events: commentCrudEvents,
     })
 
-    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
+    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null, updatedAt: comment.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadCommentSnapshot(em, result.commentId)
+    return await loadCommentSnapshot(em, result.commentId, ctx)
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -148,13 +161,13 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
     const commentId = logEntry?.resourceId ?? null
     if (!commentId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(CustomerComment, { id: commentId })
+    const existing = await findScopedCustomerCommandRecord(em, CustomerComment, { id: commentId }, undefined, ctx)
     if (existing) {
       em.remove(existing)
       await em.flush()
     }
   },
-  redo: makeCreateRedo<CustomerComment, CommentSnapshot, CommentCreateInput, { commentId: string; authorUserId: string | null }>({
+  redo: makeCreateRedo<CustomerComment, CommentSnapshot, CommentCreateInput, CreatedCommentResult>({
     entityClass: CustomerComment,
     indexer: commentCrudIndexer,
     events: commentCrudEvents,
@@ -162,7 +175,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       findOneWithDecryption(
         em,
         CustomerComment,
-        { id },
+        { id, tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
         undefined,
         { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
       ),
@@ -180,25 +193,34 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       const deal = await requireDealInScope(em, snapshot.dealId, snapshot.tenantId, snapshot.organizationId)
       return { entity, deal }
     },
-    buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null }),
+    buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null, updatedAt: entity.updatedAt.toISOString() }),
   }),
 }
 
-const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: string }> = {
+const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: string; updatedAt: string }> = {
   id: 'customers.comments.update',
   async prepare(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadCommentSnapshot(em, parsed.id)
+    const snapshot = await loadCommentSnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const comment = await em.findOne(CustomerComment, { id: parsed.id })
+    const comment = await findScopedCustomerCommandTarget(em, CustomerComment, { id: parsed.id, deletedAt: null }, undefined, ctx)
     if (!comment) throw notFound('Comment not found')
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)
+
+    const canReassignAuthor = ctx.auth?.isSuperAdmin === true && ctx.auth.isApiKey !== true
+    const shouldReassignAuthor = canReassignAuthor && parsed.authorUserId !== undefined
+    if (shouldReassignAuthor && parsed.authorUserId && parsed.authorUserId !== comment.authorUserId) {
+      await requireInteractionUsersInScope(em, {
+        tenantId: comment.tenantId,
+        organizationId: comment.organizationId,
+      }, { authorUserId: parsed.authorUserId })
+    }
 
     if (parsed.entityId !== undefined) {
       const entity = await requireTimelineParentEntity(em, parsed.entityId, { tenantId: comment.tenantId, organizationId: comment.organizationId })
@@ -209,7 +231,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
       comment.deal = await requireDealInScope(em, parsed.dealId, comment.tenantId, comment.organizationId)
     }
     if (parsed.body !== undefined) comment.body = parsed.body
-    if (parsed.authorUserId !== undefined) comment.authorUserId = parsed.authorUserId ?? null
+    if (shouldReassignAuthor) comment.authorUserId = parsed.authorUserId ?? null
     if (parsed.appearanceIcon !== undefined) comment.appearanceIcon = parsed.appearanceIcon ?? null
     if (parsed.appearanceColor !== undefined) comment.appearanceColor = parsed.appearanceColor ?? null
 
@@ -229,11 +251,11 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
       events: commentCrudEvents,
     })
 
-    return { commentId: comment.id }
+    return { commentId: comment.id, updatedAt: comment.updatedAt.toISOString() }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadCommentSnapshot(em, result.commentId)
+    return await loadCommentSnapshot(em, result.commentId, ctx)
   },
   buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -274,7 +296,10 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let comment = await em.findOne(CustomerComment, { id: before.id })
+    let comment = await findOneWithDecryption(em, CustomerComment, { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId }, undefined, {
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+    })
     const entity = await requireTimelineParentEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId })
     const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
 
@@ -325,13 +350,13 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async prepare(input, ctx) {
       const id = requireId(input, 'Comment id required')
       const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadCommentSnapshot(em, id)
+      const snapshot = await loadCommentSnapshot(em, id, ctx)
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Comment id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const comment = await em.findOne(CustomerComment, { id })
+      const comment = await findScopedCustomerCommandTarget(em, CustomerComment, { id, deletedAt: null }, undefined, ctx)
       if (!comment) throw notFound('Comment not found')
       ensureTenantScope(ctx, comment.tenantId)
       ensureOrganizationScope(ctx, comment.organizationId)
@@ -382,7 +407,10 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const entity = await requireTimelineParentEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId })
       const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
-      let comment = await em.findOne(CustomerComment, { id: before.id })
+      let comment = await findOneWithDecryption(em, CustomerComment, { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId }, undefined, {
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+      })
       if (!comment) {
         comment = em.create(CustomerComment, {
           id: before.id,

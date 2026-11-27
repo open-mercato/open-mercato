@@ -1,13 +1,15 @@
 'use client'
 
 import * as React from 'react'
-import { Calendar, Check, ExternalLink, ListTodo, Mail, MoreHorizontal, Phone, StickyNote, Users } from 'lucide-react'
+import { Calendar, Check, ExternalLink, ListTodo, Mail, Pencil, Phone, StickyNote, Trash2, Users } from 'lucide-react'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
-import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { InteractionSummary } from './types'
@@ -28,6 +30,12 @@ type ActivityCardProps = {
   onOpen?: (activity: InteractionSummary) => void
   /** Called after a successful mark-done so the parent can refresh the timeline. */
   onChanged?: () => void
+  /**
+   * Deletion handler owned by the parent section so a single confirmation dialog is
+   * mounted per timeline instead of one per card. The delete affordance renders only
+   * when this is provided.
+   */
+  onDelete?: (activity: InteractionSummary) => void | Promise<void>
   /**
    * Optional guarded-mutation runner. When provided, mutations route through the parent's
    * `useGuardedMutation` so retry-last-mutation and the global injection contract apply.
@@ -114,7 +122,7 @@ function buildEmailCardWidgetData(activity: InteractionSummary): EmailCardWidget
   }
 }
 
-export function ActivityCard({ activity, onOpen, onChanged, runMutation }: ActivityCardProps) {
+export function ActivityCard({ activity, onOpen, onChanged, onDelete, runMutation }: ActivityCardProps) {
   const t = useT()
   const timestamp = activity.occurredAt ?? activity.scheduledAt
   const TypeIcon = TYPE_ICONS[activity.interactionType] ?? StickyNote
@@ -131,17 +139,20 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
   const isCanceled = isCanceledInteractionStatus(activity.status)
   const showExternalLink = Boolean(activity._integrations && Object.keys(activity._integrations).length > 0)
   const [markingDone, setMarkingDone] = React.useState(false)
+  const deletingRef = React.useRef(false)
 
   const handleMarkDone = React.useCallback(async () => {
     if (markingDone) return
     setMarkingDone(true)
     try {
       const operation = () =>
-        apiCallOrThrow('/api/customers/interactions/complete', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: activity.id, occurredAt: new Date().toISOString() }),
-        })
+        withScopedApiRequestHeaders(buildOptimisticLockHeader(activity.updatedAt ?? null), () =>
+          apiCallOrThrow('/api/customers/interactions/complete', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: activity.id, occurredAt: new Date().toISOString() }),
+          }),
+        )
       if (runMutation) {
         await runMutation(operation, {
           id: activity.id,
@@ -154,12 +165,26 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
       flash(t('customers.activities.actions.markDoneSuccess', 'Activity marked done'), 'success')
       onChanged?.()
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) {
+        onChanged?.()
+        return
+      }
       logger.warn('Mark done failed', { component: 'ActivityCard', activityId: activity.id, err })
       flash(t('customers.activities.actions.markDoneError', 'Could not mark activity as done'), 'error')
     } finally {
       setMarkingDone(false)
     }
-  }, [activity.id, markingDone, onChanged, runMutation, t])
+  }, [activity.id, activity.updatedAt, markingDone, onChanged, runMutation, t])
+
+  const handleDelete = React.useCallback(async () => {
+    if (!onDelete || deletingRef.current) return
+    deletingRef.current = true
+    try {
+      await onDelete(activity)
+    } finally {
+      deletingRef.current = false
+    }
+  }, [activity, onDelete])
 
   return (
     <div
@@ -230,18 +255,25 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
                 {t('customers.activities.actions.markDone', 'Mark done')}
               </Button>
             ) : null}
-            <IconButton
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label={t('customers.timeline.more', 'More')}
-              onClick={(event) => {
-                event.stopPropagation()
-                onOpen?.(activity)
-              }}
-            >
-              <MoreHorizontal className="size-4" />
-            </IconButton>
+            <div onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()} role="presentation">
+              <RowActions
+                items={[
+                  ...(onOpen ? [{
+                    id: 'edit',
+                    label: t('customers.timeline.edit', 'Edit'),
+                    icon: <Pencil />,
+                    onSelect: () => onOpen(activity),
+                  }] : []),
+                  ...(onDelete ? [{
+                    id: 'delete',
+                    label: t('customers.activities.actions.delete', 'Delete activity'),
+                    icon: <Trash2 />,
+                    destructive: true,
+                    onSelect: () => { void handleDelete() },
+                  }] : []),
+                ]}
+              />
+            </div>
           </div>
         </div>
 
@@ -269,7 +301,6 @@ export function ActivityCard({ activity, onOpen, onChanged, runMutation }: Activ
           <span className="font-medium text-foreground">{actorLabel}</span>
           {target && direction ? (
             <>
-              <span>·</span>
               <span>{direction}</span>
               <span className="text-foreground">{target}</span>
             </>
