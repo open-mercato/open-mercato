@@ -49,7 +49,7 @@ test.describe('TC-AI-PARTICIPANTS-002: Conversation participants', () => {
     const adminToken = await getAuthToken(request, 'admin');
     const { tenantId, organizationId: orgAId, userId: ownerId } = getTokenScope(adminToken);
     const stamp = randomUUID().slice(0, 8);
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     const agentId = `it_part.agent_${stamp}`;
     const conversationId = `it-part-${randomUUID()}`;
 

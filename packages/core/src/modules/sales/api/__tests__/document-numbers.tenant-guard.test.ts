@@ -33,7 +33,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: jest.fn(async () => ({ filterIds: [ORG_ID] })),
+  resolveOrganizationScopeForRequest: jest.fn(async () => ({ tenantId: ACTOR_TENANT_ID, filterIds: [ORG_ID], allowedIds: [ORG_ID] })),
 }))
 
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScopeFilter', () => ({
@@ -67,6 +67,17 @@ describe('document-numbers route tenant guard (issue #7877)', () => {
 
   it('rejects an oversized body carrying a foreign tenantId instead of generating a number for it', async () => {
     const req = buildPaddedRequest({ kind: 'order', tenantId: FOREIGN_TENANT_ID, organizationId: ORG_ID })
+    const res = await POST(req)
+    expect(res.status).toBe(403)
+    expect(mockGenerate).not.toHaveBeenCalled()
+  })
+
+  it('rejects an organization outside the actor scope before generating a number', async () => {
+    const req = buildPaddedRequest({
+      kind: 'order',
+      tenantId: ACTOR_TENANT_ID,
+      organizationId: '00000000-0000-4000-8000-0000000000bb',
+    })
     const res = await POST(req)
     expect(res.status).toBe(403)
     expect(mockGenerate).not.toHaveBeenCalled()

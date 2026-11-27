@@ -14,9 +14,10 @@
  * disagreed with reality is not expressible here.
  */
 
+import { formatLocaleNumberInput } from '@open-mercato/shared/lib/number'
 import { formatDuration } from '../time-tracking/duration'
 import { roundMinutes, type RoundingSettings, type RoundingUnitMinutes } from '../time-tracking/rounding'
-import { DEFAULT_SUPPORT_REFERENCE_PREFIX, contributedTimeTrackingSettingKeys } from '../time-tracking/settingKeys'
+import { DEFAULT_SUPPORT_REFERENCE_PREFIX, contributedTimeTrackingSettingKeys, timeTrackingSettingKeyIds } from '../time-tracking/settingKeys'
 import { readTimeTrackingSettingValue, type TimeEntryMode, type TimeTrackingSettings } from '../time-tracking/settings'
 
 export const ROUNDING_UNIT_OPTIONS: readonly RoundingUnitMinutes[] = [0, 5, 10, 15]
@@ -79,14 +80,14 @@ export type TimeTrackingSettingsDraft = {
 
 export const MAX_ASSIGNMENT_GRACE_DAYS_INPUT = 365
 
-export function toSettingsDraft(settings: TimeTrackingSettings): TimeTrackingSettingsDraft {
+export function toSettingsDraft(settings: TimeTrackingSettings, locale = 'en'): TimeTrackingSettingsDraft {
   return {
     roundingUnitMinutes: settings.rounding.unitMinutes,
     roundingDirection: settings.rounding.direction,
     defaultsBillable: settings.defaults.billable,
     defaultsChainStartFromPreviousEnd: settings.defaults.chainStartFromPreviousEnd,
     defaultsEntryMode: settings.defaults.entryMode ?? 'task',
-    dailyHoursText: settings.targets.dailyHours === null ? '' : String(settings.targets.dailyHours),
+    dailyHoursText: settings.targets.dailyHours === null ? '' : formatLocaleNumberInput(settings.targets.dailyHours, locale),
     warningsOverlap: settings.warnings.overlap,
     warningsRunningTimer: settings.warnings.runningTimer,
     assignmentGraceDaysText: String(settings.access.assignmentGraceDays),
@@ -153,6 +154,15 @@ export function toSettingsPayload(draft: TimeTrackingSettingsDraft): TimeTrackin
     payload[entry.group] = group
   }
   return payload
+}
+
+export function changedTimeTrackingSettingKeys(
+  payload: TimeTrackingSettings,
+  baseline: TimeTrackingSettings,
+): string[] {
+  return timeTrackingSettingKeyIds().filter((key) =>
+    !Object.is(readTimeTrackingSettingValue(payload, key), readTimeTrackingSettingValue(baseline, key)),
+  )
 }
 
 /**

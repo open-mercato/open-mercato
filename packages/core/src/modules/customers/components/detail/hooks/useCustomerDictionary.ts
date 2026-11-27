@@ -91,9 +91,10 @@ export function useCustomerDictionary(
   kind: CustomerDictionaryKind,
   scopeVersion = 0,
   organizationId?: string | null,
+  enabled = true,
 ): UseQueryResult<CustomerDictionaryQueryData> {
   const locale = useOptionalLocale()
-  return useQuery(customerDictionaryQueryOptions(kind, scopeVersion, organizationId, locale))
+  return useQuery({ ...customerDictionaryQueryOptions(kind, scopeVersion, organizationId, locale), enabled })
 }
 
 export async function invalidateCustomerDictionary(queryClient: QueryClient, kind: CustomerDictionaryKind) {

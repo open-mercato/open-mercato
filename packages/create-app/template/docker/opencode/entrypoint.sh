@@ -12,6 +12,13 @@
 # OpenCode reads provider credentials from the matching provider environment
 # variables, for example OPENAI_API_KEY, ANTHROPIC_API_KEY, or OPENROUTER_API_KEY.
 
+OPENCODE_SERVER_PASSWORD="${OPENCODE_SERVER_PASSWORD:-${OPENCODE_PASSWORD:-}}"
+if [ -z "$(printf '%s' "$OPENCODE_SERVER_PASSWORD" | tr -d '[:space:]')" ]; then
+  echo "[OpenCode] Set OPENCODE_PASSWORD to a strong random value before starting this service." >&2
+  exit 1
+fi
+export OPENCODE_SERVER_PASSWORD
+
 # Escape a value for safe embedding inside a JSON string (backslashes first).
 json_escape() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'

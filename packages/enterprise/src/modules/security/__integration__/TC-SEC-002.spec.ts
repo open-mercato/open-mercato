@@ -15,7 +15,7 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
   let adminToken: string
   let userId: string | null = null
   let userEmail = ''
-  const userPassword = 'Valid1!Pass'
+  const userPassword = 'QaValid1!Pass'
 
   test.beforeAll(async ({ request }) => {
     adminToken = await createAdminApiToken(request)

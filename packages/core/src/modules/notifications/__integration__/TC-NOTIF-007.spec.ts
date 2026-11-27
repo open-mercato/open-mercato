@@ -107,7 +107,7 @@ async function dismissNotificationInScope(
 test.describe('TC-NOTIF-007: Notification list is scoped by tenant and user', () => {
   test('shows each tenant user only their own notification when type values overlap', async ({ request }) => {
     const stamp = Date.now()
-    const password = 'Valid1!Pass'
+    const password = 'QaValid1!Pass'
     const type = `qa.notifications.cross.tenant.${stamp}`
     const t1Email = `qa-notif-t1-${stamp}@acme.com`
     const t2Email = `qa-notif-t2-${stamp}@acme.com`
@@ -219,7 +219,7 @@ test.describe('TC-NOTIF-007: Notification list is scoped by tenant and user', ()
 
   test('scopes list and unread count to the selected organization while retaining tenant-wide notifications', async ({ request }) => {
     const stamp = Date.now()
-    const password = 'Valid1!Pass'
+    const password = 'QaValid1!Pass'
     const email = `qa-notif-org-scope-${stamp}@acme.com`
     const type = `qa.notifications.organization.scope.${stamp}`
     const superadminToken = await getAuthToken(request, 'superadmin')

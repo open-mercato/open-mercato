@@ -1,6 +1,16 @@
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
 
 export const notificationTypes: NotificationTypeDefinition[] = [
+  {
+    type: 'example.todo.erp.failed',
+    module: 'example',
+    channels: ['in_app'],
+    titleKey: 'example.todo.erp.failed.title',
+    bodyKey: 'example.todo.erp.failed.body',
+    icon: 'refresh-cw',
+    severity: 'warning',
+    actions: [],
+  },
   // --- Push smoke-test fixtures (demo only) ------------------------------------
   {
     type: 'demo.silent_ping',

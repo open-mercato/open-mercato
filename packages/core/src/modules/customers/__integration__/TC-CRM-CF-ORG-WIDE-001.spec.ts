@@ -103,7 +103,7 @@ test.describe('TC-CRM-CF-ORG-WIDE-001: organization-wide custom field definition
     const precedenceKey = `qa_org_wide_precedence_${stamp}`;
     const secretValue = `org-wide-secret-${stamp}`;
     const foreignEmail = `qa-cf-org-wide-${stamp}@test.invalid`;
-    const foreignPassword = 'Valid1!Pass';
+    const foreignPassword = 'QaValid1!Pass';
 
     let adminToken: string | null = null;
     let superadminToken: string | null = null;
