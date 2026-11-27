@@ -53,6 +53,12 @@ const ENABLED_ENV = {
   OTEL_RESOURCE_ATTRIBUTES: 'service.namespace=om,deployment.environment.name=staging',
 }
 
+const TENANT_ENDPOINTS_ONLY_ENV = {
+  OM_AGENT_OTEL_EXPORT: 'on',
+  OM_AGENT_OTEL_EXPORT_TENANT_ENDPOINTS: 'allow',
+  OM_AGENT_OTEL_EXPORT_DELAY_MS: '1500',
+}
+
 const T0 = new Date('2026-10-27T10:00:00.000Z')
 
 function buildRun(overrides: Partial<RunExportRun> = {}): RunExportRun {
@@ -218,6 +224,27 @@ describe('enqueueOtelExportForRunEvent', () => {
     const enqueue = jest.fn(async () => 'job-id')
     expect(await enqueueOtelExportForRunEvent(event, container, { enqueue, env: ENABLED_ENV })).toBe(false)
     expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    ['missing endpoint', TENANT_ENDPOINTS_ONLY_ENV],
+    ['invalid endpoint', { ...TENANT_ENDPOINTS_ONLY_ENV, OM_AGENT_OTEL_EXPORT_ENDPOINT: 'invalid' }],
+    ['unsupported protocol', { ...TENANT_ENDPOINTS_ONLY_ENV, OM_AGENT_OTEL_EXPORT_ENDPOINT: ENDPOINT, OM_AGENT_OTEL_EXPORT_PROTOCOL: 'grpc' }],
+  ] as const)('skips an unavailable deployment destination (%s)', async (_description, env) => {
+    const { container } = makeContainer({ enabled: true, destination: 'deployment' })
+    const enqueue = jest.fn(async () => 'job-id')
+
+    expect(await enqueueOtelExportForRunEvent(event, container, { enqueue, env })).toBe(false)
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(reportError).not.toHaveBeenCalled()
+  })
+
+  test('enqueues for the integration destination when only tenant endpoints are available', async () => {
+    const { container } = makeContainer({ enabled: true, destination: 'integration' })
+    const enqueue = jest.fn(async () => 'job-id')
+
+    expect(await enqueueOtelExportForRunEvent(event, container, { enqueue, env: TENANT_ENDPOINTS_ONLY_ENV })).toBe(true)
+    expect(enqueue).toHaveBeenCalledWith({ runId: RUN_ID, attempt: 0 }, { delayMs: 1500 })
   })
 
   test('skips an agent outside the tenant allowlist', async () => {
@@ -518,6 +545,30 @@ describe('enqueueOtelExportForFinishedProcess', () => {
     expect(await enqueueOtelExportForFinishedProcess(finished, container, { enqueue, findLatestTopLevelRunId, env: ENABLED_ENV })).toBe(false)
     expect(findLatestTopLevelRunId).not.toHaveBeenCalled()
     expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  test('skips looking up a run when the default deployment destination is unavailable', async () => {
+    const { container } = makeContainer({ enabled: true })
+    const enqueue = jest.fn(async () => 'job-id')
+    const findLatestTopLevelRunId = makeFinder(RUN_ID)
+
+    expect(await enqueueOtelExportForFinishedProcess(finished, container, {
+      enqueue, findLatestTopLevelRunId, env: TENANT_ENDPOINTS_ONLY_ENV,
+    })).toBe(false)
+    expect(findLatestTopLevelRunId).not.toHaveBeenCalled()
+    expect(enqueue).not.toHaveBeenCalled()
+    expect(reportError).not.toHaveBeenCalled()
+  })
+
+  test('enqueues for the integration destination when only tenant endpoints are available', async () => {
+    const { container } = makeContainer({ enabled: true, destination: 'integration' })
+    const enqueue = jest.fn(async () => 'job-id')
+    const findLatestTopLevelRunId = makeFinder(RUN_ID)
+
+    expect(await enqueueOtelExportForFinishedProcess(finished, container, {
+      enqueue, findLatestTopLevelRunId, env: TENANT_ENDPOINTS_ONLY_ENV,
+    })).toBe(true)
+    expect(enqueue).toHaveBeenCalledWith({ runId: RUN_ID, attempt: 0 }, { delayMs: 1500 })
   })
 
   test('ignores a payload without tenant, organization or workflow instance', async () => {
