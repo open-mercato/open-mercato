@@ -44,11 +44,17 @@ postgresSuite('negated text through real PostgreSQL query engines (#7996)', () =
     ]
     for (const definition of definitions) await sql.raw(definition).execute(database)
     const names: Record<string, string | null> = { alpha: 'Daniel Harris', reverse: 'Harris Daniel', omega: 'Omega', literal: 'x%_\\suffix', empty: '', null: null, unindexed: 'Missing', wrongTenant: 'Wrong tenant', wrongOrganization: 'Wrong organization', wrongField: 'Wrong field', wrongEntity: 'Wrong entity' }
+    const bareLabels: Record<string, unknown> = {
+      alpha: [ciphertext, 'Alpha'], reverse: [ciphertext, 'Omega'], omega: ['Omega'], literal: 'Omega',
+      empty: [], null: { nested: 'Omega' }, unindexed: [ciphertext, 'Omega'],
+      wrongTenant: [ciphertext, 'Omega'], wrongOrganization: [ciphertext, 'Omega'], wrongField: [ciphertext, 'Omega'],
+      wrongEntity: [ciphertext, 'Omega'],
+    }
     for (const [key, id] of Object.entries(identifiers)) {
       await database.insertInto('users').values({ id, tenant_id: tenantId, organization_id: organizationId, display_name: names[key], secret: ciphertext }).execute()
       const labels = key === 'alpha' ? ['Daniel', 'Omega'] : key === 'omega' ? ['Omega'] : []
       const privateValues = ['alpha', 'omega', 'unindexed'].includes(key) ? key === 'unindexed' ? [ciphertext, 'Omega'] : [ciphertext] : []
-      const document = JSON.stringify({ display_name: names[key], secret: ciphertext, 'cf:labels': labels, 'cf:private': privateValues })
+      const document = JSON.stringify({ display_name: names[key], secret: ciphertext, labels: bareLabels[key], 'cf:labels': labels, 'cf:private': privateValues })
       await database.insertInto('entity_indexes').values({ id: randomUUID(), entity_type: entity, entity_id: id, tenant_id: tenantId, organization_id: organizationId, doc: document }).execute()
       await database.insertInto('custom_entities_storage').values({ entity_type: entity, entity_id: id, tenant_id: tenantId, organization_id: organizationId, doc: document }).execute()
       for (const privateValue of privateValues) {
@@ -56,6 +62,16 @@ postgresSuite('negated text through real PostgreSQL query engines (#7996)', () =
       }
       for (const label of labels) {
         await database.insertInto('custom_field_values').values({ id: randomUUID(), entity_id: entity, record_id: id, field_key: 'labels', tenant_id: tenantId, organization_id: organizationId, value_text: label }).execute()
+      }
+    }
+    for (const key of ['alpha', 'reverse', 'wrongTenant', 'wrongOrganization', 'wrongField', 'wrongEntity']) {
+      for (const hash of tokenizeText(key === 'alpha' ? 'Daniel' : 'Omega', resolveSearchConfig()).hashes) {
+        await database.insertInto('search_tokens').values({
+          entity_type: key === 'wrongEntity' ? 'auth:profile' : entity,
+          entity_id: identifiers[key], field: key === 'wrongField' ? 'other' : 'labels', token_hash: hash,
+          tenant_id: key === 'wrongTenant' ? otherTenantId : tenantId,
+          organization_id: key === 'wrongOrganization' ? otherOrganizationId : organizationId,
+        }).execute()
       }
     }
     await database.insertInto('custom_field_defs').values({ entity_id: entity, key: 'labels', is_active: true, kind: 'text', config_json: '{}', tenant_id: tenantId, organization_id: organizationId }).execute()
@@ -172,6 +188,18 @@ postgresSuite('negated text through real PostgreSQL query engines (#7996)', () =
   test('custom-field negation excludes a record when any sibling value matches', async () => {
     const filters = { 'cf:labels': { $not: { $ilike: '%Daniel%' } } }
     for (const current of engines()) expect({ engine: current.name, ids: await ids(current.engine, filters, current.options) }).toEqual({ engine: current.name, ids: [identifiers.omega] })
+  })
+
+  test.each([false, true])('bare custom-storage negation preserves JSON types, scope evidence and totals (OR %s)', async (grouped) => {
+    const hybrid = engines().find((current) => current.name === 'custom storage')!
+    const negative = { labels: { $not: { $ilike: '%Daniel%' } } }
+    const filters = grouped ? { $or: [negative, { id: randomUUID() }] } : negative
+    const result = await hybrid.engine.query<{ id: string }>(entity, {
+      tenantId, organizationId, fields: ['id'], decryptEncryptedFields: false, skipAutoReindex: true,
+      forceCustomEntityStorage: true, filters,
+    })
+    expect(result.items.map((row) => row.id).sort()).toEqual([identifiers.reverse, identifiers.omega, identifiers.literal].sort())
+    expect(result.total).toBe(3)
   })
 
   test('encrypted custom-field arrays require correctly scoped field-level evidence', async () => {

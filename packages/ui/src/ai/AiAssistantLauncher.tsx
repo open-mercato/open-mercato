@@ -655,14 +655,18 @@ function AiAssistantLauncherContent({
               })
             )}
           </div>
-          <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-            <span className="flex items-center gap-2">
-              <KbdShortcut keys={['↑', '↓']} />{' '}
-              {t('ai_assistant.launcher.hint.navigate', 'Navigate')}
-              <span className="mx-1 text-border">·</span>
-              <Kbd>Enter</Kbd> {t('ai_assistant.launcher.hint.launch', 'Launch')}
-              <span className="mx-1 text-border">·</span>
-              <Kbd>Esc</Kbd> {t('ai_assistant.launcher.hint.close', 'Close')}
+          <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+            <span className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                <KbdShortcut keys={['↑', '↓']} />
+                {t('ai_assistant.launcher.hint.navigate', 'Navigate')}
+              </span>
+              <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                <Kbd>Enter</Kbd> {t('ai_assistant.launcher.hint.launch', 'Launch')}
+              </span>
+              <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                <Kbd>Esc</Kbd> {t('ai_assistant.launcher.hint.close', 'Close')}
+              </span>
             </span>
             <span className="hidden sm:inline-flex items-center gap-1">
               <KbdShortcut keys={['⌘', 'L']} />
