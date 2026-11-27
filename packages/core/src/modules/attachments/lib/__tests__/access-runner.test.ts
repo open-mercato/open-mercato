@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import { applyAclFeatureOverrides, resetModuleContractOverridesForTests } from '@open-mercato/shared/modules/overrides'
 import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../access-runner'
 import { registerAttachmentAccessResolvers } from '../access-registry'
 import type { AttachmentAccessInput, AttachmentAccessResolver } from '../access-types'
@@ -12,18 +13,23 @@ const requirement = { resolverId: 'documents.files', targetEntity: 'documents:do
 const allow = jest.fn(async () => ({ ok: true as const }))
 const rbac = {
   loadAcl: jest.fn(async () => ({ isSuperAdmin: false, organizations: ['org'] })),
-  getEffectiveFeatures: jest.fn(async () => ['documents.view']),
+  getEffectiveFeatures: jest.fn(async () => ['documents.view', 'attachments.view']),
 }
 const container = { resolve: jest.fn(() => rbac) } as unknown as AwilixContainer
 const resolver = (changes: Partial<AttachmentAccessResolver> = {}): AttachmentAccessResolver => ({
   id: 'documents.files', targetPartition: '*', targetEntity: 'documents:document', resolve: allow, ...changes,
 })
 const evaluate = (changes: Partial<Parameters<typeof evaluateAttachmentAccess>[0]> = {}) => evaluateAttachmentAccess({
-  auth, attachment, partition, action: 'read', context: createAttachmentAccessContext(container), ...changes,
+  auth, attachment, partition, action: 'read', requirePrivateReadFeature: true, context: createAttachmentAccessContext(container), ...changes,
 })
 
-beforeEach(() => { jest.clearAllMocks(); registerAttachmentAccessResolvers([]) })
-afterEach(() => { registerAttachmentAccessResolvers([]); jest.useRealTimers() })
+beforeEach(() => {
+  jest.clearAllMocks()
+  rbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, organizations: ['org'] })
+  rbac.getEffectiveFeatures.mockResolvedValue(['documents.view', 'attachments.view'])
+  registerAttachmentAccessResolvers([])
+})
+afterEach(() => { registerAttachmentAccessResolvers([]); resetModuleContractOverridesForTests(); jest.useRealTimers() })
 
 it('runs the immutable baseline before any negative-priority callback', async () => {
   registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [resolver({ priority: -999 })] }])
@@ -69,7 +75,7 @@ it('rejects malformed policy and malformed protected owner without dropping them
 })
 
 it('retains unrelated owners in a protected shared partition', async () => {
-  expect(await evaluate({ attachment: { ...attachment, entityId: 'sync_excel:upload' }, partition: { ...partition, accessResolverRequirements: [requirement] } })).toEqual({ ok: true, protected: false })
+  expect(await evaluate({ attachment: { ...attachment, entityId: 'sync_excel:upload' }, partition: { ...partition, accessResolverRequirements: [requirement] } })).toEqual({ ok: true, protected: true })
 })
 
 it('denies a protected service without a policy context', async () => {
@@ -84,7 +90,7 @@ it('uses current server features, freezes snapshots, and isolates each resolver 
     expect(Object.isFrozen(input)).toBe(true)
     expect(Object.isFrozen(input.attachment)).toBe(true)
     expect(Object.isFrozen(input.targets)).toBe(true)
-    expect(input.subject.userFeatures).toEqual(['documents.view'])
+    expect(input.subject.userFeatures).toEqual(['documents.view', 'attachments.view'])
     expect(input.subject.auth.features).toBeUndefined()
     expect(input.subject.auth.roles).toBeUndefined()
     expect(input.attachment).not.toHaveProperty('storageMetadata')
@@ -139,4 +145,71 @@ it('bounds a callback, aborts it, and ignores its late allow', async () => {
   expect(signal?.aborted).toBe(true)
   finish?.({ ok: true })
   expect(jest.getTimerCount()).toBe(0)
+})
+
+describe('private byte capability (#8760)', () => {
+  it.each(['read', 'render'] as const)('denies %s without the current read feature despite token grants', async (action) => {
+    rbac.getEffectiveFeatures.mockResolvedValue(['attachments.manage'])
+    expect(await evaluate({ action, auth: { ...auth, features: ['*'] } })).toMatchObject({ ok: false, status: 403 })
+  })
+
+  it.each(['attachments.view', 'attachments.*', '*'])('accepts %s and marks feature-gated bytes as protected', async (feature) => {
+    rbac.getEffectiveFeatures.mockResolvedValue([feature])
+    expect(await evaluate()).toEqual({ ok: true, protected: true })
+  })
+
+  it('requires the read feature for global private bytes', async () => {
+    rbac.getEffectiveFeatures.mockResolvedValue([])
+    expect(await evaluate({ attachment: { ...attachment, tenantId: null, organizationId: null } })).toMatchObject({ ok: false, status: 403 })
+  })
+
+  it('preserves a live superadmin and rejects a revoked token superadmin', async () => {
+    rbac.getEffectiveFeatures.mockResolvedValue([])
+    rbac.loadAcl.mockResolvedValueOnce({ isSuperAdmin: true, organizations: [] })
+    expect(await evaluate({ auth: { ...auth, tenantId: 'foreign', isSuperAdmin: true } })).toMatchObject({ ok: true })
+    expect(await evaluate({ auth: { ...auth, isSuperAdmin: true } })).toMatchObject({ ok: false, status: 403 })
+  })
+
+  it('does not let a live superadmin override a removed read feature', async () => {
+    applyAclFeatureOverrides({ 'attachments.view': null })
+    rbac.loadAcl.mockResolvedValue({ isSuperAdmin: true, organizations: [] })
+    rbac.getEffectiveFeatures.mockResolvedValue(['*'])
+    expect(await evaluate({ auth: { ...auth, isSuperAdmin: true } })).toMatchObject({ ok: false, status: 403 })
+  })
+
+  it('fails closed without a live RBAC context for private bytes', async () => {
+    expect(await evaluate({ context: null })).toMatchObject({ ok: false, status: 403 })
+  })
+
+  it('does not load RBAC for unadopted public partitions', async () => {
+    rbac.getEffectiveFeatures.mockResolvedValue([])
+    expect(await evaluate({ partition: { ...partition, isPublic: true } })).toEqual({ ok: true, protected: false })
+    expect(container.resolve).not.toHaveBeenCalled()
+  })
+
+  it('preserves existing service callers that do not request the byte-route gate', async () => {
+    rbac.getEffectiveFeatures.mockResolvedValue([])
+    expect(await evaluate({ requirePrivateReadFeature: undefined })).toEqual({ ok: true, protected: false })
+    expect(container.resolve).not.toHaveBeenCalled()
+  })
+
+  it.each(['metadata', 'delete', 'reassign', 'export'] as const)('preserves unadopted %s policy', async (action) => {
+    rbac.getEffectiveFeatures.mockResolvedValue([])
+    expect(await evaluate({ action })).toEqual({ ok: true, protected: false })
+    expect(container.resolve).not.toHaveBeenCalled()
+  })
+
+  it('does not allow a feature grant to override an owner denial', async () => {
+    registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [resolver({
+      resolve: async () => ({ ok: false, status: 404, reason: 'owner_denied' }),
+    })] }])
+    expect(await evaluate()).toMatchObject({ ok: false, status: 404, reason: 'owner_denied' })
+  })
+
+  it('does not invoke owner callbacks when the private read feature is absent', async () => {
+    rbac.getEffectiveFeatures.mockResolvedValue([])
+    registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [resolver()] }])
+    expect(await evaluate()).toMatchObject({ ok: false, status: 403 })
+    expect(allow).not.toHaveBeenCalled()
+  })
 })
