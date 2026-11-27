@@ -14,6 +14,13 @@ type SoftDeleteSource = QueryIndexSourceMetadata & {
   deletedAtColumn: string
 }
 
+// Field-definition translations are keyed by the owning entity's logical
+// `entityId:fieldKey` pair (see target-access.ts's findVisibleFieldDefinition),
+// not by CustomFieldDef's own UUID primary key. Running the generic lookup
+// below for this type would compare that logical key against a uuid column
+// and throw.
+const FIELD_DEFINITION_TYPE = 'entities:custom_field_def'
+
 type EntityPropertyMetadata = { fieldNames?: unknown }
 
 export type TranslatedRecordScope = {
@@ -56,6 +63,27 @@ function resolveSoftDeleteSource(em: EntityManager, entityType: string): SoftDel
   return { ...source, idColumn, deletedAtColumn }
 }
 
+async function isFieldDefinitionTranslationSoftDeleted(
+  em: EntityManager,
+  recordId: string,
+  scope: TranslatedRecordScope,
+): Promise<boolean> {
+  const separator = recordId.lastIndexOf(':')
+  if (separator <= 0 || separator === recordId.length - 1) return false
+  const db = em.getKysely<OwnerLookupDatabase>()
+  let query = db
+    .selectFrom('custom_field_defs')
+    .select('deleted_at')
+    .where('entity_id', '=', recordId.slice(0, separator))
+    .where('key', '=', recordId.slice(separator + 1))
+    .where(sql<boolean>`tenant_id is not distinct from ${scope.tenantId}`)
+  if (scope.organizationId !== undefined) {
+    query = query.where(sql<boolean>`organization_id is not distinct from ${scope.organizationId}`)
+  }
+  const row = await query.executeTakeFirst()
+  return row !== undefined && row.deleted_at !== null && row.deleted_at !== undefined
+}
+
 /**
  * Whether the record a translation belongs to still exists but is soft-deleted.
  * Omitting `organizationId` matches the record by id and tenant only.
@@ -66,6 +94,9 @@ export async function isTranslatedRecordSoftDeleted(
   recordId: string,
   scope: TranslatedRecordScope,
 ): Promise<boolean> {
+  if (entityType === FIELD_DEFINITION_TYPE) {
+    return isFieldDefinitionTranslationSoftDeleted(em, recordId, scope)
+  }
   const source = resolveSoftDeleteSource(em, entityType)
   if (!source) return false
   const db = em.getKysely<OwnerLookupDatabase>()

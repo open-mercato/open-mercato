@@ -5,11 +5,20 @@ import {
   createProductFixture,
   deleteCatalogProductIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
+import {
+  createCustomEntity,
+  deleteCustomEntityIfExists,
+  saveFieldDefinitions,
+  uniqueEntityId,
+} from '@open-mercato/core/modules/entities/__integration__/helpers/entitiesApi'
 import { deleteTranslationIfExists } from './helpers/translationFixtures'
+
+export const integrationMeta = { dependsOnModules: ['translations', 'entities'] }
 
 const RESOURCE_ENTITY_TYPE = 'resources:resources_resource'
 const RESOURCES_API = '/api/resources/resources'
 const PRODUCT_ENTITY_TYPE = 'catalog:catalog_product'
+const FIELD_DEFINITION_ENTITY_TYPE = 'entities:custom_field_def'
 
 type TranslationsBody = { translations?: Record<string, Record<string, string>> }
 
@@ -129,6 +138,55 @@ test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo r
     } finally {
       await deleteTranslationIfExists(request, token, PRODUCT_ENTITY_TYPE, translatedProductId)
       await deleteCatalogProductIfExists(request, token, productId)
+    }
+  })
+
+  test('restoring a soft-deleted field definition restores its translations', async ({ request }) => {
+    const stamp = randomUUID().slice(0, 8)
+    const entityId = uniqueEntityId('trans_019_fields')
+    const fieldKey = 'status'
+    const recordId = `${entityId}:${fieldKey}`
+    let token: string | null = null
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      expect((await createCustomEntity(request, token, { entityId, label: 'TC-TRANS-019 field def' })).status()).toBe(200)
+      expect((await saveFieldDefinitions(request, token, entityId, [{
+        key: fieldKey,
+        kind: 'text',
+        configJson: { label: `Status ${stamp}` },
+      }])).status()).toBe(200)
+
+      const putResponse = await apiRequest(request, 'PUT', `/api/translations/${FIELD_DEFINITION_ENTITY_TYPE}/${recordId}`, {
+        token,
+        data: { de: { label: `Statusbezeichnung ${stamp}` } },
+      })
+      expect(putResponse.ok(), `translation upsert failed: ${putResponse.status()}`).toBeTruthy()
+
+      const deleteResponse = await apiRequest(request, 'DELETE', '/api/entities/definitions', {
+        token,
+        data: { entityId, key: fieldKey },
+      })
+      expect(deleteResponse.status(), 'field definition delete 200').toBe(200)
+
+      const afterDelete = await readTranslations(request, token, FIELD_DEFINITION_ENTITY_TYPE, recordId)
+      expect(afterDelete.status, 'translations of a soft-deleted field definition are not readable').toBe(404)
+
+      const restoreResponse = await apiRequest(request, 'POST', '/api/entities/definitions.restore', {
+        token,
+        data: { entityId, key: fieldKey },
+      })
+      expect(restoreResponse.status(), 'field definition restore 200').toBe(200)
+
+      const afterRestore = await readTranslations(request, token, FIELD_DEFINITION_ENTITY_TYPE, recordId)
+      expect(afterRestore.status, 'translations readable after restore').toBe(200)
+      expect(afterRestore.body.translations?.de?.label).toBe(`Statusbezeichnung ${stamp}`)
+    } finally {
+      await deleteTranslationIfExists(request, token, FIELD_DEFINITION_ENTITY_TYPE, recordId)
+      if (token) {
+        await apiRequest(request, 'DELETE', '/api/entities/definitions', { token, data: { entityId, key: fieldKey } }).catch(() => undefined)
+      }
+      await deleteCustomEntityIfExists(request, token, entityId)
     }
   })
 })

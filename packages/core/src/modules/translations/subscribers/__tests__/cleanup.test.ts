@@ -86,6 +86,7 @@ const HARD_DELETE_METADATA: FakeEntityMetadata = {
     tenantId: { fieldNames: ['tenant_id'] },
   },
 }
+const FIELD_DEFINITION_ENTITY_TYPE = 'entities:custom_field_def'
 
 function createHarness(baseRows: Array<Record<string, unknown>> | Error) {
   const queries: RecordedQuery[] = []
@@ -275,5 +276,45 @@ describe('translations cleanup subscriber', () => {
     expect(harness.selects()[0].sql).toContain('"tenant_id" is not distinct from')
     expect(harness.selects()[0].sql).not.toContain('"organization_id"')
     expect(harness.selects()[0].parameters).toEqual(['res-5', 'tenant-1'])
+  })
+
+  it('keeps translations while the owning field definition is only soft-deleted', async () => {
+    const harness = createHarness([{ deleted_at: new Date('2026-10-01T00:00:00Z') }])
+
+    await handle(payloadFor(FIELD_DEFINITION_ENTITY_TYPE, 'catalog:catalog_product:status'), harness.ctx)
+
+    expect(harness.deletes()).toHaveLength(0)
+    expect(harness.selects()).toHaveLength(1)
+    expect(harness.selects()[0].sql).toContain('"custom_field_defs"')
+    expect(harness.selects()[0].sql).toContain('"entity_id" = $1')
+    expect(harness.selects()[0].sql).toContain('"key" = $2')
+    expect(harness.selects()[0].parameters).toEqual(['catalog:catalog_product', 'status', 'tenant-1', 'org-1'])
+  })
+
+  it('deletes translations when the owning field definition no longer exists', async () => {
+    const harness = createHarness([])
+
+    await handle(payloadFor(FIELD_DEFINITION_ENTITY_TYPE, 'catalog:catalog_product:status'), harness.ctx)
+
+    expect(harness.deletes()).toHaveLength(1)
+  })
+
+  it('deletes translations when the owning field definition is not marked deleted', async () => {
+    const harness = createHarness([{ deleted_at: null }])
+
+    await handle(payloadFor(FIELD_DEFINITION_ENTITY_TYPE, 'catalog:catalog_product:status'), harness.ctx)
+
+    expect(harness.deletes()).toHaveLength(1)
+  })
+
+  it('does not treat a field definition id without a logical key as soft-deleted', async () => {
+    const harness = createHarness([{ deleted_at: new Date() }])
+    const em = harness.ctx.resolve<EntityManager>()
+
+    await expect(
+      isTranslatedRecordSoftDeleted(em, FIELD_DEFINITION_ENTITY_TYPE, 'not-a-logical-key', { tenantId: 'tenant-1' }),
+    ).resolves.toBe(false)
+
+    expect(harness.selects()).toHaveLength(0)
   })
 })
