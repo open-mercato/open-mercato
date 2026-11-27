@@ -2431,7 +2431,7 @@
     ],
     "maxContextFiles": 6,
     "maxInitialContextBytes": 49152,
-    "maxTotalContextBytes": 137216,
+    "maxTotalContextBytes": 137702,
     "relatedCases": [
       "OMH-031"
     ]
@@ -22127,7 +22127,7 @@
     ],
     "maxContextFiles": 16,
     "maxInitialContextBytes": 73728,
-    "maxTotalContextBytes": 356352,
+    "maxTotalContextBytes": 356480,
     "relatedCases": [
       "OMH-030",
       "OMH-088",

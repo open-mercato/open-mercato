@@ -1,5 +1,17 @@
 # Upgrade Notes
 
+## Overdue staff MFA enrollment denies business API requests (#9152)
+
+When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.
+
+Operators using a custom API catch-all should adopt the request-scoped interceptor invocation from the updated create-app template. The framework dispatcher already includes it. This change requires no database migration or credential reissue.
+
+## Encrypted tenant custom-field writes require a usable key
+
+With tenant data encryption enabled, saving a non-null value to an encrypted tenant custom field requires a usable tenant key. Affected CRUD requests return HTTP 503 with code `ENCRYPTION_UNAVAILABLE` when the key cannot be read or created. Restore key access before retrying the field write. Custom routes that commit the base record and custom fields separately should check whether the base record already exists before retrying a create.
+
+Use earlier `Custom field configured as encrypted was stored as plaintext` warnings to find affected values, then re-save those values after restoring key access. Existing plaintext values remain readable. The explicit global encryption disable setting and clearing a custom field retain their existing behavior.
+
 ## run-object reports an off-schema model answer as 502 `structured_output_invalid` (#10637)
 
 When the model's answer does not match an object-mode agent's `output` schema, or a tool loop ends without a final answer, `POST /api/ai_assistant/ai/run-object` now returns HTTP 502 with `code: "structured_output_invalid"`. Previously it returned 500 `internal_error` with the AI SDK's message. The `error` text is now a localized message that never contains the model's answer, and the failure is logged as a warning without the answer. Every other error keeps its previous status.
@@ -74,6 +86,8 @@ These changes close row-level leaks and wrong results in the shared CRUD factory
 <a id="issue-9106"></a>
 
 ## Relation options and explicit global query scope (#9106)
+
+Generic relation lookups for Staff time projects, tasks, and reports return 403. These records have dedicated access rules, so custom pickers should load options through the Staff timesheet APIs and adapt the authorized records to option values and labels. Review existing relation field `optionsUrl` settings for these targets before upgrading. Stored relation values remain available to the owning modules.
 
 Relation-option lookups now require the target entity's existing read authority, refuse platform-only and undeclared system targets, and accept only server-declared or fixed safe label fields. Clients should omit `labelField` or choose a declared label rather than request arbitrary columns. Lookup batches are capped at 100; split larger ID lists. Authorized callers can read scoped custom labels and declared module labels. Every first-party system entity declared in a `ce.ts` maps to its own module's view feature; third-party declared system targets without a mapped read feature require a superadmin.
 
@@ -173,6 +187,26 @@ Server callers of `resolveAssignmentEnrichments` that want automatic enrichment 
 Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.
 
 All published ports in these dev stacks now bind to `127.0.0.1` by default. Operators who deliberately need remote access must set `INFRA_BIND_HOST` explicitly and control access to every published development service. This change does not alter production or hybrid startup.
+
+## MCP HTTP tool calls require a per-user session token, no fallback (#5173)
+
+The production MCP HTTP server (`mcp:serve-http` — the transport web chat and Code Mode go through) now requires a valid `_sessionToken` on every tool call. A call that omits it receives `UNAUTHORIZED`; one that supplies an invalid or expired token receives `SESSION_EXPIRED`. There is no fallback to the transport `x-api-key`'s ACL and no opt-in to restore one: `McpServerConfig.allowApiKeyFallback` and `mcp:serve-http --allow-api-key-fallback` do not exist (neither shipped in a prior release — both were introduced and removed again within this same change, after review).
+
+**What stops working:** a deployment that calls `mcp:serve-http` with only an `x-api-key` header and no `_sessionToken` — previously authorized against the transport key's (typically superadmin) ACL — now gets `UNAUTHORIZED` on every tool call, unconditionally.
+
+**Client migration (chat-facing callers):** none for the normal path — the web chat and Code Mode flows already mint and pass a per-user `_sessionToken` on every tool call; this change only removes a fallback those flows never relied on. One edge case needs attention: a session token is minted only when a chat turn starts a brand-new session; if that minting fails (a transient DB error), the turn continues without one and no later turn on that same session retries it. A chat session stuck in that state now gets `UNAUTHORIZED` on every tool call instead of silently running under the old transport-key fallback. **Recovery:** there is no in-place repair for an already-established session — start a new chat session, which mints a fresh token on its first turn. No stored credential or data needs cleanup.
+
+**Operator migration (header-only / automation callers):** switch to the stdio transport, which already supports header-only / unattended access deliberately and is never reachable from a chat turn. Authenticate it the same way any other automation caller would — with an API key scoped to that caller's own account, or an explicit user context — not with a superadmin bypass:
+
+```bash
+OPEN_MERCATO_API_KEY=omk_xxxx.yyyy... mercato ai_assistant mcp:serve
+# or, with a manually supplied tenant/user context instead of an API key:
+mercato ai_assistant mcp:serve --tenant <id> --user <id>
+```
+
+`mcp:serve --allow-unauthenticated-superadmin` also exists, but it is **DEV/TEST ONLY** — it runs with no per-user ACL and must never be used in production.
+
+No database, event-id, route, or ACL-feature change. No stored credential or data becomes unusable — this only changes which auth path an HTTP tool call is allowed to take. See [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md#mcp-http-session-token-no-fallback-2026-11-14-5173) and spec [`2026-11-14-mcp-http-session-required-no-fallback.md`](.ai/specs/2026-11-14-mcp-http-session-required-no-fallback.md).
 
 ## Query index metadata cached across requests (#2967)
 
@@ -6854,3 +6888,22 @@ Customer-comment body edits preserve the persisted author when `authorUserId` is
 With tenant encryption enabled, Security now encrypts MFA method secrets and provider metadata, including legacy TOTP seeds. Apply the additive `secret_hash` migration before deploying the new writes; regenerate module registries. In-flight plaintext pending setups remain compatible and new setups use the lookup hash. The MFA methods list returns public provider metadata without the private legacy TOTP seed. Do not roll back to code that cannot decrypt these fields.
 
 The SQL migration registers existing enabled scopes; it cannot encrypt historical seeds. During the established encryption maintenance window, preview `mercato entities rotate-encryption-key --tenant <tenant UUID> --dry-run`, then run without `--dry-run` and without an old key for every affected tenant, following the existing maintenance safety gates. Restart replicas and verify no plaintext remains. Disabled encryption/maps remain unchanged. This does not erase old backups or log snapshots; suspected exposure requires re-enrollment. See [the rollout spec](.ai/specs/enterprise/2026-11-07-mfa-secret-encryption.md).
+
+## Workflow event emission requires module opt-in (#9134)
+
+Review stored `EMIT_EVENT` activities before rollout. For a custom business signal,
+declare its exact event ID with `workflowEmittable: true` after checking that its
+subscribers accept tenant-authored data. Route privileged state changes through the
+owning module's authorized operation. The instance supplies tenant and organization
+scope on every workflow emission.
+
+Upgrade application and event worker processes together. Gateway status and index
+jobs created before this change may lack trusted scope and will fail closed. Reconcile
+incomplete payment statuses from the gateway provider and resubmit necessary index
+work through the index API or CLI. Custom server-side event producers for these jobs
+must pass trusted scope in emit options. An all-tenant reindex requires
+`tenantId: null` and `allowAllTenants: true` in those options.
+
+## MCP Code Mode execution requires explicit direct mode
+
+MCP hides Code Mode `execute` when the mutation mode is unset, including reads through that tool. Code Mode discovery and typed tools retain their existing exposure rules. Clients can switch to typed read or write tools, including the approval workflow when configured. Operators who intentionally permit direct Code Mode execution can set `OM_MCP_MUTATION_MODE=direct` or pass `--mutation-mode direct`. The full-app Compose manifests forward the variable from the project environment to both the app and the MCP sidecar. Hosts supplying an exposure configuration programmatically must set `explicitDirectMode: true` together with `mutationMode: 'direct'`.
