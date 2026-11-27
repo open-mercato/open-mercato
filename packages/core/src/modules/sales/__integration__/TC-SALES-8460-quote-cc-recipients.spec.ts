@@ -169,7 +169,10 @@ test.describe('TC-SALES-8460: CC recipients on quote send', () => {
       await page.goto(`/backend/sales/quotes/${encodeURIComponent(quoteId as string)}`, { waitUntil: 'domcontentloaded' })
 
       const dialog = await openSendDialog(page)
-      const ccField = dialog.getByLabel('CC', { exact: true })
+      const ccField = dialog.getByLabel('Send a copy to', { exact: true })
+      const copyHint = 'Each copy is sent as a separate email. Only the main recipient gets the link to accept the quote.'
+      await expect(dialog.getByText(copyHint, { exact: true })).toBeVisible()
+      await expect(dialog).toHaveAccessibleDescription(`Email will be sent to: ${primaryEmail} ${copyHint}`)
 
       await ccField.fill(ccConfirmed)
       await expect(ccField).toHaveValue(ccConfirmed)

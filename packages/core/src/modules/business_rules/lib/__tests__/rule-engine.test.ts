@@ -5,7 +5,7 @@ import * as ruleEvaluator from '../rule-evaluator'
 import * as actionExecutor from '../action-executor'
 import type { RuleEngineContext } from '../rule-engine'
 import type { ActionExecutionOutcome } from '../action-executor'
-import type { BusinessRule } from '../../data/entities'
+import { BusinessRule } from '../../data/entities'
 
 // Mock dependencies
 jest.mock('../rule-evaluator')
@@ -78,6 +78,51 @@ describe('Rule Engine (Unit Tests)', () => {
 
     // Reset all mocks
     jest.clearAllMocks()
+  })
+
+  test('looks up a named workflow rule only within the supplied tenant and organization', async () => {
+    const rule = {
+      id: testEntityId,
+      ruleId: 'WORKFLOW-START',
+      ruleName: 'Workflow START rule',
+      ruleType: 'GUARD',
+      enabled: true,
+      tenantId: testTenantId,
+      organizationId: testOrgId,
+    } as BusinessRule
+    const storedQuery = {
+      ruleId: rule.ruleId,
+      tenantId: testTenantId,
+      organizationId: testOrgId,
+      deletedAt: null,
+    }
+    mockEm.findOne.mockResolvedValueOnce(rule).mockResolvedValue(null)
+    jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
+      rule,
+      conditionsPassed: true,
+      evaluationCompleted: true,
+      evaluationTime: 1,
+    })
+    const context = {
+      ruleId: rule.ruleId,
+      data: { workflowContext: {} },
+      tenantId: testTenantId,
+      organizationId: testOrgId,
+      dryRun: true,
+      skipActions: true,
+    }
+    await expect(ruleEngine.executeRuleByRuleId(mockEm, context)).resolves.toMatchObject({
+      conditionResult: true,
+    })
+    const otherId = '00000000-0000-4000-8000-000000000004'
+    await expect(ruleEngine.executeRuleByRuleId(mockEm, { ...context, organizationId: otherId }))
+      .resolves.toMatchObject({ error: 'Rule not found' })
+    await expect(ruleEngine.executeRuleByRuleId(mockEm, { ...context, tenantId: otherId }))
+      .resolves.toMatchObject({ error: 'Rule not found' })
+    expect(mockEm.findOne).toHaveBeenNthCalledWith(1, BusinessRule, storedQuery)
+    expect(mockEm.findOne).toHaveBeenNthCalledWith(2, BusinessRule, { ...storedQuery, organizationId: otherId })
+    expect(mockEm.findOne).toHaveBeenNthCalledWith(3, BusinessRule, { ...storedQuery, tenantId: otherId })
+    expect(ruleEvaluator.evaluateSingleRule).toHaveBeenCalledTimes(1)
   })
 
   describe('findApplicableRules', () => {

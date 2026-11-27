@@ -282,18 +282,7 @@ function ComposeModeFields({ compose }: ComposeProps) {
         textareaClassName="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
-      <div className="space-y-2">
-        <Label>{compose.t('messages.attachedFiles', 'Attachments')}</Label>
-        <AttachmentsSection
-          entityId={compose.attachmentEntityId}
-          recordId={compose.attachmentRecordId}
-          showHeader={false}
-          compact
-          onChanged={() => {
-            void compose.loadAttachmentIds().catch(() => null)
-          }}
-        />
-      </div>
+      <MessageAttachments compose={compose} />
     </>
   )
 }
@@ -310,19 +299,22 @@ function ReplyModeFields({ compose }: ComposeProps) {
         textareaClassName="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
-      <div className="space-y-2">
-        <Label>{compose.t('messages.attachedFiles', 'Attachments')}</Label>
-        <AttachmentsSection
-          entityId={compose.attachmentEntityId}
-          recordId={compose.attachmentRecordId}
-          showHeader={false}
-          compact
-          onChanged={() => {
-            void compose.loadAttachmentIds().catch(() => null)
-          }}
-        />
-      </div>
+      <MessageAttachments compose={compose} />
     </>
+  )
+}
+
+function MessageAttachments({ compose }: ComposeProps) {
+  return (
+    <AttachmentsSection
+      entityId={compose.attachmentEntityId}
+      recordId={compose.attachmentRecordId}
+      title={compose.t('messages.attachedFiles', 'Attachments')}
+      className="space-y-2"
+      compact
+      hideWhenUnavailable
+      onChanged={() => { void compose.loadAttachmentIds().catch(() => null) }}
+    />
   )
 }
 

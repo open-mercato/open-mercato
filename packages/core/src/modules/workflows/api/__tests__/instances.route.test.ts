@@ -566,7 +566,8 @@ describe('Workflow Instances API', () => {
           initialContext: { cartId: '123' },
           tenantId: testTenantId,
           organizationId: testOrgId,
-        })
+        }),
+        mockContainer,
       )
     })
 
@@ -581,7 +582,8 @@ describe('Workflow Instances API', () => {
 
       expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
         mockEm,
-        expect.objectContaining({ isDryRun: false })
+        expect.objectContaining({ isDryRun: false }),
+        mockContainer,
       )
     })
 
@@ -602,7 +604,8 @@ describe('Workflow Instances API', () => {
       )
       expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
         mockEm,
-        expect.objectContaining({ isDryRun: true })
+        expect.objectContaining({ isDryRun: true }),
+        mockContainer,
       )
     })
 
@@ -640,7 +643,8 @@ describe('Workflow Instances API', () => {
           metadata: expect.objectContaining({
             initiatedBy: testUserId,
           }),
-        })
+        }),
+        mockContainer,
       )
     })
 
@@ -672,7 +676,8 @@ describe('Workflow Instances API', () => {
             entityId: 'order-123',
             initiatedBy: testUserId,
           }),
-        })
+        }),
+        mockContainer,
       )
       expect(workflowExecutor.executeWorkflow).toHaveBeenCalledWith(
         mockEm,
@@ -1234,7 +1239,7 @@ describe('Workflow Instances API', () => {
           organizationId: { $in: [testOrgId] },
         }),
         expect.objectContaining({
-          orderBy: { occurredAt: 'DESC' },
+          orderBy: { occurredAt: 'DESC', id: 'DESC' },
         })
       )
     })

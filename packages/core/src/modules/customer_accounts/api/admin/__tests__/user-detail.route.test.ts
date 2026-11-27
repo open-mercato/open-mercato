@@ -22,6 +22,7 @@ const mockEmit = jest.fn(async () => undefined)
 const mockEm: Record<string, unknown> = {
   find: mockEmFind,
   findOne: mockEmFindOne,
+  getMetadata: () => ({ find: (entity: unknown) => ({ class: entity }) }),
   create: mockEmCreate,
   persist: mockEmPersist,
   flush: mockEmFlush,

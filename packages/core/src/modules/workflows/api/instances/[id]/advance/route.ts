@@ -156,6 +156,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     // Build evaluation context
     const evalContext: transitionHandler.TransitionEvaluationContext = {
+      container,
       workflowContext: instance.context,
       userId: auth.sub,
       triggerData: input.triggerData,

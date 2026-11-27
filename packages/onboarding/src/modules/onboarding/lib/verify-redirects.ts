@@ -6,6 +6,13 @@ function clearAuthCookies(response: NextResponse) {
   response.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   response.cookies.set('session_token', '', { path: '/', maxAge: 0 })
   response.cookies.set('om_login_tenant', '', { path: '/', maxAge: 0 })
+  // These redirects end a session, so the scope selection made under the ended
+  // identity must not outlive it: `applySuperAdminScope` honors these cookies for
+  // super-admins without checking who made the selection, and a stale pair would
+  // silently re-scope whoever signs in next on this browser. Mirrors the auth
+  // login/logout clears.
+  response.cookies.set('om_selected_org', '', { path: '/', maxAge: 0 })
+  response.cookies.set('om_selected_tenant', '', { path: '/', maxAge: 0 })
 }
 
 function setTenantCookie(response: NextResponse, tenantId: string) {
