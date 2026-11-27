@@ -90,7 +90,6 @@ describe('sales.credit_memos.create order link', () => {
       organizationId: ORGANIZATION_ID,
       tenantId: TENANT_ID,
       orderId: ORDER_ID,
-      creditMemoNumber: 'CM-1',
       currencyCode: 'USD',
     }, ctx as never)
 
@@ -202,7 +201,6 @@ describe('sales.credit_memos.create invoice link', () => {
       organizationId: ORGANIZATION_ID,
       tenantId: TENANT_ID,
       invoiceId: INVOICE_ID,
-      creditMemoNumber: 'CM-2',
       currencyCode: 'USD',
     }, ctx as never)
 
