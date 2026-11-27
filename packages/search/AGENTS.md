@@ -548,6 +548,7 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 
 | Variable | When to configure | MUST rules |
 |----------|-------------------|------------|
+| `FULLTEXT_DRIVER` | When more than one fulltext driver is configured, or to pin the choice | Driver id (`meilisearch`, or one registered by a provider package). Unset = auto-detect the single configured driver |
 | `MEILISEARCH_HOST` | When enabling fulltext search | MUST be a valid URL to a running Meilisearch instance |
 | `MEILISEARCH_API_KEY` | When enabling fulltext search | MUST match the Meilisearch server's master or admin key |
 | `OPENAI_API_KEY` | When enabling vector search with OpenAI | MUST be a valid OpenAI API key with embeddings access |
@@ -761,7 +762,7 @@ packages/search/src/
 │   ├── di.ts             # DI registration
 │   ├── subscribers/      # Event subscribers (fulltext_upsert, vector_upsert, delete)
 │   └── workers/          # Queue workers (fulltext-index, vector-index)
-├── fulltext/             # Fulltext drivers (Meilisearch)
+├── fulltext/             # Fulltext driver registry + built-in Meilisearch driver
 ├── indexer/              # SearchIndexer implementation
 ├── queue/                # Queue definitions
 ├── strategies/           # Strategy implementations

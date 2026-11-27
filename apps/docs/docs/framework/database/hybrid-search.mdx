@@ -227,15 +227,22 @@ await strategy.search('customer support issues', { tenantId: 'tenant-123' })
 
 ### FullTextSearchStrategy (id `fulltext`, priority 30)
 
-Wraps a pluggable `FullTextSearchDriver` for fast full-text fuzzy search with typo tolerance. The only implemented driver today is Meilisearch (chosen automatically when `MEILISEARCH_HOST` is set).
+Wraps a pluggable `FullTextSearchDriver` for fast full-text fuzzy search with typo tolerance. Drivers live in a registry: the built-in Meilisearch driver registers itself, and provider packages register theirs (see [Adding a fulltext driver](#adding-a-fulltext-driver)). `createFulltextDriver()` picks the driver as follows:
+
+| `FULLTEXT_DRIVER` | Configured drivers | Result |
+|---|---|---|
+| unset | none | no fulltext strategy (search falls back to tokens) |
+| unset | exactly one (Meilisearch when `MEILISEARCH_HOST` is set) | that driver |
+| unset | more than one | Meilisearch if configured, otherwise the first registered; a warning asks you to set `FULLTEXT_DRIVER` |
+| a registered id | that driver configured | that driver |
+| a registered id | that driver not configured, or the id unknown | no fulltext strategy; reported as `search.fulltext_driver_unconfigured` / `search.fulltext_driver_unknown` |
 
 ```ts
-const driver = createFulltextDriver({
-  host: process.env.MEILISEARCH_HOST,
-  apiKey: process.env.MEILISEARCH_API_KEY,
-})
-const strategy = new FullTextSearchStrategy(driver)
-await strategy.search('jhon doe', { tenantId: 'tenant-123' }) // handles typos
+import { createFulltextDriver, FullTextSearchStrategy } from '@open-mercato/search'
+
+const driver = createFulltextDriver() // honours FULLTEXT_DRIVER, MEILISEARCH_* and registered providers
+const strategy = driver ? new FullTextSearchStrategy(driver) : null
+await strategy?.search('jhon doe', { tenantId: 'tenant-123' }) // handles typos
 ```
 
 ## Result Merging
@@ -323,6 +330,9 @@ The exported opt-in `VectorIndexService` applies the same callback and query-eng
 ## Environment Configuration
 
 ```bash
+# Fulltext driver (optional; unset = auto-detect the single configured driver)
+FULLTEXT_DRIVER=meilisearch
+
 # Fulltext — Meilisearch (enables FullTextSearchStrategy)
 MEILISEARCH_HOST=http://localhost:7700
 MEILISEARCH_API_KEY=your_master_key_here
@@ -423,4 +433,39 @@ export function register(container: AppContainer) {
 }
 ```
 
-Adding a new **fulltext backend** (Typesense, Elasticsearch, …) is better done as a `FullTextSearchDriver` behind `FullTextSearchStrategy` — shipped in a dedicated provider package — so it reuses the existing indexing pipeline. See the search architecture spec (`.ai/specs/2026-07-24-search-architecture-clarification-and-evolution.md`) for the roadmap.
+## Adding a fulltext driver
+
+A new **fulltext backend** (Elasticsearch, Typesense, …) is a `FullTextSearchDriver` behind the existing `FullTextSearchStrategy`, shipped in a dedicated provider package so it reuses the indexing pipeline, queues and Settings page. The package registers a factory; the search module selects it through `FULLTEXT_DRIVER` or auto-detection:
+
+```ts
+// packages/fulltext-acme/src/modules/fulltext_acme/di.ts
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { defineProcessDiRegistrar, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
+import { registerFulltextDriverFactory, type FulltextDriverFactory } from '@open-mercato/search'
+import { createAcmeDriver } from '../../driver'
+
+export const acmeDriverFactory: FulltextDriverFactory = {
+  id: 'acme',
+  describe: () => ({
+    id: 'acme',
+    label: 'Acme Search',
+    docsUrl: 'https://acme.example/docs',
+    envVars: [
+      { name: 'ACME_URL', required: true, kind: 'url', hintKey: 'fulltext_acme.hints.url', hint: 'URL of the Acme cluster' },
+      { name: 'ACME_API_KEY', required: true, secret: true, hintKey: 'fulltext_acme.hints.apiKey', hint: 'API key' },
+    ],
+  }),
+  isConfigured: (env = process.env) => Boolean(env.ACME_URL?.trim()),
+  create: (config) => createAcmeDriver(config), // config carries encryptionMapResolver, fieldPolicyResolver, defaultLimit
+}
+
+export function register(_container: AppContainer): void {
+  registerFulltextDriverFactory(acmeDriverFactory)
+}
+
+export default defineProcessDiRegistrar((container: AppContainer) => {
+  registerProcessActivation(container, () => registerFulltextDriverFactory(acmeDriverFactory))
+}, { legacy: register })
+```
+
+Register through the DI lifecycle, never at import time: request containers run module registrars before the core bootstrap creates the search module, and the process root publishes activations before any scope resolves `searchStrategies`, so the factory is always in place when the driver is created, and a disabled or replaced provider does not survive a reload. The driver must honour `config.fieldPolicyResolver` and `config.encryptionMapResolver` exactly as the Meilisearch driver does (encrypted fields never reach the engine when `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` is on), scope every query by tenant and organization, and report `isHealthy() === false` instead of throwing per record when the backend is unreachable. Enable the package's module in `src/modules.ts`. See `.ai/specs/2026-11-27-elasticsearch-fulltext-driver.md` for the first provider package built this way and `.ai/specs/2026-07-24-search-architecture-clarification-and-evolution.md` for the roadmap.
