@@ -25,6 +25,7 @@ export type PendingActionExecutionPlan =
   | {
       kind: 'run'
       input: unknown
+      recordIds: string[]
       expectedRecordVersions: Record<string, string>
       notPreviewedRecordIds: string[]
       droppedDuplicateRecordIds: string[]
@@ -154,6 +155,7 @@ export function planPendingActionExecution(
     return {
       kind: 'run',
       input: toolInput,
+      recordIds: [],
       expectedRecordVersions,
       notPreviewedRecordIds: [],
       droppedDuplicateRecordIds: [],
@@ -177,6 +179,7 @@ export function planPendingActionExecution(
     return {
       kind: 'run',
       input: toolInput,
+      recordIds: Array.from(versionById.keys()),
       expectedRecordVersions: collectVersions(versionById.keys(), versionById),
       notPreviewedRecordIds: [],
       droppedDuplicateRecordIds: [],
@@ -211,6 +214,7 @@ export function planPendingActionExecution(
       kept.length === entries.length
         ? toolInput
         : { ...(toolInput as Record<string, unknown>), records: kept },
+    recordIds: Array.from(keptIds),
     expectedRecordVersions: collectVersions(keptIds, versionById),
     notPreviewedRecordIds: Array.from(notPreviewed),
     droppedDuplicateRecordIds: Array.from(droppedDuplicates),

@@ -34,6 +34,8 @@ import { hasRequiredFeatures } from './auth'
 import { isToolExposed, resolveMcpExposureConfig, type McpExposureConfig } from './mcp-exposure'
 import { resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
+import { matchesPreviewedValues, resolvePreviewFieldDiff } from './prepare-mutation'
+import { readToolAttachmentIds } from './tool-input'
 import {
   planPendingActionExecution,
   resolvePendingActionBatchMessages,
@@ -454,18 +456,28 @@ export async function checkRecordVersion(
   tool: AiToolDefinition,
   ctx: PendingActionAuthContext,
 ): Promise<PendingActionRecheckResult> {
-  return toPublicRecheckResult(await checkConfirmationRecords(action, tool, ctx))
+  const checkedInput = recheckPendingActionToolInput(action, tool)
+  if (!checkedInput.ok) return checkedInput
+  return toPublicRecheckResult(await checkConfirmationRecords(action, tool, ctx, checkedInput.toolInput))
+}
+
+function refuseChangedPreview(): PendingActionRecheckFailResult {
+  return {
+    ok: false,
+    status: 412,
+    code: 'schema_drift',
+    message: 'Pending input no longer matches the approved preview.',
+  }
 }
 
 async function checkConfirmationRecords(
   action: AiPendingAction,
   tool: AiToolDefinition,
   ctx: PendingActionAuthContext,
+  toolInput: unknown,
 ): Promise<PendingActionConfirmationRecheckResult> {
-  const checkedInput = recheckPendingActionToolInput(action, tool)
-  if (!checkedInput.ok) return checkedInput
-  const { toolInput } = checkedInput
   const handlerContext = toHandlerContext(ctx)
+  const verifyPreviewValues = !isRawToolPendingAction(action)
 
   const records = Array.isArray(action.records) ? action.records : null
   if (records && records.length > 0) {
@@ -475,14 +487,12 @@ async function checkConfirmationRecords(
       return { ok: true, executionPlan: plan }
     }
     const currentRows = await tool.loadBeforeRecords(toolInput as never, handlerContext)
-    const currentVersionById = new Map<string, string | null>()
-    for (const row of currentRows ?? []) {
-      currentVersionById.set(row.recordId, row.recordVersion ?? null)
-    }
+    const currentById = new Map((currentRows ?? []).map((row) => [row.recordId, row]))
+    const approvedById = new Map(records.map((record) => [record.recordId, record]))
     const messages = await resolvePendingActionBatchMessages()
     const stale: AiPendingActionFailedRecord[] = []
     for (const record of records as AiPendingActionRecordDiff[]) {
-      const current = currentVersionById.get(record.recordId)
+      const current = currentById.get(record.recordId)
       const captured = record.recordVersion ?? null
       if (current === undefined) {
         stale.push({
@@ -491,7 +501,7 @@ async function checkConfirmationRecords(
         })
         continue
       }
-      if (captured !== null && current !== captured) {
+      if (captured !== null && current.recordVersion !== captured) {
         stale.push({
           recordId: record.recordId,
           error: { code: 'stale_version', message: messages.recordStale },
@@ -509,6 +519,15 @@ async function checkConfirmationRecords(
     }
     const plan = planPendingActionExecution(action, tool, stale, toolInput)
     if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
+    const previewChanged = verifyPreviewValues && plan.recordIds.some((recordId) => {
+      const approved = approvedById.get(recordId)
+      const current = currentById.get(recordId)
+      return approved?.fieldDiff?.length && current && !matchesPreviewedValues(
+        approved.fieldDiff,
+        resolvePreviewFieldDiff(current, plan.input, recordId),
+      )
+    })
+    if (previewChanged) return refuseChangedPreview()
     if (stale.length > 0) {
       return { ok: true, failedRecords: stale, executionPlan: plan }
     }
@@ -535,7 +554,35 @@ async function checkConfirmationRecords(
       extra: { recordId: targetRecordId ?? before?.recordId },
     }
   }
+  if (verifyPreviewValues && before && action.fieldDiff?.length && !matchesPreviewedValues(
+    action.fieldDiff,
+    resolvePreviewFieldDiff(before, toolInput),
+  )) {
+    return refuseChangedPreview()
+  }
   return { ok: true, executionPlan: plan }
+}
+
+async function checkConfirmationInputAndRecords(
+  action: AiPendingAction,
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+): Promise<PendingActionConfirmationRecheckResult> {
+  const attachmentCheck = await checkAttachmentScope(action, ctx)
+  if (!attachmentCheck.ok) return attachmentCheck
+
+  const checkedInput = recheckPendingActionToolInput(action, tool)
+  if (!checkedInput.ok) return checkedInput
+
+  const storedIds = new Set(Array.isArray(action.attachmentIds) ? action.attachmentIds : [])
+  const effectiveIds = new Set(readToolAttachmentIds(checkedInput.toolInput))
+  const additionalIds = Array.from(effectiveIds).filter((id) => !storedIds.has(id))
+  if (additionalIds.length > 0) {
+    const effectiveCheck = await checkAttachmentScope({ ...action, attachmentIds: additionalIds }, ctx)
+    if (!effectiveCheck.ok) return effectiveCheck
+  }
+
+  return checkConfirmationRecords(action, tool, ctx, checkedInput.toolInput)
 }
 
 function toHandlerContext(ctx: PendingActionAuthContext): McpToolContext {
@@ -597,10 +644,7 @@ export async function runPendingActionConfirmationRechecks(
     if (!requesterCheck.ok) return requesterCheck
   }
 
-  const attachmentCheck = await checkAttachmentScope(action, ctx)
-  if (!attachmentCheck.ok) return attachmentCheck
-
-  return checkConfirmationRecords(action, tool!, ctx)
+  return checkConfirmationInputAndRecords(action, tool!, ctx)
 }
 
 async function runRawToolRechecks(
@@ -618,10 +662,7 @@ async function runRawToolRechecks(
   const requesterCheck = await checkRawToolRequester(action, tool!, ctx, { now })
   if (!requesterCheck.ok) return requesterCheck
 
-  const attachmentCheck = await checkAttachmentScope(action, ctx)
-  if (!attachmentCheck.ok) return attachmentCheck
-
-  return checkConfirmationRecords(action, tool!, ctx)
+  return checkConfirmationInputAndRecords(action, tool!, ctx)
 }
 
 /**

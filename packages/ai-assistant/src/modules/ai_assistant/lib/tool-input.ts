@@ -8,6 +8,13 @@ export type StagedToolInputResult =
   | { success: true; input: Record<string, unknown> }
   | { success: false; error: string }
 
+export function readToolAttachmentIds(input: unknown): string[] {
+  if (!input || typeof input !== 'object' || !('attachmentIds' in input)) return []
+  const ids = input.attachmentIds
+  if (!Array.isArray(ids)) return []
+  return ids.filter((value): value is string => typeof value === 'string' && value.length > 0)
+}
+
 function stripEmptyStrings(input: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(input)) {

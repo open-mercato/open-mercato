@@ -261,16 +261,16 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
         title: z.string().transform(transformTitle),
       })).min(2),
     })
-    const captured = (recordId: string) => ({
+    const captured = (recordId: string, title: string) => ({
       recordId,
       entityType: 'catalog.product',
       label: recordId,
       recordVersion: 'v-1',
-      fieldDiff: [],
+      fieldDiff: [{ field: 'title', after: title }],
     })
     const loadBeforeRecords = jest.fn().mockResolvedValue([
-      { ...captured('p-1'), before: {} },
-      { ...captured('p-2'), recordVersion: 'v-2', before: {} },
+      { ...captured('p-1', 'Fresh!'), before: {} },
+      { ...captured('p-2', 'Stale!'), recordVersion: 'v-2', before: {} },
     ])
     const handler = jest.fn().mockResolvedValue({})
     const normalizedInput = {
@@ -283,7 +283,7 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     }
     repoGetByIdMock.mockResolvedValueOnce(makeRow({
       normalizedInput,
-      records: [captured('p-1'), captured('p-2')],
+      records: [captured('p-1', 'Fresh!'), captured('p-2', 'Stale!')],
     }))
     getToolMock.mockReturnValueOnce(makeTool({ inputSchema, isBulk: true, loadBeforeRecords, handler }))
 
@@ -332,6 +332,57 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     expect(await response.json()).toMatchObject({ code: 'stale_version', recordId: 'p-1' })
     expect(repoSetStatusMock).not.toHaveBeenCalled()
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('requires a new preview when the current schema still accepts input but changes a previewed value', async () => {
+    const handler = jest.fn()
+    repoGetByIdMock.mockResolvedValueOnce(makeRow())
+    getToolMock.mockReturnValueOnce(makeTool({
+      inputSchema: z.object({
+        productId: z.string(),
+        patch: z.object({ title: z.string().transform((title) => `${title}!`) }),
+      }),
+      handler,
+    }))
+
+    const response = await POST(buildRequest() as Parameters<typeof POST>[0], buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(412)
+    expect(await response.json()).toMatchObject({ code: 'schema_drift' })
+    expect(repoSetStatusMock).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('checks parsed attachment references with the same tenant and organization scope', async () => {
+    const attachmentId = '5e2b8c71-9d4a-4f3e-8b6c-7a1d2e3f4b5c'
+    const normalizedInput = {
+      productId: 'p-1',
+      patch: { title: 'New' },
+      attachmentIds: [` ${attachmentId} `],
+    }
+    repoGetByIdMock.mockResolvedValueOnce(makeRow({ normalizedInput }))
+    attachmentFindMock.mockResolvedValueOnce([{ id: attachmentId, tenantId: 'tenant-1', organizationId: 'org-1' }])
+    const handler = jest.fn().mockResolvedValue({})
+    getToolMock.mockReturnValueOnce(makeTool({
+      inputSchema: z.object({
+        productId: z.string(),
+        patch: z.object({ title: z.string() }),
+        attachmentIds: z.array(z.string().trim()),
+      }),
+      handler,
+    }))
+
+    const response = await POST(buildRequest() as Parameters<typeof POST>[0], buildContext(PENDING_ACTION_ID))
+
+    expect(response.status).toBe(200)
+    expect(attachmentFindMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { id: { $in: [attachmentId] } },
+      {},
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+    expect(handler).toHaveBeenCalledWith({ ...normalizedInput, attachmentIds: [attachmentId] }, expect.anything())
   })
 
   it('409 expired: expiresAt in the past', async () => {

@@ -22,6 +22,7 @@ import {
   type AiPendingActionRecordDiff,
 } from './pending-action-types'
 import { notifyPendingActionAwaitingApproval } from './pending-action-notify'
+import { readToolAttachmentIds } from './tool-input'
 
 const logger = createLogger('ai_assistant')
 
@@ -285,10 +286,29 @@ function matchBatchPatch(input: unknown, recordId: string): Record<string, unkno
   return {}
 }
 
-function normalizeAttachmentIds(args: Record<string, unknown>): string[] {
-  const raw = args?.attachmentIds
-  if (!Array.isArray(raw)) return []
-  return raw.filter((value): value is string => typeof value === 'string' && value.length > 0)
+export function resolvePreviewFieldDiff(
+  snapshot: AiToolLoadBeforeSingleRecord,
+  input: unknown,
+  batchRecordId?: string,
+): AiPendingActionFieldDiff[] {
+  const patch = snapshot.after ?? (batchRecordId === undefined
+    ? extractPatchFromArgs(input)
+    : matchBatchPatch(input, batchRecordId))
+  return computeFieldDiff(
+    snapshot.before,
+    patch,
+    snapshot.display,
+    snapshot.after != null ? undefined : { keys: Object.keys(patch) },
+  )
+}
+
+export function matchesPreviewedValues(
+  previewed: AiPendingActionFieldDiff[],
+  current: AiPendingActionFieldDiff[],
+): boolean {
+  const approvedValues = Object.fromEntries(previewed.map(({ field, after }) => [field, { after }]))
+  const currentValues = Object.fromEntries(current.map(({ field, after }) => [field, { after }]))
+  return safeStringify(approvedValues) === safeStringify(currentValues)
 }
 
 async function buildSingleRecordDiff(
@@ -326,16 +346,8 @@ async function buildSingleRecordDiff(
       sideEffectsSummary: null,
     }
   }
-  const hasExplicitAfter = before.after != null
-  const patch = before.after ?? extractPatchFromArgs(toolCallArgs)
-  const fieldDiff = computeFieldDiff(
-    before.before,
-    patch,
-    before.display,
-    hasExplicitAfter ? undefined : { keys: Object.keys(patch) },
-  )
   return {
-    fieldDiff,
+    fieldDiff: resolvePreviewFieldDiff(before, toolCallArgs),
     targetEntityType: before.entityType,
     targetRecordId: before.recordId,
     recordVersion: before.recordVersion,
@@ -372,22 +384,13 @@ async function buildBatchRecords(
       sideEffectsSummary: null,
     }
   }
-  const diffs: AiPendingActionRecordDiff[] = rows.map((row) => {
-    const hasExplicitAfter = row.after != null
-    const patch = row.after ?? matchBatchPatch(toolCallArgs, row.recordId)
-    return {
-      recordId: row.recordId,
-      entityType: row.entityType,
-      label: row.label,
-      fieldDiff: computeFieldDiff(
-        row.before,
-        patch,
-        row.display,
-        hasExplicitAfter ? undefined : { keys: Object.keys(patch) },
-      ),
-      recordVersion: row.recordVersion ?? null,
-    }
-  })
+  const diffs: AiPendingActionRecordDiff[] = rows.map((row) => ({
+    recordId: row.recordId,
+    entityType: row.entityType,
+    label: row.label,
+    fieldDiff: resolvePreviewFieldDiff(row, toolCallArgs, row.recordId),
+    recordVersion: row.recordVersion ?? null,
+  }))
   const [firstEntity] = rows
   return {
     records: diffs,
@@ -506,7 +509,7 @@ export async function prepareMutation(
       records,
       sideEffectsSummary,
       recordVersion,
-      attachmentIds: normalizeAttachmentIds(normalizedInput),
+      attachmentIds: [...new Set(readToolAttachmentIds(previewInput))],
       channel: input.channel ?? 'agent',
       apiKeyId: input.apiKeyId ?? null,
       correlationId: input.correlationId ?? null,
@@ -530,8 +533,10 @@ export async function prepareMutation(
     props: {
       pendingActionId: pendingAction.id,
       expiresAt: pendingAction.expiresAt.toISOString(),
-      ...(records ? { records } : { fieldDiff }),
-      ...(sideEffectsSummary ? { sideEffectsSummary } : {}),
+      ...(pendingAction.records
+        ? { records: pendingAction.records }
+        : { fieldDiff: pendingAction.fieldDiff }),
+      ...(pendingAction.sideEffectsSummary ? { sideEffectsSummary: pendingAction.sideEffectsSummary } : {}),
     },
   }
 
@@ -652,7 +657,7 @@ export async function prepareRawToolMutation(
       records: preview.records,
       sideEffectsSummary: preview.sideEffectsSummary,
       recordVersion: preview.recordVersion,
-      attachmentIds: normalizeAttachmentIds(normalizedInput),
+      attachmentIds: readToolAttachmentIds(normalizedInput),
       channel: input.channel,
       apiKeyId: input.apiKeyId ?? null,
       correlationId: input.correlationId ?? null,

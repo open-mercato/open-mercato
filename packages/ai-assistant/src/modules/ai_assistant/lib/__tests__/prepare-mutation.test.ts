@@ -355,6 +355,12 @@ describe('prepareMutation', () => {
     const input = { agent, tool, toolCallArgs }
 
     const { pendingAction, uiPart } = await prepareMutation(input, { ...baseCtx, container })
+    loadBeforeRecord.mockResolvedValueOnce({
+      recordId: 'p-1',
+      entityType: 'catalog.product',
+      recordVersion: 'v-2',
+      before: { title: 'Changed', unit: 'g' },
+    })
     const repeated = await prepareMutation(input, { ...baseCtx, container })
 
     expect(loadBeforeRecord).toHaveBeenCalledWith(
@@ -377,6 +383,7 @@ describe('prepareMutation', () => {
     }))
     expect(repeated.reused).toBe(true)
     expect(repeated.pendingAction.id).toBe(pendingAction.id)
+    expect(repeated.uiPart.props).toEqual(uiPart.props)
   })
 
   it('fallback patch from flat args: untouched snapshot fields and envelope keys do not surface as cleared (regression #7349)', async () => {
