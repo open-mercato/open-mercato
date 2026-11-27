@@ -69,6 +69,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'every packages/* and apps/mercato module acl.ts — localized ACL feature catalog coverage and English title drift (#5500)',
       },
       {
+        path: 'src/modules/entities/lib/__tests__/entityAcl.firstPartyCoverage.test.ts',
+        scans: 'first-party entity and ACL declarations across packages and apps — relation target permissions (#9106)',
+      },
+      {
         path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
         scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
       },
@@ -186,6 +190,10 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
         scans: 'live apps/mercato/src/modules/example sources — local-reference fact discovery, projection and source fingerprints (#4991)',
+      },
+      {
+        path: 'src/lib/scaffold/__tests__/scaffold-ds-contract.test.ts',
+        scans: 'repo-root ESLint DS config and packages/eslint-plugin-ds — design-system compliance of generated CLI scaffold pages',
       },
     ],
   },
@@ -331,6 +339,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
     reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
+  },
+  {
+    path: 'packages/create-app/src/lib/ci-flag.test.ts',
+    reason: 'Reads nothing outside packages/create-app — process.cwd() is a per-test mkdtemp directory it scaffolds into, and its scripts/.github paths are inside that scaffold. Also already unfiltered via the create-app parity step (#3779).',
   },
   {
     path: 'packages/create-app/src/lib/application-csp.test.ts',

@@ -1,5 +1,9 @@
 import { aiTools } from '../ai-tools'
 
+const HOME_ORG_ID = '20000000-0000-4000-8000-000000000001'
+const ALLOWED_ORG_ID = '20000000-0000-4000-8000-000000000002'
+const OTHER_ALLOWED_ORG_ID = '20000000-0000-4000-8000-000000000003'
+
 const getTool = aiTools.find((t) => t.name === 'search_get')
 if (!getTool) throw new Error('search_get tool not found in aiTools — was it renamed?')
 
@@ -31,7 +35,7 @@ function makeCtx(
   }
   const ctx = {
     tenantId: 'tenant-1',
-    organizationId: overrides.organizationId !== undefined ? overrides.organizationId : 'org-1',
+    organizationId: overrides.organizationId !== undefined ? overrides.organizationId : HOME_ORG_ID,
     userId: overrides.userId !== undefined ? overrides.userId : 'user-1',
     userFeatures: overrides.userFeatures ?? ['customers.people.view'],
     isSuperAdmin: overrides.isSuperAdmin ?? false,
@@ -63,7 +67,7 @@ function makeOrgScopeResolver(options: { aclOrganizations: string[] | null; isSu
   const em = {
     find: jest.fn(async (_entity: unknown, filter: { id?: { $in: string[] } }) => {
       const ids = filter?.id?.$in ?? []
-      const known = new Set(options.knownOrgIds ?? ['org-1', 'org-2', 'org-3'])
+      const known = new Set(options.knownOrgIds ?? [HOME_ORG_ID, ALLOWED_ORG_ID, OTHER_ALLOWED_ORG_ID])
       return ids.filter((id) => known.has(id)).map((id) => ({ id, descendantIds: [] }))
     }),
   }
@@ -216,7 +220,7 @@ describe('search_get tool', () => {
 
   describe('org-allowlist enforcement (issue #7808)', () => {
     it('scopes a restricted user with no current org to their organization allowlist', async () => {
-      const orgScope = makeOrgScopeResolver({ aclOrganizations: ['org-2', 'org-3'] })
+      const orgScope = makeOrgScopeResolver({ aclOrganizations: [ALLOWED_ORG_ID, OTHER_ALLOWED_ORG_ID] })
       const { ctx, mockQuery } = makeCtx(
         { id: 'rec-1', first_name: 'Jane' },
         { organizationId: null, orgScope },
@@ -230,7 +234,7 @@ describe('search_get tool', () => {
       expect(result.found).toBe(true)
       expect(mockQuery).toHaveBeenCalledWith(
         'customers:customer_person_profile',
-        expect.objectContaining({ organizationIds: ['org-2', 'org-3'] }),
+        expect.objectContaining({ organizationIds: [ALLOWED_ORG_ID, OTHER_ALLOWED_ORG_ID] }),
       )
     })
 

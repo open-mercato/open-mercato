@@ -78,6 +78,16 @@ function readDeclaredFeatures(file: string): DeclaredFeature[] {
 }
 
 describe('ACL feature translation catalog', () => {
+  it('localizes the assisted selling permission group in every locale', () => {
+    const key = `${moduleKeyPrefix}assisted_selling`
+    expect(englishDictionary[key]).toBe('Assisted Selling')
+    for (const [locale, dictionary] of Object.entries(dictionaries)) {
+      if (locale === 'en') continue
+      expect(dictionary[key]).toBeTruthy()
+      expect(dictionary[key]).not.toBe(englishDictionary[key])
+    }
+  })
+
   it('keeps English titles aligned with every discovered module ACL declaration', async () => {
     const files = await fg(
       ['packages/*/src/modules/*/acl.ts', 'apps/mercato/src/modules/*/acl.ts'],

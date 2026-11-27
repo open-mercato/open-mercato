@@ -25,7 +25,7 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
-import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
@@ -37,7 +37,7 @@ import {
   DictionaryTable,
   type DictionaryTableEntry,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
-import type { TimeTrackingSettings } from '../../../lib/time-tracking/settings'
+import { TIME_TRACKING_SUPPORT_REFERENCE_PREFIX_KEY, type TimeTrackingSettings } from '../../../lib/time-tracking/settings'
 import { DEFAULT_SUPPORT_REFERENCE_PREFIX } from '../../../lib/time-tracking/settingKeys'
 import type { TimeTrackingSettingsTabContext } from '../../../lib/time-tracking-ui/settingsTabs'
 import {
@@ -226,6 +226,9 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
     [locale, t],
   )
   const scopeVersion = useOrganizationScopeVersion()
+  const tenantId = useOrganizationScopeDetail().tenantId
+  const tenantRef = React.useRef(tenantId)
+  tenantRef.current = tenantId
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { payload: chromePayload, isReady: chromeReady } = useBackendChrome()
   const grantedFeatures = chromePayload?.grantedFeatures
@@ -273,6 +276,7 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
   const { settings, onSettingsSaved } = context
   const savedPrefix = settings.support?.referencePrefix ?? DEFAULT_SUPPORT_REFERENCE_PREFIX
   const [prefix, setPrefix] = React.useState(savedPrefix)
+  const prefixBaselineRef = React.useRef({ tenantId, savedPrefix })
   const [prefixError, setPrefixError] = React.useState<string | null>(null)
   const [prefixSaving, setPrefixSaving] = React.useState(false)
 
@@ -333,8 +337,10 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
   }, [t])
 
   React.useEffect(() => {
-    setPrefix(savedPrefix)
-  }, [savedPrefix])
+    const previous = prefixBaselineRef.current
+    prefixBaselineRef.current = { tenantId, savedPrefix }
+    setPrefix((current) => (previous.tenantId !== tenantId || current === previous.savedPrefix ? savedPrefix : current))
+  }, [savedPrefix, tenantId])
 
   React.useEffect(() => {
     void loadCategories()
@@ -538,9 +544,14 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
     setPrefixSaving(true)
     try {
       const next: TimeTrackingSettings = { ...settings, support: { ...(settings.support ?? {}), referencePrefix: value } }
+      const query = new URLSearchParams({ changedKeys: TIME_TRACKING_SUPPORT_REFERENCE_PREFIX_KEY })
+      if (tenantId) query.set('expectedTenantId', tenantId)
       const call = await runMutation({
         operation: async () => {
-          const call = await apiCall<TimeTrackingSettings>(SETTINGS_URL, {
+          if (tenantId !== tenantRef.current) {
+            throw new Error(t('staff.time_tracking.settings.tenantChanged', 'The tenant changed before the settings were saved. Nothing was saved.'))
+          }
+          const call = await apiCall<TimeTrackingSettings>(`${SETTINGS_URL}?${query.toString()}`, {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(next),
@@ -551,14 +562,19 @@ export default function SupportSettingsTab({ context }: InjectionWidgetComponent
         context: settingsContext,
         mutationPayload: { support: { referencePrefix: value } },
       })
-      if (call.result) onSettingsSaved(call.result)
+      if (tenantId !== tenantRef.current) return
+      if (call.result) {
+        const returnedPrefix = call.result.support?.referencePrefix ?? value
+        setPrefix((current) => (current === prefix ? returnedPrefix : current))
+        onSettingsSaved(call.result)
+      }
       flash(t('staff.support.settings.prefix.saved', 'Reference prefix saved.'), 'success')
     } catch (err) {
       surfaceMutationError(err, 'staff.support.settings.errors.save', 'Failed to save.')
     } finally {
       setPrefixSaving(false)
     }
-  }, [onSettingsSaved, prefix, surfaceMutationError, runMutation, settings, settingsContext, t])
+  }, [onSettingsSaved, prefix, surfaceMutationError, runMutation, settings, settingsContext, t, tenantId])
 
   const categoryLabels = React.useMemo(() => {
     const map = new Map<string, string>()

@@ -52,7 +52,7 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
 }))
 
 import { POST as createDictionary } from '../route'
-import { PATCH as updateDictionary } from '../[dictionaryId]/route'
+import { DELETE as deleteDictionary, PATCH as updateDictionary } from '../[dictionaryId]/route'
 
 function uniqueViolation(constraint: string) {
   const driverError = Object.assign(
@@ -92,6 +92,19 @@ describe('dictionary key unique-constraint conflicts', () => {
     jest.clearAllMocks()
     em.fork.mockReturnValue(em)
     em.create.mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({ id: dictionaryId, ...data }))
+  })
+
+  it('protects system dictionary keys and rejects deleting a system dictionary', async () => {
+    em.findOne.mockResolvedValue({ id: dictionaryId, key: 'default_status', isSystem: true, isActive: true })
+    const updated = await patchDictionary({ key: 'custom_status' })
+    const deleted = await deleteDictionary(
+      new Request(`http://localhost/api/dictionaries/${dictionaryId}`, { method: 'DELETE' }),
+      { params: { dictionaryId } },
+    )
+
+    expect(updated.status).toBe(400)
+    expect(deleted.status).toBe(400)
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('answers POST with the duplicate-key 409 when a deleted dictionary or a racing insert holds the key', async () => {

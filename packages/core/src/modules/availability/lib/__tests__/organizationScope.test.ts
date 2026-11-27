@@ -117,10 +117,10 @@ describe('scopeAvailabilityPolicyWriteInput', () => {
     ).resolves.toMatchObject({ organizationId: SELECTED_ORG, tenantId: TENANT_ID, productId: 'p' })
   })
 
-  it('keeps an explicit organization for the command to check against the scope', async () => {
+  it('rejects an explicit organization outside the actor scope', async () => {
     await expect(
       scopeAvailabilityPolicyWriteInput({ organizationId: OTHER_ORG, tenantId: TENANT_ID }, ctxFor(SELECTED_ORG, SELECTED_ORG)),
-    ).resolves.toMatchObject({ organizationId: OTHER_ORG })
+    ).rejects.toMatchObject({ status: 403 })
   })
 
   it('rejects "All organizations" with a message instead of an organizationId field error (#7080)', async () => {

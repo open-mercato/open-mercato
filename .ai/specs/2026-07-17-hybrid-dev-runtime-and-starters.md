@@ -78,7 +78,13 @@ Breaking (documented in `UPGRADE_NOTES.md`, intentionally no old-path shims):
 
 Follow-ups (out of scope here): mirror `starters/` into `packages/create-app/template/` (tracked via the Template Sync Checklist), optional `--host` hardening flag for `mcp:serve-http`, keycloak `profiles: [sso]` in compose.infra.yml, an env-sync helper for the `OM_AI_*` duplication between root `.env` (container) and `apps/mercato/.env` (host AI runtime).
 
+### Fullapp development security (#9116)
+
+The canonical fullapp dev compose, its root compatibility copy and the standalone template publish ports on `${INFRA_BIND_HOST:-127.0.0.1}`. They require an operator-generated `OPENCODE_PASSWORD` before startup and pass it as native server `OPENCODE_SERVER_PASSWORD` and existing app-client `OPENCODE_PASSWORD`; the healthcheck uses Basic authentication as `opencode`. Explicit password configuration uses the existing client/server protocol and avoids a new secret-distribution service. Operators must recreate both consumers after rotation. Production and hybrid stacks are unchanged.
+
 ## Integration coverage
+
+- `scripts/__tests__/fullapp-dev-agent-security.test.mjs` — native auth wiring, authenticated healthcheck, compose startup refusal without credentials and matching resolved credentials/loopback bindings across canonical, compatibility and standalone files. `OM_TEST_OPENCODE_AUTH=1` additionally runs the pinned image with no network and verifies HTTP 401 without/corrupt credentials and HTTP 200 with the configured Basic credentials. `compose-loopback-ports.test.mjs` also covers all fullapp dev publications.
 
 - `scripts/__tests__/dev-mcp.test.mjs` — flag/env parsing, port/key-path resolution, backoff policy, output classifiers, cold-start health shape, trusted-peer/user-key admission, untrusted well-formed-key rejection before wake/queue (including spoofed forwarded headers), bounded queue, SSE/disconnect and timeout (node:test, `yarn test:scripts`).
 - `scripts/__tests__/dev-session-guard.test.mjs` — atomic conflict, managed-child re-entry, deterministic competing stale recoveries, dead acquisition-gate recovery, stale recovery, symlink identity, surviving-child ownership, no-side-effect rejection, entry-point ordering, and standalone parity.
@@ -99,3 +105,5 @@ Follow-ups (out of scope here): mirror `starters/` into `packages/create-app/tem
 - 2026-11-03: `yarn dev` starts the MCP server lazily behind a launcher-owned proxy (#8339): shape-compatible `/health` (`tools: 0`, additive `lazy: true`) until the server runs, an `x-api-key` format/known-key gate before waking, a 16-request cold-start queue (`429` beyond, 60 s wait), and `OM_DEV_MCP_LAZY=0` for the eager start.
 
 - 2026-11-04: Close the remaining #8339 cold-start boundary: unknown formatted keys require loopback or an explicitly trusted socket peer (`OM_DEV_MCP_TRUSTED_PEERS`); managed-key clients remain supported from all peers. Add HTTP regressions for rejection without wake or queue occupation, trusted user-key forwarding, and invalid trust entries.
+
+- 2026-11-17: Harden fullapp development publications and wire existing OpenCode Basic auth; require documented operator password configuration (#9116).

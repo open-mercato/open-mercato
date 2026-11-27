@@ -53,6 +53,7 @@ export async function GET(
       viewerUserId: auth.sub,
     })
     return NextResponse.json({
+      formId: view.formVersion.formId,
       submission: serializeSubmission(view.submission),
       revision: serializeRevision(view.revision),
       decoded_data: view.decodedData,
@@ -132,6 +133,7 @@ const errorSchema = z.object({
 })
 
 const getResponseSchema = z.object({
+  formId: z.uuid().optional(),
   submission: z.record(z.string(), z.unknown()),
   revision: z.record(z.string(), z.unknown()),
   decoded_data: z.record(z.string(), z.unknown()),

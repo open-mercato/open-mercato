@@ -145,6 +145,36 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     expect(listQuery.offset).toBeUndefined()
   })
 
+  it('keeps CrudForm sink snapshots private while returning the rest of the action context', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    const snapshot = {
+      protocol: 'crud-form-section-sink/v1',
+      before: { supplierReference: 'previous-reference' },
+      after: { supplierReference: 'new-reference' },
+    }
+    const contextJson = {
+      source: 'ui',
+      extensions: {
+        example: { brand: snapshot, legacy: { displayLabel: 'Public activity' } },
+        erp: { supplier: snapshot },
+      },
+    }
+    mockActionLogs.list.mockResolvedValue({
+      items: [makeActionLogEntry({ resourceKind: 'example.todo', contextJson })],
+      total: 1, page: 1, pageSize: 50, totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.items[0].context).toEqual({
+      source: 'ui', extensions: { example: { legacy: { displayLabel: 'Public activity' } } },
+    })
+    expect(contextJson.extensions.example.brand).toBe(snapshot)
+    expect(contextJson.extensions.erp.supplier).toBe(snapshot)
+  })
+
   // Regression for issue #8887 — the route used to serialize decrypted CRM
   // interaction snapshots verbatim, exposing private email subjects/bodies to
   // any viewer with audit_logs.view_tenant regardless of CRM ownership.
@@ -840,6 +870,47 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
 
       expect(res.status).toBe(403)
       expect(mockActionLogs.list).not.toHaveBeenCalled()
+    })
+  })
+
+  // An `audit_logs.view_tenant` holder whose organization visibility list is explicitly empty
+  // resolves to no default organization, which used to drop the organization predicate and
+  // read every organization's action logs in the tenant. Deny it the way undo/redo do.
+  describe('explicitly empty organization scope', () => {
+    const emptyScopes: Array<[string, Record<string, unknown>]> = [
+      ['allowedIds: []', { selectedId: null, filterIds: null, allowedIds: [] }],
+      ['filterIds: []', { selectedId: null, filterIds: [], allowedIds: null }],
+    ]
+
+    it.each(emptyScopes)('is rejected with 403 before the action-log service is reached (%s)', async (_label, scope) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({ organizationId: null, scope })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+      expect(res.status).toBe(403)
+      expect(mockActionLogs.list).not.toHaveBeenCalled()
+    })
+
+    it('keeps the unrestricted all-organizations read unnarrowed', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
+        organizationId: null,
+        scope: { selectedId: null, filterIds: null, allowedIds: null },
+      })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+      expect(res.status).toBe(200)
+      expect(mockActionLogs.list).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'tenant-1', organizationId: undefined, actorSubject: undefined }),
+      )
     })
   })
 

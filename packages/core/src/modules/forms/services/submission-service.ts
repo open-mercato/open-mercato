@@ -17,8 +17,9 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { LockMode } from '@mikro-orm/core'
+import { LockMode, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { z } from 'zod'
 import {
   Form,
@@ -1044,19 +1045,44 @@ export class SubmissionService {
     return { submission, revisions }
   }
 
-  async listSubmissionsBySubject(args: Scope & { subjectType: string; subjectId: string }): Promise<FormSubmission[]> {
+  async listSubmissionsBySubject(args: Scope & {
+    subjectType: string
+    subjectId: string
+    resumeFormId?: string
+  }): Promise<FormSubmission[]> {
     const em = this.emFactory()
-    return em.find(
-      FormSubmission,
-      {
-        organizationId: args.organizationId,
-        tenantId: args.tenantId,
-        subjectType: args.subjectType,
-        subjectId: args.subjectId,
-        deletedAt: null,
-      },
-      { orderBy: { firstSavedAt: 'desc' } },
+    const scope = { organizationId: args.organizationId, tenantId: args.tenantId }
+    const where: FilterQuery<FormSubmission> = {
+      ...scope,
+      subjectType: args.subjectType,
+      subjectId: args.subjectId,
+      deletedAt: null,
+    }
+    if (!args.resumeFormId) {
+      return em.find(FormSubmission, where, { orderBy: { firstSavedAt: 'desc' } })
+    }
+
+    const versions = await findWithDecryption(em, FormVersion, { ...scope, formId: args.resumeFormId }, { fields: ['id'] }, scope)
+    if (versions.length === 0) return []
+
+    const candidates = await findWithDecryption(em, FormSubmission, {
+      ...where,
+      formVersionId: { $in: versions.map((version) => version.id) },
+      status: { $in: ['draft', 'reopened'] },
+    }, { orderBy: { updatedAt: 'desc' } }, scope)
+    const draftRevisionIds = candidates.flatMap((submission) =>
+      submission.status === 'draft' && submission.currentRevisionId ? [submission.currentRevisionId] : [],
     )
+    const revisions = draftRevisionIds.length === 0 ? [] : await findWithDecryption(em, FormSubmissionRevision, {
+      id: { $in: draftRevisionIds },
+      submissionId: { $in: candidates.map((submission) => submission.id) },
+      organizationId: scope.organizationId,
+    }, { fields: ['submissionId', 'revisionNumber', 'changedFieldKeys'] }, scope)
+    const savedRevisionById = new Map(revisions
+      .filter((revision) => revision.revisionNumber > 1 || (revision.changedFieldKeys?.length ?? 0) > 0)
+      .map((revision) => [revision.id, revision.submissionId]))
+    return candidates.filter((submission) => submission.status === 'reopened'
+      || (submission.currentRevisionId && savedRevisionById.get(submission.currentRevisionId) === submission.id))
   }
 
   async listSubmissionsByForm(args: Scope & {

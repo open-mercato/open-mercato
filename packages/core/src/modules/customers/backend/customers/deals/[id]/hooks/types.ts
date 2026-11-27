@@ -81,4 +81,5 @@ export type DealStatsPayload = {
 export type GuardedMutationRunner = <TResult>(
   operation: () => Promise<TResult>,
   mutationPayload?: Record<string, unknown>,
+  onSuccess?: () => void | Promise<void>,
 ) => Promise<TResult>
