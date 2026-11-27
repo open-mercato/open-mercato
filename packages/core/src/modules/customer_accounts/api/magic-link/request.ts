@@ -6,9 +6,6 @@ import {
   resolveTenantContext,
   TenantResolutionError,
 } from '@open-mercato/core/modules/customer_accounts/lib/resolveTenantContext'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
-import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
   checkAuthRateLimit,
@@ -16,6 +13,11 @@ import {
   customerMagicLinkIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+<<<<<<< HEAD
+=======
+import { getMagicLinkDeliveryQueue } from '@open-mercato/core/modules/customer_accounts/lib/authLinkQueue'
+import { detectLocale } from '@open-mercato/shared/lib/i18n/server'
+>>>>>>> e89d24ae81 (fix(customer_accounts): remove account-dependent delivery latency from portal recovery requests (#8889) (#8976))
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -53,6 +55,7 @@ export async function POST(req: Request) {
     throw err
   }
 
+<<<<<<< HEAD
   const container = await createRequestContainer()
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
@@ -70,6 +73,17 @@ export async function POST(req: Request) {
       })
     ).catch(() => undefined)
   }
+=======
+  // Lookup, token minting and email delivery all happen inside a queue worker
+  // (see workers/magicLinkDelivery.ts) so the response never depends on
+  // whether the account exists — known and unknown emails return identically,
+  // without waiting on a DB write or outbound email transport latency (#8889).
+  // `detectLocale()` only reads the request's cookie/Accept-Language — it runs
+  // identically regardless of whether the account exists, so capturing it here
+  // preserves the recovery-email language once delivery moves to the worker.
+  const locale = await detectLocale()
+  await getMagicLinkDeliveryQueue().enqueue({ email, tenantId, locale })
+>>>>>>> e89d24ae81 (fix(customer_accounts): remove account-dependent delivery latency from portal recovery requests (#8889) (#8976))
 
   return NextResponse.json({ ok: true })
 }
