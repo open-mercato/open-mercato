@@ -265,6 +265,18 @@ describe('assertTenantOllamaBaseUrl', () => {
     expect(() => assertTenantOllamaBaseUrl('https://ollama.example.com:11434')).not.toThrow()
   })
 
+  it.each([' ', 'invalid-url'])('honors the HTTPS allowlist with operator URL %j', (operatorUrl) => {
+    process.env.OLLAMA_BASE_URL = operatorUrl
+    process.env.OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST = 'ollama.example.com:11434'
+    expect(() => assertTenantOllamaBaseUrl('https://ollama.example.com:11434')).not.toThrow()
+  })
+
+  it('uses the local default when the operator URL is blank', () => {
+    process.env.NODE_ENV = 'development'
+    process.env.OLLAMA_BASE_URL = ' '
+    expect(() => assertTenantOllamaBaseUrl('http://localhost:11434')).not.toThrow()
+  })
+
   it('preserves the exact explicitly configured private HTTP endpoint', () => {
     process.env.OLLAMA_BASE_URL = 'http://10.0.0.7:11434/ollama'
     process.env.OM_SEARCH_OLLAMA_ALLOW_PRIVATE = 'true'
