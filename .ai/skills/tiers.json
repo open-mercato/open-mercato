@@ -90,7 +90,8 @@
       "skills": [
         "om-dev-container-maintenance",
         "om-integration-builder",
-        "om-backup-database"
+        "om-backup-database",
+        "om-repair-resource-type-references"
       ]
     }
   }
