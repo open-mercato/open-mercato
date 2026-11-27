@@ -519,19 +519,6 @@ export async function reevaluateReservationsAfterStockIncrease(
   }
 }
 
-function emitReleaseBalanceDrift(reservationId: string, scope: Scope): void {
-  void emitWmsEvent('wms.inventory.balance_drift', {
-    id: reservationId,
-    balanceId: reservationId,
-    reservationId,
-    field: 'quantityReserved',
-    attemptedValue: null,
-    clampedValue: null,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  }).catch(() => undefined)
-}
-
 export async function releaseInventoryForCancelledOrder(
   payload: SalesOrderLifecyclePayload,
   ctx: EventContext,
@@ -566,7 +553,16 @@ export async function releaseInventoryForCancelledOrder(
     } catch (error) {
       if (isInvalidReservationStateError(error)) continue
       if (!isBalanceIntegrityViolationError(error)) throw error
-      emitReleaseBalanceDrift(reservation.id, scope)
+      void emitWmsEvent('wms.inventory.balance_drift', {
+        id: reservation.id,
+        balanceId: reservation.id,
+        reservationId: reservation.id,
+        field: 'quantityReserved',
+        attemptedValue: null,
+        clampedValue: null,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      }).catch(() => undefined)
     }
   }
 }
@@ -640,9 +636,7 @@ export async function reconcileInventoryForUpdatedOrder(
           ctx: commandCtx,
         })
       } catch (error) {
-        if (isInvalidReservationStateError(error)) continue
-        if (!isBalanceIntegrityViolationError(error)) throw error
-        emitReleaseBalanceDrift(reservation.id, scope)
+        if (!isInvalidReservationStateError(error) && !isBalanceIntegrityViolationError(error)) throw error
       }
     }
   } finally {

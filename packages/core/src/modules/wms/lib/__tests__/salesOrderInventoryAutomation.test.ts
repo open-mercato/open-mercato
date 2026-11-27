@@ -465,7 +465,6 @@ describe('reconcileInventoryForUpdatedOrder', () => {
     loadExplicitWarehouseIdForOrderMock.mockReset()
     loadExplicitWarehouseIdForOrderMock.mockResolvedValue(null)
     emitWmsEventMock.mockReset()
-    emitWmsEventMock.mockResolvedValue(undefined)
     execute.mockReset()
     execute.mockImplementation(async (commandId, call) => {
       if (commandId === 'wms.inventory.release') {
@@ -479,15 +478,13 @@ describe('reconcileInventoryForUpdatedOrder', () => {
         return reservations.filter((item) => item.status === 'active') as unknown as InventoryReservation[]
       }
       if (entity === InventoryBalance) {
-        return [
-          {
-            catalogVariantId: 'variant-1',
-            quantityOnHand: '20',
-            quantityReserved: '0',
-            quantityAllocated: '0',
-            warehouse: { id: 'warehouse-1' },
-          },
-        ] as unknown as InventoryBalance[]
+        return ['variant-1', 'variant-2'].map((catalogVariantId) => ({
+          catalogVariantId,
+          quantityOnHand: '20',
+          quantityReserved: '0',
+          quantityAllocated: '0',
+          warehouse: { id: 'warehouse-1' },
+        })) as unknown as InventoryBalance[]
       }
       return []
     })
@@ -546,30 +543,35 @@ describe('reconcileInventoryForUpdatedOrder', () => {
     ])
   })
 
-  it('keeps going and reports drift when a release hits a balance integrity violation', async () => {
+  it('keeps going when a release hits an invalid reservation state or a balance integrity violation', async () => {
     reservations = [
       { id: 'reservation-8', catalogVariantId: 'variant-1', quantity: '8', status: 'active' },
       { id: 'reservation-2', catalogVariantId: 'variant-1', quantity: '2', status: 'active' },
     ]
-    const defaultImplementation = execute.getMockImplementation()!
-    execute.mockImplementation(async (commandId, call) => {
-      if (call.input.reservationId === 'reservation-8') {
-        throw new CrudHttpError(409, { error: 'balance_integrity_violation' })
-      }
-      return defaultImplementation(commandId, call)
+    execute.mockImplementation(async (_commandId, call) => {
+      const error = call.input.reservationId === 'reservation-8' ? 'balance_integrity_violation' : 'invalid_reservation_state'
+      throw new CrudHttpError(409, { error })
     })
     const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '4' }])
 
     await reconcileInventoryForUpdatedOrder(payload, ctx)
 
-    expect(execute.mock.calls.map(([, call]) => call.input.reservationId ?? call.input.quantity)).toEqual([
-      'reservation-8',
-      'reservation-2',
+    expect(execute.mock.calls.map(([, call]) => call.input.reservationId)).toEqual(['reservation-8', 'reservation-2'])
+  })
+
+  it('tops up only the variants it trimmed', async () => {
+    reservations = [{ id: 'reservation-10', catalogVariantId: 'variant-1', quantity: '10', status: 'active' }]
+    const { ctx } = buildCtx({ status: 'confirmed' }, [
+      { variantId: 'variant-1', quantity: '2' },
+      { variantId: 'variant-2', quantity: '3' },
     ])
-    expect(emitWmsEventMock).toHaveBeenCalledWith(
-      'wms.inventory.balance_drift',
-      expect.objectContaining({ reservationId: 'reservation-8', tenantId: 'tenant-1', organizationId: 'org-1' }),
-    )
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(execute.mock.calls.map(([commandId, call]) => [commandId, call.input.reservationId ?? call.input.catalogVariantId])).toEqual([
+      ['wms.inventory.release', 'reservation-10'],
+      ['wms.inventory.reserve', 'variant-1'],
+    ])
   })
 
   it('leaves a variant alone while one of its reservations is allocated', async () => {
@@ -616,6 +618,7 @@ describe('reconcileInventoryForUpdatedOrder', () => {
     await reconcileInventoryForUpdatedOrder({ ...payload, documentKind: 'quote' }, quote.ctx)
 
     expect(execute).not.toHaveBeenCalled()
+    expect(cancelled.queryEngine.query).toHaveBeenCalledTimes(1)
     expect(quote.queryEngine.query).not.toHaveBeenCalled()
   })
 
