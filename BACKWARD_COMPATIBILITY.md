@@ -687,9 +687,9 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 
 STABLE: nonempty inputs require principal/owner read access; bridges retain disclosure. [Migration/spec](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). Steps 1–3 waived by @pkarw on 2026-11-13.
 
-## Attachment upload owner access (2026-11-07, #8891)
+## Attachment uploads (2026-11-07, #8891)
 
-Generic upload enforces #6726/#6829 via `create`. [Migration](.ai/specs/2026-10-01-attachment-access-resolvers.md). Ack pending.
+Enforces #6726/#6829 via `create`. [Upgrade](UPGRADE_NOTES.md). Ack pending.
 
 ## 2026-11-07 — Private next-interaction subjects (#8888)
 
