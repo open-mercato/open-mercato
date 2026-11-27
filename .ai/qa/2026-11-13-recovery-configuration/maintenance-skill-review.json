@@ -1,0 +1,14 @@
+{
+  "scope": "Read-only instruction walkthrough, no actual operations",
+  "commonBackupFilesIdenticalAcrossWorktrees": true,
+  "portableLocalLinksResolved": 21,
+  "scenarios": {
+    "authorizedSelectedDockerBackup": "Reuse selected prebuilt image/profile/existing volume authorization, inspect files/runtime read-only, invoke ephemeral CLI with no-deps and no-pull; no redundant permission question",
+    "unspecifiedDockerRuntime": "Resolve missing deployment/profile/image/volume scope before execution; no guessed remembered image or infrastructure provisioning",
+    "missingImageOrVolume": "Stop prerequisite; no pull, build, download, volume creation or permission repair",
+    "dockerRotationResume": "Preserve original volume/profile/custody/provider/bindings, use verified direct Node app CLI and fresh matching protected guards; no app/DB service startup",
+    "standalonePortability": "Verify corresponding selected image Node launcher; no checkout or mandatory Yarn/Corepack installation"
+  },
+  "verdict": "PASS: no blocker/major",
+  "repositoryEdits": false
+}

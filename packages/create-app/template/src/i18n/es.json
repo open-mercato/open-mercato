@@ -1018,6 +1018,7 @@
   "ui.filters.dateRange.to": "Hasta",
   "ui.filters.select.placeholder": "Selecciona una opción",
   "ui.filters.title": "Filtros",
+  "ui.flash.dismiss": "Descartar notificación",
   "ui.forms.actions.cancel": "Cancelar",
   "ui.forms.actions.clear": "Limpiar",
   "ui.forms.actions.delete": "Eliminar",

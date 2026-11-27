@@ -827,12 +827,12 @@ describe('payment gateway service — cumulative capture ceiling (#4487)', () =>
 })
 
 describe('payment gateway service — refund webhook that overtakes the capture', () => {
-  const emitted: Array<{ eventId: string; previousStatus: unknown }> = []
+  const emitted: Array<{ eventId: string; previousStatus: unknown; scope: unknown }> = []
 
   beforeAll(() => {
     setGlobalEventBus({
-      emit: async (eventId: string, payload: unknown) => {
-        emitted.push({ eventId, previousStatus: (payload as { previousStatus?: unknown }).previousStatus })
+      emit: async (eventId: string, payload: unknown, options: unknown) => {
+        emitted.push({ eventId, previousStatus: (payload as { previousStatus?: unknown }).previousStatus, scope: options })
       },
     } as never)
   })
@@ -864,9 +864,9 @@ describe('payment gateway service — refund webhook that overtakes the capture'
 
     expect(transaction.unifiedStatus).toBe(refundStatus)
     expect(transaction.capturedAmount).toBe('100')
-    const expectedEvents = [{ eventId: 'payment_gateways.payment.captured', previousStatus: initialStatus }]
+    const expectedEvents = [{ eventId: 'payment_gateways.payment.captured', previousStatus: initialStatus, scope }]
     if (refundStatus === 'refunded') {
-      expectedEvents.push({ eventId: 'payment_gateways.payment.refunded', previousStatus: 'captured' })
+      expectedEvents.push({ eventId: 'payment_gateways.payment.refunded', previousStatus: 'captured', scope })
     }
     expect(emitted).toEqual(expectedEvents)
   })
@@ -907,7 +907,7 @@ describe('payment gateway service — refund webhook that overtakes the capture'
 
     expect(transaction.unifiedStatus).toBe('refunded')
     expect(transaction.capturedAmount).toBe('40.0000')
-    expect(emitted).toEqual([{ eventId: 'payment_gateways.payment.refunded', previousStatus: 'partially_captured' }])
+    expect(emitted).toEqual([{ eventId: 'payment_gateways.payment.refunded', previousStatus: 'partially_captured', scope }])
   })
 
   it.each<UnifiedPaymentStatus>(['cancelled', 'failed', 'expired', 'refunded'])(

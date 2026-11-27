@@ -28,7 +28,7 @@ test.describe('TC-WC-001: warranty claims CRUD API', () => {
     const { organizationId } = getTokenContext(adminToken)
     const stamp = uniqueLabel('tc-wc-001')
     const noFeatureEmail = `${stamp}@test.invalid`
-    const noFeaturePassword = 'Valid1!Pass'
+    const noFeaturePassword = 'QaValid1!Pass'
 
     let roleId: string | null = null
     let noFeatureUserId: string | null = null

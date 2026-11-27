@@ -46,8 +46,8 @@ export type RuntimeStartedState = {
 
 export interface RuntimeClient {
   loadActiveSchema(): Promise<RunnerActiveFormResponse>
-  loadResumeCandidates(): Promise<RunnerSubmission[]>
-  loadSubmissionDetail(submissionId: string): Promise<RuntimeStartedState>
+  loadResumeCandidates(formId?: string): Promise<RunnerSubmission[]>
+  loadSubmissionDetail(submissionId: string, resumeFormId?: string): Promise<RuntimeStartedState>
   startSubmission(): Promise<RuntimeStartedState>
   save(
     submissionId: string,
@@ -123,9 +123,7 @@ function viewToStarted(view: RunnerSubmissionView): RuntimeStartedState {
 }
 
 // ============================================================================
-// Authenticated client (default) — verbatim port of the inline apiCall logic
-// that `useFormRunner` shipped with. Behaviour MUST stay byte-for-byte
-// identical to the authenticated portal flow.
+// Authenticated client (default) — customer portal session.
 // ============================================================================
 
 export type CreateAuthRuntimeClientArgs = {
@@ -137,38 +135,45 @@ export type CreateAuthRuntimeClientArgs = {
 export function createAuthRuntimeClient(args: CreateAuthRuntimeClientArgs): RuntimeClient {
   const { formKey, subjectType, subjectId } = args
 
-  return {
-    async loadActiveSchema() {
-      const response = await apiCall<RunnerActiveFormResponse>(
-        `/api/forms/by-key/${encodeURIComponent(formKey)}/active`,
-      )
-      if (response.status === 401) {
-        throw makeError('UNAUTHORIZED', 'You need to be signed in to fill this form.')
-      }
-      if (response.status === 404) {
-        throw makeError('NOT_FOUND', 'We couldn\'t find that form.')
-      }
-      if (response.status === 422) {
-        throw makeError('NO_PUBLISHED_VERSION', 'This form has no published version yet.')
-      }
-      if (!response.ok || !response.result) {
-        throw makeError('UNKNOWN', `Failed to load form (status ${response.status}).`)
-      }
-      return response.result
-    },
+  async function loadActiveSchema(): Promise<RunnerActiveFormResponse> {
+    const response = await apiCall<RunnerActiveFormResponse>(
+      `/api/forms/by-key/${encodeURIComponent(formKey)}/active`,
+    )
+    if (response.status === 401) {
+      throw makeError('UNAUTHORIZED', 'You need to be signed in to fill this form.')
+    }
+    if (response.status === 404) {
+      throw makeError('NOT_FOUND', 'We couldn\'t find that form.')
+    }
+    if (response.status === 422) {
+      throw makeError('NO_PUBLISHED_VERSION', 'This form has no published version yet.')
+    }
+    if (!response.ok || !response.result) {
+      throw makeError('UNKNOWN', `Failed to load form (status ${response.status}).`)
+    }
+    return response.result
+  }
 
-    async loadResumeCandidates() {
+  function matchesResumeSubject(submission: RunnerSubmission): boolean {
+    return submission.subjectType === subjectType
+      && submission.subjectId.toLowerCase() === subjectId.toLowerCase()
+      && (submission.status === 'draft' || submission.status === 'reopened')
+  }
+
+  return {
+    loadActiveSchema,
+
+    async loadResumeCandidates(formId) {
+      const scopedFormId = formId ?? (await loadActiveSchema()).form.id
       const response = await apiCall<{ items: RunnerSubmission[] }>(
-        `/api/forms/form-submissions/by-subject/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}`,
+        `/api/forms/form-submissions/by-subject/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}?resume_form_id=${encodeURIComponent(scopedFormId)}`,
       )
       if (!response.ok || !response.result) return []
-      return response.result.items.filter(
-        (entry) => entry.status === 'draft' || entry.status === 'reopened',
-      )
+      return response.result.items.filter(matchesResumeSubject)
     },
 
-    async loadSubmissionDetail(submissionId: string) {
-      const response = await apiCall<RunnerSubmissionView>(
+    async loadSubmissionDetail(submissionId, resumeFormId) {
+      const response = await apiCall<RunnerSubmissionView & { formId?: string }>(
         `/api/forms/form-submissions/${encodeURIComponent(submissionId)}`,
       )
       if (response.status === 404) {
@@ -176,6 +181,9 @@ export function createAuthRuntimeClient(args: CreateAuthRuntimeClientArgs): Runt
       }
       if (!response.ok || !response.result) {
         throw makeError('UNKNOWN', `Failed to load submission (status ${response.status}).`)
+      }
+      if (resumeFormId && (response.result.formId !== resumeFormId || !matchesResumeSubject(response.result.submission))) {
+        throw makeError('NOT_FOUND', 'Submission not found.')
       }
       return viewToStarted(response.result)
     },

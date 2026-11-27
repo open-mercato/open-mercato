@@ -1018,6 +1018,7 @@
   "ui.filters.dateRange.to": "Bis",
   "ui.filters.select.placeholder": "Select an option",
   "ui.filters.title": "Filter",
+  "ui.flash.dismiss": "Benachrichtigung schließen",
   "ui.forms.actions.cancel": "Abbrechen",
   "ui.forms.actions.clear": "Leeren",
   "ui.forms.actions.delete": "Löschen",

@@ -26,6 +26,7 @@ import {
   buildDistinctCurrencyQuery,
   buildGroupSourceRowsQuery,
   resolveGroupExpression,
+  resolveWidgetGroupLimit,
 } from '../lib/aggregations'
 import {
   type ExactDecimal,
@@ -249,6 +250,8 @@ export type WidgetDataItem = {
   value: number | null
 }
 
+type WidgetQueryResult = { value: number | null; data: WidgetDataItem[]; truncated?: boolean }
+
 export type WidgetDataResponse = {
   value: number | null
   data: WidgetDataItem[]
@@ -260,6 +263,7 @@ export type WidgetDataResponse = {
   metadata: {
     fetchedAt: string
     recordCount: number
+    truncated?: boolean
     currency?: string | null
   }
 }
@@ -296,7 +300,7 @@ export class WidgetDataService {
   private buildCacheKey(request: WidgetDataRequest): string {
     const hash = createHash('sha256')
     hash.update(JSON.stringify({ request, scope: this.scope }))
-    return `widget-data:${hash.digest('hex').slice(0, 16)}`
+    return `widget-data:v3:${hash.digest('hex').slice(0, 16)}`
   }
 
   private getCacheTags(entityType: string): string[] {
@@ -345,7 +349,7 @@ export class WidgetDataService {
       this.executeQuery(request, dateRangeResolved),
       shouldFetchComparison && comparisonRange
         ? this.executeQuery(request, comparisonRange)
-        : Promise.resolve<{ value: number | null; data: WidgetDataItem[] } | undefined>(undefined),
+        : Promise.resolve(undefined),
       this.resolveCurrencyLabel(request, aggregatedRanges),
     ])
 
@@ -355,6 +359,7 @@ export class WidgetDataService {
       metadata: {
         fetchedAt: now.toISOString(),
         recordCount: mainResult.data.length || (mainResult.value !== null ? 1 : 0),
+        ...(mainResult.truncated ? { truncated: true } : {}),
         currency,
       },
     }
@@ -579,11 +584,11 @@ export class WidgetDataService {
   private async executeQuery(
     request: WidgetDataRequest,
     dateRange?: { start: Date; end: Date },
-  ): Promise<{ value: number | null; data: WidgetDataItem[] }> {
+  ): Promise<WidgetQueryResult> {
     if (request.groupBy) {
       const encryptedSource = await this.resolveEncryptedGroupSource(request.entityType, request.groupBy)
       if (encryptedSource) {
-        return this.executeEncryptedGroupQuery(request, encryptedSource, dateRange)
+        return this.executeEncryptedGroupQuery(request, request.groupBy, encryptedSource, dateRange)
       }
     }
 
@@ -605,17 +610,12 @@ export class WidgetDataService {
     const results = Array.isArray(rows) ? rows : []
 
     if (request.groupBy) {
-      let data: WidgetDataItem[] = results.map((row: Record<string, unknown>) => ({
+      const data: WidgetDataItem[] = results.map((row: Record<string, unknown>) => ({
         groupKey: row.group_key,
         value: row.value !== null ? Number(row.value) : null,
       }))
 
-      if (request.groupBy.resolveLabels) {
-        data = await this.resolveGroupLabels(data, request.entityType, request.groupBy.field)
-      }
-
-      const totalValue = data.reduce((sum: number, item: WidgetDataItem) => sum + (item.value ?? 0), 0)
-      return { value: totalValue, data }
+      return this.finishGroupedQuery(request, request.groupBy, data, dateRange)
     }
 
     const singleValue = results[0]?.value !== undefined ? Number(results[0].value) : null
@@ -689,9 +689,10 @@ export class WidgetDataService {
    */
   private async executeEncryptedGroupQuery(
     request: WidgetDataRequest,
+    groupBy: NonNullable<WidgetDataRequest['groupBy']>,
     source: EncryptedGroupSource,
     dateRange?: { start: Date; end: Date },
-  ): Promise<{ value: number | null; data: WidgetDataItem[] }> {
+  ): Promise<WidgetQueryResult> {
     const query = buildGroupSourceRowsQuery({
       entityType: request.entityType,
       metric: request.metric,
@@ -763,20 +764,30 @@ export class WidgetDataService {
       })
     }
 
-    let data: WidgetDataItem[] = Array.from(buckets.entries())
+    const data: WidgetDataItem[] = Array.from(buckets.entries())
       .map(([groupKey, bucket]) => ({ groupKey, value: aggregateBucket(request.metric.aggregate, bucket) }))
       .sort(compareWidgetDataItemsByValueDesc)
 
-    if (request.groupBy?.limit && request.groupBy.limit > 0) {
-      data = data.slice(0, Math.min(request.groupBy.limit, 100))
-    }
+    return this.finishGroupedQuery(request, groupBy, data, dateRange)
+  }
 
-    if (request.groupBy?.resolveLabels) {
-      data = await this.resolveGroupLabels(data, request.entityType, request.groupBy.field)
-    }
-
-    const totalValue = data.reduce((sum: number, item: WidgetDataItem) => sum + (item.value ?? 0), 0)
-    return { value: totalValue, data }
+  private async finishGroupedQuery(
+    request: WidgetDataRequest,
+    groupBy: NonNullable<WidgetDataRequest['groupBy']>,
+    buckets: WidgetDataItem[],
+    dateRange?: { start: Date; end: Date },
+  ): Promise<WidgetQueryResult> {
+    const calendarRange = Boolean(groupBy.granularity && dateRange && request.dateRange?.field === groupBy.field)
+    const limit = resolveWidgetGroupLimit(groupBy.limit, calendarRange)
+    const truncated = groupBy.limit === undefined && buckets.length > limit
+    const visible = buckets.slice(0, limit)
+    const data = groupBy.resolveLabels
+      ? await this.resolveGroupLabels(visible, request.entityType, groupBy.field)
+      : visible
+    const value = truncated
+      ? (await this.executeQuery({ ...request, groupBy: undefined }, dateRange)).value
+      : visible.reduce((sum, item) => sum + (item.value ?? 0), 0)
+    return { value, data, ...(truncated ? { truncated } : {}) }
   }
 
   /**

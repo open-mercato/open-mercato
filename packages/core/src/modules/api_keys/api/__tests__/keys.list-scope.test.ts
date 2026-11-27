@@ -56,7 +56,7 @@ describe('API-key list organization policy', () => {
 
     await expect(beforeList?.({ search: 'scope-marker', page: '2', pageSize: '1' }, context)).rejects.toBeInstanceOf(Response)
 
-    expect(queryBuilder.where).toHaveBeenCalledWith({ deletedAt: null })
+    expect(queryBuilder.where).toHaveBeenCalledWith({ deletedAt: null, sessionToken: null, sessionTokenHash: null })
     expect(queryBuilder.andWhere.mock.calls.map(([condition]) => condition)).toEqual([
       { tenantId },
       tenantWide

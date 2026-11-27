@@ -70,6 +70,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "deployment/production-readiness",
         "deployment/readiness-scanner",
+        "deployment/enterprise-backup-recovery",
         "deployment/railway",
         "deployment/github-ci",
         "deployment/agent-orchestration-scaling",
@@ -202,6 +203,8 @@ const sidebars: SidebarsConfig = {
         "architecture/generators",
         "architecture/standalone-ai-development-harness",
         "architecture/cache-cli",
+        "architecture/infrastructure-providers",
+        "architecture/cache-providers",
         "architecture/data-encryption",
       ],
     },
