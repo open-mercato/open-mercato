@@ -54,6 +54,20 @@ describe('issue 9142 reserved task field names', () => {
     ])
   })
 
+  test('warns for an authored field named __proto__ instead of losing it to the prototype', () => {
+    const formSchema = { fields: [{ name: '__proto__', type: 'text', required: true }] }
+
+    expect(readReservedTaskFormFields(formSchema)).toEqual(['__proto__'])
+    expect(collectTaskReservedFieldWarnings(userTask(formSchema))).toEqual([
+      {
+        code: 'taskFieldReservedName',
+        path: ['steps', 0],
+        params: { stepId: 'review', field: '__proto__' },
+        severity: 'warning',
+      },
+    ])
+  })
+
   test('is part of the full flow-logic warning set', () => {
     const codes = collectFlowLogicWarnings(userTask({ properties: { __x: { type: 'string' } } })).map(
       (warning) => warning.code,

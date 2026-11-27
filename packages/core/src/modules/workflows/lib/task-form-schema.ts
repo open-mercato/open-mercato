@@ -101,7 +101,12 @@ export function normalizeTaskFormSchema(formSchema: unknown): JsonSchema | null 
     const properties: Record<string, JsonSchemaField> = {}
     const required: string[] = []
     for (const field of authored) {
-      properties[field.name] = authoredTypeToJsonSchemaField(field)
+      Object.defineProperty(properties, field.name, {
+        value: authoredTypeToJsonSchemaField(field),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      })
       if (field.required === true) required.push(field.name)
     }
     return { type: 'object', properties, ...(required.length ? { required } : {}) }
