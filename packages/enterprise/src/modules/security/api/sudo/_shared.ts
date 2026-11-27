@@ -1,4 +1,7 @@
+import { normalizeIsoToken } from '@open-mercato/shared/lib/crud/optimistic-lock'
+import { OPTIMISTIC_LOCK_CONFLICT_CODE, OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -131,7 +134,8 @@ export async function resolveSudoContext(req: Request): Promise<SudoRequestConte
 
 export async function mapSudoError(error: unknown): Promise<NextResponse> {
   if (error instanceof CrudHttpError) {
-    return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
+    const body = error.body.code === OPTIMISTIC_LOCK_CONFLICT_CODE ? error.body : await localizeSecurityApiBody(error.body)
+    return NextResponse.json(body, { status: error.status })
   }
   const interceptorRejection = getCommandInterceptorHttpRejection(error)
   if (interceptorRejection) {
@@ -151,4 +155,16 @@ function isSudoChallengeServiceError(error: unknown): error is SudoChallengeServ
   return error instanceof Error
     && error.name === 'SudoChallengeServiceError'
     && typeof (error as Partial<SudoChallengeServiceError>).statusCode === 'number'
+}
+
+const expectedVersionSchema = z.iso.datetime({ offset: true })
+
+export function readSudoConfigExpectedVersion(req: Request, operation: 'create' | 'update' | 'delete'): string | undefined {
+  const value = req.headers.get(OPTIMISTIC_LOCK_HEADER_NAME)
+  if (value === null) return undefined
+  const normalized = operation !== 'create' && value.length <= 64 && expectedVersionSchema.safeParse(value).success
+    ? normalizeIsoToken(value)
+    : null
+  if (!normalized) throw new CrudHttpError(400, { error: 'Invalid payload' })
+  return normalized
 }

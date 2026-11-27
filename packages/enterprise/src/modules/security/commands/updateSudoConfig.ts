@@ -5,19 +5,19 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { sudoConfigUpdateSchema } from '../data/validators'
 import { SudoChallengeConfig } from '../data/entities'
-import type { SudoChallengeService } from '../services/SudoChallengeService'
 import {
   applySudoConfigSnapshot,
-  buildSudoAuthScopeFromAuth,
-  captureSudoConfigSnapshot,
+  authorizeSudoConfigWrite,
+  readSudoConfigWriteSnapshots,
   readSudoConfigUndoPayload,
-  type SudoConfigUndoPayload,
+  writeSudoConfig,
 } from './sudoConfig.shared'
 
 export const commandId = 'security.sudo.config.update'
 
 const commandSchema = z.object({
   id: z.string().uuid(),
+  expectedUpdatedAt: z.iso.datetime().optional(),
   data: sudoConfigUpdateSchema,
 })
 
@@ -33,19 +33,8 @@ registerCommand({
       throw new CrudHttpError(400, { error: 'Invalid payload', issues: parsed.error.issues })
     }
 
-    const em = ctx.container.resolve<EntityManager>('em')
-    const config = await em.findOne(SudoChallengeConfig, { id: parsed.data.id, deletedAt: null })
-    if (!config) {
-      throw new CrudHttpError(404, { error: 'Sudo configuration not found' })
-    }
-    const scope = buildSudoAuthScopeFromAuth(ctx.auth)
-    if (!scope.isSuperAdmin) {
-      const tenantMatches = (config.tenantId ?? null) === scope.tenantId && scope.tenantId !== null
-      if (!tenantMatches || config.isDeveloperDefault) {
-        throw new CrudHttpError(404, { error: 'Sudo configuration not found' })
-      }
-    }
-    return { before: captureSudoConfigSnapshot(config) }
+    await authorizeSudoConfigWrite(ctx, parsed.data.id)
+    return {}
   },
   async execute(rawInput, ctx) {
     if (!ctx.auth?.sub) {
@@ -56,26 +45,18 @@ registerCommand({
       throw new CrudHttpError(400, { error: 'Invalid payload', issues: parsed.error.issues })
     }
 
-    const service = ctx.container.resolve<SudoChallengeService>('sudoChallengeService')
-    const scope = buildSudoAuthScopeFromAuth(ctx.auth)
-    await service.updateConfig(parsed.data.id, parsed.data.data, ctx.auth.sub, scope)
-    return { ok: true as const }
+    return writeSudoConfig(ctx, parsed.data.id, parsed.data.expectedUpdatedAt, { data: parsed.data.data, configuredBy: ctx.auth.sub })
   },
-  async buildLog({ input, snapshots, ctx }) {
+  async buildLog({ input, result, ctx }) {
     const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const payload = commandSchema.parse(input)
-    const config = await em.findOne(SudoChallengeConfig, { id: payload.id })
     return {
       actionLabel: translate('security.audit.sudo.update', 'Update sudo configuration'),
       resourceKind: 'security.sudo_config',
       resourceId: payload.id,
       actorUserId: ctx.auth?.sub ?? null,
       payload: {
-        undo: {
-          before: (snapshots.before as SudoConfigUndoPayload['before']) ?? null,
-          after: config ? captureSudoConfigSnapshot(config) : null,
-        } satisfies SudoConfigUndoPayload,
+        undo: readSudoConfigWriteSnapshots(result),
       },
     }
   },

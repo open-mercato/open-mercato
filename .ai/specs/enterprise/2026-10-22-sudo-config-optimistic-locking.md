@@ -77,7 +77,7 @@ The standard header and `optimistic_lock_conflict` response remain exactly those
 
 A malformed supplied token returns the shared validation error. A stale token or scoped record deleted after authorization returns the exact standard 409. Missing headers remain additive no-ops only on the legacy routes; a later adopter may require a token on its new façade without altering this compatibility contract. Do not introduce an `on` alias or change the shared parser in this prerequisite; cover unset, `all`, `on`, `off`, excluded and included resource tokens against the actual shared parser.
 
-The legacy routes retain their existing auth/feature `metadata`, strict params/body validation, and `openApi`; the implementation updates the PUT success schema to include required ISO `updatedAt` and documents the standard `409 optimistic_lock_conflict` on PUT/DELETE. The shared optimistic-lock parser owns header bounds and malformed-token mapping; route code does not hand-parse the version.
+The legacy routes retain their existing auth/feature `metadata`, strict params/body validation, and `openApi`; the implementation updates the PUT success schema to include required ISO `updatedAt` and documents the standard `409 optimistic_lock_conflict` on PUT/DELETE. A common security route adapter bounds the header to 64 characters, rejects empty, malformed or multiple values with 400, and uses the shared optimistic-lock timestamp normalizer. Legacy routes share this adapter; command guards retain the existing shared parsing and gating behavior.
 
 ## UI/UX
 
@@ -202,3 +202,5 @@ None.
 - **2026-10-27:** Moved sudo update/delete before/after audit and undo snapshots inside the transaction-held row lock, including headerless/gate-off contender proof.
 - **2026-10-27:** Replaced check-then-flush with a transaction-held pessimistic row lock through commit, pinned route docs and post-commit event semantics, added a measurable frontend contract and contender tests, and completed the compliance report.
 - **2026-10-22:** Extracted sudo-config optimistic locking from section adoption and pinned command authority, route compatibility, gate modes, responses, conflicts, and core-team-only ownership.
+
+- **2026-11-27:** Recorded ownership of strict header validation in the security route adapter, reusing the shared timestamp normalizer.

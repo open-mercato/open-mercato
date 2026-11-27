@@ -5,7 +5,7 @@ import { sudoConfigUpdateSchema } from '../../../../data/validators'
 import { requireSudo } from '../../../../lib/sudo-middleware'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../../openapi'
 import { securityApiError } from '../../../i18n'
-import { mapSudoError, resolveSudoContext, toSudoConfigResponse } from '../../_shared'
+import { mapSudoError, readSudoConfigExpectedVersion, resolveSudoContext, toSudoConfigResponse } from '../../_shared'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -14,6 +14,14 @@ const paramsSchema = z.object({
 const okResponseSchema = z.object({
   ok: z.literal(true),
 })
+const updateResponseSchema = okResponseSchema.extend({ updatedAt: z.iso.datetime() })
+const conflictSchema = z.object({
+  error: z.literal('record_modified'),
+  code: z.literal('optimistic_lock_conflict'),
+  currentUpdatedAt: z.iso.datetime(),
+  expectedUpdatedAt: z.iso.datetime(),
+})
+const versionConflict = { status: 409, description: 'Sudo config was modified', schema: conflictSchema }
 
 const sudoConfigItemSchema = z.object({
   id: z.string().uuid(),
@@ -98,6 +106,7 @@ export async function PUT(req: Request, ctx?: RouteContext) {
       input: {
         id: parsedParams.data.id,
         data: parsedBody.data,
+        expectedUpdatedAt: readSudoConfigExpectedVersion(req, 'update'),
       },
       ctx: context.commandContext,
     })
@@ -120,7 +129,7 @@ export async function DELETE(req: Request, ctx?: RouteContext) {
     await requireSudo(req, 'security.sudo.manage')
     const commandBus = context.container.resolve<CommandBus>('commandBus')
     const { result } = await commandBus.execute('security.sudo.config.delete', {
-      input: { id: parsedParams.data.id },
+      input: { id: parsedParams.data.id, expectedUpdatedAt: readSudoConfigExpectedVersion(req, 'delete') },
       ctx: context.commandContext,
     })
     return NextResponse.json(result)
@@ -150,12 +159,13 @@ export const openApi = buildSecurityOpenApi({
         schema: sudoConfigUpdateSchema,
       },
       responses: [
-        { status: 200, description: 'Sudo config updated', schema: okResponseSchema },
+        { status: 200, description: 'Sudo config updated', schema: updateResponseSchema },
       ],
       errors: [
         { status: 400, description: 'Invalid payload', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
         { status: 403, description: 'Sudo required', schema: securityErrorSchema },
+        versionConflict,
       ],
     },
     DELETE: {
@@ -167,6 +177,7 @@ export const openApi = buildSecurityOpenApi({
         { status: 400, description: 'Invalid route parameters', schema: securityErrorSchema },
         { status: 401, description: 'Unauthorized', schema: securityErrorSchema },
         { status: 403, description: 'Sudo required', schema: securityErrorSchema },
+        versionConflict,
       ],
     },
   },

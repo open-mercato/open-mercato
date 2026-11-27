@@ -1,8 +1,15 @@
 import { asValue, createContainer, InjectionMode } from 'awilix'
 import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { LockMode } from '@mikro-orm/postgresql'
+import { emitSecurityEvent } from '../../events'
+import { SudoChallengeService } from '../../services/SudoChallengeService'
 import { captureSudoConfigSnapshot } from '../sudoConfig.shared'
 
+jest.mock('../../events', () => ({ emitSecurityEvent: jest.fn() }))
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (em: EntityManager, ...[entity, where, options]: Parameters<EntityManager['findOne']>) => em.findOne(entity, where, options),
+}))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
     translate: (key: string, fallback?: string) => fallback ?? key,
@@ -173,12 +180,12 @@ describe('sudo config commands through the command bus', () => {
     },
     {
       commandId: 'security.sudo.config.update',
-      serviceMethod: 'updateConfig',
+      serviceMethod: 'writeConfig',
       input: { id: configId, data: { isEnabled: false } },
     },
     {
       commandId: 'security.sudo.config.delete',
-      serviceMethod: 'deleteConfig',
+      serviceMethod: 'writeConfig',
       input: { id: configId },
     },
   ] as const
@@ -186,7 +193,12 @@ describe('sudo config commands through the command bus', () => {
   function buildBusContext(commandId: string, input: unknown) {
     const record = buildRecord({ id: configId, tenantId, targetIdentifier: 'security.admin.mfa.reset' })
     const em = createContext([record]).em
-    const entityManager = { ...em, fork: () => entityManager }
+    const tx = { ...em, findOne: jest.fn(em.findOne), flush: jest.fn().mockResolvedValue(undefined) }
+    const entityManager = {
+      ...em,
+      fork: () => entityManager,
+      transactional: jest.fn(async (callback: (manager: EntityManager) => Promise<unknown>) => callback(tx as unknown as EntityManager)),
+    }
     const historicalLog = {
       id: 'historical-log',
       commandId,
@@ -210,11 +222,9 @@ describe('sudo config commands through the command bus', () => {
       markUndone: jest.fn(),
       claimForRedo: jest.fn(async () => true),
     }
-    const service = {
-      createConfig: jest.fn(async () => record),
-      updateConfig: jest.fn(async () => record),
-      deleteConfig: jest.fn(async () => undefined),
-    }
+    const service = new SudoChallengeService(entityManager as unknown as EntityManager, {} as never, {} as never, {} as never)
+    jest.spyOn(service, 'createConfig').mockResolvedValue(record)
+    jest.spyOn(service, 'writeConfig')
     const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
     container.register({
       em: asValue(entityManager),
@@ -229,7 +239,7 @@ describe('sudo config commands through the command bus', () => {
       selectedOrganizationId: null,
       organizationIds: null,
     }
-    return { ctx, em, record, logs, service, historicalLog }
+    return { ctx, em, tx, entityManager, record, logs, service, historicalLog }
   }
 
   test.each(commands)('$commandId still executes and audits without minting an undo token', async ({ commandId, serviceMethod, input }) => {
@@ -242,6 +252,123 @@ describe('sudo config commands through the command bus', () => {
     expect(logs.log.mock.calls[0][0]).toMatchObject({ commandId, resourceKind: 'security.sudo_config', resourceId: configId })
     expect(logs.log.mock.calls[0][0].undoToken).toBeUndefined()
     expect(outcome.undoToken ?? null).toBeNull()
+  })
+
+  const writeCommands = commands.filter(({ serviceMethod }) => serviceMethod === 'writeConfig')
+
+  test.each(writeCommands)('$commandId rejects stale state before a write, event or audit', async ({ commandId, input }) => {
+    const { ctx, record, logs, tx } = buildBusContext(commandId, input)
+    const before = captureSudoConfigSnapshot(record)
+    const expectedUpdatedAt = new Date(record.updatedAt.getTime() - 1000).toISOString()
+    jest.mocked(emitSecurityEvent).mockClear()
+
+    await expect(new CommandBus().execute(commandId, {
+      input: { ...input, expectedUpdatedAt }, ctx, skipCacheInvalidation: true,
+    })).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'record_modified', code: 'optimistic_lock_conflict', expectedUpdatedAt, currentUpdatedAt: record.updatedAt.toISOString() },
+    })
+    expect(tx.findOne).toHaveBeenCalledWith(SudoChallengeConfig, expect.objectContaining({ id: configId, tenantId }), {
+      lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true,
+    })
+    expect(tx.flush).not.toHaveBeenCalled()
+    expect(emitSecurityEvent).not.toHaveBeenCalled()
+    expect(logs.log).not.toHaveBeenCalled()
+    expect(captureSudoConfigSnapshot(record)).toEqual(before)
+  })
+
+  test.each([
+    [undefined, true],
+    ['all', true],
+    ['on', false],
+    ['off', false],
+    ['catalog.product', false],
+    ['security.sudo_config', true],
+  ])('applies the shared optimistic-lock mode %s', async (mode, conflicts) => {
+    const previousMode = process.env.OM_OPTIMISTIC_LOCK
+    if (mode === undefined) delete process.env.OM_OPTIMISTIC_LOCK
+    else process.env.OM_OPTIMISTIC_LOCK = mode
+    try {
+      const command = commands[1]
+      const { ctx, record, tx } = buildBusContext(command.commandId, command.input)
+      const expectedUpdatedAt = new Date(record.updatedAt.getTime() - 1000).toISOString()
+      const write = new CommandBus().execute(command.commandId, {
+        input: { ...command.input, expectedUpdatedAt }, ctx, skipCacheInvalidation: true,
+      })
+      if (conflicts) {
+        await expect(write).rejects.toMatchObject({ status: 409 })
+        expect(tx.flush).not.toHaveBeenCalled()
+      } else {
+        await expect(write).resolves.toMatchObject({ result: { ok: true } })
+        expect(tx.flush).toHaveBeenCalledTimes(1)
+      }
+    } finally {
+      if (previousMode === undefined) delete process.env.OM_OPTIMISTIC_LOCK
+      else process.env.OM_OPTIMISTIC_LOCK = previousMode
+    }
+  })
+
+  test.each(writeCommands)('$commandId reports a disappearance only after initial authorization', async ({ commandId, input }) => {
+    const { ctx, record, em, tx } = buildBusContext(commandId, input)
+    const expectedUpdatedAt = record.updatedAt.toISOString()
+    tx.findOne.mockResolvedValueOnce(null)
+    await expect(new CommandBus().execute(commandId, {
+      input: { ...input, expectedUpdatedAt }, ctx, skipCacheInvalidation: true,
+    })).rejects.toMatchObject({ status: 409, body: { expectedUpdatedAt, currentUpdatedAt: expectedUpdatedAt } })
+    const lockedReads = tx.findOne.mock.calls.length
+    em.findOne.mockResolvedValueOnce(null)
+    await expect(new CommandBus().execute(commandId, {
+      input: { ...input, expectedUpdatedAt }, ctx, skipCacheInvalidation: true,
+    })).rejects.toMatchObject({ status: 404 })
+    expect(tx.findOne).toHaveBeenCalledTimes(lockedReads)
+    expect(tx.flush).not.toHaveBeenCalled()
+  })
+
+  test.each(writeCommands)('$commandId emits no event or audit on transaction failure', async ({ commandId, input }) => {
+    const { ctx, logs, tx, entityManager } = buildBusContext(commandId, input)
+    jest.mocked(emitSecurityEvent).mockClear()
+    entityManager.transactional.mockImplementationOnce(async (callback) => {
+      await callback(tx as unknown as EntityManager)
+      throw new Error('[internal] commit failed')
+    })
+    await expect(new CommandBus().execute(commandId, { input, ctx, skipCacheInvalidation: true })).rejects.toThrow('commit failed')
+    expect(tx.flush).toHaveBeenCalledTimes(1)
+    expect(emitSecurityEvent).not.toHaveBeenCalled()
+    expect(logs.log).not.toHaveBeenCalled()
+  })
+
+  test.each(writeCommands)('$commandId returns only public fields after committing and audits the locked predecessor', async ({ commandId, input }) => {
+    const { ctx, record, logs, entityManager, tx } = buildBusContext(commandId, input)
+    const expectedUpdatedAt = record.updatedAt.toISOString()
+    const predecessor = { ...captureSudoConfigSnapshot(record), label: 'current predecessor' }
+    const order: string[] = []
+    const enforce = jest.fn(async () => {
+      expect(tx.findOne).toHaveBeenCalledTimes(1)
+      expect(tx.flush).not.toHaveBeenCalled()
+      order.push('guard')
+    })
+    ctx.container.register({ commandOptimisticLockGuardService: asValue({ enforce }) })
+    entityManager.transactional.mockImplementationOnce(async (callback) => {
+      record.label = predecessor.label
+      const result = await callback(tx as unknown as EntityManager)
+      order.push('commit')
+      return result
+    })
+    jest.mocked(emitSecurityEvent).mockImplementationOnce(async () => { order.push('event') })
+    const actual = await new CommandBus().execute(commandId, {
+      input: { ...input, expectedUpdatedAt }, ctx, skipCacheInvalidation: true,
+    })
+    const expected = commandId.endsWith('.update') ? { ok: true, updatedAt: record.updatedAt.toISOString() } : { ok: true }
+    expect({ ...actual.result as object }).toEqual(expected)
+    expect(JSON.parse(JSON.stringify(actual.result))).toEqual(expected)
+    expect(Object.keys(actual.result as object)).toEqual(Object.keys(expected))
+    expect(enforce).toHaveBeenCalledTimes(1)
+    expect(enforce).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'security.sudo_config', resourceId: configId, current: new Date(expectedUpdatedAt), expected: expectedUpdatedAt,
+    }))
+    expect(order).toEqual(['guard', 'commit', 'event'])
+    expect(logs.log.mock.calls[0][0]).toMatchObject({ commandPayload: { undo: { before: predecessor } } })
+    expect(tx.flush).toHaveBeenCalledTimes(1)
   })
 
   test.each(commands)('$commandId refuses historical undo before claiming or mutating', async ({ commandId, input }) => {
@@ -259,8 +386,7 @@ describe('sudo config commands through the command bus', () => {
     expect(em.persist).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
     expect(service.createConfig).not.toHaveBeenCalled()
-    expect(service.updateConfig).not.toHaveBeenCalled()
-    expect(service.deleteConfig).not.toHaveBeenCalled()
+    expect(service.writeConfig).not.toHaveBeenCalled()
     expect(record).toEqual(originalRecord)
     expect(historicalLog.executionState).toBe('done')
   })
@@ -284,8 +410,7 @@ describe('sudo config commands through the command bus', () => {
     expect(em.persist).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
     expect(service.createConfig).not.toHaveBeenCalled()
-    expect(service.updateConfig).not.toHaveBeenCalled()
-    expect(service.deleteConfig).not.toHaveBeenCalled()
+    expect(service.writeConfig).not.toHaveBeenCalled()
     expect(record).toEqual(originalRecord)
     expect(historicalLog.executionState).toBe('undone')
   })

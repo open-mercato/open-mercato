@@ -158,7 +158,7 @@ export class SudoChallengeConfig {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: (config: SudoChallengeConfig) => new Date(Math.max(Date.now(), config.updatedAt.getTime())) })
   updatedAt: Date = new Date()
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
