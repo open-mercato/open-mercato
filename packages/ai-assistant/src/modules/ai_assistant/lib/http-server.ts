@@ -29,7 +29,10 @@ import {
   type McpExposureCaller,
   type McpExposureConfig,
 } from './mcp-exposure'
+<<<<<<< HEAD
 import { redactSecretForLog, deriveApiKeySessionId } from './log-redaction'
+=======
+>>>>>>> cf478b9214 (security(api_keys): enforce live session ownership before secret recovery (#3814) (#10779))
 import { runWithMcpToolExecutionObserver } from './mcp-tool-execution-observer'
 import {
   CORRELATION_ID_HEADER,
@@ -143,7 +146,7 @@ async function resolveSessionContext(
     const sessionResult = await findSessionApiKeyWithSecret(em, sessionToken)
     if (!sessionResult) {
       if (debug) {
-        logger.debug('Session token not found, expired, or secret unavailable', { sessionToken: redactSecretForLog(sessionToken) })
+        logger.debug('Session token not found, expired, or secret unavailable')
       }
       return null
     }
