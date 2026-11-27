@@ -1,6 +1,9 @@
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { z } from 'zod'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { createMcpHttpRequestHandler } from '../http-server'
 import { DEFAULT_MCP_EXPOSURE_CONFIG, type McpExposureConfig } from '../mcp-exposure'
 import { MCP_AUDIT_RESOURCE_KIND, type McpAuditAccessLogInput } from '../mcp-audit'
@@ -40,6 +43,12 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   findSessionApiKeyWithSecret: (...args: unknown[]) => mockFindSessionApiKeyWithSecret(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/auth/lib/tenantEligibility', () => ({
+  isStaffTenantActive: jest.fn(async () => true),
+}))
+
+const originalDelegationKey = process.env.MCP_SERVER_API_KEY
+
 type AclFixture = { features: string[]; isSuperAdmin: boolean }
 
 const SERVER_KEY_ID = 'server-key'
@@ -50,6 +59,7 @@ const SECRET_ARG_VALUE = 'very-secret-customer-name'
 
 const aclBySubject = new Map<string, AclFixture>()
 const accessLogEntries: McpAuditAccessLogInput[] = []
+let sessionEntityManager: object = {}
 let toolExecutionObserver: McpToolExecutionObserver | null = null
 
 function registerTool(overrides: Partial<AiToolDefinition> & { name: string }): void {
@@ -72,6 +82,7 @@ function makeContainer() {
   }
   return {
     resolve: (key: string) => {
+      if (key === 'em') return sessionEntityManager
       if (key === 'rbacService') return rbacService
       if (key === 'accessLogService') return accessLogService
       if (key === 'mcpToolExecutionObserver' && toolExecutionObserver) return toolExecutionObserver
@@ -126,6 +137,7 @@ async function callTool(
 
 describe('MCP HTTP server — tools/call audit', () => {
   beforeEach(() => {
+    process.env.MCP_SERVER_API_KEY = SERVER_SECRET
     mockRegisteredTools.clear()
     aclBySubject.clear()
     accessLogEntries.length = 0
@@ -133,6 +145,7 @@ describe('MCP HTTP server — tools/call audit', () => {
     mockFindSessionApiKeyWithSecret.mockReset()
     mockExecuteTool.mockReset()
     toolExecutionObserver = null
+    sessionEntityManager = {}
 
     registerTool({ name: 'customers.list_people', requiredFeatures: ['customers.people.view'] })
     registerTool({ name: 'customers.update_person', requiredFeatures: ['customers.people.manage'], isMutation: true })
@@ -162,6 +175,8 @@ describe('MCP HTTP server — tools/call audit', () => {
   })
 
   afterEach(async () => {
+    if (originalDelegationKey === undefined) delete process.env.MCP_SERVER_API_KEY
+    else process.env.MCP_SERVER_API_KEY = originalDelegationKey
     if (activeServer) {
       await new Promise<void>((resolve) => activeServer?.close(() => resolve()))
       activeServer = null
@@ -391,6 +406,50 @@ describe('MCP HTTP server — tools/call audit', () => {
       principal: 'session',
       correlationId: body.result?._meta?.correlationId,
     })
+  })
+
+  it.each([
+    ['deactivated owner', { isConfirmed: false }],
+    ['deleted owner', { deletedAt: new Date() }],
+    ['owner moved organization', { organizationId: 'org-2' }],
+    ['owner moved tenant', { tenantId: 'tenant-2' }],
+  ])('rejects a %s through the real session-secret recovery helper', async (_label, changes) => {
+    const previousEncryption = process.env.TENANT_DATA_ENCRYPTION
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+    const owner = { id: 'user-2', tenantId: 'tenant-1', organizationId: 'org-1', isConfirmed: true, deletedAt: null }
+    const sessionKey = {
+      id: SESSION_KEY_ID, tenantId: 'tenant-1', organizationId: 'org-1', sessionUserId: owner.id,
+      sessionSecretEncrypted: 'omk_session_secret', deletedAt: null,
+    }
+    sessionEntityManager = {
+      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === ApiKey) return sessionKey
+        const record: Record<string, unknown> | null = entity === User ? owner
+          : entity === Tenant ? { id: 'tenant-1', isActive: true, deletedAt: null } : null
+        return record && Object.entries(where).every(([field, value]) => record[field] === value) ? record : null
+      }),
+    }
+    const actual = jest.requireActual<typeof import('@open-mercato/core/modules/api_keys/services/apiKeyService')>(
+      '@open-mercato/core/modules/api_keys/services/apiKeyService',
+    )
+    mockFindSessionApiKeyWithSecret.mockImplementation(actual.findSessionApiKeyWithSecret)
+    aclBySubject.set(`api_key:${SESSION_KEY_ID}`, { features: ['customers.*'], isSuperAdmin: false })
+    mockExecuteTool.mockResolvedValue({ success: true, result: { items: [] } })
+    try {
+      const baseUrl = await startHandler()
+      const active = await callTool(baseUrl, 'customers.list_people', { _sessionToken: SESSION_TOKEN })
+      expect(active.result?.isError).toBeUndefined()
+      expect(mockExecuteTool).toHaveBeenCalledTimes(1)
+      mockExecuteTool.mockClear()
+      Object.assign(owner, changes)
+      const denied = await callTool(baseUrl, 'customers.list_people', { _sessionToken: SESSION_TOKEN })
+      expect(denied.result?.isError).toBe(true)
+      expect(denied.result?.content?.[0]?.text).toContain('SESSION_EXPIRED')
+      expect(mockExecuteTool).not.toHaveBeenCalled()
+    } finally {
+      if (previousEncryption === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+      else process.env.TENANT_DATA_ENCRYPTION = previousEncryption
+    }
   })
 
   it('records denied for an expired session token', async () => {

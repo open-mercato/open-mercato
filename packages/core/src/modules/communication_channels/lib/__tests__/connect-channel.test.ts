@@ -133,6 +133,7 @@ describe('createConnectedChannelRow', () => {
       const [, , legacyFilter, legacyOptions] = (findWithDecryption as jest.Mock).mock.calls[1]
       expect(legacyFilter).toEqual({
         tenantId: 't',
+        organizationId: 'o',
         userId: 'user-1',
         providerKey: 'discord',
         externalIdentifier: null,
@@ -175,6 +176,27 @@ describe('createConnectedChannelRow', () => {
       expect(primaryFlagsAtFlush.every((flags) => !(flags.newest && flags.stuck))).toBe(true)
       expect(em.begin).toHaveBeenCalledTimes(1)
       expect(em.commit).toHaveBeenCalledTimes(1)
+    })
+
+    it('preserves the legacy connection if reconnect credentials could not be saved', async () => {
+      const legacy = {
+        id: 'ch-legacy',
+        status: 'connected',
+        isActive: true,
+        externalIdentifier: null,
+        credentialsRef: 'previous-cred',
+      }
+      const original = { ...legacy }
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(null)
+      ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([]).mockResolvedValueOnce([legacy])
+      const em = buildEm()
+
+      const channel = await createConnectedChannelRow({ em, ...DISCORD_BASE, credentialsRefId: null })
+
+      expect(channel).toBe(legacy)
+      expect(legacy).toEqual(original)
+      expect(em.create).not.toHaveBeenCalled()
+      expect(em.flush).not.toHaveBeenCalled()
     })
 
     it('heals the row already carrying the identifier without looking for legacy rows', async () => {

@@ -165,6 +165,7 @@
   "messages.flash.conversationMarkedUnread": "Conversation marked unread.",
   "messages.flash.conversationUnarchived": "Conversation restored from archive.",
   "messages.flash.deleted": "Message deleted.",
+  "messages.flash.deliveryUnconfirmed": "Message saved. Delivery could not be confirmed.",
   "messages.flash.draftSaved": "Draft saved.",
   "messages.flash.forwardSuccess": "Message forwarded.",
   "messages.flash.replySuccess": "Reply sent.",

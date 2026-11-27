@@ -3,6 +3,9 @@ import type { EntityManager as SqlEntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { AwilixContainer } from 'awilix'
+import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { AttachmentService } from '@open-mercato/core/modules/attachments'
 import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
 import type { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from './constants'
@@ -93,6 +96,26 @@ export async function linkAttachmentsToMessage(
     tenantId,
     ...buildOrganizationScopeFilter(organizationId),
   }, { tenantId, organizationId }, messageId, access)
+}
+
+export async function moveComposerAttachmentsToMessage(
+  em: SqlEntityManager,
+  container: AwilixContainer,
+  input: {
+    messageId: string
+    recordId: string
+    attachmentIds: string[]
+    auth: NonNullable<AuthContext>
+  },
+): Promise<boolean> {
+  const service = container.resolve<AttachmentService>('attachmentService', { allowUnregistered: true })
+  if (!service?.reassignScopedAttachments) return false
+  return service.reassignScopedAttachments({
+    auth: input.auth,
+    attachmentIds: input.attachmentIds,
+    expectedOwner: { entityId: LIBRARY_ATTACHMENT_ENTITY_ID, recordId: input.recordId },
+    destination: { entityId: MESSAGE_ATTACHMENT_ENTITY_ID, recordId: input.messageId },
+  }, em)
 }
 
 type MessageAttachmentRowsDatabase = {

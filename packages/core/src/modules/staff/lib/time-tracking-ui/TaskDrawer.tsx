@@ -47,6 +47,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { TaskCommentThread, type CommentVisibility } from './TaskCommentThread'
+import { readTaskAssigneeNames } from './boardDirectory'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { SupportRequestPanel } from './SupportRequestPanel'
 import { SupportAttachmentsSection } from './SupportAttachmentsSection'
@@ -150,6 +151,7 @@ type TaskAssignmentAbility = { canClaim: boolean; canRelease: boolean }
 
 type LoadedTask = {
   task: BoardTask
+  row: BoardApiRow
   createdAt: string | null
   support: SupportTicketView | null
   assignment: TaskAssignmentAbility
@@ -228,6 +230,7 @@ export function TaskDrawer({
 
   const canSeeMoney = hasFeature(payload?.grantedFeatures, RATES_FEATURE)
   const canManage = hasFeature(payload?.grantedFeatures, TASKS_MANAGE_FEATURE)
+  const canReadDirectory = hasFeature(payload?.grantedFeatures, 'staff.view')
 
   const [tagIds, setTagIds] = React.useState<string[]>([])
   const [subtaskDraft, setSubtaskDraft] = React.useState('')
@@ -276,6 +279,7 @@ export function TaskDrawer({
       return parsed
         ? {
             task: parsed,
+            row,
             createdAt: readString(row, 'created_at', 'createdAt'),
             support: readSupportTicket(row),
             assignment: readTaskAssignmentAbility(row),
@@ -330,7 +334,7 @@ export function TaskDrawer({
 
   const statuses = React.useMemo(() => statusesQuery.data ?? [], [statusesQuery.data])
 
-  const childrenQuery = useQuery<BoardTask[]>({
+  const childrenQuery = useQuery<{ tasks: BoardTask[]; rows: BoardApiRow[] }>({
     queryKey: [...DRAWER_QUERY_ROOT, 'children', `scope:${scopeVersion}`, taskId],
     enabled: open && !isChildTask && !!task,
     staleTime: 10_000,
@@ -338,15 +342,16 @@ export function TaskDrawer({
       const call = await apiCall<Record<string, unknown>>(
         `/api/staff/timesheets/tasks?parentTaskId=${encodeURIComponent(taskId)}&page=1&pageSize=${CHILD_PAGE_SIZE}&sortField=position&sortDir=asc`,
       )
-      if (!call.ok) return []
+      if (!call.ok) return { tasks: [], rows: [] }
       const rows = readItems(call.result)
+      const tasks = rows
         .map(toBoardTask)
         .filter((row): row is BoardTask => row !== null)
-      return sortByPosition(rows)
+      return { tasks: sortByPosition(tasks), rows }
     },
   })
 
-  const children = React.useMemo(() => childrenQuery.data ?? [], [childrenQuery.data])
+  const children = React.useMemo(() => childrenQuery.data?.tasks ?? [], [childrenQuery.data])
 
   const commentsQuery = useQuery<DrawerComment[]>({
     queryKey: [...DRAWER_QUERY_ROOT, 'comments', `scope:${scopeVersion}`, taskId],
@@ -370,21 +375,22 @@ export function TaskDrawer({
     queryFn: async () => (projectId ? fetchProjectEntries(projectId) : { rows: [], partial: false }),
   })
 
-  const selfQuery = useQuery<string | null>({
+  const selfQuery = useQuery<{ id: string; displayName: string | null } | null>({
     queryKey: [...DRAWER_QUERY_ROOT, 'self', `scope:${scopeVersion}`],
     enabled: open,
     staleTime: 300_000,
     queryFn: async () => {
-      const call = await apiCall<{ member?: { id?: string | null } | null }>('/api/staff/team-members/self')
-      return call.ok ? call.result?.member?.id ?? null : null
+      const call = await apiCall<{ member?: { id?: string | null; displayName?: string | null } | null }>('/api/staff/team-members/self')
+      const member = call.ok ? call.result?.member : null
+      return member?.id ? { id: member.id, displayName: member.displayName ?? null } : null
     },
   })
 
-  const selfStaffMemberId = selfQuery.data ?? null
+  const selfStaffMemberId = selfQuery.data?.id ?? null
 
   const membersQuery = useQuery<{ id: string; name: string }[]>({
-    queryKey: [...DRAWER_QUERY_ROOT, 'members', `scope:${scopeVersion}`],
-    enabled: open,
+    queryKey: [...DRAWER_QUERY_ROOT, 'members', `scope:${scopeVersion}`, canReadDirectory],
+    enabled: open && canReadDirectory,
     staleTime: 300_000,
     queryFn: async () => {
       const call = await apiCall<Record<string, unknown>>(
@@ -401,7 +407,15 @@ export function TaskDrawer({
     },
   })
 
-  const members = React.useMemo(() => membersQuery.data ?? [], [membersQuery.data])
+  const members = React.useMemo(() => {
+    const rows = taskQuery.data ? [taskQuery.data.row, ...(childrenQuery.data?.rows ?? [])] : []
+    const names = readTaskAssigneeNames(rows)
+    if (selfQuery.data?.displayName) names.set(selfQuery.data.id, selfQuery.data.displayName)
+    if (canReadDirectory) {
+      for (const member of membersQuery.data ?? []) names.set(member.id, member.name)
+    }
+    return Array.from(names, ([id, name]) => ({ id, name }))
+  }, [canReadDirectory, childrenQuery.data, membersQuery.data, selfQuery.data, taskQuery.data])
 
   const memberNames = React.useMemo(() => {
     const map = new Map<string, string>()

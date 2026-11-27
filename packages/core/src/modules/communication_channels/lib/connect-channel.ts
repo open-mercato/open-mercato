@@ -47,10 +47,8 @@ export interface CreateConnectedChannelRowArgs {
   pollIntervalSeconds?: number | null
   /**
    * The identifier was reported by the adapter itself (not sniffed from the
-   * credential bag). Rows this user created for the same provider before the
-   * adapter reported one carry `external_identifier = NULL` and would never match
-   * the heal key, so the newest such row is adopted instead of inserting another
-   * one next to it.
+   * credential bag). The newest identifier-less row for this provider, user,
+   * and organization is adopted when no row matches the identifier.
    */
   adoptUnidentifiedChannel?: boolean
 }
@@ -176,12 +174,14 @@ export async function createConnectedChannelRow(
     const unidentified = (await findWithDecryption(
       em,
       CommunicationChannel,
-      { tenantId: scope.tenantId, userId, providerKey, externalIdentifier: null, deletedAt: null },
+      { ...dscope, userId, providerKey, externalIdentifier: null, deletedAt: null },
       { orderBy: { createdAt: 'desc' } },
       dscope,
     )) as CommunicationChannel[]
     const [adopted, ...superseded] = unidentified
     if (adopted) {
+      if (!credentialsAvailable) return adopted
+
       // Per-user credentials are stored once per provider, so every older
       // identifier-less row is a duplicate of the adopted one. Left active, a
       // stuck `requires_reauth` duplicate would keep its reauth banner forever.

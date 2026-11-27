@@ -386,3 +386,7 @@ Use the repository's configured CI gate before publishing. If Docker mode is act
 | `agentic:init --update-harness` writes `.incoming` files | The generated target was locally modified or ownership was uncertain. Review and merge intentionally; use `--force` only for known generated targets. |
 
 The internal feature specification contains rationale, phased implementation history, and exhaustive case listings. Maintainers should use the emitted schemas, release matrix, trusted oracles, and this guide as the current operational contract rather than copying the spec into new guidance.
+
+## Infrastructure provider configuration
+
+The harness routes agents to `src/providers/` for infrastructure providers such as cache. The starter includes the cache registry and examples for planned provider families. The monorepo example lives under `apps/mercato/src/providers/`. See [Infrastructure providers](./infrastructure-providers) for the registration and bootstrap convention.

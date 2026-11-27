@@ -226,7 +226,7 @@ describe('onboarding status endpoint authorization', () => {
       userId: '55555555-5555-4555-8555-555555555555',
       completedAt: null,
       preparationCompletedAt: null,
-      processingStartedAt: new Date(),
+      processingStartedAt: new Date(Date.now() - 2 * 60 * 1000),
     })
     findLatestByTenantId.mockResolvedValue(request)
 
@@ -244,5 +244,29 @@ describe('onboarding status endpoint authorization', () => {
       organizationId: '44444444-4444-4444-8444-444444444444',
       userId: '55555555-5555-4555-8555-555555555555',
     })
+  })
+
+  it('does not complete a processing request whose verify is still provisioning', async () => {
+    const request = makeRequest({
+      status: 'processing',
+      tenantId: TENANT_ID,
+      organizationId: '44444444-4444-4444-8444-444444444444',
+      userId: '55555555-5555-4555-8555-555555555555',
+      completedAt: null,
+      preparationCompletedAt: null,
+      processingStartedAt: new Date(),
+    })
+    findLatestByTenantId.mockResolvedValue(request)
+
+    const res = await GET(
+      buildRequest({ tenantId: TENANT_ID, cookie: `om_login_tenant=${TENANT_ID}` }),
+    )
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.status).toBe('processing')
+    expect(body.ready).toBe(false)
+    expect(markCompleted).not.toHaveBeenCalled()
+    expect(runDeferredProvisioning).not.toHaveBeenCalled()
   })
 })

@@ -30,11 +30,15 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   findApiKeyBySecret: (...args: unknown[]) => findApiKeyBySecret(...args),
   findSessionApiKeyWithSecret: (...args: unknown[]) => findSessionApiKeyWithSecret(...args),
 }))
+jest.mock('@open-mercato/core/modules/auth/lib/tenantEligibility', () => ({
+  isStaffTenantActive: jest.fn(async () => true),
+}))
 
 import { runMcpHttpServer } from '../http-server'
 import { registerMcpTool, unregisterMcpTool } from '../tool-registry'
 
 const TRANSPORT_KEY_SECRET = 'omk_test_transport_secret'
+const originalDelegationKey = process.env.MCP_SERVER_API_KEY
 const RESTRICTED_SESSION_TOKEN = 'sess_restricted_valid_token'
 const TRANSPORT_KEY_RECORD = {
   id: 'infra-key-1',
@@ -160,6 +164,7 @@ async function callTool(opts: { apiKey?: string; args: Record<string, unknown> }
 
 describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real MCP protocol', () => {
   beforeAll(async () => {
+    process.env.MCP_SERVER_API_KEY = TRANSPORT_KEY_SECRET
     registerMcpTool(
       {
         name: 'allowed_tool',
@@ -246,6 +251,8 @@ describe('issue #5173 — MCP HTTP transport auth boundary over real HTTP + real
   })
 
   afterAll(async () => {
+    if (originalDelegationKey === undefined) delete process.env.MCP_SERVER_API_KEY
+    else process.env.MCP_SERVER_API_KEY = originalDelegationKey
     unregisterMcpTool('allowed_tool')
     unregisterMcpTool('restricted_tool')
     // Own and await this suite's own server teardown instead of relying on

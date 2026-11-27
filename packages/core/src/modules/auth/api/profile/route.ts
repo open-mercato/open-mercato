@@ -4,7 +4,6 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
@@ -15,6 +14,8 @@ import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolic
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { resolveUserDataSubject } from '@open-mercato/core/modules/auth/lib/userDataSubject'
+import { PROFILE_PASSWORD_PROOF, type ProfilePasswordProof } from '@open-mercato/core/modules/auth/lib/profilePasswordProof'
+import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 
 const logger = createLogger('auth').child({ component: 'profile' })
 
@@ -28,7 +29,7 @@ const passwordSchema = buildPasswordSchema()
 
 const updateSchemaBase = z.object({
   email: z.string().email().optional(),
-  currentPassword: z.string().trim().min(1).optional(),
+  currentPassword: z.string().min(1).optional(),
   password: passwordSchema.optional(),
 })
 
@@ -54,7 +55,7 @@ function buildUpdateSchema(translate: (key: string, fallback: string) => string)
         path: ['currentPassword'],
       })
     }
-    if (data.currentPassword && !data.password) {
+    if (data.currentPassword && !data.password && !data.email) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: translate(
@@ -135,7 +136,7 @@ export async function PUT(req: Request) {
   if (!auth?.sub) {
     return NextResponse.json({ error: translate('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
-  if (auth.isApiKey) {
+  if (auth.isApiKey || isCrossSiteBrowserRequest(req)) {
     return NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
   }
   try {
@@ -153,23 +154,31 @@ export async function PUT(req: Request) {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const authService = container.resolve('authService') as AuthService
-    if (parsed.data.password) {
-      const user = await findOneWithDecryption(
-        em,
-        User,
-        { id: auth.sub, deletedAt: null },
-        undefined,
-        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
-      )
-      if (!user) {
-        return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
-      }
-      const currentPassword = parsed.data.currentPassword?.trim() ?? ''
-      const isCurrentPasswordValid = await authService.verifyPassword(user, currentPassword)
-      if (!isCurrentPasswordValid) {
-        const message = translate(
+    const actorTenantId = typeof auth.actorTenantId === 'string' ? auth.actorTenantId : auth.tenantId
+    const actorOrganizationId = typeof auth.actorOrgId === 'string' ? auth.actorOrgId : auth.orgId
+    const user = await findOneWithDecryption(
+      em,
+      User,
+      { id: auth.sub, deletedAt: null },
+      undefined,
+      { tenantId: actorTenantId ?? null, organizationId: actorOrganizationId ?? null },
+    )
+    if (!user) {
+      return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
+    }
+    const emailChanged = parsed.data.email !== undefined && parsed.data.email !== user.email
+    const ctx: CommandRuntimeContext & { [PROFILE_PASSWORD_PROOF]?: ProfilePasswordProof } =
+      buildCommandContext(container, auth, req)
+    if (parsed.data.password || emailChanged) {
+      const currentPassword = parsed.data.currentPassword ?? ''
+      const verified = currentPassword && await authService.verifyPassword(user, currentPassword)
+      if (!verified || !user.passwordHash) {
+        const message = currentPassword ? translate(
           'auth.profile.form.errors.currentPasswordInvalid',
           'Current password is incorrect.',
+        ) : translate(
+          'auth.profile.form.errors.currentPasswordRequired',
+          'Current password is required.',
         )
         return NextResponse.json(
           {
@@ -179,37 +188,32 @@ export async function PUT(req: Request) {
           { status: 400 },
         )
       }
+      ctx[PROFILE_PASSWORD_PROOF] = { userId: auth.sub, passwordHash: user.passwordHash }
+    } else {
+      return NextResponse.json({ ok: true, email: user.email })
     }
     const commandBus = (container.resolve('commandBus') as CommandBus)
-    const ctx = buildCommandContext(container, auth, req)
     const { result } = await commandBus.execute<{ id: string; email?: string; password?: string }, User>(
       'auth.users.update',
       {
         input: {
           id: auth.sub,
-          email: parsed.data.email,
+          email: emailChanged ? parsed.data.email : undefined,
           password: parsed.data.password,
         },
         ctx,
       },
     )
-    const roles = await authService.getUserRoles(result, result.tenantId ? String(result.tenantId) : null)
-    const jwt = signJwt({
-      sub: String(result.id),
-      sid: typeof auth.sid === 'string' ? auth.sid : undefined,
-      tenantId: result.tenantId ? String(result.tenantId) : null,
-      orgId: result.organizationId ? String(result.organizationId) : null,
-      email: result.email,
-      roles,
-    })
     const res = NextResponse.json({ ok: true, email: String(result.email) })
-    res.cookies.set('auth_token', jwt, {
-      httpOnly: true,
-      path: '/',
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 60 * 60 * 8,
-    })
+    for (const cookie of ['auth_token', 'session_token']) {
+      res.cookies.set(cookie, '', {
+        httpOnly: true,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 0,
+      })
+    }
     return res
   } catch (err) {
     if (isCrudHttpError(err)) {
@@ -240,7 +244,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update current profile',
-      description: 'Updates the email address or password for the signed-in user.',
+      description: 'Updates the sign-in email address or password after verification of the current password. A credential change ends existing sessions.',
       requestBody: {
         contentType: 'application/json',
         schema: updateSchema,
