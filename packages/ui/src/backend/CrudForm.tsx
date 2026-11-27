@@ -4728,19 +4728,18 @@ function TextAreaInput({
 }
 
 // Markdown editor — WYSIWYG MDXEditor (Lexical) wired to the CrudForm value/onChange contract.
-type MDProps = { value?: string; onChange: (md: string) => void }
+type RichTextFieldProps = { value?: string; onChange: (content: string) => void; readOnly: boolean }
 
-const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange }: MDProps) {
-  return <MarkdownField value={value} onChange={onChange} />
-}, (prev, next) => prev.value === next.value)
+const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange, readOnly }: RichTextFieldProps) {
+  return <MarkdownField value={value} onChange={onChange} readOnly={readOnly} />
+}, (prev, next) => prev.value === next.value && prev.readOnly === next.readOnly)
 
 // HTML Rich Text editor wrapper for the CrudForm builtin `editor: 'html'`.
 // Maps the existing `ui.forms.richtext.*` i18n keys onto the `RichEditor`
 // `labels` contract and pins the `standard` toolbar variant — heading
 // dropdown + B/I/U + lists + link, matching the legacy behaviour plus
 // the Figma `164611:20259` heading selector.
-type HtmlRichEditorFieldProps = { value?: string; onChange: (html: string) => void }
-const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = '', onChange }: HtmlRichEditorFieldProps) {
+const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = '', onChange, readOnly }: RichTextFieldProps) {
   const t = useT()
   const labels = React.useMemo<Partial<RichEditorLabels>>(() => ({
     bold: t('ui.forms.richtext.bold'),
@@ -4760,12 +4759,11 @@ const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = ''
     mention: t('ui.forms.richtext.mention', 'Mention'),
     more: t('ui.forms.richtext.more', 'More'),
   }), [t])
-  return <RichEditor value={value} onChange={onChange} variant="full" labels={labels} />
-}, (prev, next) => prev.value === next.value)
+  return <RichEditor value={value} onChange={onChange} disabled={readOnly} variant="full" labels={labels} />
+}, (prev, next) => prev.value === next.value && prev.readOnly === next.readOnly)
 
 // Very simple markdown editor with Bold/Italic/Underline + shortcuts.
-type SimpleMDProps = { value?: string; onChange: (md: string) => void }
-const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange }: SimpleMDProps) {
+const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange, readOnly }: RichTextFieldProps) {
   const t = useT()
   const boldLabel = t('ui.forms.richtext.bold')
   const italicLabel = t('ui.forms.richtext.italic')
@@ -4782,7 +4780,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
   const wrap = (before: string, after: string = before) => {
     const el = taRef.current
-    if (!el) return
+    if (!el || readOnly) return
     const start = el.selectionStart ?? 0
     const end = el.selectionEnd ?? 0
     const sel = value.slice(start, end) || sampleText
@@ -4807,12 +4805,13 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   return (
     <div className="w-full rounded border">
       <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</Button>
+        <Button variant="ghost" size="sm" disabled={readOnly} className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</Button>
+        <Button variant="ghost" size="sm" disabled={readOnly} className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</Button>
+        <Button variant="ghost" size="sm" disabled={readOnly} className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</Button>
       </div>
       <textarea
         ref={taRef}
+        readOnly={readOnly}
         className="w-full min-h-[100px] sm:min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
         spellCheck={false}
         value={local}
@@ -4823,7 +4822,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       />
     </div>
   )
-}, (prev, next) => prev.value === next.value)
+}, (prev, next) => prev.value === next.value && prev.readOnly === next.readOnly)
 
 type FieldControlProps = {
   field: CrudField
@@ -5186,17 +5185,17 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'richtext' && builtin?.editor === 'simple' && (
         <div role="group" aria-labelledby={labelId}>
-          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} readOnly={disabled || readOnly} />
         </div>
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
         <div role="group" aria-labelledby={labelId}>
-          <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
+          <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} readOnly={disabled || readOnly} />
         </div>
       )}
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
         <div role="group" aria-labelledby={labelId}>
-          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} readOnly={disabled || readOnly} />
         </div>
       )}
       {field.type === 'tags' && (

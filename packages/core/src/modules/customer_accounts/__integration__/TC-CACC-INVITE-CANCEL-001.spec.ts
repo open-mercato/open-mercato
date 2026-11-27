@@ -214,9 +214,7 @@ test.describe('TC-CACC-INVITE-CANCEL-001: staff withdrawal of pending invitation
           { name: 'om_cookie_notice_ack', value: 'ack', url: baseUrl },
           { name: 'om_feedback_suppress', value: '1', url: baseUrl },
         ])
-        await page.goto(`/backend/customers/people-v2/${personId}`)
-        await page.getByRole('main').getByRole('button', { name: 'More', exact: true }).first().click()
-        await page.getByRole('menuitem', { name: 'Portal account', exact: true }).click()
+        await page.goto(`/backend/customers/people-v2/${personId}?tab=portal-account`)
         await expect(page.getByText('Invitation pending', { exact: true })).toBeVisible()
         const cancel = page.getByRole('button', { name: 'Cancel invitation', exact: true })
         if (grant === 'customer_accounts.view') {

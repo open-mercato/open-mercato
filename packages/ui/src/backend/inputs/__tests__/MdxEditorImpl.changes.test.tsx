@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 
 type EditorProps = {
   markdown: string
+  readOnly?: boolean
   onChange: (markdown: string, initialMarkdownNormalize?: boolean) => void
 }
 
@@ -113,6 +114,21 @@ describe('MdxEditorImpl change propagation', () => {
     rerender(<MdxEditorImpl value="Reset value" onChange={onChange} />)
 
     expect(mockSetMarkdown).toHaveBeenCalledWith('Reset value')
+  })
+
+  it('toggles the live editor read-only and suppresses change notifications while read-only', () => {
+    const onChange = jest.fn()
+    const { rerender } = render(<MdxEditorImpl value={originalMarkdown} onChange={onChange} />)
+
+    rerender(<MdxEditorImpl value={originalMarkdown} onChange={onChange} readOnly />)
+    expect(mockEditorProps.readOnly).toBe(true)
+    act(() => mockEditorProps.onChange('Unexpected change'))
+    expect(onChange).not.toHaveBeenCalled()
+
+    rerender(<MdxEditorImpl value={originalMarkdown} onChange={onChange} readOnly={false} />)
+    expect(mockEditorProps.readOnly).toBe(false)
+    act(() => mockEditorProps.onChange('New value'))
+    expect(onChange).toHaveBeenCalledWith('New value')
   })
 
   it('does not mark initialization normalization as a user edit', () => {
