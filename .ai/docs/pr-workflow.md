@@ -235,13 +235,17 @@ tooling treat any of these as not-mergeable.
 ## Batch QA
 
 1. PRs keep merging into `main`; nothing targets a batch branch.
-2. **On demand** (not daily, not automatically) a maintainer, the stabilizer, cuts
-   `stabilize/main-<date>` from `main` and opens it at once as a non-draft PR to `main`. Only one
-   batch is open at a time.
+2. **On demand** (not daily, not automatically) a maintainer, the stabilizer, cuts the batch:
+   branches `stabilize/qa-<YYYY-MM-DD>` from `main` and opens the **batch PR** into `main` at
+   once, ready for review (not a draft). Opening that PR is part of cutting a batch, not an
+   option: `ci.yml` runs on push only for `main`, `release/v*` and `feat/wms`, and the Enterprise
+   guard runs only on PRs, so the batch gets its forced full suite and the guard only through the
+   batch PR. The batch PR is also where the QA verdict is recorded and what merges back. Only one
+   batch is open at a time (see "Batch name and range" below).
 3. QA deploys the batch, makes **one QA pass** (`.ai/qa/batch-smoke.md` plus the `om-qa-batch`
-   checklist: PRs labelled `qa-batch-check`, PRs that carry `needs-human-qa` without
-   `qa-approved`, and customer-facing or visibly changed PRs with no QA evidence) and files bugs as issues (`bug` + `daily-qa`, plus `qa-blocker` when a user cannot
-   finish a main task).
+   checklist: PRs labelled `qa-batch-check`, PRs that carry `needs-human-qa` without a human
+   `qa-approved`, and customer-facing or visibly changed PRs with no human QA evidence) and files
+   bugs as issues (`bug` + `daily-qa`, plus `qa-blocker` when a user cannot finish a main task).
 4. QA blockers are fixed **only by the stabilizer**, with commits pushed directly onto the batch
    branch. No PR ever merges into a batch; the fixes reach `main` through the merge-back.
 5. QA records the verdict on the batch PR: `qa-approved` (stable) or `qa-failed` (unstable).
@@ -249,6 +253,25 @@ tooling treat any of these as not-mergeable.
    batch PR back into `main` with `--match-head-commit <sha>`.
 
 The step-by-step commands are in CONTRIBUTING.md → "Batch: stabilizer runbook".
+
+**Batch name and range.** A QA batch is the branch `stabilize/qa-<YYYY-MM-DD>` (a second batch on
+the same day adds `-2`), with its record file `.ai/runs/<YYYY-MM-DD>-qa-batch.md`. Other
+`stabilize/` branches, such as the maintenance bot's CI-fix PRs, are stabilization PRs, not QA
+batches; they keep the forced full suite but do not count as the open batch. "One open batch at a
+time" means one open PR whose head starts with `stabilize/qa-`. The batch range runs from the
+previous `green/*` tag to the batch head. When no `green/*` tag exists yet (the first batch), it
+starts at the merge-base of `main` with the newest `release/v*` branch, or at a start commit the
+stabilizer states in the batch PR description; either way the start commit is written in the
+batch PR description and the record file, and `om-qa-batch` is run with that range
+(`--range <start>..<batch-head>`). When the must-test list is too long for one sitting, split it
+across QA sessions on the same batch and note in the record file what each session covered; do
+not cut several batches instead.
+
+**Which `qa-approved` counts as human QA.** A `qa-approved` on a PR or on the batch PR counts as
+human QA only when a human applied it, from a login in `qaBatch.testers` or
+`.github/core-team.json`, together with a QA evidence comment that carries `QA head: <sha>`. A
+`qa-approved` applied by an agent or automation account, or backed only by an agent's comment,
+does not count: the batch treats that PR as not covered and tests it again.
 
 Labels on the batch PR:
 

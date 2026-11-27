@@ -2,8 +2,13 @@
 
 The fixed part of every batch QA pass (`om-qa-batch`, see
 `.ai/docs/pr-workflow.md` → Batch QA). It takes about 30 minutes on a
-fresh build of the batch branch. The PRs that need a human eye come on top of
-it from the batch checklist.
+fresh build of the batch branch (`stabilize/qa-<YYYY-MM-DD>`, deployed from its batch
+PR). The PRs that need a human eye come on top of it from the batch checklist
+(`om-qa-batch --range <start>..<batch-head>`; the first batch starts at the
+merge-base of `main` with the newest release line). A PR whose only
+`qa-approved` came from an agent counts as not covered and is on that list. When
+the list is too long for one sitting, split it across QA sessions on the same
+batch and note what each covered in `.ai/runs/<YYYY-MM-DD>-qa-batch.md`.
 
 Order is risk first: when time runs short, a partial pass still covers the
 parts where a failure blocks users. Any step that fails under the blocker

@@ -43,7 +43,7 @@ test('merge back publishes the immutable tag before merging the QA-approved head
   const result = executeMergeBack()
   assert.equal(result.status, 0)
   assert.deepEqual(result.commands, [
-    'git fetch origin stabilize/main-2026-11-26',
+    'git fetch origin stabilize/qa-2026-11-26',
     `git tag green/2026-11-26 ${approvedHead}`,
     'git push origin green/2026-11-26',
     `gh pr merge 123 --squash --match-head-commit ${approvedHead}`,

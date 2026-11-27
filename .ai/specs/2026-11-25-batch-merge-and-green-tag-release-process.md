@@ -43,7 +43,7 @@
 
 ## TLDR
 
-PRs keep targeting `main`, but merge on checks sized to their risk: a 1–2 minute fast gate by default, more tests only when triage (a skill first, a human on top) adds a `ci-*` label. On demand a maintainer (the stabilizer) cuts `main` into `stabilize/main-<date>` (the batch), which runs the full suite and one manual QA pass. Problems are fixed forward by the stabilizer with commits on the batch branch; a green batch is tagged `green/<date>` and merged back into `main`. Every 2–3 weeks a release line is cut from a green tag instead of from `main`'s untested tip. Backports keep using the existing labels.
+PRs keep targeting `main`, but merge on checks sized to their risk: a 1–2 minute fast gate by default, more tests only when triage (a skill first, a human on top) adds a `ci-*` label. On demand a maintainer (the stabilizer) cuts `main` into `stabilize/qa-<date>` (the batch), which runs the full suite and one manual QA pass. Problems are fixed forward by the stabilizer with commits on the batch branch; a green batch is tagged `green/<date>` and merged back into `main`. Every 2–3 weeks a release line is cut from a green tag instead of from `main`'s untested tip. Backports keep using the existing labels.
 
 Target: about 80 merged PRs a day without paying for the full test suite on every PR. For contributors nothing changes: every PR still targets `main`.
 
@@ -51,7 +51,7 @@ The plan is ordered so every safety net (batch, QA, label-driven scope, triage) 
 
 ## Terms
 
-- **Cut, batch** (team chat: *paczka*): the `stabilize/main-<date>` branch made from `main` on demand (not daily, not automatically) and opened as one PR back to `main`. No PR ever merges into it.
+- **Cut, batch** (team chat: *paczka*): the `stabilize/qa-<YYYY-MM-DD>` branch made from `main` on demand (not daily, not automatically) and opened as one PR back to `main`, the batch PR. No PR ever merges into it. Other `stabilize/` branches (for example the maintenance bot's CI-fix PRs such as #10850 and #10474) are stabilization PRs, not batches.
 - **Stabilizer:** the maintainer who cuts and owns a batch: the only person who fixes its blockers, with commits pushed directly onto the batch branch; tags it and merges it back.
 - **Green tag:** `green/<date>` on the batch tip that passed the full suite and QA.
 - **Core team:** PR authors listed in `.github/core-team.json`, the single source of the core-team list (the members of the GitHub team `open-mercato/core-team` plus `matgren` and `tkarwatka`; logins compared case-insensitively). `author_association` is not used: `COLLABORATOR` includes outside collaborators with only `read` or `triage`, and `MEMBER` includes org members whose base permission is `read`.
@@ -65,7 +65,7 @@ The plan is ordered so every safety net (batch, QA, label-driven scope, triage) 
 | Who decides test scope | Nobody; CI derives it from paths. `ci-full` only applies from the next push | Triage skill sets labels on open and each push (raise only); humans can add. CI re-runs on label change |
 | Docs-only PRs | Install, build, lint and unit tests still run | Docs lane: guard, CLA, docs-specific checks only, under 1 minute; docs site built on `apps/docs` PRs |
 | External PRs | Same path as core PRs | Acceptance triage: `needs-triage` until a human maintainer adds `accepted` and approves; the skill only drafts a verdict and may propose `automerge` |
-| Stabilization | `stabilize/main-<date>` cut by hand, sometimes 2–3 a day, squash-merged back | One batch at a time, cut on demand by a stabilizer, full suite + one QA pass, `green/<date>` tag, squash-merged back |
+| Stabilization | `stabilize/qa-<date>` cut by hand, sometimes 2–3 a day, squash-merged back | One batch at a time, cut on demand by a stabilizer, full suite + one QA pass, `green/<date>` tag, squash-merged back |
 | QA | `needs-qa` is formally a merge gate on most PRs; weekly pass of `main` (`weekly-qa`); per-PR `ready-for-qa` queue | No QA label blocks a merge into `main` (only `qa-failed`); `needs-human-qa` = a tester looks at it in the batch first; `needs-qa` = automatic QA, not blocking; `qa-batch-check` = merge, check in the batch. One pass per batch with `om-qa-batch` (smoke + checklist); bugs `daily-qa`, blockers `qa-blocker`. `weekly-qa` and `ready-for-qa` retired |
 | `main` safety net | Full suite on every push to `main` | Unchanged; an agent proposes a fix when it goes red |
 | Release cut | `release-cut.yml` cuts `release/vX.Y.x` at `main`'s tip | Cut at a chosen `green/<date>` tag; changelog split at that commit |
@@ -107,7 +107,7 @@ flowchart LR
   TRI -->|"no label: fast gate"| MAIN["main"]
   TRI -->|"ci-targeted: targeted tests"| MAIN
   TRI -->|"ci-full: full suite"| MAIN
-  MAIN -->|"on demand"| CUT["stabilize/main-DATE: full suite + QA pass"]
+  MAIN -->|"on demand"| CUT["stabilize/qa-DATE: full suite + QA pass"]
   CUT -->|"red: stabilizer commits on the batch"| CUT
   CUT -->|"green: tag green/DATE, squash-merge back"| MAIN
   CUT -->|"every 2-3 weeks: release-cut at the green tag"| REL["release/vX.Y.x"]
@@ -290,11 +290,11 @@ Accepted limit (discussion of 2026-11-25): an integration failure can stay on `m
 
 ### The batch
 
-On demand (not daily, not automatically) `main` is cut into `stabilize/main-<date>`: whatever merged since the last batch, 30, 50 or 80 PRs. PRs keep merging into `main`; none merges into the batch. `main` keeps moving. A batch normally goes back into `main` stabilized; every 2–3 weeks a release line is cut from it instead.
+On demand (not daily, not automatically) `main` is cut into `stabilize/qa-<date>`: whatever merged since the last batch, 30, 50 or 80 PRs. PRs keep merging into `main`; none merges into the batch. `main` keeps moving. A batch normally goes back into `main` stabilized; every 2–3 weeks a release line is cut from it instead.
 
 ```mermaid
 flowchart LR
-  C["Step 1: Cut stabilize/main-DATE from main tip, open as PR to main"] --> FS["Step 2: Full suite (FORCE_FULL_SUITE)"]
+  C["Step 1: Cut stabilize/qa-DATE from main tip, open as PR to main"] --> FS["Step 2: Full suite (FORCE_FULL_SUITE)"]
   FS --> QA["Step 3: QA pass: smoke + checklist"]
   FS -->|"red"| FIX["Stabilizer commits on the batch branch"]
   QA -->|"unstable"| FIX
@@ -303,13 +303,15 @@ flowchart LR
   TAG --> MB["Step 5: Squash-merge the batch PR into main; next batch is cut from main"]
 ```
 
-This is close to today: `stabilize/main-<date>` branches are already cut by hand, fixed on the branch and merged back as PRs. The change is a named stabilizer, one QA pass, the green tag, and one open batch at a time. A branch without a PR runs no CI, so the batch must stay a PR. Only the stabilizer fixes blockers, with commits pushed directly onto the batch branch; no PR targets the batch, and the fixes reach `main` through the merge-back. Every push re-runs the full suite on the batch PR (`synchronize` on a `stabilize/` head is forced full). Batches are cut by hand, on demand.
+This is close to today: `stabilize/` branches are already cut by hand, fixed on the branch and merged back as PRs. The change is a reserved name (`stabilize/qa-<YYYY-MM-DD>`, record file `.ai/runs/<YYYY-MM-DD>-qa-batch.md`), a named stabilizer, one QA pass, the green tag, and one open batch at a time, meaning one open PR whose head starts with `stabilize/qa-`. Opening the batch PR into `main` is part of cutting the batch: `ci.yml` runs on push only for `main`, `release/v*` and `feat/wms`, and the Enterprise guard runs only on PRs, so the batch gets its forced full suite and the guard only through the batch PR, which also carries the QA verdict and is what merges back. Keeping the `stabilize/` prefix keeps the forced full suite (`FORCE_FULL_SUITE`, `resolve-ci-scope.mts`) and the green-tag check in `release-line.mts` working without a CI change.
+
+**Range.** The batch range runs from the previous `green/*` tag to the batch head. For the first batch, when no `green/*` tag exists, it starts at the merge-base of `main` with the newest `release/v*` branch, or at a start commit the stabilizer states in the batch PR; the start commit is written in the batch PR description and the record file, and `om-qa-batch` runs with `--range <start>..<batch-head>`. A very large batch is not split into several batches: the must-test list is split across QA sessions on the same batch, and the record file notes what each session covered. Only the stabilizer fixes blockers, with commits pushed directly onto the batch branch; no PR targets the batch, and the fixes reach `main` through the merge-back. Every push re-runs the full suite on the batch PR (`synchronize` on a `stabilize/` head is forced full). Batches are cut by hand, on demand.
 
 ### QA on the batch
 
 Rules from QA, source of truth `.ai/docs/pr-workflow.md` → "Batch QA". One build holds every PR since the last batch, so QA does not switch branches or rebuild per PR. The `om-qa-batch` skill (skills #210) turns the batch into a short checklist and records the verdict.
 
-1. **Checklist.** `om-qa-batch` lists the batch's PRs from the commit range and picks those that need a human eye: PRs labelled `qa-batch-check`; PRs that reached `main` with `needs-human-qa` but no `qa-approved`; customer-facing or visibly changed PRs with no QA evidence. Plus open blockers and the fixed smoke in `.ai/qa/batch-smoke.md` (about 30 min, risk first). Trial on 55 PRs merged 23–25.11: smoke + 6 PRs to check by hand; single days of 17–41 PRs gave 2–5. At 80 PRs a day this is one session.
+1. **Checklist.** `om-qa-batch` lists the batch's PRs from the commit range and picks those that need a human eye: PRs labelled `qa-batch-check`; PRs that reached `main` with `needs-human-qa` but no human `qa-approved`; customer-facing or visibly changed PRs with no human QA evidence. A `qa-approved` counts as human QA only when a human from `qaBatch.testers` or `.github/core-team.json` applied it with a `QA head: <sha>` evidence comment; one applied by an agent or automation account, or backed only by an agent comment, counts as not covered and the PR is tested again. Plus open blockers and the fixed smoke in `.ai/qa/batch-smoke.md` (about 30 min, risk first). Trial on 55 PRs merged 23–25.11: smoke + 6 PRs to check by hand; single days of 17–41 PRs gave 2–5. At 80 PRs a day this is one session.
 2. **Deploy and start.** `qa-deploy.yml` deploys the batch branch to a QA slot. `om-qa-batch --start` assigns the tester and adds `qa-in-progress` to the batch PR. While it is on, the batch is not refreshed with newer `main` commits; an untouched batch may be refreshed.
 3. **What blocks the batch:** a user cannot finish a main task. A main screen does not load or a main path returns a server error; signing in, saving or creating a basic record fails; data is lost, saved wrong or shown to another organization or tenant; a migration fails or the app does not start. Cosmetics, translations and small UX issues never block.
 4. **Reporting.** Blocker: issue with `bug` + `daily-qa` + `qa-blocker`, plus a comment on the batch PR mentioning the stabilizer; open `qa-blocker` issues are listed at the start of the next batch. After a passing retest of the fix, QA (or the stabilizer) closes the `qa-blocker` issue by hand; `Fixes #N` on the batch PR is traceability only, since it closes nothing until the batch merges. Anything else: issue with `bug` + `daily-qa`.
@@ -326,8 +328,8 @@ Nothing is rebased. The green tag stays on the commit that passed the full suite
 gitGraph
   commit id: "A"
   commit id: "B"
-  branch stabilize-main-day1
-  checkout stabilize-main-day1
+  branch stabilize-qa-day1
+  checkout stabilize-qa-day1
   commit id: "fix 1"
   commit id: "fix 2" tag: "green/day-1"
   checkout main
@@ -349,12 +351,12 @@ PRs keep landing on `main` while the batch is stabilized, sometimes in the same 
 ```mermaid
 gitGraph
   commit id: "A"
-  branch stabilize-main-day1
-  checkout stabilize-main-day1
+  branch stabilize-qa-day1
+  checkout stabilize-qa-day1
   commit id: "fix" tag: "green/day-1"
   checkout main
   commit id: "B (same file)"
-  checkout stabilize-main-day1
+  checkout stabilize-qa-day1
   merge main id: "resolve conflict"
   checkout main
   commit id: "squash: fixes + resolution"
@@ -473,8 +475,8 @@ flowchart LR
 | PR → `main` raised by triage (`ci-targeted`, `ci-area:*`, `risk-high`, `security`, `backport …`) | Fast gate + targeted tests | ~15–35 min | Yes | Targeted tests exist; the labels that require them are new |
 | PR → `main` touching shared packages, or `ci-full` | Full suite | 45–70 min | Yes | Already forced by `FULL_SUITE_PATTERN` and `ci-full` |
 | Push to `main` (safety net) | Full suite on the latest tip; intermediate commits are skipped while a run is in progress | 45–70 min | No; red means a fix (on `main` for build/typecheck, else on the open batch) | Same today: one running, one pending (newest) per group |
-| Batch PR (`stabilize/main-<date>` → `main`) | Full suite on every push to it + QA pass, retests of fixed areas | 45–70 min + QA | Gate for the green tag and merge back | Full suite already forced for `stabilize/` heads |
-| PR into the batch (base `stabilize/main-<date>`) | Not used: blockers are fixed by stabilizer commits on the batch branch | — | — | `ci.yml` still accepts `stabilize/**` as a base (Phase 0 step 1) |
+| Batch PR (`stabilize/qa-<date>` → `main`) | Full suite on every push to it + QA pass, retests of fixed areas | 45–70 min + QA | Gate for the green tag and merge back | Full suite already forced for `stabilize/` heads |
+| PR into the batch (base `stabilize/qa-<date>`) | Not used: blockers are fixed by stabilizer commits on the batch branch | — | — | `ci.yml` still accepts `stabilize/**` as a base (Phase 0 step 1) |
 | PR → `release/v*` (backports, hotfixes) | Full suite | 45–70 min | Yes; normal backports also wait for a green batch | Same checks as PRs to `main` |
 | Release (minor or patch) | QA pass on the line, `release.yml`, `release-publish.yml` | — | `production` environment approval | Tools unchanged; the QA pass on the line is new |
 
@@ -575,14 +577,14 @@ Phases 0–6 plus optional follow-ups. The order is deliberate:
 **Entry criteria.** This spec is open as a draft PR and the team agreed to trial it.
 
 **Steps.**
-1. **CI for PRs into the batch.** Add `'stabilize/**'` to `pull_request.branches` in `.github/workflows/ci.yml`, so a PR with a `stabilize/main-<date>` base would get today's scoped CI. Superseded: batch fixes are stabilizer commits on the batch branch, not PRs. `FORCE_FULL_SUITE` stays keyed on `head_ref`, so the batch PR (head `stabilize/…`) runs the full suite on every push. Touches: `ci.yml`. Owner: maintainers.
+1. **CI for PRs into the batch.** Add `'stabilize/**'` to `pull_request.branches` in `.github/workflows/ci.yml`, so a PR with a `stabilize/qa-<date>` base would get today's scoped CI. Superseded: batch fixes are stabilizer commits on the batch branch, not PRs. `FORCE_FULL_SUITE` stays keyed on `head_ref`, so the batch PR (head `stabilize/…`) runs the full suite on every push. Touches: `ci.yml`. Owner: maintainers.
 2. **Stabilizer.** The maintainer who cuts a batch owns it and names themselves in the batch PR. No rotation, no files.
-3. **Cut on demand.** The stabilizer branches `stabilize/main-<date>` from `main` and opens it as a PR to `main` (a branch without a PR runs no CI). Full suite runs through `FORCE_FULL_SUITE`.
-4. **QA deploy.** QA runs `qa-deploy.yml` with `branch: stabilize/main-<date>` on a free slot (`qa1`–`qa4`). No changes.
+3. **Cut on demand.** The stabilizer branches `stabilize/qa-<YYYY-MM-DD>` from `main` and opens the batch PR into `main` as part of the cut: the batch gets its full suite (`FORCE_FULL_SUITE`) and the Enterprise guard only through that PR.
+4. **QA deploy.** QA runs `qa-deploy.yml` with `branch: stabilize/qa-<date>` on a free slot (`qa1`–`qa4`). No changes.
 5. **Labels.** Already exist: `qa-batch-check`, `daily-qa`, `qa-blocker`. The batch PR uses `qa-in-progress`, `qa-approved`, `qa-failed`. No action.
 6. **QA pass and reporting.** Smoke from `.ai/qa/batch-smoke.md` plus a checklist (by hand until `om-qa-batch` is deployed), reported as in [QA on the batch](#qa-on-the-batch).
 7. **QA lanes rollout (parallel; QA + maintainers).** Merge open-mercato/skills#210 and make sure review and merge workers run it; then follow PR #10712's rollout: re-triage open PRs carrying `needs-qa` while the old gate holds, clean the open `needs-human-qa` queue against the new rules, pause merges, then drop the per-PR QA gate (`qaGate: false`; done on `main` 2026-11-27, no label is a QA merge gate), resume. Touches: skills repo, `.ai/agentic.config.json`, `.ai/docs/pr-workflow.md`, `.ai/qa/batch-smoke.md`, `AGENTS.md`, `SDLC.md`, PR template.
-8. **Fix forward.** Only the stabilizer fixes blockers, with commits pushed directly onto `stabilize/main-<date>`; no PR targets the batch. QA retests only the fixed area. Revert only as a last resort and as the team's call.
+8. **Fix forward.** Only the stabilizer fixes blockers, with commits pushed directly onto `stabilize/qa-<date>`; no PR targets the batch. QA retests only the fixed area. Revert only as a last resort and as the team's call.
 9. **Green tag and merge back.** When the full suite is green on the batch PR head and QA says stable, the stabilizer tags that head `green/<date>` (`git tag green/<date> <sha> && git push origin green/<date>`) and squash-merges the batch PR into `main`. The tag keeps the tested commit reachable.
 10. **No tester available.** No new batch while one is open. The open batch grows with `main` until a tester claims it with `qa-in-progress`; open `qa-blocker` issues are listed at the start of the next pass.
 11. **Record metrics** (see [Phase 4](#phase-4-fast-gate-as-the-default)) in a pinned issue: QA time per batch, red batches, time to green.
@@ -742,7 +744,7 @@ Phases 0–6 plus optional follow-ups. The order is deliberate:
 
 | Piece | Status |
 |---|---|
-| `stabilize/main-<date>` cuts with a forced full suite, merged back as PRs | exists: cut by hand; `FORCE_FULL_SUITE` in `ci.yml` |
+| `stabilize/qa-<date>` cuts with a forced full suite, merged back as PRs | exists: cut by hand; `FORCE_FULL_SUITE` in `ci.yml` |
 | Affected-module (targeted) integration tests | exists: `prepare` job in `ci.yml`, on every PR |
 | Full suite on every push to `main` | exists: the safety net |
 | `release-cut.yml`, `release.yml`, `release-publish.yml`, `backport.yml` | exists: `release/v0.9.x` and `release/v0.10.x` are live and get backports |
@@ -869,6 +871,7 @@ Other:
 
 ## Changelog
 
+- 2026-11-27: First-batch fixes: QA batches use the reserved branch `stabilize/qa-<YYYY-MM-DD>` and record file `.ai/runs/<YYYY-MM-DD>-qa-batch.md`, so the maintenance bot's `stabilize/` CI-fix PRs never count as the open batch; opening the batch PR into `main` is part of the cut (only that PR gets the full suite and the Enterprise guard); the first batch's range starts at the merge-base of `main` with the newest release line (or a stated commit); a large batch is split across QA sessions, not into several batches; only a human `qa-approved` from `qaBatch.testers` or `.github/core-team.json` counts as QA coverage.
 - 2026-11-27: Aligned with open-mercato/skills#210 and #211: triage is `om-triage-pr` plus `om-review-pr` (open question closed); CI rules stay in `.github/ci-scope.json`, referenced by `prTriage.ciScopeFile`; `qaBatch.testers` documented; the merge-back conflict rule now says the verdict stays on the green-tagged commit and the PRs the fix brings in are tested in the next batch (fixes the contradiction with "a new head needs a new verdict"); backports do not copy `needs-human-qa`, a release waits for the green release QA pass, a hand-resolved backport conflict gets `needs-human-qa`.
 - 2026-11-27: Review fixes: acceptance rows read `.github/core-team.json`; no per-day batch wording left; the batch is not re-tested after a merge-back conflict fix (verdict stays on the green tag, the fix's `main` PRs go to the next batch).
 - 2026-11-27: Core team is the login list in `.github/core-team.json` (GitHub team `open-mercato/core-team` plus `matgren` and `tkarwatka`), replacing the "write permission or higher" rule; Phase 5 acceptance reads that file.
