@@ -2758,7 +2758,7 @@
   ],
   "designSystemInventoryPath": ".ai/harness/design-system-inventory.json",
   "designSystemGallery": {
-    "itemCount": 175,
+    "itemCount": 181,
     "familyIds": [
       "foundations",
       "icons",
@@ -2795,7 +2795,7 @@
     "nodeComparisonCounts": {
       "match": 15,
       "mismatch": 8,
-      "not-comparable": 152
+      "not-comparable": 158
     },
     "designSkillAvailability": "unavailable",
     "publicationStatus": "not-evidenced",
