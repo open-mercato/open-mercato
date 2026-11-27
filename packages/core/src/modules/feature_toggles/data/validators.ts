@@ -21,7 +21,12 @@ export const toggleCreateSchema = z.object({
   category: z.string().nullable().optional(),
 
   type: toggleTypeSchema,
-  defaultValue: z.any().nullable().optional(),
+  // `default_value` is a NOT NULL column and the toggle check resolves a missing
+  // value as INVALID_VALUE, so a create without a value is a client error (400),
+  // not a database failure (500).
+  defaultValue: z.any().refine((value) => value !== null && value !== undefined, {
+    message: 'defaultValue is required',
+  }),
 })
 
 export const toggleCreateSchemaList = z.array(toggleCreateSchema)
@@ -31,6 +36,7 @@ export const toggleUpdateSchema = z
     id: z.string().uuid(),
   })
   .merge(toggleCreateSchema.partial())
+  .extend({ defaultValue: z.any().nullable().optional() })
 
 export const changeOverrideStateBaseSchema = z.object({
   toggleId: z.string().uuid(),

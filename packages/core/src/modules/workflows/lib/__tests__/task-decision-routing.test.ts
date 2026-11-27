@@ -258,6 +258,7 @@ describe('completeUserTask with a decision', () => {
     jest.clearAllMocks()
     ;(findDefinitionForInstance as jest.Mock).mockResolvedValue({
       id: 'def-1',
+      tenantId: TENANT,
       definition: definitionData,
     } as never)
     ;(transitionHandler.executeTransition as jest.Mock).mockResolvedValue({ success: true } as never)
@@ -334,6 +335,7 @@ describe('completeUserTask with a decision', () => {
     const { em } = makeEm(makeTask())
     ;(findDefinitionForInstance as jest.Mock).mockResolvedValue({
       id: 'def-1',
+      tenantId: TENANT,
       definition: {
         ...definitionData,
         transitions: [
@@ -375,6 +377,7 @@ describe('completeUserTask without a decision', () => {
     jest.clearAllMocks()
     ;(findDefinitionForInstance as jest.Mock).mockResolvedValue({
       id: 'def-1',
+      tenantId: TENANT,
       definition: {
         steps: [{ stepId: 'review', stepType: 'USER_TASK', userTaskConfig: {} }],
         transitions: definitionData.transitions,

@@ -684,6 +684,28 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined,
 const COLUMN_MIN_WIDTH = 60
 const COLUMN_MAX_WIDTH = 900
 
+// While a reload swaps the rows for a single loading row, the auto table layout
+// would re-derive column widths from header text alone and the headers would
+// jump. Header widths measured in the last non-loading state (rows, empty or
+// error) are re-applied for the duration of the load; a user-resized width
+// always wins.
+const BULK_SELECT_WIDTH_KEY = '__om_bulk_select__'
+const ROW_ACTIONS_WIDTH_KEY = '__om_row_actions__'
+const HEADER_WIDTH_CELL_SELECTOR = ':scope > table > thead > tr > th[data-column-width-key]'
+
+export function resolveLoadingHeaderWidth(
+  manualWidth: number | undefined,
+  measuredWidth: number | undefined,
+  isLoading: boolean,
+): number | undefined {
+  if (typeof manualWidth === 'number') return manualWidth
+  return isLoading ? measuredWidth : undefined
+}
+
+function fixedWidthStyle(width: number | undefined): React.CSSProperties | undefined {
+  return typeof width === 'number' ? { width, minWidth: width, maxWidth: width } : undefined
+}
+
 function formatDurationLabel(durationMs?: number | null): string {
   if (durationMs == null) return ''
   if (!Number.isFinite(durationMs)) return ''
@@ -1201,7 +1223,7 @@ function ColumnResizeHandle({
   )
 }
 
-function SortableHeaderCell({ id, children, className, width, ariaSort }: { id: string; children: React.ReactNode; className?: string; width?: number; ariaSort?: React.AriaAttributes['aria-sort'] }) {
+function SortableHeaderCell({ id, children, className, width, widthKey, ariaSort }: { id: string; children: React.ReactNode; className?: string; width?: number; widthKey?: string; ariaSort?: React.AriaAttributes['aria-sort'] }) {
   // Only the pointer listeners go on the cell. dnd-kit's `attributes` would make
   // it a focusable `role="button"`, which replaces the column header role (data
   // cells lose their header) and adds a Tab stop that does nothing, since only
@@ -1215,10 +1237,10 @@ function SortableHeaderCell({ id, children, className, width, ariaSort }: { id: 
     opacity: isDragging ? 0.5 : 1,
     cursor: 'grab',
     position: isSticky ? 'sticky' : 'relative',
-    ...(typeof width === 'number' ? { width, minWidth: width, maxWidth: width } : {}),
+    ...fixedWidthStyle(width),
   }
   return (
-    <TableHead ref={setNodeRef} style={style} className={className} aria-sort={ariaSort} {...listeners}>
+    <TableHead ref={setNodeRef} style={style} className={className} aria-sort={ariaSort} data-column-width-key={widthKey} {...listeners}>
       {children}
     </TableHead>
   )
@@ -3723,6 +3745,32 @@ function DataTableImpl<T extends RowData>({
     }
   }, [tableScrollEl, isInitializingColumns])
   const allRows = table.getRowModel().rows
+  const hasRowActionsColumn = Boolean(rowActions || injectedRowActions.length > 0)
+  const measuredHeaderWidthsRef = React.useRef<Map<string, number>>(new Map())
+  const canMeasureHeaders = !isLoading && !isInitializingColumns
+  const visibleColumnSignature = table.getVisibleLeafColumns().map((column) => column.id).join('|')
+  React.useLayoutEffect(() => {
+    if (!canMeasureHeaders || !tableScrollEl) return
+    const recordWidth = (cell: Element, target: Map<string, number>) => {
+      const key = cell instanceof HTMLElement ? cell.dataset.columnWidthKey : undefined
+      if (!key) return
+      const width = cell.getBoundingClientRect().width
+      if (width > 0) target.set(key, width)
+      else target.delete(key)
+    }
+    const cells = Array.from(tableScrollEl.querySelectorAll(HEADER_WIDTH_CELL_SELECTOR))
+    const measured = new Map<string, number>()
+    cells.forEach((cell) => recordWidth(cell, measured))
+    measuredHeaderWidthsRef.current = measured
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => {
+      entries.forEach((entry) => recordWidth(entry.target, measuredHeaderWidthsRef.current))
+    })
+    cells.forEach((cell) => observer.observe(cell))
+    return () => observer.disconnect()
+  }, [canMeasureHeaders, tableScrollEl, allRows.length, error, visibleColumnSignature, hasInjectedBulkActions, hasRowActionsColumn, columnSizing])
+  const resolveHeaderWidth = (key: string, manualWidth?: number) =>
+    resolveLoadingHeaderWidth(manualWidth, measuredHeaderWidthsRef.current.get(key), Boolean(isLoading))
   // Hooks must run on every render regardless of props (Rules of Hooks). Call
   // useVirtualizer unconditionally and keep it inert when virtualization is off
   // (count 0, no scroll element → no observers, no measurement work), then
@@ -3871,7 +3919,11 @@ function DataTableImpl<T extends RowData>({
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hasInjectedBulkActions ? (
-                  <TableHead className="w-8">
+                  <TableHead
+                    className="w-8"
+                    data-column-width-key={BULK_SELECT_WIDTH_KEY}
+                    style={fixedWidthStyle(resolveHeaderWidth(BULK_SELECT_WIDTH_KEY))}
+                  >
                     <Checkbox
                       checked={table.getIsAllPageRowsSelected()}
                       onCheckedChange={(checked) => {
@@ -3914,6 +3966,7 @@ function DataTableImpl<T extends RowData>({
                   )
                   const columnId = header.column.id
                   const sizedWidth = enableColumnResize && columnId ? columnSizing[columnId] : undefined
+                  const headerWidth = columnId ? resolveHeaderWidth(columnId, sizedWidth) : sizedWidth
                   const resizeHandle = enableColumnResize && !header.isPlaceholder && columnId ? (
                     <ColumnResizeHandle
                       columnId={columnId}
@@ -3924,7 +3977,7 @@ function DataTableImpl<T extends RowData>({
                     />
                   ) : null
                   return enableHeaderDnd ? (
-                    <SortableHeaderCell key={header.id} id={header.id} width={sizedWidth} ariaSort={headerAriaSort} className={cn('group', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}>
+                    <SortableHeaderCell key={header.id} id={header.id} width={headerWidth} widthKey={columnId || undefined} ariaSort={headerAriaSort} className={cn('group', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}>
                       {headerCellContent}
                       {resizeHandle}
                     </SortableHeaderCell>
@@ -3932,7 +3985,8 @@ function DataTableImpl<T extends RowData>({
                     <TableHead
                       key={header.id}
                       className={cn('group relative', responsiveClass(priority, columnMeta?.hidden) + stickyClass)}
-                      style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
+                      data-column-width-key={columnId || undefined}
+                      style={fixedWidthStyle(headerWidth)}
                       aria-sort={headerAriaSort}
                     >
                       {headerCellContent}
@@ -3940,8 +3994,10 @@ function DataTableImpl<T extends RowData>({
                     </TableHead>
                   )
                 })}
-                {rowActions || injectedRowActions.length > 0 ? (
+                {hasRowActionsColumn ? (
                   <TableHead
+                    data-column-width-key={ROW_ACTIONS_WIDTH_KEY}
+                    style={fixedWidthStyle(resolveHeaderWidth(ROW_ACTIONS_WIDTH_KEY))}
                     className={cn(
                       actionsColumnAlign === 'center' ? 'w-0 text-center' : 'w-0 text-right',
                       stickyActionsColumn && `md:sticky md:right-0 md:z-20 ${stickyHeaderSurfaceClass} ${STICKY_RIGHT_SHADOW_CLASS}`,

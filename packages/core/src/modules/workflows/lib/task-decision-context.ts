@@ -26,6 +26,12 @@ export type TaskDecisionContext = {
   formKey: string | null
 }
 
+/** Trusted tenant/organization, taken from the already scope-checked task row. */
+export type TaskDecisionContextScope = {
+  tenantId: string
+  organizationId: string
+}
+
 export const EMPTY_TASK_DECISION_CONTEXT: TaskDecisionContext = {
   stepId: null,
   decisions: [],
@@ -38,18 +44,28 @@ export const EMPTY_TASK_DECISION_CONTEXT: TaskDecisionContext = {
  * Degrades to an empty list at every step — a task whose instance, step or
  * definition has gone missing still completes through the plain form, which is
  * exactly how every task behaved before decisions existed.
+ *
+ * With `scope`, the instance and step reads carry the task's tenant and
+ * organization, so a reference into another scope resolves to nothing instead of
+ * supplying its step, form key or decisions. The definition is always read inside
+ * the resolved instance's own tenant and organization.
  */
 export async function loadTaskDecisionContext(
   em: EntityManager,
   task: Pick<UserTask, 'workflowInstanceId' | 'stepInstanceId'>,
+  scope?: TaskDecisionContextScope,
 ): Promise<TaskDecisionContext> {
-  const instance = await em.findOne(WorkflowInstance, { id: task.workflowInstanceId })
+  const scopeWhere = scope ? { tenantId: scope.tenantId, organizationId: scope.organizationId } : {}
+  const instance = await em.findOne(WorkflowInstance, { id: task.workflowInstanceId, ...scopeWhere })
   if (!instance) return EMPTY_TASK_DECISION_CONTEXT
 
-  const stepInstance = await em.findOne(StepInstance, { id: task.stepInstanceId })
+  const stepInstance = await em.findOne(StepInstance, { id: task.stepInstanceId, ...scopeWhere })
   if (!stepInstance) return EMPTY_TASK_DECISION_CONTEXT
 
-  const definition = await findDefinitionForInstance(em, instance)
+  const definition = await findDefinitionForInstance(em, instance, {
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
   if (!definition) return { stepId: stepInstance.stepId, decisions: [], formKey: null }
 
   const formKey = readAuthoredTaskFormKey(definition.definition, stepInstance.stepId)
