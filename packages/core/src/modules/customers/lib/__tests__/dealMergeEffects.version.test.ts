@@ -10,6 +10,7 @@ import { markDealMergeEffects, type DealMergeEffectsJob } from '../dealMergeEffe
 const tenantId = 'tenant-1'
 const organizationId = 'org-1'
 const companyId = 'company-1'
+const activityId = 'activity-1'
 const interactionId = 'interaction-1'
 const commentId = 'comment-1'
 const dealA = 'deal-a'
@@ -31,7 +32,9 @@ type StoredRow = {
 }
 
 function buildStore(rows: StoredRow[]) {
+  const calls: string[] = []
   const execute = jest.fn(async (sql: string, params: unknown[]) => {
+    calls.push(sql)
     const table = /from (customer_\w+)/.exec(sql)?.[1]
     const versioned = sql.includes('updated_at = ?::timestamptz')
     const version = versioned ? String(params[0]) : null
@@ -51,12 +54,18 @@ function buildStore(rows: StoredRow[]) {
         is_current: version === null ? true : row.updated_at === version,
       }))
   })
-  const em = { fork: () => em, execute }
-  return { em, execute }
+  const em = {
+    fork: () => em,
+    execute,
+    begin: jest.fn(async () => { calls.push('begin') }),
+    commit: jest.fn(async () => { calls.push('commit') }),
+    rollback: jest.fn(async () => { calls.push('rollback') }),
+  }
+  return { em, execute, calls }
 }
 
-function buildEngine() {
-  const emitEvent = jest.fn().mockResolvedValue(undefined)
+function buildEngine(order?: string[]) {
+  const emitEvent = jest.fn(async (name: string) => { order?.push(name) })
   const container = {
     resolve: (token: string) => {
       if (token === 'eventBus') return { emitEvent }
@@ -180,10 +189,88 @@ describe('deferred deal merge effects carry the moved version', () => {
       organizationId,
     })
     expect(upsertsFor(calls(), 'customers:customer_interaction', interactionId)).toHaveLength(1)
-    for (const [sql, params] of execute.mock.calls) {
+    for (const [sql, params] of execute.mock.calls.filter(([sql]) => sql.includes('is_current'))) {
       expect(sql).toContain('tenant_id = ? and organization_id = ?')
       expect(params[0]).toBe(firstMergeVersion)
     }
+  })
+
+  it('locks moved rows in table and id order before publishing, then commits before reindexing', async () => {
+    const activity = {
+      table: 'customer_activities',
+      id: activityId,
+      entity_id: companyId,
+      deal_id: dealB,
+      updated_at: firstMergeVersion,
+      deleted: false,
+    }
+    const { em, calls } = buildStore([interactionRow(dealB, firstMergeVersion), activity, commentRow(dealB, firstMergeVersion)])
+    const { engine } = buildEngine(calls)
+
+    const payload = firstMergeJob(firstMergeVersion)
+    payload.moved.activities.push({ id: activityId, payload: { entityId: companyId, dealId: dealB } })
+    await runWorker(engine, em, payload)
+
+    const beginIndex = calls.indexOf('begin')
+    const locks = calls.filter((call) => call.includes('for update'))
+    expect(locks).toHaveLength(3)
+    expect(locks[0]).toContain('from customer_interactions')
+    expect(locks[1]).toContain('from customer_activities')
+    expect(locks[2]).toContain('from customer_comments')
+    for (const sql of locks) {
+      expect(sql).toContain('tenant_id = ? and organization_id = ?')
+      expect(sql).toContain('order by id for update')
+    }
+    const interactionLockIndex = calls.indexOf(locks[0])
+    const activityLockIndex = calls.indexOf(locks[1])
+    const commentLockIndex = calls.indexOf(locks[2])
+    const versionReadIndex = calls.findIndex((call) => call.includes('is_current'))
+    const emitIndex = calls.indexOf('customers.interaction.updated')
+    const commitIndex = calls.indexOf('commit')
+    const indexUpsertIndex = calls.indexOf('query_index.upsert_one')
+    expect(beginIndex).toBeLessThan(interactionLockIndex)
+    expect(interactionLockIndex).toBeLessThan(activityLockIndex)
+    expect(activityLockIndex).toBeLessThan(commentLockIndex)
+    expect(commentLockIndex).toBeLessThan(versionReadIndex)
+    expect(versionReadIndex).toBeLessThan(emitIndex)
+    expect(emitIndex).toBeLessThan(commitIndex)
+    expect(commitIndex).toBeLessThan(indexUpsertIndex)
+  })
+
+  it('rolls back when publication fails while the row locks are held', async () => {
+    const { engine } = buildEngine()
+    const { em } = buildStore([interactionRow(dealB, firstMergeVersion)])
+    jest.spyOn(engine, 'flushOrmEntityChanges').mockRejectedValueOnce(new Error('publish failed'))
+
+    await expect(runWorker(engine, em, firstMergeJob(firstMergeVersion))).rejects.toThrow('publish failed')
+
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
+  })
+
+  it('bounds each locking transaction to one hundred records', async () => {
+    const records = Array.from({ length: 250 }, (_, index) => ({
+      id: `interaction-${index}`,
+      payload: { entityId: companyId, interactionType: 'call', status: 'done', source: null, dealId: dealB },
+    }))
+    const rows = records.map((record) => ({ ...interactionRow(dealB, firstMergeVersion), id: record.id }))
+    const { engine } = buildEngine()
+    const { em, execute } = buildStore(rows)
+
+    await runWorker(engine, em, {
+      tenantId,
+      organizationId,
+      moved: { activities: [], comments: [], interactions: records },
+      movedVersion: firstMergeVersion,
+    })
+
+    expect(em.begin).toHaveBeenCalledTimes(3)
+    expect(em.commit).toHaveBeenCalledTimes(3)
+    const lockCalls = execute.mock.calls.filter(([sql]) => sql.includes('for update'))
+    expect(lockCalls).toHaveLength(3)
+    expect(JSON.parse(String(lockCalls[0][1][2]))).toHaveLength(100)
+    expect(JSON.parse(String(lockCalls[1][1][2]))).toHaveLength(100)
+    expect(JSON.parse(String(lockCalls[2][1][2]))).toHaveLength(50)
   })
 
   it('never publishes the stale snapshot of a legacy job without a version', async () => {

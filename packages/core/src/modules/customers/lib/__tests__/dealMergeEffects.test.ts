@@ -32,7 +32,13 @@ test('flushes moved-record effects from the persistent queue using the worker re
     comments: [{ id, payload: { dealId } }],
     interactions: [],
   } }
-  const em = { fork: () => em, execute: jest.fn(async () => [{ id, entity_id: null, deal_id: dealId, is_current: true }]) }
+  const em = {
+    begin: jest.fn(async () => {}),
+    commit: jest.fn(async () => {}),
+    execute: jest.fn(async () => [{ id, entity_id: null, deal_id: dealId, is_current: true }]),
+    fork: () => em,
+    rollback: jest.fn(async () => {}),
+  }
   const resolve = <T,>(name: string) => (name === 'em' ? em : dataEngine) as T
   let complete!: () => void
   const completed = new Promise<void>((resolveComplete) => { complete = resolveComplete })
@@ -51,7 +57,7 @@ test('flushes moved-record effects from the persistent queue using the worker re
       indexer: { entityType: 'customers:customer_comment' },
       events: expect.objectContaining({ module: 'customers', entity: 'comment', persistent: true }),
     })
-    expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(1)
+    expect(dataEngine.flushOrmEntityChanges).toHaveBeenCalledTimes(2)
   } finally {
     await queue.close()
     await rm(baseDir, { recursive: true, force: true })

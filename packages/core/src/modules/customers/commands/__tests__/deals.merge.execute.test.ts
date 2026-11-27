@@ -623,6 +623,16 @@ describe('customers.deals.merge execute', () => {
     expect(nativeUpdate.mock.invocationCallOrder[moveIndex]).toBeGreaterThan(execute.mock.invocationCallOrder[lockIndex])
   })
 
+  it('locks moved activities and comments in id order', async () => {
+    const harness = createHarness()
+    await mergeDealsCommand.execute(buildInput(), harness.ctx)
+
+    const activityLock = harness.executeCalls.find((call) => call.sql.includes('from customer_activities'))
+    const commentLock = harness.executeCalls.find((call) => call.sql.includes('from customer_comments'))
+    expect(activityLock?.sql).toContain('order by id for update')
+    expect(commentLock?.sql).toContain('order by id for update')
+  })
+
   it('keeps the database statement count constant in the number of moved and relinked rows', async () => {
     const statementsFor = async (rowCount: number) => {
       const ids = Array.from({ length: rowCount }, (_, index) => `row-${index}`)

@@ -72,6 +72,9 @@ describe('deal merge effects for a bridged activity sharing its id with an inter
     const context = { jobId: 'job-1', attemptNumber: 1, queueName: 'customers-deal-merge-effects' } as JobContext
     const em = {
       fork: () => em,
+      begin: jest.fn(async () => undefined),
+      commit: jest.fn(async () => undefined),
+      rollback: jest.fn(async () => undefined),
       execute: jest.fn(async (sql: string) => [{
         id: bridgedId,
         entity_id: null,

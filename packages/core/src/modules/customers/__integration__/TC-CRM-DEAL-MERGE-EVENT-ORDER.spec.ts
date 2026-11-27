@@ -10,7 +10,7 @@ import {
   deleteEntityIfExists,
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
-import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { withClient, type IntegrationDbClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { expectId, getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import type { DealMergeEffectsJob } from '@open-mercato/core/modules/customers/lib/dealMergeEffects'
@@ -20,18 +20,17 @@ export const integrationMeta = { dependsOnModules: ['customers', 'auth', 'direct
 /**
  * TC-CRM-DEAL-MERGE-EVENT-ORDER: a merge that moves more than INLINE_MOVED_EFFECT_LIMIT (32) records
  * hands its moved-record CRUD events to the `customers-deal-merge-effects` worker. When the same
- * interaction moves again before that worker drains, the late job must not publish the superseded
- * Deal link after the newer one.
+ * interaction moves again while that worker drains, publication must preserve per-record write order.
  *
  * Scenario: merge A into B (32 comments + 1 interaction, deferred) and observe B from the original
- * job. Relink the interaction to D, then merge D into C inline and observe C. Replay the first
- * merge's interaction entry (the snapshot pointing at B and the version written by the first
- * merge). The webhook deliveries from before and after the replay are distinguishable by ID.
+ * job. Hold an ACCESS EXCLUSIVE lock on comments, replay the first job, and wait until the worker
+ * has locked the interaction row before it blocks on comments. A relink to D must then wait for the
+ * worker to publish B and release its row lock.
  *
  * Published CRUD events are observed through a webhook subscribed to `customers.interaction.updated`:
  * the webhooks module's persistent `*` subscriber records one delivery per published event, in
  * publish order, with the event payload. The last delivery for the interaction that carries a Deal
- * link must point at C, and no delivery created after C's must point anywhere else.
+ * link from the replay must precede the edit delivery, and no later delivery may point back to B.
  *
  * The replay is asserted only once publishing has settled: the replayed job has completed (so every
  * event it emitted is already stored in the `events` queue), the `events` queue holds no waiting or
@@ -54,6 +53,8 @@ const DEFERRED_COMMENT_COUNT = 32
 const EVENTS_SETTLE_STABLE_POLLS = 3
 const EVENTS_SETTLE_POLL_INTERVAL_MS = 250
 const EVENTS_SETTLE_TIMEOUT_MS = 30_000
+const DATABASE_WAIT_TIMEOUT_MS = 15_000
+const DATABASE_POLL_INTERVAL_MS = 100
 const MOCK_INBOUND_TOKEN_HEADER = 'x-mock-webhook-token'
 const MOCK_INBOUND_WEBHOOK_SECRET =
   process.env.MOCK_INBOUND_WEBHOOK_SECRET?.trim() || 'open-mercato-mock-dev-inbound-webhook-secret'
@@ -208,18 +209,77 @@ function openIntegrationQueue<T>(queueName: string): Queue<T> {
   return createQueue<T>(queueName, 'local', { baseDir, concurrency: 1 })
 }
 
-async function replayFirstMergeJob(job: DealMergeEffectsJob): Promise<void> {
+async function enqueueFirstMergeJob(job: DealMergeEffectsJob): Promise<{ completed: number; failed: number }> {
   const queue = openIntegrationQueue<DealMergeEffectsJob>(MERGE_EFFECTS_QUEUE)
   try {
     const { completed, failed } = await queue.getJobCounts()
     await queue.enqueue(job)
-    await drainIntegrationQueue(MERGE_EFFECTS_QUEUE, { appRoot: APP_ROOT })
-    await expect.poll(() => queue.getJobCounts(), {
-      message: 'the delayed first-merge job must complete successfully',
-    }).toMatchObject({ completed: completed + 1, failed, waiting: 0, active: 0 })
+    return { completed: completed + 1, failed }
   } finally {
     await queue.close()
   }
+}
+
+async function waitForMergeEffectsCompletion(expected: { completed: number; failed: number }): Promise<void> {
+  const queue = openIntegrationQueue<DealMergeEffectsJob>(MERGE_EFFECTS_QUEUE)
+  try {
+    await expect.poll(() => queue.getJobCounts(), {
+      message: 'the delayed first-merge job must complete successfully',
+    }).toMatchObject({ ...expected, waiting: 0, active: 0 })
+  } finally {
+    await queue.close()
+  }
+}
+
+async function waitUntil<T>(description: string, probe: () => Promise<T | null>): Promise<T> {
+  const deadline = Date.now() + DATABASE_WAIT_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const result = await probe()
+    if (result !== null) return result
+    await new Promise((resolve) => setTimeout(resolve, DATABASE_POLL_INTERVAL_MS))
+  }
+  throw new Error(`[internal] Timed out waiting until ${description}`)
+}
+
+async function waitForWorkerBlockedByComments(blockerPid: number): Promise<number> {
+  return waitUntil('the merge-effects worker waits for comments after reading the interaction', () =>
+    withClient(async (client) => {
+      const result = await client.query<{ pid: number }>(
+        `select activity.pid
+           from pg_stat_activity activity
+          where $1 = any(pg_blocking_pids(activity.pid))
+            and activity.query like '%customer_comments%'`,
+        [blockerPid],
+      )
+      return result.rows[0]?.pid ?? null
+    }))
+}
+
+async function waitForEditBlockedByWorker(workerPid: number): Promise<number> {
+  return waitUntil('the interaction edit waits for the merge-effects worker', () =>
+    withClient(async (client) => {
+      const result = await client.query<{ pid: number; waits_for_comments: boolean }>(
+        `select activity.pid,
+                exists (
+                  select 1 from pg_locks waiting
+                   where waiting.pid = activity.pid
+                     and not waiting.granted
+                     and waiting.relation = 'customer_comments'::regclass
+                ) as waits_for_comments
+           from pg_stat_activity activity
+          where $1 = any(pg_blocking_pids(activity.pid))`,
+        [workerPid],
+      )
+      const row = result.rows[0]
+      if (row) {
+        expect(row.waits_for_comments, 'the edit must wait on the worker row lock, not the comments table').toBe(false)
+      }
+      return row?.pid ?? null
+    }))
+}
+
+async function releasePause(blocker: IntegrationDbClient, paused: boolean): Promise<void> {
+  if (paused) await blocker.query('rollback')
 }
 
 async function readEventsQueueCounts(): Promise<QueueCounts> {
@@ -277,8 +337,14 @@ async function cleanupFixture(request: APIRequestContext, fixture: Fixture): Pro
   await deleteEntityIfExists(request, token, '/api/customers/companies', fixture.companyId)
 }
 
-test.describe('TC-CRM-DEAL-MERGE-EVENT-ORDER: deferred effects skip links superseded before the worker reads them', () => {
-  test('a delayed merge-effects job does not republish the interaction under the Deal it already left', async ({ request }) => {
+test.describe('TC-CRM-DEAL-MERGE-EVENT-ORDER: deferred effects preserve per-record publication order', () => {
+  test.describe.configure({ mode: 'serial' })
+
+  test('an edit waits while the worker validates and publishes the preceding merge', async ({ request }, testInfo) => {
+    expect(
+      testInfo.config.workers,
+      'customer_comments is locked table-wide, so this spec requires a single Playwright worker',
+    ).toBe(1)
     test.slow()
     const fixture: Fixture = {
       token: await getAuthToken(request, 'admin'),
@@ -301,7 +367,6 @@ test.describe('TC-CRM-DEAL-MERGE-EVENT-ORDER: deferred effects skip links supers
       }
       const dealA = await createDeal('A')
       const dealB = await createDeal('B')
-      const dealC = await createDeal('C')
       const dealD = await createDeal('D')
 
       const interactionResponse = await apiRequest(request, 'POST', INTERACTIONS_PATH, {
@@ -332,7 +397,7 @@ test.describe('TC-CRM-DEAL-MERGE-EVENT-ORDER: deferred effects skip links supers
         organizationId,
         moved: {
           activities: [],
-          comments: [],
+          comments: fixture.commentIds.map((id) => ({ id, payload: { entityId: companyId, dealId: dealB } })),
           interactions: [{
             id: interactionId,
             payload: { entityId: companyId, interactionType: 'task', status: 'planned', source: null, dealId: dealB },
@@ -341,32 +406,62 @@ test.describe('TC-CRM-DEAL-MERGE-EVENT-ORDER: deferred effects skip links supers
         movedVersion: firstMergeVersion,
       }
 
-      const relink = await apiRequest(request, 'PUT', INTERACTIONS_PATH, { token, data: { id: interactionId, dealId: dealD } })
-      expect(relink.ok(), `relinking the interaction to D returned ${relink.status()}`).toBeTruthy()
-
-      await mergeDeals(request, token, dealC, dealD, `QA merge event order C ${stamp}`)
-      fixture.dealIds.delete(dealD)
-      expect(await readInteractionVersion(interactionId)).not.toBe(firstMergeVersion)
-      await waitForPublishedDeal(request, token, webhookId, interactionId, dealC)
-
       const deliveryIdsBeforeReplay = new Set(
         (await readPublishedUpdates(request, token, webhookId, interactionId)).map((update) => update.deliveryId),
       )
       const eventsFailedBeforeReplay = (await readEventsQueueCounts()).failed
-      await replayFirstMergeJob(firstMergeJob)
+      let editSettled = false
+      const editResponse = await withClient(async (blocker) => {
+        await blocker.query('begin')
+        let paused = true
+        const inFlight: Promise<unknown>[] = []
+        try {
+          await blocker.query("set local lock_timeout = '10s'")
+          const blockerPid = (await blocker.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid
+          await blocker.query('lock table customer_comments in access exclusive mode')
+          const expectedCounts = await enqueueFirstMergeJob(firstMergeJob)
+          const drain = drainIntegrationQueue(MERGE_EFFECTS_QUEUE, { appRoot: APP_ROOT })
+          inFlight.push(drain)
+          const workerPid = await waitForWorkerBlockedByComments(blockerPid)
+
+          const edit = apiRequest(request, 'PUT', INTERACTIONS_PATH, {
+            token,
+            data: { id: interactionId, dealId: dealD },
+          }).finally(() => { editSettled = true })
+          inFlight.push(edit)
+          await waitForEditBlockedByWorker(workerPid)
+          expect(editSettled, 'the edit must remain in flight while the worker owns the interaction row').toBe(false)
+
+          await releasePause(blocker, paused)
+          paused = false
+          await drain
+          await waitForMergeEffectsCompletion(expectedCounts)
+          return await edit
+        } finally {
+          await releasePause(blocker, paused)
+          await Promise.allSettled(inFlight)
+        }
+      })
+      expect(editResponse.status(), `relinking the interaction to D returned ${editResponse.status()}`).toBe(200)
+      expect(await readInteractionVersion(interactionId)).not.toBe(firstMergeVersion)
 
       const { updates: finalUpdates, eventsFailed } = await readSettledPublishedUpdates(request, token, webhookId, interactionId)
       expect(eventsFailed, 'no event job may fail while the replay publishes').toBe(eventsFailedBeforeReplay)
-      const lastWithDeal = finalUpdates.filter((update) => update.carriesDeal).at(-1)
-      expect(lastWithDeal?.dealId, 'the last published Deal link for the interaction must be C').toBe(dealC)
-      const afterC = finalUpdates.filter((update) => !deliveryIdsBeforeReplay.has(update.deliveryId) && update.carriesDeal)
-      expect(afterC.map((update) => update.dealId).filter((dealId) => dealId !== dealC), 'no event may claim a superseded Deal after C').toEqual([])
+      const replayUpdates = finalUpdates.filter((update) => !deliveryIdsBeforeReplay.has(update.deliveryId))
+      const replayedMergeIndex = replayUpdates.findIndex((update) => update.carriesDeal && update.dealId === dealB)
+      const editIndex = replayUpdates.findIndex((update) => !update.carriesDeal)
+      expect(replayedMergeIndex, 'the replayed B delivery must be recorded').toBeGreaterThanOrEqual(0)
+      expect(editIndex, 'the later edit delivery must be recorded').toBeGreaterThan(replayedMergeIndex)
+      expect(
+        replayUpdates.slice(editIndex + 1).some((update) => update.carriesDeal && update.dealId === dealB),
+        'no superseded B delivery may follow the edit delivery',
+      ).toBe(false)
 
       await expect.poll(() => readProjectionDealId(interactionId), {
-        message: 'the interaction projection must point at C',
+        message: 'the interaction projection must point at D',
         timeout: 30_000,
-      }).toBe(dealC)
-      expect(await listInteractionIds(request, token, dealC)).toContain(interactionId)
+      }).toBe(dealD)
+      expect(await listInteractionIds(request, token, dealD)).toContain(interactionId)
       expect(await listInteractionIds(request, token, dealB)).not.toContain(interactionId)
     } finally {
       await cleanupFixture(request, fixture)

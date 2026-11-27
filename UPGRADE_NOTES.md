@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Deferred Deal merge events preserve per-record write order (#10680)
+
+The Deal merge effects worker now locks each bounded batch of moved interactions, activities and comments while it validates their merge version and queues matching CRUD events. A concurrent edit waits until the preceding merge event has been queued, preventing consumers from receiving a newer Deal link followed by the superseded one. Query-index refreshes still run after the lock-only transaction commits.
+
+No action is required. Event payloads, queue payloads, API contracts and database schema are unchanged. Ordering assumes the default single-concurrency FIFO events worker; retries may still duplicate events.
+
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
 When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.

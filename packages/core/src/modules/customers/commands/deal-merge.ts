@@ -403,10 +403,10 @@ async function collectMovedRecords(
   const params = [sourceId, scope.tenantId, scope.organizationId]
   const [activities, comments, interactions] = [
     await selectMovedRows(em,
-      'select id, entity_id from customer_activities where deal_id = ? and tenant_id = ? and organization_id = ?',
+      'select id, entity_id from customer_activities where deal_id = ? and tenant_id = ? and organization_id = ? order by id for update',
       params),
     await selectMovedRows(em,
-      'select id, entity_id from customer_comments where deal_id = ? and tenant_id = ? and organization_id = ? and deleted_at is null',
+      'select id, entity_id from customer_comments where deal_id = ? and tenant_id = ? and organization_id = ? and deleted_at is null order by id for update',
       params),
     await selectMovedRows(em,
       'select id, entity_id, interaction_type, status, source from customer_interactions where deal_id = ? and tenant_id = ? and organization_id = ? and deleted_at is null',

@@ -75,6 +75,7 @@ const MOVED_RECORD_SOURCES: Record<MovedGroup, MovedRecordSource> = {
 }
 
 const MOVED_GROUP_ORDER: MovedGroup[] = ['interactions', 'activities', 'comments']
+const DEAL_MERGE_EFFECTS_BATCH_SIZE = 100
 
 let queue: Queue<DealMergeEffectsJob> | undefined
 
@@ -116,6 +117,42 @@ async function readCurrentMovedRows(
   return Array.isArray(rows) ? rows.filter((row) => row && typeof row.id === 'string') : []
 }
 
+async function lockMovedRows(
+  em: EntityManager,
+  group: MovedGroup,
+  ids: string[],
+  job: DealMergeEffectsJob,
+): Promise<void> {
+  if (ids.length === 0) return
+  const source = MOVED_RECORD_SOURCES[group]
+  await em.execute(
+    `select id from ${source.table} where tenant_id = ? and organization_id = ? and id in (select value::uuid from jsonb_array_elements_text(?::jsonb))${source.softDeleted ? ' and deleted_at is null' : ''} order by id for update`,
+    [job.tenantId, job.organizationId, JSON.stringify(ids)],
+  )
+}
+
+function splitDealMergeEffectsJob(job: DealMergeEffectsJob): DealMergeEffectsJob[] {
+  const chunks: DealMergeEffectsJob[] = []
+  let moved: DealMergeMovedRecords = { activities: [], comments: [], interactions: [] }
+  let size = 0
+  for (const group of MOVED_GROUP_ORDER) {
+    const seen = new Set<string>()
+    for (const record of job.moved[group] ?? []) {
+      if (seen.has(record.id)) continue
+      seen.add(record.id)
+      moved[group].push(record)
+      size += 1
+      if (size === DEAL_MERGE_EFFECTS_BATCH_SIZE) {
+        chunks.push({ ...job, moved })
+        moved = { activities: [], comments: [], interactions: [] }
+        size = 0
+      }
+    }
+  }
+  if (size > 0) chunks.push({ ...job, moved })
+  return chunks
+}
+
 export async function resolveDeferredDealMergeEffects(
   em: EntityManager,
   job: DealMergeEffectsJob,
@@ -136,6 +173,32 @@ export async function resolveDeferredDealMergeEffects(
   return {
     current: { ...scope, moved: current, movedVersion: job.movedVersion ?? null },
     superseded: { ...scope, moved: superseded, movedVersion: job.movedVersion ?? null },
+  }
+}
+
+export async function processDeferredDealMergeEffects(
+  em: EntityManager,
+  dataEngine: DataEngine,
+  job: DealMergeEffectsJob,
+): Promise<void> {
+  for (const chunk of splitDealMergeEffectsJob(job)) {
+    let resolved: DeferredDealMergeEffects
+    await em.begin()
+    try {
+      for (const group of MOVED_GROUP_ORDER) {
+        await lockMovedRows(em, group, chunk.moved[group].map((record) => record.id), chunk)
+      }
+      resolved = await resolveDeferredDealMergeEffects(em, chunk)
+      markDealMergeEffects(dataEngine, resolved.current)
+      await dataEngine.flushOrmEntityChanges({ skipReindex: true })
+      await em.commit()
+    } catch (error) {
+      await em.rollback()
+      throw error
+    }
+    markDealMergeEffects(dataEngine, resolved.current, { publishEvents: false })
+    markDealMergeEffects(dataEngine, resolved.superseded, { publishEvents: false })
+    await dataEngine.flushOrmEntityChanges()
   }
 }
 
