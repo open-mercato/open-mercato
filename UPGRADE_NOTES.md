@@ -1,5 +1,12 @@
 # Upgrade Notes
 
+## Injected widget ACL gating fails closed outside backend chrome (#9743)
+
+A feature-gated injection widget (`metadata.features` on an `InjectionWidgetModule`, or a `features`-gated entry consumed through `useInjectionDataWidgets`) is now excluded by default on any frontend surface that cannot resolve an ACL source, instead of rendering unconditionally.
+
+- **Module / third-party widget migration:** No change for widgets with no `features` declared, or for widgets rendered inside the staff backend chrome (`BackendChromeProvider`) — gating there is unchanged. On a customer portal page, gating is now checked against the portal session's own resolved features via `useWidgetFeatureGrants` (portal grants never include the bare `*` wildcard, so a staff-only feature can't leak through). On any other context — one with neither a backend chrome payload nor a portal session — a feature-gated widget is now dropped rather than shown. A widget that previously relied on rendering unconditionally outside backend chrome must declare the portal feature(s) it actually needs, or drop `features` if it has no ACL requirement.
+- No database migration, route, or DI-key change is required.
+
 ## Extension header parsing and analytics SQL identifier hardening (#10331, #10332)
 
 Two security-hardening narrowings landed on shared request-header parsing and dashboard analytics SQL construction:

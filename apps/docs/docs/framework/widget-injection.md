@@ -658,6 +658,14 @@ const widget: InjectionWidgetModule<ContextType, DataType> = {
 export default widget
 ```
 
+`metadata.features` gating fails closed outside the staff backend chrome (#9743). On a backend
+page it is checked against `BackendChromeProvider`'s granted features, as before. On a customer
+portal page it is checked against the portal session's own resolved features instead (the bare
+`*` wildcard is never honored there, so a feature-gated widget can't be satisfied by a staff-only
+grant). On any other frontend context — one with neither a backend chrome payload nor a portal
+session — a feature-gated widget is now excluded rather than rendered unconditionally. A widget
+with no `features` declared is unaffected and still renders everywhere.
+
 ### 2. Create the Widget Component
 
 Create `src/modules/<module>/widgets/injection/<widget-name>/widget.client.tsx`:
