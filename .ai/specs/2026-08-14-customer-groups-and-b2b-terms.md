@@ -782,7 +782,7 @@ Everything Phases 3–4 add is additive. Nothing shipped in #6709 is renamed or 
 | Surface | Change | Classification |
 |---|---|---|
 | DI keys | New `customerCreditService`, `customerCreditServiceFactory`, `customerPurchaseApprovalService`, `customerPurchaseApprovalServiceFactory` with their own exported interfaces (§6). `CustomerGroupsService` gains no method (G26) | Additive |
-| Types | `ResolvedTerms` gains `termsCurrencyCode`, `approvalPolicy`, `allowQuoteRequests`, `requiresPoNumber` and their `sources` entries; `sources.termsCurrencyCode` may hold the sentinel `'base_currency'` (§6.0). `resolveTerms` input gains optional `organizationId`. Additive for callers; an app that **overrides** `customerGroupsService` must return the four fields and handle `organizationId`. Recorded in `UPGRADE_NOTES.md` | Additive (override note) |
+| Types | `ResolvedTerms` gains `termsCurrencyCode`, `approvalPolicy`, `allowQuoteRequests`, `requiresPoNumber` and their `sources` entries; `sources.termsCurrencyCode` may hold the sentinel `'base_currency'` (§6.0). `resolveTerms` input gains optional `organizationId`. Additive for callers. `CustomerGroupsService.resolveTerms` is typed to return `ResolvedTerms | LegacyResolvedTerms`, so an override written before Release 5 keeps type-checking; module consumers pass the result through `normalizeResolvedTerms`, which fills the four fields with their tenant defaults and a `null` source. An override should still return the four fields and handle `organizationId`. Recorded in `UPGRADE_NOTES.md` | Additive (override note) |
 | DB | New tables `customer_credit_accounts`, `customer_credit_ledger_entries`, `customer_purchase_approvals`, `customer_purchase_approval_email_deliveries`; money columns are `numeric` with `ExactDecimalType` (§5.5); four nullable columns on `customer_group_terms`, no data backfill (null = inherit, tenant defaults per §5.3). Every schema migration has a real `down()` | Additive |
 | Encryption-map backfill | Three `buildEncryptionMapBackfillSql` migrations (from `@open-mercato/shared/lib/encryption/migration-backfill`), each with an empty `down()`, precedent `customers/migrations/Migration20261030195138_customers.ts`: `customer_groups:customer_credit_account` → `hold_reason`; `customer_groups:customer_credit_ledger_entry` → `note`; `customer_groups:customer_purchase_approval` → `buyer_decision_note`, `merchant_decision_note`. Without them, tenants that existed before the upgrade store these notes in plaintext | Additive |
 | Event ids and payloads | §10's `credit.reserved`, `.released`, `.settled`, `.adjusted`, `.limit_exceeded` and `approval.*` ids and their payload types become FROZEN when Phase 3 / Phase 4 ships. Payloads may only gain optional fields afterwards. `credit_account.*` is not declared in Release 5 (D-R5-CG2) | Additive, then frozen |
@@ -1343,6 +1343,11 @@ The buyer's own story for a refused on-account order is checkout's **US-B3**. Si
 ---
 
 ## 18) Changelog
+
+### 2026-11-24 (CG1 review follow-up, #10005)
+
+- §8.4: a pre-Release 5 `customerGroupsService` override stays valid — `resolveTerms` accepts the `LegacyResolvedTerms` shape and explain-terms normalizes it to the documented defaults.
+- US-C1: `GET /api/customer_groups/customer-groups/{id}/terms` gains an additive `inherited` object (per field: value, `source` = `group` \| `tenant_default` \| `base_currency`, `sourceGroup`), resolved from the group's parent chain. The terms form shows it beside each control, and the missing-currency warning judges the effective values, so it stays silent when a parent supplies the currency and fires when an inherited threshold has no currency anywhere.
 
 ### 2026-11-19 (Re-landing audit — remediation of `.ai/analysis/pre-implement-2026-08-14-customer-groups-and-b2b-terms-release-5.md`)
 Phases 3–4 revised against `main` after #7324 and the closed reference PR #8268 (`bdb747c36a`). Finding ids are the audit's.

@@ -13,16 +13,24 @@ import type { AssortmentScope } from '@open-mercato/shared/lib/catalog-visibilit
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerGroup, CustomerGroupTerms } from '../../../../data/entities'
+import type { CustomerGroupApprovalPolicy } from '../../../../data/entities'
 import { isPriceKindInTenant } from '../../../../lib/priceKindScope'
 import { announceCustomerGroupTermsUpdated } from '../../../../lib/groupEvents'
 import {
   assortmentScopeSchema,
+  customerGroupApprovalPolicySchema,
   customerGroupTermsCreateSchema,
   customerGroupTermsUpdateSchema,
   type CustomerGroupTermsCreateInput,
   type CustomerGroupTermsUpdateInput,
 } from '../../../../data/validators'
 import { decimalToString, parseDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import {
+  normalizeResolvedTerms,
+  TERMS_CURRENCY_SOURCE_BASE_CURRENCY,
+  type CustomerGroupsService,
+} from '../../../../services/customerGroupsService'
 
 const logger = createLogger('customer_groups')
 
@@ -68,14 +76,19 @@ async function resolveGroupId(context: RouteContext, translate: Translate): Prom
   return parsed.data.id
 }
 
-async function resolveAuthScope(req: Request, translate: Translate): Promise<{ userId: string; scope: Scope }> {
+type RouteAuth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
+
+async function resolveAuthScope(
+  req: Request,
+  translate: Translate,
+): Promise<{ userId: string; scope: Scope; auth: RouteAuth }> {
   const auth = await getAuthFromRequest(req)
   if (!auth) throw new CrudHttpError(401, { error: translate('customer_groups.errors.unauthorized', 'Unauthorized') })
   const tenantId = auth.tenantId ?? null
   if (!tenantId) {
     throw new CrudHttpError(400, { error: translate('customer_groups.errors.tenant_required', 'Tenant context is required') })
   }
-  return { userId: auth.sub, scope: { tenantId, organizationId: auth.orgId ?? null } }
+  return { userId: auth.sub, scope: { tenantId, organizationId: auth.orgId ?? null }, auth }
 }
 
 async function loadGroupOrThrow(
@@ -126,6 +139,10 @@ function serializeTerms(terms: CustomerGroupTerms) {
     approvalRequiredAboveExact: toNumericString(terms.approvalRequiredAbove),
     minOrderValue: toNumberOrNull(terms.minOrderValue),
     minOrderValueExact: toNumericString(terms.minOrderValue),
+    termsCurrencyCode: terms.termsCurrencyCode ?? null,
+    approvalPolicy: terms.approvalPolicy ?? null,
+    allowQuoteRequests: terms.allowQuoteRequests ?? null,
+    requiresPoNumber: terms.requiresPoNumber ?? null,
     assortmentScope: terms.assortmentScope ?? null,
     metadata: terms.metadata ?? null,
     createdAt: terms.createdAt.toISOString(),
@@ -133,22 +150,88 @@ function serializeTerms(terms: CustomerGroupTerms) {
   }
 }
 
+// The values a group inherits for its unset terms fields (US-C1): what its parent chain
+// resolves to, or the tenant default / organization base currency without a parent.
+const INHERITED_TERMS_FIELDS = [
+  'paymentTermsDays',
+  'allowPurchaseOnAccount',
+  'approvalRequiredAbove',
+  'minOrderValue',
+  'termsCurrencyCode',
+  'approvalPolicy',
+  'allowQuoteRequests',
+  'requiresPoNumber',
+] as const
+
+type InheritedTermsField = (typeof INHERITED_TERMS_FIELDS)[number]
+
+type InheritedTermsSource = 'group' | 'tenant_default' | 'base_currency'
+
+type InheritedTermsValue = {
+  value: string | number | boolean | null
+  source: InheritedTermsSource
+  sourceGroup: { id: string; code: string; name: string } | null
+}
+
+async function resolveInheritedTerms(
+  req: Request,
+  auth: RouteAuth,
+  container: Awaited<ReturnType<typeof createRequestContainer>>,
+  em: EntityManager,
+  group: CustomerGroup,
+  scope: Scope,
+): Promise<Record<InheritedTermsField, InheritedTermsValue>> {
+  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req }).catch(() => null)
+  const organizationId = organizationScope?.selectedId ?? scope.organizationId
+  const service = container.resolve<CustomerGroupsService>('customerGroupsService')
+  const resolved = normalizeResolvedTerms(
+    await service.resolveTerms({
+      customerId: null,
+      tenantId: scope.tenantId,
+      groupIds: group.parentId ? [group.parentId] : [],
+      ...(organizationId ? { organizationId } : {}),
+    }),
+  )
+  const sourceGroupIds = Array.from(
+    new Set(
+      INHERITED_TERMS_FIELDS.map((field) => resolved.sources[field]).filter(
+        (source): source is string => source != null && source !== TERMS_CURRENCY_SOURCE_BASE_CURRENCY,
+      ),
+    ),
+  )
+  const sourceGroups = sourceGroupIds.length
+    ? await em.find(CustomerGroup, { id: { $in: sourceGroupIds }, tenantId: scope.tenantId, deletedAt: null })
+    : []
+  const sourceGroupById = new Map(sourceGroups.map((entry) => [entry.id, entry]))
+  return INHERITED_TERMS_FIELDS.reduce<Record<InheritedTermsField, InheritedTermsValue>>((acc, field) => {
+    const rawSource = resolved.sources[field]
+    const sourceGroup = rawSource ? sourceGroupById.get(rawSource) ?? null : null
+    acc[field] = {
+      value: resolved[field],
+      source: rawSource === TERMS_CURRENCY_SOURCE_BASE_CURRENCY ? 'base_currency' : rawSource ? 'group' : 'tenant_default',
+      sourceGroup: sourceGroup ? { id: sourceGroup.id, code: sourceGroup.code, name: sourceGroup.name } : null,
+    }
+    return acc
+  }, {} as Record<InheritedTermsField, InheritedTermsValue>)
+}
+
 export async function GET(req: Request, context: RouteContext) {
   const { translate } = await resolveTranslations()
   try {
     const groupId = await resolveGroupId(context, translate)
-    const { scope } = await resolveAuthScope(req, translate)
+    const { scope, auth } = await resolveAuthScope(req, translate)
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
 
-    await loadGroupOrThrow(em, groupId, scope, translate)
+    const group = await loadGroupOrThrow(em, groupId, scope, translate)
 
     // No terms row yet is a normal, expected state (spec: "No terms set — inheriting
     // from parent / tenant defaults") — answered as 200 with `terms: null` rather than
     // 404, since the sub-resource's *absence* is itself meaningful data for the caller
     // to render, not an error.
     const terms = await em.findOne(CustomerGroupTerms, { groupId, tenantId: scope.tenantId, deletedAt: null })
-    return NextResponse.json({ terms: terms ? serializeTerms(terms) : null })
+    const inherited = await resolveInheritedTerms(req, auth, container, em, group, scope)
+    return NextResponse.json({ terms: terms ? serializeTerms(terms) : null, inherited })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     logger.error('customer_groups.terms.get failed', { err })
@@ -173,6 +256,10 @@ type CustomerGroupTermsEntityData = {
   creditCurrencyCode: string | null
   approvalRequiredAbove: string | null
   minOrderValue: string | null
+  termsCurrencyCode: string | null
+  approvalPolicy: CustomerGroupApprovalPolicy | null
+  allowQuoteRequests: boolean | null
+  requiresPoNumber: boolean | null
   assortmentScope: AssortmentScope | null
   metadata: Record<string, unknown> | null
 }
@@ -189,6 +276,10 @@ function toEntityData(input: CustomerGroupTermsCreateInput): CustomerGroupTermsE
     creditCurrencyCode: input.creditCurrencyCode ?? null,
     approvalRequiredAbove: toNumericString(exactTermsAmount(input, 'approvalRequiredAbove')),
     minOrderValue: toNumericString(exactTermsAmount(input, 'minOrderValue')),
+    termsCurrencyCode: input.termsCurrencyCode ?? null,
+    approvalPolicy: input.approvalPolicy ?? null,
+    allowQuoteRequests: input.allowQuoteRequests ?? null,
+    requiresPoNumber: input.requiresPoNumber ?? null,
     assortmentScope: input.assortmentScope ?? null,
     metadata: input.metadata ?? null,
   }
@@ -209,6 +300,10 @@ function applyTermsUpdate(entity: CustomerGroupTerms, input: CustomerGroupTermsU
   if (hasOwn(input, 'creditCurrencyCode')) entity.creditCurrencyCode = input.creditCurrencyCode ?? null
   if (hasOwn(input, 'approvalRequiredAbove')) entity.approvalRequiredAbove = toNumericString(exactTermsAmount(input, 'approvalRequiredAbove'))
   if (hasOwn(input, 'minOrderValue')) entity.minOrderValue = toNumericString(exactTermsAmount(input, 'minOrderValue'))
+  if (hasOwn(input, 'termsCurrencyCode')) entity.termsCurrencyCode = input.termsCurrencyCode ?? null
+  if (hasOwn(input, 'approvalPolicy')) entity.approvalPolicy = input.approvalPolicy ?? null
+  if (hasOwn(input, 'allowQuoteRequests')) entity.allowQuoteRequests = input.allowQuoteRequests ?? null
+  if (hasOwn(input, 'requiresPoNumber')) entity.requiresPoNumber = input.requiresPoNumber ?? null
   if (hasOwn(input, 'assortmentScope')) entity.assortmentScope = input.assortmentScope ?? null
   if (hasOwn(input, 'metadata')) entity.metadata = input.metadata ?? null
 }
@@ -338,13 +433,32 @@ const termsItemSchema = z.object({
   approvalRequiredAboveExact: z.string().nullable(),
   minOrderValue: z.number().nullable(),
   minOrderValueExact: z.string().nullable(),
+  termsCurrencyCode: z.string().nullable(),
+  approvalPolicy: customerGroupApprovalPolicySchema.nullable(),
+  allowQuoteRequests: z.boolean().nullable(),
+  requiresPoNumber: z.boolean().nullable(),
   assortmentScope: assortmentScopeSchema,
   metadata: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
 
-const termsGetResponseSchema = z.object({ terms: termsItemSchema.nullable() })
+const inheritedTermsValueSchema = z.object({
+  value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+  source: z.enum(['group', 'tenant_default', 'base_currency']),
+  sourceGroup: z.object({ id: z.string().uuid(), code: z.string(), name: z.string() }).nullable(),
+})
+const inheritedTermsSchema = z.object({
+  paymentTermsDays: inheritedTermsValueSchema,
+  allowPurchaseOnAccount: inheritedTermsValueSchema,
+  approvalRequiredAbove: inheritedTermsValueSchema,
+  minOrderValue: inheritedTermsValueSchema,
+  termsCurrencyCode: inheritedTermsValueSchema,
+  approvalPolicy: inheritedTermsValueSchema,
+  allowQuoteRequests: inheritedTermsValueSchema,
+  requiresPoNumber: inheritedTermsValueSchema,
+})
+const termsGetResponseSchema = z.object({ terms: termsItemSchema.nullable(), inherited: inheritedTermsSchema })
 const termsPutResponseSchema = z.object({ terms: termsItemSchema })
 const termsErrorSchema = z.object({ error: z.string() })
 
@@ -354,7 +468,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get a customer group’s commercial terms',
-      description: 'Returns the group’s own terms row, or `{ terms: null }` when the group has none and inherits from its parent/tenant defaults.',
+      description: 'Returns the group’s own terms row, or `{ terms: null }` when the group has none and inherits from its parent/tenant defaults. `inherited` carries, per field, the value the group inherits when it leaves that field unset and where it comes from (a parent-chain group, the tenant default, or the organization base currency).',
       responses: [{ status: 200, description: 'Terms (or null)', schema: termsGetResponseSchema }],
       errors: [
         { status: 400, description: 'Tenant context is required', schema: termsErrorSchema },

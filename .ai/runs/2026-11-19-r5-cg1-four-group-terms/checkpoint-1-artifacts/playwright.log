@@ -1,0 +1,340 @@
+◇ injected env (121) from apps/mercato/.env // tip: ⌘ override existing { override: true }
+╔═══════════════════════╗
+║  🧩 Open Mercato CLI  ║
+╚═══════════════════════╝
+
+🚀 Running test:integration TC-CGRP
+[integration] Running Playwright suite...
+[integration] Checking whether an existing ephemeral environment can be reused...
+[ephemeral] Port 5001 is busy, using fallback port 49397.
+[integration] Ignoring the inherited JWT_SECRET: it is a placeholder or too short and the ephemeral app runs with NODE_ENV=production. Using the ephemeral default instead.
+[integration] Build cache disabled: missing or invalid cache metadata (/Users/bernard/workspace/open-mercato/.ai/cezar/worktrees/9aef8a27-1f4e-4a35-a335-039ba4709388/.ai/qa/ephemeral-build-cache.json).
+[integration] Ephemeral database ready at localhost:33242
+[integration] Initializing application data (includes migrations)...
+[integration] Initializing application data... 2s elapsed, ~43s left
+[integration] Initializing application data... 4s elapsed, ~41s left
+[integration] Initializing application data... 6s elapsed, ~39s left
+[integration] Initializing application data... 8s elapsed, ~37s left
+[integration] Initializing application data... 10s elapsed, ~35s left
+[integration] Initializing application data... 12s elapsed, ~33s left
+[integration] Initializing application data... 14s elapsed, ~31s left
+[integration] Initializing application data... 16s elapsed, ~29s left
+[integration] Initializing application data... 18s elapsed, ~27s left
+[integration] Initializing application data... 20s elapsed, ~25s left
+[integration] Initializing application data... 22s elapsed, ~23s left
+[integration] Initializing application data... 24s elapsed, ~21s left
+[integration] Initializing application data... 26s elapsed, ~19s left
+[integration] Initializing application data... 28s elapsed, ~17s left
+[integration] Initializing application data... 30s elapsed, ~15s left
+[integration] Initializing application data... 32s elapsed, ~13s left
+[integration] Initializing application data... 34s elapsed, ~11s left
+[integration] Initializing application data... 36s elapsed, ~9s left
+[integration] Initializing application data... 38s elapsed, ~7s left
+[integration] Initializing application data... 40s elapsed, ~5s left
+[integration] Initializing application data... 42s elapsed, ~3s left
+[integration] Initializing application data... 44s elapsed, ~1s left
+[integration] Initializing application data... 46s elapsed, ~0s left
+[integration] Initializing application data... 48s elapsed, ~0s left
+[integration] Initializing application data... 50s elapsed, ~0s left
+[integration] Initializing application data... 52s elapsed, ~0s left
+[integration] Initializing application data... 54s elapsed, ~0s left
+[integration] Initializing application data... 56s elapsed, ~0s left
+[integration] Initializing application data... 58s elapsed, ~0s left
+[integration] Initializing application data... 60s elapsed, ~0s left
+[integration] Initializing application data... 62s elapsed, ~0s left
+[integration] Initializing application data... 64s elapsed, ~0s left
+[integration] Initializing application data... 66s elapsed, ~0s left
+[integration] Initializing application data... 68s elapsed, ~0s left
+[integration] Initializing application data... 70s elapsed, ~0s left
+[integration] Initializing application data... 72s elapsed, ~0s left
+[integration] Initializing application data... 74s elapsed, ~0s left
+[integration] Initializing application data... 76s elapsed, ~0s left
+[integration] Initializing application data... 78s elapsed, ~0s left
+[integration] Initializing application data... 80s elapsed, ~0s left
+[integration] Initializing application data... 82s elapsed, ~0s left
+[integration] Initializing application data... 84s elapsed, ~0s left
+[integration] Initializing application data... 86s elapsed, ~0s left
+[integration] Initializing application data... 88s elapsed, ~0s left
+[integration] Initializing application data... 90s elapsed, ~0s left
+[integration] Initializing application data... 92s elapsed, ~0s left
+[integration] Initializing application data... 94s elapsed, ~0s left
+[integration] Initializing application data... 96s elapsed, ~0s left
+[integration] Initializing application data... 98s elapsed, ~0s left
+[integration] Initializing application data... 100s elapsed, ~0s left
+[integration] Initializing application data... 102s elapsed, ~0s left
+[integration] Initializing application data... 104s elapsed, ~0s left
+[integration] Initializing application data... 106s elapsed, ~0s left
+[integration] Initializing application data... 108s elapsed, ~0s left
+[integration] Initializing application data... 110s elapsed, ~0s left
+[integration] Initializing application data... 112s elapsed, ~0s left
+[integration] Initializing application data... 114s elapsed, ~0s left
+[integration] Initializing application data completed in 115s.
+[integration] Build artifacts missing, stale, or out of date; rebuilding artifacts.
+[integration] Building packages...
+[integration] Building packages... 2s elapsed, ~18s left
+[integration] Building packages... 4s elapsed, ~16s left
+[integration] Building packages... 6s elapsed, ~14s left
+[integration] Building packages... 8s elapsed, ~12s left
+[integration] Building packages... 10s elapsed, ~10s left
+[integration] Building packages... 12s elapsed, ~8s left
+[integration] Building packages... 14s elapsed, ~6s left
+[integration] Building packages... 16s elapsed, ~4s left
+[integration] Building packages... 18s elapsed, ~2s left
+[integration] Building packages... 20s elapsed, ~0s left
+[integration] Building packages... 22s elapsed, ~0s left
+[integration] Building packages... 24s elapsed, ~0s left
+[integration] Building packages... 26s elapsed, ~0s left
+[integration] Building packages... 28s elapsed, ~0s left
+[integration] Building packages... 30s elapsed, ~0s left
+[integration] Building packages... 32s elapsed, ~0s left
+[integration] Building packages... 34s elapsed, ~0s left
+[integration] Building packages completed in 35s.
+[integration] Regenerating module artifacts...
+[integration] Regenerating module artifacts... 2s elapsed, ~6s left
+[integration] Regenerating module artifacts... 4s elapsed, ~4s left
+[integration] Regenerating module artifacts... 6s elapsed, ~2s left
+[integration] Regenerating module artifacts... 8s elapsed, ~0s left
+[integration] Regenerating module artifacts... 10s elapsed, ~0s left
+[integration] Regenerating module artifacts... 12s elapsed, ~0s left
+[integration] Regenerating module artifacts... 14s elapsed, ~0s left
+[integration] Regenerating module artifacts... 16s elapsed, ~0s left
+[integration] Regenerating module artifacts... 18s elapsed, ~0s left
+[integration] Regenerating module artifacts... 20s elapsed, ~0s left
+[integration] Regenerating module artifacts... 22s elapsed, ~0s left
+[integration] Regenerating module artifacts... 24s elapsed, ~0s left
+[integration] Regenerating module artifacts... 26s elapsed, ~0s left
+[integration] Regenerating module artifacts... 28s elapsed, ~0s left
+[integration] Regenerating module artifacts... 30s elapsed, ~0s left
+[integration] Regenerating module artifacts... 32s elapsed, ~0s left
+[integration] Regenerating module artifacts completed in 33s.
+[integration] Rebuilding packages after generation...
+[integration] Rebuilding packages after generation completed in 1s.
+[integration] Building application...
+[integration] Reset Next build output directory at /Users/bernard/workspace/open-mercato/.ai/cezar/worktrees/9aef8a27-1f4e-4a35-a335-039ba4709388/apps/mercato/.mercato/next.
+[integration] Building application... 2s elapsed, ~74s left
+[integration] Building application... 4s elapsed, ~72s left
+[integration] Building application... 6s elapsed, ~70s left
+[integration] Building application... 8s elapsed, ~68s left
+[integration] Building application... 10s elapsed, ~66s left
+[integration] Building application... 12s elapsed, ~64s left
+[integration] Building application... 14s elapsed, ~62s left
+[integration] Building application... 16s elapsed, ~60s left
+[integration] Building application... 18s elapsed, ~58s left
+[integration] Building application... 20s elapsed, ~56s left
+[integration] Building application... 22s elapsed, ~54s left
+[integration] Building application... 24s elapsed, ~52s left
+[integration] Building application... 26s elapsed, ~50s left
+[integration] Building application... 28s elapsed, ~48s left
+[integration] Building application... 30s elapsed, ~46s left
+[integration] Building application... 32s elapsed, ~44s left
+[integration] Building application... 34s elapsed, ~42s left
+[integration] Building application... 36s elapsed, ~40s left
+[integration] Building application... 38s elapsed, ~38s left
+[integration] Building application... 40s elapsed, ~36s left
+[integration] Building application... 42s elapsed, ~34s left
+[integration] Building application... 44s elapsed, ~32s left
+[integration] Building application... 46s elapsed, ~30s left
+[integration] Building application... 48s elapsed, ~28s left
+[integration] Building application... 50s elapsed, ~26s left
+[integration] Building application... 52s elapsed, ~24s left
+[integration] Building application... 54s elapsed, ~22s left
+[integration] Building application... 56s elapsed, ~20s left
+[integration] Building application... 58s elapsed, ~18s left
+[integration] Building application... 60s elapsed, ~16s left
+[integration] Building application... 62s elapsed, ~14s left
+[integration] Building application... 64s elapsed, ~12s left
+[integration] Building application... 66s elapsed, ~10s left
+[integration] Building application... 68s elapsed, ~8s left
+[integration] Building application... 70s elapsed, ~6s left
+[integration] Building application... 72s elapsed, ~4s left
+[integration] Building application... 74s elapsed, ~2s left
+[integration] Building application... 76s elapsed, ~0s left
+[integration] Building application... 78s elapsed, ~0s left
+[integration] Building application... 80s elapsed, ~0s left
+[integration] Building application... 82s elapsed, ~0s left
+[integration] Building application... 84s elapsed, ~0s left
+[integration] Building application... 86s elapsed, ~0s left
+[integration] Building application... 88s elapsed, ~0s left
+[integration] Building application... 90s elapsed, ~0s left
+[integration] Building application... 92s elapsed, ~0s left
+[integration] Building application... 94s elapsed, ~0s left
+[integration] Building application... 96s elapsed, ~0s left
+[integration] Building application... 98s elapsed, ~0s left
+[integration] Building application... 100s elapsed, ~0s left
+[integration] Building application... 102s elapsed, ~0s left
+[integration] Building application... 104s elapsed, ~0s left
+[integration] Building application... 106s elapsed, ~0s left
+[integration] Building application... 108s elapsed, ~0s left
+[integration] Building application... 110s elapsed, ~0s left
+[integration] Building application... 112s elapsed, ~0s left
+[integration] Building application... 114s elapsed, ~0s left
+[integration] Building application... 116s elapsed, ~0s left
+[integration] Building application... 118s elapsed, ~0s left
+[integration] Building application... 120s elapsed, ~0s left
+[integration] Building application... 122s elapsed, ~0s left
+[integration] Building application... 124s elapsed, ~0s left
+[integration] Building application... 126s elapsed, ~0s left
+[integration] Building application... 128s elapsed, ~0s left
+[integration] Building application... 130s elapsed, ~0s left
+[integration] Building application... 132s elapsed, ~0s left
+[integration] Building application... 134s elapsed, ~0s left
+[integration] Building application... 136s elapsed, ~0s left
+[integration] Building application... 138s elapsed, ~0s left
+[integration] Building application... 140s elapsed, ~0s left
+[integration] Building application... 142s elapsed, ~0s left
+[integration] Building application... 144s elapsed, ~0s left
+[integration] Building application... 146s elapsed, ~0s left
+[integration] Building application... 148s elapsed, ~0s left
+[integration] Building application... 150s elapsed, ~0s left
+[integration] Building application... 152s elapsed, ~0s left
+[integration] Building application... 154s elapsed, ~0s left
+[integration] Building application... 156s elapsed, ~0s left
+[integration] Building application... 158s elapsed, ~0s left
+[integration] Building application... 160s elapsed, ~0s left
+[integration] Building application... 162s elapsed, ~0s left
+[integration] Building application... 164s elapsed, ~0s left
+[integration] Building application... 166s elapsed, ~0s left
+[integration] Building application... 168s elapsed, ~0s left
+[integration] Building application... 170s elapsed, ~0s left
+[integration] Building application... 172s elapsed, ~0s left
+[integration] Building application... 174s elapsed, ~0s left
+[integration] Building application... 176s elapsed, ~0s left
+[integration] Building application... 178s elapsed, ~0s left
+[integration] Building application... 180s elapsed, ~0s left
+[integration] Building application... 182s elapsed, ~0s left
+[integration] Building application... 184s elapsed, ~0s left
+[integration] Building application... 186s elapsed, ~0s left
+[integration] Building application... 188s elapsed, ~0s left
+[integration] Building application... 190s elapsed, ~0s left
+[integration] Building application... 192s elapsed, ~0s left
+[integration] Building application... 194s elapsed, ~0s left
+[integration] Building application... 196s elapsed, ~0s left
+[integration] Building application... 198s elapsed, ~0s left
+[integration] Building application... 200s elapsed, ~0s left
+[integration] Building application... 202s elapsed, ~0s left
+[integration] Building application... 204s elapsed, ~0s left
+[integration] Building application... 206s elapsed, ~0s left
+[integration] Building application... 208s elapsed, ~0s left
+[integration] Building application... 210s elapsed, ~0s left
+[integration] Building application... 212s elapsed, ~0s left
+[integration] Building application... 214s elapsed, ~0s left
+[integration] Building application... 216s elapsed, ~0s left
+[integration] Building application... 218s elapsed, ~0s left
+[integration] Building application... 220s elapsed, ~0s left
+[integration] Building application... 222s elapsed, ~0s left
+[integration] Building application... 224s elapsed, ~0s left
+[integration] Building application... 226s elapsed, ~0s left
+[integration] Building application... 228s elapsed, ~0s left
+[integration] Building application... 230s elapsed, ~0s left
+[integration] Building application... 232s elapsed, ~0s left
+[integration] Building application... 234s elapsed, ~0s left
+[integration] Building application... 236s elapsed, ~0s left
+[integration] Building application... 238s elapsed, ~0s left
+[integration] Building application... 240s elapsed, ~0s left
+[integration] Building application... 242s elapsed, ~0s left
+[integration] Building application... 244s elapsed, ~0s left
+[integration] Building application... 246s elapsed, ~0s left
+[integration] Building application... 248s elapsed, ~0s left
+[integration] Building application... 250s elapsed, ~0s left
+[integration] Building application... 252s elapsed, ~0s left
+[integration] Building application... 254s elapsed, ~0s left
+[integration] Building application... 256s elapsed, ~0s left
+[integration] Building application... 258s elapsed, ~0s left
+[integration] Building application... 260s elapsed, ~0s left
+[integration] Building application... 262s elapsed, ~0s left
+[integration] Building application... 264s elapsed, ~0s left
+[integration] Building application... 266s elapsed, ~0s left
+[integration] Building application... 268s elapsed, ~0s left
+[integration] Building application... 270s elapsed, ~0s left
+[integration] Building application... 272s elapsed, ~0s left
+[integration] Building application... 274s elapsed, ~0s left
+[integration] Building application... 276s elapsed, ~0s left
+[integration] Building application... 278s elapsed, ~0s left
+[integration] Building application... 280s elapsed, ~0s left
+[integration] Building application... 282s elapsed, ~0s left
+[integration] Building application... 284s elapsed, ~0s left
+[integration] Building application... 286s elapsed, ~0s left
+[integration] Building application... 288s elapsed, ~0s left
+[integration] Building application... 290s elapsed, ~0s left
+[integration] Building application... 292s elapsed, ~0s left
+[integration] Building application... 294s elapsed, ~0s left
+[integration] Building application... 296s elapsed, ~0s left
+[integration] Building application... 298s elapsed, ~0s left
+[integration] Building application... 300s elapsed, ~0s left
+[integration] Building application... 302s elapsed, ~0s left
+[integration] Building application... 304s elapsed, ~0s left
+[integration] Building application... 306s elapsed, ~0s left
+[integration] Building application... 308s elapsed, ~0s left
+[integration] Building application... 310s elapsed, ~0s left
+[integration] Building application... 312s elapsed, ~0s left
+[integration] Building application... 314s elapsed, ~0s left
+[integration] Building application... 316s elapsed, ~0s left
+[integration] Building application... 318s elapsed, ~0s left
+[integration] Building application... 320s elapsed, ~0s left
+[integration] Building application... 322s elapsed, ~0s left
+[integration] Building application... 324s elapsed, ~0s left
+[integration] Building application completed in 325s.
+[integration] Starting application on http://127.0.0.1:49397...
+[integration] Waiting for application readiness... 2s elapsed, ~88s left
+[integration] Waiting for application readiness... 4s elapsed, ~86s left
+[integration] Waiting for application readiness... 6s elapsed, ~84s left
+[integration] Waiting for application readiness... 8s elapsed, ~82s left
+[integration] Waiting for application readiness... 10s elapsed, ~80s left
+[integration] Waiting for application readiness... 12s elapsed, ~78s left
+[integration] Waiting for application readiness... 14s elapsed, ~76s left
+[integration] Waiting for application readiness... 16s elapsed, ~74s left
+[integration] Waiting for application readiness... 18s elapsed, ~72s left
+[integration] Waiting for application readiness... 20s elapsed, ~70s left
+[integration] Waiting for application readiness... 22s elapsed, ~68s left
+[integration] Waiting for application readiness... 24s elapsed, ~66s left
+[integration] Waiting for application readiness... 26s elapsed, ~64s left
+[integration] Waiting for application readiness... 28s elapsed, ~62s left
+[integration] Waiting for application readiness... 30s elapsed, ~60s left
+[integration] Waiting for application readiness completed in 30s.
+[integration] Application is ready at http://127.0.0.1:49397
+[integration] Ensuring Playwright Chromium is installed...
+
+Running 37 tests using 1 worker
+
+  ✓   1 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-001-groups-tenant-isolation.spec.ts:32:3 › TC-CGRP-001: customer groups tenant isolation › a group created in tenant A is invisible and unreachable from tenant B (4.7s)
+  ✓   2 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-002-memberships-tenant-isolation.spec.ts:39:3 › TC-CGRP-002: customer group memberships tenant isolation › a membership created in tenant A is invisible and unreachable from tenant B (3.2s)
+  ✓   3 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-003-reorder-tenant-isolation.spec.ts:51:3 › TC-CGRP-003: customer groups reorder tenant isolation › reordering with a tenant-A group id from tenant B silently no-ops on the tenant-A row (2.9s)
+  ✓   4 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-004-reconcile-tenant-isolation.spec.ts:33:3 › TC-CGRP-004: customer groups reconcile tenant isolation › an orphan reference in tenant A is invisible to tenant B reconcile scan (3.0s)
+  ✓   5 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-005-membership-validity-window.spec.ts:36:3 › TC-CGRP-005: membership validity window exclusion › activeOnly excludes not-yet-valid and expired memberships, includes the current one (1.4s)
+  ✓   6 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-006-group-priority-ordering.spec.ts:34:3 › TC-CGRP-006: overlapping memberships resolve priority-ordered groups › a customer in two groups sees them retrievable in descending priority order (687ms)
+  ✓   7 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-007-price-resolution-gate.spec.ts:81:3 › TC-CGRP-007: Phase 1 gate — group-scoped price resolves for a member, not for a non-member › selectBestPrice honors real HTTP-resolved group membership (1.4s)
+  ✓   8 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-008-reconciliation-orphan-adopt.spec.ts:43:3 › TC-CGRP-008: reconciliation lists orphans and adopt creates inactive placeholders › adopt creates an inactive CustomerGroup reusing the orphaned id, then the orphan disappears on re-scan (2.5s)
+  ✓   9 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-009-anonymous-default-group.spec.ts:48:3 › TC-CGRP-009: default-group CRUD surface has no HTTP-level errors › an isDefault group round-trips through the CRUD API and the isDefault filter, and reconcile/list stay 200 while it exists (2.2s)
+  ✓  10 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-010-terms-tenant-isolation.spec.ts:50:3 › TC-CGRP-010: Phase 2 (terms) tenant isolation › a tenant-A group's terms are invisible and unreachable from tenant B, and explain-terms leaks nothing for a tenant-A customer (2.9s)
+  ✓  11 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-011-terms-inheritance-three-level-hierarchy.spec.ts:43:3 › TC-CGRP-011: Phase 2 gate — per-field terms inheritance across a 3-level hierarchy › a field set only on the grandparent resolves for a child-group member with the grandparent as sourceGroupId and full ancestor path (732ms)
+  ✓  12 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-012-deprecated-customer-group-id-equivalence.spec.ts:72:3 › TC-CGRP-012: deprecated PricingContext.customerGroupId equals customerGroupIds: [id] › selectBestPrice returns the same winning row for the singular and plural fields (1.4s)
+  ✓  13 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-013-multi-group-price-candidates.spec.ts:91:3 › TC-CGRP-013: two group-scoped price rows both match a multi-group member › both rows individually satisfy matchesContext; the documented startsAt tie-break (not group priority) decides the winner (1.2s)
+  ✓  14 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-014-terms-optimistic-lock-conflict.spec.ts:37:3 › TC-CGRP-014: optimistic-lock conflict on PUT /api/customer_groups/customer-groups/:id/terms › a stale updatedAt token is refused with 409 after a concurrent update advances the row (208ms)
+  ✓  15 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-015-group-list-ui.spec.ts:43:3 › TC-CGRP-015: customer groups admin list page › renders fixture rows with the expected columns and links to create (14.7s)
+  ✓  16 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-015-group-list-ui.spec.ts:107:3 › TC-CGRP-015: customer groups admin list page › navigates from the list to the create form (2.2s)
+  ✓  17 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-016-group-create-edit-ui.spec.ts:25:3 › TC-CGRP-016: customer group create + edit round-trip via the admin UI › create via the UI persists all fields, then edit via the UI persists the change (4.7s)
+  ✓  18 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-017-drag-reorder-ui.spec.ts:78:3 › TC-CGRP-017: customer groups list drag-reorder wiring › drag handles render unfiltered and disappear once the list is narrowed (3.3s)
+  ✓  19 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-017-drag-reorder-ui.spec.ts:128:3 › TC-CGRP-017: customer groups list drag-reorder wiring › reorder persists via the API and reordering the same groups again (swap) also succeeds (2.3s)
+  ✓  20 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-018-membership-assignment-ui.spec.ts:34:3 › TC-CGRP-018: membership assignment from the customer detail page › assigning a person to a group via the dialog shows a "current" membership row (3.9s)
+  ✓  21 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-019-orphan-banner-ui.spec.ts:26:3 › TC-CGRP-019: orphan banner and report page › the banner shows a nonzero count and links to the report listing the orphan (2.4s)
+  ✓  22 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-020-terms-section-empty-state.spec.ts:23:3 › TC-CGRP-020: Commercial terms section — empty state › a group with no terms row shows the empty state, not a blank form (1.7s)
+  ✓  23 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-021-terms-section-set-and-save.spec.ts:23:3 › TC-CGRP-021: Commercial terms section — set and save via the real UI › reveals the form, saves real field values, and they survive a reload (6.6s)
+  ✓  24 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-022-terms-section-negative-validation.spec.ts:25:3 › TC-CGRP-022: Commercial terms section — negative-input client-side validation › a negative paymentTermsDays is rejected inline and never sent to the API (2.6s)
+  ✓  25 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-023-explain-terms-panel.spec.ts:33:3 › TC-CGRP-023: Explain-terms panel on the customer detail page › resolves a parent-set field with the parent as source and the child -> parent breadcrumb (3.3s)
+  ✓  26 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-024-terms-optimistic-lock-conflict-ui.spec.ts:43:3 › TC-CGRP-024: Commercial terms section — optimistic-lock conflict on save › a stale terms save surfaces the conflict bar instead of silently overwriting (4.1s)
+  ✓  27 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-025-list-cache-invalidation.spec.ts:38:3 › TC-CGRP-025: tenant-level list cache is invalidated on create › the groups list re-fetched with the identical URL after a create includes the new group (151ms)
+  ✓  28 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-025-list-cache-invalidation.spec.ts:65:3 › TC-CGRP-025: tenant-level list cache is invalidated on create › the memberships list re-fetched with the identical URL after a create includes the new membership (494ms)
+  ✓  29 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-026-membership-customer-org-scope.spec.ts:92:3 › TC-CGRP-026: membership customers are scoped to the caller organizations › an org-A user cannot read or change the groups of an org-B customer; an unrestricted admin can (2.9s)
+  ✓  30 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-027-membership-list-org-scope.spec.ts:94:3 › TC-CGRP-027: membership lists are narrowed to the caller organizations › an org-A user lists only org-A memberships by group, by id and unfiltered, and cannot move one to an org-B customer (2.3s)
+  ✓  31 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-028-group-delete-member-org-scope.spec.ts:86:3 › TC-CGRP-028: group delete is limited to members in the caller organizations › an org-A user cannot delete a group with an org-B member, but can delete one with only org-A members (2.2s)
+  ✓  32 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-029-terms-first-save-conflict-ui.spec.ts:22:3 › TC-CGRP-029: Commercial terms section — concurrent first save › a first save after another editor created the terms surfaces the conflict bar (3.3s)
+  ✓  33 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-030-terms-price-kinds-without-catalog-settings.spec.ts:45:3 › TC-CGRP-030: terms price kind picker without catalog.settings.manage › lists price kinds and reports a successful save as a success (4.3s)
+  ✓  34 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-031-release-5-group-terms.spec.ts:37:3 › TC-CGRP-031: Release 5 group terms › the terms route refuses a non-ISO terms currency and stores and clears the four fields (308ms)
+  ✓  35 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-031-release-5-group-terms.spec.ts:102:3 › TC-CGRP-031: Release 5 group terms › the terms form sets the four fields, warns about a missing terms currency, and the values survive a reload (5.6s)
+  ✓  36 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-PRECISION-001.spec.ts:68:3 › TC-CGRP-PRECISION-001: customer group terms beyond 2 decimals › terms money fields round-trip exactly on create and update (237ms)
+  ✓  37 packages/core/src/modules/customer_groups/__integration__/TC-CGRP-PRECISION-002-terms-editor-exact.spec.ts:34:3 › TC-CGRP-PRECISION-002: terms editor keeps exact amounts › changing only the payment days keeps every stored amount digit (2.5s)
+
+  37 passed (11.3m)
+[integration] Screenshot capture is enabled (override with --screenshots / --no-screenshots)
+⏱️ Done in 1241253ms
+exit=0

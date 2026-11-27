@@ -22,6 +22,7 @@ import { CustomerGroupParentField } from '../../../../components/CustomerGroupPa
 import { CustomerGroupDefaultField } from '../../../../components/CustomerGroupDefaultField'
 import {
   CustomerGroupTermsSection,
+  type CustomerGroupInheritedTermsDTO,
   type CustomerGroupTermsDTO,
 } from '../../../../components/CustomerGroupTermsSection'
 
@@ -34,6 +35,7 @@ type CustomerGroupListResponse = {
 
 type CustomerGroupTermsResponse = {
   terms?: CustomerGroupTermsDTO | null
+  inherited?: CustomerGroupInheritedTermsDTO | null
 }
 
 type CustomerGroupFormValues = {
@@ -114,6 +116,7 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
   const [isNotFound, setIsNotFound] = React.useState<boolean>(false)
   // `undefined` = not fetched yet, `null` = confirmed no terms row for this group.
   const [terms, setTerms] = React.useState<CustomerGroupTermsDTO | null | undefined>(undefined)
+  const [inheritedTerms, setInheritedTerms] = React.useState<CustomerGroupInheritedTermsDTO | null>(null)
   // A failed terms GET must never read as "no terms": saving from the empty state
   // would then skip the optimistic-lock header and overwrite the existing row.
   const [termsAccess, setTermsAccess] = React.useState<'ok' | 'forbidden' | 'error'>('ok')
@@ -164,9 +167,11 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
         if (termsCall.ok) {
           setTermsAccess('ok')
           setTerms(termsCall.result?.terms ?? null)
+          setInheritedTerms(termsCall.result?.inherited ?? null)
         } else {
           setTermsAccess(termsCall.status === 403 ? 'forbidden' : 'error')
           setTerms(undefined)
+          setInheritedTerms(null)
         }
       } catch (err) {
         if (!cancelled) {
@@ -383,6 +388,8 @@ export default function EditCustomerGroupPage({ params }: { params?: { id?: stri
                 : null
             }
             canManage={canManageTerms}
+            isDefaultGroup={initialValues?.isDefault === true}
+            inherited={inheritedTerms}
             onSaved={setTerms}
           />
         )}

@@ -26,11 +26,16 @@ const isPriceKindInTenantMock = jest.fn(async (..._args: unknown[]) => true)
 jest.mock('../../../../../lib/priceKindScope', () => ({
   isPriceKindInTenant: (...args: unknown[]) => isPriceKindInTenantMock(...args),
 }))
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: async () => null,
+}))
+const resolveTermsMock = jest.fn()
 jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
   runRouteMutationGuards: (...args: unknown[]) => runRouteMutationGuardsMock(...args),
 }))
 
 import { GET, PUT } from '../route'
+import type { ResolvedTerms } from '../../../../../services/customerGroupsService'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerGroup, CustomerGroupTerms } from '../../../../../data/entities'
@@ -56,7 +61,7 @@ type FakeEmOptions = {
   terms?: Partial<CustomerGroupTerms> | null
 }
 
-function createFakeEm({ group = null, terms = null }: FakeEmOptions) {
+function createFakeEm({ group = null, terms = null, sourceGroups = [] }: FakeEmOptions & { sourceGroups?: Partial<CustomerGroup>[] }) {
   const findOne = jest.fn(async (entity: unknown) => {
     if (entity === CustomerGroup) return group
     if (entity === CustomerGroupTerms) return terms
@@ -70,7 +75,8 @@ function createFakeEm({ group = null, terms = null }: FakeEmOptions) {
   }))
   const persist = jest.fn()
   const flush = jest.fn(async () => {})
-  const em: Record<string, unknown> = { findOne, create, persist, flush }
+  const find = jest.fn(async () => sourceGroups)
+  const em: Record<string, unknown> = { findOne, find, create, persist, flush }
   em.fork = () => em
   return em as unknown as {
     findOne: typeof findOne
@@ -84,6 +90,7 @@ function setupContainer(em: unknown) {
   mockContainer.mockResolvedValue({
     resolve: (name: string) => {
       if (name === 'em') return em
+      if (name === 'customerGroupsService') return { resolveTerms: resolveTermsMock }
       throw new Error(`unexpected resolve: ${name}`)
     },
   } as never)
@@ -117,8 +124,34 @@ const existingTerms: Partial<CustomerGroupTerms> = {
 
 const oldOriginalEnv = process.env.OM_OPTIMISTIC_LOCK
 
+function tenantDefaultResolvedTerms(): ResolvedTerms {
+  return {
+    priceKindId: null,
+    paymentTermsDays: null,
+    allowPurchaseOnAccount: false,
+    approvalRequiredAbove: null,
+    minOrderValue: null,
+    approvalPolicy: 'buyer',
+    termsCurrencyCode: null,
+    allowQuoteRequests: false,
+    requiresPoNumber: false,
+    sources: {
+      priceKindId: null,
+      paymentTermsDays: null,
+      allowPurchaseOnAccount: null,
+      approvalRequiredAbove: null,
+      minOrderValue: null,
+      approvalPolicy: null,
+      termsCurrencyCode: null,
+      allowQuoteRequests: null,
+      requiresPoNumber: null,
+    },
+  }
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
+  resolveTermsMock.mockResolvedValue(tenantDefaultResolvedTerms())
   process.env.OM_OPTIMISTIC_LOCK = 'all'
   mockAuth.mockResolvedValue({ sub: USER_ID, tenantId: TENANT_ID, orgId: ORG_ID } as never)
   runRouteMutationGuardsMock.mockResolvedValue({
@@ -145,7 +178,51 @@ describe('GET /api/customer-groups/[id]/terms', () => {
 
     const res = await GET(new Request('http://localhost/api/customer-groups/x/terms'), routeCtx())
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ terms: null })
+    const body = await res.json()
+    expect(body.terms).toBeNull()
+    expect(body.inherited.approvalPolicy).toEqual({ value: 'buyer', source: 'tenant_default', sourceGroup: null })
+    expect(resolveTermsMock).toHaveBeenCalledWith({
+      customerId: null,
+      tenantId: TENANT_ID,
+      groupIds: [],
+      organizationId: ORG_ID,
+    })
+  })
+
+  it('returns the values a child group inherits from its parent chain and the base currency', async () => {
+    const parentId = '66666666-6666-4666-8666-666666666666'
+    resolveTermsMock.mockResolvedValue({
+      ...tenantDefaultResolvedTerms(),
+      approvalPolicy: 'merchant',
+      approvalRequiredAbove: 500,
+      termsCurrencyCode: 'PLN',
+      sources: {
+        ...tenantDefaultResolvedTerms().sources,
+        approvalPolicy: parentId,
+        approvalRequiredAbove: parentId,
+        termsCurrencyCode: 'base_currency',
+      },
+    })
+    setupContainer(
+      createFakeEm({
+        group: { ...existingGroup, parentId },
+        terms: null,
+        sourceGroups: [{ id: parentId, code: 'parent', name: 'Parent group' }],
+      }),
+    )
+
+    const res = await GET(new Request('http://localhost/api/customer-groups/x/terms'), routeCtx())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(resolveTermsMock).toHaveBeenCalledWith(expect.objectContaining({ groupIds: [parentId] }))
+    expect(body.inherited.approvalPolicy).toEqual({
+      value: 'merchant',
+      source: 'group',
+      sourceGroup: { id: parentId, code: 'parent', name: 'Parent group' },
+    })
+    expect(body.inherited.approvalRequiredAbove.value).toBe(500)
+    expect(body.inherited.termsCurrencyCode).toEqual({ value: 'PLN', source: 'base_currency', sourceGroup: null })
+    expect(body.inherited.requiresPoNumber).toEqual({ value: false, source: 'tenant_default', sourceGroup: null })
   })
 
   it('returns the serialized terms row when one exists', async () => {
@@ -260,6 +337,64 @@ describe('PUT /api/customer-groups/[id]/terms', () => {
         }),
       }),
     )
+  })
+
+  // Release 5 (D-R5-1/D-R5-4/D-R5-20/D-R5-28): `approvalPolicy`/`termsCurrencyCode`/
+  // `allowQuoteRequests`/`requiresPoNumber` are accepted by the zod schema
+  // (`customerGroupTermsBaseShape`) and persisted on `CustomerGroupTerms`, but the
+  // route's own `toEntityData`/`applyTermsUpdate`/`serializeTerms` never read or wrote
+  // them — a PUT accepted the four fields (the body schema is `.passthrough()`) and
+  // returned 200, but silently discarded them, and a follow-up GET always answered
+  // null regardless of what was sent.
+  it('persists and round-trips the four Release 5 terms fields on create and update', async () => {
+    const em = createFakeEm({ group: existingGroup, terms: null })
+    setupContainer(em)
+
+    const createRes = await PUT(
+      jsonRequest({
+        approvalPolicy: 'both',
+        termsCurrencyCode: 'PLN',
+        allowQuoteRequests: false,
+        requiresPoNumber: true,
+      }),
+      routeCtx(),
+    )
+
+    expect(createRes.status).toBe(200)
+    expect(em.create).toHaveBeenCalledWith(
+      CustomerGroupTerms,
+      expect.objectContaining({
+        approvalPolicy: 'both',
+        termsCurrencyCode: 'PLN',
+        allowQuoteRequests: false,
+        requiresPoNumber: true,
+      }),
+    )
+    const createBody = await createRes.json()
+    expect(createBody.terms.approvalPolicy).toBe('both')
+    expect(createBody.terms.termsCurrencyCode).toBe('PLN')
+    expect(createBody.terms.allowQuoteRequests).toBe(false)
+    expect(createBody.terms.requiresPoNumber).toBe(true)
+
+    const em2 = createFakeEm({
+      group: existingGroup,
+      terms: { ...existingTerms, approvalPolicy: 'both', termsCurrencyCode: 'PLN', allowQuoteRequests: false, requiresPoNumber: true },
+    })
+    setupContainer(em2)
+    const updateRes = await PUT(
+      jsonRequest(
+        { approvalPolicy: 'merchant', allowQuoteRequests: true },
+        { [OPTIMISTIC_LOCK_HEADER_NAME]: existingTerms.updatedAt!.toISOString() },
+      ),
+      routeCtx(),
+    )
+    expect(updateRes.status).toBe(200)
+    const updateBody = await updateRes.json()
+    expect(updateBody.terms.approvalPolicy).toBe('merchant')
+    expect(updateBody.terms.allowQuoteRequests).toBe(true)
+    // Untouched fields survive the partial update.
+    expect(updateBody.terms.termsCurrencyCode).toBe('PLN')
+    expect(updateBody.terms.requiresPoNumber).toBe(true)
   })
 
   it('clears allowPurchaseOnAccount back to inheriting when the update sends null', async () => {

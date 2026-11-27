@@ -5,6 +5,8 @@ import type { AssortmentScope } from '@open-mercato/shared/lib/catalog-visibilit
 
 export type CustomerGroupKind = 'b2c' | 'b2b' | 'internal' | 'partner'
 export type CustomerGroupMembershipSource = 'manual' | 'import' | 'rule' | 'onboarding'
+// Release 5 (D-R5-1): which side(s) must sign an approval request. No `either` value.
+export type CustomerGroupApprovalPolicy = 'buyer' | 'merchant' | 'both'
 
 // Groups are tenant-scoped, not organization-scoped — spec §5 note: "groups are
 // tenant-scoped here, consistent with `CatalogPriceKind`, which allows a null
@@ -231,6 +233,27 @@ export class CustomerGroupTerms {
 
   @Property({ name: 'min_order_value', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   minOrderValue?: string | null
+
+  // Release 5 (D-R5-4): currency of `approvalRequiredAbove`/`minOrderValue`. Nullable and
+  // inherited like `creditCurrencyCode`; the base-currency fallback (D-R5-37) is a
+  // `resolveTerms` read-time concern, not a column constraint.
+  @Property({ name: 'terms_currency_code', type: 'text', nullable: true })
+  termsCurrencyCode?: string | null
+
+  // Release 5 (D-R5-1): `null` = inherit from the parent chain; the tenant default
+  // (`buyer`) is a `resolveTerms` concern, not a DB default.
+  @Property({ name: 'approval_policy', type: 'text', nullable: true })
+  approvalPolicy?: CustomerGroupApprovalPolicy | null
+
+  // Release 5 (D-R5-20): whether checkout offers the `request_quote` payment method.
+  // Nullable/inherited; tenant default (`false`) is a `resolveTerms` concern.
+  @Property({ name: 'allow_quote_requests', type: 'boolean', nullable: true })
+  allowQuoteRequests?: boolean | null
+
+  // Release 5 (D-R5-28): whether checkout requires a PO number (written to
+  // `SalesQuote.customer_reference`). Nullable/inherited; tenant default (`false`).
+  @Property({ name: 'requires_po_number', type: 'boolean', nullable: true })
+  requiresPoNumber?: boolean | null
 
   @Property({ name: 'assortment_scope', type: 'jsonb', nullable: true })
   assortmentScope?: AssortmentScope | null

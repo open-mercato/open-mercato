@@ -1,5 +1,13 @@
 # Upgrade Notes
 
+## Customer group terms gain four Release 5 fields (#10005)
+
+**Additive, with an override note (`customer_groups`).** `customer_group_terms` gains four nullable columns (null = inherit from the parent group, then the tenant default; no backfill): `terms_currency_code` (ISO 4217, three uppercase letters; `eur` is refused with `400`), `approval_policy` (`buyer` \| `merchant` \| `both`), `allow_quote_requests` and `requires_po_number`. `ResolvedTerms` returned by `customerGroupsService.resolveTerms` gains `termsCurrencyCode` (`string | null`), `approvalPolicy` (default `'buyer'`), `allowQuoteRequests` and `requiresPoNumber` (default `false`), each with its `sources` entry. `resolveTerms` accepts an optional `organizationId`: when no group sets `terms_currency_code`, it returns the organization's base currency and sets `sources.termsCurrencyCode` to the sentinel `'base_currency'`, which is not a group id. Explain-terms returns rows for the four fields and an additive per-field `source` (`group` \| `tenant_default` \| `base_currency`). Nothing reads the four fields yet; cart, checkout and the approval service start using them in later Release 5 steps.
+
+`GET /api/customer_groups/customer-groups/{id}/terms` additionally returns `inherited`: per terms field, the value the group inherits when it leaves the field unset and its `source` (`group` with `sourceGroup`, `tenant_default` or `base_currency`).
+
+**Action:** run `yarn db:migrate`. An app that **overrides** `customerGroupsService` through `entry.overrides.di` keeps type-checking: `resolveTerms` may return the pre-Release 5 shape (`LegacyResolvedTerms`), and the module's own consumers fill the four missing fields with their tenant defaults through `normalizeResolvedTerms`. Overrides should still return the four new `ResolvedTerms` fields and their `sources` entries, and honour `organizationId` for the base-currency fallback; code outside the module that reads the four fields from a possibly overridden service should call `normalizeResolvedTerms` first. Code that resolves `sources` values as group ids must skip `'base_currency'`. Callers of the shipped service need no change.
+
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
 When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.

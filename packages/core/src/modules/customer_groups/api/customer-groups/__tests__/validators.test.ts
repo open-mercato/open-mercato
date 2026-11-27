@@ -56,6 +56,42 @@ describe('customer group update schemas', () => {
 
     expect(parsed.allowPurchaseOnAccount).toBeNull()
   })
+
+  it('leaves the new Release 5 terms columns unset on create so they inherit', () => {
+    const parsed = customerGroupTermsCreateSchema.parse({ tenantId: TENANT_ID, groupId: GROUP_ID })
+
+    expect(parsed.termsCurrencyCode).toBeUndefined()
+    expect(parsed.approvalPolicy).toBeUndefined()
+    expect(parsed.allowQuoteRequests).toBeUndefined()
+    expect(parsed.requiresPoNumber).toBeUndefined()
+  })
+
+  it('accepts explicit nulls on the new Release 5 terms columns to go back to inheriting', () => {
+    const parsed = customerGroupTermsUpdateSchema.parse({
+      id: GROUP_ID,
+      termsCurrencyCode: null,
+      approvalPolicy: null,
+      allowQuoteRequests: null,
+      requiresPoNumber: null,
+    })
+
+    expect(parsed.termsCurrencyCode).toBeNull()
+    expect(parsed.approvalPolicy).toBeNull()
+    expect(parsed.allowQuoteRequests).toBeNull()
+    expect(parsed.requiresPoNumber).toBeNull()
+  })
+
+  it('rejects an approvalPolicy outside buyer/merchant/both (no either value, D-R5-1)', () => {
+    expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, approvalPolicy: 'either' }).success).toBe(false)
+    expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, approvalPolicy: 'both' }).success).toBe(true)
+  })
+
+  it('accepts only an uppercase three-letter ISO code as termsCurrencyCode (spec §5.3)', () => {
+    expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, termsCurrencyCode: 'eur' }).success).toBe(false)
+    expect(customerGroupTermsUpdateSchema.safeParse({ id: GROUP_ID, termsCurrencyCode: 'EURO' }).success).toBe(false)
+    expect(customerGroupTermsUpdateSchema.parse({ id: GROUP_ID, termsCurrencyCode: 'EUR' }).termsCurrencyCode).toBe('EUR')
+    expect(customerGroupTermsUpdateSchema.parse({ id: GROUP_ID, termsCurrencyCode: '' }).termsCurrencyCode).toBeNull()
+  })
 })
 
 describe('customer group column bounds', () => {
