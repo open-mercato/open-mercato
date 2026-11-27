@@ -7,6 +7,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { SalesDocumentAddressesSection } from '../AddressesSection'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 type TabEmptyStateMockProps = Pick<
   React.ComponentProps<typeof import('@open-mercato/ui/backend/detail').TabEmptyState>,
@@ -96,9 +97,15 @@ jest.mock('@open-mercato/ui/primitives/switch-field', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () => ({
-  AddressEditor: ({ value, onChange, disabled }: any) => (
+  AddressEditor: ({ value, onChange, disabled }: Pick<React.ComponentProps<typeof import('@open-mercato/core/modules/customers/components/AddressEditor').AddressEditor>, 'value' | 'onChange' | 'disabled'>) => (
     <>
       <span data-testid="address-editor-disabled">{String(Boolean(disabled))}</span>
+      {(['name', 'addressLine1', 'city'] as const).map((field) => (
+        <label key={field}>
+          {field}
+          <input value={value[field] ?? ''} onChange={(event) => onChange({ ...value, [field]: event.target.value })} />
+        </label>
+      ))}
       {/* The editor renders the contact details itself; what this section owes it is a draft that
           carries them off the snapshot, which is what these expose. */}
       <span data-testid="draft-taxId">{value?.taxId ?? ''}</span>
@@ -108,7 +115,7 @@ jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () =>
         onClick={() =>
           onChange(
             Object.fromEntries(
-              Object.keys(value ?? {}).map((key) => [key, typeof value[key] === 'boolean' ? false : '']),
+              Object.entries(value ?? {}).map(([key, fieldValue]) => [key, typeof fieldValue === 'boolean' ? false : '']),
             ),
           )
         }
@@ -587,6 +594,58 @@ describe('SalesDocumentAddressesSection additional addresses (#6194)', () => {
     renderSection()
     await screen.findByRole('button', { name: 'Add address' })
     expect(screen.getAllByRole('button', { name: 'Add address' })).toHaveLength(1)
+  })
+
+  describe.each(['order', 'quote'] as const)('%s custom address validation', (kind) => {
+    it.each([
+      { field: 'addressLine1', value: '' },
+      { field: 'addressLine1', value: '   ' },
+      { field: 'name', value: 'Warehouse' },
+      { field: 'city', value: 'London' },
+    ])('requires a street line when $field contains "$value"', async ({ field, value }) => {
+      const onUpdated = jest.fn()
+      render(<SalesDocumentAddressesSection documentId="document-1" kind={kind} customerId="customer-1" onUpdated={onUpdated} />)
+      await openAdditionalForm()
+      fireEvent.click(await screen.findByRole('radio', { name: 'New address' }))
+      fireEvent.change(screen.getByRole('textbox', { name: field, exact: true }), { target: { value } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save address' }))
+
+      await waitFor(() => expect(flash).toHaveBeenCalledWith('Add address line 1 to continue.', 'error'))
+      expect(mockApiCallOrThrow).not.toHaveBeenCalled()
+      expect(onUpdated).not.toHaveBeenCalled()
+      expect(flash).not.toHaveBeenCalledWith(expect.anything(), 'success')
+      expect(screen.getByRole('textbox', { name: field, exact: true })).toHaveValue(value)
+      expect(screen.getByRole('button', { name: 'Save address' })).toBeEnabled()
+    })
+
+    it('trims a real street line and sends it instead of the label', async () => {
+      mockApiCallOrThrow.mockResolvedValue({ ok: true, result: { id: 'address-1' } })
+      render(<SalesDocumentAddressesSection documentId="document-1" kind={kind} customerId="customer-1" />)
+      await openAdditionalForm()
+      fireEvent.click(await screen.findByRole('radio', { name: 'New address' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'name', exact: true }), { target: { value: 'Warehouse' } })
+      fireEvent.change(screen.getByRole('textbox', { name: 'addressLine1', exact: true }), { target: { value: '  12 Market Street  ' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save address' }))
+
+      await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+      const [url, options] = mockApiCallOrThrow.mock.calls[0]
+      expect(url).toBe('/api/sales/document-addresses')
+      expect(JSON.parse(options.body)).toMatchObject({ documentId: 'document-1', documentKind: kind, name: 'Warehouse', addressLine1: '12 Market Street' })
+      await waitFor(() => expect(flash).toHaveBeenCalledWith('Document updated.', 'success'))
+    })
+  })
+
+  it('keeps adding an existing customer address without a custom draft', async () => {
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: { id: 'address-1' } })
+    renderSection()
+    await openAdditionalForm()
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Saved address' })).toBeChecked())
+    fireEvent.change(screen.getAllByRole('combobox').at(-1)!, { target: { value: 'customer-address-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save address' }))
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [, options] = mockApiCallOrThrow.mock.calls[0]
+    expect(JSON.parse(options.body)).toMatchObject({ customerAddressId: 'customer-address-1', addressLine1: '12 Market Street' })
   })
 })
 

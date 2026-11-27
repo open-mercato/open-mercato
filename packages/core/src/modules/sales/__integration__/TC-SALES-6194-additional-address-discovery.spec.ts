@@ -54,6 +54,22 @@ test.describe('TC-SALES-6194: additional address discovery', () => {
       await expect(form.getByRole('switch', { name: 'Define new address' }), 'no toggle hides the fields').toHaveCount(0)
       const line1 = form.getByRole('textbox', { name: 'Address line 1' })
       await expect(line1, 'the fields are the first thing shown').toBeVisible()
+      const addressWrites: string[] = []
+      page.on('request', (request) => {
+        if (new URL(request.url()).pathname === '/api/sales/document-addresses' && request.method() === 'POST') {
+          addressWrites.push(request.postData() ?? '')
+        }
+      })
+      await form.getByRole('button', { name: 'Save address', exact: true }).click()
+      await expect(page.getByText('Add address line 1 to continue.', { exact: true })).toBeVisible()
+      await expect(form).toBeVisible()
+      expect(addressWrites).toHaveLength(0)
+      await form.getByRole('textbox', { name: 'City' }).fill('London')
+      await line1.fill('   ')
+      await form.getByRole('button', { name: 'Save address', exact: true }).click()
+      await expect(form).toBeVisible()
+      await expect(line1).toHaveValue('   ')
+      expect(addressWrites).toHaveLength(0)
       await form.getByRole('textbox', { name: 'Label' }).fill(`Site ${stamp}`)
       await line1.fill('12 Discovery Street')
       await expect(line1).toHaveValue('12 Discovery Street')

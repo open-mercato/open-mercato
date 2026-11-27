@@ -657,10 +657,14 @@ export function SalesDocumentAddressesSection({
 
       if (additionalUseCustom) {
         const normalized = normalizeAddressDraft(additionalDraft)
+        if (!normalized?.addressLine1) {
+          flash(t('sales.documents.detail.addresses.line1Required', 'Add address line 1 to continue.'), 'error')
+          return
+        }
         name = normalized?.name ?? undefined
         purpose = normalized?.purpose ?? undefined
         resolvedValue = {
-          addressLine1: normalized?.addressLine1 ?? normalized?.name ?? 'Address',
+          addressLine1: normalized.addressLine1,
           addressLine2: normalized?.addressLine2 ?? null,
           buildingNumber: normalized?.buildingNumber ?? null,
           flatNumber: normalized?.flatNumber ?? null,

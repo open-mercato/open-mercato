@@ -181,3 +181,78 @@ test('a new owner acquired while consent was pending is never signaled', async (
   await assert.rejects(acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies), DevSessionConflictError)
   assert.deepEqual(fixture.signals, [])
 })
+
+function windowsFixture(context) {
+  const fixture = orphanFixture(context)
+  const inspectTree = fixture.dependencies.inspectTree
+  delete fixture.dependencies.inspectTree
+  delete fixture.dependencies.processWorkspace
+  fixture.dependencies.platform = 'win32'
+  fixture.record.workspace = fixture.workspaceRoot
+  fixture.dependencies.spawnSync = (command, args, options) => {
+    assert.equal(command, 'powershell.exe')
+    assert.ok(args.includes('-NoProfile'))
+    assert.ok(args.includes('-NonInteractive'))
+    assert.equal(options.windowsHide, true)
+    assert.equal(options.timeout, 5000)
+    const source = Buffer.from(args.at(-1), 'base64').toString('utf16le')
+    const payload = source.match(/FromBase64String\('([^']+)'\)/)[1]
+    const request = JSON.parse(Buffer.from(payload, 'base64').toString())
+    assert.deepEqual(request, { action: 'inspect', pid: process.pid })
+    return { status: 0, stdout: JSON.stringify(inspectTree()) }
+  }
+  return fixture
+}
+
+test('Windows recovery offers consent and stops a session with an OS-verified workspace', async (context) => {
+  const fixture = windowsFixture(context)
+  let prompts = 0
+  fixture.dependencies.confirm = async (description) => {
+    prompts++
+    assert.match(description, /still running in this workspace/)
+    return true
+  }
+  const session = await acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies)
+  session.release()
+  assert.equal(prompts, 1)
+  assert.equal(fixture.signals.length, 1)
+  assert.equal(fixture.signals[0].signal, 'SIGTERM')
+})
+
+for (const scenario of ['missing cwd', 'relative cwd', 'missing start time', 'failed query', 'timed out query', 'malformed output', 'invalid PID']) {
+  test(`Windows recovery leaves unverified PIDs and the lock untouched: ${scenario}`, async (context) => {
+    const fixture = windowsFixture(context)
+    if (scenario === 'missing cwd') fixture.record.workspace = null
+    if (scenario === 'relative cwd') fixture.record.workspace = 'scripts'
+    if (scenario === 'missing start time') fixture.record.startedAt = null
+    if (scenario === 'invalid PID') fixture.record.pid = String(process.pid)
+    if (scenario === 'failed query') fixture.dependencies.spawnSync = () => ({ status: 1, stdout: '' })
+    if (scenario === 'timed out query') fixture.dependencies.spawnSync = () => ({ status: null, error: { code: 'ETIMEDOUT' } })
+    if (scenario === 'malformed output') fixture.dependencies.spawnSync = () => ({ status: 0, stdout: 'not JSON' })
+    fixture.dependencies.confirm = async () => assert.fail('unverified Windows PIDs must not reach consent')
+    await assert.rejects(acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies), DevSessionConflictError)
+    assert.deepEqual(fixture.signals, [])
+    assert.equal(JSON.parse(fs.readFileSync(fixture.ownerPath, 'utf8')).token, fixture.owner.token)
+  })
+}
+
+for (const scenario of ['reused PID', 'other workspace with common prefix']) {
+  test(`Windows recovery discards stale ownership without killing unrelated PIDs: ${scenario}`, async (context) => {
+    const fixture = windowsFixture(context)
+    if (scenario === 'reused PID') fixture.record.startedAt = new Date(Date.now() + 20_000).toISOString()
+    if (scenario === 'other workspace with common prefix') fixture.record.workspace = `${fixture.workspaceRoot}-unrelated`
+    const session = await acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies)
+    session.release()
+    assert.deepEqual(fixture.signals, [])
+  })
+}
+
+test('Windows ownership is checked again after consent before signaling', async (context) => {
+  const fixture = windowsFixture(context)
+  fixture.dependencies.confirm = async () => {
+    fixture.record.workspace = null
+    return true
+  }
+  await assert.rejects(acquireDevSessionWithRecovery({ workspaceRoot: fixture.workspaceRoot, token: null }, fixture.dependencies), DevSessionConflictError)
+  assert.deepEqual(fixture.signals, [])
+})
