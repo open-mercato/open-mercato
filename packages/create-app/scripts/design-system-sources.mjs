@@ -209,6 +209,42 @@ export function readGalleryFamilies(repoRoot) {
   return families
 }
 
+/**
+ * Entries a family file imports by name from a sibling module (`./blocks-list-toolbar`).
+ *
+ * A family may keep a large entry in its own file. The entry is still read statically: the sibling
+ * module is parsed and the imported name resolved against that module's own top-level literals,
+ * so the variant set and snippets come from the file that declares them.
+ */
+function siblingImportScopes(sourceFile, absolute, relative) {
+  const t = ts()
+  const scopes = new Map()
+  for (const statement of sourceFile.statements) {
+    if (!t.isImportDeclaration(statement) || !t.isStringLiteral(statement.moduleSpecifier)) continue
+    const specifier = statement.moduleSpecifier.text
+    if (!specifier.startsWith('./')) continue
+    const bindings = statement.importClause?.namedBindings
+    if (!bindings || !t.isNamedImports(bindings)) continue
+    const siblingAbsolute = path.join(path.dirname(absolute), `${specifier.slice(2)}.tsx`)
+    if (!fs.existsSync(siblingAbsolute)) continue
+    let scope = null
+    for (const element of bindings.elements) {
+      if (element.propertyName) continue
+      if (scope === null) {
+        const siblingSource = parse(siblingAbsolute)
+        scope = {
+          relative: path.posix.join(path.posix.dirname(relative), `${specifier.slice(2)}.tsx`),
+          byName: topLevelObjectLiterals(siblingSource),
+          objectArrays: topLevelObjectArrays(siblingSource),
+          constants: topLevelStringConstants(siblingSource),
+        }
+      }
+      if (scope.byName.has(element.name.text)) scopes.set(element.name.text, scope)
+    }
+  }
+  return scopes
+}
+
 /** Every entry of one family, in the order the family's `entries` array lists them. */
 export function readGalleryEntries(repoRoot, family) {
   const t = ts()
@@ -217,18 +253,30 @@ export function readGalleryEntries(repoRoot, family) {
   const sourceFile = parse(absolute)
   const array = exportedArray(sourceFile, 'entries')
   if (array === null) throw new Error(`${relative} does not export an entries array literal`)
-  const byName = topLevelObjectLiterals(sourceFile)
-  const objectArrays = topLevelObjectArrays(sourceFile)
-  const constants = topLevelStringConstants(sourceFile)
+  const ownScope = {
+    relative,
+    byName: topLevelObjectLiterals(sourceFile),
+    objectArrays: topLevelObjectArrays(sourceFile),
+    constants: topLevelStringConstants(sourceFile),
+  }
+  const importedScopes = siblingImportScopes(sourceFile, absolute, relative)
 
   const entries = []
   for (const element of array.elements) {
     let literal = null
+    let scope = ownScope
     if (t.isObjectLiteralExpression(element)) literal = element
-    else if (t.isIdentifier(element)) literal = byName.get(element.text) ?? null
+    else if (t.isIdentifier(element)) {
+      literal = ownScope.byName.get(element.text) ?? null
+      if (literal === null && importedScopes.has(element.text)) {
+        scope = importedScopes.get(element.text)
+        literal = scope.byName.get(element.text) ?? null
+      }
+    }
     if (literal === null) {
       throw new Error(`${relative} lists an entry this reader cannot resolve to an object literal`)
     }
+    const { byName, objectArrays, constants } = scope
 
     const id = stringOf(propertyOf(literal, 'id'), constants)
     const title = stringOf(propertyOf(literal, 'title'), constants)
@@ -278,7 +326,7 @@ export function readGalleryEntries(repoRoot, family) {
       figmaNodeId,
       variantIds,
       variantSnippets,
-      entrySourceRelativePath: `${GALLERY_DIR}/${family.entriesModule.replace(/^\.\//, '')}.tsx`,
+      entrySourceRelativePath: scope.relative,
     })
   }
   return entries
