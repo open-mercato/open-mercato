@@ -4,7 +4,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import { upsertEncryptionMapSchema } from '@open-mercato/core/modules/entities/data/validators'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 import {
   buildOptimisticLockConflictBody,
   enforceCommandOptimisticLock,
@@ -62,6 +63,10 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  if (isExplicitlyEmptyOrganizationScope(scope)) {
+    const denied = forbidden()
+    return NextResponse.json(denied.body, { status: denied.status })
+  }
   const tenantId = scope.tenantId ?? auth.tenantId
   const organizationId = scope.selectedId
   const em = container.resolve('em') as any
@@ -108,6 +113,7 @@ export async function POST(req: Request) {
 
     const container = await createRequestContainer()
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    if (isExplicitlyEmptyOrganizationScope(scope)) throw forbidden()
     if (scope.selectionRejected) {
       return NextResponse.json(
         {
@@ -227,6 +233,8 @@ const conflictResponseSchema = z.object({
   expectedUpdatedAt: z.string(),
 })
 
+const forbiddenResponseSchema = z.object({ error: z.string() })
+
 const organizationSelectionInvalidResponseSchema = z.object({
   error: z.string(),
   code: z.literal('organization_selection_invalid'),
@@ -240,7 +248,10 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Fetch encryption map',
       description: 'Returns the encrypted field map for the current tenant/organization scope.',
       query: z.object({ entityId: z.string() }),
-      responses: [{ status: 200, description: 'Map', schema: z.object({ entityId: z.string(), fields: z.array(z.object({ field: z.string(), hashField: z.string().nullable().optional() })), isActive: z.boolean().optional(), updatedAt: z.string().nullable().optional() }) }],
+      responses: [
+        { status: 200, description: 'Map', schema: z.object({ entityId: z.string(), fields: z.array(z.object({ field: z.string(), hashField: z.string().nullable().optional() })), isActive: z.boolean().optional(), updatedAt: z.string().nullable().optional() }) },
+        { status: 403, description: 'Caller can see no organization', schema: forbiddenResponseSchema },
+      ],
     },
     POST: {
       summary: 'Upsert encryption map',
@@ -248,6 +259,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: { contentType: 'application/json', schema: upsertEncryptionMapSchema },
       responses: [
         { status: 200, description: 'Saved', schema: z.object({ ok: z.boolean(), updatedAt: z.string().nullable().optional() }) },
+        { status: 403, description: 'Caller can see no organization', schema: forbiddenResponseSchema },
         { status: 409, description: 'Optimistic-lock conflict (stale write)', schema: conflictResponseSchema },
         { status: 422, description: 'Selected organization is unavailable', schema: organizationSelectionInvalidResponseSchema },
       ],

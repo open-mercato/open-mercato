@@ -1,4 +1,6 @@
-import { z } from 'zod'
+import type { CalendarInteractionPayload } from '@open-mercato/core/helpers/calendar/interactionPayload'
+
+export { calendarInteractionPayloadSchema, type CalendarInteractionPayload } from '@open-mercato/core/helpers/calendar/interactionPayload'
 
 export type CalendarView = 'day' | 'week' | 'month' | 'agenda'
 
@@ -15,40 +17,6 @@ export type CalendarTab = 'all' | 'meetings' | 'events'
 export type CalendarRangePreset = 'thisWeek' | 'next7' | 'thisMonth' | 'next30'
 
 export type CalendarRange = { from: Date; to: Date }
-
-const calendarParticipantSchema = z
-  .object({
-    userId: z.string().optional(),
-    name: z.string().optional(),
-    email: z.string().optional(),
-  })
-  .passthrough()
-
-export const calendarInteractionPayloadSchema = z
-  .object({
-    id: z.string(),
-    interactionType: z.string(),
-    title: z.string().nullable().optional(),
-    status: z.string(),
-    scheduledAt: z.string().nullable().optional(),
-    occurredAt: z.string().nullable().optional(),
-    durationMinutes: z.number().nullable().optional(),
-    timezone: z.string().nullable().optional(),
-    allDay: z.boolean().nullable().optional(),
-    location: z.string().nullable().optional(),
-    participants: z.array(calendarParticipantSchema).nullable().optional(),
-    recurrenceRule: z.string().nullable().optional(),
-    recurrenceEnd: z.string().nullable().optional(),
-    appearanceIcon: z.string().nullable().optional(),
-    appearanceColor: z.string().nullable().optional(),
-    ownerUserId: z.string().nullable().optional(),
-    entityId: z.string().nullable().optional(),
-    dealId: z.string().nullable().optional(),
-    updatedAt: z.string().nullable().optional(),
-  })
-  .passthrough()
-
-export type CalendarInteractionPayload = z.infer<typeof calendarInteractionPayloadSchema>
 
 export type CalendarParticipant = { userId?: string; name?: string; email?: string; status?: string }
 
@@ -85,6 +53,7 @@ export interface TimeGridProps {
   anchor: Date
   items: CalendarItem[]
   conflictIds: Set<string>
+  conflictDescriptions?: ReadonlyMap<string, string>
   showWeekends: boolean
   showConflicts: boolean
   aiSummaries: boolean
@@ -102,6 +71,7 @@ export interface TimeGridProps {
 }
 
 export interface MonthGridProps {
+  conflictDescriptions?: ReadonlyMap<string, string>
   anchor: Date
   items: CalendarItem[]
   onItemClick(item: CalendarItem): void
@@ -109,6 +79,7 @@ export interface MonthGridProps {
 }
 
 export interface AgendaListProps {
+  conflictDescriptions?: ReadonlyMap<string, string>
   anchor: Date
   horizonDays: number
   items: CalendarItem[]

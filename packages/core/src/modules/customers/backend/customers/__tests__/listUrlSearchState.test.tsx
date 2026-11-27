@@ -4,9 +4,12 @@
 import * as React from 'react'
 import { act, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ForbiddenError } from '@open-mercato/ui/backend/utils/api'
 import CustomersPeoplePage from '../people/page'
 import CustomersCompaniesPage from '../companies/page'
 import CustomersDealsPage from '../deals/page'
+import polishMessages from '../../../i18n/pl.json'
 import type { CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import ProductsDataTable from '@open-mercato/core/modules/catalog/components/products/ProductsDataTable'
 import { QueryClient } from '@tanstack/react-query'
@@ -16,11 +19,12 @@ const readDefinitionsMock = jest.fn()
 const replaceMock = jest.fn()
 const pushMock = jest.fn()
 const dataTablePropsCapture: { current: Record<string, unknown> | null } = { current: null }
+let mockMessages: Record<string, string> = {}
 const mockT = (_key: string, fallback?: string, params?: Record<string, unknown>) => {
-  if (!fallback) return _key
+  const message = mockMessages[_key] ?? fallback ?? _key
   return Object.entries(params ?? {}).reduce(
     (label, [key, value]) => label.replace(`{${key}}`, String(value)),
-    fallback,
+    message,
   )
 }
 let activePathname = '/backend/customers/people'
@@ -249,6 +253,7 @@ describe('customer list URL search state', () => {
     dataTablePropsCapture.current = null
     mockCustomFieldDefs = []
     mockCustomFieldDefsLoading = false
+    mockMessages = {}
     mockUseRealCustomFields = false
     mockScopeVersion = 1
     mockProductEvent = undefined
@@ -257,11 +262,64 @@ describe('customer list URL search state', () => {
     apiCallMock.mockReset()
     replaceMock.mockReset()
     pushMock.mockReset()
+    jest.mocked(flash).mockClear()
     apiCallMock.mockResolvedValue({
       ok: true,
       result: { items: [], total: 0, page: 1, totalPages: 1 },
       cacheStatus: null,
     })
+  })
+
+  it.each([
+    ['people', CustomersPeoplePage],
+    ['companies', CustomersCompaniesPage],
+  ] as const)('localizes a failed %s refresh and keeps the list available for retry', async (listName, ListPage) => {
+    activePathname = `/backend/customers/${listName}`
+    activeQuery = ''
+    mockMessages = polishMessages
+    apiCallMock.mockResolvedValueOnce({
+      ok: true,
+      result: { items: [{ id: 'customer-1', display_name: 'Customer one' }], total: 1, totalPages: 1 },
+    })
+    renderWithProviders(<ListPage />)
+    const originalRows = [expect.objectContaining({ id: 'customer-1' })]
+    await waitFor(() => expect(dataTablePropsCapture.current?.data).toEqual(originalRows))
+
+    apiCallMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await act(async () => {
+      const refresh = dataTablePropsCapture.current?.refreshButton as { onRefresh: () => void }
+      refresh.onRefresh()
+    })
+
+    expect(flash).toHaveBeenCalledTimes(1)
+    expect(flash).toHaveBeenCalledWith(polishMessages[`customers.${listName}.list.error.load`], 'error')
+    expect(dataTablePropsCapture.current?.data).toEqual(originalRows)
+    expect(dataTablePropsCapture.current?.isLoading).toBe(false)
+
+    apiCallMock.mockResolvedValueOnce({
+      ok: true,
+      result: { items: [{ id: 'customer-2', display_name: 'Customer two' }], total: 1, totalPages: 1 },
+    })
+    await act(async () => {
+      const refresh = dataTablePropsCapture.current?.refreshButton as { onRefresh: () => void }
+      refresh.onRefresh()
+    })
+
+    expect(dataTablePropsCapture.current?.data).toEqual([expect.objectContaining({ id: 'customer-2' })])
+    expect(flash).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['people', CustomersPeoplePage],
+    ['companies', CustomersCompaniesPage],
+  ] as const)('preserves the server message when access to the %s list is refused', async (listName, ListPage) => {
+    activePathname = `/backend/customers/${listName}`
+    const refusal = new ForbiddenError('Access to this list is restricted')
+    apiCallMock.mockRejectedValueOnce(refusal)
+
+    renderWithProviders(<ListPage />)
+
+    await waitFor(() => expect(flash).toHaveBeenCalledWith(refusal.message, 'error'))
   })
 
   it.each([

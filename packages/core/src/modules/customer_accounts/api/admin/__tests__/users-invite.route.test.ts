@@ -7,8 +7,13 @@ const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
 const mockRollbackInvitation = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
+const mockFindInvitationRoles = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockSendCustomerInvitationEmail = jest.fn()
+const mockEm = {
+  getMetadata: () => ({ find: () => undefined }),
+  findOne: jest.fn(),
+}
 
 const tenantId = '22222222-2222-4222-8222-222222222222'
 const organizationId = '33333333-3333-4333-8333-333333333333'
@@ -18,6 +23,7 @@ const apiKeyId = '55555555-5555-4555-8555-555555555555'
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
+    if (token === 'em') return mockEm
     if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
     if (token === 'customerInvitationService') return { createInvitation: mockCreateInvitation, rollbackInvitation: mockRollbackInvitation }
     return null
@@ -42,11 +48,15 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (...args: unknown[]) => mockFindInvitationRoles(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
 }))
 
-function makeInviteRequest(): Request {
+function makeInviteRequest(links: { customerEntityId?: string; personEntityId?: string } = {}): Request {
   return new Request('http://localhost/api/customer_accounts/admin/users-invite', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -54,6 +64,7 @@ function makeInviteRequest(): Request {
       email: 'buyer@example.com',
       roleIds: [roleId],
       displayName: 'Buyer User',
+      ...links,
     }),
   })
 }
@@ -63,6 +74,7 @@ describe('admin customer account user invite route', () => {
     jest.clearAllMocks()
     mockCheckAuthRateLimit.mockResolvedValue({ error: null, compoundKey: null })
     mockUserHasAllFeatures.mockResolvedValue(true)
+    mockFindInvitationRoles.mockResolvedValue([{ id: roleId, customerAssignable: true }])
     mockGetAuthFromRequest.mockResolvedValue({
       sub: `api_key:${apiKeyId}`,
       userId: staffUserId,
@@ -82,6 +94,28 @@ describe('admin customer account user invite route', () => {
     })
     mockRollbackInvitation.mockResolvedValue(undefined)
     mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
+  })
+
+  it('refuses roles outside the invitation organization before minting a token', async () => {
+    mockFindInvitationRoles.mockResolvedValue([])
+    const { POST } = await import('../users-invite')
+
+    expect((await POST(makeInviteRequest())).status).toBe(400)
+    expect(mockFindInvitationRoles).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(),
+      { id: { $in: [roleId] }, tenantId, organizationId, deletedAt: null },
+      undefined, { tenantId, organizationId },
+    )
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+  })
+
+  it('requires role management permission for roles beyond the standard invitation grant', async () => {
+    mockFindInvitationRoles.mockResolvedValue([{ id: roleId, customerAssignable: false }])
+    mockUserHasAllFeatures.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    const { POST } = await import('../users-invite')
+
+    expect((await POST(makeInviteRequest())).status).toBe(403)
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
   })
 
   it('keeps API-key RBAC subject and stores the backing user id as invitedByUserId', async () => {
@@ -139,6 +173,21 @@ describe('admin customer account user invite route', () => {
       rawToken: 'raw-invite-token',
     })
     expect(JSON.stringify(json)).not.toContain('raw-invite-token')
+  })
+
+  it.each([
+    ['customerEntityId', 'Company not found'],
+    ['personEntityId', 'Person not found'],
+  ] as const)('rejects an invite with %s when customers is disabled', async (field, error) => {
+    const { POST } = await import('../users-invite')
+
+    const response = await POST(makeInviteRequest({ [field]: '77777777-7777-4777-8777-777777777777' }))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ ok: false, error })
+    expect(mockEm.findOne).not.toHaveBeenCalled()
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+    expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
   })
 
   it('returns 502 and rolls back the freshly-created invitation when the email cannot be sent', async () => {

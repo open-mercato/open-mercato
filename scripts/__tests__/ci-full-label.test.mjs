@@ -48,9 +48,10 @@ function executeScript(script, { eventName = 'pull_request', fullSuite = false, 
 }
 
 test('PR label changes cannot schedule CI or publish new skipped required checks', () => {
-  assert.deepEqual(workflow.on.pull_request.types, ['opened', 'synchronize', 'reopened'])
-  for (const jobName of ['prepare', 'lint', 'ds-lint', 'audit-scope']) {
-    assert.equal(workflow.jobs[jobName].if, undefined, `${jobName} must run for every scheduled event`)
+  assert.deepEqual(workflow.on.pull_request.types, ['opened', 'synchronize', 'reopened', 'ready_for_review'])
+  assert.equal(workflow.jobs['audit-scope'].if, undefined, 'audit-scope must run for every scheduled event')
+  for (const jobName of ['prepare', 'lint', 'ds-lint']) {
+    assert.equal(workflow.jobs[jobName].if, "needs.audit-scope.outputs.draft != 'true'", `${jobName} may skip only for a draft PR`)
   }
   assert.equal(scope.env?.FORCE_FULL_SUITE, undefined)
   assert.ok(!workflow.on.pull_request.types.includes('labeled'))

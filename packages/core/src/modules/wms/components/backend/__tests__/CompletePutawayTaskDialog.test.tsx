@@ -136,6 +136,23 @@ describe('CompletePutawayTaskDialog', () => {
     expect(mockApiCall).not.toHaveBeenCalled()
   })
 
+  it('rejects quantities above the task and submits the corrected fractional boundary', async () => {
+    mockApiCall.mockResolvedValue({ ok: true, result: { ok: true } })
+    render(
+      <CompletePutawayTaskDialog open onOpenChange={jest.fn()} access={access} task={{ ...task, quantity: 1.234567 }} />,
+    )
+    const input = screen.getByTestId('complete-putaway-qty')
+    fireEvent.change(input, { target: { value: '1.234569' } })
+    fireEvent.click(screen.getByTestId('complete-putaway-submit'))
+    expect(mockApiCall).not.toHaveBeenCalled()
+    expect(screen.getByText('Confirmed quantity cannot exceed the task quantity.')).toBeTruthy()
+
+    fireEvent.change(input, { target: { value: '1.234567' } })
+    fireEvent.click(screen.getByTestId('complete-putaway-submit'))
+    await waitFor(() => expect(mockApiCall).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(mockApiCall.mock.calls[0][1].body).confirmedQuantity).toBe(1.234567)
+  })
+
   it('refreshes the optimistic-lock token from a 409 so retry sends a fresh If-Match', async () => {
     const freshUpdatedAt = '2026-08-22T10:05:00.000Z'
     mockApiCall
@@ -237,6 +254,7 @@ describe('CompletePutawayTaskDialog', () => {
       />,
     )
 
+    expect(screen.getByTestId('complete-putaway-qty')).toHaveAttribute('readonly')
     const serialInput = screen.getByRole('textbox', { name: 'Confirm serial' })
     expect(serialInput).toBe(screen.getByTestId('complete-putaway-serial'))
     expect(serialInput).toHaveAttribute('aria-required', 'true')

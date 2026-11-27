@@ -1,10 +1,21 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { TYPE_REGISTRY_SYNC_EVENT } from './events'
+import {
+  NOTIFICATIONS_DELIVERY_CONFIG_KEY,
+  resolveStoredDefaultNotificationDeliveryConfig,
+} from './lib/deliveryConfig'
 
 const logger = createLogger('notifications')
 
 export const setup: ModuleSetupConfig = {
+  instanceConfigDefaults: () => [
+    {
+      name: NOTIFICATIONS_DELIVERY_CONFIG_KEY,
+      value: resolveStoredDefaultNotificationDeliveryConfig(),
+    },
+  ],
+
   defaultRoleFeatures: {
     superadmin: ['notifications.*'],
     admin: ['notifications.*'],

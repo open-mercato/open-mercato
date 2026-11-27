@@ -81,10 +81,22 @@ describe.each(routes)('$name create route scope', ({ commandId, fields, schema }
   it.each([
     { tenantId },
     { organizationId: explicitOrganizationId },
-  ])('preserves explicit IDs for the existing authorization guards: %j', async (explicitScope) => {
-    const input = await mapCreateInput({ ...fields, ...explicitScope })
+  ])('preserves explicit IDs within the actor scope: %j', async (explicitScope) => {
+    const ctx = createContext()
+    ctx.organizationScope = {
+      tenantId,
+      selectedId: selectedOrganizationId,
+      filterIds: [selectedOrganizationId],
+      allowedIds: [selectedOrganizationId, explicitOrganizationId],
+    }
+    const input = await mapCreateInput({ ...fields, ...explicitScope }, ctx)
     expect(input).toEqual({ ...fields, tenantId, organizationId: selectedOrganizationId, ...explicitScope })
     expect(schema.safeParse(input).success).toBe(true)
+  })
+
+  it('rejects an explicit organization outside the actor scope', async () => {
+    await expect(mapCreateInput({ ...fields, organizationId: explicitOrganizationId }))
+      .rejects.toMatchObject({ status: 403 })
   })
 
   // withScopedPayload now rejects a non-superadmin's foreign tenantId unconditionally

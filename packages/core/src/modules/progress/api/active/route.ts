@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { ProgressJob } from '../../data/entities'
+import { createProgressJobMutationPolicy, resolveProgressCancellationScope } from '../jobPermissions'
 import {
   hasReadableProgressScope,
+  hasWritableProgressScope,
   resolveProgressRequestScope,
 } from '../requestScope'
 
@@ -39,10 +41,23 @@ export async function GET(req: Request) {
     progressService.getRecentlyCompletedJobs(ctx),
   ])
 
+  const cancelScope = jobs.some((job) => job.cancellable) && hasWritableProgressScope(scope)
+    ? await resolveProgressCancellationScope(container, auth, req)
+    : null
+  const canMutateJob = createProgressJobMutationPolicy(container, auth)
+  const active = await Promise.all(jobs.map(async (job) => ({
+    ...formatJob(job),
+    canCancel: job.cancellable
+      && cancelScope !== null
+      && (cancelScope.filterIds === null
+        || (job.organizationId != null && cancelScope.filterIds.includes(job.organizationId)))
+      && await canMutateJob(job),
+  })))
+
   return NextResponse.json({
-    active: jobs.map(formatJob),
+    active,
     recentlyCompleted: recentlyCompleted.map(formatJob),
-  })
+  }, { headers: { 'Cache-Control': 'private, no-store' } })
 }
 
 function formatJob(job: ProgressJob) {
@@ -67,7 +82,7 @@ function formatJob(job: ProgressJob) {
 export const openApi = {
   GET: {
     summary: 'Get active progress jobs',
-    description: 'Returns currently running jobs and recently completed jobs for the progress top bar.',
+    description: 'Returns active and recently completed jobs for the progress top bar. Each active job includes canCancel for the authenticated caller.',
     tags: ['Progress'],
     responses: {
       200: { description: 'Active and recently completed jobs' },

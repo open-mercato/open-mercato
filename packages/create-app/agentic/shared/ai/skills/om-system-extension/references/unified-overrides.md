@@ -23,6 +23,7 @@ Load this reference when `src/modules.ts` must disable or replace an installed c
 | ACL features | `overrides.acl.features` — feature ID |
 | DI bindings | `overrides.di` — container key |
 | Encryption maps | `overrides.encryption.maps` — entity ID |
+| CrudForm sections | `overrides.forms.sections` — `<hostId>/<formVariant>/<formOperation>/<sectionId>` |
 
 ## Rules
 
@@ -34,6 +35,7 @@ Load this reference when `src/modules.ts` must disable or replace an installed c
 - `overrides.guards` targets backend/frontend page route middleware only (the `page-middleware` owned fact). A `data/guards.ts` mutation guard is a different contract with no override domain; it surfaces as an extension activation, never under `overrides.guards`. The target's `page-middleware-not-mutation-guard` note flags this.
 - Before adding a contribution, check the target module sheet's `incoming` index for an already-installed contributor of the same kind/target, and require a `bound` `activation` (not a broad capability host) before assuming a route/entity extension actually runs. A `capability-only` host is available but unproven; do not claim runtime invocation from it.
 - Keep AI extensions additive and ordered. Use agent/tool maps only for replacement or disable; do not encode an extension as a `null`-capable map entry.
+- Define CrudForm contributions with `defineCrudFormExtension`. An override selects a published contribution ID and operation for that exact tuple and section. Use `null` to mask the address. The compiler and host must support the resulting composition.
 - Preserve replacement type/signature, auth/features, scope, stable ID, and observable side effects. A replacement may strengthen safety but never silently narrow a public contract.
 - Treat unknown/stale override diagnostics as failures. Run `yarn generate`, clear structural nav/module caches with the app's documented command, and verify the old contribution is absent in every bootstrap.
 - Verify host present/absent, wildcard ACL, direct URL/API access, registry uniqueness, cache/navigation cleanup, and rollback to the base contribution.

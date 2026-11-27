@@ -98,7 +98,7 @@ async function withClient<T>(pool: PgPool, fn: (client: PgPoolClient) => Promise
 export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDriver {
   const tableName = assertIdentifier(opts.tableName ?? DEFAULT_TABLE, DEFAULT_TABLE)
   const migrationsTable = assertIdentifier(opts.migrationsTable ?? DEFAULT_MIGRATIONS_TABLE, DEFAULT_MIGRATIONS_TABLE)
-  let dimension = opts.dimension ?? DEFAULT_DIMENSION
+  const dimension = opts.dimension ?? DEFAULT_DIMENSION
   const distanceMetric = opts.distanceMetric ?? 'cosine'
   const tableIdent = quoteIdent(tableName)
   const migrationsIdent = quoteIdent(migrationsTable)
@@ -528,15 +528,41 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       typeof params.organizationId === 'string' && params.organizationId.trim().length > 0
         ? params.organizationId.trim()
         : null
+    const normalizedOrganizationIds = normalizedOrganizationId === null && Array.isArray(params.organizationIds)
+      ? Array.from(new Set(
+          params.organizationIds
+            .map((value) => (typeof value === 'string' ? value.trim() : ''))
+            .filter((value) => value.length > 0),
+        ))
+      : null
+    if (normalizedOrganizationIds && normalizedOrganizationIds.length === 0) {
+      return []
+    }
     if (normalizedOrganizationId !== null) {
       conditions.push(`organization_id = $${nextParam}::uuid`)
       values.push(normalizedOrganizationId)
+      nextParam += 1
+    } else if (normalizedOrganizationIds) {
+      conditions.push(`organization_id = ANY($${nextParam}::uuid[])`)
+      values.push(normalizedOrganizationIds)
       nextParam += 1
     }
 
     if (params.entityId) {
       conditions.push(`entity_id = $${nextParam}::text`)
       values.push(params.entityId)
+      nextParam += 1
+    }
+
+    if (params.entityAccess) {
+      if (!params.entityAccess.length) return []
+      conditions.push(`EXISTS (
+            SELECT 1
+            FROM jsonb_to_recordset($${nextParam}::jsonb) AS access("organizationId" uuid, "entityIds" text[])
+            WHERE (access."organizationId" IS NULL OR access."organizationId" = organization_id)
+              AND (access."entityIds" IS NULL OR entity_id = ANY(access."entityIds"))
+          )`)
+      values.push(JSON.stringify(params.entityAccess))
       nextParam += 1
     }
 
@@ -699,11 +725,10 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       const res = await pool.query<{ atttypmod: number }>(
         `SELECT a.atttypmod
          FROM pg_attribute a
-         JOIN pg_class c ON a.attrelid = c.oid
-         WHERE c.relname = $1
+         WHERE a.attrelid = to_regclass($1)
          AND a.attname = 'embedding'
          AND a.atttypmod > 0`,
-        [tableName]
+        [tableIdent]
       )
       if (res.rows.length > 0 && res.rows[0].atttypmod > 0) {
         return res.rows[0].atttypmod
@@ -715,12 +740,10 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
   }
 
   const recreateWithDimension = async (newDimension: number): Promise<void> => {
-    await withClient(pool, async (client) => {
-      await client.query(`DROP TABLE IF EXISTS ${tableIdent} CASCADE`)
-      await client.query(`DROP TABLE IF EXISTS ${migrationsIdent} CASCADE`)
-    })
-    ready = null
-    dimension = newDimension
+    const currentDimension = await getTableDimension()
+    if (newDimension !== (currentDimension ?? dimension)) {
+      throw new Error('[internal] Changing the shared vector index dimension requires an operator-managed migration')
+    }
     await ensureReady()
   }
 

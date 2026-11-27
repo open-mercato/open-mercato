@@ -34,8 +34,15 @@ const OVERVIEW: CompanyOverview = {
 }
 
 describe('CompanyKpiBar layout (#7485)', () => {
-  it('lets every card fill its grid cell so tiles in a row share the same outline', () => {
+  it('preserves deal tiles for existing callers that omit the optional permission prop', () => {
     renderWithProviders(<CompanyKpiBar data={OVERVIEW} />, { locale: 'en-US' })
+
+    expect(screen.getByText('ACTIVE DEALS')).toBeVisible()
+    expect(screen.getByText('CUSTOMER VALUE (LTV)')).toBeVisible()
+  })
+
+  it('lets every card fill its grid cell so tiles in a row share the same outline', () => {
+    renderWithProviders(<CompanyKpiBar data={OVERVIEW} canViewDeals />, { locale: 'en-US' })
     const tiles = screen.getAllByTestId('company-kpi-tile')
     expect(tiles).toHaveLength(4)
     for (const tile of tiles) {

@@ -32,6 +32,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
+  useOrganizationScopeDetail: () => ({ tenantId: 'tenant-a' }),
   useOrganizationScopeVersion: () => 1,
 }))
 
@@ -178,6 +179,21 @@ beforeEach(() => {
     return { items: [] } as never
   })
   mockSurfaceConflict.mockImplementation(() => false)
+})
+
+it('writes only the reference prefix for the tenant whose settings are displayed', async () => {
+  previews = [snapshot({ projectId: PROJECT_X, version: VERSION_X })]
+  renderTab()
+  fireEvent.change(await screen.findByLabelText('Reference prefix'), { target: { value: 'HELP' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+  await waitFor(() => expect(mockApiCall).toHaveBeenCalledWith(
+    '/api/staff/timesheets/settings?changedKeys=support.referencePrefix&expectedTenantId=tenant-a',
+    expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ support: { referencePrefix: 'HELP' } }),
+    }),
+  ))
 })
 
 describe('support routing settings optimistic lock', () => {
