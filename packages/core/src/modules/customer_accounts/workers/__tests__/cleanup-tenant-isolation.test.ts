@@ -12,7 +12,13 @@ const tenantB = '22222222-2222-4222-8222-222222222222'
 const validateBinding = jest.fn()
 const reportError = jest.fn()
 const nativeDelete = jest.fn()
+const nativeUpdate = jest.fn()
 const containers: Array<{ scope: Scope; dispose: jest.Mock }> = []
+type TenantFilter = { tenantId?: string; user?: { tenantId: string } }
+
+function filterTenant(filter: TenantFilter): string | undefined {
+  return filter.user?.tenantId ?? filter.tenantId
+}
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({ getTelemetryRuntime: () => ({ reportError }) }))
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => {
@@ -21,7 +27,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
     expect(scope.active).toBe(true)
     const container = {
       scope,
-      resolve: () => ({ nativeDelete }),
+      resolve: () => ({ nativeDelete, nativeUpdate }),
       dispose: jest.fn(async () => {
         await new Promise<void>((resolve) => setImmediate(resolve))
         expect(storage.getStore()).toBe(scope)
@@ -56,14 +62,16 @@ beforeAll(() => {
 beforeEach(() => {
   jest.clearAllMocks()
   containers.length = 0
-  nativeDelete.mockImplementation(async (_entity: unknown, filter: { tenantId: string }) => {
-    expect(storage.getStore()?.context).toMatchObject({ kind: 'tenant', tenantId: filter.tenantId })
+  const verifyTenant = async (_entity: unknown, filter: TenantFilter) => {
+    expect(storage.getStore()?.context).toMatchObject({ kind: 'tenant', tenantId: filterTenant(filter) })
     expect(storage.getStore()?.active).toBe(true)
     return 1
-  })
+  }
+  nativeDelete.mockImplementation(verifyTenant)
+  nativeUpdate.mockImplementation(verifyTenant)
 })
 
-describe.each([['sessions', sessions, 1], ['tokens', tokens, 3]] as const)('%s cleanup', (_name, handle, count) => {
+describe.each([['sessions', sessions, 1], ['tokens', tokens, 3]] as const)('%s cleanup', (name, handle, count) => {
   it.each(['inactive', 'binding-failure', 'execution-failure'])('continues active B after A %s without granting invalid authority', async (outcome) => {
     validateBinding.mockImplementation(async (tenantId: string) => {
       if (tenantId === tenantB) return true
@@ -77,7 +85,16 @@ describe.each([['sessions', sessions, 1], ['tokens', tokens, 3]] as const)('%s c
     await handle({ payload: {} } as QueuedJob, ctx)
     expect(validateBinding.mock.calls.map(([tenantId]) => tenantId)).toEqual([tenantA, tenantB])
     expect(maintenanceDelete).not.toHaveBeenCalled()
-    expect(nativeDelete.mock.calls.filter(([, filter]) => filter.tenantId === tenantB)).toHaveLength(count)
+    const activeTenantDeletes = nativeDelete.mock.calls.filter(([, filter]) => filterTenant(filter) === tenantB)
+    expect(activeTenantDeletes).toHaveLength(count)
+    const joins = activeTenantDeletes.filter(([, filter]) => filter.user?.tenantId === tenantB)
+    expect(joins).toHaveLength(name === 'sessions' ? 1 : 2)
+    if (name === 'tokens') {
+      expect(nativeUpdate).toHaveBeenCalledWith(
+        expect.anything(), expect.objectContaining({ tenantId: tenantB, emailVerifiedAt: null }),
+        expect.objectContaining({ isActive: false, sessionsRevokedAt: expect.any(Date) }),
+      )
+    }
     expect(containers.map(({ scope }) => scope.context.tenantId)).toEqual(outcome === 'execution-failure' ? [tenantA, tenantB] : [tenantB])
     for (const container of containers) {
       expect(container.dispose).toHaveBeenCalledTimes(1)
@@ -86,7 +103,7 @@ describe.each([['sessions', sessions, 1], ['tokens', tokens, 3]] as const)('%s c
     expect(reportError).toHaveBeenCalledTimes(1)
     expect(reportError.mock.calls[0][0].message).not.toMatch(/private/)
     expect(reportError.mock.calls[0][1]).toEqual({
-      module: 'customer_accounts', code: `customer_accounts.${_name}_cleanup_tenant_failed`,
+      module: 'customer_accounts', code: `customer_accounts.${name}_cleanup_tenant_failed`,
     })
   })
 })

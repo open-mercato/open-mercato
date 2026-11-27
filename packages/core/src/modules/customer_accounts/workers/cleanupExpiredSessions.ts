@@ -20,7 +20,7 @@ export default async function handle(job: QueuedJob, ctx: HandlerContext): Promi
 
   const cleanup = async (scopedEm: EntityManager, tenantId?: string) => {
     const deleted = await scopedEm.nativeDelete(CustomerUserSession, {
-      ...(tenantId ? { tenantId } : {}),
+      ...(tenantId ? { user: { tenantId } } : {}),
       $or: [
         { expiresAt: { $lt: new Date() } },
         { deletedAt: { $ne: null } },
@@ -32,7 +32,9 @@ export default async function handle(job: QueuedJob, ctx: HandlerContext): Promi
     }
   }
   if (!isDatabaseRuntimeEnabled()) return cleanup(em)
-  const tenants: unknown = await em.getConnection().execute("select distinct tenant_id from customer_user_sessions")
+  const tenants: unknown = await em.getConnection().execute(
+    'select distinct users.tenant_id from customer_user_sessions sessions join customer_users users on users.id = sessions.user_id',
+  )
   if (!Array.isArray(tenants)) throw new Error('[internal] Invalid customer cleanup tenant discovery result')
   for (const row of tenants as Array<{ tenant_id: string }>) {
     try {

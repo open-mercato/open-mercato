@@ -34,7 +34,7 @@ export default async function handle(job: QueuedJob, ctx: HandlerContext): Promi
 
     // Cleanup expired email verifications
     await scopedEm.nativeDelete(CustomerUserEmailVerification, {
-      ...(tenantId ? { tenantId } : {}),
+      ...(tenantId ? { user: { tenantId } } : {}),
       $or: [
         { expiresAt: { $lt: now }, usedAt: null },
         { usedAt: { $ne: null } },
@@ -43,7 +43,7 @@ export default async function handle(job: QueuedJob, ctx: HandlerContext): Promi
 
     // Cleanup expired password resets
     await scopedEm.nativeDelete(CustomerUserPasswordReset, {
-      ...(tenantId ? { tenantId } : {}),
+      ...(tenantId ? { user: { tenantId } } : {}),
       $or: [
         { expiresAt: { $lt: now }, usedAt: null },
         { usedAt: { $ne: null } },
@@ -61,7 +61,9 @@ export default async function handle(job: QueuedJob, ctx: HandlerContext): Promi
     })
   }
   if (!isDatabaseRuntimeEnabled()) return cleanup(em)
-  const tenants: unknown = await em.getConnection().execute("select distinct tenant_id from customer_user_email_verifications union select distinct tenant_id from customer_user_password_resets union select distinct tenant_id from customer_user_invitations union select distinct tenant_id from customer_users")
+  const tenants: unknown = await em.getConnection().execute(
+    'select tenant_id from customer_users union select tenant_id from customer_user_invitations',
+  )
   if (!Array.isArray(tenants)) throw new Error('[internal] Invalid customer cleanup tenant discovery result')
   for (const row of tenants as Array<{ tenant_id: string }>) {
     try {
