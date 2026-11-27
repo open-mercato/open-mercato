@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import type { OrganizationScope } from '../auth/principal-service'
 import { createLogger } from '../logger'
 import { resolveCrudMutationGuardService } from './mutation-guard-service'
 
@@ -23,6 +24,7 @@ export type CrudMutationGuardValidationResult =
 export type CrudMutationGuardValidateInput = {
   tenantId: string
   organizationId?: string | null
+  organizationScope?: OrganizationScope | null
   userId: string
   resourceKind: string
   resourceId: string
@@ -35,6 +37,7 @@ export type CrudMutationGuardValidateInput = {
 export type CrudMutationGuardAfterSuccessInput = {
   tenantId: string
   organizationId?: string | null
+  organizationScope?: OrganizationScope | null
   userId: string
   resourceKind: string
   resourceId: string

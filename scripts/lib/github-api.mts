@@ -6,6 +6,8 @@
 // the app token.
 // Every call is re-run safe: existing branches, tags, PRs, labels and releases are reused.
 
+import type { CommitPullRequest } from './release-line.mts'
+
 const DEFAULT_API = 'https://api.github.com'
 
 type HttpMethod = 'GET' | 'POST' | 'PATCH'
@@ -20,7 +22,7 @@ export type CommitFile = { path: string; content: string }
 export type PullRequest = { number: number; html_url: string }
 
 type GitRef = { object: { sha: string } }
-type GitObject = { sha: string; tree: { sha: string } }
+type GitObject = { sha: string; tree: { sha: string }; parents?: { sha: string }[] }
 type ContentFile = { sha: string; content?: string }
 type Blob = { content: string }
 type Release = { id: number }
@@ -105,6 +107,29 @@ export function createGithubClient({
       const existing = await getRefSha(`tags/${tag}`)
       if (existing === null) await createRef(`tags/${tag}`, sha)
       else if (existing !== sha) throw new Error(`[internal] tag ${tag} already points at ${existing}, not ${sha}`)
+    },
+    async commitParents(sha: string): Promise<string[]> {
+      const commit = await ok<GitObject>('GET', `${base}/git/commits/${sha}`)
+      return (commit.parents ?? []).map((parent) => parent.sha)
+    },
+    async changesOnlyChangelog(sha: string): Promise<boolean> {
+      const commit = await ok<{ files: { filename: string; status: string }[] }>('GET', `${base}/commits/${sha}?per_page=2`)
+      return (
+        commit.files.length === 1 && commit.files[0].filename === 'CHANGELOG.md' &&
+        ['added', 'modified'].includes(commit.files[0].status)
+      )
+    },
+    // Every PR carrying the commit, merged or not — including a squash-merged one whose commits
+    // never reached the default branch.
+    async pullRequestsForCommit(sha: string): Promise<CommitPullRequest[]> {
+      return ok<CommitPullRequest[]>('GET', `${base}/commits/${sha}/pulls?per_page=100`)
+    },
+    async isAncestor(ancestor: string, head: string): Promise<boolean> {
+      if (ancestor === head) return true
+      const { status, data } = await call<{ status?: string }>('GET', `${base}/compare/${ancestor}...${head}?per_page=1`)
+      if (status === 404) return false
+      if (status !== 200 || !data) throw new Error(`[internal] GET compare ${ancestor}...${head} → ${status}`)
+      return data.status === 'ahead' || data.status === 'identical'
     },
     async hasRelease(tag: string): Promise<boolean> {
       return (await findRelease(tag)) !== null

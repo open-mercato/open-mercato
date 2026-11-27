@@ -13,10 +13,10 @@ import {
 import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { getTelemetryRuntime, reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
-import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
+import { replaceSearchTokensForRecord, deleteSearchTokensForRecord, resolveCiphertextGuard } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
 import {
@@ -49,6 +49,30 @@ type BuildDocParams = {
   recordId: string
   organizationId?: string | null
   tenantId?: string | null
+}
+
+async function recordTokenMaintenanceFailure(em: EntityManager, scope: BuildDocParams, error: unknown): Promise<void> {
+  const { entityType, recordId, tenantId, organizationId } = scope
+  try {
+    reportTelemetryError(error, {
+      module: 'query_index',
+      code: 'query_index.search_token_maintenance_failed',
+      attributes: { entityType, recordId },
+    })
+  } catch (telemetryError) {
+    logger.warn('Failed to report search token maintenance error', { err: telemetryError })
+  }
+  await recordIndexerError({ em }, {
+    source: 'query_index',
+    handler: 'query_index.upsert.search_tokens',
+    entityType,
+    recordId,
+    tenantId: tenantId ?? null,
+    organizationId: organizationId ?? null,
+    error,
+  }).catch((loggingError: unknown) => {
+    logger.warn('Failed to record search token maintenance error', { err: loggingError })
+  })
 }
 
 export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): Promise<Record<string, any> | null> {
@@ -348,6 +372,7 @@ export async function upsertIndexRow(
         })
       } catch (error) {
         if (args.trx) throw error
+        await recordTokenMaintenanceFailure(em, args, error)
       }
     }
     if (existed) {
@@ -421,6 +446,7 @@ export async function upsertIndexRow(
       })
     } catch (error) {
       if (args.trx) throw error
+      await recordTokenMaintenanceFailure(em, args, error)
     }
   }
   return { doc, existed, wasDeleted, created, revived }
@@ -454,22 +480,20 @@ export async function reindexSearchTokensForRecord(
     }, { trx: args.trx })
     return
   }
-  const tokenDoc = args.searchTokenDoc ?? (() => {
-    const encryption = resolveTenantEncryptionService(em as any)
-    const dekKeyCache = new Map<string | null, string | null>()
-    return decryptIndexDocForSearch(
-      args.entityType,
-      args.doc,
-      { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
-      encryption,
-      dekKeyCache,
-    )
-  })()
+  const encryption = resolveTenantEncryptionService(em as any)
+  const tokenDoc = args.searchTokenDoc ?? await decryptIndexDocForSearch(
+    args.entityType,
+    args.doc,
+    { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
+    encryption,
+    new Map<string | null, string | null>(),
+  )
+  const guardCiphertext = resolveCiphertextGuard(encryption)
   const gates = resolveSearchTokenIndexGates(args.entityType)
   if (gates.length) {
     const allowed = await passesSearchTokenIndexGates(args.entityType, gates, {
       recordId: String(args.recordId),
-      record: await tokenDoc,
+      record: tokenDoc,
       tenantId: args.tenantId ?? null,
       organizationId: args.organizationId ?? null,
       queryEngine: createSearchTokenGateQueryEngine(em),
@@ -491,7 +515,7 @@ export async function reindexSearchTokensForRecord(
   // rebuild and the token writer — that also makes the aggregate's blocklist filter and
   // the per-field one provably read the same snapshot, as the batch path already does.
   const searchConfig = resolveSearchConfig()
-  const searchDoc = rebuildAggregateSearchField(await tokenDoc, {
+  const searchDoc = rebuildAggregateSearchField(tokenDoc, {
     entityType: args.entityType,
     config: searchConfig,
   })
@@ -502,6 +526,7 @@ export async function reindexSearchTokensForRecord(
     tenantId: args.tenantId ?? null,
     doc: searchDoc,
     config: searchConfig,
+    guardCiphertext,
   }, { trx: args.trx })
 }
 
@@ -519,16 +544,12 @@ export async function markDeleted(
   const wasActive = !!existing && existing.deleted_at == null
 
   if (existing) {
-    try {
-      await deleteSearchTokensForRecord(db, {
-        entityType: args.entityType,
-        recordId: args.recordId,
-        organizationId: args.organizationId ?? null,
-        tenantId: args.tenantId ?? null,
-      }, { trx: args.trx })
-    } catch (error) {
-      if (args.trx) throw error
-    }
+    await deleteSearchTokensForRecord(db, {
+      entityType: args.entityType,
+      recordId: args.recordId,
+      organizationId: args.organizationId ?? null,
+      tenantId: args.tenantId ?? null,
+    }, { trx: args.trx })
     await scopeEntityIndexes(
       executor.deleteFrom('entity_indexes' as any) as any,
       args,
