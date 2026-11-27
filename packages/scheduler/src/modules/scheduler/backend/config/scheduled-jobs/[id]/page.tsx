@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -15,9 +17,10 @@ import { JobLogsModal } from '../../../../components/JobLogsModal'
 import { ExecutionDetailsDialog } from '../../../../components/ExecutionDetailsDialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { formatDistanceToNow } from 'date-fns'
+import { resolveDateFnsLocale } from '@open-mercato/ui/primitives/date-locale'
 
 type ScheduleDetail = {
   id: string
@@ -55,6 +58,11 @@ type ExecutionRun = {
 export default function ScheduleDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
   const t = useT()
+  const locale = useOptionalLocale()
+  const dateLocale = resolveDateFnsLocale(locale)
+  const { payload } = useBackendChrome()
+  const canManage = hasFeature(payload?.grantedFeatures, 'scheduler.jobs.manage')
+  const canTrigger = hasFeature(payload?.grantedFeatures, 'scheduler.jobs.trigger')
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scheduleId = params?.id
 
@@ -184,9 +192,9 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
       header: t('scheduler.execution.started', 'Started'),
       cell: ({ row }) => (
         <div>
-          <div className="text-sm">{new Date(row.original.startedAt).toLocaleString()}</div>
+          <div className="text-sm">{new Date(row.original.startedAt).toLocaleString(locale)}</div>
           <div className="text-xs text-muted-foreground">
-            {formatDistanceToNow(new Date(row.original.startedAt), { addSuffix: true })}
+            {formatDistanceToNow(new Date(row.original.startedAt), { addSuffix: true, locale: dateLocale })}
           </div>
         </div>
       ),
@@ -302,31 +310,38 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
       <PageHeader
         title={schedule.name}
         description={schedule.description}
-        actions={
+        actions={canManage || canTrigger ? (
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="schedule-enabled" className="text-sm font-medium cursor-pointer">
-                {schedule.isEnabled ? t('scheduler.status.enabled', 'Enabled') : t('scheduler.status.disabled', 'Disabled')}
-              </Label>
-              <Switch
-                id="schedule-enabled"
-                checked={schedule.isEnabled}
-                onCheckedChange={handleToggleEnabled}
-                disabled={toggling}
-              />
-            </div>
-            <Button
-              variant="outline"
-              onClick={handleTriggerNow}
-              disabled={triggering || !schedule.isEnabled}
-            >
-              {triggering ? t('scheduler.details.triggering', 'Triggering...') : t('scheduler.action.trigger', 'Trigger Now')}
-            </Button>
-            <Button onClick={() => router.push(`/backend/config/scheduled-jobs/${scheduleId}/edit`)}>
-              {t('scheduler.action.edit', 'Edit')}
-            </Button>
+            {canManage && (
+              <div className="flex items-center gap-2">
+                <Label htmlFor="schedule-enabled" className="text-sm font-medium cursor-pointer">
+                  {schedule.isEnabled ? t('scheduler.status.enabled', 'Enabled') : t('scheduler.status.disabled', 'Disabled')}
+                </Label>
+                <Switch
+                  id="schedule-enabled"
+                  checked={schedule.isEnabled}
+                  onCheckedChange={handleToggleEnabled}
+                  disabled={toggling}
+                />
+              </div>
+            )}
+            {canTrigger && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTriggerNow}
+                disabled={triggering || !schedule.isEnabled}
+              >
+                {triggering ? t('scheduler.details.triggering', 'Triggering...') : t('scheduler.action.trigger', 'Trigger Now')}
+              </Button>
+            )}
+            {canManage && (
+              <Button type="button" onClick={() => router.push(`/backend/config/scheduled-jobs/${scheduleId}/edit`)}>
+                {t('scheduler.action.edit', 'Edit')}
+              </Button>
+            )}
           </div>
-        }
+        ) : undefined}
       />
 
       <PageBody>
@@ -349,8 +364,10 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
                 <div>
                   <dt className="text-sm font-medium text-muted-foreground">{t('scheduler.field.schedule', 'Schedule')}</dt>
                   <dd className="text-sm mt-1">
-                    {schedule.scheduleValue} 
-                    <span className="text-muted-foreground ml-1">({schedule.scheduleType})</span>
+                    {schedule.scheduleValue}
+                    <span className="text-muted-foreground ml-1">
+                      ({t(`scheduler.type.${schedule.scheduleType}`, schedule.scheduleType)})
+                    </span>
                   </dd>
                 </div>
                 <div>
@@ -367,7 +384,7 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-muted-foreground">{t('scheduler.details.scope', 'Scope')}</dt>
-                  <dd className="text-sm mt-1">{schedule.scopeType}</dd>
+                  <dd className="text-sm mt-1">{t(`scheduler.scope.${schedule.scopeType}`, schedule.scopeType)}</dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-muted-foreground">{t('scheduler.field.source', 'Source')}</dt>
@@ -381,9 +398,9 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">{t('scheduler.field.next_run', 'Next Run')}</dt>
                     <dd className="text-sm mt-1">
-                      {new Date(schedule.nextRunAt).toLocaleString()}
+                      {new Date(schedule.nextRunAt).toLocaleString(locale)}
                       <div className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(schedule.nextRunAt), { addSuffix: true })}
+                        {formatDistanceToNow(new Date(schedule.nextRunAt), { addSuffix: true, locale: dateLocale })}
                       </div>
                     </dd>
                   </div>
@@ -392,9 +409,9 @@ export default function ScheduleDetailPage({ params }: { params?: { id?: string 
                   <div>
                     <dt className="text-sm font-medium text-muted-foreground">{t('scheduler.details.last_run', 'Last Run')}</dt>
                     <dd className="text-sm mt-1">
-                      {new Date(schedule.lastRunAt).toLocaleString()}
+                      {new Date(schedule.lastRunAt).toLocaleString(locale)}
                       <div className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(schedule.lastRunAt), { addSuffix: true })}
+                        {formatDistanceToNow(new Date(schedule.lastRunAt), { addSuffix: true, locale: dateLocale })}
                       </div>
                     </dd>
                   </div>

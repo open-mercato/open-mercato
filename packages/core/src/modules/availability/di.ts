@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
 import { asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -56,7 +57,7 @@ async function catalogOnlyPolicyLookup(
   return overrides
 }
 
-export function register(container: AppContainer) {
+function registerWithActivation(container: AppContainer, activate: (callback: () => void) => void) {
   container.register({
     AvailabilityPolicy: asValue(AvailabilityPolicy),
     policyResolutionService: {
@@ -64,5 +65,15 @@ export function register(container: AppContainer) {
     },
   })
 
-  setCatalogOnlyPolicyLookup(catalogOnlyPolicyLookup)
+  activate(() => {
+    setCatalogOnlyPolicyLookup(catalogOnlyPolicyLookup)
+  })
 }
+
+export function register(container: AppContainer): void {
+  registerWithActivation(container, (activate) => activate())
+}
+
+defineProcessDiRegistrar((container: AppContainer) => {
+  registerWithActivation(container, (activate) => registerProcessActivation(container, activate))
+}, { legacy: register })

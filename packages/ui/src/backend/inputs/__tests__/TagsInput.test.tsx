@@ -116,6 +116,26 @@ describe('TagsInput', () => {
     jest.useRealTimers()
   })
 
+  it('lets a long suggestion label wrap instead of widening the page', () => {
+    const longLabel = 'warehouse_supervisor_with_an_extremely_long_unbroken_role_name'
+    renderWithProviders(
+      <TagsInput
+        value={[]}
+        onChange={jest.fn()}
+        suggestions={[{ value: 'role-long', label: longLabel, description: longLabel }]}
+      />,
+    )
+
+    fireEvent.focus(screen.getByRole('textbox'))
+
+    const suggestion = screen.getByRole('button', { name: new RegExp(longLabel) })
+    expect(suggestion).toHaveClass('whitespace-normal', 'h-auto', 'min-w-0')
+    expect(suggestion).not.toHaveClass('whitespace-nowrap', 'h-8')
+    for (const text of screen.getAllByText(longLabel)) {
+      expect(text).toHaveClass('wrap-anywhere', 'max-w-full')
+    }
+  })
+
   describe('closeSuggestionsOnSelect', () => {
     const pickSuggestions = [
       { value: 'cat-1', label: 'Category One' },

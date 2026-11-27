@@ -30,6 +30,8 @@ import {
   type DealUpdateInput,
 } from '../data/validators'
 import {
+  commandScopeWhere,
+  type CommandScopeWhere,
   ensureOrganizationScope,
   ensureTenantScope,
   requireCustomerEntity,
@@ -58,6 +60,7 @@ import {
 import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
 import { resolveStageDefaultProbability } from '../lib/stageDefaultProbability'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { decimalToString, parseDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
 const logger = createLogger('customers')
 
@@ -338,8 +341,12 @@ type DealChangeMap = Record<string, { from: unknown; to: unknown }> & {
   custom?: CustomFieldChangeSet
 }
 
-async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnapshot | null> {
-  const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null })
+async function loadDealSnapshot(
+  em: EntityManager,
+  id: string,
+  scopeWhere: CommandScopeWhere = {},
+): Promise<DealSnapshot | null> {
+  const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null, ...scopeWhere })
   if (!deal) return null
   const decryptionScope = { tenantId: deal.tenantId ?? null, organizationId: deal.organizationId ?? null }
   const peopleLinks = await findWithDecryption(
@@ -418,9 +425,9 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
   }
 }
 
-function toNumericString(value: number | null | undefined): string | null {
-  if (value === undefined || value === null) return null
-  return value.toString()
+function toNumericString(value: number | string | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
 function sameLinkIdSet(next: Set<string>, current: Set<string>): boolean {
@@ -579,7 +586,8 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   id: 'customers.deals.create',
   outputSchema: dealCommandOutputSchema,
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(dealCreateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(dealCreateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, ['valueAmount'] as const)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -594,6 +602,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     let resolvedPipelineStageLabel: string | null = null
     let stageDefaultProbability: number | null = null
     const createdDictionaryKinds = new Set<string>()
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
     await withAtomicFlush(em, [
       async () => {
         stageSnapshot = parsed.pipelineStageId
@@ -632,7 +641,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           pipelineStage: resolvedPipelineStageLabel,
           pipelineId: pipelineAssignment.pipelineId,
           pipelineStageId: pipelineAssignment.pipelineStageId,
-          valueAmount: toNumericString(parsed.valueAmount),
+          valueAmount: toNumericString(parsed.valueAmountExact ?? parsed.valueAmount),
           valueCurrency: parsed.valueCurrency ?? null,
           probability: parsed.probability ?? stageDefaultProbability,
           expectedCloseAt: parsed.expectedCloseAt ?? null,
@@ -659,19 +668,18 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       },
       () => syncDealPeople(em, deal, parsed.personIds ?? [], parsed.primaryPersonEntityId, { stampLockToken: false }),
       () => syncDealCompanies(em, deal, parsed.companyIds ?? [], { stampLockToken: false }),
+      () => setCustomFieldsIfAny({
+        dataEngine: de,
+        transactionalEm: em,
+        entityId: DEAL_ENTITY_ID,
+        recordId: deal.id,
+        organizationId: deal.organizationId,
+        tenantId: deal.tenantId,
+        values: custom,
+        notify: false,
+      }),
     ], { transaction: true })
     await invalidateDictionaryKindCaches(ctx, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, createdDictionaryKinds)
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await setCustomFieldsIfAny({
-      dataEngine: de,
-      entityId: DEAL_ENTITY_ID,
-      recordId: deal.id,
-      organizationId: deal.organizationId,
-      tenantId: deal.tenantId,
-      values: custom,
-      notify: false,
-    })
 
     await emitCrudSideEffects({
       dataEngine: de,
@@ -802,13 +810,14 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(dealUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadDealSnapshot(em, parsed.id)
+    const snapshot = await loadDealSnapshot(em, parsed.id, commandScopeWhere(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(dealUpdateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(dealUpdateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, ['valueAmount'] as const)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const deal = await findOneWithDecryption(em, CustomerDeal, { id: parsed.id, deletedAt: null })
+    const deal = await findOneWithDecryption(em, CustomerDeal, { id: parsed.id, deletedAt: null, ...commandScopeWhere(ctx) })
     const record = deal ?? null
     if (!record) throw notFound('Deal not found')
     ensureTenantScope(ctx, record.tenantId)
@@ -830,13 +839,14 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     let requestedClosureOutcome: DealClosureOutcome | null = null
     const createdDictionaryKinds = new Set<string>()
 
+    const de = ctx.container.resolve<DataEngine>('dataEngine')
     await runCrudCommandWrite({
       ctx,
+      dataEngine: de,
       em,
       entityId: DEAL_ENTITY_ID,
       action: 'updated',
       scope: { tenantId: record.tenantId, organizationId: record.organizationId },
-      customFields: custom,
       events: dealCrudEvents,
       indexer: dealCrudIndexer,
       sideEffect: () => ({
@@ -924,7 +934,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             record.pipelineStage = resolvedCurrentPipelineStageLabel
           }
 
-          if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmount)
+          if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmountExact ?? parsed.valueAmount)
           if (parsed.valueCurrency !== undefined) record.valueCurrency = parsed.valueCurrency ?? null
           if (parsed.probability !== undefined) record.probability = parsed.probability ?? null
           else if (stageDefaultProbability !== null) record.probability = stageDefaultProbability
@@ -986,6 +996,15 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         },
         () => syncDealPeople(em, record, parsed.personIds, parsed.primaryPersonEntityId),
         () => syncDealCompanies(em, record, parsed.companyIds),
+        () => setCustomFieldsIfAny({
+          dataEngine: de,
+          transactionalEm: em,
+          entityId: DEAL_ENTITY_ID,
+          recordId: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+          values: custom,
+        }),
       ],
     })
     await invalidateDictionaryKindCaches(ctx, record, createdDictionaryKinds)
@@ -1177,13 +1196,13 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     async prepare(input, ctx) {
       const id = requireId(input, 'Deal id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadDealSnapshot(em, id)
+      const snapshot = await loadDealSnapshot(em, id, commandScopeWhere(ctx))
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Deal id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null })
+      const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null, ...commandScopeWhere(ctx) })
       const record = deal ?? null
       if (!record) throw notFound('Deal not found')
       ensureTenantScope(ctx, record.tenantId)

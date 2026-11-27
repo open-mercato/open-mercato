@@ -134,7 +134,7 @@ test.describe('TC-API-MSG-022: compose refuses a parent the caller cannot read',
       expect(aclResponse.ok(), 'PUT role ACL should succeed').toBeTruthy();
 
       const outsiderEmail = `qa-msg-parent-${stamp}@acme.com`;
-      const outsiderPassword = 'Valid1!Pass';
+      const outsiderPassword = 'QaValid1!Pass';
       outsiderId = await createUserFixture(request, adminToken, {
         email: outsiderEmail,
         password: outsiderPassword,

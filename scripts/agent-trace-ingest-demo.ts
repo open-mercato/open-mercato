@@ -62,7 +62,7 @@ async function main(): Promise<void> {
 
   const msgId = `m-${Date.now()}`
   const timestamp = String(Math.floor(Date.now() / 1000))
-  const signature = signTraceIngest(tenantId, msgId, timestamp, body)
+  const signature = signTraceIngest(tenantId, organizationId, msgId, timestamp, body)
 
   const response = await fetch(`${BASE_URL}/api/agent_orchestrator/trace/ingest`, {
     method: 'POST',

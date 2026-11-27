@@ -263,7 +263,7 @@ test.describe('TC-EUDR-014: annual due-diligence report', () => {
       const noFeatureEmail = `tc-eudr-014-nofeature-${stamp}@example.com`
       noFeatureUserId = await createUserFixture(request, token, {
         email: noFeatureEmail,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId: scope.organizationId,
         roles: ['employee'],
       })
@@ -273,7 +273,7 @@ test.describe('TC-EUDR-014: annual due-diligence report', () => {
         features: ['notifications.view'],
         organizations: null,
       })
-      const noFeatureToken = await getAuthToken(request, noFeatureEmail, 'Valid1!Pass')
+      const noFeatureToken = await getAuthToken(request, noFeatureEmail, 'QaValid1!Pass')
       const forbiddenResponse = await apiRequest(request, 'GET', `${ANNUAL_PATH}?year=${currentYear}`, { token: noFeatureToken })
       expect(forbiddenResponse.status(), 'caller without eudr.statements.view must be rejected').toBe(403)
 
@@ -288,7 +288,7 @@ test.describe('TC-EUDR-014: annual due-diligence report', () => {
       const statementsOnlyEmail = `tc-eudr-014-stmts-${stamp}@example.com`
       statementsOnlyUserId = await createUserFixture(request, token, {
         email: statementsOnlyEmail,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId: scope.organizationId,
         roles: ['employee'],
       })
@@ -298,7 +298,7 @@ test.describe('TC-EUDR-014: annual due-diligence report', () => {
         features: ['eudr.statements.view'],
         organizations: null,
       })
-      const statementsOnlyToken = await getAuthToken(request, statementsOnlyEmail, 'Valid1!Pass')
+      const statementsOnlyToken = await getAuthToken(request, statementsOnlyEmail, 'QaValid1!Pass')
       const gatedStatementRead = await apiRequest(request, 'GET', `${STATEMENTS_PATH}?id=${encodeURIComponent(submittedAId)}`, { token: statementsOnlyToken })
       expect(gatedStatementRead.status(), 'statements.view alone still reads the statement').toBe(200)
       const gatedStatementBody = await readJsonSafe<{ items?: Array<{ id?: string; latestRisk?: unknown }> }>(gatedStatementRead)

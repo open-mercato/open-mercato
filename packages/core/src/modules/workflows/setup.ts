@@ -86,7 +86,7 @@ async function ensureMetricRollupSchedule(ctx: {
 export const setup: ModuleSetupConfig = {
   seedDefaults: async (ctx) => {
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
-    const cache = resolveBusinessRuleDiscoveryCache(ctx.container.resolve.bind(ctx.container))
+    const cache = resolveBusinessRuleDiscoveryCache(ctx.container.resolve)
     await seedExampleWorkflows(ctx.em, scope, { cache })
     await ensureMetricRollupSchedule({
       container: ctx.container as never,

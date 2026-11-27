@@ -1,4 +1,5 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { decimalToNumber, resolveExactDecimal } from '@open-mercato/shared/lib/decimal'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SalesAmountsMode } from '../data/entities'
 import { EXTERNAL_HEADER_FIELDS } from './calculations'
@@ -30,47 +31,49 @@ export const REQUIRED_EXTERNAL_LINE_FIELDS = [
 
 export type ExternalLineField = (typeof REQUIRED_EXTERNAL_LINE_FIELDS)[number]
 
-function toFiniteNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? parsed : null
-  }
-  return null
-}
-
 type HeaderSource = Record<string, unknown> | null | undefined
 
+// The `<field>Exact` sibling wins while it matches the float, so digits beyond
+// float precision survive.
+function suppliedAmount(source: HeaderSource, field: string): string | null {
+  if (!source) return null
+  return resolveExactDecimal(source[`${field}Exact`], source[field])
+}
+
+function withSuppliedAmount(
+  totals: Partial<SalesDocumentAmounts>,
+  field: ExternalHeaderField,
+  amount: string,
+): Partial<SalesDocumentAmounts> {
+  return { ...totals, [field]: decimalToNumber(amount), [`${field}Exact`]: amount }
+}
+
 export function collectSuppliedHeaderTotals(source: HeaderSource): Partial<SalesDocumentAmounts> {
-  const totals: Partial<SalesDocumentAmounts> = {}
-  if (!source) return totals
+  let totals: Partial<SalesDocumentAmounts> = {}
   for (const field of EXTERNAL_HEADER_FIELDS) {
-    const value = toFiniteNumber(source[field])
-    if (value !== null) totals[field] = value
+    const amount = suppliedAmount(source, field)
+    if (amount !== null) totals = withSuppliedAmount(totals, field, amount)
   }
   return totals
 }
 
 export function hasAnySuppliedHeaderTotal(source: HeaderSource): boolean {
-  if (!source) return false
-  return EXTERNAL_HEADER_FIELDS.some((field) => toFiniteNumber(source[field]) !== null)
+  return EXTERNAL_HEADER_FIELDS.some((field) => suppliedAmount(source, field) !== null)
 }
 
 function missingHeaderFields(source: HeaderSource): ExternalHeaderField[] {
-  return REQUIRED_EXTERNAL_HEADER_FIELDS.filter(
-    (field) => toFiniteNumber(source?.[field]) === null,
-  )
+  return REQUIRED_EXTERNAL_HEADER_FIELDS.filter((field) => suppliedAmount(source, field) === null)
 }
 
 function missingLineFields(line: Record<string, unknown>): ExternalLineField[] {
-  return REQUIRED_EXTERNAL_LINE_FIELDS.filter((field) => toFiniteNumber(line[field]) === null)
+  return REQUIRED_EXTERNAL_LINE_FIELDS.filter((field) => suppliedAmount(line, field) === null)
 }
 
 /** The supplied header with its optional fields defaulted to zero. */
 export function buildExternalHeaderTotals(source: HeaderSource): Partial<SalesDocumentAmounts> {
-  const supplied = collectSuppliedHeaderTotals(source)
+  let supplied = collectSuppliedHeaderTotals(source)
   for (const field of OPTIONAL_EXTERNAL_HEADER_FIELDS) {
-    supplied[field] ??= 0
+    if (supplied[field] === undefined) supplied = withSuppliedAmount(supplied, field, '0')
   }
   return supplied
 }
@@ -149,9 +152,9 @@ export async function requireOrderTotalsForExternalWrite(source: HeaderSource): 
 export function readPersistedHeaderTotals(
   order: Record<ExternalHeaderField, string | number | null | undefined>,
 ): Partial<SalesDocumentAmounts> {
-  const totals: Partial<SalesDocumentAmounts> = {}
+  let totals: Partial<SalesDocumentAmounts> = {}
   for (const field of EXTERNAL_HEADER_FIELDS) {
-    totals[field] = toFiniteNumber(order[field]) ?? 0
+    totals = withSuppliedAmount(totals, field, resolveExactDecimal(undefined, order[field]) ?? '0')
   }
   return totals
 }

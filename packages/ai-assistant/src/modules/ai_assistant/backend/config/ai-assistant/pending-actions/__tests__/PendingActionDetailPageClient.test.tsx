@@ -6,6 +6,7 @@ import * as React from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import en from '../../../../../i18n/en.json'
+import pl from '../../../../../i18n/pl.json'
 import { PendingActionDetailPageClient } from '../[id]/PendingActionDetailPageClient'
 
 const apiCallMock = jest.fn()
@@ -36,6 +37,12 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: (...args: unknown[]) => flashMock(...args),
+}))
+
+jest.mock('@open-mercato/ui/backend/detail', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/detail/LoadingMessage'),
+  ...jest.requireActual('@open-mercato/ui/backend/detail/ErrorMessage'),
+  ...jest.requireActual('@open-mercato/ui/backend/detail/RecordNotFoundState'),
 }))
 
 jest.mock('../../../../../components/pending-actions/pendingActionsNavBadge', () => ({
@@ -143,12 +150,36 @@ describe('PendingActionDetailPageClient', () => {
     )
   })
 
-  it('rejects with a reason via Cmd/Ctrl+Enter in the reject dialog', async () => {
+  it('keeps the error flash when confirmation returns an execution failure', async () => {
     respondWith((url) =>
-      url.endsWith('/cancel')
-        ? { ok: true, status: 200, result: { ok: true, pendingAction: makeAction({ status: 'cancelled' }) } }
+      url.endsWith('/confirm')
+        ? { ok: true, status: 200, result: { ok: false, mutationResult: { error: { code: 'handler_error' } } } }
         : { ok: true, status: 200, result: makeAction() },
     )
+    renderWithProviders(<PendingActionDetailPageClient id={ACTION_ID} />, { dict })
+
+    await act(async () => {
+      fireEvent.click(await screen.findByText(dict['ai_assistant.pendingActions.actions.approve']))
+    })
+
+    await waitFor(() =>
+      expect(flashMock).toHaveBeenCalledWith(dict['ai_assistant.pendingActions.errors.execution_failed'], 'error'),
+    )
+    expect(flashMock).not.toHaveBeenCalledWith(dict['ai_assistant.pendingActions.flash.approved'], 'success')
+  })
+
+  it('rejects with a reason via Cmd/Ctrl+Enter in the reject dialog', async () => {
+    let action = makeAction()
+    respondWith((url) => {
+      if (url.endsWith('/cancel')) {
+        action = makeAction({
+          status: 'cancelled',
+          executionResult: { error: { code: 'cancelled_by_user', message: 'Wrong product' } },
+        })
+        return { ok: true, status: 200, result: { ok: true, pendingAction: action } }
+      }
+      return { ok: true, status: 200, result: action }
+    })
     renderWithProviders(<PendingActionDetailPageClient id={ACTION_ID} />, { dict })
 
     fireEvent.click(await screen.findByText(dict['ai_assistant.pendingActions.actions.reject']))
@@ -167,6 +198,89 @@ describe('PendingActionDetailPageClient', () => {
     await waitFor(() =>
       expect(flashMock).toHaveBeenCalledWith(dict['ai_assistant.pendingActions.flash.rejected'], 'success'),
     )
+    const reason = await screen.findByText('Wrong product')
+    expect(reason.closest('[data-pending-action-rejection-reason]')).not.toBeNull()
+    expect(reason.closest('[data-pending-action-rejection-reason]')?.getAttribute('data-status')).toBe('information')
+    expect(screen.getByText(dict['ai_assistant.pendingActions.status.cancelled'], { selector: 'h5' })).toBeTruthy()
+    expect(screen.queryByText(dict['ai_assistant.pendingActions.detail.executionFailed'])).toBeNull()
+    expect(document.querySelector('[data-pending-action-execution-error]')).toBeNull()
+    expect(document.querySelector('[data-pending-action-execution-result]')).toBeNull()
+    expect(screen.queryByText(dict['ai_assistant.pendingActions.actions.approve'])).toBeNull()
+    expect(screen.queryByText(dict['ai_assistant.pendingActions.actions.reject'])).toBeNull()
+    expect(refreshBadgeMock).toHaveBeenCalled()
+  })
+
+  it.each(['', '   '])('rejects without a reason and shows no empty alert (reason: %p)', async (reason) => {
+    let action = makeAction()
+    respondWith((url) => {
+      if (url.endsWith('/cancel')) {
+        action = makeAction({
+          status: 'cancelled',
+          executionResult: { error: { code: 'cancelled_by_user', message: '' } },
+        })
+        return { ok: true, status: 200, result: { ok: true, pendingAction: action } }
+      }
+      return { ok: true, status: 200, result: action }
+    })
+    renderWithProviders(<PendingActionDetailPageClient id={ACTION_ID} />, { dict })
+
+    fireEvent.click(await screen.findByText(dict['ai_assistant.pendingActions.actions.reject']))
+    fireEvent.change(await screen.findByLabelText(dict['ai_assistant.pendingActions.rejectDialog.reasonLabel']), {
+      target: { value: reason },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText(dict['ai_assistant.pendingActions.rejectDialog.submit']))
+    })
+
+    expect(await screen.findByText(dict['ai_assistant.pendingActions.status.cancelled'])).toBeTruthy()
+    expect(postedCalls().map(([url, init]) => [url, JSON.parse(String((init as RequestInit).body))])).toEqual([
+      [`${DETAIL_URL}/cancel`, {}],
+    ])
+    expect(document.querySelector('[data-pending-action-execution-error]')).toBeNull()
+    expect(document.querySelector('[data-pending-action-rejection-reason]')).toBeNull()
+    expect(screen.queryByText(dict['ai_assistant.pendingActions.detail.executionFailed'])).toBeNull()
+    expect(flashMock).toHaveBeenCalledWith(dict['ai_assistant.pendingActions.flash.rejected'], 'success')
+  })
+
+  it.each([
+    null,
+    {},
+    { recordId: 'prod-1' },
+    { error: { code: 'cancelled_by_user', message: '   ' } },
+  ])('renders a stored rejection without an empty reason alert (%p)', async (executionResult) => {
+    respondWith(() => ({ ok: true, status: 200, result: makeAction({ status: 'cancelled', executionResult }) }))
+    renderWithProviders(<PendingActionDetailPageClient id={ACTION_ID} />, { dict })
+
+    expect(await screen.findByText(dict['ai_assistant.pendingActions.status.cancelled'])).toBeTruthy()
+    expect(document.querySelector('[data-pending-action-execution-error]')).toBeNull()
+    expect(document.querySelector('[data-pending-action-rejection-reason]')).toBeNull()
+    expect(document.querySelector('[data-pending-action-execution-result]')).toBeNull()
+    expect(screen.queryByText(dict['ai_assistant.pendingActions.actions.approve'])).toBeNull()
+    expect(screen.queryByText(dict['ai_assistant.pendingActions.actions.reject'])).toBeNull()
+    expect(postedCalls()).toHaveLength(0)
+  })
+
+  it.each([
+    { locale: 'en', translations: en },
+    { locale: 'pl', translations: pl },
+  ])('shows a stored rejection reason with a translated title ($locale)', async ({ locale, translations }) => {
+    respondWith(() => ({
+      ok: true,
+      status: 200,
+      result: makeAction({
+        status: 'cancelled',
+        executionResult: { error: { code: 'cancelled_by_user', message: '  Wrong product  ' } },
+      }),
+    }))
+    renderWithProviders(<PendingActionDetailPageClient id={ACTION_ID} />, { locale, dict: translations })
+
+    const reason = await screen.findByText('Wrong product')
+    const alert = reason.closest('[data-pending-action-rejection-reason]')
+    expect(alert?.getAttribute('data-status')).toBe('information')
+    expect(alert?.textContent).toContain(translations['ai_assistant.pendingActions.status.cancelled'])
+    expect(screen.queryByText('cancelled_by_user')).toBeNull()
+    expect(document.querySelector('[data-pending-action-execution-error]')).toBeNull()
+    expect(postedCalls()).toHaveLength(0)
   })
 
   it('closes the reject dialog on Escape without calling the API', async () => {
@@ -200,6 +314,44 @@ describe('PendingActionDetailPageClient', () => {
     renderWithProviders(<PendingActionDetailPageClient id={ACTION_ID} />, { dict })
 
     expect(await screen.findByText('Product is archived')).toBeTruthy()
+    expect(screen.getByText(dict['ai_assistant.pendingActions.detail.executionFailed'])).toBeTruthy()
+    expect(document.querySelector('[data-pending-action-execution-error]')).not.toBeNull()
+    expect(document.querySelector('[data-pending-action-rejection-reason]')).toBeNull()
+    expect(screen.queryByText(dict['ai_assistant.pendingActions.actions.approve'])).toBeNull()
+    expect(screen.queryByText(dict['ai_assistant.pendingActions.actions.reject'])).toBeNull()
+  })
+
+  it.each(['handler_error', 'cancelled_by_user'])(
+    'preserves execution failure feedback for a non-cancelled action (code: %s)',
+    async (code) => {
+      respondWith(() => ({
+        ok: true,
+        status: 200,
+        result: makeAction({
+          status: 'confirmed',
+          executionResult: { recordId: 'prod-1', error: { code, message: 'Product is archived' } },
+        }),
+      }))
+      renderWithProviders(<PendingActionDetailPageClient id={ACTION_ID} />, { dict })
+
+      expect(await screen.findByText('Product is archived')).toBeTruthy()
+      expect(screen.getByText(dict['ai_assistant.pendingActions.detail.executionFailed'])).toBeTruthy()
+      expect(document.querySelector('[data-pending-action-execution-result]')).toBeNull()
+      expect(document.querySelector('[data-pending-action-rejection-reason]')).toBeNull()
+    },
+  )
+
+  it('preserves the success result for an applied action', async () => {
+    respondWith(() => ({
+      ok: true,
+      status: 200,
+      result: makeAction({ status: 'confirmed', executionResult: { recordId: 'prod-1' } }),
+    }))
+    renderWithProviders(<PendingActionDetailPageClient id={ACTION_ID} />, { dict })
+
+    expect(await screen.findByText(dict['ai_assistant.pendingActions.detail.executed'])).toBeTruthy()
+    expect(document.querySelector('[data-pending-action-execution-error]')).toBeNull()
+    expect(document.querySelector('[data-pending-action-rejection-reason]')).toBeNull()
     expect(screen.queryByText(dict['ai_assistant.pendingActions.actions.approve'])).toBeNull()
     expect(screen.queryByText(dict['ai_assistant.pendingActions.actions.reject'])).toBeNull()
   })

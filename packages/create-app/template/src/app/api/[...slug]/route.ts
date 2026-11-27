@@ -1,3 +1,4 @@
+import { crudFormSectionsPrivateHeaders, crudFormSectionsResolvePath } from '@open-mercato/shared/lib/crud/form-sections/protocol'
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -7,6 +8,7 @@ import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/se
 import { bootstrap } from '@/bootstrap-api'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { enforceTenantSelection, normalizeTenantId, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
@@ -17,11 +19,18 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_FALLBACK_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
+import { resolveApiInterceptorRoutePath } from '@open-mercato/shared/lib/modules/api-route-identity'
+import { getApiInterceptorsForRoute } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
+import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 
 // Ensure all package registrations are initialized for API routes.
 bootstrap()
 registerApiRouteManifests(apiRouteFacades)
+
+const logger = createLogger('api')
 
 const warnedDeprecatedRequireRoles = new Set<string>()
 
@@ -173,7 +182,8 @@ function normalizeLoadedMetadata(
 export async function checkAuthorization(
   methodMetadata: MethodMetadata | null,
   auth: AuthContext,
-  req: NextRequest
+  req: NextRequest,
+  provideContainer?: () => ReturnType<typeof createRequestContainer>,
 ): Promise<NextResponse | null> {
   const { t } = await resolveTranslations()
   const requiresAuthentication = methodMetadata?.requireAuth !== false
@@ -191,11 +201,11 @@ export async function checkAuthorization(
     warnDeprecatedRequireRoles(req.nextUrl.pathname, req.method.toUpperCase() as HttpMethod)
   }
 
-  let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
-  const ensureContainer = async () => {
-    if (!container) container = await createRequestContainer()
-    return container
-  }
+  let containerPromise: ReturnType<typeof createRequestContainer> | null = null
+  const ensureContainer = provideContainer ?? (() => {
+    containerPromise ??= createRequestContainer()
+    return containerPromise
+  })
 
   // Feature authorization runs before the tenant-candidate check below
   // (issue #7811): the tenant check extracts its candidates from the full
@@ -216,7 +226,13 @@ export async function checkAuthorization(
       requiredFeatures,
     })
     const { organizationId } = featureContext
-    const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
+    // An organization scope that resolved to no organization at all is deny-all. The
+    // ACL list alone cannot tell: ids that no longer resolve (a soft-deleted
+    // organization) leave it non-empty while the resolved scope is empty, and the
+    // feature check below would then run with `organizationId: null` and pass.
+    const hasEmptyOrganizationScope = Array.isArray(featureContext.allowedOrganizationIds)
+      && featureContext.allowedOrganizationIds.length === 0
+    const ok = !hasEmptyOrganizationScope && await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
       tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
       organizationId,
     })
@@ -437,7 +453,39 @@ export async function extractTenantCandidates(req: NextRequest): Promise<unknown
   return candidates
 }
 
+function observeHeadCleanupFailure(report: () => void): void {
+  try {
+    report()
+  } catch {
+    return
+  }
+}
+
+async function cancelHeadResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch (error) {
+    observeHeadCleanupFailure(() => logger.error('Failed to cancel suppressed HEAD response body', { err: error }))
+    observeHeadCleanupFailure(() => getTelemetryRuntime()?.reportError(error, { module: 'api', code: 'api.head_body_cancel_failed' }))
+  }
+}
+
 async function handleRequest(
+  method: HttpMethod,
+  req: NextRequest,
+  paramsPromise: Promise<{ slug: string[] }>
+): Promise<Response> {
+  const response = await runInOwnedRequestScope(() => dispatchRequest(method, req, paramsPromise))
+  if (req.method.toUpperCase() !== 'HEAD') return response
+  void cancelHeadResponseBody(response)
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
+}
+
+async function dispatchRequest(
   method: HttpMethod,
   req: NextRequest,
   paramsPromise: Promise<{ slug: string[] }>
@@ -501,7 +549,12 @@ async function handleRequest(
   })
 
   const methodMetadata = extractMethodMetadata(routeMetadata, method)
-  const authError = await checkAuthorization(methodMetadata, auth, req)
+  let containerPromise: ReturnType<typeof createRequestContainer> | null = null
+  const ensureContainer = () => {
+    containerPromise ??= createRequestContainer()
+    return containerPromise
+  }
+  const authError = await checkAuthorization(methodMetadata, auth, req, ensureContainer)
   if (authError) {
     // Auth could not be verified because of a transient/unexpected failure (DB
     // unavailable, pool exhausted, timeout). Do NOT clear the session cookies or
@@ -560,6 +613,47 @@ async function handleRequest(
   }
 
   try {
+    const routePath = auth ? resolveApiInterceptorRoutePath(req) ?? '' : ''
+    const requestInterceptors = auth
+      ? getApiInterceptorsForRoute(routePath, method, 'request').filter((entry) => entry.interceptor.before)
+      : []
+    if (auth && requestInterceptors.length > 0) {
+      const container = await ensureContainer()
+      const acl = requestInterceptors.some((entry) => entry.interceptor.features?.length)
+        ? await container.resolve<RbacService>('rbacService').loadAcl(auth.sub, {
+            tenantId: auth.tenantId ?? null,
+            organizationId: auth.orgId ?? null,
+          })
+        : null
+      const userFeatures = acl?.isSuperAdmin ? ['*'] : acl?.features ?? []
+      const admission = await runApiInterceptorsBefore({
+        routePath,
+        method,
+        scope: 'request',
+        request: { method, url: req.url, headers: Object.fromEntries(req.headers.entries()) },
+        context: {
+          auth,
+          routePattern: match.route.path,
+          userId: auth.sub,
+          tenantId: auth.tenantId ?? '',
+          organizationId: auth.orgId ?? '',
+          em: container.resolve<InterceptorContext['em']>('em'),
+          container,
+          userFeatures,
+        },
+      })
+      if (!admission.ok) {
+        await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
+          ...receivedPayload,
+          status: admission.statusCode,
+          userId: auth.sub,
+          tenantId: auth.tenantId ?? null,
+          durationMs: Date.now() - startedAt,
+        })
+        getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, admission.statusCode, startedAt)
+        return NextResponse.json(admission.body, { status: admission.statusCode })
+      }
+    }
     const handlerContext: HandlerContext = { params: match.params, auth }
     const runHandler = () => runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
     const response = methodMetadata?.skipModuleResourceUsageTracking !== true
@@ -627,7 +721,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  return handleRequest('POST', req, params)
+  const response = await handleRequest('POST', req, params)
+  if (req.nextUrl.pathname === `/api${crudFormSectionsResolvePath}`) {
+    for (const [name, value] of Object.entries(crudFormSectionsPrivateHeaders)) response.headers.set(name, value)
+  }
+  return response
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {

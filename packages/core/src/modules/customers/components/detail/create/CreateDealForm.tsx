@@ -16,7 +16,7 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { E } from '#generated/entities.ids.generated'
 import { extensionPoints } from '../../../extension-points'
-import { dealFormSchema } from '../DealForm'
+import { dealExactFormSchema } from '../DealForm'
 import { DictionarySelectField } from '../../formConfig'
 import { createDictionarySelectLabels } from '../utils'
 import { DealDetailsFields } from './DealDetailsFields'
@@ -28,6 +28,7 @@ import { DealSectionCard } from './DealSectionCard'
 import { DealCustomAttributes, type DealCustomAttributesLoadState } from './DealCustomAttributes'
 import { SuffixInput } from './SuffixInput'
 import { sanitizeProbability } from './dealNumericInput'
+import { decimalToNumber } from '@open-mercato/shared/lib/decimal'
 import { useDealPipelines, type PipelineOption, type PipelineStageOption } from './useDealPipelines'
 import { useDealCustomFields } from './useDealCustomFields'
 import { EMPTY_VALUES, type BaseValues } from './dealFormTypes'
@@ -127,6 +128,7 @@ type StageProbabilityDefaultsProps = {
   probability: string
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
+  autoFilledProbability: React.RefObject<string | null>
   setValue: (id: string, value: unknown) => void
 }
 
@@ -137,23 +139,22 @@ type StageProbabilityDefaultsProps = {
  * when the new stage has no default, so a default left over from another stage is never
  * submitted as an explicit override that would skip the server's own stage default.
  */
-function StageProbabilityDefaults({ pipelineId, pipelineStageId, probability, pipelines, stages, setValue }: StageProbabilityDefaultsProps) {
+function StageProbabilityDefaults({ pipelineId, pipelineStageId, probability, pipelines, stages, autoFilledProbability, setValue }: StageProbabilityDefaultsProps) {
   const appliedStageId = React.useRef<string | null>(null)
-  const autoFilledProbability = React.useRef<string | null>(null)
   React.useEffect(() => {
-    if (!pipelineStageId || pipelineStageId === appliedStageId.current) return
+    if (pipelineStageId === appliedStageId.current) return
     const pipeline = pipelines.find((entry) => entry.id === pipelineId)
     const stage = stages.find((entry) => entry.id === pipelineStageId)
-    if (!pipeline || !stage) return
+    if (pipelineStageId && (!pipeline || !stage)) return
     appliedStageId.current = pipelineStageId
     if (probability !== '' && probability !== autoFilledProbability.current) return
-    const stageDefault = pipeline.stageProbabilitiesEnabled && typeof stage.defaultProbability === 'number'
+    const stageDefault = pipeline?.stageProbabilitiesEnabled && typeof stage?.defaultProbability === 'number'
       ? String(stage.defaultProbability)
       : null
     autoFilledProbability.current = stageDefault
     const nextProbability = stageDefault ?? ''
     if (nextProbability !== probability) setValue('probability', nextProbability)
-  }, [pipelineId, pipelineStageId, pipelines, probability, setValue, stages])
+  }, [autoFilledProbability, pipelineId, pipelineStageId, pipelines, probability, setValue, stages])
   return null
 }
 
@@ -204,6 +205,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     return seeded.ownerUserId || !currentUserId ? seeded : { ...seeded, ownerUserId: currentUserId }
   }, [initialValues, currentUserId])
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const autoFilledProbability = React.useRef<string | null>(null)
   // Optional fields start collapsed like the quick-create forms in other CRMs; a seeded value
   // keeps them visible so the caller's prefill is never hidden.
   const [moreExpanded, setMoreExpanded] = React.useState(() =>
@@ -236,13 +238,14 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     if (stagesLoading) {
       throw createCrudFormError(tr('customers.deals.create.stagesLoading', 'Stages are still loading. Try again in a moment.'))
     }
-    const data = dealFormSchema.parse(values)
+    const data = dealExactFormSchema.parse(values)
     const payload: Record<string, unknown> = {
       title: data.title,
       status: data.status || undefined,
       pipelineId: data.pipelineId || undefined,
       pipelineStageId: data.pipelineStageId || undefined,
-      valueAmount: typeof data.valueAmount === 'number' ? data.valueAmount : undefined,
+      valueAmount: typeof data.valueAmount === 'string' ? decimalToNumber(data.valueAmount) : undefined,
+      valueAmountExact: data.valueAmount,
       valueCurrency: data.valueCurrency || undefined,
       probability: typeof data.probability === 'number' ? data.probability : undefined,
       expectedCloseAt: data.expectedCloseAt ? new Date(data.expectedCloseAt).toISOString() : undefined,
@@ -312,6 +315,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
               probability={current.probability}
               pipelines={pipelines}
               stages={currentStages}
+              autoFilledProbability={autoFilledProbability}
               setValue={setValue}
             />
             <DealDetailsFields
@@ -390,7 +394,10 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
                   suffix="%"
                   inputMode="numeric"
                   value={current.probability}
-                  onChange={(event) => setValue('probability', sanitizeProbability(event.target.value))}
+                  onChange={(event) => {
+                    autoFilledProbability.current = null
+                    setValue('probability', sanitizeProbability(event.target.value))
+                  }}
                   placeholder="0"
                   aria-invalid={errors.probability ? true : undefined}
                   disabled={isSubmitting}
@@ -477,7 +484,7 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
         <CrudForm<Record<string, unknown>> embedded hideFooterActions formId={CONTEXT_ID}
           entityId="customers.deal" resourceKind="customers.deal" entityIds={[E.customers.customer_deal]}
           injectionSpotId={extensionPoints.hosts.dealForm.spotId} fields={fields} groups={groups}
-          injectionGroupAliases={INJECTION_GROUP_ALIASES} initialValues={seedValues} schema={dealFormSchema}
+          injectionGroupAliases={INJECTION_GROUP_ALIASES} initialValues={seedValues} schema={dealExactFormSchema}
           onSubmit={handleSubmit} onSubmitSuccess={handleSubmitSuccess} />
       </div>
     </div>

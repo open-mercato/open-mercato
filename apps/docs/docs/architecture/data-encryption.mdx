@@ -81,6 +81,14 @@ flowchart TD
 2. Hook uses map + tenant DEK to decrypt mapped fields.
 3. API/CRUD receives hydrated plaintext while the DB keeps ciphertext.
 
+Use `findWithDecryption`, `findOneWithDecryption`, or `findAndCountWithDecryption`
+from `@open-mercato/shared/lib/encryption/find` for encrypted entities, passing the
+trusted caller's tenant and organization scope. A plain ORM read can rehydrate an
+entity already present in the identity map with ciphertext without firing its
+one-time `onLoad` hook again. The explicit helpers repeat decryption after the
+read, so results do not depend on whether an earlier query populated the entity.
+Keep the query's authorization filters: decryption does not grant record access.
+
 #### Decryption is at-rest protection, not a read-side access control
 
 An encryption map decides **how a value is stored**, never **who may read it**. Decryption runs

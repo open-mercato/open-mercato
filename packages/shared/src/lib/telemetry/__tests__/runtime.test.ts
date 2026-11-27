@@ -6,6 +6,8 @@ import {
   recordTelemetryMetric,
   registerTelemetryMetricCollector,
   registerTelemetryRuntime,
+  registerTelemetryErrorReporter,
+  reportTelemetryError,
   resetTelemetryMetricCollectors,
   resetTelemetryRuntime,
   withTelemetrySpan,
@@ -16,6 +18,44 @@ import {
 } from '../runtime'
 
 type SpanCall = { name: string; options?: TelemetrySpanOptions }
+
+describe('reportTelemetryError', () => {
+  afterEach(() => resetTelemetryRuntime())
+
+  it('prefers the complete runtime over the browser reporter without double reporting', () => {
+    const browserReporter = jest.fn()
+    const runtimeReporter = jest.fn()
+    const dispose = registerTelemetryErrorReporter(browserReporter)
+    registerTelemetryRuntime(createRuntime({ reportError: runtimeReporter }))
+    const error = new Error('[internal] lookup failed')
+    try {
+      reportTelemetryError(error, { module: 'ui', code: 'ui.address_types_load_failed' })
+      expect(runtimeReporter).toHaveBeenCalledWith(error, { module: 'ui', code: 'ui.address_types_load_failed' })
+      expect(browserReporter).not.toHaveBeenCalled()
+    } finally {
+      dispose()
+    }
+  })
+
+  it('keeps the current browser reporter when a previous registration is disposed', () => {
+    const previous = jest.fn()
+    const current = jest.fn()
+    const disposePrevious = registerTelemetryErrorReporter(previous)
+    const disposeCurrent = registerTelemetryErrorReporter(current)
+    const error = new Error('[internal] lookup failed')
+    try {
+      disposePrevious()
+      reportTelemetryError(error)
+      expect(previous).not.toHaveBeenCalled()
+      expect(current).toHaveBeenCalledWith(error)
+      disposeCurrent()
+      reportTelemetryError(error)
+      expect(current).toHaveBeenCalledTimes(1)
+    } finally {
+      disposeCurrent()
+    }
+  })
+})
 
 function createRuntime(overrides: Partial<TelemetryRuntime> = {}): TelemetryRuntime {
   return {

@@ -123,7 +123,7 @@ export async function POST(req: Request) {
         return bus.emitEvent(
           'query_index.reindex',
           payload,
-          { persistent: true, deliverInline: false },
+          { persistent: true, deliverInline: false, tenantId: auth.tenantId, organizationId: auth.orgId },
         )
       }),
     )

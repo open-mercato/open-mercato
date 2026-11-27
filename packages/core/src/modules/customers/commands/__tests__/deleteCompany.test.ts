@@ -14,7 +14,13 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 const mockFindWithDecryption = jest.fn(async () => [])
-const mockFindOneWithDecryption = jest.fn(async () => null)
+const mockFindOneWithDecryption = jest.fn(async (...args: unknown[]): Promise<unknown> => {
+  const [manager, entity, where, options] = args as [
+    { findOne: (entity: unknown, where: unknown, options?: unknown) => Promise<unknown> },
+    unknown, unknown, unknown,
+  ]
+  return manager.findOne(entity, where, options)
+})
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args as []),
@@ -28,8 +34,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
+  CustomerCompanyBilling,
   CustomerEntity,
   CustomerPersonCompanyLink,
+  CustomerPersonCompanyRole,
   CustomerDealCompanyLink,
   CustomerPersonProfile,
 } from '../../data/entities'
@@ -175,12 +183,54 @@ describe('customers.companies.delete — dependent guard', () => {
     const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
     expect(handler).toBeDefined()
 
-    mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
-
     await handler.execute({ body: { id: COMPANY_ID } }, ctx)
 
     expect(em.transactional).toHaveBeenCalledTimes(1)
     expect(em.remove).toHaveBeenCalledWith(entity)
+  })
+
+  it('removes company roles and billing in the delete transaction and captures both for undo', async () => {
+    const entity = makeCompanyEntity()
+    const em = makeEm(entity)
+    const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
+    const createdAt = new Date('2026-01-01T00:00:00.000Z')
+    const updatedAt = new Date('2026-02-01T00:00:00.000Z')
+    const billing = {
+      id: 'billing-1', bankName: 'Test bank', bankAccountMasked: '****1234',
+      paymentTerms: 'net 30', preferredCurrency: 'EUR', createdAt, updatedAt,
+    }
+    const role = { id: 'role-1', personEntity: { id: 'person-1' }, companyEntity: entity, roleValue: 'buyer', createdAt }
+    mockFindWithDecryption.mockImplementation((async (_em: unknown, ctor: unknown) =>
+      ctor === CustomerPersonCompanyRole ? [role] : []) as unknown as () => Promise<never[]>)
+    mockFindOneWithDecryption.mockImplementation(async (manager, ctor, where, options) => {
+      if (ctor === CustomerCompanyBilling) return billing
+      return (manager as EntityManager).findOne(ctor as typeof CustomerEntity, where as object, options as object)
+    })
+
+    try {
+      const result = await handler.execute({ body: { id: COMPANY_ID } }, makeCtx(em))
+
+      expect(em.nativeDelete).toHaveBeenCalledWith(CustomerPersonCompanyRole, {
+        id: { $in: [role.id] },
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+      })
+      expect(em.nativeDelete).toHaveBeenCalledWith(CustomerCompanyBilling, {
+        id: billing.id,
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+      })
+      expect(result).toMatchObject({
+        dependencies: {
+          roles: [{ id: role.id, personId: 'person-1', companyId: COMPANY_ID, roleValue: 'buyer', createdAt }],
+          billing,
+        },
+      })
+    } finally {
+      mockFindWithDecryption.mockImplementation(async () => [])
+      mockFindOneWithDecryption.mockImplementation(async (manager, ctor, where, options) =>
+        (manager as EntityManager).findOne(ctor as typeof CustomerEntity, where as object, options as object))
+    }
   })
 
   it('removes residual soft-deleted person links so the company delete does not break the foreign key', async () => {
@@ -188,8 +238,6 @@ describe('customers.companies.delete — dependent guard', () => {
     const em = makeEm(entity, { personLinks: 0, softDeletedPersonLinks: 1 })
     const ctx = makeCtx(em)
     const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
-
-    mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
 
     await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).resolves.toEqual({
       entityId: COMPANY_ID,
@@ -296,8 +344,6 @@ describe('customers.companies.delete — row lock (issue #7613)', () => {
     const em = makeEm(entity, { personLinks: 0, dealLinks: 0, directPeople: 0 }, opLog)
     const ctx = makeCtx(em)
     const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
-
-    mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
 
     await handler.execute({ body: { id: COMPANY_ID } }, ctx)
 

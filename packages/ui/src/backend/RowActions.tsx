@@ -8,6 +8,8 @@ import { Button } from '../primitives/button'
 export type RowActionItem = {
   id?: string
   label: string
+  /** Optional leading icon. Decorative: it is hidden from assistive tech, the label names the item. */
+  icon?: React.ReactNode
   onSelect?: () => void
   href?: string
   destructive?: boolean
@@ -150,28 +152,29 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
     first?.focus()
   }, [open, anchorRect, getFocusableItems])
 
-  // Cleanup timeout on unmount
-  React.useEffect(() => {
-    return () => {
-      if (hoverTimeoutRef.current) {
-        clearTimeout(hoverTimeoutRef.current)
-      }
-    }
+  const cancelHoverClose = React.useCallback(() => {
+    if (hoverTimeoutRef.current === null) return
+    clearTimeout(hoverTimeoutRef.current)
+    hoverTimeoutRef.current = null
   }, [])
+
+  React.useEffect(() => cancelHoverClose, [cancelHoverClose])
 
   if (items.length === 0) return null
 
   const handlePointerEnter = (event: React.PointerEvent) => {
     if (event.pointerType === 'touch') return
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current)
-    }
+    cancelHoverClose()
     setOpen(true)
   }
 
   const handlePointerLeave = (event: React.PointerEvent) => {
     if (event.pointerType === 'touch') return
+    cancelHoverClose()
     hoverTimeoutRef.current = setTimeout(() => {
+      hoverTimeoutRef.current = null
+      const active = document.activeElement
+      if (active && (active === btnRef.current || menuRef.current?.contains(active))) return
       setOpen(false)
     }, 150)
   }
@@ -190,7 +193,13 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
         aria-expanded={open}
         // A click — and Enter/Space on the trigger, which the browser reports as
         // one — is a deliberate open, so it takes focus. Hover does not (#6771).
-        onClick={(e) => { e.stopPropagation(); focusOnOpenRef.current = true; setOpen(true); requestAnimationFrame(updatePosition) }}
+        onClick={(event) => {
+          event.stopPropagation()
+          cancelHoverClose()
+          focusOnOpenRef.current = true
+          if (open) updatePosition()
+          setOpen(true)
+        }}
       >
         <span aria-hidden="true">⋯</span>
         <span className="sr-only">{t('ui.rowActions.openActions', 'Open actions')}</span>
@@ -228,13 +237,14 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
               <a
                 key={idx}
                 href={it.href}
-                className={`block w-full text-left px-2 py-1 text-sm rounded hover:bg-accent whitespace-normal ${it.destructive ? 'text-destructive' : ''}`}
+                className={`${it.icon ? 'flex items-center gap-2' : 'block'} w-full text-left px-2 py-1 text-sm rounded hover:bg-accent whitespace-normal ${it.destructive ? 'text-destructive' : ''}`}
                 role="menuitem"
                 onClick={(event) => {
                   event.stopPropagation()
                   setOpen(false)
                 }}
               >
+                {it.icon ? <span aria-hidden="true" className="inline-flex shrink-0 [&_svg]:size-4">{it.icon}</span> : null}
                 {it.label}
               </a>
             ) : (
@@ -254,6 +264,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
                   it.onSelect?.()
                 }}
               >
+                {it.icon ? <span aria-hidden="true" className="inline-flex shrink-0">{it.icon}</span> : null}
                 {it.label}
               </Button>
             )

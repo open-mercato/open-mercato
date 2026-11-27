@@ -162,7 +162,7 @@ Approval mode reuses the existing mutation-approval gate (`ai_pending_actions`, 
 - **Execution** runs under the **approver's** identity (`userId`, ACL), so the command's `action_logs` row names the human who approved the write. The tool handler context gains `auditCorrelation: { correlationId, apiKeyId, pendingActionId, requestedByUserId }` (`McpToolContext.auditCorrelation`), using the identity spec's `auditCorrelation` key. It reaches only the tool handler: `main` has no command-audit hook that would copy it into `action_logs`, so linking the approved write's `action_logs` row to the MCP call stays Future Work. The pending row stores `resolved_by_user_id` (existing column).
 - **Result for the client:** a new read tool `ai_assistant.get_pending_action` (`isMutation: false`, feature `ai_assistant.view`, scoped like the `GET` route) returns `{ status, executionResult?, failedRecords?, resolvedAt }`. MCP clients poll it; it is subject to the exposure allowlist like any tool.
 
-**Agent tools in `approval` mode.** The read-only downgrade (below) applies only in `direct` and `deny` modes. In `approval` mode an agent tool runs with the agent's own effective `mutationPolicy`. Its mutation tool calls go through the existing `prepareMutation` path. The rows get `channel = 'mcp' | 'tools-api'` and are approved on the same page, and the agent tool's result lists the `pendingActionIds` it created. Recheck for these rows keeps the agent guards (they have a real `agent_id`) and adds the approver guard.
+**Agent tools in `approval` mode.** The read-only downgrade (below) applies only in `direct` and `deny` modes. In `approval` mode an agent tool runs with the agent's own effective `mutationPolicy`. Every mutation tool call goes through the existing `prepareMutation` path, including the non-destructive writes of a `destructive-confirm-required` agent: on `mcp` / `tools-api` the handler never runs directly. The rows get `channel = 'mcp' | 'tools-api'` and are approved on the same page, and the agent tool's result lists the `pendingActionIds` it created. Recheck for these rows keeps the agent guards (they have a real `agent_id`) and adds the approver guard.
 
 **Backend page "Pending AI actions"** (`backend/config/ai-assistant/pending-actions/`, gated by `ai_assistant.view`):
 - A `DataTable` over a new list route `GET /api/ai_assistant/ai/actions`. Filters: `status`, `channel`, `toolName`, `mine`. `pageSize` ≤ 100.
@@ -298,11 +298,11 @@ Every `tools/call` handled by any MCP server, and every `POST /api/ai_assistant/
 | `approval` mode reuses `ai_pending_actions` with a `channel` column instead of a new table | One state machine, one executor, one cleanup worker and one diff renderer for chat and MCP writes; the re-check branches on `channel` |
 | Execute an approved raw-tool write as the **approver**, re-checking the requester too | The `action_logs` actor is the accountable human; the requester re-check stops a revoked API key's queued writes from running |
 | Raw-tool rows use a reserved `agent_id` instead of a nullable column | Keeps `AiPendingAction.agentId: string` and every existing reader unchanged |
-| The mode is an operator choice (`OM_MCP_MUTATION_MODE`), with no automatic default flip | Product decision 2026-10-22. Deployments pick `direct` or `approval` explicitly; unset keeps today's behaviour, so no existing client breaks on upgrade |
+| The mode is an operator choice (`OM_MCP_MUTATION_MODE`), with no automatic default flip | Product decision 2026-10-22. Unset mode retains direct execution for typed tools. Code Mode execution requires an explicit `direct` setting |
 | Every approver in the tenant/org is notified in the backoffice | Product decision 2026-10-22. A queued write must reach someone who can act on it, even when the requester is an API key nobody watches |
 | `defineAgentTool` + one OSS-declared dispatcher port (`aiAgentRunDispatcher`) implemented by AO | ai-assistant (upstream) never imports or names AO (downstream), per `packages/core/AGENTS.md` → Cross-Module Coupling; AO stays optional. One port serves MCP, tools-api, chat tools, `run-object` and chat, so there is a single place where an ai-assistant door hands a run to another engine |
 | Audit via `access_logs`, not a new table | Brief requires `audit_logs` services; access logs already carry actor, scope, resource and encrypted context and have a UI (`audit_logs.access.list`) |
-| Unset `mutationMode` means `direct` | Code Mode `execute` and the OpenCode command palette rely on direct writes; changing the unset behaviour would break clients without a bridge (`BACKWARD_COMPATIBILITY.md` → Deprecation Protocol) |
+| Unset `mutationMode` means `direct` for typed tools | Code Mode `execute` requires the operator to enable direct mode explicitly. Discovery remains available. |
 
 ### Alternatives Considered
 
@@ -525,6 +525,10 @@ One stacked `ai_assistant` migration (approval-mode columns, Phase 3). `audit_lo
 
 Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.mdx` (replace "MCP serves tools, not agents" with "MCP serves tools; an agent can be published as one tool"), `agents.mdx` (`mcpTool`), `packages/ai-assistant/AGENTS.md` (MCP HTTP server rules: list filtering, exposure, audit), `UPGRADE_NOTES.md`.
 
+### Code Mode exposure
+
+MCP Code Mode execution requires an explicit direct setting. Discovery and typed tools keep their existing policies. Existing Code Mode users can migrate to typed tools or configure direct mode deliberately. A bridge that retained implicit direct mode would keep granting Code Mode write authority without an operator choosing it. Full-app Compose forwards the same setting to the app and MCP sidecar so both report the same exposure. See [upgrade guidance](../../UPGRADE_NOTES.md#mcp-code-mode-execution-requires-explicit-direct-mode). Maintainer acknowledgment is pending.
+
 ## Implementation Plan
 
 ### Phase 1: Exposure config and filtered list
@@ -654,7 +658,7 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 - **Severity**: High
 - **Affected area**: MCP prod/dev servers, `/tools/execute`
 - **Mitigation**: `approval` and `deny` modes available immediately; startup WARN; audit row with `isMutation: true`; `UPGRADE_NOTES.md` and `mcp.mdx` recommend `approval` for production; API-key roles remain the hard gate.
-- **Residual risk**: Deployments that leave the flag unset keep direct writes. That is an explicit operator choice (Q1), and they were already in this state.
+- **Residual risk**: Deployments that leave the flag unset keep direct typed-tool writes. Those tools were already in this state.
 
 #### Approval queue misuse or staleness
 - **Scenario**: An approver rubber-stamps a queued write whose target changed, or a leaked API key floods the queue with pending writes.
@@ -815,3 +819,9 @@ Docs to update in the same change: `apps/docs/docs/framework/ai-assistant/mcp.md
 
 - Testing: recorded a waiver for `TC-AI-MCP-RATE-LIMIT-018`. It is an opt-in manual check that skips in CI; `tool-executor.agent-tool-rate-limit.test.ts` is the CI evidence. No CI profile is added. The spec's skip messages now name the required env vars and module and point to the unit test.
 - Recorded why the agent-tool rate limit fails closed (risk entry "Agent tool cost/latency abuse"): paid agent loop, API-key callers, queued writes in approval mode. Behaviour unchanged.
+
+### 2026-11-19
+
+- Fixed two approval gaps in the agent runtime (`lib/agent-tools.ts`). In `approval` mode a `destructive-confirm-required` agent on `mcp` / `tools-api` ran its non-destructive writes directly; every write is now queued (§3.1 "Agent tools in `approval` mode"). The policy ranking is unchanged.
+- Tools called by an agent now receive the run's `channel`, `mutationMode`, `apiKeyId` and `correlationId` in `McpToolContext`. A nested agent tool follows the channel rule instead of falling back to `agent`, and its run shares the outer correlation id. Tools that derive a principal from `apiKeyId` (`search.*`, document sections) now run as the API key inside an agent run, matching a direct call.
+- The runtime mutation-policy prompt lists every write as requiring approval on non-agent channels and no longer mentions the inline approval card there.

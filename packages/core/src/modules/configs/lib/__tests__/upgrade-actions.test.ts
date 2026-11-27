@@ -13,7 +13,12 @@ jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
   resolveCrudCache: jest.fn(),
 }))
 
+jest.mock('@open-mercato/core/modules/customers/lib/dealLossReasons', () => ({
+  seedDealLossReasons: jest.fn().mockResolvedValue(undefined),
+}))
+
 import { compareVersions, actionsUpToVersion, findUpgradeAction, upgradeActions } from '../upgrade-actions'
+import { seedDealLossReasons } from '@open-mercato/core/modules/customers/lib/dealLossReasons'
 
 describe('compareVersions', () => {
   describe('basic comparisons', () => {
@@ -141,6 +146,57 @@ describe('interaction-statuses seed upgrade action', () => {
     expect(action?.version).toBe('0.6.5')
     expect(action?.messageKey).toBe('customers.config.upgradeActions.interactionStatuses.message')
     expect(typeof action?.run).toBe('function')
+  })
+})
+
+describe('cross-module upgrade action gating', () => {
+  it.each([
+    ['customers.seed-interaction-statuses', ['customers']],
+    ['attachments.reconcile-organization', ['attachments']],
+    ['devices.seed-push-token-encryption-map', ['devices']],
+    ['phone_calls.seed-call-encryption-maps', ['phone_calls']],
+  ])('gates %s on its owning module', (actionId, expectedModules) => {
+    const action = upgradeActions.find((candidate) => candidate.id === actionId)
+    expect(action?.requiredModules).toEqual(expectedModules)
+  })
+
+  it('declares an owning module for every action whose id names another module', () => {
+    const ungated = upgradeActions
+      .filter((action) => !action.id.startsWith('configs.'))
+      .filter((action) => !action.requiredModules?.length)
+      .map((action) => action.id)
+    expect(ungated).toEqual([])
+  })
+})
+
+describe('deal loss-reasons seed upgrade action', () => {
+  const ACTION_ID = 'customers.seed-deal-loss-reasons'
+
+  it('is offered from 0.10.0 to apps with the customers module', () => {
+    const action = upgradeActions.find((candidate) => candidate.id === ACTION_ID)
+    expect(action?.version).toBe('0.10.0')
+    expect(action?.requiredModules).toEqual(['customers'])
+    expect(action?.messageKey).toBe('customers.config.upgradeActions.dealLossReasons.message')
+    expect(findUpgradeAction(ACTION_ID, '0.9.0')).toBeUndefined()
+    expect(findUpgradeAction(ACTION_ID, '0.10.0')).toBe(action)
+  })
+
+  it('seeds the loss-reason dictionary for the organization', async () => {
+    const action = upgradeActions.find((candidate) => candidate.id === ACTION_ID)
+    const em = { marker: 'em' }
+    const context = {
+      container: {},
+      em,
+      tenantId: '10000000-0000-4000-8000-000000000001',
+      organizationId: '20000000-0000-4000-8000-000000000001',
+    } as unknown as Parameters<NonNullable<typeof action>['run']>[0]
+
+    await action?.run(context)
+
+    expect(seedDealLossReasons).toHaveBeenCalledWith(em, {
+      tenantId: '10000000-0000-4000-8000-000000000001',
+      organizationId: '20000000-0000-4000-8000-000000000001',
+    })
   })
 })
 

@@ -59,7 +59,7 @@ test.describe('TC-STAFF-SUP-011: Support ticket routing variants', () => {
     const cleanup = new Cleanup()
     try {
       const admin = await adminToken(request)
-      const fallbackProject = await createCustomerFreeProject(request, admin, cleanup)
+      const fallbackProject = await createCustomerFreeProject(request, admin, cleanup, 'nocustomer')
       await pointFallbackAt(request, admin, cleanup, fallbackProject.id)
       const statuses = await listProjectStatuses(request, admin, fallbackProject.id)
       expect(statuses.some((status) => status.is_default === true || status.isDefault === true)).toBe(true)

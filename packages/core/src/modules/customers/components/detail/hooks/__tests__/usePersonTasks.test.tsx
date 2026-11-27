@@ -202,7 +202,7 @@ describe('usePersonTasks load-more termination', () => {
     expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(
       2,
       `/api/customers/interactions/tasks?page=2&pageSize=${PAGE_SIZE}&entityId=person-1`,
-      undefined,
+      { headers: { 'x-om-forbidden-redirect': '0' } },
       { errorMessage: 'Failed to load tasks.' },
     )
     expect(result.current.tasks).toHaveLength(PAGE_SIZE + 1)
@@ -274,7 +274,7 @@ describe('usePersonTasks merged customer task reads', () => {
 
     expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
       `/api/customers/interactions/tasks?page=1&pageSize=${PAGE_SIZE}&entityId=person-1`,
-      undefined,
+      { headers: { 'x-om-forbidden-redirect': '0' } },
       { errorMessage: 'Failed to load tasks.' },
     )
     expect(result.current.tasks).toEqual([expect.objectContaining({
@@ -326,6 +326,60 @@ describe('usePersonTasks merged customer task reads', () => {
     expect(result.current.tasks).toEqual([])
   })
 
+  it.each(['canceled', 'in_progress', 'waiting'])('preserves native %s status during a title-only edit', async (status) => {
+    const updatedAt = '2026-10-16T10:00:00.000Z'
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ ...makeRows(1)[0], todoStatus: status, todoUpdatedAt: updatedAt }],
+      total: 1, page: 1, pageSize: PAGE_SIZE,
+    })
+    const { result } = await renderTasks()
+    expect(result.current.tasks[0]).toMatchObject({ status, isDone: false })
+    await act(async () => {
+      await result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Renamed', status, is_done: false }, custom: {},
+      })
+    })
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith('/api/customers/interactions', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ id: 'todo-1', title: 'Renamed', status }),
+    }), expect.any(Object))
+    expect(buildOptimisticLockHeaderMock).toHaveBeenCalledWith(updatedAt)
+    expect(result.current.tasks[0]).toMatchObject({ title: 'Renamed', status, isDone: false })
+  })
+
+  it('does not persist untouched empty custom defaults while retaining explicit custom clears', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ ...makeRows(1)[0], todoStatus: 'waiting', todoCustomValues: { existing_flag: true } }],
+      total: 1, page: 1, pageSize: PAGE_SIZE,
+    })
+    const { result } = await renderTasks()
+    await act(async () => {
+      await result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Renamed', status: 'waiting' },
+        custom: { shared_with_leadership: false, empty_text: null, empty_list: [], existing_flag: false },
+      })
+    })
+    const payload = JSON.parse(apiCallOrThrowMock.mock.calls[0][1].body)
+    expect(payload.customValues).toEqual({ existing_flag: false })
+    expect(result.current.tasks[0].customValues).toMatchObject({ existing_flag: false })
+  })
+
+  it.each([403, 409])('does not downgrade a refused native edit (%s) to the binary adapter', async (status) => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ ...makeRows(1)[0], todoStatus: 'waiting' }], total: 1, page: 1, pageSize: PAGE_SIZE,
+    })
+    const refusal = Object.assign(new Error('Refused'), { status })
+    apiCallOrThrowMock.mockRejectedValueOnce(refusal)
+    const { result } = await renderTasks()
+    await act(async () => {
+      await expect(result.current.updateTask(result.current.tasks[0], {
+        base: { title: 'Refused rename', status: 'waiting' }, custom: {},
+      })).rejects.toBe(refusal)
+    })
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+    expect(apiCallOrThrowMock.mock.calls[0][0]).toBe('/api/customers/interactions')
+    expect(result.current.tasks[0]).toMatchObject({ title: 'Task 1', status: 'waiting' })
+  })
+
   it('preserves legacy reads for roles without the interactions-view permission', async () => {
     const legacyRow = { ...makeRows(1)[0], todoSource: 'example:todo' }
     const forbidden = Object.assign(new Error('Forbidden'), { status: 403 })
@@ -338,7 +392,7 @@ describe('usePersonTasks merged customer task reads', () => {
     expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(
       1,
       `/api/customers/interactions/tasks?page=1&pageSize=${PAGE_SIZE}&entityId=person-1`,
-      undefined,
+      { headers: { 'x-om-forbidden-redirect': '0' } },
       expect.any(Object),
     )
     expect(readApiResultOrThrowMock).toHaveBeenNthCalledWith(

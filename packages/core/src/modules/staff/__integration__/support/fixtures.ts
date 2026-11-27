@@ -69,7 +69,7 @@ export async function createStaffPerson(
 ): Promise<StaffPerson> {
   const suffix = uniqueSuffix()
   const email = `qa-support-${label}-${suffix}@acme.test`
-  const password = 'Valid1!Pass'
+  const password = 'QaValid1!Pass'
   const { organizationId } = getTokenContext(admin)
   const displayName = `QA ${label} ${suffix}`
   const userId = await createUserFixture(request, admin, { email, password, organizationId, roles, name: displayName })
@@ -280,10 +280,16 @@ export async function createCustomerFreeProject(
   request: APIRequestContext,
   admin: string,
   cleanup: Cleanup,
+  label: string,
 ): Promise<TestTimeProjectFixture> {
-  const project = await createProject(request, admin, cleanup, 'no-customer')
-  const response = await setProjectFields(request, admin, project.id, { customerId: null, customerSnapshot: null })
-  expect(response.ok(), `clear fixture project customer failed: ${response.status()}`).toBeTruthy()
+  const project = await createProject(request, admin, cleanup, label)
+  const detached = await setProjectFields(request, admin, project.id, {
+    customerId: null,
+    customerSnapshot: null,
+  })
+  expect(detached.ok(), `detach project customer failed: ${detached.status()}`).toBeTruthy()
+  const statuses = await listProjectStatuses(request, admin, project.id)
+  expect(statuses.length, 'customer-free support project should have task statuses').toBeGreaterThan(0)
   return project
 }
 

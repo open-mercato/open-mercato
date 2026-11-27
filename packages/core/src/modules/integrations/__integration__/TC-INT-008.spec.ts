@@ -60,7 +60,7 @@ test.describe('TC-INT-008: Integration credentials organization isolation', () =
     test.slow()
 
     const stamp = Date.now()
-    const password = 'Secret123!'
+    const password = 'QaSecret123!'
     const userBEmail = `tc-int-008-${stamp}@example.com`
 
     const adminToken = await getAuthToken(request, 'admin')

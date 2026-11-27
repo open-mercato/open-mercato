@@ -6,6 +6,7 @@ import {
   formatEntryClockRange,
   isEntryLockedError,
   readCopyDayTargetConflict,
+  readErrorMessage,
   readTimeEntryTotals,
   summarizeTimeEntries,
   toTimeEntryListRow,
@@ -110,8 +111,8 @@ describe('summarizeTimeEntries', () => {
     expect(summary.money).toHaveLength(2)
     expect(summary.money).toEqual(
       expect.arrayContaining([
-        { currencyCode: 'PLN', amount: 905 },
-        { currencyCode: 'EUR', amount: 200 },
+        { currencyCode: 'PLN', amount: 905, amountExact: '905' },
+        { currencyCode: 'EUR', amount: 200, amountExact: '200' },
       ]),
     )
     expect(summary.money.some((entry) => entry.amount === 1105)).toBe(false)
@@ -150,6 +151,28 @@ describe('error readers', () => {
     expect(conflict).toEqual({ toDate: '2026-07-21', existingEntryCount: 3 })
     expect(readCopyDayTargetConflict(Object.assign(new Error('x'), { status: 500 }))).toBeNull()
   })
+
+  it('shows the reason a server response carried, on the flat and nested error shapes', () => {
+    const reason = 'This date is outside your assignment to this project.'
+    expect(readErrorMessage(Object.assign(new Error(reason), { status: 403 }), 'Failed to save timesheets.')).toBe(reason)
+    expect(
+      readErrorMessage(Object.assign(new Error(reason), { body: { status: 403 } }), 'Failed to save timesheets.'),
+    ).toBe(reason)
+    expect(readErrorMessage(Object.assign(new Error('  '), { status: 500 }), 'Failed to save timesheets.')).toBe(
+      'Failed to save timesheets.',
+    )
+  })
+
+  it('falls back to the localized message for a failure the server never explained', () => {
+    expect(readErrorMessage(new Error('Failed to fetch'), 'Failed to save timesheets.')).toBe('Failed to save timesheets.')
+    expect(readErrorMessage(new TypeError('Failed to fetch'), 'Failed to save timesheets.')).toBe(
+      'Failed to save timesheets.',
+    )
+    expect(readErrorMessage(new Error('[internal] mutation blocked'), 'Failed to save timesheets.')).toBe(
+      'Failed to save timesheets.',
+    )
+    expect(readErrorMessage('boom', 'Failed to save timesheets.')).toBe('Failed to save timesheets.')
+  })
 })
 
 describe('currentWeekRange', () => {
@@ -186,8 +209,8 @@ describe('readTimeEntryTotals', () => {
       durationMinutes: 18000,
       roundedMinutes: 18015,
       money: [
-        { currencyCode: 'PLN', amount: 4315.5 },
-        { currencyCode: null, amount: 10 },
+        { currencyCode: 'PLN', amount: 4315.5, amountExact: '4315.5' },
+        { currencyCode: null, amount: 10, amountExact: '10' },
       ],
     })
   })

@@ -217,7 +217,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-002: per-email visibility on /email-threa
 
         // User A — author of both emails (channel owner).
         const userAEmail = `qa-crm-email-vis2-a-${stamp}@acme.com`;
-        const userAPassword = 'Valid1!Pass';
+        const userAPassword = 'QaValid1!Pass';
         userAId = await createUserFixture(request, adminToken, {
           email: userAEmail,
           password: userAPassword,
@@ -229,7 +229,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-002: per-email visibility on /email-threa
 
         // User B — teammate with CRM access, no view_private.
         const userBEmail = `qa-crm-email-vis2-b-${stamp}@acme.com`;
-        const userBPassword = 'Valid1!Pass';
+        const userBPassword = 'QaValid1!Pass';
         userBId = await createUserFixture(request, adminToken, {
           email: userBEmail,
           password: userBPassword,
@@ -241,7 +241,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-002: per-email visibility on /email-threa
 
         // Admin user — holds view_private (must still NOT see A's private email).
         const adminUserEmail = `qa-crm-email-vis2-adm-${stamp}@acme.com`;
-        const adminUserPassword = 'Valid1!Pass';
+        const adminUserPassword = 'QaValid1!Pass';
         adminUserId = await createUserFixture(request, adminToken, {
           email: adminUserEmail,
           password: adminUserPassword,

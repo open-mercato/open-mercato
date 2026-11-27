@@ -29,10 +29,10 @@ test('TC-CUR-018: First exchange-rate save succeeds before organization scope in
     await page.getByRole('option', { name: from.code, exact: true }).click()
     await page.getByLabel('To Currency', { exact: false }).fill(to.code)
     await page.getByRole('option', { name: to.code, exact: true }).click()
-    await page.getByLabel('Exchange Rate', { exact: false }).fill('1.25')
+    await page.getByRole('textbox', { name: 'Exchange Rate', exact: true }).fill('1.25')
     await page.getByLabel('Source', { exact: false }).fill('QA-Early-Scope')
-    await page.getByRole('button', { name: 'Pick date and time', exact: true }).click()
-    await page.getByRole('button', { name: /^Today,/ }).click()
+    await page.getByRole('button', { name: 'Pick a date', exact: true }).click()
+    await page.locator('[data-today="true"] button').click()
     await page.getByRole('button', { name: 'Apply', exact: true }).click()
     const created = page.waitForResponse((response) =>
       response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/currencies/exchange-rates',

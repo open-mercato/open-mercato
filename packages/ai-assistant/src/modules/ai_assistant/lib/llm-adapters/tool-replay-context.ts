@@ -19,7 +19,7 @@ export type ToolReplayFixture = {
   toolCallId?: string | null
 }
 
-export type ToolReplayMissReason = 'fixture_missing' | 'mutation_refused'
+export type ToolReplayMissReason = 'fixture_missing' | 'mutation_refused' | 'forbidden'
 
 export type ToolReplayMiss = {
   toolName: string
@@ -58,7 +58,7 @@ export type ToolReplayContext =
       sink: (fixture: ToolReplayFixture) => void
     } & ToolReplayLookupHooks)
 
-export type ToolReplayErrorCode = 'tool_fixture_missing' | 'tool_replay_mutation_refused'
+export type ToolReplayErrorCode = 'tool_fixture_missing' | 'tool_replay_mutation_refused' | 'tool_replay_forbidden'
 
 export class ToolReplayError extends Error {
   readonly code: ToolReplayErrorCode
@@ -211,11 +211,28 @@ export function resolveToolReplayDecision(input: {
   args: unknown
   isMutation: boolean
   toolCallId: string | null
+  authorized?: boolean
 }): ToolReplayDecision {
   const scope = toolReplayStorage.getStore()
   if (!scope) return { kind: 'live' }
   const call = claimCall(scope, input.toolName, input.args, input.toolCallId)
   const { context } = scope
+  if (context.mode === 'replay' && input.isMutation) {
+    reportMiss(context, call, 'mutation_refused', 'error')
+    throw new ToolReplayError(
+      'tool_replay_mutation_refused',
+      input.toolName,
+      `[internal] tool_replay_mutation_refused: mutation tool "${input.toolName}" cannot run under tool replay`,
+    )
+  }
+  if (input.authorized === false) {
+    if (context.mode === 'replay') reportMiss(context, call, 'forbidden', 'error')
+    throw new ToolReplayError(
+      'tool_replay_forbidden',
+      input.toolName,
+      `[internal] tool_replay_forbidden: insufficient permissions for tool "${input.toolName}"`,
+    )
+  }
   if (context.mode === 'record') {
     if (!input.isMutation) {
       const mocked = lookupFixture(context, call)
@@ -225,14 +242,6 @@ export function resolveToolReplayDecision(input: {
       }
     }
     return { kind: 'record', call, sink: context.sink }
-  }
-  if (input.isMutation) {
-    reportMiss(context, call, 'mutation_refused', 'error')
-    throw new ToolReplayError(
-      'tool_replay_mutation_refused',
-      input.toolName,
-      `[internal] tool_replay_mutation_refused: mutation tool "${input.toolName}" cannot run under tool replay`,
-    )
   }
   const mocked = lookupFixture(context, call)
   if (mocked) {

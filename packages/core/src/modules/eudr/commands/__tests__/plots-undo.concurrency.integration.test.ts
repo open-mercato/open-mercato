@@ -277,6 +277,21 @@ describeWithPostgres('EUDR plot undo against later plot writes on real PostgreSQ
     expect(await readState(plotId)).toEqual({ name: 'North field', deleted: false, grade: null })
   }, CASE_TIMEOUT_MS)
 
+  it('restores an update to a point plot whose whole-number area the database pads to four decimals', async () => {
+    const scope = await newScope()
+    const plotId = await createPlot(scope)
+    const logEntry = await updatePlot(scope, plotId, {
+      name: 'North field (point)',
+      geometry: { type: 'Point', coordinates: [-47.9, -15.8] },
+      areaHa: 1,
+    })
+
+    const undone = await undo('eudr.plots.update', scope, logEntry)
+
+    expect(undone.ok).toBe(true)
+    expect(await readState(plotId)).toEqual({ name: 'North field', deleted: false, grade: null })
+  }, CASE_TIMEOUT_MS)
+
   it('undoes two updates newest first, including a custom field reset to empty', async () => {
     const scope = await newScope()
     const plotId = await createPlot(scope)

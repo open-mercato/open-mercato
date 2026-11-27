@@ -1,6 +1,10 @@
 import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
 
 export const injectionTable: ModuleInjectionTable = {
+  'schedule:customers.link-types': {
+    widgetId: 'sales.injection.schedule-offer-link',
+    priority: 50,
+  },
   'sales.document.detail.order:tabs': [
     {
       widgetId: 'sales.injection.document-history',

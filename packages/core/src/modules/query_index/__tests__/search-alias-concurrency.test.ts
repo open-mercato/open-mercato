@@ -33,6 +33,12 @@ function createAliasCapturingBuilder(aliases: string[]): any {
             return builder
           }
         }
+        if (prop === 'where') {
+          return (predicate: unknown) => {
+            if (typeof predicate === 'function') predicate(builder)
+            return builder
+          }
+        }
         return () => builder
       },
     },

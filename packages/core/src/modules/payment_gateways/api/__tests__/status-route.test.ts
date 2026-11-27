@@ -1,5 +1,9 @@
 /** @jest-environment node */
 import { GET, POST } from '../status/route'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { transactionNotFound } from '../../lib/transaction-not-found'
+import { createPaymentGatewayService } from '../../lib/gateway-service'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const mockResolve = jest.fn()
 const mockGetAuth = jest.fn()
@@ -17,6 +21,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   validateCrudMutationGuard: (...args: unknown[]) => mockValidateGuard(...args),
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => mockRunGuardAfter(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(),
 }))
 
 const TRANSACTION_ID = '11111111-1111-4111-8111-111111111111'
@@ -86,6 +94,59 @@ describe('payment_gateways status route', () => {
     mockRunGuardAfter.mockResolvedValue(undefined)
   })
 
+  it('preserves a not-found refusal if the transaction disappears during refresh', async () => {
+    service.getPaymentStatus.mockRejectedValue(transactionNotFound('Transaction not found'))
+
+    const response = await POST(postRequest({ transactionId: TRANSACTION_ID }))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Transaction not found' })
+    expect(mockRunGuardAfter).not.toHaveBeenCalled()
+  })
+
+  it.each([422, 404, 409])('preserves provider failure mapping for an unrelated typed %s error', async (status) => {
+    service.getPaymentStatus.mockRejectedValue(new CrudHttpError(status, { error: 'Provider unavailable', code: 'adapter_error' }))
+
+    const response = await POST(postRequest({ transactionId: TRANSACTION_ID }))
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({ error: 'Provider unavailable' })
+    expect(mockRunGuardAfter).not.toHaveBeenCalled()
+  })
+
+  it('preserves the actual missing-adapter response during refresh', async () => {
+    const error = 'No gateway adapter registered for provider: unavailable'
+    const transaction = { ...makeTransaction(), providerKey: 'unavailable', organizationId: 'org-1', tenantId: 'tenant-1' }
+    jest.mocked(findOneWithDecryption).mockResolvedValue(transaction as never)
+    const actualService = createPaymentGatewayService({
+      em: { nativeUpdate: jest.fn(async () => 1) } as never,
+      integrationCredentialsService: { resolve: jest.fn(async () => ({})) } as never,
+    })
+    mockResolve.mockReturnValue(actualService)
+
+    const response = await POST(postRequest({ transactionId: TRANSACTION_ID }))
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({ error })
+    expect(mockRunGuardAfter).not.toHaveBeenCalled()
+  })
+
+  it('forwards the actual scoped refusal when the transaction disappears between route and service reads', async () => {
+    const transaction = { ...makeTransaction(), organizationId: 'org-1', tenantId: 'tenant-1' }
+    jest.mocked(findOneWithDecryption).mockReset().mockResolvedValueOnce(transaction as never).mockResolvedValueOnce(null)
+    const actualService = createPaymentGatewayService({
+      em: {} as never,
+      integrationCredentialsService: { resolve: jest.fn(async () => ({})) } as never,
+    })
+    mockResolve.mockReturnValue(actualService)
+
+    const response = await POST(postRequest({ transactionId: TRANSACTION_ID }))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Transaction not found' })
+    expect(mockRunGuardAfter).not.toHaveBeenCalled()
+  })
+
   describe('GET (read-only)', () => {
     it('returns stored status WITHOUT polling the provider (a read must not mutate)', async () => {
       const res = await GET(getRequest())
@@ -126,6 +187,41 @@ describe('payment_gateways status route', () => {
         requestMethod: 'POST',
       })
       expect(body.status).toBe('captured')
+    })
+
+    it('keeps stored exact amounts when the provider reports matching floats only', async () => {
+      service.findTransaction.mockResolvedValue({
+        ...makeTransaction(),
+        amount: '1234.567890123456789012',
+        capturedAmount: '1000.000000000000000001',
+      })
+      service.getPaymentStatus.mockResolvedValue({
+        status: 'captured',
+        amount: Number('1234.567890123456789012'),
+        amountReceived: 1000,
+        currencyCode: 'USD',
+        providerData: {},
+      })
+      const res = await POST(postRequest({ transactionId: TRANSACTION_ID }))
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.amountExact).toBe('1234.567890123456789012')
+      expect(body.amountReceivedExact).toBe('1000.000000000000000001')
+    })
+
+    it('prefers the provider float when it differs from the stored amount', async () => {
+      service.findTransaction.mockResolvedValue({ ...makeTransaction(), capturedAmount: '100' })
+      service.getPaymentStatus.mockResolvedValue({
+        status: 'partially_captured',
+        amount: 100,
+        amountReceived: 40.5,
+        currencyCode: 'USD',
+        providerData: {},
+      })
+      const res = await POST(postRequest({ transactionId: TRANSACTION_ID }))
+      const body = await res.json()
+      expect(body.amountExact).toBe('100')
+      expect(body.amountReceivedExact).toBe('40.5')
     })
 
     it('blocks the write when the mutation guard denies it', async () => {

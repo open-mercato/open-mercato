@@ -32,6 +32,18 @@ Three pieces, all owned by `packages/telemetry`:
 2. **The `telemetry` module** (`packages/telemetry/src/modules/telemetry/`), enabled via `{ id: 'telemetry', from: '@open-mercato/telemetry' }` — owns the same-origin OTLP/HTTP proxy (see API Contracts).
 3. **Host wiring** (mirrored in `apps/mercato` and `packages/create-app/template` per the Template Sync Checklist, item 15): the backend layout resolves the config server-side and renders `<BrowserTelemetry />`; `modules.ts` enables the module; `.env.example` documents the `TELEMETRY_BROWSER_*` block. `mercato telemetry init` (CLI) applies the same three edits to an existing app — see "CLI adoption".
 
+### Handled browser errors
+
+`BrowserTelemetry` installs a report-only callback in the existing shared global telemetry store when its server-resolved config is non-null. `reportTelemetryError(error, context)` in `@open-mercato/shared/lib/telemetry/runtime` prefers an existing full runtime and otherwise uses this callback; it does nothing when neither exists. The callback registration returns an identity-checked disposer and does not pretend to implement server-only runtime capabilities.
+
+Registration happens synchronously in the bootstrap effect. Calls made while the deferred SDK imports are pending wait on the startup promise, so an initial address dictionary rejection is retained. After startup, each call creates and ends a `browser.error` span through the existing web provider, batch processor and same-origin exporter. Its exception uses the existing pure serializer/redactor, its status is ERROR, and its stable `error.code` is validated by `groupableCode`. Browser metrics/logs export remains out of scope; SDK sampling and exporter behavior are unchanged. Startup or reporting failures are isolated from the application; failed startup removes the callback and does not retry. Disabled telemetry installs no callback and loads no SDK.
+
+`AddressTiles` uses this shared dispatch function while preserving its localized flash, readable raw-type fallback and cancellation guard. Regression coverage mounts the exported `BrowserTelemetry` component with the real web SDK and real shared registry, substituting only the exporter and automatic instrumentation registration. It verifies a dictionary rejection during startup reaches the existing exporter with its exception details and `ui.address_types_load_failed`, as well as disabled and failed-startup fallback behavior. The same bootstrap is mounted by the normal backend layout on main and the release line; no app/template wiring changes are required.
+
+### Migration & Backward Compatibility
+
+`registerTelemetryErrorReporter` and `reportTelemetryError` are additive exports from the existing shared runtime import path. Existing `TelemetryRuntime`, `getTelemetryRuntime`, registration, browser config, ingest route and server behavior remain unchanged. Existing callers may adopt the report-only dispatcher incrementally. No schema changes, dependency additions, new routes or operator migration are needed. Browser error export requires the existing browser RUM opt-in; server telemetry alone does not enable browser export.
+
 ### Trace continuity
 
 The browser injects both `traceparent` and the backup `x-original-traceparent`. The server's global propagator **ignores every inbound trace header by default**, standard and backup alike, because at an HTTP boundary they are caller-controlled (`provider/otlp-provider.ts`, asserted by `otlp-integration.test.ts`). The supported way to get one end-to-end trace is therefore the existing `TELEMETRY_TRUST_INBOUND_TRACE=true` opt-in; the backup header is what survives a load balancer rewriting `traceparent` in between.
@@ -116,6 +128,7 @@ None. No entities, no migrations, no persisted state. Span batches pass through 
 
 ## Changelog
 
+- 2026-11-19 — Fixed handled browser error reporting after reviews on PRs 9934 and 9932: register a report-only shared callback from the enabled browser bootstrap, retain errors during deferred SDK startup, export redacted exception spans through the existing proxy, and cover address failures using the real SDK and registry.
 - 2026-08-11 — Initial implementation: browser entry, `telemetry` module proxy, app + create-app template wiring, env/CLI adoption blocks, unit + integration tests, harness case OMH-214.
 - 2026-08-13 — Review pass (PR #5195): documented that end-to-end traces require the existing `TELEMETRY_TRUST_INBOUND_TRACE` opt-in (with a warn-once server log) instead of claiming the backup header bypasses it; split the env/credential readers into the server-only `@open-mercato/telemetry/browser/server` entry and scoped the package's OTel-import rule to the two SDK boundaries; taught `mercato telemetry init` to adopt RUM in an already-initialized app (env keys, module entry, backoffice layout); added browser-runtime and trace-continuity regression coverage. Rebased onto the 231-case harness catalog, so the routing case is OMH-232.
 - 2026-08-18 — Rebased onto develop's 233-case harness catalog (the devices/push cases took OMH-232 and OMH-233), so the routing case is renumbered to OMH-234 and the catalog is 234 cases.

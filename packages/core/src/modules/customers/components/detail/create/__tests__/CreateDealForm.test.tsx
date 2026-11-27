@@ -70,12 +70,12 @@ jest.mock('../../DealForm', () => {
     z.number().optional(),
   )
   return {
-    dealFormSchema: z.object({
+    dealExactFormSchema: z.object({
       title: z.string().trim().min(1, 'customers.people.detail.deals.titleRequired'),
       status: textField,
       pipelineId: textField,
       pipelineStageId: textField,
-      valueAmount: numericField,
+      valueAmount: z.preprocess((value) => (value === '' || value == null ? undefined : String(value)), z.string().optional()),
       valueCurrency: textField,
       probability: numericField,
       expectedCloseAt: textField,
@@ -326,6 +326,24 @@ describe('CreateDealForm', () => {
     })
     expect(mockCreateCrud).toHaveBeenCalledWith('customers/deals', expectedPayload, expect.any(Object))
     expect(document.querySelectorAll('form')).toHaveLength(1)
+  })
+
+  it('sends the exact deal value next to the float', async () => {
+    render(
+      <CreateDealForm
+        returnTo="/backend/customers/deals"
+        initialValues={{ title: 'Exact deal', valueAmount: '0.123456789012345678', valueCurrency: 'ETH' }}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
+    expect(mockCreateCrud).toHaveBeenCalledWith(
+      'customers/deals',
+      expect.objectContaining({ valueAmount: 0.123456789012345678, valueAmountExact: '0.123456789012345678' }),
+      expect.any(Object),
+    )
   })
 
   it('ignores explicitly undefined initialValues entries', async () => {

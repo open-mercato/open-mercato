@@ -77,6 +77,25 @@ describe('ActivityTimelineFilters', () => {
     expect(screen.getByRole('button', { name: /^note$/i })).toBeInTheDocument()
   })
 
+  it('reloads the counts when the refresh key changes so the chips follow a delete (#9487)', async () => {
+    const { rerender } = renderWithProviders(
+      <ActivityTimelineFilters {...baseProps} activeTypes={[]} onTypesChange={jest.fn()} refreshKey={0} />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /call 18/i })).toBeInTheDocument()
+    })
+    expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(1)
+
+    readApiResultOrThrowMock.mockResolvedValue({ call: 17, email: 4, meeting: 2, note: 0, total: 23 })
+    rerender(<ActivityTimelineFilters {...baseProps} activeTypes={[]} onTypesChange={jest.fn()} refreshKey={1} />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /call 17/i })).toBeInTheDocument()
+    })
+    expect(readApiResultOrThrowMock).toHaveBeenCalledTimes(2)
+  })
+
   it('toggling a type chip calls onTypesChange with the new selection', async () => {
     const onTypesChange = jest.fn()
     const { rerender } = renderWithProviders(

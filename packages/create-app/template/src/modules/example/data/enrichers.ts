@@ -11,19 +11,14 @@
  * `cacheableOnListHit` guidance in packages/core/AGENTS.md for when an enricher
  * may opt into being served from the list cache on a hit.
  *
- * `Todo.notes` is an encrypted field (see `../encryption.ts`), so every `Todo`
- * read here goes through `findWithDecryption`. The fork below inherits the
- * request container's ORM subscribers, so `onLoad` would already decrypt and
- * this enricher only counts rows — but an enricher that later reads a `Todo`
- * field, or runs on a fork created with `freshEventManager: true`, would silently
- * observe ciphertext. The explicit helper is the rule the rest of this module
- * follows, and it is idempotent: plaintext that is not a v1 payload is left alone.
+ * The grouped todo query reads UUIDs and completion flags. Entity reads that
+ * need the encrypted `Todo.notes` field still use `findWithDecryption`.
  */
 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
-import { ExampleCustomerPriority, Todo } from './entities'
+import { ExampleCustomerPriority } from './entities'
 
 type CustomerRecord = Record<string, unknown> & { id: string }
 
@@ -38,6 +33,7 @@ type TodoEnrichment = {
 }
 
 const PERSON_BUCKET_COUNT = 16
+const EMPTY_TODO_STATS = { todoCount: 0, openTodoCount: 0 }
 
 function hashString(value: string): number {
   let hash = 0
@@ -52,18 +48,38 @@ function getPersonBucket(personId: string): number {
   return hashString(personId) % PERSON_BUCKET_COUNT
 }
 
-function buildBucketStats(todos: Todo[]): Map<number, { todoCount: number; openTodoCount: number }> {
-  const stats = new Map<number, { todoCount: number; openTodoCount: number }>()
-  for (const todo of todos) {
-    const bucket = hashString(String(todo.id)) % PERSON_BUCKET_COUNT
-    const current = stats.get(bucket) ?? { todoCount: 0, openTodoCount: 0 }
-    current.todoCount += 1
-    if (!todo.isDone) {
-      current.openTodoCount += 1
-    }
-    stats.set(bucket, current)
+function buildTodoBucketExpression(): string {
+  const terms: string[] = []
+  let weight = 1
+  for (let position = 36; position >= 1; position--) {
+    terms.push(`ascii(substr(id::text, ${position}, 1))::bigint * ${weight}`)
+    weight = Math.imul(weight, 31)
   }
-  return stats
+  return `abs(((${terms.join(' + ')} + 2147483648) & 4294967295) - 2147483648) % ${PERSON_BUCKET_COUNT}`
+}
+
+/**
+ * PostgreSQL UUIDs render as 36 ASCII characters. Each character's coefficient
+ * is a power of 31, and the mask restores the signed 32-bit wrap in hashString.
+ */
+const TODO_BUCKET_SQL = buildTodoBucketExpression()
+
+async function loadBucketStats(em: EntityManager, context: EnricherContext, buckets: number[]) {
+  const rows = await em.execute<Array<{ bucket: number; todoCount: string; openTodoCount: string }>>(
+    `select bucket, count(*) as "todoCount", count(*) filter (where is_done is not true) as "openTodoCount"
+     from (
+       select (${TODO_BUCKET_SQL})::integer as bucket, is_done
+       from todos
+       where tenant_id = ? and organization_id = ? and deleted_at is null
+     ) as scoped_todos
+     where bucket in (${buckets.map(() => '?').join(', ')})
+     group by bucket`,
+    [context.tenantId, context.organizationId, ...buckets],
+  )
+  return new Map(rows.map((row) => [
+    row.bucket,
+    { todoCount: Number(row.todoCount), openTodoCount: Number(row.openTodoCount) },
+  ]))
 }
 
 /**
@@ -88,13 +104,8 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
 
   async enrichOne(record, context) {
     const em = forkEnricherEntityManager(context)
-    const todos = await findWithDecryption(em, Todo, {
-      organizationId: context.organizationId,
-      tenantId: context.tenantId,
-      deletedAt: null,
-    }, undefined, { tenantId: context.tenantId, organizationId: context.organizationId })
-    const statsByBucket = buildBucketStats(todos)
-    const scoped = statsByBucket.get(getPersonBucket(record.id)) ?? { todoCount: 0, openTodoCount: 0 }
+    const bucket = getPersonBucket(record.id)
+    const statsByBucket = await loadBucketStats(em, context, [bucket])
     const priority = await findOneWithDecryption(em, ExampleCustomerPriority, {
       customerId: record.id,
       organizationId: context.organizationId,
@@ -105,30 +116,25 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
     return {
       ...record,
       _example: {
-        todoCount: scoped.todoCount,
-        openTodoCount: scoped.openTodoCount,
+        ...(statsByBucket.get(bucket) ?? EMPTY_TODO_STATS),
         ...priorityNamespace(priority),
       },
     }
   },
 
   async enrichMany(records, context) {
+    if (records.length === 0) return []
+
     const em = forkEnricherEntityManager(context)
-    const todos = await findWithDecryption(em, Todo, {
+    const customerIds = records.map((record) => record.id)
+    const buckets = [...new Set(customerIds.map(getPersonBucket))]
+    const statsByBucket = await loadBucketStats(em, context, buckets)
+    const priorities = await findWithDecryption(em, ExampleCustomerPriority, {
+      customerId: { $in: customerIds },
       organizationId: context.organizationId,
       tenantId: context.tenantId,
       deletedAt: null,
-    }, undefined, { tenantId: context.tenantId, organizationId: context.organizationId })
-    const statsByBucket = buildBucketStats(todos)
-    const customerIds = records.map((record) => record.id)
-    const priorities: ExampleCustomerPriority[] = customerIds.length > 0
-      ? await findWithDecryption(em, ExampleCustomerPriority, {
-          customerId: { $in: customerIds },
-          organizationId: context.organizationId,
-          tenantId: context.tenantId,
-          deletedAt: null,
-        }, { orderBy: { updatedAt: 'desc', createdAt: 'desc' } }, { tenantId: context.tenantId, organizationId: context.organizationId })
-      : []
+    }, { orderBy: { updatedAt: 'desc', createdAt: 'desc' } }, { tenantId: context.tenantId, organizationId: context.organizationId })
     const priorityByCustomerId = new Map<string, ExampleCustomerPriority>()
     for (const entry of priorities) {
       if (priorityByCustomerId.has(entry.customerId)) continue
@@ -138,7 +144,7 @@ const customerTodoCountEnricher: ResponseEnricher<CustomerRecord, TodoEnrichment
     return records.map((record) => ({
       ...record,
       _example: {
-        ...(statsByBucket.get(getPersonBucket(record.id)) ?? { todoCount: 0, openTodoCount: 0 }),
+        ...(statsByBucket.get(getPersonBucket(record.id)) ?? EMPTY_TODO_STATS),
         ...priorityNamespace(priorityByCustomerId.get(record.id) ?? null),
       },
     }))

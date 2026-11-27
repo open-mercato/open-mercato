@@ -1,217 +1,77 @@
 import { expect, test } from '@playwright/test'
-import {
-  createAdminApiToken,
-  createUserFixture,
-  deleteUserFixture,
-  fetchJson,
-  loginViaApi,
-} from './helpers/securityFixtures'
-
-type SudoSessionResponse = {
-  required: boolean
-  sessionId?: string
-  method?: 'password' | 'mfa'
-  availableMfaMethods?: Array<{ type: string }>
-  expiresAt?: string
-}
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { fetchJson } from './helpers/securityFixtures'
+import { createIsolatedMfaSudoFixture, verifyTotpSudoChallenge } from './helpers/sudoFixtures'
 
 test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
-  let adminToken: string
-  let targetUserId: string | null = null
-  let targetUserEmail = ''
-  const targetUserPassword = 'Valid1!Pass'
+  let fixture: Awaited<ReturnType<typeof createIsolatedMfaSudoFixture>> | undefined
 
   test.beforeAll(async ({ request }) => {
-    adminToken = await createAdminApiToken(request)
-    const targetUser = await createUserFixture(request, adminToken, { password: targetUserPassword })
-    targetUserId = targetUser.id
-    targetUserEmail = targetUser.email
+    fixture = await createIsolatedMfaSudoFixture(request)
   })
 
   test.afterAll(async ({ request }) => {
-    await deleteUserFixture(request, adminToken ?? null, targetUserId)
+    await fixture?.cleanup(request)
   })
 
-  // This test stops at the unconditional `test.skip` mid-body: the sudo-config assertions after it
-  // need a genuine WebAuthn assertion and are unreachable until #5307 lands a virtual authenticator.
-  // They stay in place as the blueprint for that work. Everything above the skip runs and can fail.
-  test('requires sudo and refuses a passkey step-up without a WebAuthn assertion', async ({ request }) => {
-    const adminMethods = await fetchJson<{
-      methods: Array<{ type: string; providerMetadata?: Record<string, unknown> | null }>
-    }>(
-      request,
-      'GET',
-      '/api/security/mfa/methods',
-      { token: adminToken },
-    )
-    expect(adminMethods.status).toBe(200)
+  test('verifies MFA before changing sudo protection and enforces it again after re-enabling', async ({ request }) => {
+    if (!fixture) throw new Error('[internal] Sudo fixture was not initialized')
+    const { token, secret, resetConfigId, target } = fixture
+    const resetPath = `/api/security/users/${target.id}/mfa/reset`
+    const configPath = `/api/security/sudo/configs/${resetConfigId}`
+    const reset = () => fetchJson<{ ok?: boolean; error?: string }>(request, 'POST', resetPath, {
+      token, data: { reason: 'TC-SEC-006 sudo protection check' },
+    })
+    const before = await reset()
+    expect(before.status).toBe(403)
+    expect(before.body.error).toBe('sudo_required')
 
-    const passkeyMethod = adminMethods.body.methods.find((method) => method.type === 'passkey')
-    test.skip(!passkeyMethod, 'This environment needs an admin passkey method to exercise passkey sudo step-up.')
-
-    const credentialId = passkeyMethod?.providerMetadata?.credentialId
-    expect(typeof credentialId).toBe('string')
-
-    const configsResponse = await fetchJson<{
-      items: Array<{ id: string; targetIdentifier: string; isEnabled: boolean }>
-    }>(
-      request,
-      'GET',
-      '/api/security/sudo/configs',
-      { token: adminToken },
-    )
-    test.skip(
-      configsResponse.status === 403,
-      'The seeded admin account in this workspace does not have security.sudo.view access, so sudo-config coverage cannot run here.',
-    )
-    expect(configsResponse.status).toBe(200)
-
-    const resetConfig = configsResponse.body.items.find((config) => config.targetIdentifier === 'security.admin.mfa.reset')
-    const sudoManageConfig = configsResponse.body.items.find((config) => config.targetIdentifier === 'security.sudo.manage')
-    expect(resetConfig?.id).toBeTruthy()
-    expect(sudoManageConfig?.id).toBeTruthy()
-
-    const resetWithoutSudo = await fetchJson<{ error?: string }>(
-      request,
-      'POST',
-      `/api/security/users/${targetUserId}/mfa/reset`,
-      {
-        token: adminToken,
-        data: { reason: 'TC-SEC-006 initial reset rejection' },
+    const manageSudo = await verifyTotpSudoChallenge(request, {
+      token, secret, targetIdentifier: 'security.sudo.manage',
+    })
+    const configBefore = await fetchJson<{ isEnabled: boolean; updatedAt: string }>(request, 'GET', configPath, { token })
+    expect(configBefore.status).toBe(200)
+    expect(configBefore.body.isEnabled).toBe(true)
+    const rejectedUpdate = await fetchJson<{ error?: string }>(request, 'PUT', configPath, {
+      token,
+      headers: {
+        'x-sudo-token': `${manageSudo.sudoToken}-invalid`,
+        [OPTIMISTIC_LOCK_HEADER_NAME]: configBefore.body.updatedAt,
       },
-    )
-    expect(resetWithoutSudo.status).toBe(403)
-    expect(resetWithoutSudo.body.error).toBe('sudo_required')
+      data: { isEnabled: false },
+    })
+    expect(rejectedUpdate.status).toBe(403)
+    expect(rejectedUpdate.body.error).toBe('sudo_required')
 
-    const manageSudo = await fetchJson<SudoSessionResponse>(
-      request,
-      'POST',
-      '/api/security/sudo',
-      {
-        token: adminToken,
-        data: {
-          targetIdentifier: 'security.sudo.manage',
-        },
+    const disabled = await fetchJson<{ ok?: boolean }>(request, 'PUT', configPath, {
+      token,
+      headers: {
+        'x-sudo-token': manageSudo.sudoToken as string,
+        [OPTIMISTIC_LOCK_HEADER_NAME]: configBefore.body.updatedAt,
       },
-    )
-    expect(manageSudo.status).toBe(200)
-    expect(manageSudo.body.required).toBe(true)
-    expect(manageSudo.body.method).toBe('mfa')
-    expect(manageSudo.body.expiresAt).toBeTruthy()
+      data: { isEnabled: false },
+    })
+    expect(disabled.status).toBe(200)
+    expect(disabled.body.ok).toBe(true)
+    const allowed = await reset()
+    expect(allowed.status).toBe(200)
+    expect(allowed.body.ok).toBe(true)
 
-    const managePrepared = await fetchJson<{ clientData?: { challenge?: string } }>(
-      request,
-      'POST',
-      '/api/security/sudo/prepare',
-      {
-        token: adminToken,
-        data: {
-          sessionId: manageSudo.body.sessionId,
-          methodType: 'passkey',
-        },
+    const configDisabled = await fetchJson<{ isEnabled: boolean; updatedAt: string }>(request, 'GET', configPath, { token })
+    expect(configDisabled.status).toBe(200)
+    expect(configDisabled.body.isEnabled).toBe(false)
+    const enabled = await fetchJson<{ ok?: boolean }>(request, 'PUT', configPath, {
+      token,
+      headers: {
+        'x-sudo-token': manageSudo.sudoToken as string,
+        [OPTIMISTIC_LOCK_HEADER_NAME]: configDisabled.body.updatedAt,
       },
-    )
-    expect(managePrepared.status).toBe(200)
-
-    const manageVerify = await fetchJson<{ sudoToken?: string; expiresAt?: string }>(
-      request,
-      'POST',
-      '/api/security/sudo/verify',
-      {
-        token: adminToken,
-        data: {
-          sessionId: manageSudo.body.sessionId,
-          targetIdentifier: 'security.sudo.manage',
-          methodType: 'passkey',
-          payload: {
-            credentialId,
-            challenge: managePrepared.body.clientData?.challenge,
-          },
-        },
-      },
-    )
-    expect(manageVerify.status).toBe(401)
-    expect(manageVerify.body.sudoToken).toBeFalsy()
-
-    test.skip(
-      true,
-      'Passkey sudo step-up requires a genuine WebAuthn assertion (#3852), which no API-level fixture can produce; the remaining sudo-config coverage needs a Playwright virtual authenticator.',
-    )
-
-    const disableReset = await fetchJson<{ ok?: boolean }>(
-      request,
-      'PUT',
-      `/api/security/sudo/configs/${resetConfig?.id}`,
-      {
-        token: adminToken,
-        headers: {
-          'x-sudo-token': manageVerify.body.sudoToken as string,
-        },
-        data: {
-          isEnabled: false,
-        },
-      },
-    )
-    expect(disableReset.status).toBe(200)
-
-    const resetWhileDisabled = await fetchJson<{ ok?: boolean }>(
-      request,
-      'POST',
-      `/api/security/users/${targetUserId}/mfa/reset`,
-      {
-        token: adminToken,
-        data: { reason: 'TC-SEC-006 reset while sudo protection disabled' },
-      },
-    )
-    expect(resetWhileDisabled.status).toBe(200)
-    expect(resetWhileDisabled.body.ok).toBe(true)
-
-    const reEnableReset = await fetchJson<{ ok?: boolean }>(
-      request,
-      'PUT',
-      `/api/security/sudo/configs/${resetConfig?.id}`,
-      {
-        token: adminToken,
-        headers: {
-          'x-sudo-token': manageVerify.body.sudoToken as string,
-        },
-        data: {
-          isEnabled: true,
-          challengeMethod: 'auto',
-          ttlSeconds: 30,
-        },
-      },
-    )
-    expect(reEnableReset.status).toBe(200)
-
-    const resetAfterReEnable = await fetchJson<{ error?: string }>(
-      request,
-      'POST',
-      `/api/security/users/${targetUserId}/mfa/reset`,
-      {
-        token: adminToken,
-        data: { reason: 'TC-SEC-006 reset re-enabled check' },
-      },
-    )
-    expect(resetAfterReEnable.status).toBe(403)
-    expect(resetAfterReEnable.body.error).toBe('sudo_required')
-
-    const invalidSudoTokenResponse = await fetchJson<{ error?: string }>(
-      request,
-      'POST',
-      `/api/security/users/${targetUserId}/mfa/reset`,
-      {
-        token: adminToken,
-        headers: {
-          'x-sudo-token': `${manageVerify.body.sudoToken}-invalid`,
-        },
-        data: { reason: 'TC-SEC-006 invalid token rejection' },
-      },
-    )
-    expect(invalidSudoTokenResponse.status).toBe(403)
-    expect(invalidSudoTokenResponse.body.error).toBe('sudo_required')
-
-    const userLogin = await loginViaApi(request, targetUserEmail, targetUserPassword)
-    expect(userLogin.ok).toBe(true)
+      data: { isEnabled: true },
+    })
+    expect(enabled.status).toBe(200)
+    expect(enabled.body.ok).toBe(true)
+    const protectedAgain = await reset()
+    expect(protectedAgain.status).toBe(403)
+    expect(protectedAgain.body.error).toBe('sudo_required')
   })
 })

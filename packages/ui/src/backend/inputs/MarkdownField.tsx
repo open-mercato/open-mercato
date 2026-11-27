@@ -3,10 +3,14 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import type { ComponentType } from 'react'
+import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { useRegisteredComponent } from '../injection/useRegisteredComponent'
+import type { MarkdownCodeBlockLanguages } from '../markdown/codeBlockLanguages'
 
 export type MarkdownFieldProps = {
   value?: string
   onChange: (markdown: string) => void
+  codeBlockLanguages?: MarkdownCodeBlockLanguages
 }
 
 const isTestEnv =
@@ -29,6 +33,17 @@ const MarkdownFieldLive = dynamic(() => import('./MdxEditorImpl'), { ssr: false 
 // Canonical Markdown editor for the whole app: a WYSIWYG MDXEditor (Lexical) that emits Markdown.
 // Client-only (Lexical needs the DOM), loaded via next/dynamic with ssr disabled. Use this
 // everywhere a Markdown editing field is needed.
-const MarkdownField: ComponentType<MarkdownFieldProps> = isTestEnv ? MarkdownFieldTestStub : MarkdownFieldLive
+const MarkdownFieldBase: ComponentType<MarkdownFieldProps> = isTestEnv ? MarkdownFieldTestStub : MarkdownFieldLive
+
+export const MARKDOWN_FIELD_COMPONENT_HANDLE = ComponentReplacementHandles.section('ui.inputs', 'MarkdownField')
+
+function MarkdownField(props: MarkdownFieldProps) {
+  const Editor = useRegisteredComponent(MARKDOWN_FIELD_COMPONENT_HANDLE, MarkdownFieldBase)
+  return (
+    <div data-component-handle={MARKDOWN_FIELD_COMPONENT_HANDLE}>
+      <Editor {...props} />
+    </div>
+  )
+}
 
 export default MarkdownField

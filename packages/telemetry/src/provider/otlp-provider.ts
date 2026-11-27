@@ -65,6 +65,7 @@ import { BACKUP_TRACEPARENT_HEADER, BACKUP_TRACESTATE_HEADER } from '../trace-he
 import { redactAttributes, redactPii } from '../facade/redact'
 import { serializeError } from '../facade/serialize'
 import { runSpan } from './run-span'
+import { createRedactingSpanProcessor } from './redacting-span-processor'
 
 const TRACER_NAME = 'open-mercato'
 
@@ -289,7 +290,8 @@ export class OtlpProvider implements TelemetryProvider {
       // Parent-based so child spans follow the trace's sampling decision; root
       // spans sample at the configured ratio.
       sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(env.samplingRatio) }),
-      spanProcessors: this.options.spanProcessors ?? [new BatchSpanProcessor(new OTLPTraceExporter())],
+      spanProcessors: (this.options.spanProcessors ?? [new BatchSpanProcessor(new OTLPTraceExporter())])
+        .map(createRedactingSpanProcessor),
       logRecordProcessors: this.options.logRecordProcessors ?? [
         new BatchLogRecordProcessor({ exporter: new OTLPLogExporter() }),
       ],

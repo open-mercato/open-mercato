@@ -431,7 +431,7 @@ export function createPersonLinkAdapter(
                 <div className="truncate text-xs font-semibold text-foreground">
                   {activity.title}
                   {activity.occurredAt ? (
-                    <span className="text-muted-foreground"> · {formatRelative(activity.occurredAt)}</span>
+                    <span className="text-muted-foreground">, {formatRelative(activity.occurredAt)}</span>
                   ) : null}
                 </div>
                 {activity.summary ? (

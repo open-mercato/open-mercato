@@ -1,4 +1,4 @@
-import { redactPii, redactAttributes } from '../facade/redact'
+import { redactPii, redactAttributes, redactUrl, redactSpanName } from '../facade/redact'
 
 describe('redactPii', () => {
   it('masks email addresses', () => {
@@ -87,6 +87,75 @@ describe('redactAttributes', () => {
     expect(redactAttributes({ note: 'contact jan@example.com', module: 'orders' })).toEqual({
       note: 'contact [redacted-email]',
       module: 'orders',
+    })
+  })
+})
+
+
+describe('URL redaction', () => {
+  const token = 'a'.repeat(64)
+  const uuid = '3f2504e0-4f89-41d3-9a0c-0305e82c3301'
+
+  it.each(['token', 'code', 'search'])('masks every %s query value and preserves keys', (key) => {
+    expect(redactUrl(`/callback?${key}=one-time-secret&page=2&${key}=again`)).toBe(
+      `/callback?${key}=[redacted]&page=[redacted]&${key}=[redacted]`,
+    )
+  })
+
+  it('masks reset tokens and preserves UUID path segments', () => {
+    expect(redactUrl(`/reset/${token}`)).toBe('/reset/[redacted]')
+    expect(redactUrl(`/records/${uuid}`)).toBe(`/records/${uuid}`)
+    expect(redactUrl(`/reset/${'A_-b'.repeat(8)}`)).toBe('/reset/[redacted]')
+    expect(redactUrl(`/reset/${'a'.repeat(31)}`)).toBe(`/reset/${'a'.repeat(31)}`)
+  })
+
+  it('handles absolute, relative, encoded and malformed URLs without retaining values', () => {
+    expect(redactUrl(`https://example.com/reset/${token}?token=a%26b&flag#secret`)).toBe(
+      'https://example.com/reset/[redacted]?token=[redacted]&flag#[redacted]',
+    )
+    expect(redactUrl(`/reset/${'%61'.repeat(32)}`)).toBe('/reset/[redacted]')
+    expect(redactUrl('/reset/%broken?token=secret')).toBe('/reset/[redacted]?token=[redacted]')
+    expect(redactUrl('/api/customers')).toBe('/api/customers')
+    expect(redactUrl('')).toBe('')
+  })
+
+  it.each([
+    ['https://synthetic-user:synthetic-password@example.com/reset?token=secret', 'https://example.com/reset?token=[redacted]'],
+    ['//synthetic-user:synthetic-password@example.com:8443/path', '//example.com:8443/path'],
+    ['https://synthetic-user@example.com/path', 'https://example.com/path'],
+    ['https://synthetic%40user:synthetic%3Apassword@example.com/path', 'https://example.com/path'],
+    ['https://synthetic@user:synthetic@password@example.com/path', 'https://example.com/path'],
+    ['https://synthetic-user:synthetic-password@[2001:db8::1]:8443/path', 'https://[2001:db8::1]:8443/path'],
+  ])('removes embedded credentials from URL authority %s', (url, expected) => {
+    expect(redactUrl(url)).toBe(expected)
+    expect(redactAttributes({ 'http.url': url, 'url.full': url })).toEqual({
+      'http.url': expected,
+      'url.full': expected,
+    })
+    expect(redactSpanName(`fetch GET ${url}`)).toBe(`fetch GET ${expected}`)
+  })
+
+  it('cleans URL-bearing span names while preserving operation names', () => {
+    expect(redactSpanName(`fetch GET https://example.com/reset/${token}?code=secret`)).toBe(
+      'fetch GET https://example.com/reset/[redacted]?code=[redacted]',
+    )
+    expect(redactSpanName(`GET /reset/${token}?token=secret`)).toBe('GET /reset/[redacted]?token=[redacted]')
+    expect(redactSpanName('customers.person.updated')).toBe('customers.person.updated')
+  })
+
+  it('cleans each URL attribute including the standalone query convention', () => {
+    expect(redactAttributes({
+      'http.target': `/reset/${token}?token=secret`,
+      'http.url': 'https://example.com/callback?code=secret',
+      'url.full': 'https://example.com/portal?token=secret',
+      'url.path': `/reset/${token}`,
+      'url.query': 'token=secret&search=private&page=2',
+    })).toEqual({
+      'http.target': '/reset/[redacted]?token=[redacted]',
+      'http.url': 'https://example.com/callback?code=[redacted]',
+      'url.full': 'https://example.com/portal?token=[redacted]',
+      'url.path': '/reset/[redacted]',
+      'url.query': 'token=[redacted]&search=[redacted]&page=[redacted]',
     })
   })
 })

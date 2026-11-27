@@ -3,6 +3,7 @@ import {
   getModuleResourceUsageReport,
   resetModuleResourceUsage,
 } from '@open-mercato/shared/lib/modules/resource-usage'
+import { bindRequestScopeContainer, getRequestScopeContainer } from '@open-mercato/shared/lib/di/request-scope'
 import { createPerJobWorkerHandler, type WorkerJobContainer } from '../worker-job-handler'
 
 type FakeContainer = WorkerJobContainer & {
@@ -73,6 +74,36 @@ describe('createPerJobWorkerHandler', () => {
     expect(seenEms[0]).not.toBe(seenEms[1])
   })
 
+  it('passes the job container itself as ctx.container when it supports register()', async () => {
+    const register = jest.fn()
+    const realContainer: WorkerJobContainer = {
+      resolve: <T = unknown>(): T => undefined as unknown as T,
+      register,
+    }
+    const seen: unknown[] = []
+    const worker = makeWorker('w', (_job, ctx) => {
+      seen.push((ctx as { container?: unknown }).container)
+    })
+    const handler = createPerJobWorkerHandler([worker], async () => realContainer)
+
+    await handler({ id: 'a' }, { ...baseCtx, jobId: 'a' })
+
+    expect(seen).toEqual([realContainer])
+  })
+
+  it('leaves ctx.container undefined when the job container only resolves', async () => {
+    const { factory } = makeContainerFactory()
+    const seen: unknown[] = []
+    const worker = makeWorker('w', (_job, ctx) => {
+      seen.push((ctx as { container?: unknown }).container)
+    })
+    const handler = createPerJobWorkerHandler([worker], factory)
+
+    await handler({ id: 'a' }, { ...baseCtx, jobId: 'a' })
+
+    expect(seen).toEqual([undefined])
+  })
+
   it('isolates concurrent jobs in distinct containers (no shared EntityManager)', async () => {
     const { factory, containers } = makeContainerFactory()
     let release: (() => void) | null = null
@@ -101,6 +132,56 @@ describe('createPerJobWorkerHandler', () => {
     expect(resolvedEms[0]).toBe(containers[0].em)
     expect(resolvedEms[1]).toBe(containers[1].em)
     expect(resolvedEms[0]).not.toBe(resolvedEms[1])
+  })
+
+  it('exposes each concurrent job container as that job request scope container', async () => {
+    const { factory, containers } = makeContainerFactory()
+    let release: (() => void) | null = null
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const scoped: unknown[] = []
+    let firstEntered = false
+    const worker = makeWorker('w', async () => {
+      if (!firstEntered) {
+        firstEntered = true
+        await gate
+      }
+      scoped.push(getRequestScopeContainer())
+    })
+    const handler = createPerJobWorkerHandler([worker], factory)
+
+    const first = handler({ id: 'a' }, { ...baseCtx, jobId: 'a' })
+    const second = handler({ id: 'b' }, { ...baseCtx, jobId: 'b' })
+    await Promise.resolve()
+    await new Promise((resolve) => setImmediate(resolve))
+    release?.()
+    await Promise.all([first, second])
+
+    expect(scoped).toEqual([containers[1], containers[0]])
+    expect(getRequestScopeContainer()).toBeNull()
+  })
+
+  it('retains job ownership when a worker builds and binds a sibling container', async () => {
+    const { factory, containers } = makeContainerFactory()
+    const observed: unknown[] = []
+    const handler = createPerJobWorkerHandler([
+      makeWorker('first', async () => {
+        const sibling = await factory()
+        bindRequestScopeContainer(sibling)
+        await new Promise((resolve) => setImmediate(resolve))
+        observed.push(getRequestScopeContainer())
+      }),
+      makeWorker('second', () => { observed.push(getRequestScopeContainer()) }),
+    ], factory)
+
+    await handler({ id: 'a' }, baseCtx)
+
+    expect(containers).toHaveLength(2)
+    expect(observed).toEqual([containers[0], containers[0]])
+    expect(containers[0].em.clear).toHaveBeenCalledTimes(1)
+    expect(containers[1].em.clear).not.toHaveBeenCalled()
+    expect(getRequestScopeContainer()).toBeNull()
   })
 
   it('runs every worker for the queue against the same per-job container', async () => {

@@ -1,5 +1,6 @@
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
+import { inAppNotificationsAvailable } from '../lib/inAppNotifications'
 import { notificationTypes } from '../notifications'
 
 export const metadata = {
@@ -27,6 +28,8 @@ export default async function auditSubscriber(
 
   const typeDef = notificationTypes.find((type) => type.type === 'security.password.changed')
   if (!typeDef) return
+
+  if (!inAppNotificationsAvailable(ctx)) return
 
   const notificationService = resolveNotificationService(ctx)
   await notificationService.create(

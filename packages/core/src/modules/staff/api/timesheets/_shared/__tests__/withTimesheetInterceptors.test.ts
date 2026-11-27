@@ -292,6 +292,46 @@ describe('runTimesheetInterceptors', () => {
 
     expect(run.ok).toBe(true)
   })
+
+  it('drops reserved prototype extension headers while delivering valid extension headers to interceptors (#10331)', async () => {
+    let seenHeaders: Record<string, Record<string, string>> | undefined
+    registerApiInterceptors([
+      {
+        moduleId: 'test',
+        interceptors: [
+          {
+            id: 'test.ext-headers',
+            targetRoute: 'staff/timesheets/my-work',
+            methods: ['GET'],
+            async before(_req, context) {
+              seenHeaders = context.extensionHeaders
+              return { ok: true }
+            },
+          },
+        ],
+      },
+    ])
+
+    const req = new Request('https://app.test/api/staff/timesheets/my-work', {
+      method: 'GET',
+      headers: {
+        'x-om-ext-__proto__-schema': 'evil schema',
+        'x-om-ext-constructor-prototype': 'polluted',
+        'x-om-ext-jira-token': 'valid-tok',
+      },
+    })
+
+    const run = await runTimesheetInterceptors({
+      request: req,
+      method: 'GET',
+      scope: scopeFor(),
+    })
+
+    expect(run.ok).toBe(true)
+    expect(seenHeaders).toEqual({ jira: { token: 'valid-tok' } })
+    expect(Object.getPrototypeOf(seenHeaders)).toBeNull()
+    expect(({} as Record<string, unknown>).schema).toBeUndefined()
+  })
 })
 
 describe('readSearchParamsRecord', () => {

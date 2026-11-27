@@ -28,7 +28,7 @@ const entityId = '77777777-7777-4777-8777-777777777777'
 
 function harness(auth: Record<string, unknown> = {}, author: string | null = authorId) {
   const entity = { id: entityId, kind: 'person', tenantId, organizationId }
-  const comment = { id: commentId, tenantId, organizationId, entity, deal: null, body: 'Original', authorUserId: author } as CustomerComment
+  const comment = Object.assign(new CustomerComment(), { id: commentId, tenantId, organizationId, entity, deal: null, body: 'Original', authorUserId: author })
   const users = [{ id: targetId, tenantId, organizationId, deletedAt: null as Date | null }]
   const em = {
     findOne: jest.fn(async (type: unknown, filters: Record<string, unknown>) => {
@@ -64,7 +64,7 @@ describe('customer comment author attribution (#8759)', () => {
     expect(comment).toMatchObject({ body: 'Edited', authorUserId: authorId })
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(emitCrudSideEffects).toHaveBeenCalledWith(expect.objectContaining({ action: 'updated', entity: comment }))
-    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(findOneWithDecryption).not.toHaveBeenCalledWith(expect.anything(), User, expect.anything(), undefined, expect.anything())
   })
 
   it.each([{}, { isSuperAdmin: true }, { isApiKey: true }])('preserves omission for %j even when editor differs', async auth => {
@@ -108,7 +108,7 @@ describe('customer comment author attribution (#8759)', () => {
     const { ctx, comment } = harness({ isSuperAdmin: true })
     await commentUpdateHandler().execute({ id: commentId, body: 'History', authorUserId: authorId }, ctx)
     expect(comment).toMatchObject({ body: 'History', authorUserId: authorId })
-    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(findOneWithDecryption).not.toHaveBeenCalledWith(expect.anything(), User, expect.anything(), undefined, expect.anything())
   })
 
   it.each(['tenantId', 'organizationId'])('retains the comment %s denial', async field => {

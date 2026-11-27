@@ -113,6 +113,12 @@ export type ActionResult = {
   result?: Record<string, unknown>
 }
 
+export type MessageDetailDeletion = {
+  queriesEnabled: () => boolean
+  getRefreshSignal: () => AbortSignal
+  runDelete: (operation: () => Promise<boolean>) => Promise<boolean>
+}
+
 export type PendingActionConfirmation = {
   action: MessageAction
   payload?: Record<string, unknown>

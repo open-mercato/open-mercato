@@ -31,7 +31,7 @@ interface ActivitiesCardProps {
   onEditActivity?: (activity: InteractionSummary) => void
   /**
    * Optional company name for the parent entity. When the planned activity has no `dealTitle`,
-   * the row subtitle falls back to "{type} · {company}" to mirror Figma 784:809.
+   * the row subtitle falls back to "{type}, {company}" to mirror Figma 784:809.
    */
   entityCompanyName?: string | null
 }
@@ -242,7 +242,7 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
   const overdue = validDate && date.getTime() < Date.now() && isOpenInteractionStatus(activity.status)
   const typeLabel = labelForType(activity.interactionType, t)
   const subtitleSuffix = activity.dealTitle ?? entityCompanyName ?? null
-  const subtitle = subtitleSuffix ? `${typeLabel} · ${subtitleSuffix}` : typeLabel
+  const subtitle = subtitleSuffix ? `${typeLabel}, ${subtitleSuffix}` : typeLabel
   const interactive = !!onClick
 
   return (

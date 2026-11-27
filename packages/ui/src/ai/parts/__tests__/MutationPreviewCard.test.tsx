@@ -151,6 +151,29 @@ describe('MutationPreviewCard', () => {
     expect(document.querySelector('[data-ai-mutation-preview-mode]')?.getAttribute('data-ai-mutation-preview-mode')).toBe('single')
   })
 
+  it('shows only the comment body edit when the pending action includes an empty dealId', () => {
+    const action = makeAction({
+      toolName: 'customers.update_comment',
+      targetEntityType: 'customers.comment',
+      fieldDiff: [
+        { field: 'dealId', before: null, after: '' },
+        { field: 'body', before: 'old', after: 'new 2' },
+      ],
+    })
+    installPollingMock(action)
+    renderWithProviders(
+      <MutationPreviewCard componentId="mutation-preview-card" pendingActionId="pa-1" />,
+      { dict },
+    )
+
+    expect(screen.queryByText('dealId')).not.toBeInTheDocument()
+    expect(screen.getByText('old')).toBeInTheDocument()
+    expect(screen.getByText('new 2')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    expect(action.fieldDiff).toHaveLength(2)
+    expect(confirmPendingAction).not.toHaveBeenCalled()
+  })
+
   it('renders records[] batch mode with count + labels summary', () => {
     installPollingMock(
       makeAction({

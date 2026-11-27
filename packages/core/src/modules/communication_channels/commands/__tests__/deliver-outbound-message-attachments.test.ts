@@ -24,6 +24,8 @@ jest.mock('../../lib/thread-token', () => ({
 
 import deliverOutboundMessageCommand from '../deliver-outbound-message'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Message } from '../../../messages/data/entities'
+import { ChannelThreadMapping, CommunicationChannel, ExternalConversation, MessageChannelLink } from '../../data/entities'
 import { baseEmailCapabilities } from '../../lib/email-capabilities'
 import { OUTBOUND_ATTACHMENTS_METADATA_KEY } from '../../lib/outbound-attachments'
 
@@ -76,22 +78,25 @@ function makeCtx(options: { fileSharing?: boolean; readScoped?: jest.Mock; descr
 
 function primeFinds(link: Record<string, unknown>, channelUserId: string | null = 'u-1') {
   mockFindOne.mockReset()
-  mockFindOne
-    .mockResolvedValueOnce({ id: 'msg-1', threadId: 'thread-1', body: 'hello', bodyFormat: 'text' } as never)
-    .mockResolvedValueOnce(link as never)
-    .mockResolvedValueOnce({
+  const scope = { tenantId: TENANT, organizationId: ORG }
+  const records = new Map<unknown, Record<string, unknown>>([
+    [Message, { id: MSG, threadId: 'thread-1', body: 'hello', bodyFormat: 'text', deletedAt: null, ...scope }],
+    [MessageChannelLink, link],
+    [ChannelThreadMapping, {
       messageThreadId: 'thread-1',
       channelId: 'ch-1',
       providerKey: 'gmail',
       externalConversationId: 'conv-1',
       externalThreadRef: 'outbound:thread-1',
-    } as never)
-    .mockResolvedValueOnce({
+      ...scope,
+    }],
+    [ExternalConversation, {
       id: 'conv-1',
       channelId: 'ch-1',
       externalConversationId: 'outbound:thread-1',
-    } as never)
-    .mockResolvedValueOnce({
+      ...scope,
+    }],
+    [CommunicationChannel, {
       id: 'ch-1',
       isActive: true,
       providerKey: 'gmail',
@@ -99,12 +104,23 @@ function primeFinds(link: Record<string, unknown>, channelUserId: string | null 
       userId: channelUserId,
       credentialsRef: null,
       status: 'connected',
-    } as never)
+      deletedAt: null,
+      ...scope,
+    }],
+  ])
+  mockFindOne.mockImplementation(async (_em, entity, where) => {
+    const record = records.get(entity)
+    if (!record) throw new Error('[internal] Unexpected attachment delivery entity lookup')
+    return Object.entries(where).every(([key, value]) => record[key] === value) ? record as never : null
+  })
 }
 
 function pendingLink(): Record<string, unknown> {
   return {
     id: 'link-1',
+    messageId: MSG,
+    tenantId: TENANT,
+    organizationId: ORG,
     direction: 'outbound',
     providerKey: 'gmail',
     channelType: 'email',
@@ -130,6 +146,11 @@ describe('deliverOutboundMessageCommand — outbound attachments', () => {
     )
 
     expect((result as { status: string }).status).toBe('delivered')
+    expect(mockFindOne).toHaveBeenCalledWith(
+      expect.anything(), ExternalConversation,
+      { id: 'conv-1', channelId: 'ch-1', tenantId: TENANT, organizationId: ORG },
+      undefined, { tenantId: TENANT, organizationId: ORG },
+    )
     expect(readScoped).toHaveBeenCalledWith(
       expect.objectContaining({
         attachmentId: ATTACHMENT_ID,

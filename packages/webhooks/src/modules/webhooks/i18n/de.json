@@ -46,6 +46,7 @@
   "webhooks.detail.testSuccess": "Test delivery succeeded.",
   "webhooks.detail.title": "Webhook Detail",
   "webhooks.errors.credentialHeadersRequireReentry": "Der Header \"{header}\" hat einen verborgenen Wert. Geben Sie ihn erneut ein oder entfernen Sie ihn, wenn Sie die Webhook-URL ändern.",
+  "webhooks.errors.deliveryInFlight": "Diese Zustellung wird gerade gesendet. Versuchen Sie es erneut, sobald der Versuch abgeschlossen ist.",
   "webhooks.errors.forbidden": "You do not have permission to perform this action.",
   "webhooks.errors.notFound": "Webhook not found.",
   "webhooks.errors.orgRequired": "Organization context required.",

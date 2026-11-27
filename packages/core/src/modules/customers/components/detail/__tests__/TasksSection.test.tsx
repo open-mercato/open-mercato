@@ -10,6 +10,7 @@ const usePersonTasksMock = jest.fn()
 const useInteractionsMock = jest.fn()
 const confirmMock = jest.fn()
 const readApiResultOrThrowMock = jest.fn()
+const taskDialogMock = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   ...jest.requireActual('@open-mercato/ui/backend/utils/apiCall'),
@@ -32,11 +33,12 @@ jest.mock('../hooks/useInteractions', () => ({
 }))
 
 jest.mock('../TaskDialog', () => ({
-  TaskDialog: () => null,
+  TaskDialog: (props: unknown) => { taskDialogMock(props); return null },
 }))
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: () => null,
+  ErrorMessage: ({ label }: { label: string }) => <div role="alert">{label}</div>,
   TabEmptyState: ({ title, children }: { title: string; children?: React.ReactNode }) => (
     <div>
       <div>{title}</div>
@@ -46,6 +48,7 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
 }))
 
 jest.mock('../../../lib/interactionCompatibility', () => ({
+  CUSTOMER_INTERACTION_TASK_SOURCE: 'customers:interaction',
   mapInteractionRecordToTodoSummary: jest.fn((interaction: unknown) => interaction),
 }))
 
@@ -107,7 +110,97 @@ describe('TasksSection', () => {
       />,
     )
 
+    expect(screen.getByRole('link', { name: 'View all tasks' })).toHaveAttribute('href', '/backend/customer-tasks?customerId=customer-1')
+  })
+
+  it('scopes the View all tasks link to the current customer when the section lists tasks', () => {
+    usePersonTasksMock.mockReturnValue({
+      ...usePersonTasksMock(),
+      tasks: [sampleTask],
+    })
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[sampleTask]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+      />,
+    )
+
+    expect(screen.getByText('Follow up call')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View all tasks' })).toHaveAttribute('href', '/backend/customer-tasks?customerId=customer-1')
+  })
+
+  it('links to the unfiltered task list when the section has no customer yet', () => {
+    renderWithProviders(
+      <TasksSection
+        entityId={null}
+        initialTasks={[]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+      />,
+    )
+
     expect(screen.getByRole('link', { name: 'View all tasks' })).toHaveAttribute('href', '/backend/customer-tasks')
+  })
+
+  it.each([false, true])('shows an initial read error instead of an empty task list (canonical=%s)', (useCanonicalInteractions) => {
+    const failedRead = {
+      tasks: [],
+      interactions: [],
+      isInitialLoading: false,
+      isLoadingMore: false,
+      isMutating: false,
+      hasMore: false,
+      error: 'Task reader is unavailable',
+    }
+    usePersonTasksMock.mockReturnValue(failedRead)
+    useInteractionsMock.mockReturnValue(failedRead)
+
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+        useCanonicalInteractions={useCanonicalInteractions}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Task reader is unavailable')
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
+  })
+
+  it.each([false, true])('retains loaded tasks while showing a later read error (canonical=%s)', (useCanonicalInteractions) => {
+    const failedRead = {
+      tasks: [sampleTask],
+      interactions: [sampleTask],
+      isInitialLoading: false,
+      isLoadingMore: false,
+      isMutating: false,
+      hasMore: false,
+      error: 'Task refresh failed',
+    }
+    usePersonTasksMock.mockReturnValue(failedRead)
+    useInteractionsMock.mockReturnValue(failedRead)
+
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[sampleTask]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+        useCanonicalInteractions={useCanonicalInteractions}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Task refresh failed')
+    expect(screen.getByText('Follow up call')).toBeVisible()
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument()
   })
 
   it('emits the persistent section action when entityId is provided', () => {
@@ -192,6 +285,22 @@ describe('TasksSection', () => {
 
     expect(await screen.findByText('Native follow up')).toBeInTheDocument()
     expect(screen.getByText('Legacy follow up')).toBeInTheDocument()
+  })
+
+  it.each(['canceled', 'in_progress', 'waiting'])('uses the rich editor for native %s tasks in compatibility mode', (status) => {
+    usePersonTasksMock.mockReturnValue({
+      ...usePersonTasksMock(),
+      tasks: [{ ...sampleTask, todoSource: 'customers:interaction', status, isDone: false }],
+    })
+    renderWithProviders(
+      <TasksSection entityId="customer-1" initialTasks={[]} emptyLabel="No date"
+        addActionLabel="Create task" emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }} />,
+    )
+    if (status === 'canceled') expect(screen.getByRole('checkbox')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(taskDialogMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      open: true, useCanonicalInteractions: true, initialValues: expect.objectContaining({ status }),
+    }))
   })
 
   it('continues to render unified tasks from the canonical interactions loader', () => {

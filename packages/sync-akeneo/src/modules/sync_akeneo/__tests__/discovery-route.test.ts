@@ -12,7 +12,7 @@ type FindWithDecryptionArgs = [unknown, unknown, unknown, Record<string, unknown
 const findWithDecryptionMock = jest.fn<Promise<unknown[]>, FindWithDecryptionArgs>(async () => [])
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
+  findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...(args as FindWithDecryptionArgs)),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -22,7 +22,7 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (token: string) => {
-      if (token === 'em') return {}
+      if (token === 'em') return { getMetadata: () => ({ has: () => true }) }
       if (token === 'integrationCredentialsService') {
         return {
           resolve: async () => null,

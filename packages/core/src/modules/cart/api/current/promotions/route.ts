@@ -24,6 +24,7 @@ import { buildCartResponseEnvelope } from '../../../lib/cartView'
 import type { CartViewWarning } from '../../../lib/cartView'
 import { resolveCartWarningMessage } from '../../../lib/warningMessages'
 import { enforceCartRateLimit } from '../../../lib/rateLimit'
+import { reserveCartPromotionAttempt } from '../../../lib/promotionRateLimit'
 
 // Step 7.2 — `POST /current/promotions` -> `cart.promotions.apply` (§10 "Apply code").
 //
@@ -45,11 +46,11 @@ export async function POST(request: Request) {
     const container = await createRequestContainer()
     const token = readCartToken(request)
 
-    const limited = await enforceCartRateLimit(container, request, 'mutate', token)
-    if (limited) return limited
-
     const resolved = await resolveRouteContextOrError(request, container)
     if (!resolved.ok) return resolved.response
+
+    const limited = await enforceCartRateLimit(container, request, 'mutate', token, resolved.routeContext.storeId)
+    if (limited) return limited
     if (!token) return notFoundCartResponse()
 
     const commandBus = container.resolve('commandBus') as CommandBus
@@ -89,6 +90,9 @@ export async function POST(request: Request) {
       request,
     })
 
+    const attempt = await reserveCartPromotionAttempt(container, request, resolved.routeContext)
+    if (!attempt.ok) return attempt.response
+
     const commandInput: CartPromotionsApplyInput = {
       cartId: cart.id,
       tenantId: resolved.routeContext.tenantId,
@@ -101,6 +105,7 @@ export async function POST(request: Request) {
       { input: commandInput, ctx },
     )
 
+    await attempt.succeeded()
     await guarded.runAfterSuccess()
 
     const { translate } = await resolveTranslations()
@@ -143,7 +148,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'No `X-Cart-Token` header, or the token does not resolve a cart' },
         { status: 409, description: 'Optimistic-lock conflict, or `code_reservation_unavailable` (§15a)' },
         { status: 429, description: 'Rate limited' },
-        { status: 503, description: 'No store context resolvable for this request (§6a.1a)' },
+        { status: 503, description: 'Store context or promotion rate limiter unavailable' },
       ],
     },
   },

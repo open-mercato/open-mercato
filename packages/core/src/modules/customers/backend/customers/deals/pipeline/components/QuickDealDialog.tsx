@@ -15,6 +15,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { localizeKanbanPermissionError } from '../requestError'
 import { extensionPoints } from '../../../../../extension-points'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -357,6 +358,8 @@ export function QuickDealDialog({
         }),
         context: { formId: QUICK_DEAL_CONTEXT_ID, resourceKind: 'customers.deal', retryLastMutation },
         mutationPayload: payload,
+      }).catch((error: unknown) => {
+        throw localizeKanbanPermissionError(error, t)
       })
       flash(
         translateWithFallback(t, 'customers.deals.kanban.quickDeal.success', 'Deal added to {stage}.', { stage: context.pipelineStageLabel }),
@@ -391,7 +394,7 @@ export function QuickDealDialog({
             {translateWithFallback(
               t,
               'customers.deals.kanban.quickDeal.context',
-              'Pipeline: {pipeline} · Stage: {stage}',
+              'Pipeline: {pipeline}, Stage: {stage}',
               { pipeline: context.pipelineName, stage: context.pipelineStageLabel },
             )}
           </DialogDescription>

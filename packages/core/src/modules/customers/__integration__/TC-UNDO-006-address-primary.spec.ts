@@ -1,7 +1,17 @@
+import { randomUUID } from 'node:crypto'
 import { type APIRequestContext, expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import {
+  apiRequestWithSelectedOrg,
+  createOrganizationFixture,
+  createUserFixture,
+  deleteOrganizationIfExists,
+  deleteUserIfExists,
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { customerTestPassword } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
+import { deleteUserAclInDb, setUserAclInDb } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   expectOperation,
   redoOk,
@@ -216,6 +226,81 @@ test.describe('TC-UNDO-006 customers.addresses primary flag undo/redo', () => {
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/people', targetPersonId)
       await deleteEntityIfExists(request, token, '/api/customers/people', sourcePersonId)
+    }
+  })
+
+  test('promotion and undo leave a sibling organization’s address unchanged', async ({ request }) => {
+    const homeToken = await getAuthToken(request, 'admin')
+    const rootToken = await getAuthToken(request, 'superadmin')
+    const { tenantId, organizationId: homeOrganizationId } = getTokenScope(homeToken)
+    const marker = `undo-address-scope-${randomUUID()}`
+    const organizationId = await createOrganizationFixture(request, rootToken, { name: marker, tenantId })
+    const otherScope = { token: rootToken, selectedOrgId: organizationId }
+    let userId: string | null = null
+    let personId: string | null = null
+    let otherPersonId: string | null = null
+    let otherAddressId: string | null = null
+    try {
+      const otherPerson = await apiRequestWithSelectedOrg(request, 'POST', '/api/customers/people', {
+        ...otherScope, data: { firstName: 'Undo', lastName: marker, displayName: marker },
+      })
+      expect(otherPerson.status()).toBe(201)
+      otherPersonId = expectId((await readJsonSafe<{ id?: string }>(otherPerson))?.id, 'sibling person id')
+
+      const otherAddress = await apiRequestWithSelectedOrg(request, 'POST', ADDRESSES_PATH, {
+        ...otherScope, data: { entityId: otherPersonId, addressLine1: 'Sibling address', isPrimary: true },
+      })
+      expect(otherAddress.status()).toBe(201)
+      otherAddressId = expectId((await readJsonSafe<{ id?: string }>(otherAddress))?.id, 'sibling address id')
+
+      const email = `${marker}@example.test`
+      const password = customerTestPassword()
+      userId = await createUserFixture(request, rootToken, {
+        email, password, organizationId: homeOrganizationId, roles: [],
+      })
+      await setUserAclInDb({
+        userId,
+        tenantId,
+        features: ['customers.activities.view', 'customers.activities.manage', 'audit_logs.undo_self'],
+        organizations: [homeOrganizationId],
+      })
+      const token = await getAuthToken(request, email, password)
+      personId = await createPerson(request, homeToken, 'scoped')
+      const first = await createAddress(request, token, { entityId: personId, addressLine1: 'First', isPrimary: true })
+      const second = await createAddress(request, token, { entityId: personId, addressLine1: 'Second' })
+
+      const outOfScope = await apiRequest(request, 'GET', `${ADDRESSES_PATH}?id=${otherAddressId}`, { token })
+      expect(outOfScope.status()).toBe(200)
+      expect(await readJsonSafe(outOfScope)).toMatchObject({ items: [] })
+
+      const denied = await apiRequest(request, 'PUT', ADDRESSES_PATH, {
+        token, data: { id: otherAddressId, isPrimary: false },
+      })
+      expect([403, 404]).toContain(denied.status())
+
+      const promotion = await updateAddress(request, token, { id: second.id, isPrimary: true })
+      expect(await primaryIds(request, token, personId)).toEqual([second.id])
+      await undoOk(request, token, promotion.undoToken, 'scoped address promotion')
+      expect(await primaryIds(request, token, personId)).toEqual([first.id])
+
+      const otherAddresses = await apiRequestWithSelectedOrg(request, 'GET', `${ADDRESSES_PATH}?entityId=${otherPersonId}`, otherScope)
+      expect(otherAddresses.status()).toBe(200)
+      expect(await readJsonSafe(otherAddresses)).toMatchObject({
+        items: [expect.objectContaining({ id: otherAddressId, is_primary: true })],
+      })
+    } finally {
+      await deleteEntityIfExists(request, homeToken, '/api/customers/people', personId)
+      if (userId) {
+        await deleteUserAclInDb(userId)
+        await deleteUserIfExists(request, rootToken, userId)
+      }
+      if (otherAddressId) {
+        await apiRequestWithSelectedOrg(request, 'DELETE', `${ADDRESSES_PATH}?id=${otherAddressId}`, otherScope)
+      }
+      if (otherPersonId) {
+        await apiRequestWithSelectedOrg(request, 'DELETE', `/api/customers/people?id=${otherPersonId}`, otherScope)
+      }
+      await deleteOrganizationIfExists(request, rootToken, organizationId)
     }
   })
 })

@@ -14,7 +14,7 @@ function deriveKey(secret: string): Buffer {
 
 function getSecret(): string {
   const secret = process.env.SSO_STATE_SECRET || process.env.JWT_SECRET
-  if (!secret) throw new Error('SSO_STATE_SECRET or JWT_SECRET must be set')
+  if (!secret) throw new Error('[internal] SSO_STATE_SECRET or JWT_SECRET must be set')
   return secret
 }
 

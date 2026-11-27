@@ -2,7 +2,8 @@ import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleC
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { backfillDealLossReasonDictionary, seedSalesAdjustmentKinds, seedSalesStatusDictionaries } from './lib/dictionaries'
+import { backfillDealLossReasonDictionary } from '@open-mercato/core/modules/customers/lib/dealLossReasons'
+import { seedSalesAdjustmentKinds, seedSalesStatusDictionaries } from './lib/dictionaries'
 import { seedSalesTaxRates } from './lib/seeds'
 import { ensureExamplePaymentMethods, ensureExampleShippingMethods } from './seed/examples-data'
 import { seedSalesExamples } from './seed/examples'
@@ -114,6 +115,7 @@ const backfillDealLossReasonsCommand: ModuleCli = {
           `Deal loss reasons dictionary ready for organization ${organizationId}.`,
           `dictionaryId=${result.dictionaryId}`,
           `createdDictionary=${String(result.createdDictionary)}`,
+          `revivedDictionary=${String(result.revivedDictionary)}`,
           `copiedLegacyEntries=${String(result.copiedLegacyEntries)}`,
           `seededDefaultEntries=${String(result.seededDefaultEntries)}`,
           `existingEntries=${String(result.existingEntries)}`,

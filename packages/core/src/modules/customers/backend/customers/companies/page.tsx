@@ -439,7 +439,9 @@ export default function CustomersCompaniesPage() {
       } catch (err) {
         if (!cancelled) {
           setCacheStatus(null)
-          const message = err instanceof Error ? err.message : t('customers.companies.list.error.load')
+          const message = err instanceof Error && !(err instanceof TypeError)
+            ? err.message
+            : t('customers.companies.list.error.load')
           flash(message, 'error')
         }
       } finally {

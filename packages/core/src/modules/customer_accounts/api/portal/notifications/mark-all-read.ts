@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { arePortalNotificationsAvailable } from '@open-mercato/core/modules/customer_accounts/lib/portalNotificationsAvailability'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Notification } from '@open-mercato/core/modules/notifications/data/entities'
 
@@ -15,6 +16,9 @@ export async function PUT(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+  if (!arePortalNotificationsAvailable(em)) {
+    return NextResponse.json({ ok: true, count: 0 })
+  }
 
   const now = new Date()
   const count = await em.nativeUpdate(Notification, {

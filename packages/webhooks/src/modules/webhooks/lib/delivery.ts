@@ -340,6 +340,35 @@ async function claimWebhookDelivery(
   return affected > 0
 }
 
+export async function resetWebhookDeliveryForRetry(
+  em: EntityManager,
+  delivery: WebhookDeliveryEntity,
+  webhookTimeoutMs: number,
+): Promise<boolean> {
+  const resetAt = new Date()
+  const staleSendingBefore = new Date(resetAt.getTime() - (webhookTimeoutMs + SENDING_LEASE_GRACE_MS))
+  const affected = await em.nativeUpdate(
+    WebhookDeliveryEntity,
+    {
+      id: delivery.id,
+      tenantId: delivery.tenantId,
+      organizationId: delivery.organizationId,
+      $or: [
+        { status: { $ne: 'sending' } },
+        { status: 'sending', lastAttemptAt: null },
+        { status: 'sending', lastAttemptAt: { $lt: staleSendingBefore } },
+      ],
+    },
+    { status: 'pending', nextRetryAt: null, errorMessage: null, updatedAt: resetAt },
+  )
+  if (affected === 0) return false
+  delivery.status = 'pending'
+  delivery.nextRetryAt = null
+  delivery.errorMessage = null
+  delivery.updatedAt = resetAt
+  return true
+}
+
 async function releaseWebhookDeliveryClaim(
   em: EntityManager,
   delivery: WebhookDeliveryEntity,

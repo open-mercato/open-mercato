@@ -26,7 +26,7 @@ function collectTestFiles(directory: string): string[] {
 test('the test script builds and prepares Git history before the runner starts', () => {
   assert.match(
     testScript,
-    /^node build\.mjs && node scripts\/prepare-test-git-history\.mjs && node /,
+    /^node (?:--max-old-space-size=\d+ )?build\.mjs && node scripts\/prepare-test-git-history\.mjs && node /,
     'the package build and shallow-history fetch must finish before parallel tests start (#5059, #5236)',
   )
   assert.equal(fs.existsSync(join(pkgRoot, 'scripts', 'prepare-test-git-history.mjs')), true)
