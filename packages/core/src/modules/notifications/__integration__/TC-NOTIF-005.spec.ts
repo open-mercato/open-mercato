@@ -16,7 +16,7 @@ import {
 test.describe('TC-NOTIF-005: notifications.create gates create endpoints', () => {
   test('denies notification creation endpoints to a user without notifications.create', async ({ request }) => {
     const stamp = Date.now()
-    const password = 'Valid1!Pass'
+    const password = 'QaValid1!Pass'
     const email = `qa-notif-create-rbac-${stamp}@acme.com`
     const roleName = `qa_notif_create_rbac_${stamp}`
 

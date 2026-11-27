@@ -953,6 +953,7 @@
   "ui.filters.dateRange.to": "종료일",
   "ui.filters.select.placeholder": "옵션 선택",
   "ui.filters.title": "필터",
+  "ui.flash.dismiss": "알림 닫기",
   "ui.forms.actions.cancel": "취소",
   "ui.forms.actions.clear": "지우기",
   "ui.forms.actions.delete": "삭제",

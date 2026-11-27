@@ -36,7 +36,7 @@ describe('security.password.change command', () => {
         issues: [{ path: ['currentPassword'], message: 'Current password is invalid' }],
       },
     })
-    expect(changePassword).toHaveBeenCalledWith('user-1', 'WrongPass1!', 'StrongPass2!')
+    expect(changePassword).toHaveBeenCalledWith('user-1', 'WrongPass1!', 'StrongPass2!', undefined)
   })
 
   test('keeps policy violations attached to the new password field', async () => {

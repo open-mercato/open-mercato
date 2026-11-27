@@ -9,6 +9,8 @@ import { buildCalendarItem } from './fixtures'
 
 const confirmMock = jest.fn()
 const resolveRelatedMock = jest.fn()
+const overlapWarning = jest.fn<string | null, []>()
+const staffAvailability = jest.fn()
 const triggerEventMock = jest.fn(async (_event: string, data: unknown) => ({ ok: true, data }))
 const catalog = calendarEventTypes.map((definition) => ({ ...definition, selectable: true, historical: false }))
 let activeOrgId = 'org-1'
@@ -41,8 +43,9 @@ jest.mock('../editor/useCalendarCustomFields', () => ({
 }))
 jest.mock('../editor/hooks', () => ({
   ...jest.requireActual('../editor/hooks'),
-  useConflictProbe: () => null,
+  useConflictProbe: () => overlapWarning(),
 }))
+jest.mock('../useStaffAvailability', () => ({ useStaffAvailability: (...args: unknown[]) => staffAvailability(...args) }))
 jest.mock('../editor/lookups', () => ({
   fetchRelatedEntityById: (...args: unknown[]) => resolveRelatedMock(...args),
   fetchDealById: jest.fn(),
@@ -72,6 +75,8 @@ function editor(item = buildCalendarItem({ entityId: 'person-1' }), onOpenChange
 beforeEach(() => {
   confirmMock.mockReset().mockResolvedValue(false)
   resolveRelatedMock.mockReset()
+  overlapWarning.mockReset().mockReturnValue(null)
+  staffAvailability.mockReset().mockReturnValue(new Map())
   triggerEventMock.mockClear()
   activeOrgId = 'org-1'
 })
@@ -176,4 +181,41 @@ it('drops resolved labels and rejects a stale lookup when the organization chang
   await act(async () => { fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' }) })
   expect(confirmMock).not.toHaveBeenCalled()
   expect(onOpenChange).toHaveBeenCalledWith(false)
+})
+
+
+it('adds a Staff warning to the existing overlap alert without disabling save', async () => {
+  const organizationId = 'a9f03a91-8db8-4328-be75-5fda5ae8e643'
+  const userId = '4faecbdc-e480-4195-a80e-694c98872801'
+  const customerId = 'd2602511-06cb-40eb-a1b1-58be93b49496'
+  const item = buildCalendarItem({
+    raw: { id: 'item-1', interactionType: 'meeting', status: 'planned', timezone: 'UTC', organizationId },
+    start: new Date('2026-08-10T12:00:00Z'),
+    end: new Date('2026-08-10T13:00:00Z'),
+    participants: [
+      { userId, name: 'Jamie Staff' },
+      { userId: customerId, name: 'Taylor Customer', status: 'customer' },
+      { email: 'guest@example.org', name: 'External Guest' },
+    ],
+  })
+  overlapWarning.mockReturnValue('Overlaps with: Team meeting')
+  staffAvailability.mockReturnValue(new Map([[
+    `${organizationId}:${userId}`,
+    [{ start: Date.parse('2026-08-10T11:30:00Z'), end: Date.parse('2026-08-10T12:30:00Z'), kind: 'leave' }],
+  ]]))
+  const { rerender } = renderWithProviders(editor(item), { dict: translations })
+  const leaveWarning = await screen.findByText('Jamie Staff is on leave')
+  expect(leaveWarning.closest('[role="alert"]')).toBe(screen.getByText('Overlaps with: Team meeting').closest('[role="alert"]'))
+  expect(screen.getByRole('button', { name: 'Save event' })).toBeEnabled()
+  expect(staffAvailability).toHaveBeenCalledWith(expect.objectContaining({
+    organizationId,
+    userIds: [userId],
+    range: { from: new Date('2026-08-10T12:00:00Z'), to: new Date('2026-08-10T13:00:00Z') },
+  }))
+
+  staffAvailability.mockReturnValue(new Map())
+  rerender(editor(item))
+  expect(screen.queryByText('Jamie Staff is on leave')).not.toBeInTheDocument()
+  expect(screen.getByText('Overlaps with: Team meeting')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Save event' })).toBeEnabled()
 })
