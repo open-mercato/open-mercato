@@ -203,6 +203,7 @@ export async function fireTimer(
   }
 
   const transitionContext = {
+    container,
     workflowContext: instance.context,
     userId,
   }

@@ -7,6 +7,7 @@ import { createScopedHeaderStack } from './scopedHeaderStack'
 export type ApiCallOptions<TReturn> = {
   parse?: (res: Response) => Promise<TReturn | null>
   fallback?: TReturn | null
+  inheritScopedHeaders?: boolean
 }
 
 export type ApiCallResult<TReturn> = {
@@ -65,11 +66,14 @@ export async function apiCall<TReturn = Record<string, unknown>>(
   init?: RequestInit,
   options?: ApiCallOptions<TReturn>,
 ): Promise<ApiCallResult<TReturn>> {
-  const scopedHeaders = scopedRequestHeaders.resolveScopedHeaders()
+  const inheritScopedHeaders = options?.inheritScopedHeaders !== false
+  const scopedHeaders = inheritScopedHeaders ? scopedRequestHeaders.resolveScopedHeaders() : {}
   const requestInit = Object.keys(scopedHeaders).length > 0
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scopedHeaders) }
     : init
-  const response = await apiFetch(input, requestInit)
+  const response = inheritScopedHeaders
+    ? await apiFetch(input, requestInit)
+    : await apiFetch(input, requestInit, { inheritScopedHeaders: false })
   const parser = options?.parse
   const fallback = options?.fallback ?? null
   let result: TReturn | null = null

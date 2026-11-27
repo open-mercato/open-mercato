@@ -131,6 +131,8 @@ Use stable `jobType` values:
 ### Migration & Backward Compatibility
 
 - Additive only: existing `ProgressJob` API contracts remain unchanged.
+- `GET /api/progress/active` adds a per-caller `canCancel` boolean to active jobs without exposing `startedByUserId`. It requires a cancellable job, the caller's cancellation feature and writable organization scope, plus job ownership or `progress.manage`. The existing cancellation endpoint remains authoritative. The response is private and not cacheable.
+- `ProgressJobDto.canCancel` is optional for compatibility with existing producers. The top bar offers Cancel only for an active job with both `cancellable` and an explicit `canCancel: true`; unknown capabilities fail closed. SSE updates preserve the last authenticated capability and cannot grant one from a broadcast payload. No database migration or role grant change is needed.
 - Additive only: `ProgressUpdateDetail` may gain optional fields, but existing required fields remain stable.
 - Existing DataTable `bulkActions` that return `void` or `boolean` continue to work, but new mutating bulk actions MUST use progress.
 - Existing injected bulk actions returning `progressJobId` remain valid.
@@ -220,6 +222,7 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 - Unit: `runBulkDelete` emits start, step, and terminal progress events.
 - Unit: future `runBulkOperation` handles success, partial failure, full failure, and empty input.
 - Unit: `ProgressTopBar` hooks retain `client:*` jobs while merging `/api/progress/active` results.
+- Unit: cancellation capabilities cover owner, manager, missing cancellation permission, non-cancellable jobs and rejected organization scope; the top bar hides denied/unknown capabilities and SSE cannot elevate them. Integration: `TC-PROG-014` verifies authenticated owner/other-job capabilities, manager access and fixture cleanup.
 - Unit: DataTable prop bulk action handles `{ progressJobId }` by clearing selection and showing the standard “started” flash.
 - Integration: catalog products selected bulk delete returns `progressJobId` and appears in the top bar.
 - Integration: customers people/companies/deals selected bulk delete emits visible progress and preserves undo banner metadata.
@@ -250,6 +253,7 @@ Optional display fields may include `description`, `meta`, `etaSeconds`, `starte
 
 | Date | Change |
 |------|--------|
+| 2026-11-26 | Documented the additive authenticated cancellation capability, conservative legacy/SSE behavior and regression coverage for #8132. |
 | 2026-10-27 | Required the job's starter or `progress.manage` for updating and cancelling a job through the progress HTTP routes. |
 | 2026-10-04 | Defined fail-closed request-resolved organization scoping for every progress API/service query and service-local throttle cache reuse, including explicit empty, finite multi-org, tenant mismatch, and canonical unrestricted behavior. |
 | 2026-07-27 | Documented multi-instance CAS transitions, post-increment winner reloads, stale-pending recovery, and concurrency regression coverage. |

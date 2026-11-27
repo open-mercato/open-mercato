@@ -27,7 +27,7 @@ test.describe('TC-WC-007: warranty claims tenant isolation', () => {
 
     const stamp = uniqueLabel('tc-wc-007')
     const orgBEmail = `${stamp}@test.invalid`
-    const orgBPassword = 'Valid1!Pass'
+    const orgBPassword = 'QaValid1!Pass'
 
     let claimId: string | null = null
     let orgBId: string | null = null

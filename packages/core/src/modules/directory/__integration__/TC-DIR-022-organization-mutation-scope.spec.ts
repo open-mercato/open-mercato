@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
-import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken, postForm } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   createOrganizationFixture,
@@ -14,6 +14,54 @@ import {
 import { expectOperation, redoByLogId, undoByToken } from '@open-mercato/core/helpers/integration/undoHarness'
 
 test.describe('TC-DIR-022: Organization mutation actor scope (#8677)', () => {
+  test('uses the role grant in every organization view and in the settings list', async ({ page, request }) => {
+    const adminToken = await getAuthToken(request, 'superadmin')
+    const { tenantId } = getTokenContext(adminToken)
+    const stamp = randomUUID().slice(0, 8)
+    const parentName = `QA parent ${stamp}`
+    const childName = `QA organization ${stamp}`
+    const email = `qa-directory-${stamp}@example.test`
+    const password = `Qa1!${randomUUID()}`
+    const cleanups: Array<() => Promise<unknown>> = []
+    type OrganizationItem = { id: string; parentId: string | null; treePath: string }
+    try {
+      const parentId = await createOrganizationFixture(request, adminToken, { tenantId, name: parentName })
+      cleanups.push(() => deleteOrganizationIfExists(request, adminToken, parentId))
+      const childId = await createOrganizationFixture(request, adminToken, { tenantId, name: childName, parentId })
+      cleanups.push(() => deleteOrganizationIfExists(request, adminToken, childId))
+      const roleId = await createRoleFixture(request, adminToken, { tenantId, name: `QA directory ${stamp}` })
+      cleanups.push(() => deleteRoleIfExists(request, adminToken, roleId))
+      await setRoleAclFeatures(request, adminToken, {
+        roleId, features: ['directory.organizations.view'], organizations: [childId],
+      })
+      const userId = await createUserFixture(request, adminToken, { email, password, organizationId: childId, roles: [roleId] })
+      cleanups.push(() => deleteUserIfExists(request, adminToken, userId))
+      const token = await getAuthToken(request, email, password)
+
+      for (const view of ['options', 'manage', 'tree']) {
+        const response = await apiRequest(request, 'GET', `/api/directory/organizations?view=${view}`, { token })
+        expect(response.status()).toBe(200)
+        const body = await readJsonSafe<{ items: OrganizationItem[] }>(response)
+        expect(body?.items).toMatchObject([{ id: childId, parentId: null, treePath: childId }])
+      }
+      const filtered = await apiRequest(request, 'GET', `/api/directory/organizations?view=options&ids=${parentId}`, { token })
+      expect(await readJsonSafe(filtered)).toEqual({ items: [] })
+      const switcher = await apiRequest(request, 'GET', '/api/directory/organization-switcher', { token })
+      expect(switcher.status()).toBe(200)
+      expect(await readJsonSafe(switcher)).toMatchObject({
+        items: [{ id: parentId, selectable: false, children: [{ id: childId, selectable: true }] }],
+        canViewAllOrganizations: false,
+      })
+
+      expect((await postForm(page.request, '/api/auth/login', { email, password })).status()).toBe(200)
+      await page.goto('/backend/directory/organizations')
+      await expect(page.getByRole('row', { name: new RegExp(childName) })).toBeVisible()
+      await expect(page.getByRole('row', { name: new RegExp(parentName) })).toHaveCount(0)
+    } finally {
+      for (const cleanup of cleanups.reverse()) await cleanup()
+    }
+  })
+
   test('enforces expanded actor scope for targets, hierarchy destinations and replay without side effects', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'superadmin')
     const { tenantId } = getTokenContext(adminToken)

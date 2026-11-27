@@ -11,6 +11,7 @@ import type {
   InjectionWidgetPlacement,
 } from './injection'
 import { createLogger } from '../../lib/logger'
+import { extensionSpotChildId } from './extension-points'
 import {
   applyInjectionWidgetOverridesToEntries,
   applyInjectionWidgetOverridesToTables,
@@ -616,25 +617,28 @@ function warnSkippedWidget(metadataId: string, missingModules: string[]) {
   }
 }
 
-async function getResolvedEntriesForSpot(spotId: InjectionSpotId): Promise<TableEntry[]> {
+type ResolvedTableEntry = TableEntry & { requiresProjectionKind: boolean }
+
+async function getResolvedEntriesForSpot(spotId: InjectionSpotId, formRoot?: InjectionSpotId): Promise<ResolvedTableEntry[]> {
   const table = await loadInjectionTable()
-  const exactEntries = table.get(spotId) ?? []
-  const wildcardEntries: TableEntry[] = []
+  const exactEntries = (table.get(spotId) ?? []).map((entry) => ({ ...entry, requiresProjectionKind: true }))
+  const wildcardEntries: ResolvedTableEntry[] = []
+  const formSpots = formRoot && [formRoot, extensionSpotChildId(formRoot, 'header'), extensionSpotChildId(formRoot, 'fields')]
 
   for (const [candidateSpotId, candidateEntries] of table.entries()) {
     if (candidateSpotId === spotId) continue
     if (!candidateSpotId.includes('*')) continue
     if (!matchWildcardPattern(spotId, candidateSpotId)) continue
-    wildcardEntries.push(...candidateEntries)
+    const requiresProjectionKind = !formSpots || !formSpots.every((projection) => matchWildcardPattern(projection, candidateSpotId))
+    wildcardEntries.push(...candidateEntries.map((entry) => ({ ...entry, requiresProjectionKind })))
   }
 
-  const dedupedEntries = new Map<string, TableEntry>()
+  const dedupedEntries = new Map<string, ResolvedTableEntry>()
   for (const entry of [...exactEntries, ...wildcardEntries]) {
     const cacheKey = `${entry.moduleId}:${entry.widgetId}`
     const previous = dedupedEntries.get(cacheKey)
-    if (!previous || (entry.priority ?? 0) > (previous.priority ?? 0)) {
-      dedupedEntries.set(cacheKey, entry)
-    }
+    const winner = !previous || (entry.priority ?? 0) > (previous.priority ?? 0) ? entry : previous
+    dedupedEntries.set(cacheKey, { ...winner, requiresProjectionKind: entry.requiresProjectionKind || previous?.requiresProjectionKind === true })
   }
 
   return Array.from(dedupedEntries.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
@@ -711,4 +715,34 @@ export async function loadInjectionDataWidgetsForSpot(spotId: InjectionSpotId): 
     widgets.push({ ...widget, placement: combinedPlacement })
   }
   return widgets
+}
+
+/** Read explicitly bound widget dependencies without the fail-soft rendering fallback. */
+export async function loadConfiguredFormWidgetsForSpot(
+  spotId: InjectionSpotId,
+  kind: 'render' | 'data',
+  formRoot?: InjectionSpotId,
+): Promise<(LoadedInjectionWidget | LoadedInjectionDataWidget)[]> {
+  const slots = await getResolvedEntriesForSpot(spotId, formRoot)
+  if (!slots.length) return []
+  const entries = await loadWidgetEntries()
+  const hinted = new Map<string, WidgetEntry>()
+  for (const entry of entries) {
+    if (entry.widgetId && !hinted.has(entry.widgetId)) hinted.set(entry.widgetId, entry)
+  }
+  const enabled = getEnabledModuleIdsForInjection()
+  const widgets = await Promise.all(slots.map(async ({ widgetId, requiresProjectionKind }) => {
+    const entry = hinted.get(widgetId)
+    const widget = entry
+      ? { ...await loadEntry(entry), moduleId: entry.moduleId, key: entry.key }
+      : await loadWidgetLookupIndex().then((index) => index.widgetsById.get(widgetId) ?? index.dataWidgetsById.get(widgetId))
+    if (!widget || widget.metadata.id !== widgetId) throw new Error('[internal] Invalid configured form widget binding')
+    if (widget.metadata.enabled === false || !applyRequiredModuleGate(widget, enabled)) return null
+    if ((kind === 'render') !== isLoadedInjectionWidget(widget)) {
+      if (!requiresProjectionKind) return null
+      throw new Error('[internal] Invalid configured form widget kind')
+    }
+    return widget
+  }))
+  return widgets.filter((widget) => widget !== null)
 }

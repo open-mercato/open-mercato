@@ -16,7 +16,7 @@
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "dev:fix-wsl-watchers": "node ./scripts/fix-wsl-inotify.mjs",
     "dev:reset": "node ./scripts/dev-reset.mjs",
-    "build": "yarn generate && cross-env NODE_ENV=production NODE_OPTIONS=--max-old-space-size=8192 next build",
+    "build": "yarn generate && cross-env NODE_ENV=production node ./scripts/build-next.mjs",
     "mercato": "node ./scripts/mercato-cli.mjs",
     "start": "yarn mercato server start",
     "documents:collab": "node ./node_modules/@open-mercato/documents/dist/server/documents-collab-server.js",
@@ -25,6 +25,7 @@
     "i18n:check-hardcoded": "node scripts/i18n-check-hardcoded.mjs",
     "typecheck": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsc --noEmit",
     "test": "jest --config jest.config.cjs",
+    "ci": "node ./scripts/ci.mjs",
     "test:integration": "npx playwright test --config .ai/qa/tests/playwright.config.ts",
     "test:integration:ephemeral": "yarn mercato test:integration",
     "test:integration:ephemeral:start": "yarn mercato test:ephemeral",
@@ -171,7 +172,7 @@
   "resolutions": {
     "lodash": "4.18.1",
     "lodash-es": "4.18.1",
-    "node-forge": "1.4.1",
+    "node-forge": "1.4.3",
     "sharp": "0.35.5",
     "zod": "4.6.6"
   },

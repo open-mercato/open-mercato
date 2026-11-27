@@ -393,9 +393,14 @@ describe('entities decrypt-database CLI', () => {
     warnSpy.mockRestore()
   })
 
-  it.each([{ flags: [] }, { flags: ['--check'] }])('rejects real wrong-DEK envelopes with flags %j', async ({ flags }) => {
+  it.each([
+    { flags: [], plaintext: 'secret' },
+    { flags: ['--check'], plaintext: 'secret' },
+    { flags: [], plaintext: '' },
+    { flags: ['--check'], plaintext: '' },
+  ])('rejects real wrong-DEK envelopes with %j', async ({ flags, plaintext }) => {
     const actualAes = jest.requireActual<typeof import('@open-mercato/shared/lib/encryption/aes')>('@open-mercato/shared/lib/encryption/aes')
-    const ciphertext = actualAes.encryptWithAesGcm('secret', Buffer.alloc(32, 61).toString('base64')).value
+    const ciphertext = actualAes.encryptWithAesGcm(plaintext, Buffer.alloc(32, 61).toString('base64')).value
     setupDefaultMapFind()
     setupScopesAndRows([{ id: 'row-1', resource_id: ciphertext, email_hash: 'original-hash' }])
     mockDecrypt.mockImplementation((value) => actualAes.decryptWithAesGcmStrict(value, Buffer.alloc(32, 27).toString('base64')))
@@ -403,6 +408,32 @@ describe('entities decrypt-database CLI', () => {
     await expect(getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1', ...flags])).rejects.toMatchObject({ code: TenantDataEncryptionErrorCode.AUTH_FAILED })
     expect(execute.mock.calls.filter(([sql]) => String(sql).startsWith('UPDATE'))).toHaveLength(0)
     expect(logSpy.mock.calls.flat().join('\n')).not.toContain('Decryption complete')
+  })
+
+  it('decrypts an authenticated empty value and continues the maintenance batch', async () => {
+    const actualAes = jest.requireActual<typeof import('@open-mercato/shared/lib/encryption/aes')>('@open-mercato/shared/lib/encryption/aes')
+    const key = Buffer.alloc(32, 43).toString('base64')
+    const emptyEnvelope = actualAes.encryptWithAesGcm('', key).raw
+    const nextEnvelope = actualAes.encryptWithAesGcm('next value', key).raw
+    setupDefaultMapFind()
+    setupScopesAndRows([
+      { id: 'row-1', resource_id: emptyEnvelope, email_hash: 'empty-hash' },
+      { id: 'row-2', resource_id: nextEnvelope, email_hash: 'next-hash' },
+    ])
+    mockDecrypt.mockImplementation((value: string) => actualAes.decryptWithAesGcmStrict(value, key))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+    const logSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    await getCmd().run(['--tenant', 'tenant-1', '--confirm', 'tenant-1'])
+
+    const updates = execute.mock.calls.filter(([sql]) => String(sql).startsWith('UPDATE'))
+    expect(updates).toHaveLength(2)
+    expect(updates[0][1]).toEqual(expect.arrayContaining(['', 'row-1', emptyEnvelope]))
+    expect(updates[1][1]).toEqual(expect.arrayContaining(['next value', 'row-2', nextEnvelope]))
+    expect(warnSpy).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledWith('COMMIT')
+    warnSpy.mockRestore()
+    logSpy.mockRestore()
   })
 
   it('idempotency: AUTH_FAILED on all fields produces zero updates', async () => {
