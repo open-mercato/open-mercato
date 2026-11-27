@@ -98,91 +98,111 @@ export default async function handle(
   const em = (ctx.resolve('em') as EntityManager).fork()
   const scope: PromotionsCodeScope = { tenantId, organizationId }
 
+  const cacheContainer = { resolve: ctx.resolve } as unknown as AwilixContainer
+  let hasCommittedProgress = false
+  let generationFailed = false
   let completedRun: GenerationRunResult | null = null
-  while (!completedRun) {
-    // Each batch has a short transaction and its own row lock. A concurrent job
-    // re-counts after acquiring that lock, so it cannot overfill the same pool.
-    const run = await em.transactional(async (tem): Promise<GenerationRunResult | null> => {
-      const lockedCode = await tem.findOne(
-        Code,
-        { id: codeId, tenantId, organizationId, deletedAt: null },
-        { lockMode: LockMode.PESSIMISTIC_WRITE },
-      )
-      if (!lockedCode) {
-        logger.warn('promotions:code-generation code not found (deleted or wrong tenant/org)', { codeId, tenantId, organizationId })
-        return null
-      }
-      if (lockedCode.type !== 'dynamic' || !lockedCode.amount) {
-        logger.warn('promotions:code-generation code is not a dynamic pool with a target amount — nothing to generate', {
-          codeId,
-          type: lockedCode.type,
-          amount: lockedCode.amount,
-        })
-        return null
-      }
-      if (lockedCode.amount > MAX_DYNAMIC_CODE_POOL_AMOUNT) {
-        logger.warn('promotions:code-generation pool exceeds the configured maximum — nothing to generate', {
-          codeId,
-          amount: lockedCode.amount,
-          maximum: MAX_DYNAMIC_CODE_POOL_AMOUNT,
-        })
-        return null
-      }
-
-      // The generated-code rows, not Code.generated, are authoritative after a
-      // restart or a partially completed prior job.
-      const actualCountBefore = await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
-      const batchSize = Math.min(BATCH_SIZE, Math.max(0, lockedCode.amount - actualCountBefore))
-      const localGenerated = new Set<string>()
-
-      for (let index = 0; index < batchSize; index += 1) {
-        const candidate = await mintUniqueCandidate(tem, lockedCode, scope, localGenerated)
-        localGenerated.add(candidate)
-        tem.persist(
-          tem.create(GeneratedCode, {
-            codeId: lockedCode.id,
-            organizationId,
-            tenantId,
-            code: candidate,
-            active: true,
-          }),
+  try {
+    while (!completedRun) {
+      // Each batch has a short transaction and its own row lock. A concurrent job
+      // re-counts after acquiring that lock, so it cannot overfill the same pool.
+      const run = await em.transactional(async (tem): Promise<GenerationRunResult | null> => {
+        const lockedCode = await tem.findOne(
+          Code,
+          { id: codeId, tenantId, organizationId, deletedAt: null },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
         )
-      }
+        if (!lockedCode) {
+          logger.warn('promotions:code-generation code not found (deleted or wrong tenant/org)', { codeId, tenantId, organizationId })
+          return null
+        }
+        if (lockedCode.type !== 'dynamic' || !lockedCode.amount) {
+          logger.warn('promotions:code-generation code is not a dynamic pool with a target amount — nothing to generate', {
+            codeId,
+            type: lockedCode.type,
+            amount: lockedCode.amount,
+          })
+          return null
+        }
+        if (lockedCode.amount > MAX_DYNAMIC_CODE_POOL_AMOUNT) {
+          logger.warn('promotions:code-generation pool exceeds the configured maximum — nothing to generate', {
+            codeId,
+            amount: lockedCode.amount,
+            maximum: MAX_DYNAMIC_CODE_POOL_AMOUNT,
+          })
+          return null
+        }
 
-      if (batchSize > 0) await tem.flush()
-      const actualCountAfter = batchSize > 0
-        ? await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
-        : actualCountBefore
-      lockedCode.generated = actualCountAfter
-      await tem.flush()
-      return {
-        codeId: lockedCode.id,
-        amount: lockedCode.amount,
-        actualCountAfter,
-        complete: actualCountAfter >= lockedCode.amount,
-      }
-    })
+        // The generated-code rows, not Code.generated, are authoritative after a
+        // restart or a partially completed prior job.
+        const actualCountBefore = await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
+        const batchSize = Math.min(BATCH_SIZE, Math.max(0, lockedCode.amount - actualCountBefore))
+        const localGenerated = new Set<string>()
 
-    if (!run) return
-    // Discard managed rows between batches. Each prior batch and its counter
-    // reconciliation have already committed before the next transaction begins.
-    em.clear()
-    if (run.complete) completedRun = run
+        for (let index = 0; index < batchSize; index += 1) {
+          const candidate = await mintUniqueCandidate(tem, lockedCode, scope, localGenerated)
+          localGenerated.add(candidate)
+          tem.persist(
+            tem.create(GeneratedCode, {
+              codeId: lockedCode.id,
+              organizationId,
+              tenantId,
+              code: candidate,
+              active: true,
+            }),
+          )
+        }
+
+        if (batchSize > 0) await tem.flush()
+        const actualCountAfter = batchSize > 0
+          ? await tem.count(GeneratedCode, { codeId: lockedCode.id, tenantId, organizationId })
+          : actualCountBefore
+        lockedCode.generated = actualCountAfter
+        await tem.flush()
+        return {
+          codeId: lockedCode.id,
+          amount: lockedCode.amount,
+          actualCountAfter,
+          complete: actualCountAfter >= lockedCode.amount,
+        }
+      })
+
+      if (!run) return
+      hasCommittedProgress = true
+      // Discard managed rows between batches. Each prior batch and its counter
+      // reconciliation have already committed before the next transaction begins.
+      em.clear()
+      if (run.complete) completedRun = run
+    }
+  } catch (err) {
+    generationFailed = true
+    throw err
+  } finally {
+    if (hasCommittedProgress) {
+      try {
+        await invalidateCrudCache(
+          cacheContainer,
+          'promotions.code',
+          { id: codeId, organizationId, tenantId },
+          tenantId,
+          'promotions.code.generated.reconcile',
+        )
+      } catch (err) {
+        if (!generationFailed) throw err
+        logger.error('[internal] promotions.code cache invalidation failed after an incomplete generation run', {
+          codeId,
+          err,
+        })
+      }
+    }
   }
+  if (!completedRun) return
   const { codeId: completedCodeId, amount, actualCountAfter } = completedRun
 
   // The CRUD list cache (ENABLE_CRUD_API_CACHE) never invalidates on its own for a
   // worker-side write — without this the admin UI's generated-codes counter can stay
-  // stale at its pre-reconcile value indefinitely (no TTL on the cache entry). Invalidated
-  // after the transaction commits, never inside it.
-  const cacheContainer = { resolve: ctx.resolve } as unknown as AwilixContainer
-  await invalidateCrudCache(
-    cacheContainer,
-    'promotions.code',
-    { id: completedCodeId, organizationId, tenantId },
-    tenantId,
-    'promotions.code.generated.reconcile',
-  )
+  // stale at its pre-reconcile value indefinitely (no TTL on the cache entry). The
+  // finally block invalidates after any committed batch, including incomplete runs.
 
   try {
     await emitPromotionsEvent(

@@ -11,6 +11,10 @@ import handle from '../code-generation.worker'
 
 jest.mock('../../events', () => ({ emitPromotionsEvent: jest.fn(async () => {}) }))
 const { emitPromotionsEvent } = require('../../events') as { emitPromotionsEvent: jest.Mock }
+const mockInvalidateCrudCache = jest.fn(async () => undefined)
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  invalidateCrudCache: (...args: unknown[]) => mockInvalidateCrudCache(...args),
+}))
 const crypto = require('crypto') as typeof import('crypto')
 
 const TENANT = 'tenant-1'
@@ -46,7 +50,7 @@ type FakeEm = {
   transactional: <T>(work: (em: FakeEm) => Promise<T>) => Promise<T>
 }
 
-function createFakeEm(): {
+function createFakeEm(options: { failOnTransaction?: number } = {}): {
   em: FakeEm
   tables: Map<Function, Row[]>
   stats: { transactionCount: number; clearCount: number }
@@ -91,6 +95,9 @@ function createFakeEm(): {
     fork: () => em,
     transactional: async (work) => {
       stats.transactionCount += 1
+      if (stats.transactionCount === options.failOnTransaction) {
+        throw new Error('simulated later-batch failure')
+      }
       const previous = lockQueue
       let release: () => void = () => {}
       lockQueue = new Promise((resolve) => {
@@ -180,6 +187,7 @@ describe('promotions:code-generation worker', () => {
   afterEach(() => {
     jest.restoreAllMocks()
     emitPromotionsEvent.mockClear()
+    mockInvalidateCrudCache.mockClear()
   })
 
   it('generates voucher bodies without relying on Math.random', async () => {
@@ -226,6 +234,26 @@ describe('promotions:code-generation worker', () => {
     expect(code.generated).toBe(1001)
     expect(stats.transactionCount).toBe(3)
     expect(stats.clearCount).toBe(3)
+  })
+
+  it('invalidates the code cache when a later batch fails after earlier progress committed', async () => {
+    const { em, tables } = createFakeEm({ failOnTransaction: 2 })
+    const code = seedCode(tables, { amount: 1001, length: 6 })
+
+    await expect(
+      handle(makeJob({ codeId: code.id as string, tenantId: TENANT, organizationId: ORG }), fakeCtx(em) as any),
+    ).rejects.toThrow('simulated later-batch failure')
+
+    const rows = (tables.get(GeneratedCode) ?? []).filter((row) => row.codeId === code.id)
+    expect(rows).toHaveLength(500)
+    expect(code.generated).toBe(500)
+    expect(mockInvalidateCrudCache).toHaveBeenCalledWith(
+      expect.anything(),
+      'promotions.code',
+      { id: code.id, organizationId: ORG, tenantId: TENANT },
+      TENANT,
+      'promotions.code.generated.reconcile',
+    )
   })
 
   it('skips oversized legacy pools instead of continuing unbounded generation', async () => {

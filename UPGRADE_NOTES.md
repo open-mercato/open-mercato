@@ -7113,3 +7113,18 @@ MCP hides Code Mode `execute` when the mutation mode is unset, including reads t
 `GET /api/search/index` requires the view features declared by each returned entity in addition to `search.view`. A request for an unreadable entity returns an empty page. Clients can continue using the existing response shape and paging parameters. Select an authorized organization when entity features are scoped to an organization.
 
 Operators should grant the owning module's view features to diagnostic users and keys that need them. Custom searchable entities declare these features in their `search.ts` configuration. The first-party pgvector driver applies the scope before pagination. Custom vector drivers can honor the additive `entityAccess` list predicate to keep pagination over readable entries. The API filters returned rows regardless of driver support. No database migration or reindex is required.
+
+## Dynamic promotion code pools are limited to 100,000 codes (#10699)
+
+Create and update requests for dynamic code pools now reject amounts above 100,000.
+Generation runs in committed batches of at most 500 codes. Existing generated codes
+remain valid, but an existing pool above the new limit is not topped up; an already
+queued generation job for it will be skipped. To recover, lower the pool's target
+amount to 100,000 or less through the promotion-code editor/API, then trigger
+generation again with `POST /api/promotions/codes/{id}/generate`. The worker recounts
+existing generated codes and resumes without duplicating them. If the campaign needs
+more than 100,000 codes, divide the inventory among multiple pools, each within the
+limit. Committed batches update the generated count and invalidate the code cache even
+if a later batch fails; retry generation to continue. No database migration is needed.
+The related security exception requires named human maintainer acknowledgement before
+merge; it is pending. See the [generation spec](.ai/specs/2026-11-27-promotion-code-pool-generation-limit.md).
