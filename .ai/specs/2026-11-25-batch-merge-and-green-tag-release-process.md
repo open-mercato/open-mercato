@@ -159,7 +159,7 @@ flowchart LR
 
 | Step | Who | What it does | Status |
 |---|---|---|---|
-| 1. Triage | Skill (part of `om-auto-review-pr`, or a small `om-ci-triage`) | Reads the diff and PR text, adds `ci-targeted` or `ci-full` and any `ci-area:*` labels only when needed, and posts one line why, with a `CI-Triage-Head: <sha>` marker. It never posts a status itself; the `ci-triage` check run comes from a workflow ([Phase 3](#phase-3-ci-triage-skill-in-shadow-mode)). It already infers `risk-*` labels today | new |
+| 1. Triage | Skill `om-triage-pr` (open-mercato/skills#211); `om-review-pr` raises routing labels triage missed | Reads the diff and PR text and sets the routing labels: category and priority only when missing; risk, the QA lane, `ci-targeted` or `ci-full` and any `ci-area:*` labels only when needed, raise-only. Posts one comment why, with a `CI-Triage-Head: <sha>` marker. It never posts a status itself; the `ci-triage` check run comes from a workflow ([Phase 3](#phase-3-ci-triage-skill-in-shadow-mode)) | new |
 | 2. Adjust | Human: reviewer or author | Adds a higher level or another area. Removing a label a human set needs a human | new |
 | 3. Re-triage | Skill, on every push | Looks at the new diff; may raise the level or add areas, never lower | new |
 | Floor | CI | Shared-package diff (`FULL_SUITE_PATTERN`) means at least `ci-full`; `risk-high`, `security`, `backport …` mean at least `ci-targeted`; a PR not yet triaged (no `ci-triage`) cannot merge | `FULL_SUITE_PATTERN`, `ci-full` exist; rest new |
@@ -388,6 +388,7 @@ flowchart LR
 - **Default wait for the green batch**, so the line gets the corrected version if the fix needed a follow-up. Urgent fixes skip the wait (owner's call) or use path B.
 - **Follow-ups** to the fix get the same backport label; if the team drops the fix, close the backport PR.
 - **Patch releases batch fixes:** several backports can land before one QA pass and one `release.yml` run.
+- **QA labels on backports.** `backport.yml` copies `needs-qa` / `skip-qa` but not `needs-human-qa` or `qa-approved`: `needs-human-qa` is a batch-checklist lane, not a merge gate, and the release QA pass on the line covers every backport. The release waits for that pass to be green. A backport whose cherry-pick conflict was resolved by hand is no longer the code the tester saw, so the reviewer adds `needs-human-qa` by hand and the `qa-approved` merge gate applies.
 
 **B. Urgent hotfix (security, outage): release line first, then `main`**
 
@@ -646,11 +647,11 @@ Phases 0–6 plus optional follow-ups. The order is deliberate:
 **Owner.** Skills repo (with repo-local overrides in `.ai/skills/` where the rules are repo-specific); maintainers for the workflow in step 3.
 **Size.** 1–2 weeks build, 1–2 weeks shadow.
 
-**Entry criteria.** Phase 2 merged (labels exist and drive CI). Skills #210 merged.
+**Entry criteria.** Phase 2 merged (labels exist and drive CI). Skills #210 and #211 merged.
 
 **Steps.**
-1. **CI triage rules.** Add the CI level rules (when to set `ci-targeted` / `ci-full`, area mapping from `.github/ci-scope.json`) to `.ai/agentic.config.json` next to `humanQaPolicy`, so one triage pass sets both QA lane and CI level. Touches: `.ai/agentic.config.json`.
-2. **Triage skill.** Either extend `om-auto-review-pr` with a triage step, or add `om-ci-triage` (see [Decisions](#decisions)). It runs on PR open, ready-for-review and each push; it can only raise the level; it posts one comment with its reasoning and a `CI-Triage-Head: <sha>` marker. It never posts a commit status. Touches: skills repo; `.ai/skills/tiers.json` if new.
+1. **CI triage rules.** The CI level rules (levels, area mapping, level-implying labels, docs-only paths) stay in `.github/ci-scope.json`, the file CI reads. `.ai/agentic.config.json` gets a `prTriage` key next to `humanQaPolicy`: `ciScopeFile: ".github/ci-scope.json"` (always read from the PR's base branch), `areaLabelPrefix: "ci-area:"`, and `acceptanceLabel` (Phase 5). One triage pass then sets both QA lane and CI level from one source. Touches: `.ai/agentic.config.json`.
+2. **Triage skill.** `om-triage-pr` (open-mercato/skills#211; see [Decisions](#decisions)) sets the routing labels: category and priority only when missing; risk, the QA lane, the CI level and areas raise-only. `om-review-pr` (same PR) makes the merge decision and raises routing labels triage missed. Triage runs on PR open, ready-for-review and each push; it posts one comment with its reasoning and a `CI-Triage-Head: <sha>` marker. It never posts a commit status. Touches: skills repo; `.ai/skills/tiers.json`.
 3. **`ci-triage` check run from a named workflow.** New `.github/workflows/ci-triage.yml` on `pull_request_target` (`opened`, `synchronize`, `reopened`, `ready_for_review`, `labeled`, `unlabeled`) and `issue_comment`, base-branch code only, no PR checkout. Its job `ci-triage` produces a GitHub Actions check run: success when a triage marker for the head SHA exists from an allowed identity. No skill, token or person posts a `ci-triage` status: a plain commit status can be set by anyone with `statuses: write`, so the ruleset must require the check from the GitHub Actions app (Phase 4 step 3). A PR that adds another workflow with a job named `ci-triage` is a `.github/workflows/` change that needs a maintainer review once code-owner review is enforced (Phase 2 step 2). Touches: new workflow.
 4. **QA checklist.** Done by `om-qa-batch` (skills #210). Only confirm it reads the batch range from the previous `green/*` tag once tags exist.
 5. **Shadow run.** For 1–2 weeks, compare triage calls with what each batch actually broke. Track "missed" (batch failure caused by a PR triage left at fast gate) and "over" (PRs raised without need).
@@ -813,7 +814,6 @@ None. No HTTP API changes. The contract surfaces are CI check names, labels and 
 
 Blocks Phases 2–4:
 - Area grouping for `ci-area:*` (sketch in [CI labels and the scope file](#ci-labels-and-the-scope-file)), and whether to improve automatic module detection later.
-- Triage: extend `om-auto-review-pr` or add `om-ci-triage`; may it raise the level on later pushes without asking.
 - Triage miss threshold for leaving shadow mode.
 - Labels that imply `ci-targeted` (proposed: `risk-high`, `security`, `backport …`).
 
@@ -821,8 +821,8 @@ QA, reconstructed from skills #210 and PR #10712; QA (Alina) still has to confir
 1. The name `qa-batch-check`.
 2. `qa-in-progress` + assignee as the "testing, do not refresh" signal on the batch PR.
 3. Merge order: skills #210 before PR #10712 (the current loader rejects `whenUnsure: "batch"`).
-4. Cut-over: re-triage of about 219 open `needs-qa` PRs and cleanup of 111 old-rule `needs-human-qa` PRs before the gate moves, with merges paused.
-5. Release-line QA: backports copy only `needs-qa`/`skip-qa` and rely on the release QA pass.
+4. Cut-over: superseded (2026-11-27). No QA label gates the merge, so open `needs-qa` and `needs-human-qa` PRs need no re-triage before merging.
+5. Release-line QA: backports copy only `needs-qa`/`skip-qa` and rely on the release QA pass, which must be green before the release; a hand-resolved cherry-pick conflict gets `needs-human-qa` from the reviewer ([Backporting](#backporting)).
 
 Other:
 - **Merge back: squash or merge commit.** The `main` ruleset allows squash only. Proposed: keep squash; `green/<date>` tags keep tested commits reachable and release cuts use the tag. Alternative: admin enables merge commits on `main` for batch PRs only by convention.

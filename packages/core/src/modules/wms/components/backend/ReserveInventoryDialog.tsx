@@ -100,7 +100,6 @@ export function ReserveInventoryDialog({
   const [submitting, setSubmitting] = React.useState(false)
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({})
   const [trackingProfile, setTrackingProfile] = React.useState<{
-    trackLot: boolean
     trackSerial: boolean
   } | null>(null)
 
@@ -138,7 +137,6 @@ export function ReserveInventoryDialog({
         return
       }
       setTrackingProfile({
-        trackLot: profile.track_lot === true,
         trackSerial: profile.track_serial === true,
       })
     })
@@ -215,12 +213,6 @@ export function ReserveInventoryDialog({
         nextErrors.quantity = t(
           'wms.backend.inventory.reserve.errors.quantityInvalid',
           'Enter a positive quantity.',
-        )
-      }
-      if (trackingProfile?.trackLot && !lotId.trim()) {
-        nextErrors.lotId = t(
-          'wms.backend.inventory.reserve.errors.lotRequired',
-          'Select a lot for this variant.',
         )
       }
       if (trackingProfile?.trackSerial && !serialNumber.trim()) {
@@ -431,11 +423,7 @@ export function ReserveInventoryDialog({
 
             {catalogVariantId.trim() ? (
               <FormField
-                label={t(
-                  'wms.backend.inventory.reserve.fields.lot',
-                  trackingProfile?.trackLot ? 'Lot' : 'Lot (optional)',
-                )}
-                required={trackingProfile?.trackLot === true}
+                label={t('wms.backend.inventory.reserve.fields.lot', 'Lot (optional)')}
                 error={fieldErrors.lotId}
               >
                 <ComboboxInput
@@ -447,15 +435,11 @@ export function ReserveInventoryDialog({
                   loadSuggestions={loadLotSuggestions}
                   resolveLabel={resolveLotComboboxLabel}
                   placeholder={t(
-                    trackingProfile?.trackLot
-                      ? 'wms.backend.inventory.reserve.fields.lotRequiredPlaceholder'
-                      : 'wms.backend.inventory.reserve.fields.lotPlaceholder',
-                    trackingProfile?.trackLot
-                      ? 'Select lot…'
-                      : 'Any lot (system selects)…',
+                    'wms.backend.inventory.reserve.fields.lotPlaceholder',
+                    'Any lot (system selects)…',
                   )}
                   allowCustomValues={false}
-                  clearable={!trackingProfile?.trackLot}
+                  clearable
                   disabled={isMutating}
                 />
               </FormField>

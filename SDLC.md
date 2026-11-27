@@ -30,8 +30,8 @@ sets `qa` to indicate manual testing is underway.
 
 Every ready PR needs a category, one priority and one risk label, using the
 configuration's taxonomy. Priority measures urgency; risk measures blast radius.
-`needs-qa` routes a PR to QA on the next on-demand batch; it does not hold the
-merge, and a missing `qa-approved` never blocks it. Never combine `skip-qa` with
+`needs-qa` and `needs-human-qa` route a PR to QA on the next on-demand batch; they do not
+hold the merge, and a missing `qa-approved` never blocks it. Never combine `skip-qa` with
 `needs-qa`, `needs-human-qa` or `qa-approved`. QA sign-off describes evidence and the tested head;
 changed scope needs fresh verification. Self-QA follows the exception and evidence
 requirements in the PR workflow, including both approval and self-verification labels.
@@ -82,7 +82,8 @@ attests to a contributor's CLA: the CLA service must evaluate the new head.
 
 The configuration records the collection's default triage eligibility and QA
 gate keys explicitly. `qaGate` is `false` (QA runs on the batch, not before merge);
-`qaGateLabel` stays `needs-qa`; `qaReadyLabel` is unset.
+`qaGateLabel` is `needs-human-qa`, the human-tester lane triage sets (it gates nothing while
+`qaGate` is `false`); `qaReadyLabel` is unset.
 The `claim-reset`, `automerge-signal-*` and `automerge-blocked` labels are additive
 audit and queue markers. `claim-reset` is human-owned; automation only reads its
 audit history. A local-CI signal does not waive this repository's required host

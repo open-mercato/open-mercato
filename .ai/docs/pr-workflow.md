@@ -36,7 +36,8 @@ is the single source, so scripts and skills read it instead of keeping their own
 
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`.
 - Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
-- Meta labels are additive: `needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`.
+- Meta labels are additive: `needs-qa`, `needs-human-qa`, `qa-batch-check`, `qa-in-progress`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`.
+- Issue labels for QA findings: `bug` + `daily-qa` (a defect found in a batch or a release QA pass) and `qa-blocker` (that defect blocks the batch). `weekly-qa` is kept on old issues only.
 - Priority labels are mutually exclusive within their group (only one at a time): `priority-low`, `priority-medium`, `priority-high`, `priority-extreme`.
 - Risk labels are mutually exclusive within their group (only one at a time): `risk-low`, `risk-medium`, `risk-high`.
 - Release-line labels are additive: `backport release/vX.Y.x` (cherry-pick into that line once merged), `backport main` (forward-port a line hotfix), `backport` (marks a PR the Backport workflow opened), `skip-changelog` (left out of generated release notes).
@@ -82,7 +83,10 @@ line with `git branch -r --list 'origin/release/v*'`.
   normalization MUST NOT strip it.
 - A backport PR is reviewed as a real PR: CI green *and* the change still fits the line's code.
   Backport copies category, priority, risk, `needs-qa` and `skip-qa`; it never copies
-  `qa-approved`, so QA on the line is recorded afresh.
+  `qa-approved`, so QA on the line is recorded afresh. It does not copy `needs-human-qa` either:
+  the release-line QA pass before each release covers backports (§ Batch QA). When the
+  cherry-pick conflicted and was resolved by hand, the reviewer adds `needs-human-qa` to the
+  backport PR so a tester looks at it in that pass; it does not block the merge.
 - Auto-skills never push to `release/v*`, never merge into it outside a reviewed PR, and never
   dispatch Release cut, Release or Release publish, and never create or delete `v*` tags (a tag
   starts a publish) — those are maintainer actions.
@@ -143,16 +147,32 @@ the higher risk and say why in the label comment. A `risk-high` PR strengthens t
 - `auto-review-pr` MUST move review failures to `changes-requested`.
 - `qa` (pipeline) means **manual QA is in progress**: a QA reviewer has picked the PR up and is
   actively testing it. It is applied **manually by a QA reviewer**, never by an `om-auto-*`
-  skill. Auto-skills request QA with the `needs-qa` meta label only; they never set, move to, or
-  remove `qa`. Per-PR manual QA before merge is optional; when a QA reviewer does test a PR,
+  skill. Auto-skills request QA with the `needs-qa` / `needs-human-qa` meta labels only; they never
+  set, move to, or remove `qa`. Per-PR manual QA before merge is optional; when a QA reviewer does test a PR,
   they set `qa` while testing and record the outcome with `qa-approved` (pass) or `qa-failed`
   (fail, a hard block).
 
 ## QA meta labels
 
-- `needs-qa` is for UI changes, new features, sales or order flows, and other customer-facing
-  behavior that needs manual exercise. It presumes there is a surface a QA reviewer can actually
-  exercise by hand; when there is not, see the automated-verification exemption below.
+- QA triage (`om-auto-review-pr`; `om-triage-pr` once open-mercato/skills#211 ships, same rules; rules in `.ai/agentic.config.json` → `humanQaPolicy`) puts
+  every PR in one lane, judging what the change does, not who wrote it:
+  - `needs-human-qa`: a tester checks it first in the next batch (or before merge when one is
+    free), because fixing forward would not help. It does not block the merge into `main`. A new feature or visible UX change without an approved design (a merged spec with
+    mockups for the changed screens), money or payments, lowered security or widened access or
+    tenant scoping, removed fields, tables, API fields or routes without a simple upgrade path,
+    destructive migrations, installation and default credentials, external systems automation
+    cannot reach, architecture or backward-incompatible contracts, and global styles
+    (`globals.css`). Tightening security or fixing a scoping leak does not count.
+  - `qa-batch-check` (next to `needs-qa`): merge freely; a tester checks it in the next
+    batch. Approved-design UX, customer-facing paths (portal pages of any module, customer accounts,
+    login, checkout, onboarding), drag and drop, keyboard, focus, responsive layout or printing, more
+    than 10 changed UI files, and user-visible changes triage is unsure about.
+  - `needs-qa`: automatic QA (`om-auto-qa-pr`) is enough. It does not block the merge.
+  - `skip-qa`: nothing user-visible to exercise.
+
+  A reviewer, the author or a tester may add `needs-human-qa` or `qa-batch-check` by hand;
+  automation never removes either. When there is no surface to exercise by hand, see the
+  automated-verification exemption below.
 - `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, changes with no
   manually exercisable surface (see the exemption below), or similarly low-risk
   non-customer-facing changes.
@@ -184,28 +204,11 @@ the higher risk and say why in the label comment. A `risk-high` PR strengthens t
   `om-auto-qa-pr`, which first runs `om-auto-review-pr` when the PR is still unreviewed); it is
   informational only — it does not gate merge and is orthogonal to `needs-qa`/`qa-approved`.
 
-**QA is not a merge gate for PRs into `main`.** A `needs-qa` PR merges under the standing rule
-without `qa-approved`; QA happens on the batch (below). `qaGate` is `false` in
+**QA is not a merge gate for PRs into `main`.** A `needs-qa` or `needs-human-qa` PR merges under
+the standing rule without `qa-approved`; QA happens on the batch (below). `qaGate` is `false` in
 `.ai/agentic.config.json`, so `om-merge-buddy`, `om-approve-merge-pr` and the review skills do
-not refuse a `needs-qa` PR for a missing `qa-approved`. Never combine `skip-qa` with
+not refuse a `needs-qa` or `needs-human-qa` PR for a missing `qa-approved`. Never combine `skip-qa` with
 `needs-qa`/`needs-human-qa`/`qa-approved`.
-
-## Batch QA
-
-1. PRs keep merging into `main`; nothing targets a batch branch.
-2. **On demand** (not daily, not automatically) a maintainer, the stabilizer, cuts
-   `stabilize/main-<date>` from `main` and opens it at once as a non-draft PR to `main`. Only one
-   batch is open at a time.
-3. QA deploys the batch, makes **one QA pass** (`.ai/qa/batch-smoke.md`, added by PR #10712, plus the `om-qa-batch`
-   checklist) and files bugs as issues (`bug` + `daily-qa`, plus `qa-blocker` when a user cannot
-   finish a main task).
-4. QA blockers are fixed **only by the stabilizer**, with commits pushed directly onto the batch
-   branch. No PR ever merges into a batch; the fixes reach `main` through the merge-back.
-5. QA records the verdict on the batch PR: `qa-approved` (stable) or `qa-failed` (unstable).
-6. On a stable verdict the stabilizer tags the tested head `green/<date>` and squash-merges the
-   batch PR back into `main` with `--match-head-commit <sha>`.
-
-The step-by-step commands are in CONTRIBUTING.md → "Batch: stabilizer runbook".
 
 **Self-QA exception:** the manual QA is normally performed by the dedicated QA reviewers. When
 they have no capacity to test in time, any engineer may self-QA instead — but only by
@@ -221,13 +224,66 @@ is a label write, so a contributor with `read` permission (the usual case for fo
 contributions) can perform the testing and attach the evidence but cannot complete the exception.
 For them it splits into two halves: the contributor posts the evidence comment on the PR — that
 comment is the durable artifact, the labels only record it — and a maintainer applies the two
-labels on the strength of it. A maintainer doing so is upholding the gate, not bypassing it, as
+labels on the strength of it. A maintainer doing so is upholding the QA record, not bypassing it, as
 long as the linked evidence actually exists. An `om-auto-*` skill that cannot apply the labels
 MUST report that it stopped there rather than treat the self-QA as complete.
 
 `qa-failed` is a hard block: a PR carrying it MUST NOT merge until QA re-runs and it is cleared.
 `do-not-merge` and `blocked` are likewise hard merge blocks. Reviewers and the PR-automation
 tooling treat any of these as not-mergeable.
+
+## Batch QA
+
+1. PRs keep merging into `main`; nothing targets a batch branch.
+2. **On demand** (not daily, not automatically) a maintainer, the stabilizer, cuts
+   `stabilize/main-<date>` from `main` and opens it at once as a non-draft PR to `main`. Only one
+   batch is open at a time.
+3. QA deploys the batch, makes **one QA pass** (`.ai/qa/batch-smoke.md` plus the `om-qa-batch`
+   checklist: PRs labelled `qa-batch-check`, PRs that carry `needs-human-qa` without
+   `qa-approved`, and customer-facing or visibly changed PRs with no QA evidence) and files bugs as issues (`bug` + `daily-qa`, plus `qa-blocker` when a user cannot
+   finish a main task).
+4. QA blockers are fixed **only by the stabilizer**, with commits pushed directly onto the batch
+   branch. No PR ever merges into a batch; the fixes reach `main` through the merge-back.
+5. QA records the verdict on the batch PR: `qa-approved` (stable) or `qa-failed` (unstable).
+6. On a stable verdict the stabilizer tags the tested head `green/<date>` and squash-merges the
+   batch PR back into `main` with `--match-head-commit <sha>`.
+
+The step-by-step commands are in CONTRIBUTING.md → "Batch: stabilizer runbook".
+
+Labels on the batch PR:
+
+- `qa-in-progress` + the tester as assignee: testing started. The batch MUST NOT be refreshed with
+  newer `main` commits while it carries this label. An untouched batch may be refreshed.
+- `qa-failed`: verdict **unstable**, at least one open blocker. It stays frozen until the retest.
+- `qa-approved`: verdict **stable** for the tested head. The stabilizer may tag `green/<date>` and
+  merge back. A new head needs a new verdict, except a merge-back conflict fix: the verdict stays
+  on the green-tagged commit, and the `main` PRs the fix merges in are tested in the next batch,
+  whose range starts at the previous green tag.
+
+The verdict comment carries `QA verdict: STABLE|UNSTABLE`, `QA head: <full sha>` and the range.
+The tester also posts the same verdict, with blockers when unstable, as a short message on the
+team's QA channel. Retests after fixes cover only the fixed area.
+
+Only `qaBatch.testers` plus the person running `om-qa-batch` are trusted to give a verdict or run
+`--retest`. With an empty list, one tester's write action treats another tester's verdict as
+untrusted and withdraws a valid `qa-approved`, so teams with more than one tester MUST set
+`qaBatch.testers`.
+
+A defect **blocks** the batch when a user cannot finish a main task: a main screen does not load
+or a main path returns a server error; signing in, saving or creating a basic record fails; data
+is lost, saved wrong or shown to another organization or tenant; a migration fails or the app
+does not start. A blocker is an issue with `bug` + `daily-qa` + `qa-blocker` plus a comment on
+the batch PR mentioning the stabilizer; open `qa-blocker` issues are listed at the start of the
+next batch. Everything else (cosmetics, translations, small UX issues) is an issue with `bug` +
+`daily-qa` and never blocks the batch.
+
+When no tester is available, no new batch is cut while one is open; the open batch grows
+with `main` until a tester claims it. The same pass, with an upgrade from the previous version
+and migrations, runs on a release line before each release, and the release waits until that pass
+is green. That pass is what covers backports,
+which do not carry `needs-human-qa` over from the original PR; a backport whose cherry-pick
+conflict was resolved by hand gets `needs-human-qa` from the reviewer (§ Release lines and
+backports).
 
 ## Auto-skill protocol
 

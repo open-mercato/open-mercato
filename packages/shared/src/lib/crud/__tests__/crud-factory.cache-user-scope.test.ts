@@ -221,6 +221,26 @@ describe('CRUD Factory — list cache is partitioned per caller identity', () =>
     expect(store.has(legacyKey)).toBe(true)
   })
 
+  it('ignores v2 tree entries cached while the default merge still dropped the tree', async () => {
+    const filterQuery = 'filter[v]=2&filter[root][combinator]=and&filter[root][children][0][type]=rule&filter[root][children][0][field]=owner_user_id&filter[root][children][0][op]=is&filter[root][children][0][value]=user-b'
+    const requestUrl = `${url}&${filterQuery}`
+    const warmup = await route.GET(new Request(requestUrl))
+    expect(warmup.status).toBe(200)
+    const liveKeys = Array.from(store.keys()) as string[]
+    expect(liveKeys.length).toBeGreaterThan(0)
+    store.clear()
+    const staleKeys = liveKeys.map((key) => key.replace('advancedFilters:intersection-v2', 'advancedFilters:intersection-v1'))
+    for (const staleKey of staleKeys) {
+      store.set(staleKey, { payload: { items: [{ id: 'unfiltered-row' }], total: 1 }, generatedAt: Date.now() })
+    }
+
+    const response = await route.GET(new Request(requestUrl))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-om-cache')).toBe('miss')
+    expect((await response.json()).items).not.toContainEqual({ id: 'unfiltered-row' })
+  })
+
   it('encodes explicit empty and finite scopes as different cache keys', async () => {
     await scopeIdentityRoute.GET(new Request(url))
     const finiteKey = Array.from(store.keys())[0] as string

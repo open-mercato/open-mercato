@@ -86,6 +86,11 @@ export function createOidcFetch(deps: OidcFetchDeps = {}): CustomFetch {
 }
 
 function oidcUrlErrorFactory(reason: UrlSafetyReason, message: string): Error {
+  if (reason === 'private_ip_resolved') {
+    message = `${OIDC_URL_SUBJECT} host resolves to a private or reserved IP address`
+  } else if (reason === 'dns_resolution_failed') {
+    message = `${OIDC_URL_SUBJECT} host could not be resolved`
+  }
   return new UnsafeOidcUrlError(
     reason === 'blocked_hostname' ? 'private_ip_resolved' : reason,
     message,
